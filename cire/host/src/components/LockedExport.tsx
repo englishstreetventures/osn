@@ -62,7 +62,7 @@ export function createModuleRowsProbe(weddingId: string): ModuleRowsProbe {
 /**
  * The download for one locked module: a sentence saying what is kept, and a
  * button that saves the file. Shown on the module's locked nav card and in
- * Settings (`LockedModuleDownloads`), which is the one a keyboard reaches.
+ * Settings (`LockedModuleDownloads`).
  *
  * The module is shut below its tier, reads included, but the rows the couple
  * entered are theirs, and the API hands them back as CSV at any tier. Renders

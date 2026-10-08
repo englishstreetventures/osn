@@ -45,6 +45,13 @@ describe("MODULE_NAV", () => {
     });
   });
 
+  it("never ends the nav on a locked module", () => {
+    // The locked row's card hands Tab from its last button to the row and lets
+    // the browser carry on to the next one (`onCardKeyDown` in
+    // `ModuleSidebar.tsx`). A locked last row would have no next one.
+    expect(MODULE_NAV.at(-1)?.lock).toBeUndefined();
+  });
+
   it("names a paid tier on every lock, with copy to show", () => {
     for (const mod of MODULE_NAV) {
       if (!mod.lock) continue;

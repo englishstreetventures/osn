@@ -18,9 +18,10 @@ function lockedExports(tier: Tier): LockedExportSpec[] {
 /**
  * Every locked module's download, listed in Settings for an owner.
  *
- * The same downloads sit on the locked nav cards, but those cards are hover
- * cards: their content is portalled and takes no keyboard focus, so a keyboard
- * cannot reach a button inside one. This list is in the page's own tab order.
+ * The same downloads sit on the locked nav cards, one per card, behind a press
+ * on a row that otherwise opens an upgrade offer. This list puts every one of
+ * them in one place in the page's own tab order, where an owner looking for
+ * the wedding's data finds them without opening a locked row.
  *
  * Asks for the row counts only when the tier locks a module that has a file,
  * and shows nothing until one of them has rows (or the count could not be

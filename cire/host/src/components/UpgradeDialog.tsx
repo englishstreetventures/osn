@@ -1,7 +1,7 @@
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Modal } from "@shared/ui/ui/modal";
 import { createEffect, createSignal, Match, Show, Switch } from "solid-js";
-import { Portal } from "solid-js/web";
 
 import { navigateTo, redirectToLogin } from "../lib/api";
 import type { Module } from "../lib/dashboard-route";
@@ -28,6 +28,13 @@ import { catalogueAccessor, setCatalogue } from "../lib/upgrade-store";
  * available" rather than a button that 404s. The same goes for a tier the
  * catalogue does not offer this wedding — Crimson to a wedding on Gold, where
  * the deployment has no upgrade-from-Gold price.
+ *
+ * A `Modal` — the platform `<dialog>` — so focus moves in when it opens, Tab
+ * stays inside, Escape and a backdrop click close it, and the page behind is
+ * inert. Focus opens on Cancel: a held Enter that opened this dialog must not
+ * carry on into a checkout. The page behind being inert is also why a failed
+ * checkout is said inside the dialog rather than in a toast, which would be
+ * painted over it and announced by nothing.
  */
 export interface UpgradeDialogProps {
   open: boolean;
@@ -58,6 +65,9 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
    */
   let attempted = false;
   const [submitting, setSubmitting] = createSignal(false);
+  /** The last press of "Continue to payment" failed for a reason a retry may
+   *  get past. */
+  const [checkoutFailed, setCheckoutFailed] = createSignal(false);
   const catalogue = () => catalogueAccessor(props.weddingId)();
 
   /** This dialog's entry, once prices are in. */
@@ -113,6 +123,7 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
   const handleBuy = async () => {
     if (submitting()) return;
     setSubmitting(true);
+    setCheckoutFailed(false);
     try {
       const { url } = await startUpgrade(authFetch, props.weddingId, props.tier, props.module);
       haptic("commit");
@@ -125,108 +136,97 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
         redirectToLogin();
       } else if (err instanceof UpgradeApiError && err.code === "processing") {
         // An earlier attempt is paid but not settled yet. Telling them to pay
-        // again is how somebody gets charged twice.
+        // again is how somebody gets charged twice. Closed before the toast,
+        // so the toast is raised over a page that is no longer inert.
+        props.onClose();
         toast.info("Your previous payment is still being confirmed. This can take a moment.");
-        props.onClose();
       } else if (err instanceof UpgradeApiError && err.code === "already_held") {
-        toast.success(`This wedding is already on ${TIER_LABEL[props.tier]}. Refresh to see it.`);
         props.onClose();
+        toast.success(`This wedding is already on ${TIER_LABEL[props.tier]}. Refresh to see it.`);
       } else {
-        toast.error("Could not start checkout. Please try again.");
+        setCheckoutFailed(true);
       }
       setSubmitting(false);
     }
   };
 
   return (
-    <Show when={props.open}>
-      {/* Portalled to document.body: the dashboard shell sets `container-type`
-          on its layout boxes, which brings `contain: layout` with it and makes
-          them the containing block for `position: fixed` descendants. */}
-      <Portal>
-        <div
-          class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) dismiss();
-          }}
-        >
-          <div
-            /* A portalled div rather than `<dialog>`: this app's modals are
-               portalled to `document.body` because the dashboard shell sets
-               `container-type`, and they are opened declaratively by Solid
-               rather than through `showModal()`. Same shape as EnquireDialog. */
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Upgrade: ${entry()?.title ?? props.title}`}
-            class="border-border bg-bg flex w-full max-w-md flex-col gap-4 rounded-sm border p-6"
-          >
-            <header class="flex flex-col gap-1">
-              <p class="font-body text-gold text-ui-xs tracking-ui-ultra uppercase">{eyebrow()}</p>
-              <h3 class="font-display text-text text-ui-lg font-light">
-                {entry()?.title ?? props.title}
-              </h3>
-              <p class="text-text-muted text-ui-sm leading-snug">{entry()?.blurb ?? props.blurb}</p>
-            </header>
+    <Modal
+      open={props.open}
+      onClose={dismiss}
+      label={`Upgrade: ${entry()?.title ?? props.title}`}
+      class="w-full max-w-md"
+    >
+      <div class="flex flex-col gap-4">
+        <header class="flex flex-col gap-1">
+          <p class="font-body text-gold text-ui-xs tracking-ui-ultra uppercase">{eyebrow()}</p>
+          <h3 class="font-display text-text text-ui-lg font-light">
+            {entry()?.title ?? props.title}
+          </h3>
+          <p class="text-text-muted text-ui-sm leading-snug">{entry()?.blurb ?? props.blurb}</p>
+        </header>
 
-            <Switch>
-              <Match when={loading()}>
-                <p class="text-text-muted text-ui-sm">Checking the price…</p>
-              </Match>
-              <Match when={failed()}>
-                <p class="text-text-muted text-ui-sm">
-                  Could not load the price just now. Please try again.
-                </p>
-              </Match>
-              <Match when={held()}>
-                <p class="text-text-muted text-ui-sm">
-                  This wedding is already on {TIER_LABEL[props.tier]}. Refresh to open it.
-                </p>
-              </Match>
-              <Match when={entry()}>
-                {(priced) => (
-                  <p class="font-display text-text text-ui-xl font-light">
-                    {formatMinor(priced().amountMinor, priced().currency)}
-                    <span class="text-text-muted tracking-ui-widest text-ui-xs ml-2 uppercase">
-                      one-off
-                    </span>
-                  </p>
-                )}
-              </Match>
-              <Match when={catalogue() !== null}>
-                {/* Catalogue loaded and this tier is not in it: no Stripe Price
-                    configured in this deployment for the move from the
-                    wedding's tier, or no Stripe at all. */}
-                <p class="text-text-muted text-ui-sm">
-                  Upgrades are not available on this site yet.
-                </p>
-              </Match>
-            </Switch>
-
-            <div class="flex items-center gap-3">
-              <button
-                type="button"
-                disabled={submitting() || entry() === null || held()}
-                onClick={() => void handleBuy()}
-                class="bg-gold text-bg tracking-ui-wider text-ui-sm rounded-sm px-4 py-1.5 uppercase disabled:opacity-60"
-              >
-                {submitting() ? "Opening checkout…" : "Continue to payment"}
-              </button>
-              <button
-                type="button"
-                onClick={dismiss}
-                class="text-text-muted hover:text-text text-ui-sm"
-              >
-                Cancel
-              </button>
-            </div>
-
-            <p class="text-text-faint text-ui-xs leading-snug">
-              Payment is handled by Stripe. You will come back here once it is done.
+        <Switch>
+          <Match when={loading()}>
+            <p class="text-text-muted text-ui-sm">Checking the price…</p>
+          </Match>
+          <Match when={failed()}>
+            <p class="text-text-muted text-ui-sm">
+              Could not load the price just now. Please try again.
             </p>
-          </div>
+          </Match>
+          <Match when={held()}>
+            <p class="text-text-muted text-ui-sm">
+              This wedding is already on {TIER_LABEL[props.tier]}. Refresh to open it.
+            </p>
+          </Match>
+          <Match when={entry()}>
+            {(priced) => (
+              <p class="font-display text-text text-ui-xl font-light">
+                {formatMinor(priced().amountMinor, priced().currency)}
+                <span class="text-text-muted tracking-ui-widest text-ui-xs ml-2 uppercase">
+                  one-off
+                </span>
+              </p>
+            )}
+          </Match>
+          <Match when={catalogue() !== null}>
+            {/* Catalogue loaded and this tier is not in it: no Stripe Price
+                configured in this deployment for the move from the
+                wedding's tier, or no Stripe at all. */}
+            <p class="text-text-muted text-ui-sm">Upgrades are not available on this site yet.</p>
+          </Match>
+        </Switch>
+
+        <Show when={checkoutFailed()}>
+          <p role="alert" class="text-error text-ui-sm">
+            Could not start checkout. Please try again.
+          </p>
+        </Show>
+
+        <div class="flex items-center gap-3">
+          <button
+            type="button"
+            disabled={submitting() || entry() === null || held()}
+            onClick={() => void handleBuy()}
+            class="bg-gold text-bg tracking-ui-wider text-ui-sm rounded-sm px-4 py-1.5 uppercase disabled:opacity-60"
+          >
+            {submitting() ? "Opening checkout…" : "Continue to payment"}
+          </button>
+          <button
+            type="button"
+            autofocus
+            onClick={dismiss}
+            class="text-text-muted hover:text-text text-ui-sm"
+          >
+            Cancel
+          </button>
         </div>
-      </Portal>
-    </Show>
+
+        <p class="text-text-faint text-ui-xs leading-snug">
+          Payment is handled by Stripe. You will come back here once it is done.
+        </p>
+      </div>
+    </Modal>
   );
 }
