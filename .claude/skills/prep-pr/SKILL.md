@@ -1,6 +1,6 @@
 ---
 name: prep-pr
-description: Use when preparing the current branch for a pull request — resolving the base branch, checking changesets, running builds and reviews, filing findings as issues, and opening the PR with the mandatory five-section body.
+description: Use when preparing the current branch for a pull request — resolving the base branch, checking changesets, running builds and reviews, filing findings as issues, and opening the PR with the mandatory five-section body that the write-pr skill writes.
 ---
 
 Prepare the current branch for a pull request.
@@ -9,7 +9,8 @@ Prepare the current branch for a pull request.
 
 Two files, always, whatever else fails:
 
-1. A **PR body** with exactly five `##` sections. The template is in Step 8.
+1. A **PR body** with exactly five `##` sections, filled in at Step 8 with the
+   `write-pr` skill.
 2. A **report** of what was checked, what would fail in CI (named exactly, with
    its fix), and whether the branch is ready.
 
@@ -53,15 +54,16 @@ not run go in the report file, and a change-specific title goes in the PR title
 and in `## Summary`, never as a heading of its own.
 
 **From here on this file is only ever edited, never rewritten.** Every later
-step replaces a `None`, or inserts text under a heading that already exists.
+step replaces a `None`, or inserts text under a heading that already exists —
+the one exception is an owner action, which `write-pr` puts above `## Summary`.
 Do not compose the body in your head and write it out whole at Step 8 — a
 single write to `PR-BODY.md` discards the shape this step just established, and
 that is the one way this run fails outright however good the preparation was.
 If you find yourself about to write the whole file, you have lost the skeleton:
 read it back first and edit what is there.
 
-**A decision is a `###`, never a `##`.** The Decisions template below uses one
-`###` heading per decision, inside `## Decisions`. Promoting one to `##` adds a
+**A decision is a `###`, never a `##`.** The Decisions template in `write-pr`
+uses one `###` heading per decision, inside `## Decisions`. Promoting one to `##` adds a
 top-level section, and a body whose decisions each became a heading fails the
 shape check with five correct sections still sitting in the file.
 
@@ -289,7 +291,7 @@ Three traps in reading the number:
 
 ## Step 6 — Parallel reviews
 
-**Unless the task says these reviews have already run** — then record what it says they found, note it under `## Decisions`, and go to Step 7.
+**Unless the task says these reviews have already run** — then record what it says they found in the report, and go to Step 7. A finding reaches the PR body only in the form `write-pr` allows.
 
 Otherwise run the following two agents **in parallel** using the Agent tool.
 Open each dispatch prompt with `TASK-BRANCH: <branch>` on its own line, for
@@ -302,13 +304,13 @@ Invoke the `review-performance` skill (`.claude/skills/review-performance/SKILL.
 **Agent 2 — Security review** (general-purpose agent):
 Invoke the `review-security` skill (`.claude/skills/review-security/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context.
 
-Wait for both agents to complete. Present both reports to the user in full, using the finding IDs from each review (e.g. S-H1, P-W2) so they can be referenced in the PR description.
+Wait for both agents to complete. Present both reports to the user in full, using the finding IDs from each review (e.g. S-H1, P-W2) so they can be referred to in discussion, in the report and in the tracker issues Step 7 files. The PR is public and never carries a finding ID; `write-pr` says what it carries instead.
 
 **A `critical` or `high` finding is not deferrable.** Fix it on this branch, or open the follow-up pull request immediately and link it from this one before either merges. That is the whole option set — filing it and continuing is not in it, and neither is "out of scope for this branch". A filed-and-open `high` is a live unpatched defect whose location is now written down; the issue is an attack map with a timer on it. `medium` and below may be filed and scheduled.
 
 Severity comes from the tier letter in the finding ID, assigned by the review before anyone knows what fixing it costs. Re-rating it afterwards to make it deferrable is the failure mode this rule exists to prevent — the same contamination as re-rating an issue's complexity once its token cost is on screen.
 
-Ask the user: "Do you want to address any findings before pushing?" If yes, pause and let the user make changes, then re-run steps 3 and 4 before continuing. With no user, fix every `critical` and `high` on the branch and re-run steps 3 and 4; list what you fixed and what you deferred under `## Decisions`, and continue. A run that cannot fix them — no tooling, no network — says so plainly and names them as blocking rather than reporting the branch ready.
+Ask the user: "Do you want to address any findings before pushing?" If yes, pause and let the user make changes, then re-run steps 3 and 4 before continuing. With no user, fix every `critical` and `high` on the branch and re-run steps 3 and 4; list what you fixed and what you deferred in the report, file each as Step 7 says, and continue. A run that cannot fix them — no tooling, no network — says so plainly and names them as blocking rather than reporting the branch ready.
 
 ---
 
@@ -327,7 +329,13 @@ Auditing a defect class — when a finding is an instance of a class, enumerate 
 
 ### New findings from Step 6
 
-One issue per finding that this branch does **not** fix. Title leads with the finding ID; body keeps the same four fields the PR uses.
+One tracker issue per finding, so that its record stays private and the public PR body can carry it as a bare reference:
+
+- each finding this branch does **not** fix;
+- each finding it **fixes** that has no issue yet — filed before the PR opens, so the merge closes it;
+- each finding **dismissed** as no defect — filed, then closed at once as not planned (`gh issue close <n> --repo englishstreetventures/osn-tracker --reason "not planned"`), with the reasoning in its body.
+
+Title leads with the finding ID; the body is the four fields.
 
 Write each one with the **`write-issue`** skill: it holds the rules for a body that stands on its own months later, and the faults to avoid. The four fields and the labels below are the finding's own, from `wiki/conventions/review-findings.md`. A worked `gh issue create` for a finding is in `references/issue-filing-example.md`.
 
@@ -361,11 +369,12 @@ disclosure. State the constraint and leave the finding unnamed.
 
 ### The rest of Step 7
 
-Findings this branch **fixes** are closed by the merge, not by an issue you open
-and close: put `Closes #N` in the PR body and let it happen. A fixed finding
-that predates the branch already has an issue — find it by ID, since the ID
-leads the title. Planned work this branch completes goes in the same list, from
-the public repo. **Never delete an issue**; close it.
+Findings this branch **fixes** are closed by the merge, not by hand: their
+tracker issues go in the PR body as bare
+`Closes englishstreetventures/osn-tracker#<n>` lines (`write-pr`). A fixed finding that
+predates the branch already has an issue — find it by ID, since the ID leads the
+title. Planned work this branch completes goes in the same list, as `Closes #N`
+from the public repo. **Never delete an issue**; close it.
 
 `references/workflow-steps.md` carries the rest: the `gh issue list` searches,
 the Up Next promotion, and the docs pass — what to check in `AGENTS.md` and the
@@ -376,117 +385,15 @@ both.
 
 ## Step 8 — Write the PR body
 
-**Do this even when you cannot push.** The body is the deliverable; `gh pr create` is only how it is delivered. Write it to a file whichever way the run ends — no network, no `gh`, failing gates, nothing committed.
+**Do this even when you cannot push.** The body is the deliverable; opening the pull request is only how it is delivered. Write it to the file whichever way the run ends — no network, no `gh`, failing gates, nothing committed.
 
-Derive the title and body from the branch's commit history (`git log "$DIFF_BASE"...HEAD --oneline`) and everything that happened during this prep-pr run.
+Invoke the **`write-pr`** skill and follow it. It owns the title and the body: what each of the five sections holds, the `Closes` and `Part of` lines, owner actions, the test plan, and the checks to run before sending. Derive both from the branch's commit history (`git log "$DIFF_BASE"..HEAD --oneline`) and everything this run established.
 
-**Title**: short imperative summary of the whole change, under 70 chars.
+The skeleton is already on disk from the top of this file. Fill it in — do not write a second body beside it.
 
-**Body**: exactly these five sections, in this order. All five are mandatory; a section with nothing in it says "None" rather than being dropped, because an absent section reads as a forgotten one.
+One rule from `write-pr` is repeated here because a public body that breaks it cannot be taken back: a tracker issue appears only as a bare reference — `Closes englishstreetventures/osn-tracker#<n>` for one this branch fixes — never with its finding ID, its title, or a word about the defect.
 
-The skeleton is already on disk from the top of this file. Fill it in — do not
-write a second body beside it.
-
-```markdown
-## Summary
-
-<Two or three sentences of prose: what this branch changes and why it was
-needed. Not a commit-log restatement — the reviewer can read the commits.
-Then bullets for anything the prose could not carry.>
-
-## Workspaces affected
-
-`<pkg>`, `<pkg>`. <Changeset status: which packages it names and at what bump,
-or why none is needed.>
-
-## Issues
-
-**Closes**
-
-| Issue | What |
-|---|---|
-| #<n> | <one-line title> |
-| englishstventures/osn-tracker#<n> | <finding ID only — e.g. `S-M1`> |
-
-Closes #<n>
-Closes englishstventures/osn-tracker#<n>
-
-<!-- One plain line per closed issue, under the table and outside it — a table
-cell does not trigger GitHub's closing keyword. If this branch closes nothing,
-write "This branch closes no issue." and drop the table. -->
-
-**Opened**
-
-| Issue | What |
-|---|---|
-| englishstventures/osn#<n> | <one-line title> |
-| englishstventures/osn-tracker#<n> | <finding ID only> |
-
-<!-- This PR is public and the tracker is private. A tracker row is the number
-and the finding ID and nothing else: no title, no file:line, no word about how
-the finding is reached. `englishstventures/osn-tracker#412 — S-M1` is the whole entry. -->
-
-## Decisions
-
-### <short title> — `<S-H1 / P-W2 / approach / …>`
-
-- **Issue** — what the problem was.
-- **Why** — why it mattered: risk, correctness, or design concern.
-- **Solution** — what was done.
-- **Rationale** — why this is the right fix, and what was rejected.
-
-### <next decision> — `<ID or "approach">`
-
-…
-
-**Out of scope** — <one line per thing found and deliberately not fixed here.
-A line is the issue reference and nothing else: `englishstventures/osn-tracker#412 —
-S-M1`. Do not describe the finding, name its file or line, or say how it is
-reached — see the rule under **Section rules**, which this subsection is the
-usual place to break. If there is nothing, the line is "**Out of scope** —
-None." — never a missing subsection.>
-
-## Test plan
-
-| Gate | Command | Result |
-|---|---|---|
-| Type check | `bun run check` | <what happened, or `not run — <reason>`> |
-| Tests | `bun test <scope>` | <`<n> pass`, a failure, or `not run — <reason>`> |
-| … | … | … |
-
-<Then anything a reviewer must exercise by hand, and anything that stayed
-unverified — say so plainly rather than leaving it implied.>
-```
-
-**Every row is filled in from a command you ran in this worktree, in this run.**
-The Result column takes what the command actually printed. A gate you did not
-run is written `not run` with the reason — no package manager, no network, no
-dependencies — and a run where nothing could execute is a table of `not run`
-rows, which is a correct and complete test plan. Never write a tick, a "passes",
-or a pass count you did not watch appear: an invented green gate is the one
-failure in this document a reviewer cannot detect.
-
-### Section rules
-
-**Issues.** One row per issue. **"Opened" means issues raised *against this
-branch*** — findings from its own review, or work it deliberately split out. An
-issue found while auditing another package does not belong in the table however
-it was discovered: listing it implies a relationship the PR does not have.
-Mention a cross-package audit in one line under **Out of scope**. The plain
-`Closes` lines under the table are what actually close anything;
-`Closes owner/repo#n` works cross-repo with write access to both, but verify it
-closed after the merge.
-
-**Decisions.** One `###` per decision, so each gets an anchor. The heading is
-plain English, the ID goes after the em dash in backticks and is omitted where
-there is no finding behind it, and the four fields are mandatory and always in
-that order. What belongs: every non-trivial design choice, every finding fixed
-here, and every finding **dismissed** rather than fixed, with the reasoning in
-**Rationale**. What does not: lint fixes, formatting, anything the diff already
-says.
-
-**Test plan.** The gates that ran, with their real results, and below the table
-anything a reviewer must exercise by hand — including the honest negatives.
+**Every test-plan row is filled in from a command you ran in this worktree, in this run.** A gate you did not run is `NOT RUN` with the reason, and a run where nothing could execute is a table of `NOT RUN` rows — a correct and complete test plan. Never write a tick, a "passes", or a pass count you did not watch appear: an invented green gate is the one failure in this document a reviewer cannot detect.
 
 ### The session metrics are not this step's job
 
@@ -510,20 +417,21 @@ Both must print `5`. A first count under 5 means a section is missing, renamed, 
 
 ```bash
 git push -u origin HEAD
-gh pr create --base "$BASE" --title "<title>" --body-file <path>
 ```
 
-Pass `--body-file`, never `--body`: a heredoc inside `--body` mangles backticks
-and `$` in the prose. Pass `--base` even though `gh` reads
-`branch.<current>.gh-merge-base` itself, because a branch created without that
-config silently targets `main`.
+Then open it with `write-pr` Step 6's REST command, passing `$BASE` as `base` —
+the REST call has no default and reads no git config, so a stacked branch that
+omits it is refused rather than opened — and run that step's check that GitHub
+registered every `Closes` line.
 
 With no network or no `gh`, record that the PR was not opened, name the base it
 should target, and leave the body file in place. That is a complete run.
 
 Confirming the base took, and registering a stack when `$BASE` is not `main`,
 are in `references/workflow-steps.md`. Report the PR number, its base branch,
-whether the stack is registered, and the issues it closes.
+whether the stack is registered, the issues it closes, and any close it could
+not make — a tracker line the classifier refused, or a stacked PR's closes —
+so the owner can make it by hand.
 
 ---
 

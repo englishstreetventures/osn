@@ -34,9 +34,10 @@ Which name a new package takes is in `wiki/shared/osn-and-musubi.md`; the full t
 Work is tracked in GitHub Issues, never the wiki.
 
 - `englishstventures/osn` (public) holds product work, ops, docs and schema.
-- `englishstventures/osn-tracker` (private) holds **every** security (`S-`), performance (`P-`) and compliance (`C-`) finding, however minor. Route by kind, not severity: a finding names an unpatched route. Never link a tracker issue from a public file; state the constraint instead.
+- `englishstreetventures/osn-tracker` (private) holds **every** security (`S-`), performance (`P-`) and compliance (`C-`) finding, however minor. Route by kind, not severity: a finding names an unpatched route. Public files and pull-request prose never name or describe a tracker finding — no ID, title or detail; a file states the constraint instead. A pull request carries a tracker issue only as a bare repo-qualified reference, and closes one it fixes with a bare `Closes englishstreetventures/osn-tracker#N` line.
 - Each issue carries one `product:` label, an org type (`Feature`, `Bug`, `Task`) and a `complexity:` rating set **before** work starts (the `rate-complexity` skill). The full label scheme is in `wiki/conventions/github-issues-setup.md`; how to file a finding is in `wiki/conventions/review-findings.md`.
 - Write every issue with the `write-issue` skill (`.claude/skills/write-issue/SKILL.md`): the repository, title, type, labels and a body someone can act on months later with nothing checked out.
+- Write every PR body with the `write-pr` skill (`.claude/skills/write-pr/SKILL.md`): the title, the five sections, a `Closes` line for every issue the branch fixes, a test plan that says what ran on which commit, and the REST command that opens it.
 - When the next step needs a choice only the owner can make, write the proposal, add `needs:decision`, and move to another issue.
 - Never delete an issue; close it.
 

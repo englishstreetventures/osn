@@ -38,15 +38,15 @@ Proceed when the user confirms the scope is intentional or agrees to split the w
 
 ### Findings fixed on this branch
 
-Do not open an issue and close it. Do not edit a checkbox. Put `Closes #N` in the PR body (Step 8) and let the merge close it.
+Do not close its issue by hand, and do not edit a checkbox. Put a bare `Closes englishstreetventures/osn-tracker#<n>` line in the PR body (Step 8, `write-pr`) and let the merge close it.
 
 If the finding predates this branch it already has an issue — find it by ID, since the ID leads the title:
 
 ```bash
-gh issue list --repo englishstventures/osn-tracker --search "S-M1 in:title" --state open
+gh issue list --repo englishstreetventures/osn-tracker --search "S-M1 in:title" --state open
 ```
 
-If a fixed finding turns out to have no issue, open one and close it with a comment naming the PR. **Never delete an issue** — `wiki/conventions/review-findings.md` keeps the history.
+If a fixed finding has no issue, file one in the tracker before the PR opens (Step 7), so the merge closes it and the issue keeps the record the public body cannot. **Never delete an issue** — `wiki/conventions/review-findings.md` keeps the history.
 
 ### Planned work completed by this branch
 
@@ -79,15 +79,7 @@ Report the issues opened and the issue numbers this branch closes — Step 8 nee
 
 ## Step 9 — Push and open the PR
 
-Run `git push -u origin HEAD`, then open the PR **against `$BASE` from Step 0**, not against `main`:
-
-```bash
-gh pr create --base "$BASE" --title "<title>" --body-file <path>
-```
-
-`gh pr create` also reads `branch.<current>.gh-merge-base` on its own, so `--base` is belt and braces — pass it anyway, because a branch created without that config silently targets `main`.
-
-Pass `--body-file`, never `--body`: a heredoc inside `--body` mangles backticks and `$` in the prose.
+Run `git push -u origin HEAD`, then open the PR **against `$BASE` from Step 0**, not against `main`, with `write-pr` Step 6's REST command: `base` is `$BASE`, the title and the body file are `write-pr`'s. Then run that step's closes check.
 
 With no network or no `gh`, record that the PR was not opened, name the base it should target, and leave the body file in place. That is a complete run.
 
@@ -96,10 +88,10 @@ With no network or no `gh`, record that the PR was not opened, name the base it 
 Confirm the base actually took:
 
 ```bash
-gh pr list --repo englishstventures/osn --state open --json number,headRefName,baseRefName
+gh api repos/englishstreetventures/osn/pulls/<n> --jq '"\(.head.ref) -> \(.base.ref)"'
 ```
 
-A stacked PR showing `main` in `baseRefName` is not stacked — fix it with `gh pr edit <n> --base <parent-branch>` rather than in the web UI.
+A stacked PR showing `main` as its base is not stacked — fix it with `gh api -X PATCH repos/englishstreetventures/osn/pulls/<n> -f base=<parent-branch>` rather than in the web UI.
 
 ### Register the stack
 
@@ -112,4 +104,4 @@ gh stack checkout <stack-number>                       # confirm
 
 Why `checkout` and not `view` confirms it, and what to do with no network: `references/registering-a-stack.md`.
 
-Report the PR number, its base branch, whether the stack is registered, and the issues it closes.
+Report the PR number, its base branch, whether the stack is registered, the issues it closes, and any close it could not make.

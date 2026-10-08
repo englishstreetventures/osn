@@ -3,7 +3,7 @@ title: OSN Wiki — vault README
 tags: [wiki, meta]
 related:
   - "[[index]]"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-08
 ---
 
 # OSN Wiki
@@ -50,8 +50,8 @@ This wiki is written for AI agents to read. Key navigation patterns:
 - All internal links use `[[wiki links]]`, not relative markdown links
 - Links to source files use standard markdown: `[file.ts](../path/to/file.ts)`
 - Every page has YAML frontmatter with at least: `title`, `tags`, `related`, `last-reviewed`
-- Frontmatter **describes the page**, never a task. Review-finding IDs, `pr<n>-shipped`,
-  `p<n>-completed` and similar per-PR keys belong in the issue and the PR body — a page
-  outlives the branch that touched it. `status` and `severity` describe the page and stay
+- Frontmatter **describes the page**, never a task. `pr<n>-shipped`, `p<n>-completed` and
+  similar per-PR keys belong in the issue and the PR body, and a review-finding ID in the
+  private tracker issue only — a page outlives the branch that touched it. `status` and `severity` describe the page and stay
 - Every page links to at least 2 other wiki pages
 - The `.obsidian/` directory is gitignored — your local workspace state stays local

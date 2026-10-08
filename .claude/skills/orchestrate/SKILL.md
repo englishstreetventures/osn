@@ -9,7 +9,7 @@ You are the orchestrator: you order the work and drive the loop, and you **do no
 
 ## What this run must produce
 
-Every task merged into `main` as its own squash-merged pull request, its worktree removed, and a closing summary: each PR (number and one line), anything deferred as a tracked follow-up, and any deploy-time or human action a subagent surfaced.
+Every task merged into `main` as its own squash-merged pull request, its worktree removed, and a closing summary: each PR (number and one line), anything deferred as a tracked follow-up, any deploy-time or human action a subagent surfaced, and any issue a merge did not close that the owner must close by hand.
 
 ## Precondition — the local bare-repo setup, run from `main/`
 
@@ -230,7 +230,7 @@ Two rules for anything you dispatch into a worktree:
   reaches for `git checkout <ref> -- <path>`, and putting it back discards
   whatever you had uncommitted in that tree.
 
-Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. This skill's contract is stronger: **after the reviews, dispatch `implementer` fix subagents to add the missing tests and fix every security and performance finding** — Critical, High and Medium at minimum, Low and Info when cheap — then re-verify. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. A Medium deliberately deferred is carried into the PR body as a tracked follow-up. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the five-section PR body, push, and open the PR. Once it is open, move the issue's card to In Review (`next-batch` §Claim, step 4).
+Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. This skill's contract is stronger: **after the reviews, dispatch `implementer` fix subagents to add the missing tests and fix every security and performance finding** — Critical, High and Medium at minimum, Low and Info when cheap — then re-verify. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. A Medium deliberately deferred is carried into the PR body as a tracked follow-up. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the five-section PR body with the `write-pr` skill, push, and open the PR. Once it is open, move the issue's card to In Review (`next-batch` §Claim, step 4).
 
 ### Step 5 — Retro, then watch, merge, tear down
 
@@ -257,6 +257,7 @@ It reports the terminal state, and for a failure the job name and the decisive l
 - `DIRTY` or `BEHIND` → dispatch an **`implementer`** to rebase onto the latest `origin/main`, resolve conflicts (sibling PRs that merged first are usually additive — keep both sides; for changeset or version churn from the release workflow, take the regenerated state), re-run the touched package's tests and `git push --force-with-lease`. Conflict resolution is a judgement call and a force-push is not recoverable, so neither belongs to the polling agent.
 - A real check failure → dispatch an `implementer` fix subagent, push, re-poll. Never merge red.
 - Once `MERGED`, **you** run `git worktree remove --force <dir>` and delete the local branch. Never leave a merged task's worktree behind.
+- Once `MERGED`, carry into the closing summary every close the subagent reported it could not make — tracker lines the classifier refused, a stacked pull request's closes that never registered (`write-pr` Step 6). Those issues stay open until the owner closes them by hand.
 
 **Between dependent tasks:** fetch `main` with Step 2's refspec and fast-forward local `main` so the next worktree is cut from the updated tip. If a later task's branch already exists and now conflicts, rebase it before its Step 5.
 
