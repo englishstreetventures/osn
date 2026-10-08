@@ -3,6 +3,7 @@ title: GitHub Issues setup (repos, labels, Project)
 tags: [runbooks, process, issues]
 related:
   - "[[review-findings]]"
+  - "[[agent-tooling]]"
   - "[[index]]"
 last-reviewed: 2026-10-08
 ---
@@ -171,6 +172,15 @@ mutation($field: ID!) {
 
 `singleSelectOptions` replaces the whole list, so name every option you want to
 keep. An option dropped here is cleared from every item that held it.
+
+**In Progress and In Review are a claim.** A session sets In Progress when it
+starts building an issue and In Review when the pull request opens, and no
+session starts work on an item in either. Several sessions run as the same
+GitHub user, so an assignee cannot carry the claim; the Status can, because the
+owner reads the board by it. The check and the commands are in
+`.claude/skills/next-batch/SKILL.md` §Claim, and `orchestrate` and `new-feat`
+run it. Nobody sets Done by hand: merging closes the issue, and a closed issue's
+card moves to Done.
 
 The other two fields don't exist yet, so they are ordinary creates:
 
