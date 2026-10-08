@@ -5,7 +5,7 @@ import { handler, type Env } from "../src/index";
 import { _resetOutboundKeyForTests } from "../src/lib/outbound-arc";
 
 /**
- * T-R1 — Workers `fetch` handler fail-closed paths.
+ * Workers `fetch` handler fail-closed paths.
  *
  * Drives the real exported `handler.fetch(req, env)` with a fake `env` and
  * asserts the fail-closed 503 posture. These paths need NO DB binding: they
@@ -16,7 +16,7 @@ import { _resetOutboundKeyForTests } from "../src/lib/outbound-arc";
  * Miniflare-backed `tests/d1/d1-integration.test.ts` (run under `bun test`); wiring
  * a full D1 round-trip into this synchronous vitest suite is impractical, so
  * the request-id echo/mint contract is covered directly in `request-id.test.ts`
- * via the `resolveRequestId` unit (T-S2).
+ * via the `resolveRequestId` unit.
  */
 
 const req = (url = "https://api.osn.test/"): Request => new Request(url);
@@ -92,7 +92,7 @@ describe("handler.fetch — fail-closed (T-R1)", () => {
 });
 
 /**
- * T-R2 — the cron `scheduled` handler registers osn's outbound ARC public key
+ * The cron `scheduled` handler registers osn's outbound ARC public key
  * with each downstream BEFORE the fan-out sweeps. Pulse/Zap verify osn's ARC
  * tokens against a pre-registered key, so without this the very first
  * `/internal/account-deleted` POST is 401'd and GDPR Art. 17 erasure stalls.
