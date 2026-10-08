@@ -3,7 +3,7 @@ name: orchestrate
 description: Use when driving one or more tasks end to end from the local bare repo's `main` worktree — a feature designed with the user first when its scope is open, or a ready list of tasks — ordering them, cutting a worktree per task, handing each to a subagent that runs new-feat, running prep-pr with every finding fixed rather than reported, and shepherding each pull request to a squash merge and worktree teardown. Not for a one-file change, and not outside the bare repo.
 ---
 
-Orchestrate `$ARGUMENTS` end to end. If it is empty, ask for the task or tasks first.
+Orchestrate `$ARGUMENTS` end to end. If it is empty, or asks what to work on next, run the `next-batch` skill first: it reads the project board and returns the task list.
 
 You are the orchestrator: you order the work and drive the loop, and you **do not plan or write the implementation of any task** — a subagent does that through `new-feat`. Your context is the scarce one; theirs is disposable.
 
@@ -75,6 +75,7 @@ worktree. One block per task:
 ```markdown
 ## task 3 — vendor enquiry weddingName
 issue:       englishstventures/osn#812
+claimed:     osn#812 item 264995573
 worktree:    /Users/ac/.work/osn.git/vendor-enquiry-name
 branch:      feat/vendor-enquiry-name (base origin/main)
 pr:          not opened
@@ -101,7 +102,7 @@ Classify the input before ordering anything.
 
 1. `superpowers:brainstorming` turns the idea into an approved spec at `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`. It has a hard gate — no worktree, no plan, no implementation until the user approves — and a feature spanning independent subsystems comes out as sub-project specs, which become your phases.
 2. `superpowers:writing-plans` turns each approved spec into a task-by-task plan at `docs/superpowers/plans/YYYY-MM-DD-<name>.md`, one per phase. Note each plan's **Global Constraints**; they go into every dispatch.
-3. Run the `stress-plan` skill on each phase's plan before dispatching that phase. A wrong assumption in a plan is copied faithfully by a good implementer and comes back as a clean diff doing the wrong thing; no downstream review catches it, because every downstream review checks the work against the plan rather than the plan against the repo. Every finding is closed — fixed in the plan or rejected in writing — before Step 2 cuts the worktree.
+3. Run the `stress-plan` skill on each phase's plan before dispatching that phase. A wrong assumption in a plan is copied faithfully by a good implementer and comes back as a clean diff doing the wrong thing; no downstream review catches it, because every downstream review checks the work against the plan rather than the plan against the repo. Every finding is closed before Step 2 cuts the worktree: fixed in the plan, rejected in writing only when you can name the fact it got wrong, or escalated to the user when its facts stand and the choice is theirs. An escalated finding waits for the answer.
 4. The ordered phases are the tasks Step 0 orders — one phase, one branch, one PR. Inside a phase, the plan's tasks are the subagent's work, not yours.
 
 Point every dispatch and every reviewer at the phase's **plan file path** and its Global Constraints. The plan is the single source of requirements; do not paste task detail into a dispatch.
@@ -115,6 +116,7 @@ Parse the input into discrete tasks and plan **structure only**:
 - **Order by dependency.** A task another builds on, or that touches files another touches, goes first. Independent tasks still run through this loop one at a time; parallelise only when they share no files and you will manage separate worktrees.
 - **One task, one branch, one PR** by default. Group two only when they are genuinely one unit of work.
 - **A task with no clear acceptance criteria is not dispatched.** Ask the user to clarify before a subagent guesses at scope; if it needs product direction, that is Step 00.
+- **A list from `next-batch` arrives triaged**, ordered, and grouped by the files each task touches. Keep its order and its limit on agents running at once.
 
 State the ordered list and which tasks get their own branch in one short message, then start. Do not describe how any task will be built.
 
@@ -127,6 +129,8 @@ Collect **orientation pointers** for the subagent: the files in play, the patter
 **Hit the wiki before the source** — its system pages already hold the contract, the finding history and the footguns. Use the three-tier ladder in `AGENTS.md` §The wiki (detail in `wiki/conventions/wiki-search.md`), pulling one heading (`get_note_outline`, `get_vault_file_partial`) rather than a whole page. Hand the subagent **wiki page paths, not pasted prose**: it has its own context window. Include the pages the task will make stale — that is `prep-pr`'s docs work list.
 
 ### Step 2 — Worktree and branch
+
+**Claim the issue first**, immediately before `git worktree add`, with `next-batch` §Claim. If another session holds it, skip the task, write why into `ORCHESTRATE.md` and take the next one; if the check fails, wait and check again — a failed check is not a free issue. Write the `claimed:` line into the task's block.
 
 ```bash
 git -C /Users/ac/.work/osn.git fetch origin main
@@ -156,6 +160,9 @@ gets followed to the letter. Every dispatch carries:
   (`tools/pr-metrics/index.ts`, `resolveDispatchBranch`); a subagent that
   dispatches further work does not need to repeat it, because a child with no
   marker inherits its parent's.
+- **The claim, as the second line: `CLAIMED: <repo>#<n>`**, in the hand-off for
+  a task from the board. `new-feat` Step 0 runs the claim check itself unless
+  its brief carries this line, and would find your claim and stop.
 - **The reader.** Every file the task creates names the file or command that reads
   it. If nothing reads it, the task is not done — "create the file" and "make
   something call it" are separate steps, and an implementer reliably does the
@@ -214,7 +221,7 @@ Two rules for anything you dispatch into a worktree:
   reaches for `git checkout <ref> -- <path>`, and putting it back discards
   whatever you had uncommitted in that tree.
 
-Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. This skill's contract is stronger: **after the reviews, dispatch `implementer` fix subagents to add the missing tests and fix every security and performance finding** — Critical, High and Medium at minimum, Low and Info when cheap — then re-verify. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. A Medium deliberately deferred is carried into the PR body as a tracked follow-up. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the five-section PR body, push, and open the PR.
+Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. This skill's contract is stronger: **after the reviews, dispatch `implementer` fix subagents to add the missing tests and fix every security and performance finding** — Critical, High and Medium at minimum, Low and Info when cheap — then re-verify. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. A Medium deliberately deferred is carried into the PR body as a tracked follow-up. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the five-section PR body, push, and open the PR. Once it is open, move the issue's card to In Review (`next-batch` §Claim, step 4).
 
 ### Step 5 — Retro, then watch, merge, tear down
 
@@ -256,6 +263,7 @@ tell them from the tree.
 2. Read the partial diff yourself. Decide one of three things and write the
    decision into `ORCHESTRATE.md`: finish it yourself, re-dispatch with a brief
    that names what is already done, or `git restore` and start the task over.
+   A task dropped for good goes back to Up Next (`next-batch` §Claim, step 4).
 3. Re-dispatching wins only when the remaining work is large and separable. Below
    roughly a file's worth, finishing it yourself is cheaper than writing a brief
    that describes someone else's half-finished tree.
