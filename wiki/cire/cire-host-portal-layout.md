@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-09
 ---
 # Host Portal Layout System
 
@@ -331,6 +331,18 @@ Shared export surface, and what each does under a stale mark:
 | `invalidateXxx(id)` | Marks stale, bumps the generation, drops any inflight slot. Does **not** touch the signal |
 | `ensureXxxLoaded(id, fetcher)` | No-op if already fresh; otherwise dedupes and fetches. Success writes the rows and clears the stale mark; failure blanks the signal and rethrows. Both branches generation-guarded |
 | `dropXxx(id)` | Not a stale mark: forgets the wedding. See "Lifetime" below |
+
+**The enquiries cache is paged.** Beside the rows it keeps the cursor after
+the last page loaded, and two exports the other caches do not have:
+
+| Export | What it does |
+|---|---|
+| `enquiriesNextCursor(id)` | The cursor accessor; `null` once every page is loaded |
+| `loadMoreEnquiries(id, fetcher)` | Fetches the next page and merges it into the rows as they are when it arrives, in the server's order. Fetches nothing for a closed wedding, with no cursor or no rows, or while the wedding is stale or `ensureEnquiriesLoaded` is in flight, since a page from the old cursor would land below a fresh page one with rows missing between them. A refused page blanks rows and cursor and rethrows, like a refused refetch. Generation-guarded |
+
+`ensureEnquiriesLoaded` stores page one and its cursor; a refetch after an
+invalidate puts the inbox back to page one. `invalidateEnquiries` and
+`dropEnquiries` drop an in-flight next page too.
 
 **Known gap, tracked in #620:** `peekCachedXxx` and the readers built
 directly on it — `spentSoFar`/`upcomingPayments` (`budget-store.ts`) — don't
