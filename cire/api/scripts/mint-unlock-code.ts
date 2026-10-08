@@ -8,9 +8,10 @@
  *
  * Prints two lines: `code: <code>`, the code to hand over, and `sql: …`, the
  * row to apply. The SQL carries only the code's SHA-256, so neither the shell
- * history it lands in nor the database holds a code anyone could redeem. The
- * code itself is shown here once and stored nowhere: keep it until it has been
- * handed over.
+ * history it lands in nor the database holds the code as written. The hash is
+ * unsalted over 64 bits and can still be searched offline, so clear the
+ * command from shell history once it is applied. The code itself is shown here
+ * once and stored nowhere: keep it until it has been handed over.
  *
  * `--uses` is how many weddings may redeem it (default 1). `--expires` is the
  * last day it works, through the end of that day in UTC; without it the code

@@ -321,7 +321,10 @@ A code is a recovery code in form: 16 hex characters in four groups
 (`3f9a-0c1e-b7d2-48aa`), 64 bits from `generateRecoveryCode` in
 `@shared/crypto/recovery`. The owner can type it in any case, with or without
 the dashes or with spaces; `hashRecoveryCode` folds all of those before hashing.
-Only the SHA-256 is stored, so the table holds no code anyone could redeem.
+Only the SHA-256 is stored, so the table holds no code as written. The hash is
+unsalted over 64 bits, so whoever holds a copy of the table, or the mint SQL,
+can still search for codes offline. Treat a D1 export, and the shell history
+the mint SQL was applied from, as you would the codes.
 
 ### Minting
 
@@ -340,9 +343,10 @@ bun run --cwd cire/api mint-unlock-code --tier gold --by <operator> [--uses 3] [
 | `--expires` | The last day it works, through the end of that day in UTC. Left out, it never expires |
 
 It prints two lines: `code: <code>`, to hand over, and `sql: INSERT INTO
-unlock_codes …`, to apply. The SQL carries only the hash, so the shell history
-it lands in holds nothing redeemable. The code is shown once and stored
-nowhere: keep it until it has been handed over.
+unlock_codes …`, to apply. The SQL carries only the hash, not the code; clear
+the command from shell history once it is applied, since the hash can be
+searched offline (above). The code is shown once and stored nowhere: keep it
+until it has been handed over.
 
 > [!warning]
 > A production D1 write needs explicit human authorisation naming `cire-db`.
@@ -354,7 +358,10 @@ nowhere: keep it until it has been handed over.
 
 `POST /api/organiser/weddings/:weddingId/unlock-code`, body `{ "unlockCode": "…" }`.
 Behind `osnAuth()`, `weddingOwner()` and a per-organiser limiter of five tries a
-minute (`unlockCodeLimiter` in `app.ts`). No tier gate.
+minute (`unlockCodeLimiter` in `app.ts`). No tier gate. The limiter is the
+in-memory one the other organiser routes use, so it counts in each Worker
+isolate: it slows one caller's loop of D1 batches but does not cap an account
+across isolates.
 
 | Answer | When | The code |
 |---|---|---|
@@ -367,8 +374,9 @@ minute (`unlockCodeLimiter` in `app.ts`). No tier gate.
 Every unusable code gets the one 404, so a caller guessing codes learns nothing
 about which exist. The two 409s answer only for a live code with a use left,
 so they do tell someone already holding such a code that it is live, without
-spending it; finding one in the first place takes about 2^64 guesses at five a
-minute per account.
+spending it. Finding one by guessing is out of reach whatever the limiter
+does: at a million tries a second, one live code takes about 2^63 / 10^6
+seconds, some 290,000 years.
 
 **One D1 batch, one round trip** (`unlockCodeService.redeem`,
 `cire/api/src/services/unlock-codes.ts`). D1 runs a batch as one transaction,

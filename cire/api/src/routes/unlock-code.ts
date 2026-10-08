@@ -5,7 +5,9 @@
  *
  * **Owner-only**, like starting a purchase: a code changes what the wedding is
  * on. Limited per organiser, after the gate, so a stranger's request spends
- * nobody's budget.
+ * nobody's budget. The default limiter counts in each Worker isolate, so it
+ * slows a burst rather than capping an account; the code's 64 bits are what
+ * stop guessing.
  *
  * **NO tier gate**, deliberately: the route that raises a tier cannot sit
  * behind one.

@@ -1719,8 +1719,10 @@ export const linkThumbTransforms = sqliteTable("link_thumb_transforms", {
 //
 // Only the code's SHA-256 is stored (`hashRecoveryCode` from
 // `@shared/crypto/recovery`, which folds case and drops separators first), so
-// neither this table nor the SQL the mint script prints holds a code anyone
-// could redeem.
+// neither this table nor the SQL the mint script prints holds a code as
+// written. The hash is unsalted over 64 bits, so whoever holds a copy of the
+// table can still search for the codes offline: treat an export as you would
+// the codes.
 //
 // Deliberately OUTSIDE the wedding cascade, like `platform_sales`: the daily
 // purge deletes a soft-deleted wedding's rows, its redemptions included, and

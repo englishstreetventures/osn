@@ -299,7 +299,8 @@ const defaultRegistryStripeLimiter = createRateLimiter({ maxRequests: 10, window
 const defaultUpgradeLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
 // Per-organiser, behind the owner gate. A code is typed by hand, so five
 // tries a minute covers every typo; what keeps a code from being guessed is its
-// 64 bits, and this keeps an attempt's D1 batch from being spent in a loop.
+// 64 bits. Like every in-memory limiter here it counts in each isolate, so it
+// slows a loop of D1 batches from one caller rather than capping an account.
 const defaultUnlockCodeLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60_000 });
 // Per-IP, like the claim limiter, and sized the same way for the same reason:
 // a NAT'd venue or hotel wifi is ONE address for a whole reception, and the
