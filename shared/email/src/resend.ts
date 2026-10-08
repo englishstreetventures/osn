@@ -20,8 +20,10 @@
  *
  * The destination comes from deployment config only, never from request input,
  * so there is no SSRF surface. An `apiUrl` override can name only a loopback
- * origin (see {@link resendApiUrlProblem}), so a misconfigured Worker cannot
- * send the key or any mail to another host.
+ * origin (see {@link resendApiUrlProblem}): a loopback literal, or a
+ * `*.localhost` name over https, where TLS refuses any host a resolver
+ * wrongly sends it to. So a misconfigured Worker cannot send the key or any
+ * mail to another host.
  */
 
 import { instrumentedFetch } from "@shared/observability/fetch";
@@ -40,14 +42,16 @@ import { renderTemplate } from "./templates";
 /** Resend's API origin, used whenever `apiUrl` is unset or blank. */
 const DEFAULT_RESEND_API_URL = "https://api.resend.com";
 
-/** Host names that resolve to this machine, and only to it. */
+/** The loopback addresses, and `localhost`, which hosts files map to them. */
 const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /**
  * Why `raw` cannot be the Resend API origin, or `null` when it can. An override
- * exists for local emulation only, so it must be a loopback origin: `localhost`,
- * a `*.localhost` name, `127.0.0.1` or `[::1]`, over http or https, with no
- * credentials, path, query or fragment. The answer never repeats `raw`, which
+ * exists for local emulation only, so it must be a loopback origin with no
+ * credentials, path, query or fragment: `localhost`, `127.0.0.1` or `[::1]`
+ * over http or https, or a `*.localhost` name over https only. A resolver
+ * decides where a `*.localhost` name goes, and only a certificate check stops a
+ * wrong answer from receiving the key. The answer never repeats `raw`, which
  * could carry credentials.
  */
 export function resendApiUrlProblem(raw: string): string | null {
@@ -60,8 +64,12 @@ export function resendApiUrlProblem(raw: string): string | null {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     return "must be an http or https URL";
   }
-  if (!LOOPBACK_HOSTS.has(url.hostname) && !url.hostname.endsWith(".localhost")) {
-    return "must name a loopback host (localhost, *.localhost, 127.0.0.1 or [::1])";
+  const named = url.hostname.endsWith(".localhost");
+  if (!LOOPBACK_HOSTS.has(url.hostname) && !named) {
+    return "must name a loopback host (localhost, 127.0.0.1, [::1], or a *.localhost name over https)";
+  }
+  if (named && url.protocol !== "https:") {
+    return "must use https for a *.localhost name, which a resolver could send elsewhere";
   }
   if (url.username !== "" || url.password !== "") {
     return "must not carry credentials";

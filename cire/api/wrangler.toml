@@ -93,7 +93,9 @@ ZAP_API_URL = "http://localhost:3002"
 # RESEND_API_URL — NEVER set in any tier here, as a var or a secret. It points
 # Resend mail at a local emulator and belongs in `.dev.vars` / `.env` only. A
 # deployed tier refuses it: mail stops and the Worker logs
-# "email disabled: Resend misconfigured". See wiki/shared/email.md.
+# "email disabled: Resend misconfigured". The production deploy refuses to run
+# while it exists as a secret, and tests/lib/resend-email.test.ts fails if a
+# tier here sets it. See wiki/shared/email.md.
 
 # ── Stripe (KEY-OPTIONAL throughout) ─────────────────────────────────────────
 # TWO relationships with Stripe, and they are opposites. Keeping them apart is

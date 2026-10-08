@@ -171,8 +171,9 @@ Content-Type: application/json
   `RESEND_API_KEY` is placed only in the `Authorization` header — never in
   a URL, span/metric attribute, or `EmailError.cause`. `config.apiUrl`
   swaps `https://api.resend.com` for a local emulator's origin; anything but
-  a loopback origin (`localhost`, `*.localhost`, `127.0.0.1` or `[::1]`, with
-  no credentials, path, query or fragment) makes `makeResendEmailLive` throw.
+  a loopback origin makes `makeResendEmailLive` throw. A loopback origin is
+  `localhost`, `127.0.0.1` or `[::1]` over http or https, or a `*.localhost`
+  name over https only, with no credentials, path, query or fragment.
   `resendApiUrlProblem` is that check, exported for callers that want the
   reason instead of a throw.
 - `makeCloudflareEmailLive(config)` — legacy real dispatch. POSTs directly
@@ -278,12 +279,13 @@ Environment variables for `@osn/api`:
 | `CLOUDFLARE_ACCOUNT_ID` | optional / legacy | Cloudflare account ID (fallback transport) |
 | `CLOUDFLARE_EMAIL_API_TOKEN` | optional / legacy | API token with Email Send permission (fallback transport) |
 | `OSN_EMAIL_FROM` | optional | Verified sender address (default: `noreply@osn.local`; prod: `hello@cireweddings.com`) |
-| `RESEND_API_URL` | local only | Origin of a local Resend emulator, e.g. `http://localhost:4008`. Unset ⇒ `https://api.resend.com`. Loopback origins only. **Never set in a deployed tier**: osn-api refuses to boot with it, and the production deploy refuses to run while it exists as a secret. |
+| `RESEND_API_URL` | local only | Origin of a local Resend emulator, e.g. `http://localhost:4008`. Unset ⇒ `https://api.resend.com`. Loopback origins only (a `*.localhost` name needs https). **Never set in a deployed tier**: osn-api refuses to boot with it, the production deploy refuses to run while it exists as a secret, and a test fails if `wrangler.toml` sets it. |
 
 cire-api reads `RESEND_API_KEY` and `RESEND_API_URL` under the same names and
 rules (`cire/api/src/lib/resend-email.ts`), but fail-soft, as all its email is:
 a refused override leaves no Resend transport and logs `email disabled: Resend
-misconfigured` with the reason, and the Worker keeps serving.
+misconfigured` with the reason, and the Worker keeps serving. Its production
+deploy refuses to run while `RESEND_API_URL` exists as a secret.
 
 > **The sender stayed on `cireweddings.com` through the identity move.** osn-api
 > now serves `id.musubi.social`, but `cireweddings.com` is the only domain verified
@@ -367,7 +369,10 @@ through Resend itself whenever the key is set.
   SSRF surface): `https://api.resend.com`, or locally an emulator's origin.
   `resendApiUrlProblem` refuses any override that is not a loopback origin,
   and both Workers refuse an override in a deployed tier, so the key and the
-  mail never go to another host. SPF/DKIM/DMARC are configured on the
+  mail never go to another host. A `*.localhost` name must use https: a
+  resolver decides where that name goes, and only the certificate check stops
+  a wrong answer from receiving the key. The deny-list in `@shared/observability`
+  carries `apiKey` and `apiToken`, so a logged transport config shows neither. SPF/DKIM/DMARC are configured on the
   verified Resend sender domain.
 - **Cloudflare token (legacy)**: Cloudflare's own API token (scoped to
   Email Send only). SPF/DKIM/DMARC auto-configured by Cloudflare.

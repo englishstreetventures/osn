@@ -367,6 +367,29 @@ jobs:
       - name: Guard against placeholder D1 database_id
         run: bun run scripts/check-d1-database-id.ts
 
+      # Secrets that must NOT exist on the production Worker. RESEND_API_URL
+      # points mail at a local Resend emulator; a deployed cire-api refuses it
+      # and sends no mail at all, so refuse the deploy until it is deleted.
+      # Read-only (`wrangler secret list`); never prints values. A committed
+      # var is caught earlier, by cire/api/tests/lib/resend-email.test.ts.
+      - name: Preflight — no forbidden prod secrets are set
+        run: |
+          set -euo pipefail
+          set_names="$(bunx wrangler secret list --env production | grep -oE '"name" *: *"[^"]+"' | sed -E 's/.*"name" *: *"([^"]+)".*/\1/')"
+          forbidden="RESEND_API_URL"
+          present=""
+          for name in $forbidden; do
+            if printf '%s\n' "$set_names" | grep -qx "$name"; then
+              present="$present $name"
+            fi
+          done
+          if [ -n "$present" ]; then
+            echo "::error::cire-api has forbidden prod secret(s) set:$present — delete with 'wrangler secret delete <NAME> --env production'. These exist only for local emulation."
+            exit 1
+          fi
+          echo "No forbidden cire-api prod secrets are set."
+        working-directory: cire/api
+
       # Idempotent: wrangler skips already-applied migrations, so re-running the
       # workflow is safe. Production is never reset and never seeded.
       - name: Apply cire D1 migrations (remote prod)

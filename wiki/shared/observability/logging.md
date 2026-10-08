@@ -8,7 +8,7 @@ related:
   - "[[tracing]]"
   - "[[metrics]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-09-30
+last-reviewed: 2026-10-09
 ---
 
 # Logging
@@ -93,6 +93,7 @@ there by hand.
 - OAuth token fields: `accessToken` / `refreshToken` / `idToken` / `enrollmentToken` (+ snake_case variants)
 - WebAuthn `assertion` body
 - ARC `privateKey`
+- Email transport credentials: `apiKey` (Resend) and `apiToken` (Cloudflare Email Service), so a logged transport config never carries its key
 - User PII fields that exist in the schema: `email`, `handle`, `displayName`
 
 ### Deny-list maintenance rules
