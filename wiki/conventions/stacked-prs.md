@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[review-findings]]"
   - "[[commands]]"
-last-reviewed: 2026-09-01
+last-reviewed: 2026-10-08
 ---
 
 # Stacked PRs
@@ -69,9 +69,9 @@ Stack: (main) <- fix/cire-rsvp-batch-ceiling <- perf/cire-rsvp-roundtrips
 
 Three ways to set it, in preference order. Do this regardless of whether the stack gets registered — the base is what controls the diff.
 
-### 1. Set the merge base when the worktree is created
+### 1. Record the merge base when the worktree is created
 
-`gh pr create` reads `branch.<current>.gh-merge-base` from git config. Set it once and every later `gh pr create` on that branch targets the parent, with no flag to forget:
+Store the parent in git config as `branch.<current>.gh-merge-base`. `/prep-pr` Step 0 reads it into `$BASE`, every later diff in that run uses it, and the `write-pr` skill passes it as the pull request's `base`:
 
 ```bash
 git worktree add /Users/ac/.work/osn.git/<dir> -b <prefix>/<slug> <parent-branch>
@@ -80,20 +80,23 @@ git -C /Users/ac/.work/osn.git/<dir> config branch.<prefix>/<slug>.gh-merge-base
 
 Note the branch is cut from `<parent-branch>`, not `origin/main` — a stacked branch that starts at `main` has nothing to stack on.
 
-For the bottom of a stack, cut from `origin/main` as usual and set nothing; `main` is already the default.
+For the bottom of a stack, cut from `origin/main` as usual and set nothing; `/prep-pr` falls back to `main`.
 
 ### 2. Pass the base at creation
 
+Pull requests here are opened through REST (`write-pr` Step 6), and `base` is a required field with no default — it reads no git config:
+
 ```bash
-gh pr create --base <parent-branch> --title "…" --body-file <path>
+gh api repos/englishstreetventures/osn/pulls \
+  -f title="…" -f head="<branch>" -f base="<parent-branch>" -F body=@PR-BODY.md
 ```
 
-`--base` is the branch the code merges **into**. Use it when the config was not set, or in a checkout that is not a worktree.
+`base` is the branch the code merges **into**.
 
 ### 3. Repair an already-open PR
 
 ```bash
-gh pr edit <number> --base <parent-branch>
+gh api -X PATCH repos/englishstreetventures/osn/pulls/<number> -f base=<parent-branch>
 ```
 
 Same effect as changing the base in the web UI. Retargeting rewrites the diff; re-read it before asking for review.
@@ -103,13 +106,17 @@ Same effect as changing the base in the web UI. Retargeting rewrites the diff; r
 Never assume. Two checks, one per half:
 
 ```bash
-gh pr list --repo englishstventures/osn --state open --json number,headRefName,baseRefName
+gh api repos/englishstreetventures/osn/pulls/<number> --jq '"\(.head.ref) -> \(.base.ref)"'
 gh stack checkout <stack-number> # then: gh stack view, from any branch in it
 ```
 
-Every PR but the bottom one must show its parent's branch in `baseRefName`. A PR showing `main` is not stacked — fix the base.
+Every PR but the bottom one must show its parent's branch as its base. A PR showing `main` is not stacked — fix the base.
 
 For the other half, check the number `gh stack link` printed. `gh stack view` alone is not the check: it reads local tracking, which `link` never writes, so it says "not part of a stack" whether the stack is missing or merely unimported. Run `gh stack checkout <stack-number>` first — it fails loudly on a stack that does not exist, and prints the chain on one that does.
+
+## Closing issues from a stacked PR
+
+GitHub reads closing keywords only on a pull request whose base is the default branch. A stacked PR's `Closes` lines therefore link nothing while it sits on its parent, and `write-pr`'s closes check lists none. Check again once the parent merges and GitHub retargets the child to `main`; an issue still open after the child merges is closed by hand, with a comment naming the pull request.
 
 ## Merge order
 
@@ -117,7 +124,7 @@ Bottom up, one at a time. When PR 1 merges, GitHub automatically retargets PR 2 
 
 `gh stack merge <pr-number>` merges every PR up to that one as a single all-or-nothing operation. Convenient, and exactly what we do not want by default: each PR here is approved on its own. Use it only when the whole stack is already approved.
 
-Merging out of order, or closing a parent without merging, orphans the children: their base branch is deleted and the diff turns into everything since `main`. If that happens, `git rebase --onto main <old-parent> <child>` and `gh pr edit <child> --base main`.
+Merging out of order, or closing a parent without merging, orphans the children: their base branch is deleted and the diff turns into everything since `main`. If that happens, `git rebase --onto main <old-parent> <child>` and `gh api -X PATCH repos/englishstreetventures/osn/pulls/<child> -f base=main`.
 
 Squash-merging a parent is fine. The child's commits are unaffected; only the base pointer moves.
 
@@ -151,4 +158,5 @@ Keep a stack short. Three deep is manageable; five means the bottom PR sat unrev
 ## Related
 
 - [[contributing]] — branch strategy, changesets, the rest of the PR workflow
-- `.claude/skills/prep-pr/SKILL.md` — the skill that opens these PRs
+- `.claude/skills/prep-pr/SKILL.md` — the gates every PR passes before it opens
+- `.claude/skills/write-pr/SKILL.md` — the title, the body, and the REST command that opens and edits them
