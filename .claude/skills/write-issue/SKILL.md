@@ -7,7 +7,7 @@ description: Use when writing a GitHub issue in this repository — planned work
 
 An issue is read once, months from now, by someone with no branch checked out, no wiki open and none of the conversation that produced it. Write for that reader.
 
-This skill covers **issue bodies only**. A pull-request body follows `prep-pr` Step 8, which wants the opposite on one point: there, a section with nothing to say says `None` rather than being left out.
+This skill covers **issue bodies only**. A pull-request title and body follow the `write-pr` skill, which wants the opposite on one point: there, a section with nothing to say says `None` rather than being left out.
 
 Two things this skill does not own, and links to instead:
 
@@ -77,7 +77,7 @@ The epic's **What** and **Why** describe the whole outcome; its **Done when** na
 
 ### A finding
 
-The four fields in `wiki/conventions/review-findings.md`, filed in the tracker only. A public issue body never names a finding, not even by number or ID; only a public pull-request body may cite a fixed one, by number and ID, as `prep-pr` Step 8 describes.
+The four fields in `wiki/conventions/review-findings.md`, filed in the tracker only. A public issue body never names a finding, not even by number or ID. A public pull request carries a tracker issue only as a bare reference — `Closes englishstreetventures/osn-tracker#<n>` — and never its ID, title or detail (`write-pr`).
 
 ### A `needs:decision` proposal
 
@@ -96,7 +96,7 @@ Issues filed through the GitHub web forms render their fields as `###` headings.
 7. **Plain words.** No slash shorthand: "an owner or editor", not "owner/editor"; "paid or refunded", not "paid/refunded". Spell out an acronym the first time. No planning words the reader cannot look up ("wave 3", "GP-1").
 8. **Wiki by repo path, fact restated.** `wiki/shared/rate-limiting.md`, never a `[[wikilink]]`, which does not resolve on GitHub. A body that only points elsewhere ("see the TODO") is a bookmark, not an issue.
 9. **Outside evidence earns its place.** A competitor page or vendor doc goes in only when it changes what gets built, with one line on what it shows.
-10. **Name a tracker issue only from a private place.** A public body states the constraint and leaves the finding unnamed.
+10. **Name a tracker issue only from a private place.** A public issue body states the constraint and leaves the finding unnamed. A pull request may carry a bare reference, and nothing more, as `write-pr` says.
 
 ## The faults, by name
 
