@@ -198,15 +198,17 @@ Service: `cire/api/src/services/vendors.ts` — `vendorsService` (Effect). Modul
 
 ## Vendor portal routes (consumed by `cire/vendor`)
 
-Routes: `/api/vendor/*` — gated by `vendorOrgMember()`.
+The claim and listing routes, `createVendorPortalRoutes` in [`vendor-portal.ts`](../../cire/api/src/routes/vendor-portal.ts). The enquiry inbox under `/api/vendor` is a separate instance, [`vendor-enquiries.ts`](../../cire/api/src/routes/vendor-enquiries.ts).
 
-| Method | Route | Description |
-|---|---|---|
-| `GET` | `/vendor/claims/:token` | Public claim preview; 404 when the token or its listing cannot be claimed |
-| `POST` | `/vendor/claims/:token/consume` | Consume a claim token; record a claim for the caller's org that waits for an operator (409 `org_has_listing` if the org already owns or waits on one) |
-| `GET` | `/vendor/listing` | Get the caller's directory listing |
-| `PUT` | `/vendor/listing` | Update listing details |
-| `GET` | `/vendor/listing/categories` | Get assigned categories |
+| Method | Route | Gate | Description |
+|---|---|---|---|
+| `GET` | `/api/vendor/claims/:token` | none | Public claim preview; 404 when the token or its listing cannot be claimed |
+| `POST` | `/api/vendor/claims/:token/consume` | `osnAuth`, then membership of the body's `orgId` | Consume a claim token; record a claim for that org that waits for an operator (409 `org_has_listing` if the org already owns or waits on one) |
+| `GET` | `/api/vendor/orgs` | `osnAuth` | The caller's OSN organisations, over ARC |
+| `GET` | `/api/vendor/orgs/:orgId/listing` | `osnAuth`, then org membership | Read the org's listing |
+| `PUT` | `/api/vendor/orgs/:orgId/listing` | `osnAuth`, then org membership | Create or update the org's listing; 409 while a claim is held |
+
+**Every route here shares one per-IP limiter**, 20 requests a minute (`defaultVendorPortalLimiter` in [`app.ts`](../../cire/api/src/app.ts)), which answers 429 with `Retry-After: 60` before the org check and the handler run. A limited claim consume therefore spends no claim statement and makes no ARC call. A browser's request still pays its session read first: `osnAuth` reads the `cire_org_session` cookie in its `derive`, a phase Elysia runs before every request gate. `tests/routes/vendor-portal.test.ts` pins both paths: none of the work runs on a limited bearer request, and only the session read runs on a limited cookie request.
 
 ---
 
