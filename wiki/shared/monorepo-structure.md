@@ -66,7 +66,7 @@ packages:
   - "@tools/metrics"
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 
 # Monorepo Structure
@@ -139,7 +139,7 @@ shared/
   toast/               # @shared/toast — SolidJS toasts themed through --toast-* custom properties
   turnstile/           # @shared/turnstile — key-optional, fail-closed Turnstile verifier
   typescript-config/   # @shared/typescript-config — base.json, node.json, solid.json
-  ui/                  # @shared/ui — the SolidJS primitives (Button, Card, Modal, Field, Table, Input, Select, …) plus cn() and clsx()
+  ui/                  # @shared/ui — the SolidJS primitives (Button, Card, Modal, Field, Table, Input, Select, …) plus clsx()
   openapi/             # generated OpenAPI documents — not a workspace
   swift/               # OSNShared — the local SPM package the iOS targets depend on; not a workspace
   test-config/         # shared Vitest guard config — not a workspace
@@ -158,7 +158,7 @@ tools/                 # local-only developer tooling, never shipped
 | Where do auth route factories live? | `osn/api/src/routes/auth/` — `createAuthRoutes(config, dbLayer?)` composes per-domain route groups from `index.ts`. |
 | Where do ARC token primitives live? | `@shared/crypto` (`shared/crypto/src/arc.ts`). |
 | Where do shared auth UI components live? | `@osn/auth-ui/*` — the views for OSN's named ceremonies. Consumed by `@musubi/social` today. |
-| Where do the UI primitives live? | `@shared/ui` — `@shared/ui/ui/<name>` for components, `@shared/ui/lib/utils` for `cn()` / `clsx()`. See [[component-library]]. |
+| Where do the UI primitives live? | `@shared/ui` — `@shared/ui/ui/<name>` for components, `@shared/ui/lib/utils` for `clsx()`. See [[component-library]]. |
 | Where do Pulse → OSN calls go? | Through `pulse/api/src/services/graphBridge.ts` — see [[s2s-patterns]]. |
 
 ## Cross-package Dependencies

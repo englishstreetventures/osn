@@ -12,7 +12,7 @@ related:
   - "[[identity-model]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-10-08
 ---
 
 # OSN and Musubi
@@ -69,7 +69,7 @@ pulse render the same primitives. That makes it neither, and it lives under
 
 | Package | Holds | Why there |
 |---|---|---|
-| `@shared/ui` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, the rest, plus `cn()`/`clsx()` | Interoperation never depends on them; five products consume them |
+| `@shared/ui` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, the rest, plus `clsx()` | Interoperation never depends on them; five products consume them |
 | `@osn/auth-ui` | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `RecoveryCodesView`, `SessionsView`, `TotpView`, `ChangeEmailForm` | Each one is a client of a named OSN ceremony, and its shape is fixed by that protocol, not by our styling |
 | `@cire/ui` | cire's house style — gold primary, 4px corners | One product's own chrome |
 

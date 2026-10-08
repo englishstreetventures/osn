@@ -11,7 +11,7 @@
  * Ring classes applied to an avatar (img or initials span) to mark the
  * author as a close friend of the current viewer. Used by `RsvpAvatar`
  * — when it renders a row whose `isCloseFriend` flag is true, it appends
- * these classes via `cn()`.
+ * these classes with `clsx()`.
  *
  * Change the colour here and every close-friend affordance in the app
  * updates automatically.

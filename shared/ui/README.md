@@ -4,8 +4,8 @@ The primitives every product here renders — `Button`, `Card`, `Modal`, `Dialog
 `Field`, `Input`, `Select`, `Table`, `Notice`, `Chip`, `Stat`, `Meter`,
 `EmptyState`, `Avatar`, `Badge`, `Tabs`, `Popover`, `DropdownMenu`, `Checkbox`,
 `RadioGroup`, `OtpInput`, `UsernameInput`, `QrCode`, `InfoPopover` — plus
-`cn()` and `clsx()`. Zaidan-style: owned source on Kobalte and Tailwind v4, not
-a versioned dependency.
+`clsx()`. Zaidan-style: owned source on Kobalte and Tailwind v4, not a versioned
+dependency.
 
 ## What is not here
 
