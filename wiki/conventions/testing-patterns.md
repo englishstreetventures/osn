@@ -7,7 +7,7 @@ related:
   - "[[schema-layers]]"
   - "[[commands]]"
   - "[[bundle-size-guards]]"
-last-reviewed: 2026-10-07
+last-reviewed: 2026-10-08
 ---
 
 # Testing Patterns
@@ -168,6 +168,10 @@ describe("events routes", () => {
 - **Never hand-write a DDL mirror.** Test databases are built from the live Drizzle schema via `applySchema()` (`@osn/db/testing`, `@pulse/db/testing`, `@zap/db/testing`) — never a `CREATE TABLE` string in a helper or a test file. A hand-written mirror makes constraint tests tautological: they assert the `UNIQUE` the author typed a few lines above, not the one the schema declares, so dropping `.unique()` from `src/schema` leaves them green. See [[#Schema-derived test databases]].
 
 - **A test must fail for the reason it is named.** Before landing a test that asserts a side effect (a row written, a notice sent), break the code path and confirm the test goes red. `expect(true).toBe(true)` after an action asserts nothing. Three ways that check is passed by a test which still cannot fail — a timestamp tie, a `waitFor`ed absence, and a red-proof that ate its own fix — are in [[#Assertions that cannot fail]].
+
+- **Wait on the event, never on a fixed sleep.** A test that sleeps 10 ms for a forked fiber fails whenever a loaded CI runner takes longer. Have the forked effect resolve a `Promise.withResolvers()` promise and await that; if the work never runs, the test fails on Vitest's timeout ("is a no-op reference outside a request" in `osn/api/tests/lib/background.test.ts`).
+
+- **Freeze the clock before the first read when asserting whole seconds.** Code that stamps a deadline in unix seconds, followed by a test that reads the real clock again to move time forward, gives a different answer whenever a second boundary falls between the two reads. Call `vi.useFakeTimers({ toFake: ["Date"] })` and `vi.setSystemTime(base)` before the code under test first reads the clock, then move by whole seconds ("a rotation late in the window" in `osn/api/tests/services/recovery-session.test.ts`). Fake only `Date`: faking every timer stalls Effect's scheduler.
 
 - **Every Solid Vitest config names `shared/test-config/no-jest-dom.ts` in `setupFiles`.** `vite-plugin-solid` prepends `@testing-library/jest-dom/vitest` to `setupFiles` for every run, and only two things stop it — one of your own `setupFiles` paths matching the regex `/jest-dom/` (`getJestDomExport` in the plugin's `dist/esm/index.mjs`), or a browser-mode project, which it skips because Vitest's browser assertions carry the matchers already. That file is a marker whose whole job is to match the regex. It exports nothing and must stay that way; a package that wants real shared setup adds a second entry of its own. Since 2026-08 all 13 configs that import the plugin carry it, and `bun run check:jest-dom-markers` (the `Scripts` CI job) fails the build if one loses it. The guard is per **file**, not per project: `cire/host`'s browser project has no `setupFiles` and still takes the injection, which is harmless there because that package imports the matchers in eighteen files anyway.
 
