@@ -455,8 +455,8 @@ describe("SettingsPanel", () => {
   });
   /**
    * An owner's downloads of the rows held in modules the plan locks. The
-   * locked nav cards offer them too, but a keyboard cannot reach a button in
-   * a hover card; this list sits in the panel's own tab order.
+   * locked nav cards offer them too, one per card; this list gathers them in
+   * the panel's own tab order.
    */
   describe("downloads from locked modules", () => {
     /** Profile for the settings read, the given counts for `/module-rows`,

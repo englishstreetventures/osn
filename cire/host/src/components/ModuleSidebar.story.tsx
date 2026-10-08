@@ -92,10 +92,11 @@ const controls = { tier: { kind: "select", options: TIERS } } as const;
  * The wide surface. Every gated row starts locked, which is what a wedding on
  * Ivory, the free tier, sees.
  *
- * Rest a pointer on a locked row for three seconds, or tab to it and hold
- * focus for the same delay, or click it. All three open the same card, which
- * names the tier that includes the module; the click path is the only one a
- * touch device has, because the hover card ignores touch pointers outright.
+ * Rest a pointer on a locked row for three seconds, or click it, or tab to it
+ * and press Enter. Each opens the same card, which names the tier that
+ * includes the module. A press moves focus into the card; Tab carries on from
+ * its last button to the next row, and Escape comes back to the row. A resting
+ * pointer opens a preview that takes no focus and goes when the pointer does.
  */
 export const Rail = {
   args: { tier: "ivory" } satisfies Args,
@@ -105,10 +106,12 @@ export const Rail = {
     return (
       <div class="flex flex-col gap-5">
         <Guidance>
-          Dwell three seconds on a locked row, or click it. Clicking navigates nowhere and clicking
-          again closes the card — that is the whole response. Raise the tier in the panel and the
-          rows it includes go back to being ordinary nav buttons. The rows will not look faded here:
-          the lab does not resolve the portal's colour ramp, so judge the fade in the portal itself.
+          Dwell three seconds on a locked row, click it, or tab to it and press Enter. Clicking
+          navigates nowhere and clicking again closes the card — that is the whole response. From
+          the keyboard, Enter lands on Upgrade, Tab moves on to the next row and Escape comes back.
+          Raise the tier in the panel and the rows it includes go back to being ordinary nav
+          buttons. The rows will not look faded here: the lab does not resolve the portal's colour
+          ramp, so judge the fade in the portal itself.
         </Guidance>
         <Shell width="60rem" wide>
           <ModuleSidebar
@@ -132,10 +135,10 @@ export const Rail = {
  * The narrow surface — the phone. Switch the viewport to **phone** and the
  * container query hands over to the sheet on its own.
  *
- * This is the surface the locked row was nearly dead on: the card's trigger
- * drops every touch pointer, so dwell is unreachable here and the tap has to
- * carry it. The sheet's nav also scrolls, which is why the card is portalled —
- * an in-flow one would be clipped by the row's own container.
+ * This surface has no dwell at all: a touch has no hover, and an open card
+ * stands down the sheet's focus trap, so the card opens on a tap, a click or
+ * Enter only. The sheet's nav also scrolls, which is why the card is
+ * portalled — an in-flow one would be clipped by the row's own container.
  */
 export const Sheet = {
   args: { tier: "gold" } satisfies Args,

@@ -34,8 +34,11 @@ const RadioGroupItem: Component<RadioGroupItemProps> = (props) => {
       class={clsx("base:flex base:cursor-pointer base:items-center base:gap-1", local.class)}
       {...others}
     >
-      <KobalteRadioGroup.ItemInput />
-      <KobalteRadioGroup.ItemControl class="base:border-ui-hairline-strong base:bg-ui-ground base:data-[checked]:border-ui-accent base:focus-visible:ring-ui-focus base:aspect-square base:h-4 base:w-4 base:rounded-ui-pill base:border base:transition-colors base:focus-visible:ring-2 base:focus-visible:outline-none">
+      {/* Keyboard focus lands on this clipped input, never on the circle
+          beside it, so the circle draws its ring off the input's
+          `:focus-visible`. `peer` is that marker, not a utility. */}
+      <KobalteRadioGroup.ItemInput class="peer" />
+      <KobalteRadioGroup.ItemControl class="base:border-ui-hairline-strong base:bg-ui-ground base:data-[checked]:border-ui-accent base:peer-focus-visible:ring-ui-focus base:aspect-square base:h-4 base:w-4 base:rounded-ui-pill base:border base:transition-colors base:peer-focus-visible:ring-2">
         <KobalteRadioGroup.ItemIndicator class="base:after:bg-ui-accent base:flex base:items-center base:justify-center base:after:block base:after:h-2.5 base:after:w-2.5 base:after:rounded-full" />
       </KobalteRadioGroup.ItemControl>
       <KobalteRadioGroup.ItemLabel class="base:text-ui-base base:leading-none">

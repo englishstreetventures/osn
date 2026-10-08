@@ -298,9 +298,21 @@ id>'` on the wedding.
 ## The portal
 
 `UpgradeDialog` (`cire/host/src/components/UpgradeDialog.tsx`) is mounted
-**once** for the whole nav, not once per locked row. It sells the tier the
-row's lock names ([[cire-host-portal-layout]]):
+**once** for the whole nav, not once per locked row, and afresh for each offer.
+It sells the tier the row's lock names ([[cire-host-portal-layout]]):
 
+- It is a `Modal`, the platform `<dialog>` ([[native-dialog-over-kobalte]]):
+  Tab stays inside, Escape and the backdrop close it, and the page behind is
+  inert. Focus opens on **Cancel**, so an Enter held from the nav card never
+  carries on into a checkout. Closed, focus goes back to the locked row, or to
+  the sheet's trigger when the offer came from the sheet. `ModuleSidebar`
+  portals it to `<body>`: the sheet marks the app root `aria-hidden` while it
+  is open and lifts that a frame after it closes, so a dialog opened from the
+  sheet in place would take focus inside a hidden subtree.
+- A checkout that could not start is said inside the dialog, not in a toast:
+  the toaster sits behind the modal, inert, so its message would be painted and
+  never announced. A refusal that closes the dialog (`processing`,
+  `already_held`) closes it before it raises its toast.
 - It prices from the cached catalogue (`lib/upgrade-store.ts`), fetched the
   first time a dialog opens.
 - The eyebrow reads **Upgrade from Gold** when the entry's `fromTier` is Gold,

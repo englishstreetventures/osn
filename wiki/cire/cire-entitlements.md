@@ -257,16 +257,16 @@ predicate every surface uses: each `MODULE_NAV` entry with a `lock` names its
 - **`ModuleShell`** coerces a locked module to Overview: a deep link or a stale
   hash lands on a real view, and a locked module's panel never mounts.
 - **The rail and the sheet** keep a locked row visible but faded. Its accessible
-  name and its popover name the tier that includes it ("Included with Gold");
-  the popover's **Upgrade to Gold** button opens the purchase dialog
-  ([[cire-upgrades]]). For an owner, the Budget, Checklist and Registry
-  popovers also offer the rows the wedding holds there: they ask `GET …/module-rows` when
+  name and its card name the tier that includes it ("Included with Gold");
+  the card's **Upgrade to Gold** button opens the purchase dialog
+  ([[cire-upgrades]]), and a press on the row (Enter included) moves focus
+  straight to it. For an owner, the Budget, Checklist and Registry
+  cards also offer the rows the wedding holds there: they ask `GET …/module-rows` when
   first opened (cached per wedding in `cire/host/src/lib/module-rows-store.ts`)
   and show **Download as CSV** when the module holds rows, or when the count
   could not be read. `LOCKED_EXPORTS` in `cire/host/src/lib/locked-exports.ts`
-  maps each module to its file. A hover card's content takes no keyboard focus,
-  so Settings lists the same downloads for an owner in the page's own tab order
-  (`LockedModuleDownloads.tsx`). See [[cire-host-portal-layout]].
+  maps each module to its file. Settings lists the same downloads for an owner
+  in one place (`LockedModuleDownloads.tsx`). See [[cire-host-portal-layout]].
 - **Overview** shows no card for a locked module and makes no read for it:
   `/tasks`, `/budget` and `/vendors` answer 402 below their tier, and a refused
   tasks read would reject the whole snapshot and blank the guest and event
