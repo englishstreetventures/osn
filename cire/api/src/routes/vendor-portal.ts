@@ -4,7 +4,7 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
-import { osnAuth } from "../middleware/osn-auth";
+import { osnAuthResolve } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { runCire } from "../observability";
@@ -71,10 +71,10 @@ export interface VendorPortalDeps {
  * Vendor-facing portal routes (Vendors Slice 1, platform Phase 2):
  *
  *   GET  /api/vendor/claims/:token              — preview (no auth required)
- *   POST /api/vendor/claims/:token/consume      — consume claim; held for an operator (osnAuth + org member gate)
- *   GET  /api/vendor/orgs                       — the caller's OSN orgs (osnAuth)
- *   GET  /api/vendor/orgs/:orgId/listing        — read listing (osnAuth + org member gate)
- *   PUT  /api/vendor/orgs/:orgId/listing        — upsert listing; 409 while a claim is held (osnAuth + org member gate)
+ *   POST /api/vendor/claims/:token/consume      — consume claim; held for an operator (OSN sign-in + org member gate)
+ *   GET  /api/vendor/orgs                       — the caller's OSN orgs (OSN sign-in)
+ *   GET  /api/vendor/orgs/:orgId/listing        — read listing (OSN sign-in + org member gate)
+ *   PUT  /api/vendor/orgs/:orgId/listing        — upsert listing; 409 while a claim is held (OSN sign-in + org member gate)
  *
  * Mounted at /api/vendor (NOT under the wedding group — these are org-scoped,
  * not wedding-scoped). The claim preview is deliberately unauthenticated so the
@@ -84,8 +84,12 @@ export interface VendorPortalDeps {
  * handler (rather than as a group middleware plugin) because:
  *  - For /consume: orgId comes from the request body, not a URL param, so it
  *    cannot be derived at group level.
- *  - For /orgs/:orgId/*: inline is consistent and avoids multiple osnAuth
- *    plugin instances on the same Elysia instance.
+ *  - For /orgs/:orgId/*: inline is consistent and mounts the OSN check once
+ *    on this instance.
+ *
+ * The OSN check is `osnAuthResolve`, a before-handle hook, so the per-IP
+ * limiter mounted first refuses a request before its organiser session is
+ * looked up or its token verified.
  */
 export function createVendorPortalRoutes(
   db: Db,
@@ -115,7 +119,7 @@ export function createVendorPortalRoutes(
         );
       })
       // ── Auth-gated routes ───────────────────────────────────────────────────
-      .use(osnAuth(osnAuthOptions))
+      .use(osnAuthResolve(osnAuthOptions))
       // POST /api/vendor/claims/:token/consume
       // orgId comes from the body — gate is applied inline.
       .post(

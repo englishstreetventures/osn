@@ -13,7 +13,7 @@ import {
   metricAccountLinkUnlink,
 } from "../metrics";
 import { sessionAuth } from "../middleware/auth";
-import { osnAuth } from "../middleware/osn-auth";
+import { osnAuthResolve } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { runCire } from "../observability";
@@ -38,7 +38,7 @@ class OsnAccountLookupError extends Data.TaggedError("OsnAccountLookupError")<{
  * draws the account-link box without a request of its own. The POST link
  * lives in a separate instance ({@link createAccountLinkPostRoute}) because it
  * additionally requires an OSN token; keeping them apart is what method-gates
- * `osnAuth` to POST (the same sibling-instance pattern rsvp + organiser routes
+ * the OSN check to POST (the same sibling-instance pattern rsvp + organiser routes
  * use).
  *
  * Both instances share a per-IP `limiter` so a session can't drive unbounded
@@ -106,7 +106,7 @@ export const createAccountLinkRoutes = (
  *
  * The one deliberate dual-credential route: the guest session cookie (derives
  * `familyId`) proves the household; the OSN access token (derives
- * `osnProfileId`) proves the OSN identity. Both `sessionAuth` and `osnAuth`
+ * `osnProfileId`) proves the OSN identity. Both `sessionAuth` and `osnAuthResolve`
  * gate this instance, so the OSN gate applies to POST only — DELETE lives in
  * the sibling instance above. A seat in the organiser's host-preview family is
  * never linkable (403, like a seat from another household). The profile is resolved to its account id S2S
@@ -122,14 +122,13 @@ export const createAccountLinkPostRoute = (
   webOrigin = "http://localhost:4321",
 ) =>
   new Elysia({ prefix: PREFIX })
-    // The limiter answers before the guest session lookup (a before-handle
-    // resolve, mounted after it) and before the handler, so it gates the D1
-    // read, the ARC-sign + S2S amplifier and the family-membership oracle.
-    // `osnAuth` still resolves its credential in the transform phase, ahead of
-    // the limiter.
+    // Every check below is a before-handle hook, run in `.use` order: the
+    // limiter answers first, then the guest session lookup, then the OSN
+    // credential lookup, then the handler. A refused request costs no D1 read,
+    // no token verify, no ARC-sign + S2S call and no family-membership answer.
     .use(rateLimitMiddleware(limiter))
     .use(sessionAuth(db))
-    .use(osnAuth(osnAuthOptions))
+    .use(osnAuthResolve(osnAuthOptions))
     .post(
       "/",
       async ({ request, familyId, memberGuestId, osnProfileId, set }) => {
