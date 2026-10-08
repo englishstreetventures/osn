@@ -1646,15 +1646,13 @@ describe("cire/api over real D1 (Miniflare)", () => {
       "two weddings racing for a code's last use: one is raised, the other refused",
       async () => {
         const now = new Date();
-        await db
-          .insert(weddings)
-          .values({
-            id: "wed_race",
-            slug: "race",
-            displayName: "R",
-            createdAt: now,
-            updatedAt: now,
-          });
+        await db.insert(weddings).values({
+          id: "wed_race",
+          slug: "race",
+          displayName: "R",
+          createdAt: now,
+          updatedAt: now,
+        });
         await mintCode({ max: 2, used: 1 });
 
         const outcomes = await Promise.all([BOOTSTRAP_WEDDING_ID, "wed_race"].map(redeemAs));
