@@ -210,8 +210,8 @@ describe("POST /api/account/link", () => {
     };
 
     it("links on a live organiser session cookie alone", async () => {
-      const { db, res } = await linkWith(async (db) => ({
-        cookie: `cire_org_session=${await seedOrganiserSession(db, "usr_alice")}`,
+      const { db, res } = await linkWith(async (appDb) => ({
+        cookie: `cire_org_session=${await seedOrganiserSession(appDb, "usr_alice")}`,
       }));
       expect(res.status).toBe(201);
       expect(db.select().from(guestAccountLinks).all()[0]?.osnProfileId).toBe("usr_alice");
