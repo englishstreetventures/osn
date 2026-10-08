@@ -8,7 +8,8 @@ related:
   - "[[frontend-patterns]]"
   - "[[testing-patterns]]"
   - "[[backend-patterns]]"
-last-reviewed: 2026-09-30
+  - "[[d1-limits]]"
+last-reviewed: 2026-10-08
 ---
 
 # House lint rules
@@ -25,6 +26,18 @@ Each rule's own source file holds the full reasoning and the bug that prompted i
 | `no-base-variant-at-call-site` | error | A `base:` utility passed to one of our components from its call site |
 | `no-stacked-doc-block` | error | Two or more doc blocks in front of one declaration |
 | `no-tracker-ref-in-comment` | warn | A tracker issue, finding tag, phase code or history in a comment — see [[code-comments]] |
+| `no-unbounded-in-array` | error | An `inArray` or `notInArray` list whose length the source does not fix — one D1 parameter per element |
+
+## Suppressing a house rule
+
+A house rule is suppressed on the line it reports, with a reason after `--`:
+
+```ts
+// oxlint-disable-next-line house/no-unbounded-in-array -- at most 50 ids: one page, its limit clamped to 50 in routes/vendor-directory.ts
+.where(inArray(directoryVendorCategories.directoryVendorId, ids))
+```
+
+The reason states the fact that makes the reported code safe and where the code enforces it, so a reader can check it without the rule.
 
 ## Map-membership guards
 
@@ -47,3 +60,22 @@ The non-minting form is allowed only inside `peekCached*` and `hasCached*` funct
 ## `base:` at a call site
 
 A component's defaults use `base:` classes (`:where(&)`, zero specificity) so that a caller's **plain** utility wins. A caller that also writes `base:` ties on specificity, and the winner falls to the order Tailwind emitted the rules — visible nowhere at the call site. So a call site of one of our components (`@shared/ui`, `@osn/auth-ui`, `@cire/ui`, or a relative import) writes plain utilities. See [[component-library]].
+
+## Per-element `IN` lists
+
+drizzle's `inArray(column, list)` and `notInArray` bind one parameter per element of a JavaScript array. D1 refuses a statement with more than 100 bound parameters and `bun:sqlite` allows 999, so a list that outgrows the cap passes every test tier but the Miniflare one and fails only in production. [[d1-limits]] holds the numbers and the history.
+
+The rule reports the list argument of any `inArray` or `notInArray` imported from `drizzle-orm` unless the source fixes how many parameters it binds:
+
+| Passes | Why |
+|---|---|
+| `jsonEachIn(ids)` from `@shared/db-utils` | One bound JSON parameter, however long the list |
+| A query-builder chain with `.select(`, `.selectDistinct(` or `.selectDistinctOn(` | A subquery binds no list |
+| An array literal, spreading only a same-file `as const` tuple | Its length is written in the source |
+| A `sql` template | Judged as written, unless it interpolates `sql.join(…)` over anything but an array literal |
+| A same-file `const` bound to one of the above, or to an `as const` tuple | The same value under a name; a plain `const ids = []` can still be pushed to, so it does not pass |
+| A call to a same-file `const` arrow function whose expression body passes | A helper that returns a subquery |
+
+Everything else is reported: a parameter, a `let`, `body.ids`, `[...set]`, `[...map.keys()]`, any other call. Convert the list with `jsonEachIn`. Suppress instead only when a cap the code enforces keeps the whole statement under 100 parameters, and name that cap in the reason — a `safeLimit` slice, a clamped page size, a closed set of constants such as the paid tiers. A list bound twice in one statement, as in an `or` over both columns of an edge, counts twice.
+
+The rule cannot see a list built in another module, an array interpolated into a `sql` template by name, or a namespace import (`drizzle.inArray`). It does not cover the multi-row `.values(rows)` insert, which reaches the cap at one parameter per column per row.

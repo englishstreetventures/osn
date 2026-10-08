@@ -16,13 +16,14 @@ related:
   - "[[backend-patterns]]"
   - "[[social-graph]]"
   - "[[d1-read-replication]]"
+  - "[[house-lint-rules]]"
 packages:
   - "@shared/db-utils"
   - "@osn/api"
   - "@pulse/api"
   - "@cire/api"
   - "@zap/api"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 
 # D1 Limits
@@ -79,8 +80,11 @@ db.run(insertManyViaJsonEach(events, rows))      // 1 param for 200 rows
 
 SQLite flattens `col IN (SELECT value FROM json_each(?))` into a
 `LIST SUBQUERY` with a Bloom filter, so the outer query keeps its index seek —
-verified with `EXPLAIN QUERY PLAN` at every converted site. It also beat
-chunked `.values()` by 7–29× at the two insert sites measured.
+verified with `EXPLAIN QUERY PLAN` at every converted site, against the same
+statement with the list bound per element. It also beat chunked `.values()` by
+7–29× at the two insert sites measured.
+
+*Measured 2026-10-08 — each converted statement's plan read from the drizzle `logger` capture in the bind-count tests, on bun:sqlite, and on Miniflare for the `ORDER BY … LIMIT` shapes (the `@osn/api` export pages, the `@zap/api` export reads, the `@cire/api` vendor inbox): the same driving index in every one*
 
 Three things it cannot carry, all of which **throw** rather than write wrong
 data:
@@ -107,6 +111,10 @@ index seek into `SCAN c` and read twice the rows for an identical result.
 2. **Never bind per element.** A constant that happens to sit under the cap
    today is not a fix; it is the next bug. Lowering a cap to make a query legal
    usually swaps an error for silent truncation, which is worse.
+   `house/no-unbounded-in-array` fails lint on an `inArray` or `notInArray`
+   whose list the source does not fix; a list that a cap the code enforces
+   holds under 100 carries a suppression naming that cap. See
+   [[house-lint-rules]]. No rule covers the multi-row `.values(rows)` shape.
 3. **Verify on `bun run test:d1`.** No other tier enforces any of this. A
    regression test that seeds a realistic fixture is slow and imprecise —
    assert the emitted bound-parameter count with `.toSQL()` instead, with the
@@ -134,3 +142,5 @@ shows you. Cutting the count is one half; [[d1-read-replication]] is the other.
 | osn-tracker#596 | `zap`/`pulse` export caps | 100 ids binds 102 |
 | P-C1 on PR #853 | `osn/api` co-member fan-out, `UNION ALL` arms | 6 organisations |
 | P-C1 on PR #1377 | `cire/api` guest-data retention sweep, ten `IN` lists | 101 weddings or households |
+| First run of `house/no-unbounded-in-array` | `osn/api` profile search probes, list bound twice; organisation search | a page limit of 17 on a common handle prefix; 101 candidates |
+| First run of `house/no-unbounded-in-array` | `cire/api` premium-template read, invite events, import carried codes | 101 weddings, events or households |
