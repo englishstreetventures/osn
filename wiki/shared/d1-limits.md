@@ -86,6 +86,23 @@ statement with the list bound per element. It also beat chunked `.values()` by
 
 *Measured 2026-10-08 — each converted statement's plan read from the drizzle `logger` capture in the bind-count tests, on bun:sqlite, and on Miniflare for the `ORDER BY … LIMIT` shapes (the `@osn/api` export pages, the `@zap/api` export reads, the `@cire/api` vendor inbox): the same driving index in every one*
 
+Two costs the plan does not show:
+
+- **Rows read.** D1 counts every element `json_each` yields as a row read, so a
+  list of n ids adds n rows read to the statement, and 2n where the plan also
+  builds a Bloom filter from it. A users-by-id read of 50 ids goes from 100
+  rows read to 150. Rows written do not change.
+- **Statistics.** The plans above were compared with no `sqlite_stat1` table,
+  which is D1's state while nothing runs `ANALYZE` or `PRAGMA optimize`. With
+  statistics, SQLite costs `IN (SELECT …)` at a fixed 25 rows and a literal
+  list at its real length, and the two forms can plan differently: `ANALYZE`
+  turned the `@cire/api` vendor inbox's `json_each` form into a scan of
+  `weddings` when a few listings held most enquiries. Before running either
+  on a D1 database, re-check the `ORDER BY … LIMIT` statements, the inbox
+  first.
+
+*Measured 2026-10-09 — `meta.rows_read` and `EXPLAIN QUERY PLAN` on Miniflare D1 with synthetic data, before and after `ANALYZE`*
+
 Three things it cannot carry, all of which **throw** rather than write wrong
 data:
 
