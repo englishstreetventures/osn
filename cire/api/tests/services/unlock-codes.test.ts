@@ -188,6 +188,21 @@ describe("unlockCodeService.redeem", () => {
       expect(await redeem(db, "wed_a")).toEqual({ ok: false, tag: "UnlockCodeRefused" });
       expect(spent(db)).toBe(0);
     });
+
+    // A paid wedding typing a bad code gets the 404 too, never "already on
+    // Gold": the tier-held answer is only for a code that is live.
+    it.each([
+      ["an unknown code", {}, OTHER_CODE],
+      ["an expired code", { expiresAt: NOW }, CODE],
+      ["a used-up code", { max: 2, used: 2 }, CODE],
+    ] as const)("%s, on a wedding already on Gold", async (_label, code, typed) => {
+      const db = fresh();
+      seedWedding(db, "wed_gold", "gold");
+      seedCode(db, { ...code, tier: "crimson" });
+      const before = spent(db);
+      expect(await redeem(db, "wed_gold", typed)).toEqual({ ok: false, tag: "UnlockCodeRefused" });
+      expect(spent(db)).toBe(before);
+    });
   });
 
   it("still takes a code in its last second", async () => {
@@ -305,20 +320,77 @@ describe("unlockCodeService.redeem", () => {
     const db = fresh();
     seedWedding(db, "wed_a");
     seedWedding(db, "wed_crimson", "crimson");
+    seedWedding(db, "wed_open");
+    db.insert(weddingUpgradePurchases)
+      .values({
+        id: "upg_open",
+        weddingId: "wed_open",
+        entitlement: "gold",
+        fromTier: "ivory",
+        status: "pending",
+        checkoutSessionId: "cs_open",
+        createdByOsnProfileId: OWNER,
+        createdAt: NOW,
+        updatedAt: NOW,
+      })
+      .run();
     seedCode(db, { max: 5 });
     const before = {
       redeemed: await counterValue(METRIC, { outcome: "redeemed" }),
       refused: await counterValue(METRIC, { outcome: "refused" }),
       held: await counterValue(METRIC, { outcome: "already_held" }),
+      open: await counterValue(METRIC, { outcome: "purchase_in_flight" }),
     };
 
     await redeem(db, "wed_a");
     await redeem(db, "wed_a", OTHER_CODE);
     await redeem(db, "wed_crimson");
+    await redeem(db, "wed_open");
 
     expect(await counterValue(METRIC, { outcome: "redeemed" })).toBe(before.redeemed + 1);
     expect(await counterValue(METRIC, { outcome: "refused" })).toBe(before.refused + 1);
     expect(await counterValue(METRIC, { outcome: "already_held" })).toBe(before.held + 1);
+    expect(await counterValue(METRIC, { outcome: "purchase_in_flight" })).toBe(before.open + 1);
+  });
+
+  describe("when a write fails", () => {
+    /** Make raising the tier fail as a driver error would, after the code's
+     *  row has been read. */
+    function failTierWrites(db: TestDb) {
+      db.$client.exec(
+        "CREATE TRIGGER fail_tier_update BEFORE UPDATE OF tier ON weddings BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+      );
+    }
+
+    it("fails with UnlockCodeWriteError, never as a refusal of a good code", async () => {
+      const db = fresh();
+      seedWedding(db, "wed_a");
+      seedCode(db);
+      failTierWrites(db);
+      const failure = await Effect.runPromise(
+        unlockCodeService
+          .redeem({ weddingId: "wed_a", osnProfileId: OWNER, unlockCode: CODE, now: NOW })
+          .pipe(Effect.flip, Effect.provideService(DbService, db)),
+      );
+      expect(failure._tag).toBe("UnlockCodeWriteError");
+    });
+
+    it("logs the failure without the code or its hash", async () => {
+      const db = fresh();
+      seedWedding(db, "wed_a");
+      seedCode(db);
+      failTierWrites(db);
+      const logs = await captureLogs(() =>
+        runCire(
+          unlockCodeService
+            .redeem({ weddingId: "wed_a", osnProfileId: OWNER, unlockCode: CODE, now: NOW })
+            .pipe(Effect.ignore, Effect.provideService(DbService, db)),
+        ),
+      );
+      expect(logs).toContain("unlock code redemption failed");
+      expect(logs).not.toContain(CODE);
+      expect(logs).not.toContain(hashRecoveryCode(CODE));
+    });
   });
 
   it("never writes the code, or its hash, to a log line", async () => {

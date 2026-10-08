@@ -92,4 +92,37 @@ describe("UnlockCodeDialog", () => {
     fireEvent.click(useButton());
     expect(await screen.findByText(/check your connection/i)).toBeInTheDocument();
   });
+
+  it("sends one request while one is in flight, and holds the dialog open under it", async () => {
+    // A second POST would come back 404 (this wedding has now used the code)
+    // and leave a "not valid" error behind a success.
+    authFetchMock.mockReturnValue(new Promise(() => {}));
+    const { input } = open();
+    fireEvent.input(input, { target: { value: "3f9a-0c1e-b7d2-48aa" } });
+    const form = input.closest("form")!;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(await screen.findByRole("button", { name: "Checking…" })).toBeDisabled();
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+    expect(input).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("forgets the code and its error on Cancel", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ error: "unlock_code_invalid" }, 404));
+    const { input } = open();
+    fireEvent.input(input, { target: { value: "0000-0000-0000-0000" } });
+    fireEvent.click(useButton());
+    await screen.findByText(/that code is not valid/i);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Have a code?" }));
+
+    expect((screen.getByLabelText("Code") as HTMLInputElement).value).toBe("");
+    expect(screen.queryByText(/that code is not valid/i)).toBeNull();
+  });
 });

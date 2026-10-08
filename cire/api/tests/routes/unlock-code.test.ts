@@ -16,6 +16,7 @@ import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { PaidTier, Tier } from "../../src/services/tiers";
 import { appRequest, jsonBody, setTier } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -184,6 +185,13 @@ describe("POST …/unlock-code", () => {
     expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
   });
 
+  it("takes a code at the 64-character bound to the service, not the 400", async () => {
+    const { app } = buildApp();
+    const res = await redeem(app, OWNER, { unlockCode: "a".repeat(64) });
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "unlock_code_invalid" });
+  });
+
   it("limits attempts per organiser", async () => {
     const { app } = buildApp({ limiter: createRateLimiter({ maxRequests: 2, windowMs: 60_000 }) });
     expect((await redeem(app, OWNER, { unlockCode: "0000-0000-0000-0001" })).status).toBe(404);
@@ -191,5 +199,75 @@ describe("POST …/unlock-code", () => {
     const third = await redeem(app, OWNER, { unlockCode: CODE });
     expect(third.status).toBe(429);
     expect(third.headers.get("retry-after")).toBe("60");
+  });
+
+  it("refuses a stranger at the gate, before the limiter counts them", async () => {
+    const { app } = buildApp({ limiter: createRateLimiter({ maxRequests: 2, windowMs: 60_000 }) });
+    // Were the limiter mounted first, the third would be a 429.
+    expect((await redeem(app, STRANGER, { unlockCode: CODE })).status).toBe(403);
+    expect((await redeem(app, STRANGER, { unlockCode: CODE })).status).toBe(403);
+    expect((await redeem(app, STRANGER, { unlockCode: CODE })).status).toBe(403);
+  });
+
+  it("answers a failed write with 500 and spends nothing it can see", async () => {
+    const { app, db } = buildApp();
+    mint(db);
+    db.$client.exec(
+      "CREATE TRIGGER fail_tier_update BEFORE UPDATE OF tier ON weddings BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+    );
+    const res = await redeem(app, OWNER, { unlockCode: CODE });
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "internal" });
+    expect(tierOf(db)).toBe("ivory");
+  });
+});
+
+describe("POST …/unlock-code with the portal's session cookie", () => {
+  /** A request carrying the organiser session cookie, as the portal sends it. */
+  function withCookie(app: Built["app"], token: string, origin?: string): Promise<Response> {
+    const headers: Record<string, string> = {
+      cookie: `cire_org_session=${token}`,
+      "Content-Type": "application/json",
+    };
+    if (origin) headers.Origin = origin;
+    return appRequest(app, PATH, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ unlockCode: CODE }),
+    });
+  }
+
+  const spent = (db: Built["db"]) => db.select().from(unlockCodes).get()?.redeemedCount;
+
+  it("lets the owner in with a live session", async () => {
+    const { app, db } = buildApp();
+    mint(db);
+    const res = await withCookie(app, await seedOrganiserSession(db, OWNER));
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ tier: "gold" });
+    expect(tierOf(db)).toBe("gold");
+  });
+
+  it("refuses a cookie naming no live session, and a malformed bearer, spending nothing", async () => {
+    const { app, db } = buildApp();
+    mint(db);
+    expect((await withCookie(app, "not-a-live-session-token")).status).toBe(401);
+    const bearer = await appRequest(app, PATH, {
+      method: "POST",
+      headers: { Authorization: "Bearer not.a.jwt", "Content-Type": "application/json" },
+      body: JSON.stringify({ unlockCode: CODE }),
+    });
+    expect(bearer.status).toBe(401);
+    expect(tierOf(db)).toBe("ivory");
+    expect(spent(db)).toBe(0);
+  });
+
+  it("refuses a cross-origin request carrying a live session cookie", async () => {
+    const { app, db } = buildApp();
+    mint(db);
+    const res = await withCookie(app, await seedOrganiserSession(db, OWNER), "http://evil.example");
+    expect(res.status).toBe(403);
+    expect(tierOf(db)).toBe("ivory");
+    expect(spent(db)).toBe(0);
   });
 });

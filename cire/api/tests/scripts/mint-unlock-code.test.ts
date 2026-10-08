@@ -37,6 +37,10 @@ describe("parseMintArgs", () => {
     });
   });
 
+  it("accepts the most uses it allows", () => {
+    expect(parseMintArgs(args("--tier gold --uses 1000 --by ops"), NOW).uses).toBe(1000);
+  });
+
   it("accepts today as the last day", () => {
     expect(parseMintArgs(args("--tier gold --expires 2026-10-08 --by ops"), NOW).expiresAt).toEqual(
       new Date("2026-10-09T00:00:00.000Z"),

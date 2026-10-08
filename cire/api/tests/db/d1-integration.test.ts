@@ -1643,6 +1643,29 @@ describe("cire/api over real D1 (Miniflare)", () => {
     );
 
     it(
+      "rolls the whole batch back when its last write fails: nothing is spent",
+      async () => {
+        await mintCode({ max: 1, used: 0 });
+        // Statements 1 and 2 succeed; raising the tier, statement 3, fails.
+        await d1
+          .prepare(
+            "CREATE TRIGGER fail_tier_update BEFORE UPDATE OF tier ON weddings BEGIN SELECT RAISE(ABORT, 'boom'); END",
+          )
+          .run();
+        try {
+          expect(await redeemAs(BOOTSTRAP_WEDDING_ID)).toBe("UnlockCodeWriteError");
+          expect(await db.select().from(unlockCodeRedemptions)).toHaveLength(0);
+          const [code] = await db.select({ n: unlockCodes.redeemedCount }).from(unlockCodes);
+          expect(code?.n).toBe(0);
+        } finally {
+          // beforeEach clears rows, not triggers.
+          await d1.prepare("DROP TRIGGER IF EXISTS fail_tier_update").run();
+        }
+      },
+      MF_TIMEOUT_MS,
+    );
+
+    it(
       "two weddings racing for a code's last use: one is raised, the other refused",
       async () => {
         const now = new Date();
