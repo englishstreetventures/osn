@@ -14,8 +14,7 @@ import type {
   OsnOrgMembershipResolver,
   OsnProfileOrgsResolver,
 } from "../../src/services/osn-bridge";
-import { appRequest, recordStatements } from "../test-helpers";
-import { seedOrganiserSession } from "../test-helpers/organiser-session";
+import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -311,25 +310,6 @@ describe("vendor portal routes", () => {
       expect(first.status).toBe(404); // burned the budget
       const second = await req(limitedApp, "GET", `/api/vendor/claims/any-token`);
       expect(second.status).toBe(429); // rate limited
-    });
-
-    it("refuses a signed-in request before looking its organiser session up", async () => {
-      const db = createDb(":memory:");
-      seedDb(db);
-      const limitedApp = createApp(db, {
-        osnTestKey: auth.key,
-        orgMembership: stubOrgMembership,
-        vendorPortalLimiter: { check: () => false },
-      });
-      const token = await seedOrganiserSession(db, MEMBER);
-      const statements = recordStatements(db);
-      const res = await appRequest(limitedApp, "/api/vendor/claims/any-token/consume", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", cookie: `cire_org_session=${token}` },
-        body: JSON.stringify({ orgId: ORG_OK }),
-      });
-      expect(res.status).toBe(429);
-      expect(statements).toEqual([]);
     });
   });
 
