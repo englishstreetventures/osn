@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  branchSlug,
   readRecordsForBranch,
   recordsByBranch,
   resolveDispatchBranch,
@@ -748,6 +749,40 @@ test("the branch-cutting blocks new-feat and orchestrate instruct resolve to the
       expect(resolveSessionBranch(file)).toBe("feat/x");
     } finally {
       await rm(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+// The name check looks for the card `branchSlug` would write. A shell pipeline
+// that drifted from it would look for a file that never exists and report a used
+// name as free. The pipeline is read out of each skill and run as written.
+test("the name check's shell slug names the file branchSlug writes", async () => {
+  for (const skillPath of [
+    "../../../.claude/skills/new-feat/SKILL.md",
+    "../../../.claude/skills/orchestrate/SKILL.md",
+  ]) {
+    const skill = await Bun.file(new URL(skillPath, import.meta.url).pathname).text();
+    const line = skill
+      .split("\n")
+      .find((l) => l.includes("cat-file -e") && l.includes(".claude/metrics/"));
+    const pipeline = /\$\((printf .*?)\)\.json/.exec(line ?? "")?.[1];
+    const placeholder = /'(<[^']*>)'/.exec(pipeline ?? "")?.[1];
+
+    expect(pipeline).toBeDefined();
+    expect(placeholder).toBeDefined();
+
+    for (const name of [
+      "feat/a-b",
+      "fix/x_y",
+      "feat//x",
+      "/lead/trail/",
+      "feat/a.b@c",
+      "chore/it+works",
+    ]) {
+      const command = pipeline!.replace(placeholder!, name);
+      const slug = Bun.spawnSync(["sh", "-c", command]).stdout.toString();
+
+      expect(slug).toBe(branchSlug(name));
     }
   }
 });

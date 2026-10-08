@@ -1198,11 +1198,11 @@ export function branchSlug(branch: string): string {
  * nothing. A `SessionEnd` hook killed at its timeout leaves exactly such a
  * file, so the case is reachable rather than hypothetical.
  *
- * Both readers go through here, and that is deliberate: `--if-absent` has to
- * treat as absent whatever the writer would replace, or the fallback ends up
- * defending a file nobody can read.
+ * The CLI reads the file once, through here, and every check uses that read:
+ * `--if-absent` has to treat as absent whatever the writer would replace, or
+ * the fallback ends up defending a file nobody can read.
  */
-function readCardFile(path: string, branch?: string): Card | null {
+function readCardFile(path: string): Card | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(require("node:fs").readFileSync(path, "utf8") as string);
@@ -1212,18 +1212,9 @@ function readCardFile(path: string, branch?: string): Card | null {
 
   if (typeof parsed !== "object" || parsed === null) return null;
   if (!("pr" in parsed) || !("spend" in parsed) || !("interaction" in parsed)) return null;
+  if (typeof parsed.pr !== "object" || parsed.pr === null) return null;
 
-  const card = parsed as Card;
-  // `branchSlug` turns `/` and anything else outside `[A-Za-z0-9._-]` into
-  // `-`, so `feat/a-b` and `feat-a-b` land on one file. `.claude/metrics/` is
-  // tracked, so every worktree already holds every merged branch's card:
-  // without this check `--if-absent` would read a colliding neighbour as this
-  // branch's card and leave that other branch's spend and `tool_calls` standing
-  // as this one's public record — silently, since the hook discards its output.
-  // Whether the neighbour may then be replaced is `otherPullRequest`'s call.
-  if (branch !== undefined && card.pr.branch !== branch) return null;
-
-  return card;
+  return parsed as Card;
 }
 
 /**
@@ -1987,6 +1978,17 @@ if (import.meta.main) {
   const outDir = flag("out-dir") ?? defaultMetricsDir();
   const outPath = `${outDir}/${branchSlug(branch)}.json`;
 
+  // One read serves every check below. `branchSlug` turns `/` and anything
+  // else outside `[A-Za-z0-9._-]` into `-`, so `feat/a-b` and `feat-a-b` land
+  // on one file, and `.claude/metrics/` is tracked, so every worktree already
+  // holds every merged branch's card. `ownCard` is the card only when it is
+  // this branch's: without that, `--if-absent` would read a colliding
+  // neighbour as this branch's card and leave that other branch's spend and
+  // `tool_calls` standing as this one's public record — silently, since the
+  // hook discards its output.
+  const onDisk = readCardFile(outPath);
+  const ownCard = onDisk !== null && onDisk.pr.branch === branch ? onDisk : null;
+
   // Checked here rather than beside the write below so the fallback costs one
   // read and not a transcript scan — `SessionEnd` hooks run on a timeout.
   // `--format markdown` writes nothing at all, so it is never what is skipped.
@@ -1997,22 +1999,12 @@ if (import.meta.main) {
   // truncated file, and a guard keyed on existence alone would then protect
   // that forever, with nothing but a human running `retro` to repair it.
   const skipExisting =
-    Bun.argv.includes("--if-absent") &&
-    flag("format") !== "markdown" &&
-    readCardFile(outPath, branch) !== null;
+    Bun.argv.includes("--if-absent") && flag("format") !== "markdown" && ownCard !== null;
 
   if (skipExisting) {
     console.log(`pr-metrics: ${outPath} already exists — leaving it alone (--if-absent).`);
     process.exit(0);
   }
-
-  const sessionsDir = flag("sessions-dir") ?? `${process.env.HOME}/.claude/projects`;
-  const base = flag("base") ?? "origin/main";
-  const records = readRecordsForBranch(sessionsDir, branch, { repoPaths: repoProjectPaths() });
-
-  const numstat = git(["diff", "--numstat", `${base}...HEAD`]);
-  const commits = git(["rev-list", "--count", `${base}..HEAD`]);
-  const diff = parseNumstat(numstat, Number.parseInt(commits, 10) || 0);
 
   const issueLabels = (flag("issue-labels") ?? "").split(",").filter(Boolean);
 
@@ -2032,9 +2024,45 @@ if (import.meta.main) {
       ? resolveIdentity(branch)
       : null;
 
+  const prNumber = flag("pr")
+    ? Number.parseInt(flag("pr") as string, 10)
+    : (resolved?.prNumber ?? null);
+
+  // Checked before a single transcript is read, since a refused run would
+  // discard the scan, and before the markdown render as well as the write:
+  // `retro` appends that render to the pull-request body, and it is built from
+  // the same mixed transcripts the card would be. Against `onDisk`, not
+  // `ownCard`, because a slug neighbour's card is another pull request's
+  // record too.
+  const owner = otherPullRequest(onDisk, prNumber);
+
+  if (owner !== null) {
+    const thisRun = prNumber === null ? "names no pull request" : `is for #${prNumber}`;
+    process.stderr.write(
+      [
+        `❌ pr-metrics: ${outPath} is the card for pull request #${owner}, and this run ${thisRun}.`,
+        "   Transcripts are joined to a card by branch name alone, so this card would carry",
+        `   #${owner}'s sessions as well. Nothing was written.`,
+        "   - `gh` named the wrong pull request, or none: pass --pr <n>.",
+        `   - The branch name was reused: this branch cannot be carded apart from #${owner}. Report it.`,
+        `   - Both pull requests are one piece of work: delete ${outPath} and run again.`,
+        "",
+      ].join("\n"),
+    );
+    process.exit(1);
+  }
+
+  const sessionsDir = flag("sessions-dir") ?? `${process.env.HOME}/.claude/projects`;
+  const base = flag("base") ?? "origin/main";
+  const records = readRecordsForBranch(sessionsDir, branch, { repoPaths: repoProjectPaths() });
+
+  const numstat = git(["diff", "--numstat", `${base}...HEAD`]);
+  const commits = git(["rev-list", "--count", `${base}..HEAD`]);
+  const diff = parseNumstat(numstat, Number.parseInt(commits, 10) || 0);
+
   const card = buildCard(records, diff, {
     branch,
-    prNumber: flag("pr") ? Number.parseInt(flag("pr") as string, 10) : (resolved?.prNumber ?? null),
+    prNumber,
     issueNumber: flag("issue")
       ? Number.parseInt(flag("issue") as string, 10)
       : (resolved?.issueNumber ?? null),
@@ -2052,28 +2080,6 @@ if (import.meta.main) {
     generatedAt: new Date().toISOString(),
   });
 
-  // Checked before the markdown render as well as the write: `retro` appends
-  // that render to the pull-request body, and it is built from the same mixed
-  // transcripts the card would be. Read without the branch filter, because a
-  // slug neighbour's card is another pull request's record too.
-  const owner = otherPullRequest(readCardFile(outPath), card.pr.number);
-
-  if (owner !== null) {
-    const thisRun = card.pr.number === null ? "names no pull request" : `is for #${card.pr.number}`;
-    process.stderr.write(
-      [
-        `❌ pr-metrics: ${outPath} is the card for pull request #${owner}, and this run ${thisRun}.`,
-        "   Transcripts are joined to a card by branch name alone, so this card would carry",
-        `   #${owner}'s sessions as well. Nothing was written.`,
-        "   - `gh` named the wrong pull request, or none: pass --pr <n>.",
-        `   - The branch name was reused: this branch cannot be carded apart from #${owner}. Report it.`,
-        `   - Both pull requests are one piece of work: delete ${outPath} and run again.`,
-        "",
-      ].join("\n"),
-    );
-    process.exit(1);
-  }
-
   // `--format markdown` prints the `<details>` block on stdout and writes
   // nothing, so `retro` can append it to a pull-request body without a
   // temporary file and without the warnings below landing in the markdown.
@@ -2085,9 +2091,7 @@ if (import.meta.main) {
   // A re-run on the same branch is common — `retro` writes the card, then the
   // review adds a commit and it is written again. Where nothing but the
   // timestamp moved, leave the file as it stands.
-  const existingCard = readCardFile(outPath, branch);
-
-  if (existingCard === null || !sameApartFromGeneratedAt(existingCard, card)) {
+  if (ownCard === null || !sameApartFromGeneratedAt(ownCard, card)) {
     require("node:fs").mkdirSync(outDir, { recursive: true });
     require("node:fs").writeFileSync(outPath, `${JSON.stringify(card, null, 2)}\n`);
   }

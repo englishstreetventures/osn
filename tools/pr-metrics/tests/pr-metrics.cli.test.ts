@@ -731,10 +731,44 @@ test("the CLI refuses to write over another pull request's card", async () => {
 // `retro` renders the pull-request block from the same run. Built over the same
 // mixed transcripts, it must not reach the second pull request's body either.
 test("the CLI refuses to render the markdown block over another pull request's card", async () => {
-  const { exitCode, stdout } = await run(["--pr", "1"], 2, ["--pr", "2", "--format", "markdown"]);
+  const { exitCode, stdout, stderr } = await run(["--pr", "1"], 2, [
+    "--pr",
+    "2",
+    "--format",
+    "markdown",
+  ]);
 
   expect(exitCode).toBe(1);
   expect(stdout).not.toContain("<details>");
+  // A crash also exits 1 with nothing on stdout; the message is what tells
+  // `retro` it was refused, and why.
+  expect(stderr).toContain("is the card for pull request #1");
+});
+
+// A failed `gh` lookup, or the `SessionEnd` fallback before a pull request
+// exists, gives a run with no pull request of its own. It cannot show the card
+// on disk is its own, and the fallback's `|| true` would hide the overwrite.
+// An empty `--pr` reads as absent, the same as no flag.
+test("the CLI refuses a run that names no pull request over a card that names one", async () => {
+  const { exitCode, stderr, writes } = await run([], 2, ["--pr", ""]);
+
+  expect(exitCode).toBe(1);
+  expect(stderr).toContain("names no pull request");
+  expect(writes[1]!.text).toBe(writes[0]!.text);
+});
+
+// JSON that parses with a `pr` that is not an object is no card a reader could
+// use, the same as a truncated file, and is replaced rather than crashed on.
+test("the CLI replaces a file whose pr is not an object", async () => {
+  const { exitCode, card } = await run([], 2, [], ({ outPath }) => {
+    require("node:fs").writeFileSync(
+      outPath,
+      '{"schema_version":1,"pr":null,"spend":{},"interaction":{}}',
+    );
+  });
+
+  expect(exitCode).toBe(0);
+  expect(card.pr.number).toBe(908);
 });
 
 // The fallback's identity-less card names no pull request, and is there to be
