@@ -10,8 +10,10 @@ import {
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
+import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
+import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import { createAssetsStub, MAX_IMAGE_BYTES } from "../../src/services/invite-assets";
@@ -21,6 +23,7 @@ import type {
 } from "../../src/services/invite-image-transform";
 import type { LinkPreviewOptions } from "../../src/services/link-preview";
 import { MONTHLY_THUMB_TRANSFORMS } from "../../src/services/link-thumbnail";
+import { organiserSessionService } from "../../src/services/organiser-session";
 import type {
   GiftLogEntryDto,
   RegistryItemDto,
@@ -1680,6 +1683,43 @@ describe("GET /registry/image/:name", () => {
     expect((await revalidate(STRANGER)).status).toBe(403);
     setTier(db!, BOOTSTRAP_WEDDING_ID, "ivory");
     expect((await revalidate(VIEWER)).status).toBe(402);
+  });
+
+  // The portal loads the image through `authFetch`, which carries the
+  // organiser session cookie, so a sign-out has to stop the 304 on that path.
+  it("revalidates through the session cookie, and refuses it once the session is revoked", async () => {
+    let db: ReturnType<typeof createDb> | undefined;
+    let token: Promise<string> = Promise.resolve("");
+    const app = buildApp({
+      tier: "gold",
+      assets: createAssetsStub(),
+      seed: (handle) => {
+        db = handle;
+        token = seedOrganiserSession(handle, VIEWER);
+      },
+    });
+    const path = `${base}/image/${nameOf(await uploadOne(app))}`;
+    const cookie = `cire_org_session=${await token}`;
+
+    const first = await appRequest(app, path, { headers: { cookie } });
+    expect(first.status).toBe(200);
+    const etag = first.headers.get("etag") ?? "";
+    expect(etag).not.toBe("");
+
+    const kept = await appRequest(app, path, { headers: { cookie, "If-None-Match": etag } });
+    expect(kept.status).toBe(304);
+    expect(kept.headers.get("cache-control")).toBe("private, max-age=3600");
+
+    const forged = await appRequest(app, path, {
+      headers: { cookie: "cire_org_session=not-a-live-session-token", "If-None-Match": etag },
+    });
+    expect(forged.status).toBe(401);
+
+    await Effect.runPromise(
+      organiserSessionService.revoke(await token).pipe(Effect.provideService(DbService, db!)),
+    );
+    const signedOut = await appRequest(app, path, { headers: { cookie, "If-None-Match": etag } });
+    expect(signedOut.status).toBe(401);
   });
 
   it("404s a name that is not a registry key, and never leaves the wedding's prefix", async () => {

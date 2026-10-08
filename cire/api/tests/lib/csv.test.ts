@@ -52,6 +52,8 @@ describe("sanitiseCsvCell", () => {
     // A format character outside the Basic Multilingual Plane (a tag letter).
     expect(sanitiseCsvCell("\u{E0041}=1")).toBe("\u{E0041}'=1");
     expect(sanitiseCsvCell("x;‍=1")).toBe("x;‍'=1");
+    expect(sanitiseCsvCell("\u007f=1")).toBe("\u007f'=1");
+    expect(sanitiseCsvCell("x;\u2028=1")).toBe("x;\u2028'=1");
     // A `"` that a `;`-separated reading may take as an empty quoted value.
     expect(sanitiseCsvCell('x;"=1')).toBe("x;\"'=1");
   });
@@ -174,5 +176,65 @@ describe("serialiseCsv", () => {
 
   it("guards header cells as well as data cells", () => {
     expect(serialiseCsv(["+1 Drinks"], [["x;=1"]])).toBe("'+1 Drinks\r\nx;'=1");
+  });
+});
+
+// The guard's two promises, checked over generated values rather than a list:
+// no segment of a guarded value starts with a bare marker, whatever a reader
+// skips first, and the import's inverse gives the value back exactly.
+describe("sanitiseCsvCell and unguardCsvCell over generated values", () => {
+  const ALPHABET = [
+    "a",
+    "Z",
+    "1",
+    " ",
+    "'",
+    '"',
+    "=",
+    "+",
+    "-",
+    "@",
+    ";",
+    ",",
+    "\t",
+    "\r",
+    "\n",
+    "\u0000",
+    "\u007f",
+    "\u0085",
+    "\u00a0",
+    "\u00ad",
+    "\u200b",
+    "\u2028",
+    "\ufeff",
+    "\u{E0041}",
+    "\ud800",
+    "\u00e9",
+  ];
+  // A seeded generator, so a failure names a value that reproduces.
+  function random(seed: number) {
+    let state = seed;
+    return () => {
+      state = (state + 0x6d2b79f5) | 0;
+      let t = Math.imul(state ^ (state >>> 15), 1 | state);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const SKIPPED = /^[\s\p{Cc}\p{Cf}"]*/u;
+  const startsBare = (segment: string) => /^[=+\-@]/.test(segment.replace(SKIPPED, ""));
+
+  it("leaves no segment starting with a bare marker, and round-trips", () => {
+    const next = random(20261008);
+    for (let i = 0; i < 20_000; i++) {
+      let value = "";
+      const length = Math.floor(next() * 12);
+      for (let j = 0; j < length; j++) value += ALPHABET[Math.floor(next() * ALPHABET.length)];
+      const guarded = sanitiseCsvCell(value);
+      const bare = guarded.split(/[;\t\r\n]/).filter(startsBare);
+      if (bare.length > 0 || unguardCsvCell(guarded) !== value) {
+        throw new Error(`guard failed for ${JSON.stringify(value)} → ${JSON.stringify(guarded)}`);
+      }
+    }
   });
 });

@@ -986,6 +986,18 @@ describe("parseEventsCsv — { snapshot: true } (checkpoint before-image)", () =
     });
   });
 
+  // A before-image is written without the download's guard, so a `'` in it
+  // is part of the stored value.
+  it("keeps a stored value's leading quote", async () => {
+    const csv = [
+      HEADER,
+      "'=Stored,2026-09-18T16:00:00+10:00,UTC+10,,'-12 Smith Street,,evt_1",
+    ].join("\n");
+    const [event] = await Effect.runPromise(parseEventsCsv(csv, { snapshot: true }));
+    expect(event!.name).toBe("'=Stored");
+    expect(event!.address).toBe("'-12 Smith Street");
+  });
+
   it("re-stamps the offset from a zone that resolves", async () => {
     const csv = [HEADER, "Mehndi,2026-11-14T15:00:00+10:00,Australia/Sydney,,,,evt_1"].join("\n");
     const [event] = await Effect.runPromise(parseEventsCsv(csv, { snapshot: true }));

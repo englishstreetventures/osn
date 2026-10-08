@@ -311,6 +311,11 @@ describe("a failed read or write", () => {
     const put = await req(app, "PUT", `${base}/digest`, OWNER, { enabled: false });
     expect(put.status).toBe(500);
     expect(await jsonBody(put)).toEqual({ error: "Internal error" });
+    // The card's gate reads the notice row itself; its failure is a 500 too,
+    // never a 404 that would say the wedding is gone.
+    const card = await req(app, "GET", base, OWNER);
+    expect(card.status).toBe(500);
+    expect(await jsonBody(card)).toEqual({ error: "Internal error" });
   });
 });
 
