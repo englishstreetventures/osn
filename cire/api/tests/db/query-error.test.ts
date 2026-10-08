@@ -46,6 +46,30 @@ describe("DrizzleQueryError, as patched", () => {
   });
 });
 
+describe("driverErrorText", () => {
+  it("reads a message and its causes by shape, from any realm", () => {
+    expect(driverErrorText({ message: "outer", cause: { message: "inner" } })).toBe("outer\ninner");
+    expect(driverErrorText(new Error("a", { cause: new Error("b") }))).toBe("a\nb");
+  });
+
+  it("skips a message that is not text and still reads the cause", () => {
+    expect(driverErrorText({ message: 42, cause: { message: "x" } })).toBe("x");
+  });
+
+  it("ends on a cause chain that loops back on itself", () => {
+    const looped = new Error("again");
+    looped.cause = looped;
+    const text = driverErrorText(looped);
+    expect(text.split("\n").length).toBeLessThanOrEqual(8);
+    expect(text.startsWith("again")).toBe(true);
+  });
+
+  it("reads nothing from a value that is not an error", () => {
+    expect(driverErrorText("NOT NULL constraint failed")).toBe("");
+    expect(driverErrorText(undefined)).toBe("");
+  });
+});
+
 describe("a real D1 failure", () => {
   let mf: Miniflare;
   let db: Db;

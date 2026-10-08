@@ -1888,6 +1888,55 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "a refused RSVP save with more attested replies than one D1 batch holds writes nothing",
+    async () => {
+      // Pat's 51 attested replies come first in the body, Sam's one last. Each
+      // plus-one's name is tested in the first batch, so Sam's rename refuses
+      // the save before any of Pat's replies commit.
+      const eventIds = Array.from({ length: 51 }, (_, i) => `evt_wide_${i}`);
+      for (const [i, id] of eventIds.entries()) {
+        await db.insert(events).values({
+          id,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: `wide-${i}`,
+          name: `Wide ${i}`,
+          description: "",
+          startAt: "",
+          endAt: "",
+          timezone: "",
+          sortOrder: 90 + i,
+        });
+      }
+      await db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, GUEST_2));
+      const pat = await run(
+        plusOneService.save(FAMILY_ID, GUEST_2, { firstName: "Pat", lastName: "" }),
+      );
+      const samId = await plusOneRenamedSinceRead();
+      const inputs = [
+        ...eventIds.map((id) => attestedReply(pat.plusOne.guestId, "Pat", id)),
+        attestedReply(samId, "Sam"),
+      ];
+
+      const refused = await run(
+        Effect.flip(
+          rsvpService.submitRsvpsAndList(inputs, FAMILY_ID, {
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            changes: inputs.map((r) => ({
+              guestId: r.guestId,
+              eventId: r.eventId,
+              kind: "reply_new",
+            })),
+          }),
+        ),
+      );
+      expect(refused._tag).toBe("PlusOneChanged");
+      expect(await db.select().from(rsvps)).toEqual([]);
+      expect(await replyChanges()).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "the retention sweep counts a plus-one once, cascade or not",
     async () => {
       await db

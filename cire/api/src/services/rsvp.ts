@@ -560,13 +560,15 @@ export const rsvpService = {
    * not land.
    *
    * A body naming one pair twice stores its last reply, so only that one is
-   * written. Replies carrying an `attestedName` are written first: up to 50 of
-   * them all ride the first D1 batch, so a name that has moved fails that batch
-   * before any reply or change row of the save commits, and the save fails
-   * {@link PlusOneChanged}. Past 50 attested replies, one refused in a later
-   * batch leaves the earlier batches committed and the change row unwritten —
-   * the ceiling's trade above. bun:sqlite runs the statements one at a time
-   * with no transaction, so there the refusal undoes nothing already written.
+   * written. Replies carrying an `attestedName` are written first, led by one
+   * per guest, so the first D1 batch tests every attested name: a name that
+   * moved before the save began fails that batch before any reply or change
+   * row of the save commits, and the save fails {@link PlusOneChanged}. Only a
+   * rename landing between two batches of one save — a save of more than 49
+   * statements — can still refuse a later batch after earlier ones committed,
+   * leaving the change row unwritten, the ceiling's trade above. bun:sqlite
+   * runs the statements one at a time with no transaction, so there the
+   * refusal undoes nothing already written.
    */
   submitRsvpsAndList(
     inputs: readonly RsvpInput[],
@@ -587,8 +589,19 @@ export const rsvpService = {
         lastByPair.set(key, input);
       }
       const replies = [...lastByPair.values()];
+      // One attested reply per guest leads, so every attested name is tested
+      // in the first batch; then the rest of the attested replies; then the
+      // replies with no name to test.
+      const leads = new Map<string, RsvpInput>();
+      for (const reply of replies) {
+        if (reply.attestedName !== undefined && !leads.has(reply.guestId)) {
+          leads.set(reply.guestId, reply);
+        }
+      }
+      const leading = new Set(leads.values());
       const ordered = [
-        ...replies.filter((r) => r.attestedName !== undefined),
+        ...leading,
+        ...replies.filter((r) => r.attestedName !== undefined && !leading.has(r)),
         ...replies.filter((r) => r.attestedName === undefined),
       ];
 

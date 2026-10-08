@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "bun:test";
+import { describe, it, expect, beforeAll, spyOn } from "bun:test";
 
 import { Elysia } from "elysia";
 import { SignJWT, generateKeyPair } from "jose";
@@ -144,6 +144,55 @@ describe("osnAuthResolve (the OSN check in before-handle order)", () => {
     });
     expect(res.status).toBe(429);
     expect(statements).toEqual([]);
+  });
+
+  it("lets a limiter mounted first refuse before the token's keys are fetched", async () => {
+    // No injected key, so a bearer token is verified against the JWKS URL —
+    // its fetch is the one visible cost of that path. Each probe has a URL of
+    // its own, so the module's key cache cannot hide a fetch.
+    // At most one call per probe, so one response body is enough.
+    const fetches = spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ error: "unavailable" }, { status: 503 }),
+    );
+    try {
+      const send = async (allowed: boolean) => {
+        const jwksUrl = `http://osn.test/${crypto.randomUUID()}/jwks.json`;
+        const app = new Elysia({ aot: false })
+          .use(rateLimitMiddleware(limiter(allowed)))
+          .use(osnAuthResolve({ jwksUrl, audience: "osn-access" }))
+          .get("/probe", ({ osnProfileId }) => ({ profileId: osnProfileId ?? null }));
+        return appRequest(app, "/probe", {
+          headers: { Authorization: `Bearer ${await mint()}` },
+        });
+      };
+
+      expect((await send(false)).status).toBe(429);
+      expect(fetches).not.toHaveBeenCalled();
+      // Control: let through, the same token does cost the fetch.
+      expect((await send(true)).status).toBe(401);
+      expect(fetches).toHaveBeenCalledTimes(1);
+    } finally {
+      fetches.mockRestore();
+    }
+  });
+
+  it("refuses a dead organiser cookie and a token for another audience", async () => {
+    const db = createDb(":memory:");
+    const deadCookie = await appRequest(buildApp("resolve", db), "/probe", {
+      headers: { cookie: "cire_org_session=not-a-live-session-token" },
+    });
+    expect(deadCookie.status).toBe(401);
+    const foreign = await new SignJWT({})
+      .setProtectedHeader({ alg: "ES256", kid: KID })
+      .setSubject("usr_resolve1")
+      .setAudience("some-other-aud")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(signKey);
+    const wrongAudience = await appRequest(buildApp("resolve"), "/probe", {
+      headers: { Authorization: `Bearer ${foreign}` },
+    });
+    expect(wrongAudience.status).toBe(401);
   });
 
   it("is needed: osnAuth looks the session up before any limiter refuses", async () => {

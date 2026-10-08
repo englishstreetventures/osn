@@ -1138,19 +1138,28 @@ describe("POST /api/rsvp — a plus-one's reply", () => {
    * device that commits between that read and the save must still refuse the
    * save, rather than store the old person's answers under the new name.
    */
-  it("refuses a save whose plus-one is renamed between the read and the write", async () => {
+  const raceWrite = async (change: "rename" | "remove") => {
     const { plusDb, bo, samId, send } = await setUp();
     const blocked = await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "plus_one_dietary" });
-    // The rename lands as the route builds its first RSVP statement: after
+    const upserted = await counterValue(CIRE_METRICS.rsvpUpserted, {
+      status: "attending",
+      source: "guest",
+      result: "ok",
+    });
+    // The change lands as the route builds its first RSVP statement: after
     // the household read, before the statement runs.
     const insert = plusDb.insert.bind(plusDb);
-    let renamed = false;
+    let changed = false;
     Object.defineProperty(plusDb, "insert", {
       configurable: true,
       value: (table: Parameters<typeof insert>[0]) => {
-        if (table === rsvps && !renamed) {
-          renamed = true;
-          plusDb.update(guests).set({ firstName: "Alex" }).where(eq(guests.id, samId)).run();
+        if (table === rsvps && !changed) {
+          changed = true;
+          if (change === "rename") {
+            plusDb.update(guests).set({ firstName: "Alex" }).where(eq(guests.id, samId)).run();
+          } else {
+            plusDb.delete(guests).where(eq(guests.id, samId)).run();
+          }
         }
         return insert(table);
       },
@@ -1171,7 +1180,7 @@ describe("POST /api/rsvp — a plus-one's reply", () => {
       ],
     });
 
-    expect(renamed).toBe(true);
+    expect(changed).toBe(true);
     expect(res.status).toBe(409);
     expect((await res.json()) as unknown).toEqual({ error: "plus_one_changed" });
     expect(plusDb.select().from(rsvps).all()).toEqual([]);
@@ -1181,6 +1190,27 @@ describe("POST /api/rsvp — a plus-one's reply", () => {
     expect(await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "plus_one_dietary" })).toBe(
       blocked + 1,
     );
+    // Nothing was stored, so nothing is counted as stored.
+    expect(
+      await counterValue(CIRE_METRICS.rsvpUpserted, {
+        status: "attending",
+        source: "guest",
+        result: "ok",
+      }),
+    ).toBe(upserted);
+  };
+
+  /**
+   * The check above reads the name before the write. A rename from another
+   * device that commits between that read and the save must still refuse the
+   * save, rather than store the old person's answers under the new name.
+   */
+  it("refuses a save whose plus-one is renamed between the read and the write", async () => {
+    await raceWrite("rename");
+  });
+
+  it("refuses a save whose plus-one is removed between the read and the write", async () => {
+    await raceWrite("remove");
   });
 
   it("matches the attested name to the plus-one's full name, trimmed", async () => {

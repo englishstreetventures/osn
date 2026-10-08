@@ -4,14 +4,16 @@ import { guests, rsvps as rsvpsTable } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
 import { PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
 import { and, eq } from "drizzle-orm";
-import { Effect } from "effect";
+import { Cause, Effect, Exit } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import { CIRE_METRICS } from "../../src/metrics";
 import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
 import { isAttestedNameRefusal, rsvpService } from "../../src/services/rsvp";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
+import { counterValue } from "../test-helpers/metrics-harness";
 import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
 const withDb = effWith(TestDbLayer);
@@ -609,14 +611,39 @@ describe("rsvpService.submitRsvpsAndList with an attested name", () => {
       dietaryConsent: false,
       consentSource: "inviter_attested" as const,
     };
+    const upserted = (status: "attending" | "declined") =>
+      counterValue(CIRE_METRICS.rsvpUpserted, { status, source: "guest", result: "ok" });
+    const [attending, declined] = [await upserted("attending"), await upserted("declined")];
     await run(
       rsvpService.submitRsvpsAndList([statusOnly, attested("Sam Park", "attending")], bo.familyId),
     );
     expect(stored()).toEqual([{ status: "attending" }]);
+    // One stored pair, one count — the reply the body replaced is not counted.
+    expect(await upserted("attending")).toBe(attending + 1);
+    expect(await upserted("declined")).toBe(declined);
     await run(
       rsvpService.submitRsvpsAndList([attested("Sam Park", "attending"), statusOnly], bo.familyId),
     );
     expect(stored()).toEqual([{ status: "declined" }]);
+    expect(await upserted("attending")).toBe(attending + 1);
+    expect(await upserted("declined")).toBe(declined + 1);
+  });
+
+  it("leaves any other write failure a defect, attested or not", async () => {
+    const { db, bo, attested } = setUp();
+    // No such event: the foreign key refuses the insert.
+    for (const reply of [
+      { ...attested("Sam Park"), eventId: "evt_missing" },
+      { ...attested("Sam Park"), eventId: "evt_missing", attestedName: undefined },
+    ]) {
+      const exit = await Effect.runPromiseExit(
+        rsvpService
+          .submitRsvpsAndList([reply], bo.familyId)
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
+      expect(Exit.isFailure(exit) && Cause.hasFails(exit.cause)).toBe(false);
+    }
   });
 });
 

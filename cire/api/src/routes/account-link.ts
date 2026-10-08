@@ -104,9 +104,9 @@ export const createAccountLinkRoutes = (
  * (`POST /api/claim/member`, or the server's choice for a one-member
  * household); with none chosen it answers 409 `member_required`.
  *
- * The one deliberate dual-credential route: the guest session cookie (derives
- * `familyId`) proves the household; the OSN access token (derives
- * `osnProfileId`) proves the OSN identity. Both `sessionAuth` and `osnAuthResolve`
+ * The one deliberate dual-credential route: the guest session cookie (gives
+ * `familyId`) proves the household; the OSN sign-in (gives `osnProfileId`)
+ * proves the OSN identity. Both `sessionAuth` and `osnAuthResolve`
  * gate this instance, so the OSN gate applies to POST only — DELETE lives in
  * the sibling instance above. A seat in the organiser's host-preview family is
  * never linkable (403, like a seat from another household). The profile is resolved to its account id S2S

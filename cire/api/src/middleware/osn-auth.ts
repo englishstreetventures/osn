@@ -28,7 +28,7 @@ async function osnProfileIdOf(
   request: Request,
   authorization: string | undefined,
 ): Promise<string | undefined> {
-  const { db, ...verify } = options;
+  const { db } = options;
   if (db) {
     const token = parseOrganiserSessionToken(request.headers.get("cookie"));
     if (token) {
@@ -42,10 +42,10 @@ async function osnProfileIdOf(
     }
   }
 
-  const claims = await extractClaims(authorization, verify.jwksUrl, {
-    testKey: verify._testKey,
-    audience: verify.audience,
-    issuer: verify.issuer,
+  const claims = await extractClaims(authorization, options.jwksUrl, {
+    testKey: options._testKey,
+    audience: options.audience,
+    issuer: options.issuer,
   });
   return claims?.profileId;
 }
