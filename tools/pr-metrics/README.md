@@ -44,6 +44,11 @@ no `complexity.declared` — into a working tree nobody is watching at session
 end, and the result would sit in the corpus looking complete while answering
 none of the questions the cards exist for.
 
+Neither writes over a card that names another pull request. Transcripts are
+joined by branch name alone, so a branch name reused from an earlier pull
+request would mix both pieces of work into one card: `card` writes nothing,
+renders nothing and exits 1 instead.
+
 `backfill` is the third writer and is retrospective: merged pull requests that
 predate cards, or whose card was never written.
 

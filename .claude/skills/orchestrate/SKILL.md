@@ -130,12 +130,21 @@ Collect **orientation pointers** for the subagent: the files in play, the patter
 
 ### Step 2 — Worktree and branch
 
-**Claim the issue first**, immediately before `git worktree add`, with `next-batch` §Claim. If another session holds it, skip the task, write why into `ORCHESTRATE.md` and take the next one; if the check fails, wait and check again — a failed check is not a free issue. Write the `claimed:` line into the task's block.
+**Fetch `main` and check the branch name is free.** The refspec is explicit because a bare clone maps no remote-tracking refs, so a plain `fetch origin main` leaves `origin/main` stale.
 
 ```bash
-git -C /Users/ac/.work/osn.git fetch origin main
+git -C /Users/ac/.work/osn.git fetch origin "+refs/heads/main:refs/remotes/origin/main"
+git -C /Users/ac/.work/osn.git cat-file -e "origin/main:.claude/metrics/$(printf '%s' '<prefix>/<dir>' | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//;s/-*$//').json" 2>/dev/null && echo "taken: card on main"
+gh api "repos/englishstreetventures/osn/pulls?state=all&head=englishstreetventures:<prefix>/<dir>" --jq '.[] | "taken: #\(.number)"'
+```
+
+A `taken` line means an earlier pull request used the name, and the session-metrics collector, which joins transcripts by branch name, would mix the two; add `-2` and check again.
+
+**Claim the issue** immediately before `git worktree add`, with `next-batch` §Claim. If another session holds it, skip the task, write why into `ORCHESTRATE.md` and take the next one; if the check fails, wait and check again — a failed check is not a free issue. Write the `claimed:` line into the task's block.
+
+```bash
 git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <prefix>/<dir> origin/main
-(cd /Users/ac/.work/osn.git/<dir> && bun install)      # a fresh worktree has no node_modules
+(cd /Users/ac/.work/osn.git/<dir> && bun install --frozen-lockfile)      # a fresh worktree has no node_modules
 ```
 
 `<prefix>` is `feat/`, `fix/`, `chore/`, `refactor/` or `docs/`; `<dir>` is the branch name without it. Skip only when the task genuinely continues an existing, unmerged branch. A task that stacks on an open PR's branch is cut from that branch and gets `git config branch.<name>.gh-merge-base <parent>` — `wiki/conventions/stacked-prs.md`.
@@ -249,7 +258,7 @@ It reports the terminal state, and for a failure the job name and the decisive l
 - A real check failure → dispatch an `implementer` fix subagent, push, re-poll. Never merge red.
 - Once `MERGED`, **you** run `git worktree remove --force <dir>` and delete the local branch. Never leave a merged task's worktree behind.
 
-**Between dependent tasks:** `git fetch origin main` and fast-forward local `main` so the next worktree is cut from the updated tip. If a later task's branch already exists and now conflicts, rebase it before its Step 5.
+**Between dependent tasks:** fetch `main` with Step 2's refspec and fast-forward local `main` so the next worktree is cut from the updated tip. If a later task's branch already exists and now conflicts, rebase it before its Step 5.
 
 ## When a subagent dies mid-task
 
