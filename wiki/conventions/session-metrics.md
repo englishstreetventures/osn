@@ -102,14 +102,32 @@ change rather than shipping it.
 > exist for. `--if-absent` is what stops that: it checks for the file and exits
 > before it reads a single transcript.
 
+### One card per pull request
+
+A card names one pull request, and `card` never writes over a card that names
+another. When the file at the branch's slug path carries a `pr.number` that is
+not this run's — a run that resolved no pull request included — it prints both
+numbers on stderr, writes nothing, renders no `--format markdown` block, and
+exits 1. Transcripts are joined to a card by branch name alone, so a run on a
+branch name an earlier pull request used would put both pieces of work into one
+card, over the earlier one's committed record. A card whose `pr.number` is null
+is the fallback's identity-less one, and `retro` replaces it.
+
+`new-feat` Step 1 and `orchestrate` Step 2 check a name is unused before cutting
+it: no card for it on `origin/main`, and no pull request with that head branch.
+`backfill` does not refuse yet: two merged pull requests on one branch name both
+write the same file, each carrying both pieces of work, until
+englishstreetventures/osn#1443 lands.
+
 ## Where the data comes from
 
 Claude Code writes a transcript per session under
 `~/.claude/projects/<encoded-cwd>/`, and stamps `gitBranch` on every assistant
 message. For a session that runs in its own task worktree that field is the
 join: this repository runs one worktree and one branch per task, so a branch
-name maps to exactly one pull request. For delegated work it is not enough —
-see [[#Attributing subagent spend]].
+name maps to one pull request as long as no name is used twice — see
+[[#One card per pull request]]. For delegated work it is not enough — see
+[[#Attributing subagent spend]].
 
 Five traps the collector handles and any reimplementation must:
 
@@ -507,7 +525,9 @@ point and points back here.
 | `--if-absent` | Off. On, it exits without writing where the card already exists — the `SessionEnd` fallback's flag |
 
 It never fails on missing transcripts — a card with a diff and zero spend is
-still a true record, and it warns on stderr rather than exiting non-zero.
+still a true record, and it warns on stderr rather than exiting non-zero. It
+does exit 1 when the card on disk names another pull request — see
+[[#One card per pull request]].
 
 ## Querying the cards
 

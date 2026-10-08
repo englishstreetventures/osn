@@ -46,19 +46,30 @@ gh issue view 412 --repo englishstventures/osn --json number,title,body,labels
 Then three things follow from the issue:
 
 - **Status, which is the claim** — first, because an issue another session holds ends the run here. If your brief carries `CLAIMED: <repo>#<n>` for this issue, the orchestrator that dispatched you holds it; go on. Otherwise run `next-batch` §Claim: held by another session → stop and report which; free → it moves the issue to **In Progress** in the **OSN Platform** project. The board calls need the `project` scope; if it is missing, say so and move it in the UI rather than skipping it.
-- **The branch name** — kebab-case the title, prefix it: `feat/` for a Feature, `fix/` for a Bug, `chore/`, `refactor/` or `docs/` for a Task. Step 1 uses this name; it does not derive its own.
+- **The branch name** — kebab-case the title, prefix it: `feat/` for a Feature, `fix/` for a Bug, `chore/`, `refactor/` or `docs/` for a Task. Step 1 checks the name is unused and cuts it; it does not derive its own.
 - **Complexity** — an issue `write-issue` just opened is already rated; do not rate it again. An existing issue taken by number with no `complexity:` label gets one now: invoke the **`rate-complexity`** skill, which proposes a rating from the issue body alone and asks the owner to confirm or amend it. Do this **before** the branch exists: the rating is the denominator every session-metrics query divides spend by, and one made later — with a token total already on screen — is contaminated and worthless. An unattended run rates it anyway and adds `complexity:unconfirmed`. Never rate from the diff, and never let the agent that does the work rate the work.
 
 ## Step 1 — The branch
 
 The probe above said `PERSONAL` or `REMOTE`. They differ in one thing: whether there is a bare repo to add a worktree to.
 
+**First fetch `main` and check the name is free, before cutting anything.** On REMOTE, drop `-C /Users/ac/.work/osn.git`.
+
+```bash
+git -C /Users/ac/.work/osn.git fetch origin "+refs/heads/main:refs/remotes/origin/main"
+git -C /Users/ac/.work/osn.git cat-file -e "origin/main:.claude/metrics/$(printf '%s' '<branch>' | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//;s/-*$//').json" 2>/dev/null && echo "taken: card on main"
+gh api "repos/englishstreetventures/osn/pulls?state=all&head=englishstreetventures:<branch>" --jq '.[] | "taken: #\(.number)"'
+```
+
+The refspec is explicit because a bare clone maps no remote-tracking refs: there a plain `fetch origin main` updates only `FETCH_HEAD`, and the worktree starts from a stale `origin/main`.
+
+Any `taken` line means an earlier pull request used the name. Session-metrics cards join transcripts by branch name alone, so a reused name mixes that work's sessions into this one's card, and `tools/pr-metrics` refuses to write over the earlier card. Add `-2` to the name and check again. Cut once: a session that cuts two branches leaves its spend on neither card.
+
 **PERSONAL** — the bare repo at `/Users/ac/.work/osn.git`. Every piece of work gets its own worktree; never check the branch out inside an existing one (`main/` included) — that mutates its state.
 
 ```bash
-git -C /Users/ac/.work/osn.git fetch origin main
 git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <branch> origin/main
-(cd /Users/ac/.work/osn.git/<dir> && bun install)      # a fresh worktree has no node_modules
+(cd /Users/ac/.work/osn.git/<dir> && bun install --frozen-lockfile)      # a fresh worktree has no node_modules
 ```
 
 `<dir>` is the branch name without its prefix. If the work **stacks on another open PR's branch**, cut from that branch instead of `origin/main` and record the base, or `prep-pr` opens the PR against `main`:
@@ -70,14 +81,14 @@ git -C /Users/ac/.work/osn.git/<dir> config branch.<branch>.gh-merge-base <paren
 
 Report the branch, its base and the worktree path. **All work happens in that worktree**, so `cd` into it before anything else.
 
-**REMOTE** — the repository is already checked out in the working directory with `node_modules` installed. No worktree, no second `bun install`.
+**REMOTE** — the repository is already checked out in the working directory. No worktree.
 
 ```bash
-git fetch origin main
 git checkout -B <branch> origin/main
+[ -d node_modules ] || bun install --frozen-lockfile
 ```
 
-If the session was given a **designated `claude/*` branch**, use that exact name instead of the one from Step 0 and never push to any other. `-B` makes a re-run idempotent; with uncommitted work in progress, switch without resetting.
+If the session was given a **designated `claude/*` branch**, use that exact name instead of the one from Step 0 and never push to any other; if the check says it is taken, keep it and report the clash. `-B` makes a re-run idempotent; with uncommitted work in progress, switch without resetting.
 
 ## Step 2 — The plan
 
@@ -92,7 +103,8 @@ The plan names:
 - **the wiki pages this work makes stale, by repo path** — `prep-pr` has to update every one, and finding them now is cheaper than at PR time
 - **for every config value the plan says to set, the file and line that reads it.** No citation means the instruction is a guess, and a good implementer will implement the guess cleanly: a wrong config value produces a tidy diff, a green build and no behaviour change, which no gate can fail on. A value read in more than one place is two facts, not one
 - **for a change to any build config, the directories that build writes** and which of them are served publicly. "The build passes" and "the output is what I expected" are different claims
-- **the issue's premise, verified.** An issue states what was true when it was written; check the sentence the work rests on before the plan inherits it
+- **the issue's premise, and each wiki claim the design rests on, verified against the code.** An issue states what was true when it was written, and a recently reviewed page can still be wrong about the one thing the plan needs. Cite the file and line that confirms each claim. Only the claims the design depends on, not every page read
+- **for a change that moves, merges or deletes tested code, a table of each test case it deletes and the test that covers the same behaviour afterwards.** A case with no new home is lost coverage, found now by `stress-plan` rather than after the commit by `review-tests`
 - Effect, WebSocket or E2E-encryption considerations, if any
 - the changeset — always needed unless every changed file is on the allowlist in `scripts/changeset-required.sh`; `@cire/*` packages are version-less and never share a changeset with a versioned one
 - **the observability plan** for every new service, route or service function — which error paths use `Effect.logError` and any new secret field for the redaction list; which functions get `Effect.withSpan("<domain>.<operation>")` and that outbound HTTP goes through `instrumentedFetch`; which counters or histograms join the owning `metrics.ts`, named `{namespace}.{domain}.{subject}.{measurement}` with a bounded string-literal attribute type — never a user, request or event id. `wiki/shared/observability/overview.md` holds the rules.

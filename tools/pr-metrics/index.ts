@@ -29,10 +29,13 @@
  * `~/.claude/projects/<encoded-cwd>/`, which record `gitBranch` on every
  * assistant message. That field is what makes a card possible at all: this
  * repository's rule is one worktree and one branch per task, so branch is a
- * reliable join key from a transcript to a pull request. Subagent spend lives
- * in a sibling `<session-id>/subagents/*.jsonl` directory rather than the main
- * transcript — miss it and a card under-reports by however much was delegated,
- * which on an orchestrated task is most of it.
+ * reliable join key from a transcript to a pull request while no branch name is
+ * used twice. `new-feat` checks a name is unused before cutting it, and the CLI
+ * refuses to write over a card that names another pull request.
+ *
+ * Subagent spend lives in a sibling `<session-id>/subagents/*.jsonl` directory
+ * rather than the main transcript — miss it and a card under-reports by however
+ * much was delegated, which on an orchestrated task is most of it.
  *
  * `SCHEMA_VERSION` is bumped whenever a field changes meaning or leaves.
  * Readers key off this.
@@ -1211,15 +1214,34 @@ function readCardFile(path: string, branch?: string): Card | null {
   if (!("pr" in parsed) || !("spend" in parsed) || !("interaction" in parsed)) return null;
 
   const card = parsed as Card;
-  // `branchSlug` collapses `/`, `_` and anything else outside `[A-Za-z0-9._-]`
-  // to `-`, so `feat/a-b` and `feat_a_b` land on one file. `.claude/metrics/`
-  // is tracked, so every worktree already holds every merged branch's card:
+  // `branchSlug` turns `/` and anything else outside `[A-Za-z0-9._-]` into
+  // `-`, so `feat/a-b` and `feat-a-b` land on one file. `.claude/metrics/` is
+  // tracked, so every worktree already holds every merged branch's card:
   // without this check `--if-absent` would read a colliding neighbour as this
   // branch's card and leave that other branch's spend and `tool_calls` standing
   // as this one's public record — silently, since the hook discards its output.
+  // Whether the neighbour may then be replaced is `otherPullRequest`'s call.
   if (branch !== undefined && card.pr.branch !== branch) return null;
 
   return card;
+}
+
+/**
+ * The pull request that owns the card on disk, when this run must not replace
+ * it; `null` when the write may go ahead.
+ *
+ * A card names one pull request. Transcripts are joined to a card by branch
+ * name alone, so a run on a branch name an earlier pull request used would
+ * write both pieces of work into one card, over the earlier one's committed
+ * record. A run with no pull request of its own — a failed `gh` lookup, or the
+ * `SessionEnd` fallback before one exists — cannot show the card is its own,
+ * so it is refused too. A card that names no pull request is the fallback's
+ * identity-less one, and is there to be replaced.
+ */
+export function otherPullRequest(onDisk: Card | null, prNumber: number | null): number | null {
+  const owner: unknown = onDisk?.pr.number;
+
+  return typeof owner === "number" && owner !== prNumber ? owner : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -2029,6 +2051,28 @@ if (import.meta.main) {
     phase: flag("phase") === "at-merge" ? "at-merge" : "at-open",
     generatedAt: new Date().toISOString(),
   });
+
+  // Checked before the markdown render as well as the write: `retro` appends
+  // that render to the pull-request body, and it is built from the same mixed
+  // transcripts the card would be. Read without the branch filter, because a
+  // slug neighbour's card is another pull request's record too.
+  const owner = otherPullRequest(readCardFile(outPath), card.pr.number);
+
+  if (owner !== null) {
+    const thisRun = card.pr.number === null ? "names no pull request" : `is for #${card.pr.number}`;
+    process.stderr.write(
+      [
+        `❌ pr-metrics: ${outPath} is the card for pull request #${owner}, and this run ${thisRun}.`,
+        "   Transcripts are joined to a card by branch name alone, so this card would carry",
+        `   #${owner}'s sessions as well. Nothing was written.`,
+        "   - `gh` named the wrong pull request, or none: pass --pr <n>.",
+        `   - The branch name was reused: this branch cannot be carded apart from #${owner}. Report it.`,
+        `   - Both pull requests are one piece of work: delete ${outPath} and run again.`,
+        "",
+      ].join("\n"),
+    );
+    process.exit(1);
+  }
 
   // `--format markdown` prints the `<details>` block on stdout and writes
   // nothing, so `retro` can append it to a pull-request body without a
