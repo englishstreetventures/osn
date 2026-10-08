@@ -9,7 +9,7 @@ Reference for `prep-pr` Step 7.
 # both sides reduced to a bare page name, since links come in both
 # `[[arc-tokens]]` and `[[osn/arc-tokens]]` form
 comm -23 \
-  <(git diff "$BASE"...HEAD --name-only -- 'wiki/**/*.md' \
+  <(git diff "$DIFF_BASE"...HEAD --name-only -- 'wiki/**/*.md' \
       | xargs -r grep -oh '\[\[[^]|#]*' | sed 's/^\[\[//; s#.*/##' | sort -u) \
   <(find wiki -name '*.md' | xargs -n1 basename | sed 's/\.md$//' | sort -u)
 ```

@@ -45,7 +45,7 @@ git diff --cached --quiet || git commit -qm "fixture: install state"
 
 git checkout -q -B main
 
-# The skill's step 0 opens with `git fetch origin "$BASE"`. Without a remote
+# The skill's step 0 opens by fetching the base branch. Without a remote
 # that fails every run, costing turns and inviting a rabbit hole. Point origin
 # at this repository so the fetch is a no-op that succeeds.
 git remote remove origin 2>/dev/null || true

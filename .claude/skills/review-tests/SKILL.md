@@ -77,10 +77,12 @@ under **Report shape** at the end of this file.
 
 ```bash
 BASE=$(git config --get branch.$(git branch --show-current).gh-merge-base || echo main)
-git diff --name-only "$BASE"...HEAD
+DIFF_BASE=$BASE
+git merge-base --is-ancestor "$BASE" "origin/$BASE" 2>/dev/null && DIFF_BASE="origin/$BASE"
+git diff --name-only "$DIFF_BASE"...HEAD
 ```
 
-A stacked branch does not merge into `main`; taking the base from `gh-merge-base` keeps the parent branch's files out of this branch's diff.
+A stacked branch does not merge into `main`; taking the base from `gh-merge-base` keeps the parent branch's files out of this branch's diff. `$DIFF_BASE` is `origin/$BASE` when the local branch is behind it: local `main` lags `origin/main` in the worktree layout, and a diff against it reports other pull requests' files as this branch's.
 
 The affected workspaces are the packages owning those files. Map a path to its package by walking up to the nearest `package.json` and reading its `name`.
 

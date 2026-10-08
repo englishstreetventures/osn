@@ -117,9 +117,26 @@ always `main`.
 
 ```bash
 BASE=$(git config --get branch.$(git branch --show-current).gh-merge-base || echo main)
-git fetch origin "$BASE"
-echo "base: $BASE"
+git fetch origin "+refs/heads/${BASE}:refs/remotes/origin/${BASE}"
+DIFF_BASE=$BASE
+git merge-base --is-ancestor "$BASE" "origin/$BASE" 2>/dev/null && DIFF_BASE="origin/$BASE"
+echo "base: $BASE, diff against: $DIFF_BASE"
 ```
+
+**Diff against `$DIFF_BASE`, never `$BASE`.** It is `origin/$BASE` when the
+local branch is behind it, and the local branch otherwise. Local `main` lags
+`origin/main` in the worktree layout — it moves only when someone pulls in
+`main/` — and a diff against it counts every commit between the two as this
+branch's: another pull request's files, its changeset, its comment lines. A
+stacked parent is the reverse: its newest commits may be local and unpushed, and
+one never pushed has no `origin/` ref. If the fetch fails, the rule still works
+on the refs already there.
+
+Keep `${BASE}` in braces in the refspec: zsh reads `$BASE:r` as a modifier and
+fetches a ref that does not exist. The explicit refspec updates `origin/$BASE`
+even where the clone maps no remote-tracking refs, as a fresh `git clone --bare`
+does. Never fetch into the local branch (`origin main:main`): git refuses to
+update a branch checked out in another worktree.
 
 If `BASE` is not `main` this branch is stacked, and two things follow — put both
 in the report, naming `$BASE`, whether or not you can act on them. The PR targets
@@ -135,14 +152,15 @@ than passing the base by hand:
 git config branch.$(git branch --show-current).gh-merge-base <parent-branch>
 ```
 
-Use `$BASE` in every `git diff` below and as `--base` in Step 9.
+Use `$DIFF_BASE` in every `git diff` and `git log` below, and `$BASE` as
+`--base` in Step 9.
 
 ---
 
 ## Step 1 — Identify changed workspaces
 
 ```bash
-git diff --name-only "$BASE"...HEAD
+git diff --name-only "$DIFF_BASE"...HEAD
 ```
 
 A file under `<dir>/<name>/` belongs to the workspace `<dir>/<name>`, and its
@@ -161,8 +179,8 @@ Report the affected workspaces and whether any CI/infra-only files changed.
 ## Step 2 — Check changesets
 
 **Diff the working tree, not the commit range, while anything is uncommitted.**
-`"$BASE"...HEAD` describes what has been committed, so on a branch whose work is
-still in the tree it is empty — and `scripts/changeset-required.sh` answers
+`"$DIFF_BASE"...HEAD` describes what has been committed, so on a branch whose
+work is still in the tree it is empty — and `scripts/changeset-required.sh` answers
 `skip` for an empty diff exactly as it does for an all-allowlisted one. This is
 a gate whose failure mode is passing, and Step 3 is what commits, so the plain
 form here is wrong every time this skill runs before a commit. CI then fails the
@@ -171,7 +189,7 @@ pull request on "no changeset found" after a push and a review cycle.
 ```bash
 CHANGED=$(git status --porcelain --untracked-files=all | grep -q . \
   && git diff --name-only --cached HEAD \
-  || git diff --name-only "$BASE"...HEAD)
+  || git diff --name-only "$DIFF_BASE"...HEAD)
 
 echo "$CHANGED" | grep '^\.changeset/'   # minus config.json, README.md
 bash scripts/validate-changesets.sh
@@ -239,7 +257,7 @@ record the observation under `## Decisions` and continue. The wording is in
 Print how many comment lines the branch adds and removes:
 
 ```bash
-bun run scripts/comment-delta.ts "$BASE"
+bun run scripts/comment-delta.ts "$DIFF_BASE"
 ```
 
 Report the net figure in the PR body's test-plan table. **This is a number to
@@ -254,14 +272,18 @@ each reference to the constraint it stood for" turned single-line
 parentheticals into paragraphs and added 66 comment lines net while reporting
 itself as a cleanup.
 
-Two traps in reading the number:
+Three traps in reading the number:
 
 - **Diff it against the branch point, not a moved base.** If the base branch has
   been force-pushed since the branch was cut, `git merge-base` falls back to an
   older ancestor and sweeps the base's own commits into the count. That produced
-  a reported `+85` for a branch actually running `-40`. Step 0 resolves `$BASE`;
-  use it, and if the number looks surprising, check `git log "$BASE"..HEAD`
-  contains only your commits.
+  a reported `+85` for a branch actually running `-40`. Step 0 resolves
+  `$DIFF_BASE`; use it, and if the number looks surprising, check
+  `git log "$DIFF_BASE"..HEAD` contains only your commits.
+- **Diff it against `$DIFF_BASE`, not local `main`.** A branch rebased onto a
+  newer `origin/main` and diffed against a lagging local `main` counts another
+  pull request's comment lines as its own: `+285/-9` reported for a branch
+  running `+187/-0`.
 - **It is trivially gamed** by joining wrapped lines, which is why it is not a
   gate. A branch that halves its comment lines by rewrapping has done nothing.
 
@@ -356,7 +378,7 @@ both.
 
 **Do this even when you cannot push.** The body is the deliverable; `gh pr create` is only how it is delivered. Write it to a file whichever way the run ends — no network, no `gh`, failing gates, nothing committed.
 
-Derive the title and body from the branch's commit history (`git log "$BASE"...HEAD --oneline`) and everything that happened during this prep-pr run.
+Derive the title and body from the branch's commit history (`git log "$DIFF_BASE"...HEAD --oneline`) and everything that happened during this prep-pr run.
 
 **Title**: short imperative summary of the whole change, under 70 chars.
 

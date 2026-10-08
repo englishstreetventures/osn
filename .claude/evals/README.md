@@ -815,9 +815,9 @@ at the exercise. Three things kept the branches ordinary:
 - the planted wrong package name is `osn-api`, which exists nowhere, rather than
   `osn`, which is the root `package.json`'s real name and gave a sharp agent
   something true to argue about
-- `origin` points at the repository itself, so the skill's opening
-  `git fetch origin "$BASE"` succeeds instead of burning turns on a network
-  error the task then has to explain away
+- `origin` points at the repository itself, so the skill's opening fetch of
+  the base branch succeeds instead of burning turns on a network error the
+  task then has to explain away
 
 The review scenario also carries one deliberate piece of bait: the branch bumps
 a caret-ranged dependency. Reporting a caret range as a supply-chain finding is

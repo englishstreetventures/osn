@@ -65,7 +65,7 @@ git diff --cached --quiet || git commit -qm "fixture: install state"
 
 git checkout -q -B main
 
-# `git fetch origin "$BASE"` appears in the skills this branch's session would
+# A fetch of the base branch appears in the skills this branch's session would
 # have run. Without a remote it fails every run, costing turns.
 git remote remove origin 2>/dev/null || true
 git remote add origin "$PWD"
