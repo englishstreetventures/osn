@@ -643,6 +643,50 @@ describe("hostsService.authorize", () => {
   });
 });
 
+describe("hostsService.authorizeWithRsvpDigest", () => {
+  /** The caller's notice row, as `rsvpChangeService.setDigest` writes it. */
+  function setDigest(db: TestDb, osnProfileId: string, digestEnabled: boolean) {
+    db.insert(hostRsvpNotices)
+      .values({ weddingId: WEDDING_ID, osnProfileId, digestEnabled, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [hostRsvpNotices.weddingId, hostRsvpNotices.osnProfileId],
+        set: { digestEnabled },
+      })
+      .run();
+  }
+
+  it("answers what authorize() answers, plus the caller's digest setting", async () => {
+    const db = buildDb();
+    seat(db, ALICE, "editor");
+    for (const caller of [OWNER, ALICE, "usr_stranger"]) {
+      const plain = await run(db, hostsService.authorize(WEDDING_ID, caller));
+      const withDigest = await run(db, hostsService.authorizeWithRsvpDigest(WEDDING_ID, caller));
+      expect(withDigest).toEqual({ ...plain!, rsvpDigestEnabled: true });
+    }
+  });
+
+  it("reads no notice row as on, and the caller's own row only", async () => {
+    const db = buildDb();
+    seat(db, ALICE, "editor");
+    setDigest(db, ALICE, false);
+    const alice = await run(db, hostsService.authorizeWithRsvpDigest(WEDDING_ID, ALICE));
+    const owner = await run(db, hostsService.authorizeWithRsvpDigest(WEDDING_ID, OWNER));
+    expect(alice?.rsvpDigestEnabled).toBe(false);
+    expect(owner?.rsvpDigestEnabled).toBe(true);
+    setDigest(db, ALICE, true);
+    expect(
+      (await run(db, hostsService.authorizeWithRsvpDigest(WEDDING_ID, ALICE)))?.rsvpDigestEnabled,
+    ).toBe(true);
+  });
+
+  it("returns null for an unknown or deleted wedding", async () => {
+    const db = buildDb();
+    expect(await run(db, hostsService.authorizeWithRsvpDigest("wed_nope", OWNER))).toBeNull();
+    db.update(weddings).set({ deletedAt: new Date() }).where(eq(weddings.id, WEDDING_ID)).run();
+    expect(await run(db, hostsService.authorizeWithRsvpDigest(WEDDING_ID, OWNER))).toBeNull();
+  });
+});
+
 describe("equal owners", () => {
   const BEN = "usr_ben";
 

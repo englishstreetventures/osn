@@ -6,7 +6,7 @@ import { eq, sql } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
-import { appRequest, jsonBody } from "../test-helpers";
+import { appRequest, jsonBody, recordStatements } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -326,5 +326,31 @@ describe("POST /rsvp-changes/seen bounds", () => {
       seq: Number.MAX_SAFE_INTEGER + 2,
     });
     expect(past.status).toBe(400);
+  });
+});
+
+describe("what each read costs", () => {
+  // The member gate already reads the wedding and the caller's seat; the feed's
+  // gate joins the caller's notice row into that statement, so the digest
+  // switch costs no statement of its own.
+  it("reads the caller's digest setting in the gate's own statement", async () => {
+    const { app, db } = buildApp();
+    const statements = recordStatements(db);
+    expect((await feed(app, EDITOR)).digest).toEqual({ available: true, enabled: true });
+    // The gate's statement, then the unseen households.
+    expect(statements).toHaveLength(2);
+    expect(statements[0]!.sql).toContain('left join "host_rsvp_notices"');
+  });
+
+  // The table's read and the seen POST sit behind the plain member gate, in a
+  // sibling group, so the feed's wider gate never runs in front of them.
+  it("keeps the table's read on the plain member gate", async () => {
+    const { app, db } = buildApp();
+    const statements = recordStatements(db);
+    const res = await req(app, "GET", `${base}/rows`, EDITOR);
+    expect(res.status).toBe(200);
+    // The gate's statement, then the unseen pairs.
+    expect(statements).toHaveLength(2);
+    expect(statements[0]!.sql).not.toContain('"host_rsvp_notices"');
   });
 });
