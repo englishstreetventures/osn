@@ -162,6 +162,8 @@ So the sweep writes before it deletes. `writeGiftSummaries` runs inside `sweepEx
 ```json
 {
   "sweptOn": "2026-06-17",
+  "firstGiftOn": "2025-03-02",
+  "lastGiftOn": "2025-06-14",
   "claims": { "reserved": 1, "purchased": 2 },
   "contributions": { "count": 3, "totals": [{ "currency": "AUD", "amountMinor": 17500 }] }
 }
@@ -173,7 +175,15 @@ Three rules it keeps:
 - **Totals are per currency, never converted.** A rate from the day of the sweep would make the number a guess; two lines that each say what they are is the honest shape.
 - **It never fails the sweep.** A summary that cannot be written is logged and stepped over. The deletion is the obligation; the keepsake is not.
 
-Nothing yet _delivers_ this to the couple — cire has no path to an organiser's email address (that lives in osn-api, behind an ARC route that does not exist). The durable record is the point; sending it waits on englishstventures/osn#482.
+`firstGiftOn` and `lastGiftOn` give the span the counted gifts arrived over, taken from the same rows as the counts.
+
+**The couple are emailed it, after the deletes.** Once the delete batch has committed and the import sheets are gone from R2, the sweep hands its notices to a notifier, and [`lib/gift-summary-email.ts`](../../cire/api/src/lib/gift-summary-email.ts) mails each wedding's summary to its owners. The order matters: the email says the detail is gone, so it must not go out while the detail is still there.
+
+- **Who gets it.** The seats with the `owner` role on a live wedding that received at least one gift. Editors are not mailed, and neither is a soft-deleted wedding, whose summary is written but not sent. Each wedding sends one email per distinct address, so two owners who share an inbox get one copy.
+- **Where the address comes from.** cire stores none. It asks osn-api's `POST /internal/accounts/emails` over ARC with the `account:email-read` scope: one lookup for the whole cohort, split into requests of 100 profile ids with at most four in flight ([`services/osn-bridge.ts`](../../cire/api/src/services/osn-bridge.ts)). An owner osn-api returns no address for is skipped.
+- **What it says.** Template `registry-gift-summary`, from `hello@cireweddings.com`: the wedding's name, the date of its last event, the sweep date, the number of money gifts with one total, and how many list gifts were bought and reserved. The total is in the wedding's own currency, or in the first currency a gift came in when none came in its own; the per-currency totals stay only on `registry_settings`. The money line has two known faults, tracked in englishstventures/osn#1435: it divides every currency by 100, which misstates yen and the three-decimal dinars, and its count covers every currency while its total covers one.
+- **One attempt, best-effort.** The whole cohort gets one try, bounded at 30 seconds in total, with no retry and no resend: the next day's sweep finds no gift rows left and writes no notice. Delivery never fails the sweep. A send that fails is logged and the rest go on. An osn-api that cannot be reached reads as "no address", so nothing is sent and nothing is logged (englishstventures/osn#1436).
+- **Only where it can be delivered.** The notifier exists only when the Worker has `OSN_API_URL`, a `CIRE_API_ARC_PRIVATE_KEY` that imports, `CIRE_API_ARC_KEY_ID` and `RESEND_API_KEY` (`scheduled` in [`cire/api/src/index.ts`](../../cire/api/src/index.ts)). Without them the sweep still deletes on time and sends nothing. It never falls back to logging the email, because a summary in a log is not a summary the couple received.
 
 ---
 
@@ -614,4 +624,4 @@ Every handler runs `Effect.tapDefect` before its catch-all, so a defect is **log
 
 ## Still to land
 
-- **The FX capture**: `checkout.session.completed` carries no balance transaction, so the four FX columns are still NULL. The `exchange_rate` read described under [Money](#money) needs its own event or a follow-up call. Tracked in englishstventures/osn#482, with delivering the gift summary to the couple
+- **The FX capture**: `checkout.session.completed` carries no balance transaction, so the four FX columns are still NULL. The `exchange_rate` read described under [Money](#money) needs its own event or a follow-up call. Tracked in englishstventures/osn#482.

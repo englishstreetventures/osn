@@ -17,7 +17,7 @@ packages:
   - "@osn/auth-ui"
   - "@musubi/social"
   - "@shared/crypto"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-10-08
 status: design — not yet implemented
 ---
 
@@ -176,11 +176,30 @@ New tables in `osn/db/src/schema/`:
 `identity_presentation_issued`, mirroring the existing
 `passkey_register` / `recovery_generate` audit pattern (`[[recovery-codes]]`).
 
-Encryption-at-rest for `verified_attributes.value`: use the existing
-key-management substrate (`@shared/crypto`); the decryption key lives
-only in `@osn/api` so that even direct DB access does not expose raw
-DOB / name. Document this in `[[compliance/data-map]]` as a Special
-Category Personal Data store under GDPR Art. 9.
+Encryption at rest for `verified_attributes.value` is required and not
+yet designed. The envelope format, and where the key is held and how it
+rotates, are open, and must be settled before the first attribute row is
+written. V-M0 (englishstventures/osn#543) builds the table; V-M1
+(englishstventures/osn#544) and V-M2 (englishstventures/osn#545) are the
+first milestones to write attributes into it. One rule is settled: the
+decryption key lives only in `@osn/api`, so that even direct DB access
+does not expose a raw date of birth or name.
+
+`@shared/crypto` has nothing to build on here. It holds ARC tokens and
+JWK helpers, recovery codes, TOTP code arithmetic and timing-safe
+comparison, and no at-rest encryption.
+
+The one at-rest encryption in the repository is TOTP's:
+[`osn/api/src/lib/totp-secret-crypto.ts`](../../osn/api/src/lib/totp-secret-crypto.ts)
+encrypts each TOTP shared secret with AES-256-GCM, binds the account ID
+in as additional authenticated data so a row copied onto another account
+fails to decrypt, and holds two keys at once as Worker secrets
+(`OSN_TOTP_ENCRYPTION_KEY` and `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS`) so the
+key can rotate ([[totp]]). It is a precedent for the shape, not a module
+to import: its names, errors and secrets are all TOTP's.
+
+Document this in `[[compliance/data-map]]` as a Special Category Personal
+Data store under GDPR Art. 9.
 
 ## Endpoints (planned)
 

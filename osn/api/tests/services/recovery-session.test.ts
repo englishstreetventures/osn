@@ -514,6 +514,14 @@ describe("restricted recovery session — rotation and expiry", () => {
   it.effect("a rotation late in the window mints a token that dies with the row", () => {
     const { layer } = makeHarness();
     return Effect.gen(function* () {
+      // The clock is frozen before the session is issued and moved by a whole
+      // number of seconds after, so the deadline and the rotation read the
+      // same base. Reading the real clock between the two would let a second
+      // boundary fall in the gap and leave 29 seconds instead of 30.
+      const base = Date.UTC(2026, 0, 1, 12, 0, 0);
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(base);
+
       const user = yield* auth.registerProfile("rs-cap@example.com", "rscap");
       const restricted = yield* auth.issueRecoverySession(
         user.id,
@@ -526,8 +534,7 @@ describe("restricted recovery session — rotation and expiry", () => {
 
       // Thirty seconds short of the deadline — the last grant the screen makes.
       const remaining = 30;
-      vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(new Date(Date.now() + (RECOVERY_SESSION_TTL_SEC - remaining) * 1000));
+      vi.setSystemTime(base + (RECOVERY_SESSION_TTL_SEC - remaining) * 1000);
 
       const rotated = yield* auth.refreshTokens(restricted.refreshToken);
 

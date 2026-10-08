@@ -76,18 +76,17 @@ describe("withBackgroundSink", () => {
   });
 
   it("is a no-op reference outside a request, so a service call still runs", async () => {
-    // No `withBackgroundSink` frame at all: the default reference drops the
-    // work on the floor, which is exactly what happened before this existed.
-    let ran = false;
-    await Effect.runPromise(
-      forkBackground(
-        Effect.sync(() => {
-          ran = true;
-        }),
-      ),
-    );
-    await new Promise((r) => setTimeout(r, 10));
-    expect(ran).toBe(true);
+    // No `withBackgroundSink` frame at all: the default sink drops the
+    // completion promise, so nothing keeps an isolate alive for the work, but
+    // the forked effect itself still runs.
+    //
+    // The test waits on the effect, not on a clock: `ran` settles when the
+    // detached fiber runs, however late the scheduler gets to it. If
+    // `forkBackground` stopped running the work here, `ran` would never settle
+    // and the test would fail on Vitest's timeout.
+    const { promise: ran, resolve } = Promise.withResolvers<void>();
+    await Effect.runPromise(forkBackground(Effect.sync(() => resolve())));
+    await expect(ran).resolves.toBeUndefined();
   });
 
   it("is bridged by the real route runner, not only by this test's mirror", async () => {
