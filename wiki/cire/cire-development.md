@@ -21,7 +21,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-09
 ---
 
 # Cire development guide
@@ -250,6 +250,10 @@ squash the chain again: `cire/db/README.md`.
 Local sign-in also needs an `oauth_clients` row in the local OSN D1 and
 `CIRE_OIDC_CLIENT_SECRET` in `cire/api/.dev.vars`. Without them `/api/auth/oidc/*`
 answers 503 and the rest of cire works as normal.
+
+Local mail goes to the in-memory recorder. To read it in an inbox instead, run
+the Resend emulator and set `RESEND_API_KEY` and `RESEND_API_URL` in
+`cire/api/.env` (Bun) or `cire/api/.dev.vars` (`wrangler dev`): [[email#Local emulation]].
 
 ### Adding a column
 

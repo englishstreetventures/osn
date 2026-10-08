@@ -120,7 +120,7 @@ export interface Env {
 
 const isNonLocal = (env: Env): boolean => !!env.OSN_ENV && env.OSN_ENV !== "local";
 
-// P-I3: the Elysia app graph + the Upstash client + the shared Effect runtime
+// The Elysia app graph + the Upstash client + the shared Effect runtime
 // (built inside `buildAppDeps`) are heavy to compose, so build them ONCE per
 // isolate and cache — NOT per request. `env` bindings are stable within an
 // isolate; the guard on the D1 binding identity rebuilds defensively if that
@@ -137,13 +137,13 @@ const misconfigured = (detail: string): Response =>
 /**
  * Build the full app graph for this isolate from the `env` binding. Does what
  * `local.ts`'s Bun composition root does, but FROM `env` and with the
- * workerd-safe runtime handles: Upstash-or-memory Redis (S-L1 env-gated),
+ * workerd-safe runtime handles: Upstash-or-memory Redis (env-gated),
  * `makeDbD1Live(env.DB)`, the redacting `osnLoggerLayer`, and the per-request
  * observability plugin OFF (see AppDeps).
  */
 export async function buildAll(env: Env): Promise<App> {
   // -------------------------------------------------------------------------
-  // Redis — S-L1: env-gate the in-memory fallback.
+  // Redis — env-gate the in-memory fallback.
   //
   // `initRedisClientFromEnv` silently downgrades to in-memory when the Upstash
   // bindings are absent. That is correct for local `wrangler dev`, but a
@@ -178,7 +178,7 @@ export async function buildAll(env: Env): Promise<App> {
     // Workers entry omits the per-request observability plugin: it calls
     // `process.hrtime.bigint()` on every request, which is not available on
     // workerd. `healthRoutes` + the redacting logger stay on (see AppDeps). The
-    // x-request-id sanitization the plugin used to do is re-applied below (S-H3).
+    // x-request-id sanitization the plugin used to do is re-applied below.
     includeObservabilityPlugin: false,
     // Part 1: behind Cloudflare in every deployed tier, trust `cf-connecting-ip`
     // exclusively for per-IP keying (never the spoofable XFF). Local `wrangler
@@ -195,7 +195,7 @@ export async function buildAll(env: Env): Promise<App> {
 }
 
 /**
- * S-H3: the omitted observability plugin used to sanitize the inbound
+ * The omitted observability plugin used to sanitize the inbound
  * `x-request-id` and echo it back. On the Workers path it's off, so re-apply
  * the same guard at the entry: only echo a client-supplied id when it matches
  * the strict format; otherwise mint a fresh one. Never echo a client-controlled
@@ -275,7 +275,7 @@ export const handler: OsnWorkerHandler = {
       }
     }
 
-    // S-H3: sanitize + echo the request id (the observability plugin used to do
+    // Sanitize + echo the request id (the observability plugin used to do
     // this; it's off on Workers). Inject the sanitized value on the way in so
     // any downstream logging sees the safe id, and echo it on the response.
     const requestId = resolveRequestId(request);

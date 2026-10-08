@@ -1182,7 +1182,10 @@ jobs:
           # the route unmounted on production, but a secret sitting on the
           # production Worker is one edit away from a credential bypass on live
           # weddings, so refuse the deploy until it is deleted (S-L2).
-          forbidden="DEV_LOGIN_SECRET"
+          # RESEND_API_URL points mail at a local Resend emulator; osn-api
+          # refuses to boot with it in a non-local tier (lib/email-layer.ts),
+          # so deploying with it set would 503 every route.
+          forbidden="DEV_LOGIN_SECRET RESEND_API_URL"
           present=""
           for name in $forbidden; do
             if printf '%s\n' "$set_names" | grep -qx "$name"; then
