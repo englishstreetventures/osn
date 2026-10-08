@@ -33,7 +33,10 @@ beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
 
-function buildApp({ tier = "crimson" }: { tier?: Tier } = {}) {
+function buildApp({
+  tier = "crimson",
+  extraListings = 0,
+}: { tier?: Tier; extraListings?: number } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
   const now = new Date();
@@ -96,6 +99,21 @@ function buildApp({ tier = "crimson" }: { tier?: Tier } = {}) {
   db.insert(directoryVendorCategories)
     .values({ directoryVendorId: "dv_florals_1", category: "florals" })
     .run();
+
+  for (let i = 0; i < extraListings; i++) {
+    db.insert(directoryVendors)
+      .values({
+        id: `dv_extra_${i}`,
+        name: `Extra Vendor ${String(i).padStart(3, "0")}`,
+        listed: "live",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(directoryVendorCategories)
+      .values({ directoryVendorId: `dv_extra_${i}`, category: "venue" })
+      .run();
+  }
 
   // A draft listing — must NOT appear in browse results.
   db.insert(directoryVendors)
@@ -208,13 +226,14 @@ describe("vendor directory browse route", () => {
     expect(body.listings[0].id).toBe("dv_venue_1");
   });
 
-  it("clamps limit=999 to at most 50", async () => {
-    const res = await req(buildApp(), `${base}?limit=999`, VIEWER);
+  it("clamps limit=999 to 50", async () => {
+    // The page's ids feed a per-element category read whose suppression rests
+    // on this clamp, so the page must stop at 50 with more listings than that.
+    const res = await req(buildApp({ extraListings: 60 }), `${base}?limit=999`, VIEWER);
     expect(res.status).toBe(200);
-    // With only 2 listings the clamping doesn't change the result count,
-    // but the request must succeed (not 400/500).
     const body = (await res.json()) as { listings: unknown[]; total: number };
-    expect(body.listings.length).toBeLessThanOrEqual(50);
+    expect(body.total).toBe(62);
+    expect(body.listings).toHaveLength(50);
   });
 
   it("limit=0 falls back to default (24)", async () => {

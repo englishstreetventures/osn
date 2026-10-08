@@ -499,6 +499,24 @@ describe("internal graph routes (ARC-protected)", () => {
       const reads = capturing.captured.filter((c) => c.sql.includes('"users"."id" in ('));
       expect(reads.map((c) => c.params.length)).toEqual([1]);
     });
+
+    it("accepts 200 ids, the schema's cap, and refuses 201", async () => {
+      // Pulse's attendee list sends up to 200 ids, so the cap may not drop below it.
+      const { token } = await setupArcService();
+      const send = (count: number) =>
+        app.handle(
+          new Request("http://localhost/graph/internal/profile-displays", {
+            method: "POST",
+            headers: { Authorization: `ARC ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              profileIds: Array.from({ length: count }, (_, i) => `usr_absent_${i}`),
+            }),
+          }),
+        );
+
+      expect((await send(200)).status).toBe(200);
+      expect((await send(201)).status).toBe(422);
+    });
   });
 
   // -------------------------------------------------------------------------
