@@ -4,8 +4,8 @@
     "number": 1433,
     "branch": "feat/cire-unlock-codes",
     "base_sha": "9683a3e759e8241a88da821632c45d4d48a4659c",
-    "head_sha": "18587567be70a86773d086d9c3204c6cc2fb6a13",
-    "generated_at": "2026-10-08T01:58:10.600Z",
+    "head_sha": "dfca64d107b4c7ee3827a9667e100e75b1c845f1",
+    "generated_at": "2026-10-08T01:58:34.881Z",
     "merged_at": null,
     "phase": "at-open"
   },
@@ -23,47 +23,47 @@
     "method": "unconfirmed"
   },
   "window": {
-    "sessions": 3,
+    "sessions": 4,
     "first_ts": "2026-10-07T15:46:58.230Z",
-    "last_ts": "2026-10-08T01:58:06.608Z",
-    "span_seconds": 36668,
-    "active_seconds": 5416,
+    "last_ts": "2026-10-08T01:58:31.542Z",
+    "span_seconds": 36693,
+    "active_seconds": 5448,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 97.7160101999999,
+    "usd_equivalent": 98.74505929999991,
     "tokens": {
-      "input": 1489,
-      "output": 12259,
+      "input": 1502,
+      "output": 12602,
       "thinking": 334,
-      "cache_write_5m": 3809380,
+      "cache_write_5m": 3835381,
       "cache_write_1h": 0,
-      "cache_read": 195886274
+      "cache_read": 198030400
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 21,
-          "output": 2839,
+          "input": 28,
+          "output": 3161,
           "thinking": 0,
-          "cache_write_5m": 18826,
+          "cache_write_5m": 43186,
           "cache_write_1h": 0,
-          "cache_read": 257161
+          "cache_read": 281308
         },
-        "usd_equivalent": 0.31732299999999997,
-        "messages": 11
+        "usd_equivalent": 0.4897315,
+        "messages": 13
       },
       "claude-opus-5-5": {
         "tokens": {
-          "input": 1468,
-          "output": 9420,
+          "input": 1474,
+          "output": 9441,
           "thinking": 334,
-          "cache_write_5m": 3790554,
+          "cache_write_5m": 3792195,
           "cache_write_1h": 0,
-          "cache_read": 195629113
+          "cache_read": 197749092
         },
-        "usd_equivalent": 97.39868719999991,
-        "messages": 729
+        "usd_equivalent": 98.2553277999999,
+        "messages": 732
       },
       "<synthetic>": {
         "tokens": {
@@ -81,31 +81,31 @@
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 21,
-          "output": 2839,
+          "input": 28,
+          "output": 3161,
           "thinking": 0,
-          "cache_write_5m": 18826,
+          "cache_write_5m": 43186,
           "cache_write_1h": 0,
-          "cache_read": 257161
+          "cache_read": 281308
         },
-        "usd_equivalent": 0.31732299999999997,
-        "messages": 11
+        "usd_equivalent": 0.4897315,
+        "messages": 13
       },
       "subagent": {
         "tokens": {
-          "input": 1468,
-          "output": 9420,
+          "input": 1474,
+          "output": 9441,
           "thinking": 334,
-          "cache_write_5m": 3790554,
+          "cache_write_5m": 3792195,
           "cache_write_1h": 0,
-          "cache_read": 195629113
+          "cache_read": 197749092
         },
-        "usd_equivalent": 97.39868719999991,
-        "messages": 733
+        "usd_equivalent": 98.2553277999999,
+        "messages": 736
       }
     },
     "effort": {
-      "xhigh": 638,
+      "xhigh": 641,
       "high": 91
     },
     "unpriced_models": []
@@ -115,7 +115,7 @@
       "generated": 2,
       "test": 19,
       "docs": 7,
-      "config": 4,
+      "config": 5,
       "source": 20
     },
     "loc": {
@@ -132,7 +132,7 @@
         "deleted": 23
       },
       "config": {
-        "added": 4353,
+        "added": 4542,
         "deleted": 2
       },
       "source": {
@@ -148,7 +148,7 @@
       "shared/observability"
     ],
     "touches_migration": true,
-    "commits": 7
+    "commits": 8
   },
   "interaction": {
     "user_turns": 0,
@@ -156,14 +156,14 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 640,
+      "Bash": 643,
       "Edit": 170,
       "Read": 114,
       "Write": 17,
       "Skill": 8,
       "Agent": 7,
       "SubagentHandback": 4,
-      "StructuredOutput": 2,
+      "StructuredOutput": 3,
       "ToolSearch": 1,
       "WebFetch": 1
     },
