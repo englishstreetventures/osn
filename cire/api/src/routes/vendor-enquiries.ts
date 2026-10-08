@@ -1,13 +1,13 @@
 import { directoryVendors, vendorEnquiries, vendors, weddings } from "@cire/db";
-import { jsonEachIn } from "@shared/db-utils";
 import type { RateLimiterBackend } from "@shared/rate-limit";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
-import { weddingIdIsLive, weddingIsLive } from "../db/live-wedding";
+import { weddingIdIsLive } from "../db/live-wedding";
+import { parseEnquiryPage } from "../lib/enquiry-page";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
@@ -69,6 +69,11 @@ const notFound = (set: { status?: number | string }) =>
 function unauthorisedSync(set: { status?: number | string }) {
   set.status = 401;
   return { error: "unauthorised" };
+}
+
+function invalidCursorSync(set: { status?: number | string }) {
+  set.status = 400;
+  return { error: "invalid_cursor" };
 }
 
 const zapUnavailable = (set: { status?: number | string }) =>
@@ -140,7 +145,7 @@ const loadEnquiryForVendor = (
  * enquiry's listing and 404s on a cross-tenant id (no enumeration). Writes
  * (reply / quote) run behind a per-user limiter (spam control §96).
  *
- *   GET  /api/vendor/enquiries                — enquiries across the caller's claimed listings
+ *   GET  /api/vendor/enquiries                — a page of enquiries across the caller's claimed listings
  *   GET  /api/vendor/enquiries/:id/messages   — thread (org-scoped; 404 cross-tenant)
  *   POST /api/vendor/enquiries/:id/messages   — reply (limiter) → 201
  *   POST /api/vendor/enquiries/:id/quote      — structured quote (limiter) → 201
@@ -158,66 +163,31 @@ export function createVendorEnquiriesRoutes(
   return (
     new Elysia({ prefix: "/api/vendor" })
       .use(osnAuth(osnAuthOptions))
-      // GET /enquiries — enquiries across the caller's claimed listings.
+      // GET /enquiries — one page of the enquiries across the caller's claimed
+      // listings, newest first: `?limit=` (at most ENQUIRY_PAGE_MAX) and
+      // `?cursor=` from the previous page's `nextCursor`.
       // SCOPED to the caller's own org(s) BEFORE the scan: resolve the caller's
-      // org ids, then read only enquiries whose listing's `owner_org_id` is one
-      // of them (indexed by `directory_vendors_owner_uniq`). No cross-tenant
-      // full-table read, no per-org membership fan-out. Fail-closed: if the
-      // profile-orgs resolver yields no orgs (absent ARC key / infra failure),
-      // the list is empty — never an unscoped scan.
-      .get("/enquiries", async ({ set, osnProfileId: profileId }) => {
+      // org ids, then read only enquiries on listings whose `owner_org_id` is
+      // one of them (`enquiryService.vendorInbox`). No cross-tenant full-table
+      // read, no per-org membership fan-out. Fail-closed: if the profile-orgs
+      // resolver yields no orgs (absent ARC key / infra failure), the list is
+      // empty — never an unscoped scan.
+      .get("/enquiries", async ({ query, set, osnProfileId: profileId }) => {
         if (!profileId) return unauthorisedSync(set);
+        const page = parseEnquiryPage(query);
+        if (!page) return invalidCursorSync(set);
 
         return runCire(
           Effect.gen(function* () {
             const callerOrgs = yield* Effect.promise(() => profileOrgs(profileId));
-            const callerOrgIds = callerOrgs.map((o) => o.id);
             // No memberships (or resolver unavailable) → empty, never an
             // unscoped scan. Preserves the "any member of the owner org sees the
-            // org's enquiries" semantic: the DB filter below keys on membership.
-            if (callerOrgIds.length === 0) return { enquiries: [] };
-
-            const rows = yield* dbQuery(() =>
-              db
-                .select({
-                  enquiry: vendorEnquiries,
-                  vendorName: vendors.name,
-                  category: vendors.category,
-                  weddingName: weddings.displayName,
-                })
-                .from(vendorEnquiries)
-                .innerJoin(
-                  directoryVendors,
-                  eq(vendorEnquiries.directoryVendorId, directoryVendors.id),
-                )
-                .innerJoin(vendors, eq(vendorEnquiries.vendorId, vendors.id))
-                .innerJoin(weddings, eq(vendorEnquiries.weddingId, weddings.id))
-                // A soft-deleted wedding's enquiries, and its name, drop out.
-                .where(
-                  and(
-                    inArray(directoryVendors.ownerOrgId, jsonEachIn(callerOrgIds)),
-                    weddingIsLive,
-                  ),
-                )
-                // Newest-first by last message, in SQL rather than a JS sort.
-                .orderBy(desc(vendorEnquiries.lastMessageAt))
-                .all(),
+            // org's enquiries" semantic: the DB filter keys on membership.
+            if (callerOrgs.length === 0) return { enquiries: [], nextCursor: null };
+            return yield* enquiryService.vendorInbox(
+              callerOrgs.map((o) => o.id),
+              page,
             );
-            const all = rows as Array<{
-              enquiry: EnquiryRow;
-              vendorName: string;
-              category: string;
-              weddingName: string;
-            }>;
-
-            const enquiries = all.map((r) => ({
-              ...toVendorDto(r.enquiry),
-              vendorName: r.vendorName,
-              category: r.category,
-              weddingName: r.weddingName,
-            }));
-
-            return { enquiries };
           }).pipe(
             Effect.provideService(DbService, db),
             Effect.catchDefect(() => internal(set)),
@@ -339,22 +309,4 @@ export function createVendorEnquiriesRoutes(
         manualParse,
       )
   );
-}
-
-// Local DTO projection so the list route doesn't leak the raw Drizzle row
-// (Date timestamps, pendingBody). Mirrors the enquiry service's toDto.
-function toVendorDto(r: EnquiryRow) {
-  return {
-    id: r.id,
-    weddingId: r.weddingId,
-    directoryVendorId: r.directoryVendorId,
-    vendorId: r.vendorId,
-    zapChatId: r.zapChatId,
-    status: r.status,
-    createdBy: r.createdBy,
-    quotedMinor: r.quotedMinor,
-    lastMessageAt: r.lastMessageAt.getTime(),
-    createdAt: r.createdAt.getTime(),
-    updatedAt: r.updatedAt.getTime(),
-  };
 }

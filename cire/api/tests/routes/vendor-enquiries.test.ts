@@ -8,12 +8,13 @@ import { eq } from "drizzle-orm";
 import { createApp } from "../../src/app";
 import type { Db } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import { ENQUIRY_PAGE_MAX } from "../../src/lib/enquiry-page";
 import type {
   OsnOrgMembershipResolver,
   OsnProfileOrgsResolver,
 } from "../../src/services/osn-bridge";
 import type { ZapChatClient } from "../../src/services/zap-bridge";
-import { appRequest, boundParameterCount, recordStatements } from "../test-helpers";
+import { appRequest, boundParameterCount, jsonBody, recordStatements } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { insertWedding } from "../test-helpers/wedding";
@@ -286,6 +287,26 @@ function seedProvisionedEnquiry(
   return { directoryVendorId, weddingId, vendorId, enquiryId };
 }
 
+/**
+ * `count` weddings, each with one enquiry to DV_CLAIMED a second apart.
+ * Returns the enquiry ids oldest first.
+ */
+function seedManyWeddingsEnquiring(db: Db, count: number): string[] {
+  const ids: string[] = [];
+  for (let n = 0; n < count; n++) {
+    const weddingId = `wed_many_${n}`;
+    insertWedding(db, { id: weddingId, slug: `many-${n}`, displayName: `Couple ${n}` });
+    const { enquiryId } = seedProvisionedEnquiry(db, {
+      directoryVendorId: DV_CLAIMED,
+      weddingId,
+      enquiryId: `enq_many_${String(n).padStart(3, "0")}`,
+      lastMessageAt: new Date((1_780_000_000 + n) * 1000),
+    });
+    ids.push(enquiryId);
+  }
+  return ids;
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("GET /api/vendor/enquiries", () => {
@@ -367,6 +388,55 @@ describe("GET /api/vendor/enquiries", () => {
     expect(boundParameterCount(reads[0]!.sql)).toBe(1);
   });
 
+  it("never answers more than a page, however large the limit asked for", async () => {
+    const { app, db } = buildApp();
+    seedManyWeddingsEnquiring(db, ENQUIRY_PAGE_MAX + 1);
+
+    const res = await req(app, "GET", "/api/vendor/enquiries?limit=999", VENDOR);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { enquiries: { id: string }[]; nextCursor: string | null };
+    expect(body.enquiries).toHaveLength(ENQUIRY_PAGE_MAX);
+    expect(body.nextCursor).not.toBeNull();
+  });
+
+  it("pages by nextCursor through the caller's enquiries only, each once, newest first", async () => {
+    const { app, db } = buildApp();
+    const mine = seedManyWeddingsEnquiring(db, 5);
+    // Another tenant's enquiries, newer than all of mine, from the same weddings.
+    for (let n = 0; n < 5; n++) {
+      seedProvisionedEnquiry(db, {
+        directoryVendorId: DV_OTHER,
+        weddingId: `wed_many_${n}`,
+        enquiryId: `enq_foreign_${n}`,
+        lastMessageAt: new Date((1_790_000_000 + n) * 1000),
+      });
+    }
+
+    const seen: string[] = [];
+    let path = "/api/vendor/enquiries?limit=2";
+    for (let pages = 1; ; pages++) {
+      // Sequential by nature: each page's cursor comes from the one before.
+      // eslint-disable-next-line no-await-in-loop
+      const res = await req(app, "GET", path, VENDOR);
+      expect(res.status).toBe(200);
+      // eslint-disable-next-line no-await-in-loop
+      const body = (await res.json()) as { enquiries: { id: string }[]; nextCursor: string | null };
+      expect(body.enquiries.length).toBeLessThanOrEqual(2);
+      seen.push(...body.enquiries.map((e) => e.id));
+      if (body.nextCursor === null) break;
+      expect(pages).toBeLessThan(5);
+      path = `/api/vendor/enquiries?limit=2&cursor=${encodeURIComponent(body.nextCursor)}`;
+    }
+    expect(seen).toEqual(mine.toReversed());
+  });
+
+  it("refuses a cursor it did not write with 400 invalid_cursor", async () => {
+    const { app } = buildApp();
+    const res = await req(app, "GET", "/api/vendor/enquiries?cursor=page-two", VENDOR);
+    expect(res.status).toBe(400);
+    expect(await jsonBody(res)).toEqual({ error: "invalid_cursor" });
+  });
+
   it("fails closed to an empty list when the caller resolves to no orgs", async () => {
     const { app, db } = buildApp();
     // Seed enquiries in BOTH orgs — none belong to a caller with no memberships.
@@ -381,8 +451,7 @@ describe("GET /api/vendor/enquiries", () => {
     // never an unscoped cross-tenant scan.
     const res = await req(app, "GET", "/api/vendor/enquiries", OTHER_OWNER);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { enquiries: unknown[] };
-    expect(body.enquiries).toHaveLength(0);
+    expect(await jsonBody(res)).toEqual({ enquiries: [], nextCursor: null });
   });
 });
 

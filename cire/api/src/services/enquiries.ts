@@ -24,13 +24,20 @@
  * enquiry with no re-provision and no second email.
  */
 
-import { vendorEnquiries, vendors } from "@cire/db";
-import { rowsChanged } from "@shared/db-utils";
+import { directoryVendors, vendorEnquiries, vendors, weddings } from "@cire/db";
+import { jsonEachIn, rowsChanged } from "@shared/db-utils";
 import type { EmailTemplateData, SendEmailInput } from "@shared/email";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect, type Types } from "effect";
 
-import { commitBatch, DbService, dbQuery } from "../db";
+import { commitBatch, type Db, DbService, dbQuery } from "../db";
+import { weddingIsLive } from "../db/live-wedding";
+import {
+  encodeEnquiryCursor,
+  type EnquiryCursor,
+  type EnquiryPageRequest,
+} from "../lib/enquiry-page";
 import type { ServiceCategory } from "../lib/service-categories";
 import { budgetService } from "./budget";
 import type { DirectoryVendorRow } from "./directory";
@@ -91,6 +98,17 @@ export interface EnquiryListItem extends EnquiryDto {
   category: string;
 }
 
+/** One row of a vendor's inbox: the couple's enquiry, plus the wedding's display name. */
+export interface VendorInboxItem extends EnquiryListItem {
+  weddingName: string;
+}
+
+/** One page of an inbox. `nextCursor` continues after its last row; `null` on the last page. */
+export interface EnquiryPage<T> {
+  enquiries: T[];
+  nextCursor: string | null;
+}
+
 export interface MessageDto {
   id: string;
   senderProfileId: string;
@@ -98,7 +116,10 @@ export interface MessageDto {
   createdAt: number;
 }
 
-const toDto = (r: EnquiryRow): EnquiryDto => ({
+/** The columns a DTO is built from — the row without its hand-off staging. */
+type EnquiryDtoSource = Omit<EnquiryRow, "pendingBody" | "handoffChatId">;
+
+const toDto = (r: EnquiryDtoSource): EnquiryDto => ({
   id: r.id,
   weddingId: r.weddingId,
   directoryVendorId: r.directoryVendorId,
@@ -172,6 +193,130 @@ export interface AddToBudgetInput {
 /** Format a minor-unit integer as a currency string for emails / chat bodies. */
 export function formatMinor(minor: number, currency: string): string {
   return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(minor / 100);
+}
+
+// ---------------------------------------------------------------------------
+// Inbox pages
+// ---------------------------------------------------------------------------
+
+/**
+ * Both inboxes list newest first by `(last_message_at, id)`, the trailing
+ * columns of `vendor_enquiries_wedding_last_msg_idx` and
+ * `vendor_enquiries_directory_last_msg_idx`, so a page is read in index order
+ * and the read stops at its LIMIT.
+ */
+const newestFirst = [desc(vendorEnquiries.lastMessageAt), desc(vendorEnquiries.id)] as const;
+
+/**
+ * Rows after the cursor in inbox order. Compared as a row value, which seeks
+ * the index on both columns; `last_message_at` holds epoch seconds, the
+ * cursor's own unit.
+ */
+const afterCursor = (after: EnquiryCursor | null): SQL | undefined =>
+  after === null
+    ? undefined
+    : sql`(${vendorEnquiries.lastMessageAt}, ${vendorEnquiries.id}) < (${after.lastMessageAt}, ${after.id})`;
+
+/** Inbox order over rows already read: the order of {@link newestFirst}. Ids are ASCII, so a code-unit compare matches SQLite's. */
+const byNewestFirst = (
+  a: { lastMessageAt: Date; id: string },
+  b: { lastMessageAt: Date; id: string },
+): number =>
+  b.lastMessageAt.getTime() - a.lastMessageAt.getTime() || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+
+/**
+ * Cut `limit + 1` rows read to a page, with the cursor after its last row when
+ * the extra row came back. `keyOf` names the enquiry a row carries.
+ */
+function toPage<R, T>(
+  rows: readonly R[],
+  limit: number,
+  keyOf: (row: R) => { lastMessageAt: Date; id: string },
+  toItem: (row: R) => T,
+): EnquiryPage<T> {
+  const kept = rows.slice(0, limit);
+  const last = kept.at(-1);
+  return {
+    enquiries: kept.map(toItem),
+    nextCursor: rows.length > limit && last ? encodeEnquiryCursor(keyOf(last)) : null,
+  };
+}
+
+/** The couple inbox's one read: a wedding's enquiries, a page and one more, newest first. */
+export const weddingEnquiriesQuery = (db: Db, weddingId: string, page: EnquiryPageRequest) =>
+  db
+    .select({
+      enquiry: vendorEnquiries,
+      vendorName: vendors.name,
+      category: vendors.category,
+    })
+    .from(vendorEnquiries)
+    .innerJoin(vendors, eq(vendorEnquiries.vendorId, vendors.id))
+    .where(and(eq(vendorEnquiries.weddingId, weddingId), afterCursor(page.after)))
+    .orderBy(...newestFirst)
+    .limit(page.limit + 1);
+
+/**
+ * Listings per vendor-inbox statement. Each listing is one arm of a
+ * `UNION ALL`, and D1 runs on workerd's SQLite, which caps a compound SELECT at
+ * five terms (`SQLITE_LIMIT_COMPOUND_SELECT`; wiki/shared/d1-limits.md).
+ */
+export const MAX_LISTING_ARMS_PER_QUERY = 5;
+
+/** The columns a vendor-inbox row needs, flat and uniquely named so an arm can be a subquery. */
+const vendorInboxColumns = {
+  id: vendorEnquiries.id,
+  weddingId: vendorEnquiries.weddingId,
+  directoryVendorId: vendorEnquiries.directoryVendorId,
+  vendorId: vendorEnquiries.vendorId,
+  zapChatId: vendorEnquiries.zapChatId,
+  status: vendorEnquiries.status,
+  createdBy: vendorEnquiries.createdBy,
+  quotedMinor: vendorEnquiries.quotedMinor,
+  lastMessageAt: vendorEnquiries.lastMessageAt,
+  createdAt: vendorEnquiries.createdAt,
+  updatedAt: vendorEnquiries.updatedAt,
+  vendorName: vendors.name,
+  category: vendors.category,
+  weddingName: weddings.displayName,
+};
+
+/**
+ * One vendor-inbox statement over up to {@link MAX_LISTING_ARMS_PER_QUERY}
+ * listings: each listing's enquiries after the cursor, a page and one more,
+ * newest first, joined to the couple's CRM row and a live wedding.
+ *
+ * One arm per listing, because an `IN` over several listings makes SQLite sort
+ * every matching row before the LIMIT; a listing on its own is read in index
+ * order and stops at its LIMIT. Each arm is a subquery because SQLite gives a
+ * non-final compound arm no ORDER BY or LIMIT of its own.
+ */
+export function listingEnquiriesQuery(
+  db: Db,
+  listingIds: readonly [string, ...string[]],
+  page: EnquiryPageRequest,
+) {
+  const arms = listingIds.map((listingId, index) => {
+    const arm = db
+      .select(vendorInboxColumns)
+      .from(vendorEnquiries)
+      .innerJoin(vendors, eq(vendorEnquiries.vendorId, vendors.id))
+      .innerJoin(weddings, eq(vendorEnquiries.weddingId, weddings.id))
+      // A soft-deleted wedding's enquiries, and its name, drop out.
+      .where(
+        and(
+          eq(vendorEnquiries.directoryVendorId, listingId),
+          weddingIsLive,
+          afterCursor(page.after),
+        ),
+      )
+      .orderBy(...newestFirst)
+      .limit(page.limit + 1)
+      .as(`listing_${index}`);
+    return db.select().from(arm);
+  });
+  const [first, second, ...rest] = arms;
+  return second === undefined ? first! : unionAll(first!, second, ...rest);
 }
 
 const threadUrl = (base: string, enquiryId: string): string =>
@@ -480,33 +625,74 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
       }).pipe(Effect.withSpan("cire.enquiries.open"));
     },
 
-    /** Couple inbox: newest-first enquiries for a wedding, with vendor name + category. */
-    list(weddingId: string): Effect.Effect<EnquiryListItem[], never, DbService> {
+    /** Couple inbox: one page of a wedding's enquiries, newest first, with vendor name + category. */
+    list(
+      weddingId: string,
+      page: EnquiryPageRequest,
+    ): Effect.Effect<EnquiryPage<EnquiryListItem>, never, DbService> {
       return Effect.gen(function* () {
         const db = yield* DbService;
-        const rows = yield* dbQuery(() =>
-          db
-            .select({
-              enquiry: vendorEnquiries,
-              vendorName: vendors.name,
-              category: vendors.category,
-            })
-            .from(vendorEnquiries)
-            .innerJoin(vendors, eq(vendorEnquiries.vendorId, vendors.id))
-            .where(eq(vendorEnquiries.weddingId, weddingId))
-            // Newest-first by last message, in SQL — this is what the second
-            // column of vendor_enquiries_wedding_last_msg_idx exists for (a JS
-            // sort here left it earning nothing).
-            .orderBy(desc(vendorEnquiries.lastMessageAt))
-            .all(),
-        );
-        return (rows as Array<{ enquiry: EnquiryRow; vendorName: string; category: string }>).map(
-          (r): EnquiryListItem => {
-            const dto = toDto(r.enquiry);
-            return Object.assign(dto, { vendorName: r.vendorName, category: r.category });
-          },
+        const rows = yield* dbQuery(() => weddingEnquiriesQuery(db, weddingId, page).all());
+        return toPage(
+          rows,
+          page.limit,
+          (r) => r.enquiry,
+          (r): EnquiryListItem =>
+            Object.assign(toDto(r.enquiry), { vendorName: r.vendorName, category: r.category }),
         );
       }).pipe(Effect.withSpan("cire.enquiries.list"));
+    },
+
+    /**
+     * Vendor inbox: one page of the enquiries on every listing the caller's
+     * organisations own, newest first. An organisation owns at most one listing.
+     *
+     * Two steps: the listings (one bound parameter for the whole org list), then
+     * one statement per {@link MAX_LISTING_ARMS_PER_QUERY} listings, merged here.
+     * Each listing contributes at most a page and one row, so a page reads that
+     * many rows per listing however long the inbox. osn-api answers at most 100
+     * organisations a profile, so a request makes at most 21 statements.
+     */
+    vendorInbox(
+      orgIds: readonly string[],
+      page: EnquiryPageRequest,
+    ): Effect.Effect<EnquiryPage<VendorInboxItem>, never, DbService> {
+      return Effect.gen(function* () {
+        const db = yield* DbService;
+        const listings = yield* dbQuery(() =>
+          db
+            .select({ id: directoryVendors.id })
+            .from(directoryVendors)
+            .where(inArray(directoryVendors.ownerOrgId, jsonEachIn([...orgIds])))
+            .all(),
+        );
+        // Sorted, so the same listings make the same statements on every page.
+        const listingIds = listings.map((l) => l.id).toSorted();
+        const batches: Array<[string, ...string[]]> = [];
+        for (let i = 0; i < listingIds.length; i += MAX_LISTING_ARMS_PER_QUERY) {
+          const [head, ...tail] = listingIds.slice(i, i + MAX_LISTING_ARMS_PER_QUERY);
+          batches.push([head!, ...tail]);
+        }
+        const read = yield* Effect.all(
+          batches.map((batch) => dbQuery(() => listingEnquiriesQuery(db, batch, page).all())),
+          { concurrency: MAX_LISTING_ARMS_PER_QUERY },
+        );
+        const rows = read
+          .flat()
+          .toSorted(byNewestFirst)
+          .slice(0, page.limit + 1);
+        return toPage(
+          rows,
+          page.limit,
+          (r) => r,
+          (r): VendorInboxItem =>
+            Object.assign(toDto(r), {
+              vendorName: r.vendorName,
+              category: r.category,
+              weddingName: r.weddingName,
+            }),
+        );
+      }).pipe(Effect.withSpan("cire.enquiries.vendor_inbox"));
     },
 
     /** Thread messages: real Zap history, or the single synthesized pending DTO. */
