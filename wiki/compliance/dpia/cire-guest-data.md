@@ -273,7 +273,9 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     builds cannot store evidence for words that were not on screen. The reply
     also names the person the sheet showed the attestation for, and the API
     refuses (409 `plus_one_changed`) a name the row no longer carries, so a page
-    opened before a rename cannot attest for the person named since. **A
+    opened before a rename cannot attest for the person named since. The name
+    is tested inside the write itself, so a rename that commits while the save
+    is in flight is refused too. **A
     household rename of a plus-one clears their dietary answers and consent
     record** in the same write, on every rename, since a new name may be a
     different person (Art. 5(1)(d)). **An organiser may record a plus-one's
