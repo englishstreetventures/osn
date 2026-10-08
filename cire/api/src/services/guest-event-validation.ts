@@ -24,18 +24,22 @@ import type { PaletteSwatch } from "../schemas/import";
 
 // ── Formula-injection markers ─────────────────────────────────────────────────
 
-/**
- * A cell that (after trimming) begins with one of these is interpreted as a
- * formula by Excel / Google Sheets. On the IMPORT side these are REJECTED (the
- * upload is untrusted); the EXPORT side neutralises them instead (`lib/csv.ts`).
- * Shared here so the marker set is defined once.
- */
-export const FORMULA_MARKERS = new Set(["=", "+", "-", "@"]);
+/** A cell that (after trimming) begins with one of these is run as a formula
+ *  by Excel and Google Sheets. */
+const FORMULA_MARKERS = new Set(["=", "+", "-", "@"]);
 
 /**
- * Does a cell start a formula? Trims FIRST — leading whitespace is a known
- * bypass (`" =SUM(...)"` is still dangerous because sheet apps ignore the
- * surrounding whitespace when interpreting a formula).
+ * Does an uploaded cell start a formula? The upload scan refuses such a cell.
+ * Trims FIRST — leading whitespace is a known bypass (`" =SUM(...)"` is still
+ * dangerous because sheet apps ignore the surrounding whitespace when
+ * interpreting a formula).
+ *
+ * Narrower than the download guard (`sanitiseCsvCell` in `lib/csv.ts`), on
+ * purpose: refusing every cell with a marker after an inner `;` or line break
+ * would refuse a dress code written as a dash list. Stored values may therefore
+ * hold a marker anywhere, and may start with one (the editor stores
+ * `-12 Smith Street`; an upload's `'=x` imports as `=x`). Every download guards
+ * them again; nothing else writes stored values into a spreadsheet.
  */
 export function isFormulaCell(cell: string): boolean {
   const trimmed = cell.trim();

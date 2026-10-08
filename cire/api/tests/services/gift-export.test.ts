@@ -518,6 +518,34 @@ describe("giftExportService.giftsCsv", () => {
     ),
   );
 
+  // Excel set to `;` as its list separator starts a new cell after a `;` or a
+  // line break inside a field, so a marker there is a cell start too.
+  it(
+    "escapes a formula marker that starts a ; or line-break segment of a guest's note",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        seedHousehold(db);
+        db.insert(registryContributions)
+          .values({
+            id: "rcon_segment",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            familyId: "fam_gifts",
+            status: "succeeded",
+            amountMinor: 1000,
+            currency: "AUD",
+            message: 'Congrats;=HYPERLINK("http://evil.invalid")\n@SUM(1)',
+            createdAt: at(2),
+            updatedAt: at(2),
+          })
+          .run();
+
+        const csv = yield* giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID);
+        expect(csv).toContain(`"Congrats;'=HYPERLINK(""http://evil.invalid"")\n'@SUM(1)"`);
+      }),
+    ),
+  );
+
   it(
     "keeps gifts given by the host household, unlike the guest export",
     withDb(

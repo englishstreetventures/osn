@@ -1039,3 +1039,62 @@ describe("parseEventsCsv — { snapshot: true } (checkpoint before-image)", () =
     expect((error as MalformedSpreadsheet).reason).toBe("too many events");
   });
 });
+
+describe("an upload takes the download's formula guard back off", () => {
+  const drinks = [{ name: "+1 Drinks" }];
+
+  it("reads every guarded events cell back as it was stored", async () => {
+    const csv = [
+      EVENTS_HEADER,
+      `'+1 Drinks,2026-09-18T16:00:00+10:00,,Australia/Sydney,,'-12 Smith Street,"Black tie\n'- no white\n'- no denim",,,`,
+    ].join("\n");
+    const [event] = await Effect.runPromise(parseEventsCsv(csv));
+    expect(event!.name).toBe("+1 Drinks");
+    expect(event!.address).toBe("-12 Smith Street");
+    expect(event!.dressCodeDescription).toBe("Black tie\n- no white\n- no denim");
+  });
+
+  // A download guards header cells too, so a guests sheet names an event
+  // `+1 Drinks` in its header as `'+1 Drinks`.
+  it("matches a guarded attendance header to its event", async () => {
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,'+1 Drinks",
+      "1,'=Emptyhouse,Ada,'-Dash,x",
+    ].join("\n");
+    const [family] = await Effect.runPromise(parseGuestsCsv(csv, drinks));
+    expect(family!.familyName).toBe("=Emptyhouse");
+    expect(family!.guests[0]!.lastName).toBe("-Dash");
+    expect(family!.guests[0]!.eventNames).toEqual(["+1 Drinks"]);
+  });
+
+  it("removes one quote only, and only where the guard puts one", async () => {
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,'+1 Drinks",
+      "1,''=Kept,O'-Neil,'Ada,x",
+    ].join("\n");
+    const [family] = await Effect.runPromise(parseGuestsCsv(csv, drinks));
+    expect(family!.familyName).toBe("'=Kept");
+    expect(family!.guests[0]!.firstName).toBe("O'-Neil");
+    expect(family!.guests[0]!.lastName).toBe("'Ada");
+  });
+
+  it("still refuses a cell that starts with a bare formula marker", async () => {
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,'+1 Drinks",
+      "1,=Emptyhouse,Ada,Dash,x",
+    ].join("\n");
+    const error = await Effect.runPromise(Effect.flip(parseGuestsCsv(csv, drinks)));
+    expect(error).toBeInstanceOf(FormulaInjectionDetected);
+  });
+
+  // A before-image is written without the guard, so its reader keeps a `'`.
+  it("leaves a checkpoint before-image's quotes alone", async () => {
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,+1 Drinks",
+      "fam_a,'=Stored,Ada,Dash,x",
+    ].join("\n");
+    const [family] = await Effect.runPromise(parseGuestsCsv(csv, drinks, { snapshot: true }));
+    expect(family!.familyName).toBe("'=Stored");
+    expect(family!.guests[0]!.eventNames).toEqual(["+1 Drinks"]);
+  });
+});
