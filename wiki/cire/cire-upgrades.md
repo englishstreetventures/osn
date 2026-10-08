@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-development]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-08
 ---
 
 # Self-serve upgrades — buying a plan tier
@@ -24,13 +24,20 @@ either; a wedding on Gold can buy Crimson at an upgrade-from-Gold price; a
 wedding on Crimson has nothing to buy. The one-off `premium_templates`
 entitlement is comp-only.
 
+A wedding can also reach a paid tier without paying: an operator's comp, or an
+unlock code an owner redeems ([[cire-entitlements#Unlock codes]]). A code is
+refused (409 `purchase_in_flight`) while a checkout for the wedding can still be
+paid. Settle's grant only ever raises, but it records the sale either way, so a
+checkout paid after a code had raised the wedding would take money for a tier
+it already held.
+
 ---
 
 ## The one rule everything else follows
 
-**Only a signature-verified webhook raises a wedding's tier.** The browser's
-return from Stripe polls; it never asserts. A hand-typed `?upgrade=…`
-therefore buys nobody anything.
+**Only a signature-verified webhook raises a wedding's tier for a purchase.**
+The browser's return from Stripe polls; it never asserts. A hand-typed
+`?upgrade=…` therefore buys nobody anything.
 
 ---
 

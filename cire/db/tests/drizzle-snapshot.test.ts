@@ -11,13 +11,19 @@ import { join } from "node:path";
 
 const CIRE_DB = join(import.meta.dir, "..");
 
-test("drizzle-kit finds no schema change between src/schema.ts and the baseline's snapshot", () => {
+const sqlFiles = (migrations: string): string[] =>
+  readdirSync(migrations)
+    .filter((name) => name.endsWith(".sql"))
+    .toSorted();
+
+test("drizzle-kit finds no schema change between src/schema.ts and the latest snapshot", () => {
   const dir = mkdtempSync(join(tmpdir(), "cire-db-snapshot-"));
   try {
     copyFileSync(join(CIRE_DB, "drizzle.config.ts"), join(dir, "drizzle.config.ts"));
     cpSync(join(CIRE_DB, "src"), join(dir, "src"), { recursive: true });
     cpSync(join(CIRE_DB, "migrations"), join(dir, "migrations"), { recursive: true });
     symlinkSync(join(CIRE_DB, "node_modules"), join(dir, "node_modules"));
+    const before = sqlFiles(join(dir, "migrations"));
 
     const result = Bun.spawnSync(
       [join(CIRE_DB, "node_modules", ".bin", "drizzle-kit"), "generate"],
@@ -31,9 +37,8 @@ test("drizzle-kit finds no schema change between src/schema.ts and the baseline'
 
     expect(`${result.stdout.toString()}${result.stderr.toString()}`).toContain("No schema changes");
     expect(result.exitCode).toBe(0);
-    expect(readdirSync(join(dir, "migrations")).filter((name) => name.endsWith(".sql"))).toEqual([
-      "0001_initial.sql",
-    ]);
+    // No file was written: the committed chain already says everything schema.ts does.
+    expect(sqlFiles(join(dir, "migrations"))).toEqual(before);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

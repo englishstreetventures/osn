@@ -174,6 +174,9 @@ export const CIRE_METRICS = {
   // sustained count means a portal build is still calling a module it should
   // show as locked.
   tierGatePaymentRequired: "cire.tier.gate.payment_required",
+  // An owner redeeming an unlock code, by outcome. A sustained rise in
+  // `refused` is someone guessing codes, not owners mistyping them.
+  tierUnlockCodeRedemptions: "cire.tier.unlock_code.redemptions",
   // Link preview — the one outbound fetch a user's input aims. The result
   // attribute is how a spike in refused destinations becomes visible.
   registryLinkPreview: "cire.registry.link_preview",
@@ -507,6 +510,13 @@ type UpgradePurchaseSettledAttrs = {
 };
 /** The tier a gated route needs. Bounded to the two paid tiers. */
 type TierGatePaymentRequiredAttrs = { required_tier: PaidTier };
+/** How an unlock-code redemption ended. `refused` is every code that cannot be
+ *  used — unknown, expired, used up, or already used by this wedding — which
+ *  the caller is told in one answer. `already_held` is a live code on a wedding
+ *  at or above its tier, and `purchase_in_flight` one refused because an
+ *  upgrade checkout for the wedding can still be paid. */
+export type UnlockCodeOutcome = "redeemed" | "refused" | "already_held" | "purchase_in_flight";
+type UnlockCodeRedemptionAttrs = { outcome: UnlockCodeOutcome };
 /** How a link-preview attempt ended. `blocked` is the SSRF guard refusing a
  *  destination — a sustained rise in it is someone probing, not a shop being
  *  slow, which is why it is its own value rather than folded into a failure. */
@@ -745,6 +755,12 @@ const tierGatePaymentRequired = createCounter<TierGatePaymentRequiredAttrs>({
   name: CIRE_METRICS.tierGatePaymentRequired,
   description: "Requests the tier gate refused with 402, by the tier the route needs",
   unit: "{request}",
+});
+
+const tierUnlockCodeRedemptions = createCounter<UnlockCodeRedemptionAttrs>({
+  name: CIRE_METRICS.tierUnlockCodeRedemptions,
+  description: "Unlock-code redemption attempts, by outcome",
+  unit: "{attempt}",
 });
 
 const registryLinkPreview = createCounter<RegistryLinkPreviewAttrs>({
@@ -1170,6 +1186,9 @@ export const metricUpgradePurchaseSettled = (
 
 export const metricTierGatePaymentRequired = (requiredTier: PaidTier): void =>
   tierGatePaymentRequired.inc({ required_tier: requiredTier });
+
+export const metricUnlockCodeRedemption = (outcome: UnlockCodeOutcome): void =>
+  tierUnlockCodeRedemptions.inc({ outcome });
 
 export const metricRegistryLinkPreview = (result: RegistryLinkPreviewResult): void =>
   registryLinkPreview.inc({ result });

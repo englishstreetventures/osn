@@ -15,7 +15,7 @@ import { peekCachedBudget } from "../lib/budget-store";
 import { DEFAULT_MODULE, defaultSub, isSubOf, type Module } from "../lib/dashboard-route";
 import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { createSlidingPill } from "../lib/sliding-pill";
-import type { Tier } from "../lib/tiers";
+import type { PaidTier, Tier } from "../lib/tiers";
 import type { WeddingRole } from "../lib/wedding-roles";
 import BudgetView from "./BudgetView";
 import ChecklistView from "./ChecklistView";
@@ -177,6 +177,8 @@ interface ModuleShellProps {
   onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
   /** An owner deleted the wedding from Settings (restorable until the ISO date). */
   onWeddingDeleted?: (restoreUntil: string) => void;
+  /** An owner redeemed an unlock code from Settings; the wedding is on `tier` now. */
+  onTierRaised?: (tier: PaidTier) => void;
   /** The organiser left this wedding from the co-host panel. */
   onLeftWedding?: () => void;
   /** The organiser changed their own role from the co-host panel. */
@@ -706,6 +708,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                     tier={props.tier}
                     onWeddingUpdated={props.onWeddingUpdated}
                     onWeddingDeleted={props.onWeddingDeleted}
+                    onTierRaised={props.onTierRaised}
                   />
                 </Show>
                 <Show when={active() === "hosts"}>
