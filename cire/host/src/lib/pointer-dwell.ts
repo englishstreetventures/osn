@@ -10,7 +10,9 @@
  *
  * Timers only. The caller decides what opening and closing mean, and whether
  * a leave closes anything — a card someone pressed open, or tabbed into, stays.
- * Both timers die with the owner that created this.
+ * `armLeave`, when given, says whether a leave is worth timing at all, so a
+ * pointer leaving a row with nothing to close starts no timer. Both timers die
+ * with the owner that created this.
  */
 import { onCleanup } from "solid-js";
 
@@ -30,6 +32,9 @@ export function createPointerDwell(options: {
   closeDelay: number;
   onDwell: () => void;
   onLeave: () => void;
+  /** Whether a leave now has anything to close. Read when the pointer leaves;
+   *  `onLeave` still decides when the delay is up. */
+  armLeave?: () => boolean;
 }): PointerDwell {
   let openTimer: ReturnType<typeof setTimeout> | undefined;
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -66,6 +71,7 @@ export function createPointerDwell(options: {
     leave(event) {
       if (isTouch(event)) return;
       stopOpening();
+      if (options.armLeave?.() === false) return;
       closeTimer ??= setTimeout(() => {
         closeTimer = undefined;
         options.onLeave();

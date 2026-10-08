@@ -3,6 +3,7 @@ import { Dialog } from "@kobalte/core/dialog";
 import { Popover } from "@kobalte/core/popover";
 import Menu from "lucide-solid/icons/menu";
 import { createSignal, For, type JSX, onCleanup, Show, untrack } from "solid-js";
+import { Portal } from "solid-js/web";
 
 import type { Module } from "../lib/dashboard-route";
 import { haptic } from "../lib/haptics";
@@ -136,11 +137,14 @@ function LockedRow(props: {
       setPreview(true);
       setOpen(true);
     },
+    // Checked again when the delay is up: focus may have gone into the card
+    // in the meantime, and a card in use stays.
     onLeave: () => {
       if (!open() || !preview()) return;
       closingOnLeave = true;
       setOpen(false);
     },
+    armLeave: () => open() && preview(),
   });
 
   const controls = () => (card ? [...card.querySelectorAll<HTMLElement>(CARD_CONTROLS)] : []);
@@ -561,18 +565,26 @@ export default function ModuleSidebar(props: {
           Mounted per offer: closing clears `upgrading`, so every open starts
           a fresh dialog rather than one still holding the last offer's
           submitting state. It sells the tier the row's lock names, and sends
-          the organiser back to the module they asked for. */}
+          the organiser back to the module they asked for.
+
+          Portalled to `<body>`, though a `<dialog>` in the top layer needs no
+          portal to paint: the sheet marks the app root `aria-hidden` while it
+          is open and lifts that a frame after it closes, and an offer from
+          the sheet opens this dialog in that frame. A node added to `<body>`
+          after the sheet has closed is outside what it hid. */}
       <Show when={upgrading()}>
         {(mod) => (
-          <UpgradeDialog
-            open
-            weddingId={props.weddingId}
-            tier={mod().lock!.tier}
-            module={mod().id}
-            title={TIER_LABEL[mod().lock!.tier]}
-            blurb={mod().lock!.blurb}
-            onClose={endUpgrade}
-          />
+          <Portal>
+            <UpgradeDialog
+              open
+              weddingId={props.weddingId}
+              tier={mod().lock!.tier}
+              module={mod().id}
+              title={TIER_LABEL[mod().lock!.tier]}
+              blurb={mod().lock!.blurb}
+              onClose={endUpgrade}
+            />
+          </Portal>
         )}
       </Show>
     </>

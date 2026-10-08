@@ -500,6 +500,29 @@ describe("ModuleSidebar", () => {
       expect(lockedRow().getAttribute("aria-expanded")).toBe("false");
     });
 
+    it("closes a previewed card when the row is pressed", async () => {
+      // One rule for a press on the row: it toggles the card, however the card
+      // came to be open.
+      vi.useFakeTimers();
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          weddingSlug="test-wedding"
+          canManage={false}
+          active="overview"
+          tier="ivory"
+          onSelect={vi.fn()}
+        />
+      ));
+      const row = lockedRow();
+      fireEvent.pointerEnter(row, { pointerType: "mouse" });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(lockedRow().getAttribute("aria-expanded")).toBe("true");
+
+      fireEvent.click(row);
+      expect(lockedRow().getAttribute("aria-expanded")).toBe("false");
+    });
+
     it("keeps a card the pointer opened while the pointer is on the card", async () => {
       // The row and its card sit 8px apart; crossing that gap is staying.
       vi.useFakeTimers();

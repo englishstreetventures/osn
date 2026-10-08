@@ -305,7 +305,10 @@ It sells the tier the row's lock names ([[cire-host-portal-layout]]):
   Tab stays inside, Escape and the backdrop close it, and the page behind is
   inert. Focus opens on **Cancel**, so an Enter held from the nav card never
   carries on into a checkout. Closed, focus goes back to the locked row, or to
-  the sheet's trigger when the offer came from the sheet.
+  the sheet's trigger when the offer came from the sheet. `ModuleSidebar`
+  portals it to `<body>`: the sheet marks the app root `aria-hidden` while it
+  is open and lifts that a frame after it closes, so a dialog opened from the
+  sheet in place would take focus inside a hidden subtree.
 - A checkout that could not start is said inside the dialog, not in a toast:
   the toaster sits behind the modal, inert, so its message would be painted and
   never announced. A refusal that closes the dialog (`processing`,

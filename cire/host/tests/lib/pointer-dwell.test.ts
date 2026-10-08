@@ -105,6 +105,45 @@ describe("createPointerDwell", () => {
     expect(onLeave).not.toHaveBeenCalled();
   });
 
+  it("treats crossing from the card back to the trigger as staying", () => {
+    const { dwell, onLeave } = setup();
+    dwell.enterTrigger(mouse);
+    vi.advanceTimersByTime(3000);
+
+    dwell.leave(mouse);
+    vi.advanceTimersByTime(100);
+    dwell.enterTrigger(mouse);
+
+    vi.advanceTimersByTime(10_000);
+    expect(onLeave).not.toHaveBeenCalled();
+  });
+
+  it("starts no close delay when the caller says a leave has nothing to close", () => {
+    const onLeave = vi.fn();
+    let armed = false;
+    let dispose!: () => void;
+    const dwell = createRoot((d) => {
+      dispose = d;
+      return createPointerDwell({
+        openDelay: 3000,
+        closeDelay: 300,
+        onDwell: () => {},
+        onLeave,
+        armLeave: () => armed,
+      });
+    });
+    const timersBefore = vi.getTimerCount();
+
+    dwell.leave(mouse);
+    expect(vi.getTimerCount()).toBe(timersBefore);
+
+    armed = true;
+    dwell.leave(mouse);
+    vi.advanceTimersByTime(300);
+    expect(onLeave).toHaveBeenCalledTimes(1);
+    dispose();
+  });
+
   it("never starts the open delay from the card", () => {
     // The card is what the dwell opened; resting on it is not asking again.
     const { dwell, onDwell } = setup();

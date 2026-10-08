@@ -183,6 +183,43 @@ describe("on the rail", () => {
     await expect.poll(focused).toBe(row);
   });
 
+  it("gives focus back to the row when the dialog's Cancel is pressed", async () => {
+    // Cancel holds focus when the dialog opens, so Enter on it is the likeliest
+    // way out, and it closes the dialog from inside rather than natively.
+    await page.viewport(1280, 900);
+    const { container } = mountAt(1200);
+    const row = lockedRow(container, "Checklist");
+    await tabTo(row);
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(focused).toBe(upgradeButton());
+    await userEvent.keyboard("{Enter}");
+    const dialog = await screen.findByRole("dialog", { name: /upgrade: gold/i });
+    await expect.poll(focused).toBe(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await userEvent.keyboard("{Enter}");
+
+    await expect.poll(() => screen.queryByRole("dialog", { name: /upgrade: gold/i })).toBeNull();
+    await expect.poll(focused).toBe(row);
+  });
+
+  it("leaves focus where it was when a pointer's preview closes", async () => {
+    // Kobalte hands focus to the trigger whenever a popover closes. For a card
+    // the pointer only previewed, that would move keyboard focus onto a row
+    // nobody pressed.
+    await page.viewport(1280, 900);
+    const { container } = mountAt(1200);
+    const row = lockedRow(container, "Checklist");
+    expect(focused()).toBe(document.body);
+
+    await userEvent.hover(row);
+    await expect.poll(upgradeButton, { timeout: 5000 }).not.toBeNull();
+    await userEvent.unhover(row);
+
+    await expect.poll(upgradeButton).toBeNull();
+    await new Promise((done) => setTimeout(done, 100));
+    expect(focused()).toBe(document.body);
+  });
+
   it("keeps a card the pointer opened once the keyboard has gone into it", async () => {
     await page.viewport(1280, 900);
     const { container } = mountAt(1200);
@@ -235,6 +272,19 @@ describe("in the sheet", () => {
     expect(focused()).toBe(upgradeButton());
   });
 
+  it("moves on from the card's last button to the next row in the sheet", async () => {
+    // The sheet's own focus trap stands down while a card is open; the step
+    // forward has to land on the next sheet row, not leave the modal.
+    await openSheetAndCard();
+    await expect.poll(focused).toBe(upgradeButton());
+
+    await userEvent.tab();
+
+    expect(focused()).toBe(lockedRow("Budget"));
+    await expect.poll(upgradeButton).toBeNull();
+    expect(sheet()).toBeTruthy();
+  });
+
   it("closes only the card on Escape, leaving the sheet open on the row", async () => {
     const row = await openSheetAndCard();
     await expect.poll(focused).toBe(upgradeButton());
@@ -250,8 +300,22 @@ describe("in the sheet", () => {
     await openSheetAndCard();
     await expect.poll(focused).toBe(upgradeButton());
 
+    // The sheet hides everything outside itself from assistive tech, and lifts
+    // that a frame after it closes. The dialog has to land outside what it
+    // hid, or the moment its name and focused button are announced is the
+    // moment they are hidden. Read where focus lands as it lands.
+    let hiddenWhenFocused: Element | null | undefined;
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target as Element;
+      if (target.textContent === "Cancel") {
+        hiddenWhenFocused = target.closest('[aria-hidden="true"]');
+      }
+    };
+    document.addEventListener("focusin", onFocusIn);
     await userEvent.keyboard("{Enter}");
+    document.removeEventListener("focusin", onFocusIn);
 
+    expect(hiddenWhenFocused).toBeNull();
     const dialog = await screen.findByRole("dialog", { name: /upgrade: gold/i });
     await expect.poll(focused).toBe(within(dialog).getByRole("button", { name: "Cancel" }));
     // The sheet plays its exit before it unmounts.
@@ -259,6 +323,19 @@ describe("in the sheet", () => {
     expect(focused()).toBe(within(dialog).getByRole("button", { name: "Cancel" }));
 
     await userEvent.keyboard("{Escape}");
+
+    await expect.poll(() => screen.queryByRole("dialog", { name: /upgrade: gold/i })).toBeNull();
+    await expect.poll(focused).toBe(sheetTrigger());
+  });
+
+  it("returns to the sheet's trigger when the dialog's Cancel is pressed", async () => {
+    await openSheetAndCard();
+    await expect.poll(focused).toBe(upgradeButton());
+    await userEvent.keyboard("{Enter}");
+    const dialog = await screen.findByRole("dialog", { name: /upgrade: gold/i });
+    await expect.poll(focused).toBe(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await userEvent.keyboard("{Enter}");
 
     await expect.poll(() => screen.queryByRole("dialog", { name: /upgrade: gold/i })).toBeNull();
     await expect.poll(focused).toBe(sheetTrigger());

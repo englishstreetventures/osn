@@ -227,6 +227,12 @@ describe("paying", () => {
     await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
     expect(String(toastSuccess.mock.calls[0]?.[0])).toMatch(/already on Gold/);
     expect(navigateTo).not.toHaveBeenCalled();
+    // Closed first, for the same reason as the wait below: a toast raised over
+    // an open modal is painted and never announced.
+    expect(PROPS.onClose).toHaveBeenCalledTimes(1);
+    expect(PROPS.onClose.mock.invocationCallOrder[0]).toBeLessThan(
+      toastSuccess.mock.invocationCallOrder[0]!,
+    );
   });
 
   /**
