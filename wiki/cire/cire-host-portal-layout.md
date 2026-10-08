@@ -338,7 +338,7 @@ the last page loaded, and two exports the other caches do not have:
 | Export | What it does |
 |---|---|
 | `enquiriesNextCursor(id)` | The cursor accessor; `null` once every page is loaded |
-| `loadMoreEnquiries(id, fetcher)` | Fetches the next page and merges it into the rows as they are when it arrives, in the server's order. Fetches nothing for a closed wedding, with no cursor or no rows, or while the wedding is stale or `ensureEnquiriesLoaded` is in flight, since a page from the old cursor would land below a fresh page one with rows missing between them. A refused page blanks rows and cursor and rethrows, like a refused refetch. Generation-guarded |
+| `loadMoreEnquiries(id, fetcher)` | Fetches the next page and merges it into the rows as they are when it arrives, in the server's order. Fetches nothing for a closed wedding, with no cursor or no rows, or while the wedding is stale, since a page from the old cursor would land below a fresh page one with rows missing between them. A refused page blanks rows and cursor and rethrows, like a refused refetch. Generation-guarded |
 
 `ensureEnquiriesLoaded` stores page one and its cursor; a refetch after an
 invalidate puts the inbox back to page one. `invalidateEnquiries` and
