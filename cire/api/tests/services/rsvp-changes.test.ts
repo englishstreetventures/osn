@@ -305,7 +305,6 @@ describe("rsvpChangeService.feed", () => {
     await record(db, ada.familyId, [{ guestId: ada.id, eventId: HINDU, kind: "reply_new" }]);
     const first = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
     expect(first.households).toBe(1);
-    expect(first.digestEnabled).toBe(true);
 
     const table = await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER));
     await ok(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, table.markSeq));
@@ -416,12 +415,9 @@ describe("rsvpChangeService.setDigest", () => {
   it("turns the digest off and on for one organiser only", async () => {
     const { db } = fixture();
     await ok(db, rsvpChangeService.setDigest(BOOTSTRAP_WEDDING_ID, EDITOR, false));
-    expect((await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, EDITOR))).digestEnabled).toBe(
-      false,
-    );
-    expect((await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER))).digestEnabled).toBe(
-      true,
-    );
+    expect(notices(db, EDITOR)?.digestEnabled).toBe(false);
+    // The owner has no row of their own, which reads as on.
+    expect(notices(db, OWNER)?.digestEnabled ?? true).toBe(true);
     await ok(db, rsvpChangeService.setDigest(BOOTSTRAP_WEDDING_ID, EDITOR, true));
     expect(notices(db, EDITOR)?.digestEnabled).toBe(true);
   });

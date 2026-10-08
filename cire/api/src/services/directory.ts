@@ -19,9 +19,8 @@
  * are enforced upstream (Task 8).
  */
 import { directoryVendorCategories, directoryVendors, vendorClaims, vendors } from "@cire/db";
-import { rowsChanged } from "@shared/db-utils";
 import { likeContains } from "@shared/db-utils/search";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, exists, gte, inArray, isNull, notExists, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Data, Effect } from "effect";
 
@@ -202,6 +201,48 @@ function hashToken(raw: string): Effect.Effect<string> {
     return Array.from(new Uint8Array(digest))
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
+  });
+}
+
+/**
+ * Why a claim's burn matched no row, read after the burn and only then. The
+ * checks run in the burn's order of precedence: a spent, expired or unknown
+ * token, or a listing that is gone, claimed or pending, is `ClaimInvalid`,
+ * so a token for a claimed listing reads as invalid, not as an org conflict;
+ * only a claim the org check alone refused is `OrgAlreadyHasListing`. A claim
+ * every check now passes changed between the two statements and fails closed
+ * as `ClaimInvalid`. `now` is the burn's, so both apply one expiry rule.
+ */
+function claimRefusal(
+  tokenHash: string,
+  orgId: string,
+  now: Date,
+): Effect.Effect<ClaimInvalid | OrgAlreadyHasListing, never, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const [found] = yield* dbQuery(() =>
+      db
+        .select({
+          consumedAt: vendorClaims.consumedAt,
+          expiresAt: vendorClaims.expiresAt,
+          listingId: directoryVendors.id,
+          listingOwner: directoryVendors.ownerOrgId,
+          listingReview: directoryVendors.reviewOrgId,
+          orgHasListing: sql<number>`EXISTS (SELECT 1 FROM directory_vendors o WHERE o.owner_org_id = ${orgId} OR o.review_org_id = ${orgId})`,
+        })
+        .from(vendorClaims)
+        .leftJoin(directoryVendors, eq(directoryVendors.id, vendorClaims.directoryVendorId))
+        .where(eq(vendorClaims.tokenHash, tokenHash))
+        .all(),
+    );
+    const claimable =
+      found !== undefined &&
+      found.consumedAt === null &&
+      found.expiresAt.getTime() >= now.getTime() &&
+      found.listingId !== null &&
+      found.listingOwner === null &&
+      found.listingReview === null;
+    return claimable && found.orgHasListing ? new OrgAlreadyHasListing() : new ClaimInvalid();
   });
 }
 
@@ -664,8 +705,11 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
      *
      * Fails `ClaimInvalid` if the token is unknown, expired or consumed, or its
      * listing is gone, claimed or already pending. Fails `OrgAlreadyHasListing`
-     * if `orgId` already owns or is waiting on a listing; that check runs
-     * before the burn, so the token stays live for the vendor to pick another org.
+     * if `orgId` already owns or is waiting on a listing. Every one of those
+     * checks sits in the burn's own WHERE, so a refused claim never spends the
+     * token, and the vendor can pick another org. A claim costs four
+     * statements (burn, then the bind batch's two beside the category read); a
+     * refusal costs two (the burn, then {@link claimRefusal}).
      */
     consumeClaim(
       token: string,
@@ -676,58 +720,63 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
         const db = yield* DbService;
         const tokenHash = yield* hashToken(token);
 
-        // One read answers every pre-check: the token, its listing's owner,
-        // and whether `orgId` already owns a listing. None of them fails by
-        // burning the token. The listing check runs before the org check, so a
-        // token for a claimed listing reads as invalid, not as an org conflict.
-        const [found] = yield* dbQuery(() =>
-          db
-            .select({
-              claim: vendorClaims,
-              listingId: directoryVendors.id,
-              listingOwner: directoryVendors.ownerOrgId,
-              listingReview: directoryVendors.reviewOrgId,
-              orgHasListing: sql<number>`EXISTS (SELECT 1 FROM directory_vendors o WHERE o.owner_org_id = ${orgId} OR o.review_org_id = ${orgId})`,
-            })
-            .from(vendorClaims)
-            .leftJoin(directoryVendors, eq(directoryVendors.id, vendorClaims.directoryVendorId))
-            .where(eq(vendorClaims.tokenHash, tokenHash))
-            .all(),
-        );
-        if (!found) return yield* Effect.fail(new ClaimInvalid());
-        const claimRow = found.claim;
-
-        if (claimRow.consumedAt !== null) return yield* Effect.fail(new ClaimInvalid());
-        if (claimRow.expiresAt.getTime() < Date.now())
-          return yield* Effect.fail(new ClaimInvalid());
-        if (found.listingId === null || found.listingOwner !== null || found.listingReview !== null)
-          return yield* Effect.fail(new ClaimInvalid());
-        if (found.orgHasListing) return yield* Effect.fail(new OrgAlreadyHasListing());
-
         const now = new Date();
+        // `expires_at` holds whole seconds, and a token is live while its
+        // expiry is not before `now` to the millisecond. For a whole-second
+        // expiry that is `expires_at >= ceil(now)`, so the burn and the
+        // refusal read below apply the same rule.
+        const liveUntilAtLeast = new Date(Math.ceil(now.getTime() / 1000) * 1000);
 
-        // Compare-and-swap burn: the UPDATE itself is the exclusive guard.
-        // The WHERE clause on `consumed_at IS NULL` means only one concurrent
-        // caller can change 0→1 rows; all others get 0 rows changed and bail.
+        // The burn is the only gate. One compare-and-swap UPDATE spends the
+        // token only if, in the same statement, it is unspent and unexpired,
+        // its listing is unowned and not pending, and `orgId` neither owns nor
+        // waits on a listing. Of two concurrent callers, one changes the row;
+        // the other matches nothing. A refused claim therefore never spends the
+        // token, so a vendor whose org already has a listing can pick another.
         //
         // Fail-closed ordering: burn FIRST, bind SECOND. A crash between the
         // two writes leaves the token consumed-but-unbound (safe — a new invite
-        // is needed) rather than bound-but-reusable (unsafe).
-        //
-        // `rowsChanged` normalises the run-result across drivers — read it
-        // through nothing else, or the gate inverts on D1.
-        const burnResult = yield* dbQuery(() =>
+        // is needed) rather than bound-but-reusable (unsafe). RETURNING hands
+        // back the listing id, so nothing reads the claim row.
+        const [burned] = yield* dbQuery(() =>
           db
             .update(vendorClaims)
             .set({ consumedAt: now })
-            .where(and(eq(vendorClaims.id, claimRow.id), sql`consumed_at IS NULL`))
-            .run(),
+            .where(
+              and(
+                eq(vendorClaims.tokenHash, tokenHash),
+                isNull(vendorClaims.consumedAt),
+                gte(vendorClaims.expiresAt, liveUntilAtLeast),
+                exists(
+                  db
+                    .select({ one: sql`1` })
+                    .from(directoryVendors)
+                    .where(
+                      and(
+                        eq(directoryVendors.id, vendorClaims.directoryVendorId),
+                        isNull(directoryVendors.ownerOrgId),
+                        isNull(directoryVendors.reviewOrgId),
+                      ),
+                    ),
+                ),
+                notExists(
+                  db
+                    .select({ one: sql`1` })
+                    .from(directoryVendors)
+                    .where(
+                      or(
+                        eq(directoryVendors.ownerOrgId, orgId),
+                        eq(directoryVendors.reviewOrgId, orgId),
+                      ),
+                    ),
+                ),
+              ),
+            )
+            .returning({ directoryVendorId: vendorClaims.directoryVendorId })
+            .all(),
         );
-
-        if (rowsChanged(burnResult) === 0) {
-          // Token was consumed by a concurrent or prior caller — fail closed.
-          return yield* Effect.fail(new ClaimInvalid());
-        }
+        if (!burned) return yield* Effect.fail(yield* claimRefusal(tokenHash, orgId, now));
+        const { directoryVendorId } = burned;
 
         // Burn succeeded — now record the pending claim and burn the listing's
         // other live tokens, in one batch. The write only matches a listing
@@ -763,7 +812,7 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
                   })
                   .where(
                     and(
-                      eq(directoryVendors.id, claimRow.directoryVendorId),
+                      eq(directoryVendors.id, directoryVendorId),
                       isNull(directoryVendors.ownerOrgId),
                       isNull(directoryVendors.reviewOrgId),
                     ),
@@ -774,13 +823,13 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
                   .set({ consumedAt: now })
                   .where(
                     and(
-                      eq(vendorClaims.directoryVendorId, claimRow.directoryVendorId),
+                      eq(vendorClaims.directoryVendorId, directoryVendorId),
                       isNull(vendorClaims.consumedAt),
                     ),
                   ),
               ]),
             ).pipe(Effect.catch((error) => bindRefused(orgId, error))),
-            fetchCategories(claimRow.directoryVendorId),
+            fetchCategories(directoryVendorId),
           ],
           { concurrency: "unbounded" },
         );

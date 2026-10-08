@@ -286,6 +286,9 @@ type AuthorizeResult = {
   /** The wedding's invite image keys, from the same query. Set only by
    *  `authorizeWithInviteImages()`; every other lookup leaves it out. */
   inviteImages?: InviteImageKeys;
+  /** The caller's RSVP-change digest setting, from the same query. Set only by
+   *  `authorizeWithRsvpDigest()`; every other lookup leaves it out. */
+  rsvpDigestEnabled?: boolean;
 };
 
 /** What the wedding row and the caller's seat on it — if any — say. */
@@ -316,6 +319,15 @@ function resolveSeat(row: {
 const callerSeat = (osnProfileId: string) =>
   and(eq(weddingHosts.weddingId, weddings.id), eq(weddingHosts.osnProfileId, osnProfileId));
 
+/** The columns every authorize query selects: what {@link resolveSeat} reads. */
+const seatColumns = {
+  slug: weddings.slug,
+  tier: weddings.tier,
+  seatId: weddingHosts.id,
+  role: weddingHosts.role,
+  runSheetScope: weddingHosts.runSheetScope,
+};
+
 /**
  * `authorize()`: the wedding row and the caller's seat on it, in one query.
  * The wedding row carries the slug and the tier, so neither costs a query of
@@ -330,13 +342,7 @@ function authorizeCaller(
     const db = yield* DbService;
     const [row] = yield* dbQuery(() =>
       db
-        .select({
-          slug: weddings.slug,
-          tier: weddings.tier,
-          seatId: weddingHosts.id,
-          role: weddingHosts.role,
-          runSheetScope: weddingHosts.runSheetScope,
-        })
+        .select(seatColumns)
         .from(weddings)
         .leftJoin(weddingHosts, callerSeat(osnProfileId))
         .where(and(eq(weddings.id, weddingId), weddingIsLive))
@@ -699,11 +705,7 @@ export const hostsService = {
       const [row] = yield* dbQuery(() =>
         db
           .select({
-            slug: weddings.slug,
-            tier: weddings.tier,
-            seatId: weddingHosts.id,
-            role: weddingHosts.role,
-            runSheetScope: weddingHosts.runSheetScope,
+            ...seatColumns,
             heroImageKey: weddingInviteCustomisations.heroImageKey,
             storyImageKey: weddingInviteCustomisations.storyImageKey,
             footerImageKey: weddingInviteCustomisations.footerImageKey,
@@ -728,6 +730,40 @@ export const hostsService = {
   },
 
   /**
+   * `authorize()` plus the caller's RSVP-change digest setting, in the same
+   * single query: the caller's `host_rsvp_notices` row is LEFT JOINed on its
+   * primary key (wedding, caller). No row reads as on, as everywhere else that
+   * reads the setting. Only `weddingMember(db, { rsvpDigest: true })` calls
+   * this, in front of the RSVP-changes card's read; every other gate keeps the
+   * narrower query.
+   */
+  authorizeWithRsvpDigest(
+    weddingId: string,
+    osnProfileId: string,
+  ): Effect.Effect<AuthorizeResult | null, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [row] = yield* dbQuery(() =>
+        db
+          .select({ ...seatColumns, digestEnabled: hostRsvpNotices.digestEnabled })
+          .from(weddings)
+          .leftJoin(weddingHosts, callerSeat(osnProfileId))
+          .leftJoin(
+            hostRsvpNotices,
+            and(
+              eq(hostRsvpNotices.weddingId, weddings.id),
+              eq(hostRsvpNotices.osnProfileId, osnProfileId),
+            ),
+          )
+          .where(and(eq(weddings.id, weddingId), weddingIsLive))
+          .all(),
+      );
+      if (!row) return null;
+      return { ...resolveSeat(row), rsvpDigestEnabled: row.digestEnabled ?? true };
+    }).pipe(Effect.withSpan("cire.host.authorizeWithRsvpDigest"));
+  },
+
+  /**
    * `authorize()` for the one route that must see a soft-deleted wedding: its
    * owners' restore. The same single query without the live-wedding predicate.
    * Whether the wedding is deleted, and for how long, is the restore's own
@@ -742,13 +778,7 @@ export const hostsService = {
       const db = yield* DbService;
       const [row] = yield* dbQuery(() =>
         db
-          .select({
-            slug: weddings.slug,
-            tier: weddings.tier,
-            seatId: weddingHosts.id,
-            role: weddingHosts.role,
-            runSheetScope: weddingHosts.runSheetScope,
-          })
+          .select(seatColumns)
           .from(weddings)
           .leftJoin(weddingHosts, callerSeat(osnProfileId))
           .where(eq(weddings.id, weddingId))

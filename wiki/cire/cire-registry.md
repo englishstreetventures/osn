@@ -11,7 +11,7 @@ related:
   - "[[drag-and-drop]]"
   - "[[cire-development]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 
 # Gift registry
@@ -222,7 +222,7 @@ All organiser routes sit under `/api/organiser/weddings/:weddingId/registry`, ga
 | `POST /registry/gifts/:kind/:giftId/note-hidden` — `{ hidden }`; answers `{ ok, note, noteHidden }` | `weddingEditor`                                                                                                                |
 | `POST /registry/link-preview`                                                                      | `weddingEditor` + **its own** per-organiser limiter — see [Link preview](#link-preview)                                        |
 | `POST /registry/image` (raw bytes), `POST /registry/image/from-url`                                | `weddingEditor` + **their own** 10-a-minute limiter — see [Picking one](#picking-one-we-copy-the-bytes-we-never-store-the-url) |
-| `GET /registry/image/:name` — serves our R2 copy, `private`                                        | `weddingMember`                                                                                                                |
+| `GET /registry/image/:name` — serves our R2 copy, `private`, kept an hour                         | `weddingMember`                                                                                                                |
 
 ### Guest routes
 
@@ -256,7 +256,7 @@ So an image URL is a **bearer credential while its gift is on a published list**
 | A browser's or a proxy's                | `public, max-age=3600`, no `immutable` | Gone within the hour; no gate sees this copy, so its lifetime is the bound |
 | The Worker's own (Cloudflare Cache API) | a year                                 | Unreachable at once: every lookup in it runs after the gate                |
 
-The route passes `lifetime: "revocable"` to `serveTransformedImage` for this. Every other cire image route keeps `max-age=31536000, immutable`, because its URL changes with its bytes, so a long life never serves a stale picture.
+The route passes `lifetime: "revocable"` to `serveTransformedImage` for this, as the organiser's own registry image route and the invite's gated image slots do. An image route whose gate cannot close keeps `max-age=31536000, immutable`, because its URL changes with its bytes, so a long life never serves a stale picture.
 
 **The gate is one D1 statement.** The slug read, the wedding's tier (a column of the same `weddings` row, checked against Gold in JavaScript), the settings row (a `LEFT JOIN`; no row reads as the defaults, so unpublished), the wedding's currency and, when the caller asks, the item check (image route) and the household check (list and `/mine`) are all keyed on the wedding id the slug produces, so they are folded into that one read. Every guest route pays the gate, and the image route pays it per image.
 
@@ -297,7 +297,9 @@ The export exists because the two things above are in tension. The portal reads 
 - **No Stripe identifiers.** The charge and payment-intent references are payment plumbing, not part of the couple's record of who gave what.
 - **A hidden note prints as `Note hidden`**, never its words, through the same `giftNoteView` rule the gift log uses. There is no extra column, so the row stays at fourteen cells and the CPU figure above holds.
 
-Cells are formula-sanitised by `serialiseCsv` like every other export — a guest-authored note beginning `=` opens as text, not as a formula.
+Cells are formula-guarded by `serialiseCsv` like every other export: a `=`, `+`, `-` or `@` (or a full-width form of one) that starts a guest-authored note, or starts any `;`, tab or line-break segment of it, gets a `'` before it, so the note opens as text whatever separator the spreadsheet splits on. The guard walks each cell once, in time linear in its length, even across a long run of line breaks, so it adds little to the CPU figure above for ordinary notes. A note packed with `;=` pairs costs about what a note packed with `"` already costs in the RFC 4180 quoting; either needs a guest to have written most of the file's notes that way.
+
+*Measured 2026-10-08 — `serialiseCsv` over 2,000 fourteen-cell rows with a 1,000-character note, before and after the segment guard, minimum of 12 rounds, Node 24 (V8) on an Apple M-series laptop: plain notes 1.84 → 2.21 ms, notes with 16 `;` 1.65 → 3.05 ms, `\n` × 1,000 3.62 → 6.99 ms, `;=` × 500 1.66 → 45.5 ms, `"` × 1,000 34.8 → 39.8 ms. Not workerd; compare the ratios, not the figures, with the Workers number above.*
 
 The portal side is a single quiet button in the Gifts tab of `RegistryView.tsx`, shown only to an owner and only when there is a gift to export, and it downloads `cire-gifts-<slug>.csv`.
 
@@ -444,7 +446,7 @@ Two endpoints, both on the write group's gates (`osnAuth` 401 → `weddingEditor
 3. `detectImageType` on the leading bytes. **The `Content-Type` header is not consulted for the decision** — a server that answers `image/png` over an HTML page is the ordinary case here, not an exotic one, and the stored object's type is the sniffed one. Anything outside `image/jpeg`, `image/png`, `image/webp` is refused.
 4. `storeAsset` writes `assets/<weddingId>/registry-<uuid>` — the same pipeline, key shape and bucket as invite hero images, so `imageKeyBelongsTo` and the reconciler already understand it.
 
-Serving is the existing gated route, `GET .../registry/image/:name`, through the Cloudflare Images transform binding: the key is **rebuilt server-side** from the route's `:weddingId` (the client's `:name` is charset-pinned and never a path), the cache version comes from `versionFromKey`, not the client's `?v=`, and the response is `private`, because this route sits behind an organiser session, as the invite's closing image does on its organiser route. The portal's thumbnail reads it through `authFetch` into an object URL, and asks for `?variant=thumb` (320px) rather than the 800px `card` default — the field paints it at 80px.
+Serving is the existing gated route, `GET .../registry/image/:name`, through the Cloudflare Images transform binding: the key is **rebuilt server-side** from the route's `:weddingId` (the client's `:name` is charset-pinned and never a path), the cache version comes from `versionFromKey`, not the client's `?v=`, and the response is `private`, because this route sits behind an organiser session, as the invite's closing image does on its organiser route. The browser keeps it for an hour (`lifetime: "revocable"`: `private, max-age=3600` and a weak `ETag`), then asks again. The 304 comes from inside the handler, after `osnAuth`, `weddingMember` and the Gold gate have run, so a sign-out, a removed seat or a drop below Gold reaches the browser's copy within the hour. Each image costs a viewer one gated request an hour: the session read when the request carries the `cire_org_session` cookie, the member gate's one statement (which carries the tier), and a 304, with no Cache API lookup, R2 read or transform. Each such request counts against the Workers request allowance in [[free-tier-limits]]. The portal's thumbnail reads it through `authFetch` into an object URL, which honours the same `Cache-Control`, and asks for `?variant=thumb` (320px) rather than the 800px `card` default — the field paints it at 80px.
 
 The transform caches through the Cloudflare Cache API under a synthetic key. A `private` response is not something the platform cache is obliged to store, so the copy handed to `cache.put` carries `public, max-age=31536000, immutable` and the copy returned to the browser is re-stamped with the route's own visibility on both the miss and the hit path — the synthetic key is unreachable from outside and the lookup happens after the gates, so `public` on the stored copy never reaches a client. The `put` is accepted: through `serveTransformedImage`, the path every gated image route shares, a repeat request on the deployed dev Worker read back as a Cache API hit, the client still received `private`, and the tail logged no `image cache put failed`. The request measured went to a gated invite image slot, not to this route.
 

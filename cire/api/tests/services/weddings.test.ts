@@ -7,6 +7,7 @@ import { Effect } from "effect";
 import { DbService } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import { slugifyDisplayName, weddingsService } from "../../src/services/weddings";
+import { recordStatements } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
 
 describe("slugifyDisplayName", () => {
@@ -284,5 +285,63 @@ describe("weddingsService.listForMember", () => {
         deleted: [],
       });
     });
+  });
+});
+
+// Owned and co-hosted weddings both come from the caller's seats, owners'
+// included, so the list is one statement however many kinds of seat it covers.
+describe("weddingsService.listForMember cost", () => {
+  it("reads owned, co-hosted and restorable weddings in one statement", async () => {
+    const db = createDb(":memory:");
+    const now = new Date();
+    insertWedding(db, {
+      id: "wed_owned",
+      slug: "owned",
+      displayName: "Owned",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_member"],
+    });
+    insertWedding(db, {
+      id: "wed_hosted",
+      slug: "hosted",
+      displayName: "Hosted",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_other_owner"],
+    });
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_member",
+        weddingId: "wed_hosted",
+        osnProfileId: "usr_member",
+        addedByOsnProfileId: "usr_other_owner",
+        role: "editor",
+        createdAt: now,
+      })
+      .run();
+    insertWedding(db, {
+      id: "wed_gone",
+      slug: "gone",
+      displayName: "Gone",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_member"],
+    });
+    db.update(weddings)
+      .set({ deletedAt: new Date(now.getTime() - 60_000), deletedByOsnProfileId: "usr_member" })
+      .where(eq(weddings.id, "wed_gone"))
+      .run();
+
+    const statements = recordStatements(db);
+    const list = await Effect.runPromise(
+      weddingsService.listForMember("usr_member", now).pipe(Effect.provideService(DbService, db)),
+    );
+    expect(list.weddings.map((w) => [w.id, w.role]).toSorted()).toEqual([
+      ["wed_hosted", "editor"],
+      ["wed_owned", "owner"],
+    ]);
+    expect(list.deleted.map((w) => w.id)).toEqual(["wed_gone"]);
+    expect(statements).toHaveLength(1);
   });
 });

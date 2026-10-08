@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[d1-read-replication]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 # Guest + Event Editor — plan
 
@@ -114,7 +114,8 @@ Generalise `imports` into a **change history**:
 
 ## 5. Round-trip export (fixes G2)
 
-- `GET .../export/events.csv` + `GET .../export/guests.csv` — current DB state in the **import template schema**: exact headers from `import-templates.ts`, one attendance column per event (truthy `x`), host families and plus-ones excluded, formula-sanitised via the shared `lib/csv.ts` serialiser.
+- `GET .../export/events.csv` + `GET .../export/guests.csv` — current DB state in the **import template schema**: exact headers from `import-templates.ts`, one attendance column per event (truthy `x`), host families and plus-ones excluded, formula-guarded via the shared `lib/csv.ts` serialiser: a `'` goes before a `=`, `+`, `-` or `@` (or a full-width form of one) that starts a cell, header cells included, or starts any `;`, tab or line-break segment of one.
+- **The upload takes that guard back off.** `parseEventsCsv` and `parseGuestsCsv` run the formula scan on the cells as uploaded (a cell starting with a bare marker is still refused), then apply `unguardCsvCell` to every cell, header row included, which removes exactly the quotes the guard adds. So `-12 Smith Street`, a dash-list dress code, a family named `=Emptyhouse` and an event named `+1 Drinks` (whose attendance header downloads as `'+1 Drinks`) all come back as stored. The upload scan stays narrower than the guard on purpose: refusing a marker after every inner line break would refuse a dash list. Stored values may therefore start with a marker, and every download guards them again. The snapshot readers apply neither, because a before-image is written unguarded. A value stored with a `'` by an earlier re-import keeps it.
 - `?fidelity=full` adds the snapshot fidelity columns (§4) — the "backup my wedding" export.
 - Both the export routes and the checkpoint writer use **one serialiser** (`cire/api/src/services/state-export.ts`), with a lockstep test against `EVENT_TEMPLATE_HEADERS`/`GUEST_TEMPLATE_FIXED_HEADERS` so export ↔ import ↔ snapshot can never drift.
 - The existing reporting exports stay; UI labels disambiguate: "Guest list (re-importable)" vs "RSVP report".

@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1437,
+    "branch": "fix/cire-api-small-fixes",
+    "base_sha": "9683a3e759e8241a88da821632c45d4d48a4659c",
+    "head_sha": "6e8e75299f40ddf00a41c6f391bc8acf932fd9d7",
+    "generated_at": "2026-10-08T02:33:51.263Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 10,
+    "first_ts": "2026-10-07T16:28:50.597Z",
+    "last_ts": "2026-10-08T02:33:47.463Z",
+    "span_seconds": 36297,
+    "active_seconds": 5219,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 60.45442980000005,
+    "tokens": {
+      "input": 1216,
+      "output": 53115,
+      "thinking": 60,
+      "cache_write_5m": 2416092,
+      "cache_write_1h": 0,
+      "cache_read": 116150181
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 114,
+          "output": 45584,
+          "thinking": 0,
+          "cache_write_5m": 282796,
+          "cache_write_1h": 0,
+          "cache_read": 2652044
+        },
+        "usd_equivalent": 4.233666999999999,
+        "messages": 69
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1102,
+          "output": 7531,
+          "thinking": 60,
+          "cache_write_5m": 2133296,
+          "cache_write_1h": 0,
+          "cache_read": 113498137
+        },
+        "usd_equivalent": 56.22076280000005,
+        "messages": 546
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 2
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 114,
+          "output": 45584,
+          "thinking": 0,
+          "cache_write_5m": 282796,
+          "cache_write_1h": 0,
+          "cache_read": 2652044
+        },
+        "usd_equivalent": 4.233666999999999,
+        "messages": 69
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1102,
+          "output": 7531,
+          "thinking": 60,
+          "cache_write_5m": 2133296,
+          "cache_write_1h": 0,
+          "cache_read": 113498137
+        },
+        "usd_equivalent": 56.22076280000005,
+        "messages": 548
+      }
+    },
+    "effort": {
+      "xhigh": 470,
+      "high": 76
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 13,
+      "docs": 5,
+      "config": 0,
+      "source": 11
+    },
+    "loc": {
+      "generated": {
+        "added": 11,
+        "deleted": 0
+      },
+      "test": {
+        "added": 780,
+        "deleted": 28
+      },
+      "docs": {
+        "added": 19,
+        "deleted": 17
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 416,
+        "deleted": 189
+      }
+    },
+    "packages": [
+      "cire/api"
+    ],
+    "touches_migration": false,
+    "commits": 11
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 514,
+      "Read": 54,
+      "Edit": 25,
+      "Grep": 22,
+      "Write": 8,
+      "StructuredOutput": 7,
+      "Skill": 6,
+      "Agent": 5,
+      "SubagentHandback": 4,
+      "ToolSearch": 2,
+      "WebFetch": 2,
+      "TaskStop": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 10
+    },
+    "skills": {
+      "new-feat": 1,
+      "superpowers:test-driven-development": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "attacker": 2,
+      "general-purpose": 3
+    }
+  }
+}
