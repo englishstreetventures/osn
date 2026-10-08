@@ -1,5 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
 
 import { localResendConfig, resendEmailConfig } from "../../src/lib/resend-email";
 
@@ -103,8 +102,8 @@ describe("localResendConfig", () => {
 describe("wrangler.toml", () => {
   // A deployed tier refuses RESEND_API_URL by turning mail off, so no committed
   // tier may set it. Comment lines may name it.
-  it("sets RESEND_API_URL in no tier", () => {
-    const assignments = readFileSync(new URL("../../wrangler.toml", import.meta.url), "utf8")
+  it("sets RESEND_API_URL in no tier", async () => {
+    const assignments = (await Bun.file(new URL("../../wrangler.toml", import.meta.url)).text())
       .split("\n")
       .filter((line) => !line.trimStart().startsWith("#"))
       .filter((line) => /["']?RESEND_API_URL["']?\s*=/.test(line));
