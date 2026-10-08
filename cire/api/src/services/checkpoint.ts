@@ -17,6 +17,7 @@
  *     best-effort R2 reaper (`r2-cleanup.ts`).
  */
 import { imports } from "@cire/db";
+import { jsonEachIn } from "@shared/db-utils";
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -99,12 +100,7 @@ export function pruneBeforeImages(
       db
         .update(imports)
         .set({ beforeEventsR2Key: null, beforeGuestsR2Key: null })
-        .where(
-          inArray(
-            imports.id,
-            stale.map((r) => r.id),
-          ),
-        )
+        .where(inArray(imports.id, jsonEachIn(stale.map((r) => r.id))))
         .run(),
     );
 

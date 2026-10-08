@@ -940,6 +940,7 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
                     category: directoryVendorCategories.category,
                   })
                   .from(directoryVendorCategories)
+                  // oxlint-disable-next-line house/no-unbounded-in-array -- at most 50 ids: one page, its limit clamped to 50 in routes/vendor-directory.ts
                   .where(inArray(directoryVendorCategories.directoryVendorId, ids))
                   .all(),
               )) as { dv: string; category: string }[]);

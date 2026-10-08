@@ -1,6 +1,6 @@
 import { users, connections, blocks } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { commitBatch } from "@shared/db-utils";
+import { commitBatch, jsonEachIn } from "@shared/db-utils";
 import { and, eq, inArray, or } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
@@ -331,7 +331,11 @@ export function createGraphService() {
       );
 
       const peers = yield* Effect.tryPromise({
-        try: () => db.select().from(users).where(inArray(users.id, peerIds)),
+        try: () =>
+          db
+            .select()
+            .from(users)
+            .where(inArray(users.id, jsonEachIn(peerIds))),
         catch: (cause) => new DatabaseError({ cause }),
       });
 
@@ -368,7 +372,11 @@ export function createGraphService() {
       const requestedAtMap = new Map(rows.map((r) => [r.requesterId, r.createdAt]));
 
       const requesters = yield* Effect.tryPromise({
-        try: () => db.select().from(users).where(inArray(users.id, requesterIds)),
+        try: () =>
+          db
+            .select()
+            .from(users)
+            .where(inArray(users.id, jsonEachIn(requesterIds))),
         catch: (cause) => new DatabaseError({ cause }),
       });
 
@@ -408,7 +416,11 @@ export function createGraphService() {
       const requestedAtMap = new Map(rows.map((r) => [r.addresseeId, r.createdAt]));
 
       const addressees = yield* Effect.tryPromise({
-        try: () => db.select().from(users).where(inArray(users.id, addresseeIds)),
+        try: () =>
+          db
+            .select()
+            .from(users)
+            .where(inArray(users.id, jsonEachIn(addresseeIds))),
         catch: (cause) => new DatabaseError({ cause }),
       });
 
@@ -512,7 +524,11 @@ export function createGraphService() {
       const blockedIds = rows.map((r) => r.blockedId);
 
       const blocked = yield* Effect.tryPromise({
-        try: () => db.select().from(users).where(inArray(users.id, blockedIds)),
+        try: () =>
+          db
+            .select()
+            .from(users)
+            .where(inArray(users.id, jsonEachIn(blockedIds))),
         catch: (cause) => new DatabaseError({ cause }),
       });
 

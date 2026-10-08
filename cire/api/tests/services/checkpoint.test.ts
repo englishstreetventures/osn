@@ -15,6 +15,7 @@ import {
 import { applyImport, diffAgainstDb } from "../../src/services/import";
 import { R2Service, createR2Stub, storeUpload } from "../../src/services/r2-imports";
 import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
+import { boundParameterCount, recordStatements } from "../test-helpers";
 
 const EVENTS = [
   "Event Name,Start,End,Timezone,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
@@ -174,5 +175,47 @@ describe("pruneBeforeImages", () => {
     const [oldest] = db.select().from(imports).where(eq(imports.id, "imp-1")).all();
     expect(oldest!.beforeEventsR2Key).toBeNull();
     expect(db.select().from(guests).all().length).toBeGreaterThan(0); // data untouched
+  });
+});
+
+describe("pruneBeforeImages — a long backlog of stale before-images", () => {
+  it("binds the stale import ids as one parameter, however many there are", async () => {
+    // Pruning runs after every apply, so the stale set is normally one row; a
+    // backlog (prunes that failed, or rows from before pruning existed) is
+    // what grows it, and D1 refuses a statement over 100 parameters.
+    const { db, layer } = makeLayer();
+    const total = BEFORE_IMAGE_RETENTION + 120;
+    for (let i = 1; i <= total; i++) {
+      db.insert(imports)
+        .values({
+          id: `imp-backlog-${i}`,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          uploadedAt: i * 1_000,
+          format: "csv",
+          eventsR2Key: `imports/imp-backlog-${i}/events.csv`,
+          guestsR2Key: `imports/imp-backlog-${i}/guests.csv`,
+          summary: "{}",
+          status: "applied",
+          beforeEventsR2Key: `imports/imp-backlog-${i}/before/events.csv`,
+          beforeGuestsR2Key: `imports/imp-backlog-${i}/before/guests.csv`,
+        })
+        .run();
+    }
+
+    const statements = recordStatements(db);
+    await Effect.runPromise(
+      pruneBeforeImages(BOOTSTRAP_WEDDING_ID, undefined).pipe(Effect.provide(layer)),
+    );
+
+    const kept = db
+      .select()
+      .from(imports)
+      .all()
+      .filter((r) => r.beforeEventsR2Key !== null);
+    expect(kept).toHaveLength(BEFORE_IMAGE_RETENTION);
+    const writes = statements.filter((s) => s.sql.startsWith('update "imports"'));
+    expect(writes).toHaveLength(1);
+    // The two NULLed keys, and the id list.
+    expect(boundParameterCount(writes[0]!.sql)).toBe(3);
   });
 });

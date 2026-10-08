@@ -229,6 +229,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
               eq(weddingUpgradePurchases.status, "pending"),
               and(
                 eq(weddingUpgradePurchases.status, "expired"),
+                // oxlint-disable-next-line house/no-unbounded-in-array -- PAID_TIERS is a two-member tuple in ./tiers
                 notInArray(weddingUpgradePurchases.entitlement, [...PAID_TIERS]),
                 isNotNull(weddingUpgradePurchases.checkoutSessionId),
                 gt(

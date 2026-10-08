@@ -47,8 +47,8 @@ export const MAX_BODY_LENGTH = 8_000;
 export const MAX_MEMBER_ROWS_PER_INSERT = 20;
 
 /**
- * Maximum profile IDs accepted per DSAR export request. Each ID is one bound
- * parameter in the `IN (...)` clauses the account-export loaders build —
- * capped to stay under D1's ~100-bound-parameter ceiling per query.
+ * Maximum profile IDs accepted per DSAR export request — a bound on what one
+ * request can make the export read. The loaders bind the list as one JSON
+ * parameter, so this is not a D1 parameter budget.
  */
 export const MAX_EXPORT_PROFILE_IDS = 100;

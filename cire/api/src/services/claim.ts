@@ -9,6 +9,7 @@ import {
 } from "@cire/db";
 import { parsePresets } from "@cire/dietary";
 import { isSafeCssColor } from "@cire/theme";
+import { jsonEachIn } from "@shared/db-utils";
 import { eq, and, asc, count, inArray, ne, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Effect, Data } from "effect";
@@ -473,7 +474,7 @@ function buildInvite(
             db
               .select()
               .from(events)
-              .where(inArray(events.id, [...eventIds]))
+              .where(inArray(events.id, jsonEachIn([...eventIds])))
               .all(),
           );
 

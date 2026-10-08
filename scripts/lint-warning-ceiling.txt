@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-919   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/cire-api-small-fixes @ 2026-10-08 — one warning fewer after this branch (a finding tag dropped from a comment it edits). No rule was disabled and nothing was suppressed.
+918   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), chore/lint-inarray-rule @ 2026-10-09 — one warning fewer after this branch (a finding tag dropped from a comment it edits). No warning-level rule was disabled or suppressed.

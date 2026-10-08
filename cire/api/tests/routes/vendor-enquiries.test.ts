@@ -13,7 +13,7 @@ import type {
   OsnProfileOrgsResolver,
 } from "../../src/services/osn-bridge";
 import type { ZapChatClient } from "../../src/services/zap-bridge";
-import { appRequest } from "../test-helpers";
+import { appRequest, boundParameterCount, recordStatements } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { insertWedding } from "../test-helpers/wedding";
@@ -27,6 +27,9 @@ const VENDOR = "usr_vendor";
 const ORG_OK = "org_ok";
 /** The org that owns DV_OTHER (a different tenant). */
 const ORG_X = "org_x";
+
+/** A vendor operator in ORG_OK and 99 other orgs — osn's page-size ceiling. */
+const VENDOR_MANY = "usr_vendor_many";
 
 const DV_CLAIMED = "dv_claimed";
 const DV_OTHER = "dv_other";
@@ -67,6 +70,14 @@ function orgSummary(id: string, handle: string, name: string) {
  */
 const stubProfileOrgs: OsnProfileOrgsResolver = async (profileId) => {
   if (profileId === VENDOR) return [orgSummary(ORG_OK, "ok-events", "OK Events")];
+  if (profileId === VENDOR_MANY) {
+    return [
+      orgSummary(ORG_OK, "ok-events", "OK Events"),
+      ...Array.from({ length: 99 }, (_, i) =>
+        orgSummary(`org_filler_${i}`, `filler-${i}`, "Filler"),
+      ),
+    ];
+  }
   return [];
 };
 
@@ -335,6 +346,25 @@ describe("GET /api/vendor/enquiries", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { enquiries: { id: string }[] };
     expect(body.enquiries.map((e) => e.id)).toEqual(["enq_newer", "enq_older"]);
+  });
+
+  it("binds the caller's org ids as one parameter, however many orgs they are in", async () => {
+    // osn answers up to 100 orgs a profile, and D1 refuses a statement over 100
+    // parameters — the org ids alone would fill it.
+    const { app, db } = buildApp();
+    const mine = seedProvisionedEnquiry(db, { directoryVendorId: DV_CLAIMED });
+
+    const statements = recordStatements(db);
+    const res = await req(app, "GET", "/api/vendor/enquiries", VENDOR_MANY);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { enquiries: { id: string }[] };
+    expect(body.enquiries.map((e) => e.id)).toEqual([mine.enquiryId]);
+    const reads = statements.filter((s) =>
+      s.sql.includes('"directory_vendors"."owner_org_id" in ('),
+    );
+    expect(reads).toHaveLength(1);
+    expect(boundParameterCount(reads[0]!.sql)).toBe(1);
   });
 
   it("fails closed to an empty list when the caller resolves to no orgs", async () => {

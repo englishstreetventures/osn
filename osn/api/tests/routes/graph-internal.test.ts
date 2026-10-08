@@ -16,7 +16,7 @@ import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
 import { createAuthService } from "../../src/services/auth";
 import { createGraphService } from "../../src/services/graph";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer } from "../helpers/db";
+import { createCapturingTestLayer, createTestLayer } from "../helpers/db";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 
@@ -467,6 +467,55 @@ describe("internal graph routes (ARC-protected)", () => {
       expect(body.profiles).toHaveLength(1);
       expect(body.profiles[0].id).toBe(alice);
       expect(body.profiles[0].handle).toBe("alice");
+    });
+  });
+
+  describe("POST /graph/internal/profile-displays — a large batch", () => {
+    it("binds 150 ids as one parameter and returns every match", async () => {
+      // A batch may hold more ids than D1 allows parameters in one statement.
+      // The real-D1 run of this is in tests/d1/.
+      const capturing = createCapturingTestLayer();
+      layer = capturing.layer;
+      app = createInternalGraphRoutes(layer);
+      const { token } = await setupArcService();
+      const real = [
+        await registerProfile("alice@example.com", "alice"),
+        await registerProfile("bob@example.com", "bob"),
+      ];
+      const ids = [...real, ...Array.from({ length: 148 }, (_, i) => `usr_absent_${i}`)];
+      capturing.captured.length = 0;
+
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-displays", {
+          method: "POST",
+          headers: { Authorization: `ARC ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ profileIds: ids }),
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { profiles: { id: string }[] };
+      expect(body.profiles.map((p) => p.id).toSorted()).toEqual(real.toSorted());
+      const reads = capturing.captured.filter((c) => c.sql.includes('"users"."id" in ('));
+      expect(reads.map((c) => c.params.length)).toEqual([1]);
+    });
+
+    it("accepts 200 ids, the schema's cap, and refuses 201", async () => {
+      // Pulse's attendee list sends up to 200 ids, so the cap may not drop below it.
+      const { token } = await setupArcService();
+      const send = (count: number) =>
+        app.handle(
+          new Request("http://localhost/graph/internal/profile-displays", {
+            method: "POST",
+            headers: { Authorization: `ARC ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              profileIds: Array.from({ length: count }, (_, i) => `usr_absent_${i}`),
+            }),
+          }),
+        );
+
+      expect((await send(200)).status).toBe(200);
+      expect((await send(201)).status).toBe(422);
     });
   });
 

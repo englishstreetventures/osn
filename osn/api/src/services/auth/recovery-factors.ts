@@ -37,7 +37,7 @@
 import { accounts, passkeys, securityEvents, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
-import { commitBatch } from "@shared/db-utils";
+import { commitBatch, jsonEachIn } from "@shared/db-utils";
 import { type EmailError, EmailService } from "@shared/email";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -889,10 +889,7 @@ export function createRecoveryFactorsModule(
           db.delete(passkeys).where(
             and(
               eq(passkeys.accountId, accountId),
-              inArray(
-                passkeys.id,
-                revocable.map((row) => row.id),
-              ),
+              inArray(passkeys.id, jsonEachIn(revocable.map((row) => row.id))),
               // Re-assert the survivor count in the same statement. The read
               // above is not a transaction on D1, so this is what makes the
               // last-passkey invariant race-safe against a concurrent delete.

@@ -24,7 +24,7 @@ import {
   tiersBelow,
 } from "../../src/services/tiers";
 import type { Tier } from "../../src/services/tiers";
-import { recordStatements, setTier } from "../test-helpers";
+import { boundParameterCount, recordStatements, setTier } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
 
 type TestDb = ReturnType<typeof createDb>;
@@ -315,6 +315,24 @@ describe("tierService.premiumTemplateHolders", () => {
     const holders = await run(db, tierService.premiumTemplateHolders([a, b, c]));
     expect([...holders]).toEqual([a]);
     expect((await run(db, tierService.premiumTemplateHolders([]))).size).toBe(0);
+  });
+
+  it("binds the wedding ids as one parameter, however many the organiser has", async () => {
+    // The organiser wedding list reads up to 200 weddings, and D1 refuses a
+    // statement over 100 parameters.
+    const db = createDb();
+    const a = seedWedding(db, "wed_a");
+    grantPremiumTemplates(db, a);
+    const ids = [a, ...Array.from({ length: 150 }, (_, i) => `wed_absent_${i}`)];
+
+    const statements = recordStatements(db);
+    const holders = await run(db, tierService.premiumTemplateHolders(ids));
+
+    expect([...holders]).toEqual([a]);
+    const reads = statements.filter((s) => s.sql.includes('from "wedding_entitlements"'));
+    expect(reads).toHaveLength(1);
+    // The id list, and the entitlement key.
+    expect(boundParameterCount(reads[0]!.sql)).toBe(2);
   });
 });
 

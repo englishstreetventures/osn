@@ -769,12 +769,7 @@ export function diffAgainstDb(
         db
           .select({ id: families.id, publicId: families.publicId })
           .from(families)
-          .where(
-            inArray(
-              families.publicId,
-              carriedCodes.map((c) => c.publicId),
-            ),
-          )
+          .where(inArray(families.publicId, jsonEachIn(carriedCodes.map((c) => c.publicId))))
           .all(),
       );
       // Wedding-scope is deliberately NOT applied: the unique index is global, so
