@@ -1,5 +1,6 @@
 import { events, eventRsvps, pulseCloseFriends, type EventRsvp } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import { jsonEachIn } from "@shared/db-utils";
 import { inArray } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
@@ -78,7 +79,7 @@ export const collectExport = (
             createdAt: eventRsvps.createdAt,
           })
           .from(eventRsvps)
-          .where(inArray(eventRsvps.profileId, profileIds)),
+          .where(inArray(eventRsvps.profileId, jsonEachIn(profileIds))),
       catch: (cause) => new PulseExportDbError({ cause }),
     });
 
@@ -92,7 +93,7 @@ export const collectExport = (
             createdAt: events.createdAt,
           })
           .from(events)
-          .where(inArray(events.createdByProfileId, profileIds)),
+          .where(inArray(events.createdByProfileId, jsonEachIn(profileIds))),
       catch: (cause) => new PulseExportDbError({ cause }),
     });
 
@@ -104,7 +105,7 @@ export const collectExport = (
             createdAt: pulseCloseFriends.createdAt,
           })
           .from(pulseCloseFriends)
-          .where(inArray(pulseCloseFriends.profileId, profileIds)),
+          .where(inArray(pulseCloseFriends.profileId, jsonEachIn(profileIds))),
       catch: (cause) => new PulseExportDbError({ cause }),
     });
 

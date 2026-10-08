@@ -38,6 +38,7 @@ import { Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { purgeAccount } from "../../src/services/accountErasure";
+import { collectExport } from "../../src/services/accountExport";
 import { getCloseFriendsOfBatch } from "../../src/services/closeFriends";
 import { discoverEvents, type DiscoveryLookups } from "../../src/services/discovery";
 import { applyTransitions } from "../../src/services/events";
@@ -180,9 +181,68 @@ describe("accountErasure.ts purgeAccount", () => {
     );
     expect(remaining).toHaveLength(0);
 
-    for (const needle of ['"event_rsvps"', '"event_comms"', '"event_lineup"', '"events"']) {
-      const stmt = findStatement(captured, "delete from " + needle, "json_each");
-      expect(stmt.params, `${needle} delete should bind 1 param`).toHaveLength(1);
+    // Keyed on the event-id column: the profile-id deletes on the same tables
+    // also use json_each.
+    for (const [table, column] of [
+      ['"event_rsvps"', '"event_rsvps"."event_id"'],
+      ['"event_comms"', '"event_comms"."event_id"'],
+      ['"event_lineup"', '"event_lineup"."event_id"'],
+      ['"events"', '"events"."id"'],
+    ] as const) {
+      const stmt = findStatement(captured, "delete from " + table, column, "json_each");
+      expect(stmt.params, `${table} delete should bind 1 param`).toHaveLength(1);
+    }
+  });
+
+  it("binds the erased profile ids once per statement, however many profiles the account has", async () => {
+    const { layer, captured } = createCapturingTestLayer();
+    // The route allows 50 profiles, and the close-friends delete names the
+    // list twice, so one parameter per id would spend D1's whole budget of 100.
+    const profileIds = Array.from({ length: 50 }, (_, i) => `usr_erase_${i}`);
+    await Effect.runPromise(
+      seedEvent({
+        title: "Hosted",
+        startTime: new Date(Date.now() + 86_400_000).toISOString(),
+        createdByProfileId: profileIds[0]!,
+      }).pipe(Effect.provide(layer)),
+    );
+    captured.length = 0;
+
+    const result = await Effect.runPromise(
+      purgeAccount("acc_many_profiles", profileIds).pipe(Effect.provide(layer)),
+    );
+    expect(result).toMatchObject({ purged: 50, alreadyProcessed: false });
+
+    expect(captured.length).toBeGreaterThan(0);
+    // The ledger insert binds three columns; nothing grows with the list.
+    expect(captured.filter((c) => c.params.length > 3).map((c) => c.sql)).toEqual([]);
+    const closeFriends = findStatement(captured, 'delete from "pulse_close_friends"');
+    expect(closeFriends.params).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// accountExport.ts collectExport (data-subject export)
+// ---------------------------------------------------------------------------
+
+describe("accountExport.ts collectExport", () => {
+  it("exports 150 profiles with 1 bound param per read", async () => {
+    const { layer, captured } = createCapturingTestLayer();
+    const profileIds = Array.from({ length: 150 }, (_, i) => `usr_export_${i}`);
+    await Effect.runPromise(
+      seedEvent({
+        title: "Hosted by the last profile",
+        startTime: new Date(Date.now() + 86_400_000).toISOString(),
+        createdByProfileId: profileIds[149]!,
+      }).pipe(Effect.provide(layer)),
+    );
+
+    const lines = await Effect.runPromise(collectExport(profileIds).pipe(Effect.provide(layer)));
+
+    expect(lines.filter((l) => l.section === "pulse.events_hosted")).toHaveLength(1);
+    for (const needle of ['from "event_rsvps"', 'from "events"', 'from "pulse_close_friends"']) {
+      const stmt = findStatement(captured, needle, "json_each");
+      expect(stmt.params, `${needle} read should bind 1 param`).toHaveLength(1);
     }
   });
 });
