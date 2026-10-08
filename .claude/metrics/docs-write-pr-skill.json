@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1452,
+    "branch": "docs/write-pr-skill",
+    "base_sha": "61ce589bb4ab104146cf13285e78732e6dba6ec1",
+    "head_sha": "db327871827dcd2f3288b5acc47141916346a89f",
+    "generated_at": "2026-10-08T13:07:56.587Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1446,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:3",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 2,
+    "first_ts": "2026-10-08T07:45:08.498Z",
+    "last_ts": "2026-10-08T13:07:52.265Z",
+    "span_seconds": 19364,
+    "active_seconds": 2743,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 29.221798999999997,
+    "tokens": {
+      "input": 621,
+      "output": 7871,
+      "thinking": 1303,
+      "cache_write_5m": 1440448,
+      "cache_write_1h": 0,
+      "cache_read": 61310206
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 11,
+          "output": 2518,
+          "thinking": 0,
+          "cache_write_5m": 11718,
+          "cache_write_1h": 0,
+          "cache_read": 150457
+        },
+        "usd_equivalent": 0.21147100000000002,
+        "messages": 6
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 516,
+          "output": 4294,
+          "thinking": 1039,
+          "cache_write_5m": 1081190,
+          "cache_write_1h": 0,
+          "cache_read": 58791085
+        },
+        "usd_equivalent": 29.010328,
+        "messages": 253
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 2
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 94,
+          "output": 1059,
+          "thinking": 264,
+          "cache_write_5m": 347540,
+          "cache_write_1h": 0,
+          "cache_read": 2368664
+        },
+        "usd_equivalent": 0,
+        "messages": 47
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 11,
+          "output": 2518,
+          "thinking": 0,
+          "cache_write_5m": 11718,
+          "cache_write_1h": 0,
+          "cache_read": 150457
+        },
+        "usd_equivalent": 0.21147100000000002,
+        "messages": 6
+      },
+      "subagent": {
+        "tokens": {
+          "input": 610,
+          "output": 5353,
+          "thinking": 1303,
+          "cache_write_5m": 1428730,
+          "cache_write_1h": 0,
+          "cache_read": 61159749
+        },
+        "usd_equivalent": 29.010328,
+        "messages": 302
+      }
+    },
+    "effort": {
+      "high": 74,
+      "xhigh": 213,
+      "low": 13
+    },
+    "unpriced_models": [
+      "claude-sonnet-5-5"
+    ]
+  },
+  "diff": {
+    "files": {
+      "generated": 0,
+      "test": 0,
+      "docs": 13,
+      "config": 2,
+      "source": 0
+    },
+    "loc": {
+      "generated": {
+        "added": 0,
+        "deleted": 0
+      },
+      "test": {
+        "added": 0,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 468,
+        "deleted": 177
+      },
+      "config": {
+        "added": 5,
+        "deleted": 5
+      },
+      "source": {
+        "added": 0,
+        "deleted": 0
+      }
+    },
+    "packages": [],
+    "touches_migration": false,
+    "commits": 4
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 206,
+      "Edit": 75,
+      "Read": 50,
+      "Write": 24,
+      "Agent": 7,
+      "SubagentHandback": 6,
+      "Skill": 5,
+      "ToolSearch": 2,
+      "TaskStop": 2,
+      "StructuredOutput": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 10,
+      "max_edits_one_file": 14
+    },
+    "skills": {
+      "new-feat": 1,
+      "superpowers:writing-skills": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "explorer": 1,
+      "attacker": 2,
+      "general-purpose": 4
+    }
+  }
+}
