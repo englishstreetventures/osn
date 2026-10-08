@@ -24,7 +24,7 @@ import type {
   StoredHostRole,
 } from "../../src/services/hosts";
 import { TIER_PEOPLE_LIMIT, TIERS } from "../../src/services/tiers";
-import { setTier } from "../test-helpers";
+import { recordStatements, setTier } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
 
 /** Every value the role column may hold, taken from the guard rather than
@@ -306,9 +306,12 @@ describe("hostsService.add", () => {
     expect((err as { reason: string }).reason).toBe("host_cap_reached");
   });
 
-  it("seats anyone, an owner included, into the last free seat", async () => {
+  it("seats an owner into the last place add can reach: Crimson's 40 people and two owners", async () => {
+    // The people limit binds before the seat cap on every tier, so the last
+    // seat add can fill is the partner's on a full Crimson wedding.
     const db = buildDb();
-    for (let i = 2; i < MAX_HOSTS_PER_WEDDING; i += 1) seat(db, `usr_seat_${i}`, "editor");
+    setTier(db, WEDDING_ID, "crimson");
+    for (let i = 0; i < 40; i += 1) seat(db, `usr_seat_${i}`, "editor");
     await run(
       db,
       hostsService.add({
@@ -320,7 +323,7 @@ describe("hostsService.add", () => {
     );
     expect(roleOf(db, ALICE)).toBe("owner");
     const { total } = await run(db, hostsService.list(WEDDING_ID));
-    expect(total).toBe(MAX_HOSTS_PER_WEDDING);
+    expect(total).toBe(42);
   });
 });
 
@@ -535,9 +538,13 @@ describe("the people limit", () => {
     for (let i = 0; i < 4; i += 1) {
       const { peopleLimit: after } = await run(
         db,
-        hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: `usr_v_${i}` }),
+        hostsService.remove({
+          weddingId: WEDDING_ID,
+          osnProfileId: `usr_v_${i}`,
+          withPeopleLimit: true,
+        }),
       );
-      expect(after.used).toBe(9 - i);
+      expect(after?.used).toBe(9 - i);
     }
     expect((await refusedAdd(db, ALICE))._tag).toBe("PeopleLimitReached");
     await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: "usr_v_4" }));
@@ -561,12 +568,57 @@ describe("the people limit", () => {
   });
 
   it("names the seat ceiling first when a wedding seeded past every limit is also full", async () => {
+    // Both limits refuse a viewer here: 49 people against Crimson's 40, and
+    // 50 seats. The cap is named, since no tier lifts it.
     const db = buildDb();
     setTier(db, WEDDING_ID, "crimson");
     seatViewers(db, MAX_HOSTS_PER_WEDDING - 1);
-    const err = await refusedAdd(db, ALICE, "owner");
+    const err = await refusedAdd(db, ALICE);
     expect(err._tag).toBe("HostConflict");
     expect((err as HostConflict).reason).toBe("host_cap_reached");
+  });
+
+  it("names already_host ahead of the limit for someone already seated", async () => {
+    const db = buildDb();
+    seatViewers(db, 6);
+    // The WHERE refuses before the unique index is reached.
+    const again = await refusedAdd(db, "usr_v_0");
+    expect(again._tag).toBe("HostConflict");
+    expect((again as HostConflict).reason).toBe("already_host");
+    // Seating the owner again, where the owner's add has room: the index answers.
+    const owner = await refusedAdd(db, OWNER, "owner");
+    expect((owner as HostConflict).reason).toBe("already_host");
+  });
+
+  it("seats a third owner while there is room, counting them", async () => {
+    const db = buildDb();
+    seat(db, BEN, "owner");
+    seatViewers(db, 4);
+    const third = await addAs(db, CAROL, "owner");
+    expect(third.peopleLimit).toEqual({ used: 5, limit: 6, tier: "ivory" });
+  });
+
+  it("seats no owner on a wedding already over its limit, so step-downs cannot climb", async () => {
+    // The partner joins at the limit and steps down: one past it, which the
+    // owner accepts. The next would-be partner is refused, or seating owners
+    // who step down would raise the count without bound.
+    const db = buildDb();
+    seatViewers(db, 6);
+    await addAs(db, ALICE, "owner");
+    await run(
+      db,
+      hostsService.setRole({
+        weddingId: WEDDING_ID,
+        osnProfileId: ALICE,
+        role: "viewer",
+        actorOsnProfileId: ALICE,
+      }),
+    );
+    expect((await usage(db)).used).toBe(7);
+    const next = await refusedAdd(db, BEN, "owner");
+    expect(next._tag).toBe("PeopleLimitReached");
+    expect((next as PeopleLimitReached).peopleLimit).toEqual({ used: 7, limit: 6, tier: "gold" });
+    expect(roleOf(db, BEN)).toBeUndefined();
   });
 
   it("reads its own wedding's tier and seats, not a neighbour's", async () => {
@@ -593,6 +645,14 @@ describe("the people limit", () => {
       }),
     );
     expect(neighbour.peopleLimit).toEqual({ used: 1, limit: 40, tier: "crimson" });
+    // The list reads each wedding's own tier and seats too. `wed_rich` is
+    // the second wedding inserted, so a read not keyed to it would show Ivory.
+    expect((await run(db, hostsService.list("wed_rich"))).peopleLimit).toEqual({
+      used: 1,
+      limit: 40,
+      tier: "crimson",
+    });
+    expect(await usage(db)).toEqual({ used: 6, limit: 6, tier: "gold" });
   });
 
   it("reports the people count from list, add and remove alike", async () => {
@@ -602,9 +662,18 @@ describe("the people limit", () => {
     expect(await usage(db)).toEqual({ used: 1, limit: 6, tier: "ivory" });
     const removed = await run(
       db,
-      hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }),
+      hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE, withPeopleLimit: true }),
     );
-    expect(removed.peopleLimit.used).toBe(0);
+    expect(removed.peopleLimit?.used).toBe(0);
+  });
+
+  it("reads no count on a removal that does not ask for one", async () => {
+    const db = buildDb();
+    seat(db, ALICE, "viewer");
+    const statements = recordStatements(db);
+    const left = await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE }));
+    expect(left.peopleLimit).toBeNull();
+    expect(statements.some((s) => s.sql.includes("total("))).toBe(false);
   });
 });
 
@@ -1288,7 +1357,7 @@ describe("the prior role a write reports", () => {
     ).toMatchObject({ removed: { role: "owner", addedByOsnProfileId: OWNER } });
     expect(
       await run(db, hostsService.remove({ weddingId: WEDDING_ID, osnProfileId: ALICE })),
-    ).toEqual({ removed: null, peopleLimit: { used: 0, limit: 6, tier: "ivory" } });
+    ).toEqual({ removed: null, peopleLimit: null });
   });
 });
 

@@ -255,7 +255,7 @@ two adds racing for the last place, and an add racing an owner's demotion.
 | Write | Checked when | Refusal |
 |---|---|---|
 | `POST /hosts` at a role below owner | always | 409 `people_limit_reached` |
-| `POST /hosts` as owner | the wedding already has two owners | 409 `people_limit_reached` |
+| `POST /hosts` as owner | the wedding already has two owners, or is over its limit | 409 `people_limit_reached` |
 | `PUT /hosts/:id/role`, one owner moving another below owner | the wedding has no more than two owners | 409 `people_limit_reached` |
 | `PUT /hosts/:id/role`, an owner stepping down from their own seat | never: always allowed, even past the limit | — |
 | Any promotion, a change between roles below owner, a removal | never: none of them raises the count | — |
@@ -268,7 +268,15 @@ the refusal named first when both apply.
 **A wedding over its limit keeps everyone.** Lowering a tier
 (`grant-tier.ts --lower`) touches no seat, and an owner may step down past the
 limit. Until it is back under, such a wedding can re-role its people, promote
-them and remove them, but adds nothing.
+them and remove them, but adds nothing — not even a second owner. That is what
+bounds step-downs: the partner joins at the limit and may step down to one
+past it, and no further owner joins until someone is removed. Without it,
+seating owners who then step down would climb to the seat cap.
+
+`add` reads the target's seat in its batch too, so re-adding someone already
+seated answers `already_host` even when the limit refused the insert first.
+Leaving (`DELETE /hosts/me`) reads no count: `remove` reads one only when the
+owner's route asks for it.
 
 **The count travels with every answer.** `GET /hosts` and the responses of
 `POST`, `PUT …/role` and `DELETE /hosts/:id` carry `peopleLimit`, read in the
@@ -289,9 +297,11 @@ other seat refusal is a 409 too.
 (`cire/host/src/components/HostsPanel.tsx`, read through
 `cire/host/src/lib/people-limit.ts`) shows every member "4 of 6 people". At the
 limit, an owner sees why and an **Upgrade to Gold** button that opens
-`UpgradeDialog` in place of the add form; with only one owner, the form stays
-as **Add as owner**, behind a confirmation, so the partner can still be
-seated. A payload without `peopleLimit` leaves the panel as it was.
+`UpgradeDialog` in place of the add form; with only one owner and the count
+exactly at the limit, the form stays as **Add as owner**, behind a
+confirmation, so the partner can still be seated. When an add the owner just
+made takes the form away, focus moves to the notice and it is announced. A
+payload without `peopleLimit` leaves the panel as it was.
 
 ---
 

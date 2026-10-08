@@ -216,11 +216,30 @@ export default function HostsPanel(props: HostsPanelProps) {
     const limit = peopleLimit();
     return limit !== null && atPeopleLimit(limit);
   };
-  // The couple's two owner seats never count, so at the limit a wedding with
-  // one owner can still seat the second — as an owner, which the add form
-  // then asks for. Read off the list, which holds every seat (the seat cap
-  // keeps it under the list ceiling); the API decides either way.
-  const canAddSecondOwner = () => atLimit() && hosts().filter((h) => h.role === "owner").length < 2;
+  // The couple's two owner seats never count, so a wedding at its limit — not
+  // over it, which adds no one — with one owner can still seat the second, as
+  // an owner, which the add form then asks for. Read off the list, which holds
+  // every seat (the seat cap keeps it under the list ceiling); the API decides
+  // either way.
+  const canAddSecondOwner = () => {
+    const limit = peopleLimit();
+    return (
+      limit !== null &&
+      limit.used === limit.limit &&
+      hosts().filter((h) => h.role === "owner").length < 2
+    );
+  };
+  const showsAddForm = () => canManage() && (!atLimit() || canAddSecondOwner());
+  // The notice that takes the add form's place at the limit. When an add the
+  // owner just made brings it in, focus moves to it and it is announced, so a
+  // keyboard or screen-reader user is not left on a field that has gone.
+  let limitNotice: HTMLDivElement | undefined;
+  const [limitJustReached, setLimitJustReached] = createSignal(false);
+  const noticeIfFormGone = (hadForm: boolean) => {
+    if (!hadForm || showsAddForm()) return;
+    setLimitJustReached(true);
+    limitNotice?.focus();
+  };
   // The tier the purchase dialog sells while it is open. Mounted afresh per
   // open, like the nav's: the dialog keeps its own attempt and submit state.
   const [offer, setOffer] = createSignal<PaidTier | null>(null);
@@ -450,6 +469,7 @@ export default function HostsPanel(props: HostsPanelProps) {
   async function submitAdd(value: string, role: AssignableRole) {
     setAddError(null);
     setAdding(true);
+    const hadForm = showsAddForm();
     try {
       const res = await authFetch(endpoint(), {
         method: "POST",
@@ -468,9 +488,10 @@ export default function HostsPanel(props: HostsPanelProps) {
       if (res.status === 409) {
         haptic("reject");
         const refusal = await readRefusal(res);
+        setAddError(refusal.message ?? "That person is already a host.");
         // At the limit the offer replaces the form and says why itself.
         keepPeopleLimit(refusal.peopleLimit);
-        setAddError(refusal.message ?? "That person is already a host.");
+        noticeIfFormGone(hadForm);
         return;
       }
       if (res.status === 403) {
@@ -492,6 +513,7 @@ export default function HostsPanel(props: HostsPanelProps) {
       const added = withKnownRole(body.host);
       setHosts((prev) => ownersFirst([...prev, added]));
       keepPeopleLimit(readPeopleLimit(body.peopleLimit));
+      noticeIfFormGone(hadForm);
       setHandle("");
       setSuggestions([]);
       // The just-added host is now an existing co-host, so the cached connection
@@ -644,34 +666,38 @@ export default function HostsPanel(props: HostsPanelProps) {
           can still join. */}
       <Show when={canManage() && atLimit() ? peopleLimit() : null}>
         {(limit) => (
-          <Notice tone="info">
-            <div class="flex flex-col gap-3">
-              <p>
-                {peopleLimitMessage(limit())}
-                {canAddSecondOwner()
-                  ? " You can still add a second owner: the first two owners don't count."
-                  : ""}
-              </p>
-              <Show when={upgradeTierFor(limit())}>
-                {(tier) => (
-                  <div>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      type="button"
-                      onClick={() => setOffer(tier())}
-                    >
-                      Upgrade to {TIER_LABEL[tier()]}
-                    </Button>
-                  </div>
-                )}
-              </Show>
-            </div>
-          </Notice>
+          // Focusable, not tabbable: `noticeIfFormGone` moves focus here when
+          // an add takes the form away, and the notice is announced then.
+          <div ref={limitNotice} tabindex="-1">
+            <Notice tone="info" alert={limitJustReached()}>
+              <div class="flex flex-col gap-3">
+                <p>
+                  {peopleLimitMessage(limit())}
+                  {canAddSecondOwner()
+                    ? " You can still add a second owner: the first two owners don't count."
+                    : ""}
+                </p>
+                <Show when={upgradeTierFor(limit())}>
+                  {(tier) => (
+                    <div>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        type="button"
+                        onClick={() => setOffer(tier())}
+                      >
+                        Upgrade to {TIER_LABEL[tier()]}
+                      </Button>
+                    </div>
+                  )}
+                </Show>
+              </div>
+            </Notice>
+          </div>
         )}
       </Show>
 
-      <Show when={canManage() && (!atLimit() || canAddSecondOwner())}>
+      <Show when={showsAddForm()}>
         <form class="flex flex-col gap-3" onSubmit={add}>
           {/* What each role carries, ahead of the box that names the person.
               Before the handle rather than after it because it is what the

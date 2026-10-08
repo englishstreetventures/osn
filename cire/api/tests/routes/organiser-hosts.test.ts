@@ -315,6 +315,35 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     expect(((await third.json()) as { error: string }).error).toBe("people_limit_reached");
   });
 
+  it("adds on the portal's session cookie, answering the count, and refuses a dead one", async () => {
+    const { db, app } = buildApp();
+    const dead = await appRequest(app, hostsPath, {
+      method: "POST",
+      headers: {
+        cookie: "cire_org_session=not-a-live-session-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ handle: "bob" }),
+    });
+    expect(dead.status).toBe(401);
+    expect(
+      db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all(),
+    ).toEqual([]);
+
+    const token = await seedOrganiserSession(db, OWNER);
+    const ok = await appRequest(app, hostsPath, {
+      method: "POST",
+      headers: { cookie: `cire_org_session=${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ handle: "bob" }),
+    });
+    expect(ok.status).toBe(201);
+    expect(((await ok.json()) as { peopleLimit: unknown }).peopleLimit).toEqual({
+      used: 1,
+      limit: 6,
+      tier: "ivory",
+    });
+  });
+
   it("returns 403 forbidden for a VIEWER or a HELPER trying to add a host", async () => {
     const { db, app } = buildApp();
     seedHostSeat(db, COHOST, "viewer");
@@ -479,6 +508,25 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
       const body = (await res.json()) as { peopleLimit: unknown };
       expect(body.peopleLimit).toEqual({ used: 2, limit: 15, tier: "gold" });
     }
+  });
+
+  it("lists on the portal's session cookie, with the count, and refuses a dead one", async () => {
+    const { db, app } = buildApp();
+    const dead = await appRequest(app, hostsPath, {
+      headers: { cookie: "cire_org_session=not-a-live-session-token" },
+    });
+    expect(dead.status).toBe(401);
+
+    const token = await seedOrganiserSession(db, OWNER);
+    const ok = await appRequest(app, hostsPath, {
+      headers: { cookie: `cire_org_session=${token}` },
+    });
+    expect(ok.status).toBe(200);
+    expect(((await ok.json()) as { peopleLimit: unknown }).peopleLimit).toEqual({
+      used: 0,
+      limit: 6,
+      tier: "ivory",
+    });
   });
 
   it("lists a second owner as an owner, alongside the first", async () => {
@@ -664,6 +712,22 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/:osnProfileId (remove)
     expect(
       db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all(),
     ).toEqual([]);
+  });
+
+  it("removes on the portal's session cookie, answering the new count", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db);
+    const token = await seedOrganiserSession(db, OWNER);
+    const res = await appRequest(app, `${hostsPath}/${COHOST}`, {
+      method: "DELETE",
+      headers: { cookie: `cire_org_session=${token}` },
+    });
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({
+      removed: true,
+      osnProfileId: COHOST,
+      peopleLimit: { used: 0, limit: 6, tier: "ivory" },
+    });
   });
 
   it("lets an owner remove another owner, or leave while another remains", async () => {

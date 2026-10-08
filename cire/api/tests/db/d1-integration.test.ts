@@ -3244,10 +3244,59 @@ describe("cire/api over real D1 (Miniflare)", () => {
       ]);
       expect(results.filter(Exit.isSuccess)).toHaveLength(1);
       const failed = results.find(Exit.isFailure);
-      expect(failed && Cause.squash(failed.cause)).toMatchObject({ _tag: "PeopleLimitReached" });
+      expect(failed && Cause.squash(failed.cause)).toMatchObject({
+        _tag: "PeopleLimitReached",
+        peopleLimit: { used: 6, limit: 6, tier: "gold" },
+      });
       expect((await run(hostsService.list(BOOTSTRAP_WEDDING_ID))).peopleLimit.used).toBe(
         TIER_PEOPLE_LIMIT.ivory,
       );
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "reads each batch's count from its own place in D1's batch results",
+    async () => {
+      // `commitBatchResults` calls D1's `batch()` here and chains statements on
+      // bun:sqlite, so the index each write reads its count from is pinned on
+      // the driver production runs.
+      await seatSecondOwner();
+      await seatViewers(TIER_PEOPLE_LIMIT.ivory);
+      const demote = await exitOf(
+        hostsService.setRole({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_second",
+          role: "editor",
+          actorOsnProfileId: "usr_test",
+        }),
+      );
+      expect(Exit.isFailure(demote) && Cause.squash(demote.cause)).toMatchObject({
+        _tag: "PeopleLimitReached",
+        peopleLimit: { used: 6, limit: 6, tier: "gold" },
+      });
+      const promoted = await run(
+        hostsService.setRole({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_v_0",
+          role: "owner",
+          actorOsnProfileId: "usr_test",
+        }),
+      );
+      expect(promoted.peopleLimit).toEqual({ used: 6, limit: 6, tier: "gold" });
+      const removed = await run(
+        hostsService.remove({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_v_1",
+          withPeopleLimit: true,
+        }),
+      );
+      expect(removed.peopleLimit).toEqual({ used: 5, limit: 6, tier: "ivory" });
+      expect((await run(addViewer("usr_a"))).peopleLimit).toEqual({
+        used: 6,
+        limit: 6,
+        tier: "gold",
+      });
     },
     MF_TIMEOUT_MS,
   );
@@ -3258,6 +3307,14 @@ describe("cire/api over real D1 (Miniflare)", () => {
       await run(addViewer("usr_a"));
       const again = await exitOf(addViewer("usr_a"));
       expect(Exit.isFailure(again) && Cause.squash(again.cause)).toMatchObject({
+        _tag: "HostConflict",
+        reason: "already_host",
+      });
+      // At the limit the INSERT's WHERE refuses first; the seat read in the
+      // same batch still names the duplicate.
+      await seatViewers(TIER_PEOPLE_LIMIT.ivory - 1);
+      const atLimit = await exitOf(addViewer("usr_a"));
+      expect(Exit.isFailure(atLimit) && Cause.squash(atLimit.cause)).toMatchObject({
         _tag: "HostConflict",
         reason: "already_host",
       });

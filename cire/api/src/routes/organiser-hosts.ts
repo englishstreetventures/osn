@@ -458,46 +458,49 @@ export const createOrganiserHostsWriteRoutes = (
             return { error: "Internal error" };
           }
           return runCire(
-            hostsService.remove({ weddingId, osnProfileId: params.osnProfileId }).pipe(
-              Effect.provideService(DbService, db),
-              Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "owner"))),
-              Effect.tap(({ removed }) =>
-                removed?.role === "owner"
-                  ? notifyOwnerChange(db, request, ownerNotices, {
-                      weddingId,
-                      actorOsnProfileId: osnProfileId,
-                      subjectOsnProfileId: params.osnProfileId,
-                      change: "removed",
-                      subjectSeat: removed,
-                    })
-                  : Effect.void,
-              ),
-              Effect.map(({ peopleLimit }) => ({
-                removed: true,
-                osnProfileId: params.osnProfileId,
-                peopleLimit,
-              })),
-              Effect.catchTags({
-                LastOwner: () =>
-                  Effect.sync(() => {
-                    metricHostRemoved("last_owner", "owner");
-                    set.status = 409;
-                    return { error: "last_owner" };
-                  }),
-                HostWriteError: () =>
-                  Effect.sync(() => {
-                    metricHostRemoved("error", "owner");
-                    set.status = 500;
-                    return { error: "Could not remove host" };
-                  }),
-              }),
-              Effect.catchDefect(() =>
-                Effect.sync(() => {
-                  set.status = 500;
-                  return { error: "Internal error" };
+            // The panel shows the new people count from this answer.
+            hostsService
+              .remove({ weddingId, osnProfileId: params.osnProfileId, withPeopleLimit: true })
+              .pipe(
+                Effect.provideService(DbService, db),
+                Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "owner"))),
+                Effect.tap(({ removed }) =>
+                  removed?.role === "owner"
+                    ? notifyOwnerChange(db, request, ownerNotices, {
+                        weddingId,
+                        actorOsnProfileId: osnProfileId,
+                        subjectOsnProfileId: params.osnProfileId,
+                        change: "removed",
+                        subjectSeat: removed,
+                      })
+                    : Effect.void,
+                ),
+                Effect.map(({ peopleLimit }) => ({
+                  removed: true,
+                  osnProfileId: params.osnProfileId,
+                  peopleLimit,
+                })),
+                Effect.catchTags({
+                  LastOwner: () =>
+                    Effect.sync(() => {
+                      metricHostRemoved("last_owner", "owner");
+                      set.status = 409;
+                      return { error: "last_owner" };
+                    }),
+                  HostWriteError: () =>
+                    Effect.sync(() => {
+                      metricHostRemoved("error", "owner");
+                      set.status = 500;
+                      return { error: "Could not remove host" };
+                    }),
                 }),
+                Effect.catchDefect(() =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
               ),
-            ),
           );
         }),
     )

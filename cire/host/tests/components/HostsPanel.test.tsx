@@ -1236,5 +1236,143 @@ describe("HostsPanel", () => {
       fireEvent.change(roleSelect("@ben"), { target: { value: "viewer" } });
       await waitFor(() => expect(screen.getByText(/6 of 6 people/)).toBeTruthy());
     });
+
+    it("moves to the offer when a refused role change reports the limit", async () => {
+      activeProfileIdMock.mockImplementation(() => "usr_alice");
+      authFetchMock.mockResolvedValueOnce(
+        json({ hosts: [owner("alice"), owner("ben")], peopleLimit: UNDER }),
+      );
+      authFetchMock.mockResolvedValueOnce(
+        json({ error: "people_limit_reached", ...AT_LIMIT }, 409),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText(/5 of 6 people/)).toBeTruthy());
+      fireEvent.change(roleSelect("@ben"), { target: { value: "viewer" } });
+      await waitFor(() => expect(screen.getByText(/6 of 6 people/)).toBeTruthy());
+      expect(screen.getByRole("button", { name: "Upgrade to Gold" })).toBeTruthy();
+    });
+
+    it("keeps the add-as-owner form when an add for a one-owner wedding is refused at the limit", async () => {
+      quietSearch();
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [owner("alice")], peopleLimit: UNDER }));
+      authFetchMock.mockResolvedValueOnce(
+        json({ error: "people_limit_reached", ...AT_LIMIT }, 409),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText(/5 of 6 people/)).toBeTruthy());
+
+      typeHandle("bob");
+      fireEvent.click(screen.getByRole("button", { name: /Add host/i }));
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /Add as owner/i })).toBeTruthy(),
+      );
+      expect(screen.getAllByText(/can still add a second owner/i).length).toBeGreaterThan(0);
+      // The refusal stays with the box it is about.
+      expect(
+        screen.getAllByText(/reached its plan's limit of 6 people/i).length,
+      ).toBeGreaterThanOrEqual(2);
+    });
+
+    it("offers no owner to a wedding already over its limit", async () => {
+      authFetchMock.mockResolvedValueOnce(
+        json({
+          hosts: [owner("alice"), viewer("bob")],
+          peopleLimit: { used: 7, limit: 6, tier: "gold" },
+        }),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() =>
+        expect(screen.getByText(/more than its plan's limit of 6/i)).toBeTruthy(),
+      );
+      expect(screen.queryByRole("button", { name: /Add as owner/i })).toBeNull();
+      expect(screen.queryByText(/can still add a second owner/i)).toBeNull();
+      expect(screen.getByRole("button", { name: "Upgrade to Gold" })).toBeTruthy();
+    });
+
+    it("words a limit refusal whose body carries no count, keeping the count it had", async () => {
+      quietSearch();
+      authFetchMock.mockResolvedValueOnce(
+        json({ hosts: [owner("alice"), owner("ben")], peopleLimit: UNDER }),
+      );
+      authFetchMock.mockResolvedValueOnce(json({ error: "people_limit_reached" }, 409));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText(/5 of 6 people/)).toBeTruthy());
+
+      typeHandle("bob");
+      fireEvent.click(screen.getByRole("button", { name: /Add host/i }));
+      await waitFor(() =>
+        expect(
+          screen.getByText("This wedding has reached its plan's limit of people."),
+        ).toBeTruthy(),
+      );
+      expect(screen.getByText(/5 of 6 people/)).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Add host/i })).toBeTruthy();
+    });
+
+    it("words a refused role change whose body carries no count", async () => {
+      activeProfileIdMock.mockImplementation(() => "usr_alice");
+      authFetchMock.mockResolvedValueOnce(
+        json({ hosts: [owner("alice"), owner("ben")], peopleLimit: UNDER }),
+      );
+      authFetchMock.mockResolvedValueOnce(json({ error: "people_limit_reached" }, 409));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@ben")).toBeTruthy());
+      fireEvent.change(roleSelect("@ben"), { target: { value: "viewer" } });
+      await waitFor(() =>
+        expect(toastError).toHaveBeenCalledWith(
+          "This wedding has reached its plan's limit of people.",
+        ),
+      );
+    });
+
+    it("moves focus to the offer and announces it when a refused add takes the form away", async () => {
+      quietSearch();
+      authFetchMock.mockResolvedValueOnce(
+        json({ hosts: [owner("alice"), owner("ben")], peopleLimit: UNDER }),
+      );
+      authFetchMock.mockResolvedValueOnce(
+        json({ error: "people_limit_reached", ...AT_LIMIT }, 409),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText(/5 of 6 people/)).toBeTruthy());
+
+      typeHandle("bob");
+      fireEvent.click(screen.getByRole("button", { name: /Add host/i }));
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("reached its plan's limit of 6 people");
+      // Focus sits on the notice itself, not on the page behind it.
+      expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement?.getAttribute("tabindex")).toBe("-1");
+      expect(document.activeElement?.contains(alert)).toBe(true);
+    });
+
+    it("moves focus to the offer when an add fills the last place", async () => {
+      quietSearch();
+      authFetchMock.mockResolvedValueOnce(
+        json({ hosts: [owner("alice"), owner("ben")], peopleLimit: UNDER }),
+      );
+      authFetchMock.mockResolvedValueOnce(
+        json({ host: viewer("bob"), peopleLimit: AT_LIMIT }, 201),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText(/5 of 6 people/)).toBeTruthy());
+
+      typeHandle("bob");
+      fireEvent.click(screen.getByRole("button", { name: /Add host/i }));
+      const alert = await screen.findByRole("alert");
+      // Focus sits on the notice itself, not on the page behind it.
+      expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement?.getAttribute("tabindex")).toBe("-1");
+      expect(document.activeElement?.contains(alert)).toBe(true);
+    });
+
+    it("does not announce a limit that was already there when the panel opened", async () => {
+      authFetchMock.mockResolvedValueOnce(
+        json({ hosts: [owner("alice"), owner("ben")], peopleLimit: AT_LIMIT }),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText(/6 of 6 people/)).toBeTruthy());
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
   });
 });
