@@ -45,11 +45,11 @@ CLOSE_FRIEND_RING_CLASS  // green outline on attendees who are close friends
 
 ### How They Flow
 
-The `RsvpAvatar` component reads the `CLOSE_FRIEND_RING_CLASS` constant and applies it via `cn()` to the `Avatar` wrapper. Both `RsvpSection` and `RsvpModal` use `RsvpAvatar` — so the entire event-detail page's close-friend affordance updates from one file.
+The `RsvpAvatar` component reads the `CLOSE_FRIEND_RING_CLASS` constant and applies it with `clsx()` to the `Avatar` wrapper. Both `RsvpSection` and `RsvpModal` use `RsvpAvatar` — so the entire event-detail page's close-friend affordance updates from one file.
 
 ```
 lib/ui.ts (CLOSE_FRIEND_RING_CLASS)
-  └─ RsvpAvatar (reads constant, applies via cn() to Avatar wrapper)
+  └─ RsvpAvatar (reads constant, applies with clsx() to Avatar wrapper)
        ├─ RsvpSection (uses RsvpAvatar for inline attendee list)
        └─ RsvpModal (uses RsvpAvatar for full attendee grid)
 ```
@@ -397,7 +397,7 @@ rule; `tests/designs/InviteHeader.ssr.test.tsx` and the unit test's
 ## Source Files
 
 - [shared/ui/src/ui/](../../shared/ui/src/ui/) — Zaidan component primitives
-- [shared/ui/src/lib/utils.ts](../../shared/ui/src/lib/utils.ts) — `cn()` utility
+- [shared/ui/src/lib/utils.ts](../../shared/ui/src/lib/utils.ts) — the `clsx()` re-export
 - [pulse/web/src/lib/ui.ts](../../pulse/web/src/lib/ui.ts) — shared UI tokens
 - [osn/auth-ui/src/Register.tsx](../../osn/auth-ui/src/Register.tsx) — shared registration component
 - [osn/auth-ui/src/SignIn.tsx](../../osn/auth-ui/src/SignIn.tsx) — shared sign-in component
