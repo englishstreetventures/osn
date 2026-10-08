@@ -19,8 +19,11 @@ const Checkbox: Component<CheckboxProps> = (props) => {
       name={local.name}
       {...others}
     >
-      <KobalteCheckbox.Input />
-      <KobalteCheckbox.Control class="base:border-ui-hairline-strong base:bg-ui-ground base:data-[checked]:bg-ui-accent base:data-[checked]:text-ui-on-accent base:peer base:focus-visible:ring-ui-focus base:h-4 base:w-4 base:shrink-0 base:rounded-ui-sm base:border base:transition-colors base:focus-visible:ring-2 base:focus-visible:outline-none">
+      {/* Keyboard focus lands on this clipped input, never on the box beside
+          it, so the box draws its ring off the input's `:focus-visible`.
+          `peer` is that marker, not a utility. */}
+      <KobalteCheckbox.Input class="peer" />
+      <KobalteCheckbox.Control class="base:border-ui-hairline-strong base:bg-ui-ground base:data-[checked]:bg-ui-accent base:data-[checked]:text-ui-on-accent base:peer-focus-visible:ring-ui-focus base:h-4 base:w-4 base:shrink-0 base:rounded-ui-sm base:border base:transition-colors base:peer-focus-visible:ring-2">
         <KobalteCheckbox.Indicator class="base:flex base:items-center base:justify-center">
           <svg
             xmlns="http://www.w3.org/2000/svg"
