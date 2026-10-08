@@ -338,6 +338,23 @@ describe("GET /api/organiser/weddings/:weddingId/enquiries", () => {
     expect(seen).toEqual(ids.toReversed());
   });
 
+  it("is 401 for a bearer that is not a token", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, enquiriesPath, {
+      headers: { Authorization: "Bearer not-a-token" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("answers 500, and no rows, when the inbox cannot be read", async () => {
+    const { app, db } = buildApp();
+    seedInboxRows(db, 2);
+    db.run("DROP TABLE vendor_enquiries");
+    const res = await req(app, enquiriesPath, { profileId: BOOTSTRAP_OWNER });
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+  });
+
   it("refuses a cursor it did not write with 400 invalid_cursor", async () => {
     const { app } = buildApp();
     const res = await req(app, `${enquiriesPath}?cursor=page-two`, { profileId: BOOTSTRAP_OWNER });

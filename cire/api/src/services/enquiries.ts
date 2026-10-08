@@ -263,6 +263,22 @@ export const weddingEnquiriesQuery = (db: Db, weddingId: string, page: EnquiryPa
  */
 export const MAX_LISTING_ARMS_PER_QUERY = 5;
 
+/**
+ * The most listings one vendor-inbox page reads: 20 statements of five arms,
+ * plus the lookup, inside the Free plan's 50 D1 queries per invocation
+ * (wiki/shared/free-tier-limits.md). osn-api answers at most 100 organisations
+ * a profile and an organisation owns at most one listing, so a real caller
+ * never reaches it; past it the inbox reads the first 100 and logs a warning.
+ */
+export const MAX_INBOX_LISTINGS = 100;
+
+/**
+ * One arm of a vendor-inbox statement: a listing by id, or the listing an
+ * organisation owns, found by a probe of `directory_vendors_owner_uniq` inside
+ * the same statement (an organisation that owns none gives an empty arm).
+ */
+export type VendorInboxArm = { readonly listingId: string } | { readonly ownerOrgId: string };
+
 /** The columns a vendor-inbox row needs, flat and uniquely named so an arm can be a subquery. */
 const vendorInboxColumns = {
   id: vendorEnquiries.id,
@@ -283,7 +299,7 @@ const vendorInboxColumns = {
 
 /**
  * One vendor-inbox statement over up to {@link MAX_LISTING_ARMS_PER_QUERY}
- * listings: each listing's enquiries after the cursor, a page and one more,
+ * arms: each arm one listing's enquiries after the cursor, a page and one more,
  * newest first, joined to the couple's CRM row and a live wedding.
  *
  * One arm per listing, because an `IN` over several listings makes SQLite sort
@@ -293,10 +309,17 @@ const vendorInboxColumns = {
  */
 export function listingEnquiriesQuery(
   db: Db,
-  listingIds: readonly [string, ...string[]],
+  arms: readonly [VendorInboxArm, ...VendorInboxArm[]],
   page: EnquiryPageRequest,
 ) {
-  const arms = listingIds.map((listingId, index) => {
+  const selects = arms.map((armOf, index) => {
+    const listingId =
+      "listingId" in armOf
+        ? armOf.listingId
+        : db
+            .select({ id: directoryVendors.id })
+            .from(directoryVendors)
+            .where(eq(directoryVendors.ownerOrgId, armOf.ownerOrgId));
     const arm = db
       .select(vendorInboxColumns)
       .from(vendorEnquiries)
@@ -315,7 +338,7 @@ export function listingEnquiriesQuery(
       .as(`listing_${index}`);
     return db.select().from(arm);
   });
-  const [first, second, ...rest] = arms;
+  const [first, second, ...rest] = selects;
   return second === undefined ? first! : unionAll(first!, second, ...rest);
 }
 
@@ -647,11 +670,12 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
      * Vendor inbox: one page of the enquiries on every listing the caller's
      * organisations own, newest first. An organisation owns at most one listing.
      *
-     * Two steps: the listings (one bound parameter for the whole org list), then
-     * one statement per {@link MAX_LISTING_ARMS_PER_QUERY} listings, merged here.
-     * Each listing contributes at most a page and one row, so a page reads that
-     * many rows per listing however long the inbox. osn-api answers at most 100
-     * organisations a profile, so a request makes at most 21 statements.
+     * Up to {@link MAX_LISTING_ARMS_PER_QUERY} organisations — nearly every
+     * caller — is one statement, an arm per organisation that finds its listing
+     * itself. More is two steps: the listings (one bound parameter for the whole
+     * org list, at most {@link MAX_INBOX_LISTINGS}), then a statement per five
+     * listings, merged here. Each listing contributes at most a page and one
+     * row, so a page reads that many rows per listing however long the inbox.
      */
     vendorInbox(
       orgIds: readonly string[],
@@ -659,19 +683,39 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
     ): Effect.Effect<EnquiryPage<VendorInboxItem>, never, DbService> {
       return Effect.gen(function* () {
         const db = yield* DbService;
-        const listings = yield* dbQuery(() =>
-          db
-            .select({ id: directoryVendors.id })
-            .from(directoryVendors)
-            .where(inArray(directoryVendors.ownerOrgId, jsonEachIn([...orgIds])))
-            .all(),
-        );
-        // Sorted, so the same listings make the same statements on every page.
-        const listingIds = listings.map((l) => l.id).toSorted();
-        const batches: Array<[string, ...string[]]> = [];
-        for (let i = 0; i < listingIds.length; i += MAX_LISTING_ARMS_PER_QUERY) {
-          const [head, ...tail] = listingIds.slice(i, i + MAX_LISTING_ARMS_PER_QUERY);
-          batches.push([head!, ...tail]);
+        // Sorted, so the same caller makes the same statements on every page.
+        const orgs = [...new Set(orgIds)].toSorted();
+        const [firstOrg, ...otherOrgs] = orgs;
+        if (firstOrg === undefined) return { enquiries: [], nextCursor: null };
+        let batches: Array<[VendorInboxArm, ...VendorInboxArm[]]>;
+        if (orgs.length <= MAX_LISTING_ARMS_PER_QUERY) {
+          batches = [
+            [{ ownerOrgId: firstOrg }, ...otherOrgs.map((ownerOrgId) => ({ ownerOrgId }))],
+          ];
+        } else {
+          const listings = yield* dbQuery(() =>
+            db
+              .select({ id: directoryVendors.id })
+              .from(directoryVendors)
+              .where(inArray(directoryVendors.ownerOrgId, jsonEachIn(orgs)))
+              .all(),
+          );
+          // At most one row per organisation (`directory_vendors_owner_uniq`).
+          if (listings.length > MAX_INBOX_LISTINGS) {
+            yield* Effect.logWarning("vendor inbox read the first listings only", {
+              organisations: orgs.length,
+              listingsRead: MAX_INBOX_LISTINGS,
+            });
+          }
+          const listingIds = listings
+            .map((l) => l.id)
+            .toSorted()
+            .slice(0, MAX_INBOX_LISTINGS);
+          batches = [];
+          for (let i = 0; i < listingIds.length; i += MAX_LISTING_ARMS_PER_QUERY) {
+            const [head, ...tail] = listingIds.slice(i, i + MAX_LISTING_ARMS_PER_QUERY);
+            batches.push([{ listingId: head! }, ...tail.map((listingId) => ({ listingId }))]);
+          }
         }
         const read = yield* Effect.all(
           batches.map((batch) => dbQuery(() => listingEnquiriesQuery(db, batch, page).all())),

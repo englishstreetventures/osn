@@ -20,6 +20,17 @@ describe("encodeEnquiryCursor / decodeEnquiryCursor", () => {
     });
   });
 
+  it("round-trips a cursor as long as a real one", () => {
+    const id = `enq_${crypto.randomUUID()}`;
+    const cursor = encodeEnquiryCursor({ id, lastMessageAt: new Date("2099-12-31T23:59:59Z") });
+    expect(cursor.length).toBeGreaterThan(50);
+    expect(decodeEnquiryCursor(cursor)).toEqual({
+      lastMessageAt: Date.UTC(2099, 11, 31, 23, 59, 59) / 1000,
+      id,
+    });
+    expect(parseEnquiryPage({ cursor })?.after?.id).toBe(id);
+  });
+
   it("keeps everything after the first dot as the id", () => {
     expect(decodeEnquiryCursor("12.a.b")).toEqual({ lastMessageAt: 12, id: "a.b" });
   });

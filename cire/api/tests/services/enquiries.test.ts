@@ -27,11 +27,14 @@ import {
   type EnquiryRow,
   flushBufferedEnquiry,
   listingEnquiriesQuery,
+  MAX_INBOX_LISTINGS,
+  type VendorInboxArm,
   weddingEnquiriesQuery,
   ZapUnavailable,
 } from "../../src/services/enquiries";
 import { type ZapChatClient, ZapChatRejected } from "../../src/services/zap-bridge";
 import { recordStatements } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { insertWedding } from "../test-helpers/wedding";
 
 // ---------------------------------------------------------------------------
@@ -1058,6 +1061,17 @@ describe("enquiryService.list", () => {
     expect(res.value.nextCursor).toBe(`${100 + 3}.enq_cap_3`);
   });
 
+  it("asks the database for a page and one row, not the whole inbox", async () => {
+    const db = db0();
+    for (let n = 0; n < 5; n++) seedCoupleEnquiry(db, `enq_lim_${n}`, at(100 + n));
+
+    const statements = recordStatements(db);
+    const res = await run(db, inboxService().list(BOOTSTRAP_WEDDING_ID, { limit: 2, after: null }));
+    if (!Exit.isSuccess(res)) throw new Error("list failed");
+    expect(statements).toHaveLength(1);
+    expect(statements[0]!.rowCounts).toEqual([3]);
+  });
+
   it("walks every enquiry exactly once when a page boundary falls inside one second", async () => {
     const db = db0();
     // Four enquiries share second 200, so a page of two splits them; `id`
@@ -1214,6 +1228,48 @@ describe("enquiryService.vendorInbox", () => {
     expect(reads.flatMap((s) => s.rowCounts).reduce((a, b) => a + b, 0)).toBe(12);
   });
 
+  it("reads up to five organisations in one statement, each arm finding its own listing", async () => {
+    const db = inboxDb();
+    seedListing(db, "dv_one", "org_one");
+    seedListing(db, "dv_two", "org_two");
+    seedVendorEnquiry(db, { id: "enq_1", listing: "dv_one", wedding: "wed_1", s: 100 });
+    seedVendorEnquiry(db, { id: "enq_2", listing: "dv_two", wedding: "wed_2", s: 200 });
+
+    const statements = recordStatements(db);
+    const page = await inbox(db, ["org_two", "org_none", "org_one", "org_two"], FIRST_PAGE);
+    expect(page.enquiries.map((e) => e.id)).toEqual(["enq_2", "enq_1"]);
+    // No listing lookup of its own: one statement, an arm per distinct organisation.
+    expect(statements).toHaveLength(1);
+    expect(statements[0]!.sql.split(" union all ")).toHaveLength(3);
+  });
+
+  it("reads at most MAX_INBOX_LISTINGS listings, and says when it left some out", async () => {
+    const db = inboxDb();
+    const orgs: string[] = [];
+    for (let n = 0; n <= MAX_INBOX_LISTINGS; n++) {
+      const id = String(n).padStart(3, "0");
+      seedListing(db, `dv_${id}`, `org_${id}`);
+      orgs.push(`org_${id}`);
+    }
+    // The newest enquiry sits on the listing that sorts last, the one left out.
+    seedVendorEnquiry(db, { id: "enq_kept", listing: "dv_000", wedding: "wed_k", s: 100 });
+    seedVendorEnquiry(db, {
+      id: "enq_dropped",
+      listing: `dv_${String(MAX_INBOX_LISTINGS).padStart(3, "0")}`,
+      wedding: "wed_d",
+      s: 200,
+    });
+
+    const statements = recordStatements(db);
+    let page: Awaited<ReturnType<typeof inbox>> | undefined;
+    const logs = await captureLogs(async () => {
+      page = await inbox(db, orgs, FIRST_PAGE);
+    });
+    expect(page!.enquiries.map((e) => e.id)).toEqual(["enq_kept"]);
+    expect(statements).toHaveLength(1 + MAX_INBOX_LISTINGS / 5);
+    expect(logs).toContain("vendor inbox read the first listings only");
+  });
+
   it("leaves out a soft-deleted wedding's enquiries without short-filling the page", async () => {
     const db = inboxDb();
     seedListing(db, "dv_mine", "org_mine");
@@ -1232,7 +1288,11 @@ describe("enquiryService.vendorInbox", () => {
 
   it("reads each listing through the keyset index, with no sort", () => {
     const db = inboxDb();
-    const shapes: Array<[string, ...string[]]> = [["dv_a"], ["dv_a", "dv_b", "dv_c"]];
+    const shapes: Array<[VendorInboxArm, ...VendorInboxArm[]]> = [
+      [{ listingId: "dv_a" }],
+      [{ listingId: "dv_a" }, { listingId: "dv_b" }, { listingId: "dv_c" }],
+      [{ ownerOrgId: "org_a" }, { ownerOrgId: "org_b" }],
+    ];
     for (const listings of shapes) {
       for (const after of [null, { lastMessageAt: 100, id: "enq_x" }]) {
         const plan = planOf(db, listingEnquiriesQuery(db, listings, { limit: 50, after }));

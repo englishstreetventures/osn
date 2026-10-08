@@ -3534,10 +3534,11 @@ describe("cire/api over real D1 (Miniflare)", () => {
     it(
       "reads each listing through the keyset index on D1, with no sort",
       async () => {
-        const { sql: text, params } = listingEnquiriesQuery(db, ["dv_a", "dv_b"], {
-          limit: 50,
-          after: { lastMessageAt: 100, id: "enq_x" },
-        }).toSQL();
+        const { sql: text, params } = listingEnquiriesQuery(
+          db,
+          [{ listingId: "dv_a" }, { ownerOrgId: "org_b" }],
+          { limit: 50, after: { lastMessageAt: 100, id: "enq_x" } },
+        ).toSQL();
         const { results } = await d1
           .prepare(`EXPLAIN QUERY PLAN ${text}`)
           .bind(...params)
@@ -3548,6 +3549,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
             /SEARCH vendor_enquiries USING INDEX vendor_enquiries_directory_last_msg_idx \(directory_vendor_id=\? AND \(last_message_at,id\)<\(\?,\?\)\)/g,
           ),
         ).toHaveLength(2);
+        // The organisation's arm finds its listing by a probe of the unique index.
+        expect(plan).toMatch(
+          /SEARCH directory_vendors USING (COVERING )?INDEX directory_vendors_owner_uniq \(owner_org_id=\?\)/,
+        );
         expect(plan).not.toContain("TEMP B-TREE");
       },
       MF_TIMEOUT_MS,

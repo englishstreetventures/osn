@@ -193,6 +193,7 @@ function seedListings(db: Db) {
 interface BuildOpts {
   zap?: ZapChatClient | null;
   enquiryLimiter?: ReturnType<typeof createRateLimiter>;
+  profileOrgs?: OsnProfileOrgsResolver;
 }
 
 function buildApp(opts: BuildOpts = {}) {
@@ -206,7 +207,7 @@ function buildApp(opts: BuildOpts = {}) {
   const app = createApp(db, {
     osnTestKey: auth.key,
     orgMembership: stubOrgMembership,
-    profileOrgs: stubProfileOrgs,
+    profileOrgs: opts.profileOrgs ?? stubProfileOrgs,
     enquiryZapClient: zap,
     enquiryEmailLayer: email.layer,
     ...(opts.enquiryLimiter ? { enquiryLimiter: opts.enquiryLimiter } : {}),
@@ -428,6 +429,30 @@ describe("GET /api/vendor/enquiries", () => {
       path = `/api/vendor/enquiries?limit=2&cursor=${encodeURIComponent(body.nextCursor)}`;
     }
     expect(seen).toEqual(mine.toReversed());
+  });
+
+  it("is 401 for a bearer that is not a token", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, "/api/vendor/enquiries", {
+      headers: { Authorization: "Bearer not-a-token" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("answers 500, and no rows, when the inbox cannot be read", async () => {
+    const { app, db } = buildApp();
+    seedProvisionedEnquiry(db, { directoryVendorId: DV_CLAIMED });
+    db.run("DROP TABLE vendor_enquiries");
+    const res = await req(app, "GET", "/api/vendor/enquiries", VENDOR);
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+  });
+
+  it("answers 500 when the caller's organisations cannot be read", async () => {
+    const { app } = buildApp({ profileOrgs: () => Promise.reject(new Error("osn down")) });
+    const res = await req(app, "GET", "/api/vendor/enquiries", VENDOR);
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
   });
 
   it("refuses a cursor it did not write with 400 invalid_cursor", async () => {
