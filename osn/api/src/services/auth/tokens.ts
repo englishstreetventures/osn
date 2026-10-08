@@ -200,6 +200,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             .limit(MAX_SESSIONS_PER_ACCOUNT + 1);
           if (rows.length >= MAX_SESSIONS_PER_ACCOUNT) {
             const evictIds = rows.slice(MAX_SESSIONS_PER_ACCOUNT - 1).map((r) => r.id);
+            // oxlint-disable-next-line house/no-unbounded-in-array -- at most two ids: the tail of a MAX_SESSIONS_PER_ACCOUNT + 1 read
             await db.delete(sessions).where(inArray(sessions.id, evictIds));
           }
         },

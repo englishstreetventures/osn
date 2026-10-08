@@ -14,10 +14,12 @@ related:
   - "[[s2s-patterns]]"
   - "[[osn-core]]"
   - "[[event-access]]"
+  - "[[d1-limits]]"
+  - "[[house-lint-rules]]"
 packages:
   - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-08
 ---
 
 # Social Graph
@@ -138,7 +140,9 @@ The `:handle` route parameter uses TypeBox `HandleParam` with regex + length bou
 
 Steps 1 and 2 are two separate, un-transacted D1 round trips — nothing joins them in a `db.batch`/`db.transaction`. Step 1 snapshots the caller's own edges; step 2's friends-of-friends seed subquery re-reads `connections` live, at whatever the table holds when step 2 actually runs. The `IN (<subquery>)` rewrite above closed osn-tracker#589's bind-cap crash, but it opened a window the old, single-snapshot query structurally could not have: if the caller accepts a new connection between step 1 and step 2 — the same account, a second request in flight from another tab or device — that connection's id was never seen by the step-1 snapshot, so it is in neither the caller's own-connections set nor the exclusion set, yet it is inside the live seed subquery's result. The fan-out row for that brand-new edge was misclassified as a candidate rather than a mutual connection, and nothing downstream re-checked it: the caller's own newest connection could come back as "someone you may know." `profileId` is always the caller's own, so the blast radius is one account's freshest edge against itself — never another account's connection or block state.
 
-Fixed by re-checking, fresh, immediately before hydration, for just the ids that survived ranking (step 5's `sorted`, at most `safeLimit` ≤ 50) — small enough that this cannot reopen the 100-bound cap. That safety is measured, not assumed: naively filtering with `or(inArray(requesterId, ids), inArray(addresseeId, ids))` binds the id list twice, the same mistake #589 fixed, and at the 50-id ceiling that is 102 params (`.toSQL()` against the real query shape: 2 profile-id equality binds + 2 × 50-id `inArray`s) — over D1's cap. The re-check queries instead run the id filter once each, against a subquery that projects the counterpart id, so the list is bound once: 3 profile-id binds (one in a `CASE`, two in the seed `WHERE`) + up to 50 for the single `inArray` = 53 params, confirmed the same way.
+Fixed by re-checking, fresh, immediately before hydration, for just the ids that survived ranking (step 5's `sorted`, at most `safeLimit` ≤ 50) — small enough that this cannot reopen the 100-bound cap. That safety is measured, not assumed: naively filtering with `or(inArray(requesterId, ids), inArray(addresseeId, ids))` binds the id list twice, the same mistake #589 fixed, and at the 50-id ceiling that is 102 params (`.toSQL()` against the real query shape: 2 profile-id equality binds + 2 × 50-id `inArray`s) — over D1's cap. The re-check queries instead run the id filter once each, against a subquery that projects the counterpart id, so the list is bound once: 4 binds in the subquery (one profile id in a `CASE`, two in its `WHERE`, one for its `LIMIT`) + up to 50 for the single `inArray` = 54 params.
+
+*Measured 2026-10-08 — drizzle `logger` capture of `suggestConnections` on bun:sqlite: 9 parameters with 5 ranked ids*
 
 `db.batch()` across steps 1 and 2 was considered instead and rejected without running it: D1's docs do not state that a batch is snapshot-isolated against a concurrent write from a different request, and this repo has already taken an unverified engine property on faith three times (see the bound-parameter cap below, and the compound-select arm limit) — a bounded re-check needs no such assumption, since it is correct whether or not D1 batches are isolated.
 
@@ -163,7 +167,7 @@ D1 caps a query at **100 bound parameters** (developers.cloudflare.com/d1/platfo
 
 The fix: bind `profileId`, not the list. The FOF query now reads the caller's own accepted edges through a correlated `IN (<subquery>)` — the subquery re-reads them inside the database, so the outer query's bind count is fixed regardless of how many connections the caller has. A correlated `EXISTS` (the more obvious rewrite) was measured and rejected: on real (Miniflare/workerd) D1, `EXPLAIN QUERY PLAN` showed it planning as `SCAN c` with a `CORRELATED SCALAR SUBQUERY` evaluated once per row of the *whole* `connections` table — cost that scales with the size of the table, not with the caller's own graph. The `IN (<subquery>)` shape gets flattened by SQLite into a `LIST SUBQUERY` — one indexed pass to build a Bloom filter, then the same `MULTI-INDEX OR` seek over `connections_requester_idx` / `connections_addressee_idx` the original query got. Measured on a caller with 40 accepted connections: 484 rows read against the two-`inArray` shape's 400, for an identical result set — the cost of materialising the seed set once rather than pasting it in as literals.
 
-Any query in this file — or elsewhere in `@osn/api` — that binds a list whose length comes from user data must either keep that list under 100 items by construction (an HTTP-boundary bound, like `safeLimit`), or avoid binding it at all (a subquery, as above, or genuine batched round-trips under the cap each). The chunk-and-`UNION ALL`-in-one-statement version does **not** work: a `UNION ALL` of several `inArray` arms is still one statement, so D1's cap applies to the combined total, not per arm. Only real, separate round trips (or a subquery that runs inside the database) get around it. New D1-backed coverage of a fix like this belongs in `osn/api/tests/d1/d1-integration.test.ts` — it is the only test file in this repo that runs against a real (Miniflare/workerd) D1 rather than `bun:sqlite`, so it is the only place either failure mode (the bind cap, or `rows_read`) is visible at all.
+Any query in this file — or elsewhere in `@osn/api` — that filters by a list whose length comes from user data binds it as `jsonEachIn(list)` (one JSON parameter, see [[d1-limits]]) or reads it through a subquery, as above. A list that a cap the code enforces holds under 100, such as the `safeLimit` slice the re-check uses, may stay per element, with a suppression of `house/no-unbounded-in-array` that names the cap ([[house-lint-rules]]). The chunk-and-`UNION ALL`-in-one-statement version does **not** work: a `UNION ALL` of several `inArray` arms is still one statement, so D1's cap applies to the combined total, not per arm. Only real, separate round trips (or a subquery that runs inside the database) get around it. New D1-backed coverage of a fix like this belongs in `osn/api/tests/d1/d1-integration.test.ts` — it is the only test file in this repo that runs against a real (Miniflare/workerd) D1 rather than `bun:sqlite`, so it is the only place either failure mode (the bind cap, or `rows_read`) is visible at all.
 
 ## Search (autocomplete)
 
@@ -237,7 +241,7 @@ Differences from people search, all deliberate:
 
 Rate-limited at 60 req/user/min via `createRedisRecommendationRateLimiters().search` — looser than the suggestion budget because typeahead fires once per debounced keystroke, and a 20/min budget would 429 a user mid-word. The client debounces 250 ms and aborts superseded requests. `orgLimit` defaults to half `limit`: organisations are the secondary section in the UI.
 
-Query count per people search is 3-6 (two edge-direction seeks, the handle range, optionally the infix scan, then blocks / connection state / shared organisations). The last three are one `Effect.all` rather than the two sequential steps this used before, so the request has **one fewer sequential database step** than the pre-proximity version despite carrying more signal — parallel on D1, sequential on bun:sqlite. Candidate ids peak near 170 at the maximum page size, which keeps the bound-parameter count in the probes under SQLite's 999 ceiling.
+Query count per people search is 3-6 (two edge-direction seeks, the handle range, optionally the infix scan, then blocks / connection state / shared organisations). The last three are one `Effect.all` rather than the two sequential steps this used before, so the request has **one fewer sequential database step** than the pre-proximity version despite carrying more signal — parallel on D1, sequential on bun:sqlite. Candidate ids reach 160 at the maximum page size (50 + 50 from the edge seeks, 60 from the handle range), and the probes name the list twice; each probe binds it as one JSON parameter (`jsonEachIn`), so its parameter count does not grow with the list.
 
 ## Source Files
 

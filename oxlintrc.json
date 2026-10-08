@@ -176,6 +176,16 @@
     // by englishstventures/osn#926, which cleared every existing site.
     "house/no-stacked-doc-block": "error",
 
+    // drizzle's `inArray` / `notInArray` bind one parameter per element of a
+    // JavaScript array. D1 refuses a statement over 100 bound parameters and
+    // bun:sqlite allows 999, so a list that outgrows the cap passes every test
+    // tier but the Miniflare one and fails in production. The rule passes
+    // `jsonEachIn(list)` (one bound JSON parameter), a subquery and a list
+    // whose length the source fixes. A list a cap holds under 100 is suppressed
+    // on its line, with a reason that names the cap. Every site was fixed or
+    // suppressed before this went on, so it starts at "error".
+    "house/no-unbounded-in-array": "error",
+
     // jsdoc — a tag you write must carry content. Every rule here measured
     // zero hits across the tree when it was turned on, so each one only ever
     // fires on new drift.

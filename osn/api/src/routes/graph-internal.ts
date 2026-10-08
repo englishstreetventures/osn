@@ -2,6 +2,7 @@ import { accounts, connections, serviceAccounts, serviceAccountKeys, users } fro
 import { Db, DbLive } from "@osn/db/service";
 import { evictPublicKeyCacheEntry, importKeyFromJwk } from "@shared/crypto";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
+import { jsonEachIn } from "@shared/db-utils";
 import { handlePrefixRange, likeContains, normaliseHandleQuery } from "@shared/db-utils/search";
 import { and, asc, gte, inArray, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
@@ -27,7 +28,11 @@ const SCOPE_GRAPH_READ = "graph:read";
  * cire-api account linking) are granted it.
  */
 const SCOPE_RESOLVE_ACCOUNT = "graph:resolve-account";
-/** Max profile IDs per batch request — stays well under SQLite's variable limit (999). */
+/**
+ * Max profile IDs per batch request. The query binds the list as one JSON
+ * parameter, so this bounds the read, not D1's 100-parameter limit. Pulse's
+ * attendee list sends up to 200.
+ */
 const MAX_BATCH_PROFILE_IDS = 200;
 /**
  * Minimum prefix length for handle prefix search. Below this we return an empty
@@ -864,7 +869,7 @@ export function createInternalGraphRoutes(
                         avatarUrl: users.avatarUrl,
                       })
                       .from(users)
-                      .where(inArray(users.id, body.profileIds)),
+                      .where(inArray(users.id, jsonEachIn(body.profileIds))),
                   catch: (cause) => new Error("DB query failed", { cause }),
                 });
               }),

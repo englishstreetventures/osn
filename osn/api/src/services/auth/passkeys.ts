@@ -13,7 +13,7 @@ import {
   users,
 } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { commitBatch } from "@shared/db-utils";
+import { commitBatch, jsonEachIn } from "@shared/db-utils";
 import { EmailService } from "@shared/email";
 import {
   generateAuthenticationOptions,
@@ -493,7 +493,12 @@ export function createPasskeysModule(
           ? [
               db
                 .delete(passkeys)
-                .where(and(eq(passkeys.accountId, accountId), inArray(passkeys.id, reclaimIds))),
+                .where(
+                  and(
+                    eq(passkeys.accountId, accountId),
+                    inArray(passkeys.id, jsonEachIn(reclaimIds)),
+                  ),
+                ),
               db.insert(securityEvents).values({
                 id: genId("sev_"),
                 accountId,

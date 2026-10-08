@@ -349,6 +349,7 @@ export const discoverEvents = (
           db
             .select({ id: eventSeries.id, title: eventSeries.title })
             .from(eventSeries)
+            // oxlint-disable-next-line house/no-unbounded-in-array -- at most 50 ids: one page, `limit` decoded to at most 50 above
             .where(inArray(eventSeries.id, seriesIds)),
         catch: (cause) => new DiscoveryError({ cause }),
       });

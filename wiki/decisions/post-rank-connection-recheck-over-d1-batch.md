@@ -9,7 +9,7 @@ related:
   - "[[social-graph]]"
   - "[[d1-limits]]"
   - "[[decisions/README]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-10-08
 ---
 
 # Post-rank re-check instead of a D1 batch
@@ -65,9 +65,13 @@ equality binds + 2 × 50-id `inArray`s), over D1's 100-per-statement cap, checke
 against `.toSQL()` rather than reasoned about.
 
 Each query instead runs the id filter once, against a subquery projecting the
-counterpart id itself: 3 `profileId` binds (one in the `CASE`, two in the seed
-`WHERE`) + up to 50 for the single `inArray` = **53 parameters**, confirmed the
-same way. See [[d1-limits]].
+counterpart id itself: 4 binds in the subquery (one `profileId` in the `CASE`,
+two in its `WHERE`, one for its `LIMIT`) + up to 50 for the single `inArray` =
+**54 parameters**. The list stays per element under a reasoned suppression of
+`house/no-unbounded-in-array`, because `safeLimit` caps it. See [[d1-limits]]
+and [[house-lint-rules]].
+
+*Measured 2026-10-08 — drizzle `logger` capture of `suggestConnections` on bun:sqlite: 9 parameters with 5 ranked ids, so 54 at 50*
 
 No status filter on the connections re-check — any row, pending or accepted,
 means "no longer a suggestion", the same way `excludeIds` already treats every

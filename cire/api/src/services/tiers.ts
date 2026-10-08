@@ -1,4 +1,5 @@
 import { families, guests, weddingEntitlements, weddings } from "@cire/db";
+import { jsonEachIn } from "@shared/db-utils";
 import { and, type Column, eq, getTableName, inArray, ne, type SQL, sql } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
@@ -205,10 +206,13 @@ function tierGrantStatement(
   const from = tiersBelow(tier).filter(
     (held) => heldAtLeast === undefined || tierAtLeast(held, heldAtLeast),
   );
-  return db
-    .update(weddings)
-    .set({ tier, tierSource: grant.source, tierGrantedBy: grant.grantedBy })
-    .where(and(eq(weddings.id, weddingId), inArray(weddings.tier, from)));
+  return (
+    db
+      .update(weddings)
+      .set({ tier, tierSource: grant.source, tierGrantedBy: grant.grantedBy })
+      // oxlint-disable-next-line house/no-unbounded-in-array -- at most two values: `from` is drawn from TIERS, below `tier`
+      .where(and(eq(weddings.id, weddingId), inArray(weddings.tier, from)))
+  );
 }
 
 /**
@@ -319,7 +323,7 @@ export const tierService = {
           .from(weddingEntitlements)
           .where(
             and(
-              inArray(weddingEntitlements.weddingId, weddingIds),
+              inArray(weddingEntitlements.weddingId, jsonEachIn(weddingIds)),
               eq(weddingEntitlements.entitlement, "premium_templates"),
             ),
           )

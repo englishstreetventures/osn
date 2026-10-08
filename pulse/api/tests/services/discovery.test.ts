@@ -541,6 +541,18 @@ it.effect("rejects lat without lng/radiusKm", () =>
   ),
 );
 
+it.effect("caps a page at 50 events: 50 is accepted, 51 is refused", () =>
+  provide(
+    Effect.gen(function* () {
+      // The page's series ids feed a per-element read whose lint suppression
+      // rests on this cap.
+      yield* discoverEvents({ limit: 50 }, null, stubLookups());
+      const err = yield* Effect.flip(discoverEvents({ limit: 51 }, null, stubLookups()));
+      expect(err).toBeInstanceOf(DiscoveryValidationError);
+    }),
+  ),
+);
+
 it.effect("rejects priceMin without currency", () =>
   provide(
     Effect.gen(function* () {

@@ -1,10 +1,11 @@
 import { events, eventRsvps, pulseCloseFriends, type EventRsvp } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import { jsonEachIn } from "@shared/db-utils";
 import { inArray } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 /**
- * Pulse-side DSAR account export (C-H1 — Art.15 right of access).
+ * Pulse-side DSAR account export (GDPR Art. 15, the right of access).
  *
  * Endpoint hit by osn-api's export fan-out. Reads the requesting account's
  * Pulse-scoped personal data for the supplied profile IDs and returns it as
@@ -68,45 +69,50 @@ export const collectExport = (
     if (profileIds.length === 0) return [];
     const { db } = yield* Db;
 
-    const rsvps = yield* Effect.tryPromise({
-      try: () =>
-        db
-          .select({
-            eventId: eventRsvps.eventId,
-            status: eventRsvps.status,
-            shareSourceFirst: eventRsvps.shareSourceFirst,
-            createdAt: eventRsvps.createdAt,
-          })
-          .from(eventRsvps)
-          .where(inArray(eventRsvps.profileId, profileIds)),
-      catch: (cause) => new PulseExportDbError({ cause }),
-    });
-
-    const hosted = yield* Effect.tryPromise({
-      try: () =>
-        db
-          .select({
-            id: events.id,
-            title: events.title,
-            startTime: events.startTime,
-            createdAt: events.createdAt,
-          })
-          .from(events)
-          .where(inArray(events.createdByProfileId, profileIds)),
-      catch: (cause) => new PulseExportDbError({ cause }),
-    });
-
-    const closeFriends = yield* Effect.tryPromise({
-      try: () =>
-        db
-          .select({
-            friendId: pulseCloseFriends.friendId,
-            createdAt: pulseCloseFriends.createdAt,
-          })
-          .from(pulseCloseFriends)
-          .where(inArray(pulseCloseFriends.profileId, profileIds)),
-      catch: (cause) => new PulseExportDbError({ cause }),
-    });
+    // The three reads depend only on `profileIds`, so they run together: in
+    // parallel on D1, one after another on bun:sqlite.
+    const [rsvps, hosted, closeFriends] = yield* Effect.all(
+      [
+        Effect.tryPromise({
+          try: () =>
+            db
+              .select({
+                eventId: eventRsvps.eventId,
+                status: eventRsvps.status,
+                shareSourceFirst: eventRsvps.shareSourceFirst,
+                createdAt: eventRsvps.createdAt,
+              })
+              .from(eventRsvps)
+              .where(inArray(eventRsvps.profileId, jsonEachIn(profileIds))),
+          catch: (cause) => new PulseExportDbError({ cause }),
+        }),
+        Effect.tryPromise({
+          try: () =>
+            db
+              .select({
+                id: events.id,
+                title: events.title,
+                startTime: events.startTime,
+                createdAt: events.createdAt,
+              })
+              .from(events)
+              .where(inArray(events.createdByProfileId, jsonEachIn(profileIds))),
+          catch: (cause) => new PulseExportDbError({ cause }),
+        }),
+        Effect.tryPromise({
+          try: () =>
+            db
+              .select({
+                friendId: pulseCloseFriends.friendId,
+                createdAt: pulseCloseFriends.createdAt,
+              })
+              .from(pulseCloseFriends)
+              .where(inArray(pulseCloseFriends.profileId, jsonEachIn(profileIds))),
+          catch: (cause) => new PulseExportDbError({ cause }),
+        }),
+      ],
+      { concurrency: "unbounded" },
+    );
 
     const lines: ExportLine[] = [];
     for (const r of rsvps) {

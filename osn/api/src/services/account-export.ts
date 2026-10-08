@@ -26,6 +26,7 @@
 
 import * as schema from "@osn/db/schema";
 import type { DbService } from "@osn/db/service";
+import { jsonEachIn } from "@shared/db-utils";
 import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 
@@ -416,8 +417,8 @@ export async function* exportLines(opts: {
         .where(
           and(
             or(
-              inArray(connections.requesterId, profileIds),
-              inArray(connections.addresseeId, profileIds),
+              inArray(connections.requesterId, jsonEachIn(profileIds)),
+              inArray(connections.addresseeId, jsonEachIn(profileIds)),
             ),
             gt(connections.id, cursor),
           ),
@@ -440,7 +441,7 @@ export async function* exportLines(opts: {
         })
         .from(blocks)
         .innerJoin(users, eq(users.id, blocks.blockedId))
-        .where(and(inArray(blocks.blockerId, profileIds), gt(blocks.id, cursor)))
+        .where(and(inArray(blocks.blockerId, jsonEachIn(profileIds)), gt(blocks.id, cursor)))
         .orderBy(asc(blocks.id))
         .limit(PAGE_SIZE),
     )) {
@@ -459,7 +460,9 @@ export async function* exportLines(opts: {
           createdAt: organisations.createdAt,
         })
         .from(organisations)
-        .where(and(inArray(organisations.ownerId, profileIds), gt(organisations.id, cursor)))
+        .where(
+          and(inArray(organisations.ownerId, jsonEachIn(profileIds)), gt(organisations.id, cursor)),
+        )
         .orderBy(asc(organisations.id))
         .limit(PAGE_SIZE),
     )) {
@@ -481,7 +484,7 @@ export async function* exportLines(opts: {
         .innerJoin(organisations, eq(organisations.id, organisationMembers.organisationId))
         .where(
           and(
-            inArray(organisationMembers.profileId, profileIds),
+            inArray(organisationMembers.profileId, jsonEachIn(profileIds)),
             gt(organisationMembers.id, cursor),
           ),
         )

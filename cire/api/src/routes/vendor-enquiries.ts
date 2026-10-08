@@ -1,4 +1,5 @@
 import { directoryVendors, vendorEnquiries, vendors, weddings } from "@cire/db";
+import { jsonEachIn } from "@shared/db-utils";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { Effect, Schema } from "effect";
@@ -192,7 +193,12 @@ export function createVendorEnquiriesRoutes(
                 .innerJoin(vendors, eq(vendorEnquiries.vendorId, vendors.id))
                 .innerJoin(weddings, eq(vendorEnquiries.weddingId, weddings.id))
                 // A soft-deleted wedding's enquiries, and its name, drop out.
-                .where(and(inArray(directoryVendors.ownerOrgId, callerOrgIds), weddingIsLive))
+                .where(
+                  and(
+                    inArray(directoryVendors.ownerOrgId, jsonEachIn(callerOrgIds)),
+                    weddingIsLive,
+                  ),
+                )
                 // Newest-first by last message, in SQL rather than a JS sort.
                 .orderBy(desc(vendorEnquiries.lastMessageAt))
                 .all(),

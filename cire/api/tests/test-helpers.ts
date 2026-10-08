@@ -159,6 +159,16 @@ export function recordStatements(db: TestDb): RecordedStatement[] {
 }
 
 /**
+ * How many parameters a recorded statement binds. Drizzle's SQLite dialect
+ * writes each one as a bare `?` and never inlines a value, so counting them is
+ * exact. D1 refuses a statement over 100 and bun:sqlite does not, so a test
+ * asserts this count rather than waiting for a query to fail.
+ */
+export function boundParameterCount(sql: string): number {
+  return sql.split("?").length - 1;
+}
+
+/**
  * Put a wedding on a plan tier, outright — up or down, and with no attribution.
  * A test seeds a tier the way an operator would set it, so the module it is
  * about is reachable; the grant path's own rules are tested where they live.

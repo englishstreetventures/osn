@@ -16,13 +16,14 @@ related:
   - "[[backend-patterns]]"
   - "[[social-graph]]"
   - "[[d1-read-replication]]"
+  - "[[house-lint-rules]]"
 packages:
   - "@shared/db-utils"
   - "@osn/api"
   - "@pulse/api"
   - "@cire/api"
   - "@zap/api"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-08
 ---
 
 # D1 Limits
@@ -55,7 +56,7 @@ Two shapes, and the second is the one that keeps getting overlooked:
   twice (once per branch of an `OR`, which is easy to do accidentally).
 - **A multi-row `INSERT`** — `db.insert(t).values(rows)` binds one parameter
   **per column per row**, so it breaks an order of magnitude sooner. A
-  31-column table dies at **4 rows**. A 6-column one at 16.
+  31-column table dies at **4 rows**. A 6-column one at 17.
 
 An audit that greps only for `inArray` finds the first and misses the second.
 That is exactly what happened: the two worst instances in `pulse/api` — every
@@ -79,8 +80,28 @@ db.run(insertManyViaJsonEach(events, rows))      // 1 param for 200 rows
 
 SQLite flattens `col IN (SELECT value FROM json_each(?))` into a
 `LIST SUBQUERY` with a Bloom filter, so the outer query keeps its index seek —
-verified with `EXPLAIN QUERY PLAN` at every converted site. It also beat
-chunked `.values()` by 7–29× at the two insert sites measured.
+verified with `EXPLAIN QUERY PLAN` at every converted site, against the same
+statement with the list bound per element. It also beat chunked `.values()` by
+7–29× at the two insert sites measured.
+
+*Measured 2026-10-08 — each converted statement's plan read from the drizzle `logger` capture in the bind-count tests, on bun:sqlite, and on Miniflare for the `ORDER BY … LIMIT` shapes (the `@osn/api` export pages, the `@zap/api` export reads, the `@cire/api` vendor inbox): the same driving index in every one*
+
+Two costs the plan does not show:
+
+- **Rows read.** D1 counts every element `json_each` yields as a row read, so a
+  list of n ids adds n rows read to the statement, and 2n where the plan also
+  builds a Bloom filter from it. A users-by-id read of 50 ids goes from 100
+  rows read to 150. Rows written do not change.
+- **Statistics.** The plans above were compared with no `sqlite_stat1` table,
+  which is D1's state while nothing runs `ANALYZE` or `PRAGMA optimize`. With
+  statistics, SQLite costs `IN (SELECT …)` at a fixed 25 rows and a literal
+  list at its real length, and the two forms can plan differently: `ANALYZE`
+  turned the `@cire/api` vendor inbox's `json_each` form into a scan of
+  `weddings` when a few listings held most enquiries. Before running either
+  on a D1 database, re-check the `ORDER BY … LIMIT` statements, the inbox
+  first.
+
+*Measured 2026-10-09 — `meta.rows_read` and `EXPLAIN QUERY PLAN` on Miniflare D1 with synthetic data, before and after `ANALYZE`*
 
 Three things it cannot carry, all of which **throw** rather than write wrong
 data:
@@ -107,6 +128,10 @@ index seek into `SCAN c` and read twice the rows for an identical result.
 2. **Never bind per element.** A constant that happens to sit under the cap
    today is not a fix; it is the next bug. Lowering a cap to make a query legal
    usually swaps an error for silent truncation, which is worse.
+   `house/no-unbounded-in-array` fails lint on an `inArray` or `notInArray`
+   whose list the source does not fix; a list that a cap the code enforces
+   holds under 100 carries a suppression naming that cap. See
+   [[house-lint-rules]]. The multi-row `.values(rows)` shape waits on englishstreetventures/osn#1450.
 3. **Verify on `bun run test:d1`.** No other tier enforces any of this. A
    regression test that seeds a realistic fixture is slow and imprecise —
    assert the emitted bound-parameter count with `.toSQL()` instead, with the
@@ -134,3 +159,5 @@ shows you. Cutting the count is one half; [[d1-read-replication]] is the other.
 | osn-tracker#596 | `zap`/`pulse` export caps | 100 ids binds 102 |
 | P-C1 on PR #853 | `osn/api` co-member fan-out, `UNION ALL` arms | 6 organisations |
 | P-C1 on PR #1377 | `cire/api` guest-data retention sweep, ten `IN` lists | 101 weddings or households |
+| First run of `house/no-unbounded-in-array` | `osn/api` profile search probes, list bound twice; organisation search | a page limit of 17 on a common handle prefix; 101 candidates |
+| First run of `house/no-unbounded-in-array` | `cire/api` premium-template read, invite events, import carried codes | 101 weddings, events or households |

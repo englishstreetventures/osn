@@ -2,8 +2,10 @@ import { describe, it, expect } from "bun:test";
 
 import {
   BOOTSTRAP_WEDDING_ID,
+  events as eventsTable,
   families,
   guestAccountLinks,
+  guestEvents,
   guests,
   rsvps,
   weddingFaqs,
@@ -28,7 +30,7 @@ import {
 import { hostCodeService } from "../../src/services/host-code";
 import { type RsvpInput, rsvpService } from "../../src/services/rsvp";
 import { TestDbLayer } from "../db/test-layer";
-import { effWith } from "../test-helpers";
+import { boundParameterCount, effWith, recordStatements } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { allowPlusOne, eventIdsOf, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 
@@ -1107,5 +1109,49 @@ describe("decodePalette", () => {
       palette: [{ name: "Sage", color: "#b2ac88" }],
       malformed: false,
     });
+  });
+});
+
+describe("claimService.lookup — a household invited to many events", () => {
+  it("binds the household's event ids as one parameter, however many there are", async () => {
+    // An import allows a wedding up to 200 events, and D1 refuses a statement
+    // over 100 parameters.
+    const db = createDb(":memory:");
+    seedDb(db);
+    const [family] = db
+      .select()
+      .from(families)
+      .where(eq(families.publicId, "TESTONE-IVY-AA11"))
+      .all();
+    const [ada] = db.select().from(guests).where(eq(guests.familyId, family!.id)).all();
+    const extra = Array.from({ length: 120 }, (_, i) => `evt_bulk_${i}`);
+    for (const [i, id] of extra.entries()) {
+      db.insert(eventsTable)
+        .values({
+          id,
+          weddingId: family!.weddingId,
+          slug: `bulk-${i}`,
+          name: `Bulk ${i}`,
+          description: "",
+          startAt: "2027-01-01T16:00:00+10:00",
+          endAt: "2027-01-01T22:00:00+10:00",
+          timezone: "Australia/Sydney",
+          sortOrder: 100 + i,
+        })
+        .run();
+      db.insert(guestEvents).values({ guestId: ada!.id, eventId: id }).run();
+    }
+
+    const statements = recordStatements(db);
+    const result = await Effect.runPromise(
+      claimService.lookup("TESTONE-IVY-AA11").pipe(Effect.provideService(DbService, db)),
+    );
+
+    expect(result.events.map((e) => e.id)).toEqual(expect.arrayContaining(extra));
+    const reads = statements.filter((s) =>
+      s.sql.includes('from "events" where "events"."id" in ('),
+    );
+    expect(reads).toHaveLength(1);
+    expect(boundParameterCount(reads[0]!.sql)).toBe(1);
   });
 });

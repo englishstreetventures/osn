@@ -8,6 +8,7 @@ import { createDb, seedBootstrapWedding } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import type { ParsedEvent, ParsedFamily } from "../../src/schemas/import";
 import { applyImport, diffAgainstDb } from "../../src/services/import";
+import { boundParameterCount, recordStatements } from "../test-helpers";
 
 /**
  * ROW IDENTITY in the reconcile diff — which desired row means which existing
@@ -559,5 +560,30 @@ describe("diffAgainstDb — pass ordering and the editor fixpoint", () => {
     expect(plan.guestRemoves).toHaveLength(0);
     expect(plan.eventLinkCreates).toHaveLength(0);
     expect(plan.eventLinkRemoves).toHaveLength(0);
+  });
+});
+
+describe("diffAgainstDb — a re-import carrying many claim codes", () => {
+  it("checks the carried codes with one bound parameter, however many households carry one", async () => {
+    // An export → re-import round trip carries every household's code, a sheet
+    // may hold thousands of households, and D1 refuses a statement over 100
+    // parameters.
+    const { db, layer } = freshDb();
+    const codes = Array.from({ length: 150 }, (_, i) => `CARRY-${String(i).padStart(4, "0")}`);
+    const desired: ParsedFamily[] = codes.map((publicId, i) => ({
+      publicId,
+      familyName: `Household ${i}`,
+      guests: [guest(`Guest${i}`, "Carried")],
+    }));
+
+    const statements = recordStatements(db);
+    const plan = await Effect.runPromise(
+      diffAgainstDb([{ ...CEREMONY }], desired, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
+
+    expect(plan.familyCreates.map((f) => f.publicId)).toEqual(codes);
+    const reads = statements.filter((s) => s.sql.includes('"families"."public_id" in ('));
+    expect(reads).toHaveLength(1);
+    expect(boundParameterCount(reads[0]!.sql)).toBe(1);
   });
 });

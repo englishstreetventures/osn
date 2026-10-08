@@ -447,7 +447,9 @@ export const purgeAccount = (
         db
           .select({ id: events.id })
           .from(events)
-          .where(inArray(events.createdByProfileId, profileIds)) as Promise<{ id: string }[]>,
+          .where(inArray(events.createdByProfileId, jsonEachIn(profileIds))) as Promise<
+          { id: string }[]
+        >,
       catch: (cause) => new PulseErasureDbError({ cause }),
     })).map((r) => r.id);
 
@@ -461,17 +463,17 @@ export const purgeAccount = (
       // half-purged account marked as "done" (on D1 the whole batch rolls back).
       try: () =>
         commitBatch(db, [
-          db.delete(eventRsvps).where(inArray(eventRsvps.profileId, profileIds)),
+          db.delete(eventRsvps).where(inArray(eventRsvps.profileId, jsonEachIn(profileIds))),
           db
             .delete(pulseCloseFriends)
             .where(
               or(
-                inArray(pulseCloseFriends.profileId, profileIds),
-                inArray(pulseCloseFriends.friendId, profileIds),
+                inArray(pulseCloseFriends.profileId, jsonEachIn(profileIds)),
+                inArray(pulseCloseFriends.friendId, jsonEachIn(profileIds)),
               ),
             ),
-          db.delete(eventComms).where(inArray(eventComms.sentByProfileId, profileIds)),
-          db.delete(pulseUsers).where(inArray(pulseUsers.profileId, profileIds)),
+          db.delete(eventComms).where(inArray(eventComms.sentByProfileId, jsonEachIn(profileIds))),
+          db.delete(pulseUsers).where(inArray(pulseUsers.profileId, jsonEachIn(profileIds))),
 
           // Pulse-scoped personal data added by the
           // onboarding feature — interests/opt-ins keyed by accountId, and
@@ -480,7 +482,7 @@ export const purgeAccount = (
           db.delete(pulseAccountOnboarding).where(eq(pulseAccountOnboarding.accountId, accountId)),
           db
             .delete(pulseProfileAccounts)
-            .where(inArray(pulseProfileAccounts.profileId, profileIds)),
+            .where(inArray(pulseProfileAccounts.profileId, jsonEachIn(profileIds))),
 
           // Drop hosted events + their cascading rows for the deleted profiles.
           //
@@ -510,7 +512,9 @@ export const purgeAccount = (
             : []),
 
           // Drop any in-flight Pulse leave-app jobs for these profiles.
-          db.delete(pulseDeletionJobs).where(inArray(pulseDeletionJobs.profileId, profileIds)),
+          db
+            .delete(pulseDeletionJobs)
+            .where(inArray(pulseDeletionJobs.profileId, jsonEachIn(profileIds))),
 
           // Replay-protection ledger entry — last, see note above.
           db.insert(pulseAccountPurges).values({

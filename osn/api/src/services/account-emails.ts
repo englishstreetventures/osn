@@ -1,5 +1,6 @@
 import { accounts, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { jsonEachIn } from "@shared/db-utils";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
@@ -31,10 +32,8 @@ export class AccountEmailDbError extends Data.TaggedError("AccountEmailDbError")
 }> {}
 
 /**
- * Hard ceiling on ids per call. Two jobs: it keeps the query well under
- * SQLite's 999-variable limit (same reasoning as MAX_BATCH_PROFILE_IDS in
- * graph-internal.ts), and it bounds how much address material one token can
- * pull per request. The route enforces it in TypeBox so an over-cap body is
+ * Hard ceiling on ids per call: it bounds how much address material one token
+ * can pull per request. The route enforces it in TypeBox so an over-cap body is
  * rejected before any row is read; this slice is the belt to that braces.
  */
 export const MAX_EMAIL_LOOKUP_IDS = 100;
@@ -67,7 +66,7 @@ export const lookupProfileEmails = (
           .innerJoin(accounts, eq(users.accountId, accounts.id))
           .where(
             and(
-              inArray(users.id, ids),
+              inArray(users.id, jsonEachIn(ids)),
               // A tombstoned account is mid-erasure. Mailing it would be
               // the erasure undone, and answering for it would leak that it
               // once existed.

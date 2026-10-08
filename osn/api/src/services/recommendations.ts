@@ -7,6 +7,7 @@ import {
   users,
 } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { jsonEachIn } from "@shared/db-utils";
 import {
   handlePrefixRange,
   hasScanworthyToken,
@@ -190,17 +191,16 @@ const MAX_QUERY_TOKENS = 6;
  * Rows the caller's-edges pass may return. Bounded like every other fan-out in
  * this file: a hub account with thousands of connections must not turn one
  * keystroke into an unbounded read. Sized well above a page so the pass still
- * carries a real recall guarantee (see `searchProfiles`), and well below the
- * point where the candidate id list threatens SQLite's 999-variable ceiling in
- * the probes that follow.
+ * carries a real recall guarantee (see `searchProfiles`).
  */
 const MAX_CONNECTION_MATCH_ROWS = 50;
 
 /**
  * How many rows to over-fetch relative to the caller's requested limit. Blocked
  * profiles and the caller's own row are filtered in application code (the block
- * set is unbounded, so binding it into the SQL `NOT IN` would risk SQLite's
- * 999-variable ceiling); over-fetching keeps a page full despite that filtering.
+ * set is unbounded, so binding it one parameter per id into a SQL `NOT IN`
+ * would pass D1's 100-parameter limit); over-fetching keeps a page full despite
+ * that filtering.
  */
 const SEARCH_OVERFETCH_FACTOR = 3;
 
@@ -819,10 +819,12 @@ export function createRecommendationService() {
                   db
                     .select({ counterpart: freshConnectionCounterparts.counterpart })
                     .from(freshConnectionCounterparts)
+                    // oxlint-disable-next-line house/no-unbounded-in-array -- at most 50 ids (safeLimit), 54 parameters in all
                     .where(inArray(freshConnectionCounterparts.counterpart, rankedIds)),
                   db
                     .select({ counterpart: freshBlockCounterparts.counterpart })
                     .from(freshBlockCounterparts)
+                    // oxlint-disable-next-line house/no-unbounded-in-array -- at most 50 ids (safeLimit), 54 parameters in all
                     .where(inArray(freshBlockCounterparts.counterpart, rankedIds)),
                 ]);
 
@@ -873,6 +875,7 @@ export function createRecommendationService() {
                 })
                 .from(users)
                 .innerJoin(accounts, eq(users.accountId, accounts.id))
+                // oxlint-disable-next-line house/no-unbounded-in-array -- at most 50 ids: survivors of the safeLimit slice
                 .where(and(inArray(users.id, candidateIds), isNull(accounts.deletedAt))),
             catch: (cause) => new DatabaseError({ cause }),
           }),
@@ -887,6 +890,7 @@ export function createRecommendationService() {
                       name: organisations.name,
                     })
                     .from(organisations)
+                    // oxlint-disable-next-line house/no-unbounded-in-array -- at most 50 ids: one per surviving candidate
                     .where(inArray(organisations.id, survivingOrgIds)),
                 catch: (cause) => new DatabaseError({ cause }),
               }),
@@ -1093,8 +1097,14 @@ export function createRecommendationService() {
                 .from(blocks)
                 .where(
                   or(
-                    and(eq(blocks.blockerId, profileId), inArray(blocks.blockedId, candidateIds)),
-                    and(eq(blocks.blockedId, profileId), inArray(blocks.blockerId, candidateIds)),
+                    and(
+                      eq(blocks.blockerId, profileId),
+                      inArray(blocks.blockedId, jsonEachIn(candidateIds)),
+                    ),
+                    and(
+                      eq(blocks.blockedId, profileId),
+                      inArray(blocks.blockerId, jsonEachIn(candidateIds)),
+                    ),
                   ),
                 ),
             catch: (cause) => new DatabaseError({ cause }),
@@ -1115,11 +1125,11 @@ export function createRecommendationService() {
                   or(
                     and(
                       eq(connections.requesterId, profileId),
-                      inArray(connections.addresseeId, candidateIds),
+                      inArray(connections.addresseeId, jsonEachIn(candidateIds)),
                     ),
                     and(
                       eq(connections.addresseeId, profileId),
-                      inArray(connections.requesterId, candidateIds),
+                      inArray(connections.requesterId, jsonEachIn(candidateIds)),
                     ),
                   ),
                 ),
@@ -1142,7 +1152,7 @@ export function createRecommendationService() {
                 .where(
                   and(
                     eq(memberships.profileId, profileId),
-                    inArray(organisationMembers.profileId, candidateIds),
+                    inArray(organisationMembers.profileId, jsonEachIn(candidateIds)),
                   ),
                 ),
             catch: (cause) => new DatabaseError({ cause }),
@@ -1305,7 +1315,7 @@ export function createRecommendationService() {
             .where(
               and(
                 eq(organisationMembers.profileId, profileId),
-                inArray(organisationMembers.organisationId, [...matches.keys()]),
+                inArray(organisationMembers.organisationId, jsonEachIn([...matches.keys()])),
               ),
             ),
         catch: (cause) => new DatabaseError({ cause }),

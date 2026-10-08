@@ -6,6 +6,7 @@ import { _resetServiceKeysForTests } from "../../src/lib/arc-middleware";
 import { MAX_EXPORT_PROFILE_IDS } from "../../src/lib/limits";
 import { createInternalRoutes } from "../../src/routes/internal";
 import {
+  createCapturingTestLayer,
   createTestLayer,
   seedChat,
   seedMember,
@@ -338,6 +339,47 @@ describe("zap internal routes — ARC-gated account-export", () => {
     ).record;
     expect(firstRecord.body).toBe("msg-newest");
     expect(firstRecord.createdAt).toBe(t2.toISOString());
+  });
+
+  it("binds the profile ids as one parameter in both export reads, at the cap", async () => {
+    // The c2b read also binds the chat class and its row limit, so the id
+    // list has to cost one parameter for the read to fit D1's 100 at the cap.
+    const { layer, captured } = createCapturingTestLayer();
+    const app = createInternalRoutes(layer);
+    await post(app, "/internal/register-service", registerBody(), `Bearer ${SECRET}`);
+    const profileIds = Array.from({ length: MAX_EXPORT_PROFILE_IDS }, (_, i) => `usr_cap_${i}`);
+    const c2bChat = await Effect.runPromise(
+      seedC2bChat({ type: "group" }).pipe(Effect.provide(layer)),
+    );
+    await Effect.runPromise(
+      seedMember(c2bChat.id, profileIds.at(-1)!, "member").pipe(Effect.provide(layer)),
+    );
+    await Effect.runPromise(
+      seedC2bMessage(c2bChat.id, profileIds.at(-1)!, "Last profile's message").pipe(
+        Effect.provide(layer),
+      ),
+    );
+    captured.length = 0;
+
+    const arc = await signArcToken(privateKey, {
+      iss: "osn-api",
+      aud: "zap-api",
+      scope: "account:export",
+      kid: KID,
+    });
+    const res = await post(
+      app,
+      "/internal/account-export",
+      { account_id: "acc_cap", profile_ids: profileIds },
+      `ARC ${arc}`,
+    );
+
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("zap.chats");
+    expect(text).toContain("Last profile's message");
+    const reads = captured.filter((c) => c.sql.includes('"chat_members"."profile_id" in'));
+    expect(reads.map((c) => c.params.length).toSorted()).toEqual([1, 3]);
   });
 
   it("rejects profile_ids over the export cap with 400", async () => {

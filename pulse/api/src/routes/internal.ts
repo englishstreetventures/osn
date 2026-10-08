@@ -16,6 +16,13 @@ const AUDIENCE = "pulse-api";
 const SCOPE_ACCOUNT_ERASE = "account:erase";
 const SCOPE_ACCOUNT_EXPORT = "account:export";
 
+/**
+ * Most profile ids one erasure or export request may name. osn-api sends one
+ * account's profiles, five by default, so the cap bounds what a single request
+ * can make Pulse read and delete rather than shaping any real request.
+ */
+export const MAX_ACCOUNT_PROFILE_IDS = 50;
+
 function isTimingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   // Use a constant-time loop in lieu of Buffer.timingSafeEqual to keep
@@ -142,7 +149,7 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<Db> = DbLive) => {
         {
           body: t.Object({
             accountId: t.String({ minLength: 1 }),
-            profileIds: t.Array(t.String({ minLength: 1 }), { maxItems: 50 }),
+            profileIds: t.Array(t.String({ minLength: 1 }), { maxItems: MAX_ACCOUNT_PROFILE_IDS }),
           }),
         },
       )
@@ -187,7 +194,7 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<Db> = DbLive) => {
         {
           body: t.Object({
             account_id: t.String(),
-            profile_ids: t.Array(t.String()),
+            profile_ids: t.Array(t.String(), { maxItems: MAX_ACCOUNT_PROFILE_IDS }),
           }),
         },
       )
