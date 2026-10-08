@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
 
-import { resendEmailConfig } from "../../src/lib/resend-email";
+import { localResendConfig, resendEmailConfig } from "../../src/lib/resend-email";
 
 describe("resendEmailConfig", () => {
   it("has no transport and no problem without a key", () => {
@@ -61,5 +62,52 @@ describe("resendEmailConfig", () => {
     const result = resendEmailConfig({ RESEND_API_URL: "https://mail.example.com" }, false);
     expect(result.config).toBeNull();
     expect(result.problem).toContain("RESEND_API_URL");
+  });
+});
+
+describe("localResendConfig", () => {
+  it("keeps the recorder with a key alone, so a real key never sends real mail from the dev server", () => {
+    expect(localResendConfig({ RESEND_API_KEY: "re_live" })).toBeNull();
+  });
+
+  it("keeps the recorder with an override alone", () => {
+    expect(localResendConfig({ RESEND_API_URL: "http://localhost:4008" })).toBeNull();
+  });
+
+  it("sends to the emulator when the key and a loopback override are both set", () => {
+    expect(
+      localResendConfig({ RESEND_API_KEY: "re_local", RESEND_API_URL: "http://localhost:4008" }),
+    ).toEqual({
+      apiKey: "re_local",
+      fromAddress: "hello@cireweddings.com",
+      apiUrl: "http://localhost:4008",
+    });
+  });
+
+  it("throws on a refused override, naming the variable but not the value", () => {
+    let message = "";
+    try {
+      localResendConfig({
+        RESEND_API_KEY: "re_local",
+        RESEND_API_URL: "https://user:hunter2@mail.example.com",
+      });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toContain("RESEND_API_URL");
+    expect(message).not.toContain("hunter2");
+    expect(message).not.toContain("mail.example.com");
+  });
+});
+
+describe("wrangler.toml", () => {
+  // A deployed tier refuses RESEND_API_URL by turning mail off, so no committed
+  // tier may set it. Comment lines may name it.
+  it("sets RESEND_API_URL in no tier", () => {
+    const assignments = readFileSync(new URL("../../wrangler.toml", import.meta.url), "utf8")
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("#"))
+      .filter((line) => /["']?RESEND_API_URL["']?\s*=/.test(line));
+    expect(assignments).toEqual([]);
   });
 });

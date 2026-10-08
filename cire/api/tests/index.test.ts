@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 
 import { exportKeyToJwk, generateArcKeyPair } from "@shared/crypto/jwk";
 import { Miniflare } from "miniflare";
@@ -7,6 +7,7 @@ import { probeRequests, type ProbeRequest } from "../scripts/d1-latency-probe";
 import { D1_SESSION_CONSTRAINT } from "../src/db/d1-session";
 import { DDL } from "../src/db/setup";
 import handler from "../src/index";
+import * as osnBridge from "../src/services/osn-bridge";
 import { jsonBody } from "./test-helpers";
 import { captureLogs } from "./test-helpers/capture-logs";
 
@@ -584,7 +585,9 @@ describe("D1 session routing at the entry points", () => {
     });
   });
 
-  const runCron = async (extraEnv: Record<string, unknown> = {}) => {
+  // `onWaitUntil` runs as each sweep is handed to `waitUntil`, so a test can
+  // place that hand-off in the same log stream as the handler's own lines.
+  const runCron = async (extraEnv: Record<string, unknown> = {}, onWaitUntil?: () => void) => {
     const probe = probeD1();
     const env = { ...BASE_ENV, ...extraEnv, DB: probe.binding } as unknown as Parameters<
       NonNullable<typeof handler.scheduled>
@@ -594,6 +597,7 @@ describe("D1 session routing at the entry points", () => {
     const cronCtx = {
       ...ctx,
       waitUntil: (promise: Promise<unknown>) => {
+        onWaitUntil?.();
         pending.push(promise);
       },
     } as unknown as ExecutionContext;
@@ -754,26 +758,67 @@ describe("D1 session routing at the entry points", () => {
     expect(logs).toContain("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured");
   }, 30_000);
 
-  it("sends no cron mail, and logs why, when a deployed tier carries RESEND_API_URL", async () => {
+  it("sends no cron mail, and logs why after every sweep is handed off, when a deployed tier carries RESEND_API_URL", async () => {
     // Everything the digest needs is present except a transport it may use:
     // the override is refused in a deployed tier, so no mail goes anywhere and
-    // every sweep still runs.
+    // every sweep still runs. The reason is logged last, so no sweep waits on
+    // the logger.
     const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
+    const handedOff = "<sweep handed to waitUntil>";
+    const sink = (globalThis as typeof globalThis & { console: Console }).console;
     let result: Awaited<ReturnType<typeof runCron>> | undefined;
     const logs = await captureLogs(async () => {
-      result = await runCron({
-        RESEND_API_KEY: "re_test",
-        RESEND_API_URL: "http://localhost:4008",
-        OSN_API_URL: "https://osn.example.test",
-        CIRE_API_ARC_PRIVATE_KEY: jwk,
-        CIRE_API_ARC_KEY_ID: "kid_test",
-      });
+      result = await runCron(
+        {
+          RESEND_API_KEY: "re_test",
+          RESEND_API_URL: "http://localhost:4008",
+          OSN_API_URL: "https://osn.example.test",
+          CIRE_API_ARC_PRIVATE_KEY: jwk,
+          CIRE_API_ARC_KEY_ID: "kid_test",
+        },
+        () => sink.log(handedOff),
+      );
     });
     expect(result?.pending).toHaveLength(10);
-    expect(logs).toContain("email disabled: Resend misconfigured");
+    expect(logs.split(handedOff).length - 1).toBe(10);
+    expect(logs.indexOf("email disabled: Resend misconfigured")).toBeGreaterThan(
+      logs.lastIndexOf(handedOff),
+    );
     expect(logs).toContain("RESEND_API_URL");
     expect(logs).not.toContain("localhost:4008");
   }, 30_000);
+
+  it("asks osn-api for owners' addresses only when there is a Resend transport to mail them", async () => {
+    // Owner notices with no transport would be looked up and then dropped on
+    // the log stand-in, so a refused override must also switch the lookup off.
+    const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
+    const withMail = {
+      ...BASE_ENV,
+      RESEND_API_KEY: "re_test",
+      OSN_API_URL: "https://osn.example.test",
+      CIRE_API_ARC_PRIVATE_KEY: jwk,
+      CIRE_API_ARC_KEY_ID: "kid_test",
+    };
+    const fetchWith = (env: Record<string, unknown>) =>
+      handler.fetch!(
+        inviteRequest(),
+        { ...env, DB: probeD1().binding } as unknown as Parameters<
+          NonNullable<typeof handler.fetch>
+        >[1],
+        ctx,
+      );
+    const lookup = spyOn(osnBridge, "createOrganiserEmailLookupFromEnv");
+    try {
+      await captureLogs(() => fetchWith(withMail));
+      expect(lookup).toHaveBeenCalledTimes(1);
+
+      lookup.mockClear();
+      await captureLogs(() => fetchWith({ ...withMail, RESEND_API_URL: "http://localhost:4008" }));
+      expect(lookup).not.toHaveBeenCalled();
+    } finally {
+      lookup.mockRestore();
+    }
+  });
 
   it("still serves, and logs why mail is off, when a deployed tier carries RESEND_API_URL", async () => {
     // A fresh binding forces a fresh app build, which is where the reason is
@@ -786,12 +831,15 @@ describe("D1 session routing at the entry points", () => {
       RESEND_API_URL: "http://localhost:4008",
       DB: probe.binding,
     } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
-    let status: number | undefined;
+    const statuses: number[] = [];
     const logs = await captureLogs(async () => {
-      status = (await handler.fetch!(inviteRequest(), env, ctx)).status;
+      // The second request reuses the isolate's cached app, so the reason is
+      // logged once, at the build, not on every request.
+      statuses.push((await handler.fetch!(inviteRequest(), env, ctx)).status);
+      statuses.push((await handler.fetch!(inviteRequest(), env, ctx)).status);
     });
-    expect(status).toBe(404);
-    expect(logs).toContain("email disabled: Resend misconfigured");
+    expect(statuses).toEqual([404, 404]);
+    expect(logs.split("email disabled: Resend misconfigured").length - 1).toBe(1);
     expect(logs).not.toContain("localhost:4008");
   });
 });

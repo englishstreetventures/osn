@@ -47,3 +47,19 @@ export function resendEmailConfig(
     problem: null,
   };
 }
+
+/**
+ * The Resend config for the Bun dev server, or null to keep `createApp`'s
+ * in-memory recorder. Mail leaves the dev server only for a local emulator —
+ * `RESEND_API_KEY` and `RESEND_API_URL` both set — so a real key in the
+ * environment never sends real mail from it. Throws on a refused override, so a
+ * mistyped value stops the server rather than being ignored.
+ */
+export function localResendConfig(env: {
+  readonly RESEND_API_KEY?: string;
+  readonly RESEND_API_URL?: string;
+}): ResendEmailConfig | null {
+  const { config, problem } = resendEmailConfig(env, false);
+  if (problem !== null) throw new Error(problem);
+  return config?.apiUrl ? config : null;
+}

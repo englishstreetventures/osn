@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { EmailService } from "@shared/email";
 import { Effect, Logger } from "effect";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -238,8 +240,42 @@ describe("selectEmailLayer", () => {
       } catch (error) {
         message = error instanceof Error ? error.message : String(error);
       }
+      expect(message).toContain("RESEND_API_URL");
       expect(message).toMatch(/loopback/);
       expect(message).not.toContain("mail.example.com");
+    });
+
+    it("local + a non-loopback override with no key → still throws naming the var", () => {
+      let message = "";
+      try {
+        selectEmailLayer(
+          { OSN_ENV: "local", RESEND_API_URL: "https://mail.example.com" },
+          osnLoggerLayer,
+        );
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toContain("RESEND_API_URL");
+      expect(message).toMatch(/loopback/);
+      expect(message).not.toContain("mail.example.com");
+    });
+
+    it("non-local + override with no Resend key (Cloudflare creds) → still throws naming the var", () => {
+      let message = "";
+      try {
+        selectEmailLayer(
+          nonLocal({
+            CLOUDFLARE_ACCOUNT_ID: "acct",
+            CLOUDFLARE_EMAIL_API_TOKEN: "tok",
+            RESEND_API_URL: "http://localhost:4008",
+          }),
+          osnLoggerLayer,
+        );
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toContain("RESEND_API_URL");
+      expect(message).not.toContain("localhost:4008");
     });
 
     it("non-local + any override → throws naming the var, even with a valid loopback value", () => {
@@ -275,5 +311,17 @@ describe("selectEmailLayer", () => {
   it("local + creds absent → LogEmailLive recorder (no throw, no opt-in needed)", () => {
     const layer = selectEmailLayer({ OSN_ENV: "local" }, osnLoggerLayer);
     expect(layer).toBeDefined();
+  });
+});
+
+describe("wrangler.toml", () => {
+  // A deployed tier refuses RESEND_API_URL by failing closed (every route 503s),
+  // so no committed tier may set it. Comment lines may name it.
+  it("sets RESEND_API_URL in no tier", () => {
+    const assignments = readFileSync(new URL("../../wrangler.toml", import.meta.url), "utf8")
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("#"))
+      .filter((line) => /["']?RESEND_API_URL["']?\s*=/.test(line));
+    expect(assignments).toEqual([]);
   });
 });
