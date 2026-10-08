@@ -112,7 +112,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
             here and Add to Calendar stays secondary. It sits second, on the
             side the form slides in from. */}
         <div class="flex flex-wrap items-center gap-3">
-          <AddToCalendar event={props.event} siteUrl={props.siteUrl} variant="outline" />
+          <AddToCalendar event={props.event} siteUrl={props.siteUrl} />
           <Show when={rsvpOffered() ? props.onRsvp : undefined}>
             {(openRsvp) => (
               <Button variant="cta" class="min-h-11" onClick={() => openRsvp()()}>

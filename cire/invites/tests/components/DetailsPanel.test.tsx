@@ -266,12 +266,14 @@ describe("DetailsPanel — the way to the RSVP form", () => {
 });
 
 /**
- * End-to-end check of the consent posture through the REAL modal tree, rather
- * than through each embed component in isolation.
+ * The consent posture checked through the real details panel, rather than
+ * through each embed component in isolation. The panel is rendered on its own,
+ * without the sheet around it; `MapPreview.browser.test.tsx` renders the map
+ * inside the real sheet.
  *
  * This is the integration the unit tests don't cover: `MapPreview` and
  * `PinterestBoard` each pass on their own, but what a guest actually meets is
- * the details sheet with both mounted inside it, hydrating together off one
+ * the details panel with both mounted inside it, hydrating together off one
  * shared store. If the defaults, the gate and the hydration order ever disagree,
  * this is where it shows up.
  */

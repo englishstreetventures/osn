@@ -350,4 +350,89 @@ describe("EventSheet — the motion", () => {
         .filter((a) => a.playState === "running"),
     ).toHaveLength(0);
   });
+
+  it("lets the details take input once their slide ends, whatever still spins inside them", async () => {
+    // The moodboard's loading spinner turns for as long as Pinterest takes.
+    // The switch waits on the panel's own slide, never on its contents, or a
+    // slow embed would leave the panel the guest asked for unclickable.
+    await page.viewport(...PHONE);
+    render(() => <Harness />);
+    await userEvent.click(cardButton("Event Details"));
+    await settle();
+    await userEvent.click(button("RSVP for this event"));
+    await settle();
+    const spinner = document.createElement("span");
+    wrapperOf("details").append(spinner);
+    spinner.animate([{ transform: "rotate(0)" }, { transform: "rotate(1turn)" }], {
+      duration: 1000,
+      iterations: Infinity,
+    });
+
+    button("View event details").click();
+    const [slide] = wrapperOf("details").getAnimations();
+    slide!.finish();
+    await settle();
+
+    expect(getComputedStyle(wrapperOf("details")).pointerEvents).toBe("auto");
+    const panels = scroller().firstElementChild as HTMLElement;
+    expect(getComputedStyle(panels).overflowX).toBe("visible");
+  });
+
+  it("keeps a quick switch back mid-slide from lifting the new slide's limits early", async () => {
+    // Switching back hides the panel still arriving, which cancels its slide
+    // and settles it at once. That settle belongs to the earlier switch and
+    // must not clear the state of the one now running. And the resize starts
+    // from the height on screen at the second press, not from either panel's.
+    await page.viewport(1280, 900);
+    render(() => <Harness />);
+    await userEvent.click(cardButton("Event Details"));
+    await settle();
+
+    button("RSVP for this event").click();
+    // Hold the first resize halfway, so the height on screen is neither
+    // panel's own.
+    const first = dialog()
+      .getAnimations()
+      .find((a) => (a.effect as KeyframeEffect).getKeyframes().some((k) => "height" in k))!;
+    first.pause();
+    first.currentTime = 140;
+    const midway = dialog().offsetHeight;
+    const [fromKeyframe, toKeyframe] = (first.effect as KeyframeEffect).getKeyframes();
+    expect(`${midway}px`).not.toBe(fromKeyframe!.height);
+    expect(`${midway}px`).not.toBe(toKeyframe!.height);
+    button("View event details").click();
+    const [slide] = wrapperOf("details").getAnimations();
+    slide!.pause();
+    slide!.currentTime = 0;
+    await new Promise(requestAnimationFrame);
+
+    expect(getComputedStyle(wrapperOf("details")).pointerEvents).toBe("none");
+    const panels = scroller().firstElementChild as HTMLElement;
+    expect(getComputedStyle(panels).overflowX).toBe("clip");
+    const resize = dialog()
+      .getAnimations()
+      .find((a) => (a.effect as KeyframeEffect).getKeyframes().some((k) => "height" in k));
+    expect((resize!.effect as KeyframeEffect).getKeyframes()[0]!.height).toBe(`${midway}px`);
+
+    slide!.finish();
+    await settle();
+  });
+});
+
+describe("EventSheet — the switch buttons", () => {
+  it("gives each a 44px target on a phone, and Add to Calendar the same height", async () => {
+    // Both sit in rows a thumb has to hit; "View event details" is drawn as a
+    // link, which would otherwise be only as tall as its line of text.
+    await page.viewport(...PHONE);
+    render(() => <Harness />);
+    await userEvent.click(cardButton("Event Details"));
+    await settle();
+
+    expect(button("RSVP for this event").getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    expect(button(/add to calendar/i).getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+
+    await userEvent.click(button("RSVP for this event"));
+    await settle();
+    expect(button("View event details").getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  });
 });

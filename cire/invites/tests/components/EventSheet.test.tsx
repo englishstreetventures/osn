@@ -273,5 +273,57 @@ describe("EventSheet", () => {
 
       expect(document.activeElement).toBe(getByRole("heading", { name: "Details, Mehndi" }));
     });
+
+    it("lands focus in the form, not on the details hidden behind it, when Save goes", async () => {
+      // The other way round. The details mounted first, so their rescue runs
+      // first; told they are hidden, they leave focus for the form's own
+      // rescue to put on its Close button.
+      const [closed, setClosed] = createSignal(false);
+      const { getByRole } = render(() => (
+        <EventSheet
+          event={event}
+          panel="details"
+          siteUrl="https://invite.example.com/abc"
+          members={[priya]}
+          apiUrl="https://api.test"
+          closed={closed()}
+          onClose={() => {}}
+        />
+      ));
+      fireEvent.click(getByRole("button", { name: "RSVP for this event" }));
+      (document.querySelector("button[type='submit']") as HTMLButtonElement).focus();
+
+      setClosed(true);
+
+      await waitFor(() => expect(document.querySelector("button[type='submit']")).toBeNull());
+      const focused = document.activeElement as HTMLElement;
+      expect(focused.textContent).toBe("Close");
+      expect(focused.closest("[data-panel]")?.getAttribute("data-panel")).toBe("rsvp");
+    });
+  });
+
+  it("paints the sheet in the theme it is given, through the allow-list", () => {
+    // The page hands the sheet the events section's tones; the sheet hands
+    // them to the dialog, which paints outside the themed section.
+    render(() => (
+      <EventSheet
+        event={event}
+        panel="details"
+        siteUrl="https://invite.example.com/abc"
+        members={[priya]}
+        apiUrl="https://api.test"
+        themeVars={{
+          "--invite-section-bg": "var(--color-surface-raised)",
+          "background-image": "url(https://evil.example/x)",
+        }}
+        onClose={() => {}}
+      />
+    ));
+
+    const dialog = document.querySelector("dialog")!;
+    expect(dialog.style.getPropertyValue("--invite-section-bg")).toBe(
+      "var(--color-surface-raised)",
+    );
+    expect(dialog.style.getPropertyValue("background-image")).toBe("");
   });
 });

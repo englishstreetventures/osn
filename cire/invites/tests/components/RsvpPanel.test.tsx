@@ -2752,4 +2752,33 @@ describe("RsvpPanel — the heading and the way to the details", () => {
     await waitFor(() => expect(getByRole("button", { name: "Saved" })).toBeTruthy());
     expect(link().disabled).toBe(true);
   });
+
+  it.each([
+    ["the connection drops", () => Promise.reject(new TypeError("Failed to fetch"))],
+    [
+      "the server fails",
+      () => Promise.resolve(new Response(JSON.stringify({ error: "boom" }), { status: 500 })),
+    ],
+  ])("comes back once a save fails because %s", async (_why, reply) => {
+    // A guest whose save failed is still in the sheet, with the error showing,
+    // and may well want the details before trying again.
+    vi.stubGlobal("fetch", vi.fn(reply));
+    const { getByRole } = render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+        onShowDetails={() => {}}
+      />
+    ));
+
+    fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+    fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
+    await waitFor(() => expect(getByRole("alert")).toBeTruthy());
+
+    expect(
+      (getByRole("button", { name: "View event details" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
 });

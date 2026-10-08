@@ -390,7 +390,9 @@ describe("InvitePage", () => {
     );
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
 
-    const { container, getByTestId } = render(() => <InvitePage apiUrl="https://api.test" />);
+    const { container, getByTestId } = render(() => (
+      <InvitePage apiUrl="https://api.test" siteUrl="https://invite.example.com/w" />
+    ));
     await waitFor(() => expect(container.querySelector("[data-event-card]")).toBeTruthy());
 
     fireEvent.click(respondButtonFor(container, "Mehndi"));
@@ -398,7 +400,7 @@ describe("InvitePage", () => {
     expect(capturedProps.value!.panel).toBe("rsvp");
     expect((capturedProps.value!.event as { id: string }).id).toBe("event-1");
     // The details panel stamps its calendar link with the site's origin.
-    expect(typeof capturedProps.value!.siteUrl).toBe("string");
+    expect(capturedProps.value!.siteUrl).toBe("https://invite.example.com/w");
 
     (capturedProps.value!.onClose as () => void)();
     await waitFor(() => expect(container.querySelector("[data-testid$='-sheet-stub']")).toBeNull());
@@ -1648,6 +1650,23 @@ describe("InvitePage", () => {
       await waitFor(() => expect(capturedProps.value).not.toBeNull());
       expect(capturedProps.value!.closed).toBe(false);
       expect(capturedProps.value!.closedOn).toBe("Sunday 1 September 2999");
+    });
+
+    it("opens the sheet on the details after the deadline, told that RSVPs have closed", async () => {
+      // Past the deadline Respond is locked and Event Details is the one way
+      // into the sheet. The details then offer no way into the form — which
+      // they can only do if the page tells the sheet the replies have closed.
+      const { container } = await claimWithDeadline({
+        date: "2020-09-01",
+        timezone: "Australia/Sydney",
+        closesAt: "2020-09-01T13:59:59.999Z",
+        closed: true,
+      });
+
+      fireEvent.click(detailsButtonFor(container, "Mehndi"));
+      await waitFor(() => expect(capturedProps.value?.panel).toBe("details"));
+      expect(capturedProps.value!.closed).toBe(true);
+      expect(capturedProps.value!.closedOn).toBe("Tuesday 1 September 2020");
     });
   });
 
