@@ -253,7 +253,9 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<DbType> = DbLive) => {
           }
 
           const [membershipRecords, c2bMessageRecords] = await runtime.runPromise(
-            Effect.all([loadChatMemberships(body.profile_ids), loadC2bMessages(body.profile_ids)]),
+            Effect.all([loadChatMemberships(body.profile_ids), loadC2bMessages(body.profile_ids)], {
+              concurrency: "unbounded",
+            }),
           );
 
           // Buffered NDJSON — one JSON object per line, no trailing newline
