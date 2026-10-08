@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 
 import { _resetServiceKeysForTests } from "../../src/lib/arc-middleware";
-import { createInternalRoutes } from "../../src/routes/internal";
+import { createInternalRoutes, MAX_ACCOUNT_PROFILE_IDS } from "../../src/routes/internal";
 import { createTestLayer, seedCloseFriend, seedEvent } from "../helpers/db";
 
 /**
@@ -267,6 +267,30 @@ describe("internal routes — ARC-gated account-export", () => {
 
     const cf = lines.find((l) => l.section === "pulse.close_friends");
     expect(cf.record.friendId).toBe("usr_friend");
+  });
+
+  it("refuses more profile ids than the erasure route accepts, before any read", async () => {
+    const layer = createTestLayer();
+    const app = createInternalRoutes(layer);
+    await registerExportKey(app);
+    const arc = await exportToken("account:export");
+    const tooMany = Array.from({ length: MAX_ACCOUNT_PROFILE_IDS + 1 }, (_, i) => `usr_${i}`);
+
+    const res = await post(
+      app,
+      "/internal/account-export",
+      { account_id: "acc_many", profile_ids: tooMany },
+      `ARC ${arc}`,
+    );
+
+    expect(res.status).toBe(422);
+    const atCap = await post(
+      app,
+      "/internal/account-export",
+      { account_id: "acc_many", profile_ids: tooMany.slice(0, MAX_ACCOUNT_PROFILE_IDS) },
+      `ARC ${await exportToken("account:export")}`,
+    );
+    expect(atCap.status).toBe(200);
   });
 
   it("returns 200 with an empty body when profile_ids is empty", async () => {
