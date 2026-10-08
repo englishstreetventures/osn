@@ -56,7 +56,7 @@ Two shapes, and the second is the one that keeps getting overlooked:
   twice (once per branch of an `OR`, which is easy to do accidentally).
 - **A multi-row `INSERT`** — `db.insert(t).values(rows)` binds one parameter
   **per column per row**, so it breaks an order of magnitude sooner. A
-  31-column table dies at **4 rows**. A 6-column one at 16.
+  31-column table dies at **4 rows**. A 6-column one at 17.
 
 An audit that greps only for `inArray` finds the first and misses the second.
 That is exactly what happened: the two worst instances in `pulse/api` — every
@@ -114,7 +114,7 @@ index seek into `SCAN c` and read twice the rows for an identical result.
    `house/no-unbounded-in-array` fails lint on an `inArray` or `notInArray`
    whose list the source does not fix; a list that a cap the code enforces
    holds under 100 carries a suppression naming that cap. See
-   [[house-lint-rules]]. No rule covers the multi-row `.values(rows)` shape.
+   [[house-lint-rules]]. The multi-row `.values(rows)` shape waits on englishstreetventures/osn#1450.
 3. **Verify on `bun run test:d1`.** No other tier enforces any of this. A
    regression test that seeds a realistic fixture is slow and imprecise —
    assert the emitted bound-parameter count with `.toSQL()` instead, with the

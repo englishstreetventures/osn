@@ -78,4 +78,4 @@ The rule reports the list argument of any `inArray` or `notInArray` imported fro
 
 Everything else is reported: a parameter, a `let`, `body.ids`, `[...set]`, `[...map.keys()]`, any other call. Convert the list with `jsonEachIn`. Suppress instead only when a cap the code enforces keeps the whole statement under 100 parameters, and name that cap in the reason — a `safeLimit` slice, a clamped page size, a closed set of constants such as the paid tiers. A list bound twice in one statement, as in an `or` over both columns of an edge, counts twice.
 
-The rule cannot see a list built in another module, an array interpolated into a `sql` template by name, or a namespace import (`drizzle.inArray`). It does not cover the multi-row `.values(rows)` insert, which reaches the cap at one parameter per column per row.
+The rule cannot see a list built in another module, an array interpolated into a `sql` template by name, or a namespace import (`drizzle.inArray`). It does not cover the multi-row `.values(rows)` insert, which reaches the cap at one parameter per column per row; that rule waits on englishstreetventures/osn#1450.
