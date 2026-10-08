@@ -6,7 +6,7 @@ related:
   - "[[github-issues-setup]]"
   - "[[cire-platform-plan]]"
   - "[[cire]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-08
 ---
 
 # Deferred decisions
@@ -43,7 +43,6 @@ A row graduates to an issue when its "Revisit When" lands.
 | Cross-profile content sharing | Reposting between own profiles | Phase 2 social features |
 | Max profiles per account | Set to 5 via `accounts.maxProfiles`; make configurable? | Before launch |
 | Self-interaction policy | Two profiles from same account CAN interact (preventing it leaks the link) | Multi-account P6 privacy audit |
-| Build-time `cn()` evaluation — see [[component-library]] | `tailwind-merge` runs at runtime. Options: Vite plugin, drop to `clsx`-only | When bundle size is a concern |
 | Email Worker per-recipient rate-limit bound — see [[email]] | Prevents OSN from flooding an inbox under bug / abuse. Tune once we have send-rate telemetry | After first week of real traffic |
 | Dry-run flag for email — see [[email]] | `OSN_EMAIL_DRY_RUN` env knob that short-circuits before Worker dispatch; useful for staging smoke tests | When we need it |
 | KYC vendor for V-M1 / V-M2 — see [[verified-identity]] | Persona (top AU age-assurance trial scorer; combined estimation + verification) vs idvPacific (AU-domiciled DVS gateway, OCR-first) vs Equifax IDMatrix (heavyweight gateway) vs MATTR/GBG (mDL-native; mDL roadmap partner) | V-M0 vendor RFP |
@@ -80,6 +79,10 @@ A row graduates to an issue when its "Revisit When" lands.
 | Invite builder concurrent-edit guard | The organiser GET payload exposes no row version, so two co-editors are last-write-wins with no warning. Cheap fix: return `updatedAt` from `GET /invite`, compare on save, warn on mismatch. | With the first multi-editor wedding complaint, or alongside the draft→publish decision above |
 
 ## Resolved
+
+### Decided 2026-10-08
+
+- **Runtime class merging → none.** `@shared/ui` exports `clsx()` and no merger; `tailwind-merge` is not a dependency. A component writes its defaults with the `base:` variant, which loses to a caller's unprefixed utility through the cascade, so no conflict needs settling in JavaScript. See [[component-library]].
 
 ### Decided 2026-06-18
 

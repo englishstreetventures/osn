@@ -52,7 +52,7 @@ scripts/
 shared/ui/
   tests/
     test-support/browser-commands.ts # Vitest browser commands (emulateMedia)
-    lib/utils.test.ts                # cn() / clsx()
+    lib/utils.test.ts                # clsx()
     ui/otp-input.test.tsx            # unit tier (happy-dom) -- DOM shape and class lists
     modal.browser.test.tsx           # browser tier (real Chromium) -- top layer, focus trap, ::backdrop
 osn/auth-ui/

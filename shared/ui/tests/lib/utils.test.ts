@@ -1,35 +1,29 @@
 import { describe, it, expect } from "vitest";
 
-import { cn } from "../../src/lib/utils";
+import { clsx } from "../../src/lib/utils";
 
-describe("cn()", () => {
+describe("clsx()", () => {
   it("joins plain class strings", () => {
-    expect(cn("px-4", "py-2")).toBe("px-4 py-2");
+    expect(clsx("px-4", "py-2")).toBe("px-4 py-2");
   });
 
   it("filters out falsy values", () => {
     const showHidden = false;
-    expect(cn("px-4", showHidden && "hidden", null, undefined, "py-2")).toBe("px-4 py-2");
+    expect(clsx("px-4", showHidden && "hidden", null, undefined, "py-2")).toBe("px-4 py-2");
   });
 
-  it("resolves Tailwind conflicts (last wins)", () => {
-    // tailwind-merge should drop px-4 in favour of px-2
-    expect(cn("px-4 py-2", "px-2")).toBe("py-2 px-2");
-  });
-
-  it("handles conditional objects via clsx", () => {
-    expect(cn("base", { hidden: true, flex: false })).toBe("base hidden");
+  it("handles conditional objects", () => {
+    expect(clsx("base", { hidden: true, flex: false })).toBe("base hidden");
   });
 
   it("returns empty string for no inputs", () => {
-    expect(cn()).toBe("");
+    expect(clsx()).toBe("");
   });
 
-  it("deduplicates identical classes via tailwind-merge", () => {
-    expect(cn("rounded-md", "rounded-md")).toBe("rounded-md");
-  });
-
-  it("resolves size conflicts (rounded-md vs rounded-xl)", () => {
-    expect(cn("rounded-md", "rounded-xl")).toBe("rounded-xl");
+  it("does no conflict resolution: both conflicting utilities stay in the string", () => {
+    // Which of the two applies is up to the stylesheet, not this function.
+    // Components avoid the question with `base:` defaults, which lose to any
+    // unprefixed utility a caller passes.
+    expect(clsx("px-4", "px-2")).toBe("px-4 px-2");
   });
 });

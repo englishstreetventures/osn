@@ -42,7 +42,7 @@ product layer, and which one a component belongs in is decided by
 
 | Package        | On disk                                   | Holds                                                                                                                                                                           | Depends on                                                              |
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `cn()` and `clsx()`                                                            | `@kobalte/core`, `clsx`, `tailwind-merge`, CVA                          |
+| `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                       | `@kobalte/core`, `clsx`, CVA                                            |
 | `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
 | `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Loading`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput`                                               | `@shared/ui`, `@shared/design-tokens`                                   |
 
@@ -75,7 +75,7 @@ surfaces.
 ```
 shared/ui/src/
 ├── lib/
-│   ├── utils.ts            ← clsx re-export, cn()
+│   ├── utils.ts            ← clsx re-export
 │   └── qr.ts               ← the byte-mode QR encoder behind <QrCode>
 └── ui/
     ├── avatar.tsx          ← Avatar, AvatarImage, AvatarFallback
@@ -178,7 +178,6 @@ default. So a named `Button` import from `@cire/ui/button` resolves to nothing:
 import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { clsx } from "@shared/ui/lib/utils"; // conditional class joining
-import { cn } from "@shared/ui/lib/utils"; // only for Tailwind conflict resolution
 
 import { SignIn } from "@osn/auth-ui/SignIn"; // or: import { SignIn } from "@osn/auth-ui";
 
@@ -192,7 +191,6 @@ import CireButton from "@cire/ui/button";
 | `@kobalte/core`            | Headless UI primitives (Dialog, Popover, Tabs, RadioGroup, Checkbox, DropdownMenu) |
 | `class-variance-authority` | Type-safe variant definitions for Button, Badge                                    |
 | `clsx`                     | Conditional class string joining                                                   |
-| `tailwind-merge`           | Tailwind class conflict resolution (used only via `cn()`)                          |
 
 These are dependencies of `@shared/ui`. Consuming apps get them transitively — no extra installs needed.
 
@@ -205,9 +203,9 @@ These are dependencies of `@shared/ui`. Consuming apps get them transitively —
 > `scripts/bundle-size-budgets.txt`, and the rules they obey in
 > [[bundle-size-guards]].
 
-## Class composition: the `base:` prefix, `clsx()`, and `cn()`
+## Class composition: the `base:` prefix and `clsx()`
 
-Three approaches handle class composition at different levels — one source convention and two functions:
+Two tools handle class composition: one source convention and one function. There is no runtime class merger. A component's defaults lose to a caller's classes through the cascade, so nothing has to settle Tailwind conflicts in JavaScript.
 
 ### `base:` prefix — component defaults (zero-specificity via CSS)
 
@@ -227,7 +225,7 @@ import { clsx } from "clsx";
 
 ### `clsx()` — conditional class joining (no conflict resolution)
 
-Use for composing non-conflicting class sets, conditional classes, and signal-driven toggles:
+Use for composing class sets, conditional classes, and signal-driven toggles:
 
 ```typescript
 import { clsx } from "@shared/ui/lib/utils";
@@ -235,26 +233,17 @@ import { clsx } from "@shared/ui/lib/utils";
 clsx("px-4 py-2", isActive && "font-bold", props.class);
 ```
 
-### `cn()` — arbitrary runtime merging (with `tailwind-merge`)
+`clsx()` keeps every class it is given. When two of them set the same property, both reach the DOM and the stylesheet decides, whatever order they were joined in. So never join two unprefixed utilities that conflict; make one the other's alternative instead (`isActive ? "bg-ui-accent" : "bg-ui-ground"`). The one conflict that has to resolve, a component default against a caller's class, is the `base:` prefix's job. What a caller may pass a shared component at all is narrower; see §What a call site may set, and what it may not, below.
 
-Reserved for rare cases where two arbitrary class sets may contain conflicting Tailwind utilities and neither is a component default. `cn()` wraps `clsx` + `tailwind-merge` (~14 KB) for runtime conflict resolution:
-
-```typescript
-import { cn } from "@shared/ui/lib/utils";
-
-// Only use when you genuinely have unpredictable conflicts:
-cn(dynamicClassesFromSignalA(), dynamicClassesFromSignalB());
-```
-
-**Rule**: component files use `base:` prefixed strings + `clsx()`. Consumer code uses `clsx()`. Use `cn()` only when you'd otherwise get broken styles from conflicting classes.
+**Rule**: component files use `base:` prefixed strings + `clsx()`. Consumer code uses `clsx()`. Do not add a runtime merger such as `tailwind-merge`: `base:` already settles the conflict a merger would, at no runtime cost.
 
 ## Performance guidelines
 
 ### Prefer `classList` for reactive class toggles
 
-SolidJS's `classList` directive performs fine-grained DOM updates — it adds/removes individual classes without touching the rest of the class string. When using `cn()` inside a `class` attribute binding, every signal change recomputes the entire class string and replaces the full `className`.
+SolidJS's `classList` directive performs fine-grained DOM updates — it adds/removes individual classes without touching the rest of the class string. When using `clsx()` inside a `class` attribute binding, every signal change recomputes the entire class string and replaces the full `className`.
 
-For static or low-cardinality elements (a few buttons, a card header), `cn()` is fine. But inside `<For>` loops or any hot path that renders many items, prefer `classList`:
+For static or low-cardinality elements (a few buttons, a card header), `clsx()` is fine. But inside `<For>` loops or any hot path that renders many items, prefer `classList`:
 
 ```tsx
 // Prefer this in <For> loops:
@@ -267,7 +256,7 @@ For static or low-cardinality elements (a few buttons, a card header), `cn()` is
 >
 
 // Avoid this in <For> loops:
-<button class={cn("rounded-ui-md px-3 py-1.5 text-ui-sm", isActive() ? "bg-ui-accent" : "bg-ui-ground")}>
+<button class={clsx("rounded-ui-md px-3 py-1.5 text-ui-sm", isActive() ? "bg-ui-accent" : "bg-ui-ground")}>
 ```
 
 ### Use `createMemo` for filtered/mapped arrays
@@ -283,11 +272,9 @@ const visibleTabs = createMemo(() => tabs.filter((t) => t.show()));
 <For each={tabs.filter((t) => t.show())}>{...}</For>
 ```
 
-### Bundle size: `tailwind-merge` and the `base:` variant
+### Bundle size: the `base:` variant instead of a runtime merger
 
-Component files write `base:` prefixed classes directly in source strings (e.g. `"base:bg-ui-surface base:rounded-ui-lg"`) and compose with `clsx()`. The `base:` custom variant compiles to `:where()` selectors with zero specificity, so any unprefixed consumer class wins via CSS cascade — no runtime `twMerge` needed. `tailwind-merge` (~12-14 KB) is still bundled for the exported `cn()` function but is NOT called in the component render hot path.
-
-If `tailwind-merge` is tree-shaken (i.e. no consumer imports `cn()`), the bundle drops by ~14 KB. If bundle size is a concern and `cn()` is still imported somewhere, consider refactoring the consumer to use `clsx()` instead — most conditional class composition doesn't involve Tailwind conflicts.
+Component files write `base:` prefixed classes directly in source strings (e.g. `"base:bg-ui-surface base:rounded-ui-lg"`) and compose with `clsx()`. The `base:` custom variant (`shared/design-tokens/src/tokens.css`) compiles to `:where()` selectors with zero specificity, so any unprefixed consumer class wins via CSS cascade. No merge step runs in the browser, and no app ships a class-merging library. A runtime merger would add weight to every app that called it, to settle a conflict `base:` already settles.
 
 > **Important:** `base:` prefixes must be written directly in source strings, not generated at runtime via a function. Tailwind v4's JIT scanner does static analysis of source files — it cannot see classes produced by a runtime transform.
 
@@ -751,7 +738,7 @@ what a "tone is not carried by hue alone" assertion needs to tell apart. See
 | File                                        | What it is                                                                   |
 | ------------------------------------------- | ---------------------------------------------------------------------------- |
 | `shared/ui/src/ui/`                         | Every primitive's source                                                     |
-| `shared/ui/src/lib/utils.ts`                | `clsx`, `cn()`                                                               |
+| `shared/ui/src/lib/utils.ts`                | `clsx`                                                                       |
 | `shared/ui/src/ui/control.ts`               | The shared text-control box                                                  |
 | `shared/ui/src/ui/props.ts`                 | `SafeProps`                                                                  |
 | `shared/ui/package.json`                    | The subpath exports                                                          |
