@@ -1,68 +1,11 @@
 ---
-// The whole journey in three steps, read as a vertical sequence down the page
-// (a hanging numeral in the margin, the step beside it), not three identical
-// columns. The numerals are genuinely ordinal here, so they earn their place.
 const steps = [
-  {
-    n: '01',
-    title: 'Design your invitation',
-    body:
-      'Add your events, your wording and your guests, then theme it to your day. No design tools, no developers. It looks considered out of the box.',
-  },
-  {
-    n: '02',
-    title: 'Share one link',
-    body:
-      'Send a single link, or print a claim code on paper invites. Your guest list stays private, and guests never need an account.',
-  },
-  {
-    n: '03',
-    title: 'Watch the RSVPs roll in',
-    body:
-      'Replies, headcounts and dietary notes gather themselves on your dashboard. You stay on top of the day without lifting a spreadsheet.',
-  },
-] as const
+  { title: 'Make a little space for your day.', body: 'Create your wedding for free. Add your events and guest list, and invite a co-host to help.' },
+  { title: 'Make the invitation yours.', body: 'Choose your design, add your photographs and words, then share your wedding link and household codes.' },
+  { title: 'Bring it all together.', body: 'Gather the replies. Keep your plans close. Add Gold or Crimson when you need more room or planning tools.' },
+]
 ---
-<section
-  id="how-it-works"
-  class="border-border bg-surface/75 border-y px-6 py-24 md:py-32"
-  aria-labelledby="how-heading"
->
-  <div class="mx-auto max-w-[54rem]">
-    <div class="mb-14 md:mb-20" data-reveal>
-      <h2
-        id="how-heading"
-        class="display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-ui-tight"
-      >
-        From idea to invited in an afternoon.
-      </h2>
-    </div>
-
-    <ol class="flex flex-col">
-      {
-        steps.map((step, i) => (
-          <li
-            class:list={[
-              'grid grid-cols-[auto_1fr] items-baseline gap-x-6 gap-y-2 py-8 md:gap-x-12',
-              i > 0 && 'border-border border-t',
-            ]}
-            data-reveal
-          >
-            <span
-              class="display text-gold text-ui-2xl leading-none font-light md:text-ui-2xl"
-              aria-hidden="true"
-            >
-              {step.n}
-            </span>
-            <div>
-              <h3 class="display text-text mb-2 text-ui-lg font-normal">{step.title}</h3>
-              <p class="font-body text-text-muted max-w-[38rem] text-ui-md leading-ui-relaxed font-light">
-                {step.body}
-              </p>
-            </div>
-          </li>
-        ))
-      }
-    </ol>
-  </div>
+<section id="how-it-works" class="how-section section-wrap section-space" aria-labelledby="how-heading">
+  <div class="how-intro" data-reveal><h2 id="how-heading" class="display">A beginning,<br />not another to-do.</h2><p>You do not need every detail settled.<br />Just somewhere to start.</p></div>
+  <ol class="how-steps">{steps.map((step,i) => <li data-reveal><span class="step-number" aria-hidden="true">{String(i+1).padStart(2,'0')}</span><div><h3>{step.title}</h3><p>{step.body}</p></div></li>)}</ol>
 </section>

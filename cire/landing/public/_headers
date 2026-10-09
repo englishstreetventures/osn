@@ -6,7 +6,7 @@
 #   - style-src 'unsafe-inline': Astro inlines small critical CSS.
 #   - font-src 'self': the faces are SELF-HOSTED — `astro.config.mjs`
 #     downloads them at build time via `fontProviders.google()`, so no
-#     fonts.googleapis.com / fonts.gstatic.com (tracker #388).
+#     fonts.googleapis.com / fonts.gstatic.com.
 #   - img-src: self + data: + Unsplash's CDN (the hotlinked imagery).
 # Keep in sync with the imagery host in src/lib/site.ts if it ever changes.
 /*
@@ -19,3 +19,7 @@
 # Long-cache the immutable hashed bundles.
 /_astro/*
   Cache-Control: public, max-age=31536000, immutable
+
+# Product previews can be replaced without changing their filenames.
+/images/*
+  Cache-Control: public, max-age=86400

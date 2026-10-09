@@ -1,6 +1,5 @@
 ---
 import '../styles/global.css'
-import { VineCanvas } from '../components/VineCanvas'
 import SiteNav from '../components/SiteNav.astro'
 import SiteFooter from '../components/SiteFooter.astro'
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE } from '../lib/site'
@@ -41,9 +40,14 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : As
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={new URL("/images/cire-social.jpg", Astro.site ?? "https://cireweddings.com").href} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Cire: your wedding, beautifully together. Invitation and planning workspace." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={new URL("/images/cire-social.jpg", Astro.site ?? "https://cireweddings.com").href} />
     <meta name="theme-color" content="#0d1f17" />
 
     <noscript>
@@ -55,16 +59,12 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : As
          it is Lato — so both preload. A bare `preload` ignores each face's
          `unicode-range` and fetches every subset unconditionally — naming
          the subset keeps the preload to what the page can actually use
-         (englishstventures/osn-tracker#129). -->
+         on this page). -->
     <Font cssVariable="--font-cormorant" preload={[{ subset: "latin" }]} />
     <Font cssVariable="--font-lato" preload={[{ subset: "latin" }]} />
   </head>
   <body>
     <div class="page-root">
-      {/* Generative vine backdrop — server-rendered baseline, client regrows a
-          unique field per load and animates growth on scroll. client:load so it
-          hydrates promptly behind the content. */}
-      <VineCanvas client:load />
       <SiteNav />
       <slot />
       {footer && <SiteFooter />}
@@ -87,13 +87,17 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : As
             for (const entry of entries) {
               if (entry.isIntersecting) {
                 entry.target.setAttribute('data-revealed', '')
+                entry.target.removeAttribute('data-pending')
                 obs.unobserve(entry.target)
               }
             }
           },
           { rootMargin: '0px 0px -10% 0px', threshold: 0.1 },
         )
-        for (const el of els) io.observe(el)
+        for (const el of els) {
+          if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) el.setAttribute('data-pending', '')
+          io.observe(el)
+        }
       })()
     </script>
   </body>
