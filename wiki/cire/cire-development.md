@@ -219,13 +219,29 @@ The Worker, the organiser and vendor portals, musubi and pulse compile the same
 source under their own, wider `lib`, so the narrower package config still
 type-checks for them.
 
+Where a package's tests reach `@types/node` (through Vitest's browser provider,
+or a `node:` import), they move to `tests/tsconfig.json`, so the shipped-source
+program stays at the floor: `@cire/dietary`, `@cire/theme`, `@shared/color`,
+`@shared/design-tokens` and `@shared/ui` do this.
+
 `cire/invites/tests/browser-floor.test.ts` walks the site's workspace
 dependencies (its `dependencies` and `devDependencies`, then each package's
-`dependencies`) and fails when a package states no `lib`, has a `lib` or ambient
-`types` wider than the site's, has a `check` script that does not run `tsc` on
-that config, or leaves a module it exports out of that config. It lists the
-packages it expects, so a new dependency fails it until it meets the floor and
-joins the list. It exempts three build-only packages by name:
+`dependencies`) and fails when:
+
+- the site's own `lib` is not ES2022 + DOM, so raising the floor means editing
+  that test and `cire/invites/tsconfig.json` together;
+- a package states no `lib` of its own;
+- the TypeScript program a package's `check` builds loads a library outside the
+  site's `lib`, from `lib`, a `/// <reference lib>` or a type package, or loads
+  any `bun-types` file;
+- a package's `check` script does not start with `tsc --noEmit` on that config,
+  or the config leaves out a module the package exports;
+- the site's source, `.astro` files included, or a package's `src` imports a
+  `@cire/` or `@shared/` package the walk did not reach.
+
+It lists the packages it expects, so a new dependency fails it until it meets
+the floor and joins the list. It exempts three build-only packages by name, and
+fails if any of them moves from `devDependencies` to `dependencies`:
 `@cire/build-tools` (an Astro integration that reads the filesystem; it states
 ES2022 but keeps `bun-types`), `@shared/dev-urls` and `@shared/typescript-config`.
 
