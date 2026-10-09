@@ -260,7 +260,7 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
     it("sits below the longer welcome-back title a returning household gets", async () => {
       await page.viewport(...size);
       const { title, glyphTop, titleBottom } = await mountWelcomeBack(InviteHeader);
-      expect(title).not.toBeNull();
+      expect(getComputedStyle(title).visibility).toBe("visible");
       expect(glyphTop).toBeGreaterThanOrEqual(titleBottom);
     });
   });
@@ -268,7 +268,7 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
   it("sits below the welcome-back title on the narrowest phone", async () => {
     await page.viewport(...NARROWEST);
     const { title, glyphTop, titleBottom } = await mountWelcomeBack(InviteHeader);
-    expect(title).not.toBeNull();
+    expect(getComputedStyle(title).visibility).toBe("visible");
     expect(glyphTop).toBeGreaterThanOrEqual(titleBottom);
   });
 
@@ -322,6 +322,38 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
 });
 
 /**
+ * The control for every empty `layout-shift` list in this file: in this
+ * frame, the observer does report a box that moves. Without it an empty list
+ * could mean the engine reports nothing here.
+ */
+it("reports a layout shift in this frame when a painted box moves", async () => {
+  await page.viewport(...PHONE);
+  let spacer!: HTMLDivElement;
+  render(() => (
+    <>
+      <div ref={spacer} style={{ height: "0px" }} />
+      <p style={{ "font-size": "2rem" }}>A paragraph that moves</p>
+    </>
+  ));
+  await nextFrame();
+  await nextFrame();
+
+  const shifts: LayoutShift[] = [];
+  const shiftObserver = new PerformanceObserver((list) => {
+    shifts.push(...(list.getEntries() as LayoutShift[]));
+  });
+  shiftObserver.observe({ type: "layout-shift" });
+  spacer.style.height = "120px";
+  await nextFrame();
+  await nextFrame();
+  shifts.push(...(shiftObserver.takeRecords() as LayoutShift[]));
+  shiftObserver.disconnect();
+
+  expect(shifts.length).toBeGreaterThan(0);
+  expect(shifts[0]!.value).toBeGreaterThan(0);
+});
+
+/**
  * A hero with no couple title, open on a household's first-visit title when
  * the household's session restores and the hero turns to "Welcome back to
  * your invite".
@@ -336,7 +368,7 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
  */
 describe.each(PACKS)(
   "%s hero title when a returning household's session restores",
-  (_pack, InviteHeader) => {
+  (_pack, InviteHeader, align) => {
     describe.each([
       { name: "320x568 phone", size: NARROWEST },
       { name: "1440x900 desktop", size: DESKTOP },
@@ -351,6 +383,36 @@ describe.each(PACKS)(
         await nextFrame();
         await nextFrame();
         const subtitle = within(hero).getByText("Saturday 18 September");
+        const welcome = within(hero).getByText(WELCOME_BACK);
+        const firstVisit = within(hero).getByText(HERO_FALLBACK_TITLE);
+        const cell = firstVisit.parentElement as HTMLElement;
+
+        // Before the restore the first-visit title is the one painted and read,
+        // so the swap below is a real one.
+        expect(getComputedStyle(firstVisit).visibility).toBe("visible");
+        expect(getComputedStyle(welcome).visibility).toBe("hidden");
+        expect(isInaccessible(firstVisit)).toBe(false);
+        expect(isInaccessible(welcome)).toBe(true);
+
+        // One cell, not two rows: the strings' boxes overlap and the cell's
+        // content box is exactly as tall as the taller of them. The shorter
+        // sits where the pack anchors its block — centred in the cell for
+        // classic, on the cell's foot against the subtitle for gala.
+        expect(welcome.parentElement).toBe(cell);
+        const box = cell.getBoundingClientRect();
+        const contentBottom = box.bottom - Number.parseFloat(getComputedStyle(cell).paddingBottom);
+        const first = firstVisit.getBoundingClientRect();
+        const back = welcome.getBoundingClientRect();
+        expect(first.top < back.bottom && back.top < first.bottom).toBe(true);
+        expect(
+          Math.abs(contentBottom - box.top - Math.max(first.height, back.height)),
+        ).toBeLessThanOrEqual(0.5);
+        const offAnchor =
+          align === "center"
+            ? (first.top + first.bottom) / 2 - (box.top + contentBottom) / 2
+            : first.bottom - contentBottom;
+        expect(Math.abs(offAnchor)).toBeLessThanOrEqual(1);
+
         const blockBefore = titleBlock.getBoundingClientRect();
         const subtitleBefore = subtitle.getBoundingClientRect();
 
@@ -372,8 +434,6 @@ describe.each(PACKS)(
 
         // The swap happened, and only the painted title is in the accessibility
         // tree: the other keeps its box with `visibility: hidden`.
-        const welcome = within(hero).getByText(WELCOME_BACK);
-        const firstVisit = within(hero).getByText(HERO_FALLBACK_TITLE);
         expect(getComputedStyle(welcome).visibility).toBe("visible");
         expect(getComputedStyle(firstVisit).visibility).toBe("hidden");
         expect(isInaccessible(welcome)).toBe(false);

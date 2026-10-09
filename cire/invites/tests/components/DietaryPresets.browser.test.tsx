@@ -239,6 +239,43 @@ describe("from `md:`, the pills wrap", () => {
       .map((box) => Math.round((box.closest("label") as HTMLElement).getBoundingClientRect().top));
     expect(new Set(pills).size).toBe(1);
   });
+
+  /**
+   * The picker's switch and the sheet's own change of shape, one pixel apart.
+   * Both are `md:` in different packages; at 767px the sheet is still a bottom
+   * sheet and the track scrolls, at 768px the sheet is a centred panel and the
+   * pills wrap. Moving either breakpoint alone fails one of these.
+   */
+  for (const [width, shape] of [
+    [767, "bottom sheet, sideways track"],
+    [768, "centred panel, wrapped pills"],
+  ] as const) {
+    it(`is a ${shape} at ${width}px`, async () => {
+      await page.viewport(width, 900);
+      const { fieldset } = openAttending();
+      await settle();
+      const sheet = document.querySelector("dialog")!.getBoundingClientRect();
+      const group = within(fieldset).getByRole("group", { name: /dietary requirements/i });
+      const track = group.firstElementChild as HTMLElement;
+      const rows = new Set(
+        within(fieldset)
+          .getAllByRole("checkbox")
+          .map((box) =>
+            Math.round((box.closest("label") as HTMLElement).getBoundingClientRect().top),
+          ),
+      ).size;
+
+      expect({
+        onTheFloor: Math.abs(sheet.bottom - window.innerHeight) < 1,
+        scrolls: track.scrollWidth > track.clientWidth,
+        rows: rows > 1 ? "several" : "one",
+      }).toEqual(
+        width < 768
+          ? { onTheFloor: true, scrolls: true, rows: "one" }
+          : { onTheFloor: false, scrolls: false, rows: "several" },
+      );
+    });
+  }
 });
 
 describe("ticking a pill after scrolling the track", () => {

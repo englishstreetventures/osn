@@ -224,8 +224,10 @@ export default function DietaryPresets<K extends string = DietaryPreset>(
    * same fields wrap into a column. The shell already knows which it is, so
    * asking a second time here would be a redundant answer — and it is what let
    * this component reach for a popover it did not always render. A caller whose
-   * own box changes shape at `md:` asks for `"md"`, and the breakpoint then
-   * lives in CSS beside that box's, so the two cannot disagree at any width.
+   * own box changes shape at `md:` asks for `"md"`: the switch is then a CSS
+   * `md:` like that box's, applied in the same style pass, with no listener and
+   * no frame where the two differ. The guest sheet's browser test checks both
+   * switch between 767px and 768px.
    */
   const layout = () => LAYOUT[props.wrap === true ? "wrap" : props.wrap === "md" ? "md" : "scroll"];
 

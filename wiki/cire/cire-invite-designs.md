@@ -200,9 +200,14 @@ the welcome-back title needs:
 *Measured 2026-10-09 — line heights of both strings in real Chromium at the default heading scale, `bun run --cwd cire/invites test:browser` with a probe mounting each pack's header.*
 
 The welcome-back title is a first paint when it appears, so on a hero with no
-image it can become the page's Largest Contentful Paint at the moment the
-session restores. That is unmeasured. A hero with a couple title, the usual
-case, draws neither string.
+image it is a new Largest Contentful Paint entry at the moment the session
+restores, about twice the first-visit title's area. Rewriting the words of one
+painted element instead adds no entry. The guest sees the new words at the same
+moment either way; only the metric moves. A hero with an image keeps the image
+as its largest paint, and a hero with a couple title, the usual case, draws
+neither string.
+
+*Measured 2026-10-09 — `largest-contentful-paint` observer in real Chromium at 1440x900, classic pack, `bun run --cwd cire/invites test:browser` with a probe: entries 37,606 then 75,574 px² across the swap; a single span whose text is rewritten keeps one entry.*
 
 Tests: in `@cire/api`, `tests/services/claim.test.ts` ("householdReplied in the
 claim payload"). In `@cire/invites`, `tests/components/invite-progress.test.ts`,

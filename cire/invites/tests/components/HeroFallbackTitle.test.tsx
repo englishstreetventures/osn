@@ -23,9 +23,9 @@ const slots = () => ({
 });
 
 /**
- * The wiring and class contract. That the two strings share one cell, that
- * the hidden one keeps its box and that the swap moves nothing are layout
- * facts jsdom cannot compute; `tests/designs/InviteHeader.browser.test.tsx`
+ * The wiring and class contract. That the two strings share one cell sized by
+ * the taller, where the shorter sits in it, and that the swap moves nothing
+ * are layout facts jsdom cannot compute; `tests/designs/InviteHeader.browser.test.tsx`
  * measures those in both packs.
  */
 describe("HeroFallbackTitle", () => {

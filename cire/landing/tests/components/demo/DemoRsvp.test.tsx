@@ -89,9 +89,10 @@ describe("DemoRsvp", () => {
 
   it("asks the picker to wrap its pills from `md:`, as the real sheet does", async () => {
     // The demo sheet keeps its width at every viewport, like the guest's, so a
-    // visitor on a laptop gets rows of pills rather than a sideways track. The
-    // layout itself is measured in `cire/invites`' browser tier; this pins
-    // the mode the demo passes.
+    // visitor on a laptop gets rows of pills rather than a sideways track. This
+    // pins the mode the demo passes. `@cire/landing` has no browser tier, so the
+    // demo sheet's own wrapped layout is not measured; `cire/invites` measures
+    // the same picker mode in the guest's sheet, which is a different modal.
     const { getAllByText, getByText } = render(() => <DemoRsvp />);
     fireEvent.click(getAllByText("Respond")[0]!);
     await waitFor(() => expect(getByText("Send RSVP")).toBeTruthy());
