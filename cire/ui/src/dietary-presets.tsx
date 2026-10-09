@@ -17,7 +17,8 @@ import { createMemo, For, Show, type JSX } from "solid-js";
  *
  * On a phone this is the whole control — answering is a tap, and something you
  * must open first is a tap spent before you can start. The checkboxes sit in a
- * horizontally scrolling track.
+ * horizontally scrolling track, or wrap into rows where the caller asks (see
+ * `wrap`).
  *
  * ## Why this file imports no popover
  *
@@ -80,10 +81,40 @@ export interface DietaryPresetsProps<K extends string = DietaryPreset> {
   disabled?: boolean;
   /** Names whose requirements these are, for the group's accessible name. */
   label?: string;
-  /** Wrap the pills into a column instead of a scrolling row. The popover shell
-   *  sets it; inline callers leave it off. */
-  wrap?: boolean;
+  /** Wrap the pills into rows, one band under another, instead of a sideways
+   *  scrolling track. `true` wraps at every width (the popover shell's panel);
+   *  `"md"` scrolls below the `md:` breakpoint and wraps from it (a sheet that
+   *  keeps one width at every viewport and turns into a centred panel there);
+   *  absent scrolls at every width. */
+  wrap?: boolean | "md";
 }
+
+/**
+ * The classes each layout gives the track, a band (its heading and its row)
+ * and a row of pills. Literal strings, so every app's Tailwind scan of this
+ * file emits them.
+ *
+ * `md` is `scroll` with `wrap` behind the breakpoint: its `md:` classes turn
+ * the scroller off and give the track, bands and rows `wrap`'s shape.
+ */
+const LAYOUT = {
+  scroll: {
+    track: "gap-4 snap-x snap-proximity overflow-x-auto pb-1",
+    band: "shrink-0 items-center",
+    row: "shrink-0",
+  },
+  wrap: {
+    track: "flex-col gap-4",
+    band: "flex-col items-start",
+    row: "flex-wrap",
+  },
+  md: {
+    track:
+      "gap-4 snap-x snap-proximity overflow-x-auto pb-1 md:snap-none md:overflow-x-visible md:pb-0 md:flex-col",
+    band: "shrink-0 items-center md:flex-col md:items-start",
+    row: "shrink-0 md:flex-wrap",
+  },
+} as const;
 
 function toggle<K extends string>(
   current: readonly K[],
@@ -186,13 +217,20 @@ export default function DietaryPresets<K extends string = DietaryPreset>(
   }, []);
 
   /**
-   * `wrap` is the caller's, not a media query's.
+   * The layout is the caller's to choose; this component never reads the
+   * viewport.
    *
    * Inline on a phone the track scrolls sideways; inside a popover panel the
    * same fields wrap into a column. The shell already knows which it is, so
    * asking a second time here would be a redundant answer — and it is what let
-   * this component reach for a popover it did not always render.
+   * this component reach for a popover it did not always render. A caller whose
+   * own box changes shape at `md:` asks for `"md"`: the switch is then a CSS
+   * `md:` like that box's, applied in the same style pass, with no listener and
+   * no frame where the two differ. The guest sheet's browser test checks both
+   * switch between 767px and 768px.
    */
+  const layout = () => LAYOUT[props.wrap === true ? "wrap" : props.wrap === "md" ? "md" : "scroll"];
+
   return (
     <fieldset
       aria-label={props.label ?? "Dietary requirements"}
@@ -203,30 +241,16 @@ export default function DietaryPresets<K extends string = DietaryPreset>(
       // sheet wider than the phone instead of overflowing inside it.
       class="m-0 block min-w-0 border-0 p-0"
     >
-      <div
-        classList={{
-          "flex min-w-0 gap-4": true,
-          "snap-x snap-proximity overflow-x-auto pb-1": !props.wrap,
-          "flex-col gap-3": props.wrap,
-        }}
-      >
+      <div class={`flex min-w-0 ${layout().track}`}>
         <For each={BANDED_PRESETS}>
           {(group) => (
-            <div
-              classList={{
-                "flex gap-2": true,
-                "shrink-0 items-center": !props.wrap,
-                "flex-col items-start": props.wrap,
-              }}
-            >
+            <div class={`flex gap-2 ${layout().band}`}>
               <Show when={BAND_LABEL[group.band] !== ""}>
                 <p class="font-body text-ui-ink-muted tracking-ui-wider text-ui-xs shrink-0 uppercase">
                   {BAND_LABEL[group.band]}
                 </p>
               </Show>
-              <div
-                classList={{ "flex gap-2": true, "shrink-0": !props.wrap, "flex-wrap": props.wrap }}
-              >
+              <div class={`flex gap-2 ${layout().row}`}>
                 <For each={group.presets}>
                   {(preset) => (
                     <PresetCheckbox
@@ -245,7 +269,7 @@ export default function DietaryPresets<K extends string = DietaryPreset>(
             the order the value is handed back in: known keys canonically,
             then these. */}
         <Show when={unknown().length > 0}>
-          <div classList={{ "flex gap-2": true, "shrink-0": !props.wrap, "flex-wrap": props.wrap }}>
+          <div class={`flex gap-2 ${layout().row}`}>
             <For each={unknown()}>
               {(key) => (
                 <PresetCheckbox
