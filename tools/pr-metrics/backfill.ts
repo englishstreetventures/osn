@@ -26,14 +26,18 @@
 
 import { existsSync, readFileSync } from "node:fs";
 
-import type { Card } from "./index.ts";
+import type { BranchPull, Card } from "./index.ts";
 import {
-  branchSlug,
+  branchCards,
   buildCard,
+  cardFileName,
   declaredFromLabels,
   defaultMetricsDir,
+  otherPullRequest,
   parseNumstat,
   recordsByBranch,
+  recordsInWindow,
+  recordWindow,
   repoProjectPaths,
   sameApartFromGeneratedAt,
 } from "./index.ts";
@@ -333,6 +337,10 @@ if (import.meta.main) {
   );
 
   const skipped: number[] = [];
+  // Pull requests with transcripts that still get no card: their records
+  // cannot be separated from another pull request's, or another pull request's
+  // card holds their file. Each is named on stderr as it happens.
+  const heldBack: number[] = [];
   let written = 0;
   let unchanged = 0;
   const claimed = new Set<string>();
@@ -374,8 +382,70 @@ if (import.meta.main) {
     issueLabelsById(uniqueIssueIds),
   ]);
 
+  // Oldest merge first, so on a reused branch name the first pull request
+  // meets `<slug>.json` before any later one does. The listing is newest first.
+  carded.sort((a, b) => Date.parse(a.mergedAt) - Date.parse(b.mergedAt));
+
   for (const pull of carded) {
-    const records = byBranch.get(pull.headRefName) ?? [];
+    const branch = pull.headRefName;
+
+    // Every other pull request known on this branch name: this listing's, and
+    // the cards already on disk, since `--limit` reaches back only so far.
+    // Transcripts are joined by branch name alone, so on a reused name the
+    // merges are what separate one pull request's records from another's.
+    const onDiskCards = branchCards(outDir, branch);
+    const others = new Map<number, BranchPull>();
+    for (const other of pulls) {
+      if (other.headRefName === branch && other.number !== pull.number) {
+        others.set(other.number, {
+          number: other.number,
+          mergedAt: other.mergedAt,
+          state: "MERGED",
+        });
+      }
+    }
+    for (const { card: other } of onDiskCards) {
+      const number = other.pr.number;
+      if (typeof number !== "number" || number === pull.number || others.has(number)) continue;
+      const mergedAt = typeof other.pr.merged_at === "string" ? other.pr.merged_at : null;
+      others.set(number, { number, mergedAt, state: mergedAt === null ? null : "MERGED" });
+    }
+
+    const window = recordWindow({ mergedAt: pull.mergedAt }, [...others.values()]);
+    if (window.kind === "unplaceable") {
+      process.stderr.write(
+        `  ⚠️  #${pull.number}: \`${branch}\` also carried #${window.pull}, whose merge time is unknown — skipping rather than mixing their sessions.\n`,
+      );
+      heldBack.push(pull.number);
+      continue;
+    }
+
+    // A pull request whose window holds nothing has no spend this machine can
+    // show — its transcripts are gone, or were never here — and a zero card
+    // reads like a cheap pull request.
+    const records = recordsInWindow(byBranch.get(branch) ?? [], window);
+    if (records.length === 0) {
+      process.stderr.write(
+        `  ⚠️  #${pull.number}: no records between the merges around it on \`${branch}\` — skipping.\n`,
+      );
+      heldBack.push(pull.number);
+      continue;
+    }
+
+    // `<slug>.json` belongs to the pull request whose card is already there,
+    // or else to the earliest merged one on the name; every later pull request
+    // takes `<slug>-<pr>.json`.
+    const slugOwner = onDiskCards.find(
+      ({ file }) => file === cardFileName(branch, pull.number, true),
+    )?.card.pr.number;
+    const first =
+      typeof slugOwner === "number"
+        ? slugOwner === pull.number
+        : [...others.values()].every(
+            (other) =>
+              other.mergedAt !== null && Date.parse(other.mergedAt) > Date.parse(pull.mergedAt),
+          );
+
     const changed = files.get(pull.number) ?? [];
 
     const linkedRef = pull.closingIssuesReferences[0] ?? null;
@@ -427,31 +497,42 @@ if (import.meta.main) {
       },
     );
 
-    // `branchSlug`, not a copy of its first step: the inline version omitted
-    // the trailing `^-+|-+$` strip, so a branch name ending in a character
-    // outside the class made `backfill` and `card` write two different files
-    // for the same branch, and nothing downstream keys on the filename.
-    const slug = branchSlug(pull.headRefName);
-    const path = `${outDir}/${slug}.json`;
+    // `cardFileName` goes through `branchSlug`, never a copy of its first step:
+    // the inline version omitted the trailing `^-+|-+$` strip, so a branch name
+    // ending in a character outside the class made `backfill` and `card` write
+    // two different files for the same branch.
+    const file = cardFileName(branch, pull.number, first);
+    const path = `${outDir}/${file}`;
 
     // `branchSlug` is not injective — `feat/x-`, `feat-x` and `feat/x` all slug
     // to `feat-x` — and this loop writes many cards in one pass. `card` writes
     // one per run and cannot see a clash; here it is visible, and a silently
     // overwritten card is indistinguishable from a pull request that was never
-    // backfilled at all. The guard keys on the slugs this run has claimed, so a
+    // backfilled at all. The guard keys on the files this run has claimed, so a
     // card left untouched still holds its filename against a second branch, and
     // a card left by an earlier run is not mistaken for a clash.
     const onDisk = existsSync(path) ? readCardFile(path) : null;
-    const existing = claimed.has(slug) ? (onDisk?.pr?.branch ?? null) : null;
+    const existing = claimed.has(file) ? (onDisk?.pr?.branch ?? null) : null;
     if (existing !== null && existing !== pull.headRefName) {
       console.warn(
-        `  ⚠️  slug collision on ${slug}.json: \`${existing}\` and \`${pull.headRefName}\` — keeping the first, skipping #${pull.number}.`,
+        `  ⚠️  slug collision on ${file}: \`${existing}\` and \`${pull.headRefName}\` — keeping the first, skipping #${pull.number}.`,
       );
       skipped.push(pull.number);
       continue;
     }
 
-    claimed.add(slug);
+    // A card left by an earlier run for another pull request is that pull
+    // request's record. Never write over it, as `card` never does.
+    const owner = onDisk?.pr ? otherPullRequest(onDisk, pull.number) : null;
+    if (owner !== null) {
+      process.stderr.write(
+        `  ⚠️  ${file} is the card for #${owner} — skipping #${pull.number} rather than writing over it.\n`,
+      );
+      heldBack.push(pull.number);
+      continue;
+    }
+
+    claimed.add(file);
 
     if (onDisk !== null && sameApartFromGeneratedAt(onDisk, card)) {
       unchanged += 1;
@@ -477,6 +558,12 @@ if (import.meta.main) {
 
   if (unchanged > 0) {
     console.log(`left ${unchanged} card(s) untouched — nothing but the timestamp would change.`);
+  }
+
+  if (heldBack.length > 0) {
+    process.stdout.write(
+      `held back ${heldBack.length} PR(s) whose sessions could not be told apart from another's: ${heldBack.join(", ")}\n`,
+    );
   }
 
   if (skipped.length > 0) {

@@ -12,7 +12,7 @@
 // pre-parsed records can catch that.
 
 import { expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -58,6 +58,14 @@ interface CliRun {
   card: Card;
   /** The written file after each invocation, in order. */
   writes: { mtimeMs: number; text: string }[];
+  /** Every file in the output directory after the last invocation, by name. */
+  files: Record<string, string>;
+}
+
+interface RunOptions {
+  /** What a stubbed `gh pr view <n> --json state,mergedAt` prints, by pull
+   * request number. Given, the runs see a stub `gh` and no credentials. */
+  ghPrView?: Record<number, string>;
 }
 
 /**
@@ -70,6 +78,7 @@ async function run(
   invocations = 1,
   laterArgs?: string[],
   betweenRuns?: (paths: { outPath: string; sessionsDir: string }) => void | Promise<void>,
+  options: RunOptions = {},
 ): Promise<CliRun> {
   const dir = await mkdtemp(join(tmpdir(), "pr-metrics-cli-"));
 
@@ -152,6 +161,34 @@ async function run(
       }),
     );
 
+    // The stub answers `pr view` from `options.ghPrView` and fails every other
+    // call. Executable with a shebang, or Bun skips it and resolves the real
+    // `gh`; the blanked tokens are the second line of defence, as in
+    // `runResolving` below.
+    let env: Record<string, string | undefined> | undefined;
+    if (options.ghPrView !== undefined) {
+      const binDir = join(dir, "bin");
+      await mkdir(binDir, { recursive: true });
+      const cases = Object.entries(options.ghPrView)
+        .map(([n, json]) => `  "pr view ${n} "*) printf '%s' '${json}' ;;`)
+        .join("\n");
+      await writeFile(
+        join(binDir, "gh"),
+        `#!/bin/sh\ncase "$*" in\n${cases}\n  *) exit 1 ;;\nesac\n`,
+      );
+      await chmod(join(binDir, "gh"), 0o755);
+      expect((await stat(join(binDir, "gh"))).mode & 0o111).toBeGreaterThan(0);
+      env = {
+        ...process.env,
+        PATH: `${binDir}:${process.env.PATH}`,
+        GH_TOKEN: "",
+        GITHUB_TOKEN: "",
+        GH_ENTERPRISE_TOKEN: "",
+        GH_CONFIG_DIR: join(dir, "gh-config"),
+        GH_NO_UPDATE_NOTIFIER: "1",
+      };
+    }
+
     const outPath = join(dir, "out", "feat-metrics-cli-fixture.json");
     const writes: CliRun["writes"] = [];
     let stdout = "";
@@ -180,7 +217,7 @@ async function run(
           "--out-dir",
           join(dir, "out"),
         ],
-        { cwd: dir, stdout: "pipe", stderr: "pipe" },
+        { cwd: dir, stdout: "pipe", stderr: "pipe", env },
       );
 
       [stdout, stderr, exitCode] = await Promise.all([
@@ -201,7 +238,12 @@ async function run(
 
     const card = JSON.parse(writes[writes.length - 1]!.text) as Card;
 
-    return { exitCode, stdout, stderr, card, writes };
+    const files: Record<string, string> = {};
+    for (const name of await readdir(join(dir, "out"))) {
+      files[name] = await Bun.file(join(dir, "out", name)).text();
+    }
+
+    return { exitCode, stdout, stderr, card, writes, files };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -717,20 +759,101 @@ test("--if-absent leaves a slug neighbour's card alone when it names another pul
 
 // One branch name, two pull requests: the first one's card is committed, and the
 // collector then runs for the second. Transcripts are joined by branch name
-// alone, so the card it would write carries both pieces of work over the first
-// one's record.
-test("the CLI refuses to write over another pull request's card", async () => {
-  const { exitCode, stderr, writes } = await run(["--pr", "1"], 2, ["--pr", "2"]);
+// alone, so the first merge is the only thing that separates the two: the
+// fixture's records run 10:00:00–10:02:01, and #1 merged at 10:00:45.
+const SLUG_FILE = "feat-metrics-cli-fixture.json";
+const SECOND_FILE = "feat-metrics-cli-fixture-2.json";
+const FIRST_MERGE = "2026-09-07T10:00:45Z";
 
-  expect(exitCode).toBe(1);
-  expect(stderr).toContain("#1");
+test("a second pull request on a reused branch name gets its own card, from its own records", async () => {
+  const { exitCode, writes, files } = await run(["--pr", "1", "--merged-at", FIRST_MERGE], 2, [
+    "--pr",
+    "2",
+  ]);
+
+  expect(exitCode).toBe(0);
+  // The first card keeps its path and its bytes.
   expect(writes[1]!.text).toBe(writes[0]!.text);
-  expect(JSON.parse(writes[1]!.text).pr.number).toBe(1);
+  const first = JSON.parse(files[SLUG_FILE]!) as Card;
+  expect(first.pr.number).toBe(1);
+  expect(first.spend.tokens.output).toBe(550);
+
+  const second = JSON.parse(files[SECOND_FILE]!) as Card;
+  expect(second.pr.number).toBe(2);
+  // 50 + 400: the edit and the subagent after the merge; the 100 before it is #1's.
+  expect(second.spend.tokens.output).toBe(450);
+  expect(second.window.first_ts).toBe("2026-09-07T10:01:00.000Z");
 });
 
-// `retro` renders the pull-request block from the same run. Built over the same
-// mixed transcripts, it must not reach the second pull request's body either.
-test("the CLI refuses to render the markdown block over another pull request's card", async () => {
+test("with --resolve-issue the earlier merge time comes from gh", async () => {
+  const { exitCode, files } = await run(
+    ["--pr", "1"],
+    2,
+    ["--pr", "2", "--resolve-issue"],
+    undefined,
+    { ghPrView: { 1: `{"state":"MERGED","mergedAt":"${FIRST_MERGE}"}` } },
+  );
+
+  expect(exitCode).toBe(0);
+  expect((JSON.parse(files[SECOND_FILE]!) as Card).spend.tokens.output).toBe(450);
+});
+
+// `retro` appends this block to the second pull request's body, so it has to
+// name the file the card is in.
+test("the markdown block on a reused branch name names the second card's file", async () => {
+  const { exitCode, stdout, files } = await run(["--pr", "1", "--merged-at", FIRST_MERGE], 2, [
+    "--pr",
+    "2",
+    "--format",
+    "markdown",
+  ]);
+
+  expect(exitCode).toBe(0);
+  expect(stdout).toContain(`.claude/metrics/${SECOND_FILE}`);
+  expect(Object.keys(files)).toEqual([SLUG_FILE]);
+});
+
+// Refreshing the first card while the second pull request is still open: an
+// open pull request comes after every merge, so it bounds the first one's
+// records at its merge rather than leaving their order unknown.
+test("an earlier card is bounded at its own merge when a later pull request is open", async () => {
+  const { exitCode, card } = await run(
+    ["--pr", "1"],
+    2,
+    ["--pr", "1", "--merged-at", FIRST_MERGE, "--resolve-issue"],
+    async ({ outPath }) => {
+      const later = JSON.parse(await Bun.file(outPath).text()) as Card;
+      later.pr.number = 2;
+      require("node:fs").writeFileSync(
+        outPath.replace(SLUG_FILE, SECOND_FILE),
+        JSON.stringify(later),
+      );
+    },
+    { ghPrView: { 2: '{"state":"OPEN","mergedAt":null}' } },
+  );
+
+  expect(exitCode).toBe(0);
+  expect(card.pr.number).toBe(1);
+  expect(card.spend.tokens.output).toBe(100);
+  expect(card.window.last_ts).toBe("2026-09-07T10:00:30.000Z");
+});
+
+// With no merge time for the earlier pull request, nothing separates the two
+// pull requests' sessions. Nothing is written, and the advice is the flag that
+// can supply it.
+test("the CLI refuses a reused branch name when the earlier merge time is unknown", async () => {
+  const { exitCode, stderr, writes, files } = await run(["--pr", "1"], 2, ["--pr", "2"]);
+
+  expect(exitCode).toBe(1);
+  expect(stderr).toContain("#1's merge time is unknown");
+  expect(stderr).toContain("--resolve-issue");
+  expect(writes[1]!.text).toBe(writes[0]!.text);
+  expect(Object.keys(files)).toEqual([SLUG_FILE]);
+});
+
+// `retro` renders the pull-request block from the same run. A refused run must
+// not reach the second pull request's body either.
+test("the CLI refuses to render the markdown block when the earlier merge time is unknown", async () => {
   const { exitCode, stdout, stderr } = await run(["--pr", "1"], 2, [
     "--pr",
     "2",
@@ -742,7 +865,38 @@ test("the CLI refuses to render the markdown block over another pull request's c
   expect(stdout).not.toContain("<details>");
   // A crash also exits 1 with nothing on stdout; the message is what tells
   // `retro` it was refused, and why.
-  expect(stderr).toContain("is the card for pull request #1");
+  expect(stderr).toContain("merge time is unknown");
+});
+
+test("the CLI refuses when gh cannot answer for the earlier pull request", async () => {
+  const { exitCode, stderr, files } = await run(
+    ["--pr", "1"],
+    2,
+    ["--pr", "2", "--resolve-issue"],
+    undefined,
+    { ghPrView: {} },
+  );
+
+  expect(exitCode).toBe(1);
+  expect(stderr).toContain("`gh` did not answer");
+  expect(Object.keys(files)).toEqual([SLUG_FILE]);
+});
+
+// A pull request closed without merging leaves no merge to split at, so no flag
+// can help; the remedy is to treat the two as one piece of work.
+test("the CLI refuses when the earlier pull request closed without merging", async () => {
+  const { exitCode, stderr, files } = await run(
+    ["--pr", "1"],
+    2,
+    ["--pr", "2", "--resolve-issue"],
+    undefined,
+    { ghPrView: { 1: '{"state":"CLOSED","mergedAt":null}' } },
+  );
+
+  expect(exitCode).toBe(1);
+  expect(stderr).toContain("#1 closed without merging");
+  expect(stderr).toContain(`delete `);
+  expect(Object.keys(files)).toEqual([SLUG_FILE]);
 });
 
 // A failed `gh` lookup, or the `SessionEnd` fallback before a pull request

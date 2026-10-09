@@ -63,7 +63,7 @@ gh api "repos/englishstreetventures/osn/pulls?state=all&head=englishstreetventur
 
 The refspec is explicit because a bare clone maps no remote-tracking refs: there a plain `fetch origin main` updates only `FETCH_HEAD`, and the worktree starts from a stale `origin/main`.
 
-Any `taken` line means an earlier pull request used the name. Session-metrics cards join transcripts by branch name alone, so a reused name mixes that work's sessions into this one's card, and `tools/pr-metrics` refuses to write over the earlier card. Add `-2` to the name and check again. Cut once: a session that cuts two branches leaves its spend on neither card.
+Any `taken` line means an earlier pull request used the name. Session-metrics cards join transcripts by branch name alone, so on a reused name `tools/pr-metrics` can separate the two pull requests' sessions only at the earlier merge, and any follow-up session on the earlier work lands on this card. Add `-2` to the name and check again. Cut once: a session that cuts two branches leaves its spend on neither card.
 
 **PERSONAL** — the bare repo at `/Users/ac/.work/osn.git`. Every piece of work gets its own worktree; never check the branch out inside an existing one (`main/` included) — that mutates its state.
 

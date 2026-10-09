@@ -10,8 +10,9 @@ branch if it is empty.
 
 Two things, always, whatever else fails:
 
-1. **The card.** `.claude/metrics/<branch-slug>.json`, carrying this branch's
-   pull request number, issue number and issue labels — committed, pushed, and
+1. **The card.** `.claude/metrics/<branch-slug>.json` — or
+   `<branch-slug>-<pr>.json` on a branch name an earlier pull request used —
+   carrying this branch's pull request number, issue number and issue labels — committed, pushed, and
    rendered onto the pull-request body as a `<details>` block. This skill owns
    that file. Step 1 is not optional and is not the part to drop when the run
    gets long.
@@ -114,7 +115,10 @@ Four rules about that pair:
   there.
 
 ```bash
-git add ".claude/metrics/$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/^-*//;s/-*$//').json"
+SLUG=$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/^-*//;s/-*$//')
+CARD=".claude/metrics/$SLUG.json"
+[ -f ".claude/metrics/$SLUG-$PR.json" ] && CARD=".claude/metrics/$SLUG-$PR.json"
+git add "$CARD"
 git commit -m "chore: session-metrics card for $BRANCH"
 git push
 
@@ -141,9 +145,12 @@ permits exactly five top-level headings, and appending a sixth fails a body
 that is otherwise correct.
 
 **When a step here cannot run**, record which and carry on — a missing card
-never blocks anything. The exception is `card` exiting 1 because the card on
-disk names another pull request. If its message shows `gh` named the wrong pull
-request, rerun with `--pr <n>`; otherwise stop — no block, no commit — and quote
+never blocks anything. The exception is `card` exiting 1 because it cannot keep
+this pull request's sessions apart from another's: a card on disk that names
+another pull request, or an earlier pull request on this branch name whose merge
+time is unknown or that closed without merging. If its message shows `gh` named
+the wrong pull request, rerun with `--pr <n>`; if it asks for `--resolve-issue`,
+rerun with it; otherwise stop — no block, no commit — and quote
 it in `RETRO.md`. No `gh`: write the card with whatever identity you know and
 leave the block in a file, naming it in `RETRO.md`. No transcripts: as above. No
 network: commit the card locally; it pushes with the next push.
@@ -164,7 +171,7 @@ skill exists.
 ## Step 2 — Read the card before forming any opinion
 
 ```bash
-cat ".claude/metrics/$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/^-*//;s/-*$//').json"
+cat "$CARD"                                              # the file Step 1 staged
 bun run --cwd tools/pr-metrics report -- --coverage     # where this card sits in the corpus
 ```
 
@@ -303,7 +310,7 @@ propose, apply `needs:decision`, and move on.
 ```markdown
 # Retro — <branch>
 
-**Card** — `.claude/metrics/<slug>.json`, committed as <sha>. <One line: what it
+**Card** — `<the file Step 1 staged>`, committed as <sha>. <One line: what it
 cost, against what was declared, and whether those agree.>
 
 **Gates** — transcripts: yes/no. gh: yes/no. <Anything the card could not see.>
