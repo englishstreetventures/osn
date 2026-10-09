@@ -429,6 +429,14 @@ jobs:
       - name: Check release-age excludes are marked and bounded
         run: bun run check:release-age-excludes
 
+      # The pre-push hook's `audit-ignores` command, run here too, because a
+      # push with `--no-verify` or from a machine without lefthook skips the
+      # hook. It fails once a `--ignore` in lefthook.yml's `audit` command has
+      # outlived its `# DROP AFTER <GHSA id> <YYYY-MM-DD>` marker. Invoked by
+      # path for the reason given at the D1 guard below.
+      - name: Check audit ignores are marked and bounded
+        run: bun run scripts/check-audit-ignores.ts
+
       # The same split as the step above, for the same reason. The tests in the
       # step further up feed the guard synthetic migration chains and prove it
       # measures and fails correctly; this runs it against the chain the repo
