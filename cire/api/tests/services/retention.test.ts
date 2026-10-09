@@ -307,7 +307,7 @@ const guestCount = (db: TestDb, guestId: string): number =>
 const importsLeft = (db: TestDb, weddingId: string): number =>
   db.select().from(imports).where(eq(imports.weddingId, weddingId)).all().length;
 
-const contributionsLeft = (db: TestDb, weddingId: string): number =>
+const contributionCount = (db: TestDb, weddingId: string): number =>
   db
     .select()
     .from(registryContributions)
@@ -1405,7 +1405,7 @@ describe("the parting gift summary", () => {
     // No summary, and the gift it would have counted is still there to count,
     // with its import rows and the sheets they name.
     expect(storedSummary(db, wedding.weddingId)).toBeNull();
-    expect(contributionsLeft(db, wedding.weddingId)).toBe(1);
+    expect(contributionCount(db, wedding.weddingId)).toBe(1);
     expect(importsLeft(db, wedding.weddingId)).toBeGreaterThan(0);
     expect(wedding.sheetKeys.filter((key) => sheets.deleted.has(key))).toEqual([]);
 
@@ -1417,7 +1417,7 @@ describe("the parting gift summary", () => {
       count: 1,
       totals: [{ currency: "AUD", amountMinor: 5_000 }],
     });
-    expect(contributionsLeft(db, wedding.weddingId)).toBe(0);
+    expect(contributionCount(db, wedding.weddingId)).toBe(0);
     expect(importsLeft(db, wedding.weddingId)).toBe(0);
     expect(wedding.sheetKeys.every((key) => sheets.deleted.has(key))).toBe(true);
   });
