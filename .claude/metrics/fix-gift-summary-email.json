@@ -4,8 +4,8 @@
     "number": 1466,
     "branch": "fix/gift-summary-email",
     "base_sha": "22ca3163f6f33d259a4b9aa4dd29d0360170c5e1",
-    "head_sha": "d1faa3b6f54045e15a2f61f67eeb330b2c916386",
-    "generated_at": "2026-10-09T02:41:37.404Z",
+    "head_sha": "f0eb852a21fa6ee2b85f02fd43721f4aee56ad16",
+    "generated_at": "2026-10-09T02:55:18.898Z",
     "merged_at": null,
     "phase": "at-open"
   },
@@ -23,47 +23,47 @@
     "method": "unconfirmed"
   },
   "window": {
-    "sessions": 8,
+    "sessions": 11,
     "first_ts": "2026-10-08T16:46:39.907Z",
-    "last_ts": "2026-10-09T02:41:33.899Z",
-    "span_seconds": 35694,
-    "active_seconds": 5184,
+    "last_ts": "2026-10-09T02:55:16.501Z",
+    "span_seconds": 36517,
+    "active_seconds": 5962,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 59.93713809999994,
+    "usd_equivalent": 70.57711559999994,
     "tokens": {
-      "input": 987,
-      "output": 68132,
+      "input": 1069,
+      "output": 69863,
       "thinking": 13363,
-      "cache_write_5m": 2057548,
+      "cache_write_5m": 2789619,
       "cache_write_1h": 0,
-      "cache_read": 118457597
+      "cache_read": 135532165
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 95,
-          "output": 41973,
+          "input": 121,
+          "output": 43340,
           "thinking": 0,
-          "cache_write_5m": 294292,
+          "cache_write_5m": 354592,
           "cache_write_1h": 0,
-          "cache_read": 3219463
+          "cache_read": 3545576
         },
-        "usd_equivalent": 4.498856499999999,
-        "messages": 60
+        "usd_equivalent": 5.073092999999998,
+        "messages": 71
       },
       "claude-opus-5-5": {
         "tokens": {
-          "input": 892,
-          "output": 26159,
+          "input": 948,
+          "output": 26523,
           "thinking": 13363,
-          "cache_write_5m": 1763256,
+          "cache_write_5m": 2435027,
           "cache_write_1h": 0,
-          "cache_read": 115238134
+          "cache_read": 131986589
         },
-        "usd_equivalent": 55.438281599999954,
-        "messages": 442
+        "usd_equivalent": 65.50402259999996,
+        "messages": 469
       },
       "<synthetic>": {
         "tokens": {
@@ -81,31 +81,31 @@
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 95,
-          "output": 41973,
+          "input": 121,
+          "output": 43340,
           "thinking": 0,
-          "cache_write_5m": 294292,
+          "cache_write_5m": 354592,
           "cache_write_1h": 0,
-          "cache_read": 3219463
+          "cache_read": 3545576
         },
-        "usd_equivalent": 4.498856499999999,
-        "messages": 60
+        "usd_equivalent": 5.073092999999998,
+        "messages": 71
       },
       "subagent": {
         "tokens": {
-          "input": 892,
-          "output": 26159,
+          "input": 948,
+          "output": 26523,
           "thinking": 13363,
-          "cache_write_5m": 1763256,
+          "cache_write_5m": 2435027,
           "cache_write_1h": 0,
-          "cache_read": 115238134
+          "cache_read": 131986589
         },
-        "usd_equivalent": 55.438281599999954,
-        "messages": 443
+        "usd_equivalent": 65.50402259999996,
+        "messages": 470
       }
     },
     "effort": {
-      "xhigh": 350,
+      "xhigh": 377,
       "high": 92
     },
     "unpriced_models": []
@@ -115,16 +115,16 @@
       "generated": 1,
       "test": 6,
       "docs": 3,
-      "config": 0,
+      "config": 1,
       "source": 8
     },
     "loc": {
       "generated": {
-        "added": 23,
+        "added": 24,
         "deleted": 0
       },
       "test": {
-        "added": 891,
+        "added": 1045,
         "deleted": 69
       },
       "docs": {
@@ -132,19 +132,19 @@
         "deleted": 13
       },
       "config": {
-        "added": 0,
+        "added": 187,
         "deleted": 0
       },
       "source": {
-        "added": 504,
-        "deleted": 275
+        "added": 659,
+        "deleted": 368
       }
     },
     "packages": [
       "cire/api"
     ],
     "touches_migration": false,
-    "commits": 7
+    "commits": 9
   },
   "interaction": {
     "user_turns": 0,
@@ -152,14 +152,14 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 372,
-      "Read": 76,
+      "Bash": 398,
+      "Read": 82,
       "Edit": 76,
-      "Write": 22,
-      "Grep": 18,
+      "Write": 23,
+      "Grep": 19,
       "Skill": 9,
-      "StructuredOutput": 7,
-      "SubagentHandback": 6,
+      "StructuredOutput": 9,
+      "SubagentHandback": 7,
       "Agent": 5,
       "WebFetch": 3,
       "ToolSearch": 1
