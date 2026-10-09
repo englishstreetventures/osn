@@ -9,7 +9,7 @@ import type { EventSummary, FamilyMember } from "../../src/components/types";
 /*
  * The dietary picker inside the sheet it actually ships in, measured.
  *
- * Four claims live here because nothing below the browser tier can check them.
+ * Five claims live here because nothing below the browser tier can check them.
  *
  * **The track overflows inside the sheet, not the other way round.** A
  * `<fieldset>` resolves its min-width from its content, so sixteen pills will
@@ -17,6 +17,13 @@ import type { EventSummary, FamilyMember } from "../../src/components/types";
  * the scrollport is allowed to be narrower than what it holds. happy-dom
  * computes no layout and cannot tell the two apart — the classes are identical
  * either way.
+ *
+ * **From `md:` the pills wrap instead.** The sheet keeps its 480px cap at every
+ * width, so on a desktop the track is no wider than on a phone, and sideways
+ * scrolling with a mouse is a drag through sixteen pills three at a time.
+ * `RsvpPanel` asks the picker for `wrap="md"`: below the breakpoint the track
+ * scrolls, from it the bands stack and their pills flow into rows inside the
+ * same sheet, with nothing left to scroll sideways.
  *
  * **The picker stays inline at every width here.** The sheet is a `frame`
  * Modal, whose dialog is `overflow-clip`. `@shared/ui`'s popover mounts its
@@ -32,9 +39,10 @@ import type { EventSummary, FamilyMember } from "../../src/components/types";
  * is a containing block, that input resolves against whatever box is positioned
  * further up and does not travel with the track's sideways scroll. Focusing it
  * then asks the browser to scroll toward a position hundreds of pixels outside
- * the sheet, and the browser obliges by scrolling the `<dialog>`. Measured on
- * the parent of this commit: `dialog.scrollLeft` went 0 → 1213 at 1024px and
- * 0 → 1182 at 414px, and never came back.
+ * the sheet, and the browser obliges by scrolling the `<dialog>`. Measured
+ * before the pills were positioned, when the track scrolled at every width:
+ * `dialog.scrollLeft` went 0 → 1213 at 1024px and 0 → 1182 at 414px, and never
+ * came back. Only a scrolled track can show it, so it is checked on a phone.
  *
  * **The close chip stays on top.** Making each pill `position: relative` is
  * what fixes the above, and it also promotes sixteen boxes past the chip, which
@@ -42,8 +50,10 @@ import type { EventSummary, FamilyMember } from "../../src/components/types";
  * tree order holding it up. Only a hit test can see that.
  */
 
-/** Wide enough to clear the picker's 48rem query with room to spare. */
+/** Past the `md:` breakpoint and the 1024px root font-size step. */
 const WIDE: readonly [number, number] = [1024, 900];
+/** A common laptop, where the sheet's 480px is a third of the screen. */
+const DESKTOP: readonly [number, number] = [1440, 900];
 /** The tester iframe's own default, restored after any test that widens it. */
 const NARROW: readonly [number, number] = [414, 896];
 
@@ -180,11 +190,61 @@ describe("dietary picker, in the sheet", () => {
   });
 });
 
-describe("ticking a pill after scrolling the track", () => {
+describe("from `md:`, the pills wrap", () => {
   for (const [name, size] of [
-    ["desktop", WIDE],
-    ["phone", NARROW],
+    ["1024px", WIDE],
+    ["1440px", DESKTOP],
   ] as const) {
+    it(`flows the pills into rows inside the same 480px sheet, with nothing to scroll sideways, at ${name}`, async () => {
+      await page.viewport(...size);
+      const { fieldset } = openAttending();
+      await settle();
+
+      // The sheet keeps its width: wrapping is the picker's, not a wider panel.
+      const dialog = document.querySelector("dialog") as HTMLElement;
+      expect(dialog.getBoundingClientRect().width).toBe(480);
+
+      const group = within(fieldset).getByRole("group", { name: /dietary requirements/i });
+      const track = group.firstElementChild as HTMLElement;
+      expect(track.scrollWidth).toBeLessThanOrEqual(track.clientWidth);
+
+      // Every pill is inside the track, so every one is in view without a drag.
+      const bounds = track.getBoundingClientRect();
+      const pills = within(fieldset)
+        .getAllByRole("checkbox")
+        .map((box) => (box.closest("label") as HTMLElement).getBoundingClientRect());
+      for (const pill of pills) {
+        expect(pill.left).toBeGreaterThanOrEqual(bounds.left - 0.5);
+        expect(pill.right).toBeLessThanOrEqual(bounds.right + 0.5);
+      }
+
+      // Rows of several pills each: not one line, and not one pill per line.
+      const rows = new Map<number, number>();
+      for (const pill of pills)
+        rows.set(Math.round(pill.top), (rows.get(Math.round(pill.top)) ?? 0) + 1);
+      expect(rows.size).toBeGreaterThan(1);
+      expect(Math.max(...rows.values())).toBeGreaterThan(1);
+    });
+  }
+
+  it("still scrolls sideways on a phone, where the sheet is the screen's width", async () => {
+    await page.viewport(...NARROW);
+    const { fieldset } = openAttending();
+    await settle();
+    const group = within(fieldset).getByRole("group", { name: /dietary requirements/i });
+    const track = group.firstElementChild as HTMLElement;
+    expect(track.scrollWidth).toBeGreaterThan(track.clientWidth);
+    const pills = within(fieldset)
+      .getAllByRole("checkbox")
+      .map((box) => Math.round((box.closest("label") as HTMLElement).getBoundingClientRect().top));
+    expect(new Set(pills).size).toBe(1);
+  });
+});
+
+describe("ticking a pill after scrolling the track", () => {
+  // A phone only: from `md:` the pills wrap and there is no track to scroll,
+  // so the sheet has nothing to slide toward. The wrap case above checks that.
+  for (const [name, size] of [["phone", NARROW]] as const) {
     it(`leaves the sheet where it was, on ${name}`, async () => {
       await page.viewport(...size);
       const { fieldset } = openAttending();
@@ -222,72 +282,86 @@ describe("a stored key this build does not know", () => {
   // Its pill trails every known one, so on a phone it starts past the right
   // edge of the track — the one pill most likely to be cut off or unreachable.
   // Only a real layout can say it is inside the track once the guest scrolls
-  // there, that unticking it keeps focus on it, and that the sheet stays put.
-  for (const [name, size] of [
-    ["desktop", WIDE],
-    ["phone", NARROW],
-  ] as const) {
-    it(`is reachable at the end of the track and unticks in place, on ${name}`, async () => {
-      await page.viewport(...size);
-      render(() => (
-        <EventSheet
-          panel="rsvp"
-          siteUrl="https://invite.test/w"
-          event={event}
-          members={[priya]}
-          existingRsvps={[
-            {
-              guestId: "guest-priya",
-              eventId: "event-1",
-              status: "attending",
-              dietary: "",
-              dietaryPresets: ["vegan", "a_future_key"],
-              dietaryConsentCurrent: true,
-            },
-          ]}
-          apiUrl="https://api.test"
-          onClose={() => {}}
-        />
-      ));
-      const fieldset = screen.getByRole("group", { name: /priya sharma/i }) as HTMLElement;
-      await settle();
-      const track = await scrollTrackToEnd(fieldset);
+  // there (on a desktop, once the pills wrap, without scrolling), that
+  // unticking it keeps focus on it, and that the sheet stays put.
 
-      const box = within(fieldset).getByRole("checkbox", {
-        name: "A future key",
-      }) as HTMLInputElement;
-      expect(box.checked).toBe(true);
-      const label = box.closest("label") as HTMLElement;
-      const pill = label.getBoundingClientRect();
-      const bounds = track.getBoundingClientRect();
-      expect(pill.left).toBeGreaterThanOrEqual(bounds.left);
-      expect(pill.right).toBeLessThanOrEqual(bounds.right + 0.5);
-      expect(box.offsetParent).toBe(label);
+  /** Open the sheet on Priya's stored answer, reach the key's pill and untick it. */
+  async function untickStoredKey(size: readonly [number, number], scrolls: boolean) {
+    await page.viewport(...size);
+    render(() => (
+      <EventSheet
+        panel="rsvp"
+        siteUrl="https://invite.test/w"
+        event={event}
+        members={[priya]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: ["vegan", "a_future_key"],
+            dietaryConsentCurrent: true,
+          },
+        ]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+    const fieldset = screen.getByRole("group", { name: /priya sharma/i }) as HTMLElement;
+    await settle();
+    const track = scrolls
+      ? await scrollTrackToEnd(fieldset)
+      : (within(fieldset).getByRole("group", { name: /dietary requirements/i })
+          .firstElementChild as HTMLElement);
 
-      box.focus();
-      label.click();
-      await new Promise(requestAnimationFrame);
+    const box = within(fieldset).getByRole("checkbox", {
+      name: "A future key",
+    }) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    const label = box.closest("label") as HTMLElement;
+    const pill = label.getBoundingClientRect();
+    const bounds = track.getBoundingClientRect();
+    expect(pill.left).toBeGreaterThanOrEqual(bounds.left);
+    expect(pill.right).toBeLessThanOrEqual(bounds.right + 0.5);
+    expect(box.offsetParent).toBe(label);
 
-      // Unticked, the key leaves the answer but its pill stays, so focus stays
-      // on it rather than falling to the page, and the guest can tick it back.
-      expect(box.isConnected).toBe(true);
-      expect(box.checked).toBe(false);
-      expect(document.activeElement).toBe(box);
-      expect(
-        (within(fieldset).getByRole("checkbox", { name: /vegan/i }) as HTMLInputElement).checked,
-      ).toBe(true);
-      const dialog = document.querySelector("dialog") as HTMLElement;
-      expect(dialog.scrollLeft).toBe(0);
-      expect((document.querySelector("dialog [tabindex='0']") as HTMLElement).scrollLeft).toBe(0);
-    });
+    box.focus();
+    label.click();
+    await new Promise(requestAnimationFrame);
+
+    // Unticked, the key leaves the answer but its pill stays, so focus stays
+    // on it rather than falling to the page, and the guest can tick it back.
+    expect(box.isConnected).toBe(true);
+    expect(box.checked).toBe(false);
+    expect(document.activeElement).toBe(box);
+    expect(
+      (within(fieldset).getByRole("checkbox", { name: /vegan/i }) as HTMLInputElement).checked,
+    ).toBe(true);
+    return track;
   }
+
+  it("is inside the wrapped pills and unticks in place, on desktop", async () => {
+    const track = await untickStoredKey(WIDE, false);
+    // Its extra pill wraps onto a row like the rest, rather than overflowing.
+    expect(track.scrollWidth).toBeLessThanOrEqual(track.clientWidth);
+  });
+
+  it("is reachable at the end of the track and unticks in place, on phone", async () => {
+    await untickStoredKey(NARROW, true);
+    // The track scrolled, and the sheet did not follow the focus sideways.
+    const dialog = document.querySelector("dialog") as HTMLElement;
+    expect(dialog.scrollLeft).toBe(0);
+    expect((document.querySelector("dialog [tabindex='0']") as HTMLElement).scrollLeft).toBe(0);
+  });
 });
 
 describe("the close chip", () => {
-  for (const [name, size] of [
-    ["desktop", WIDE],
-    ["phone", NARROW],
-  ] as const) {
+  // A phone only. The chip's `z-index` holds at every width, but from `md:`
+  // the pills wrap and no row reaches under the chip — measured at 1024px, the
+  // widest row's last pill ends 4px short of the chip's left edge — so a desktop
+  // hit test would have no overlap to probe.
+  for (const [name, size] of [["phone", NARROW]] as const) {
     it(`stays above a pill scrolled under it, on ${name}`, async () => {
       // Positioning the pills is what fixes the slide, and it costs this: a
       // pill is now a positioned box later in the tree than the close chip,

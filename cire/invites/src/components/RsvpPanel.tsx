@@ -782,11 +782,16 @@ export function RsvpPanel(props: RsvpPanelProps) {
 
                 <Show when={responses()[guestId]?.attending === "attending"}>
                   <div class="mt-3">
+                    {/* `wrap="md"`: the sheet keeps its 480px at every width,
+                        so from `md:`, where it becomes a centred panel and a
+                        guest more often has a mouse than a thumb, the pills
+                        wrap into rows rather than scroll sideways. */}
                     <DietaryPresets
                       value={responses()[guestId]?.dietaryPresets ?? []}
                       onChange={(next) => setDietaryPresets(guestId, next)}
                       disabled={locked()}
                       label={`Dietary requirements for ${member.firstName}`}
+                      wrap="md"
                     />
                   </div>
 

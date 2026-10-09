@@ -87,6 +87,26 @@ describe("DemoRsvp", () => {
     ).toBeNull();
   });
 
+  it("asks the picker to wrap its pills from `md:`, as the real sheet does", async () => {
+    // The demo sheet keeps its width at every viewport, like the guest's, so a
+    // visitor on a laptop gets rows of pills rather than a sideways track. The
+    // layout itself is measured in `cire/invites`' browser tier; this pins
+    // the mode the demo passes.
+    const { getAllByText, getByText } = render(() => <DemoRsvp />);
+    fireEvent.click(getAllByText("Respond")[0]!);
+    await waitFor(() => expect(getByText("Send RSVP")).toBeTruthy());
+    const amara = within(fieldsetFor("Amara"));
+    fireEvent.click(amara.getByText("Attending"));
+
+    const picker = await waitFor(() =>
+      amara.getByRole("group", { name: /Dietary requirements for Amara/i }),
+    );
+    const track = picker.firstElementChild as HTMLElement;
+    expect(track.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(["overflow-x-auto", "md:overflow-x-visible", "md:flex-col"]),
+    );
+  });
+
   it("reveals the free-text box only when Other is picked, and keeps what was typed", async () => {
     // `other` is the escape hatch the vocabulary needs: everything nameable is a
     // checkbox, and the box appears for whatever is not. Ticking any other

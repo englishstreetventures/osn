@@ -274,10 +274,14 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
                   </div>
                   <Show when={responses()[guestId]?.attending === "attending"}>
                     <div class="mt-3">
+                      {/* `wrap="md"`, as on the real sheet, which keeps the
+                          same width at every viewport and wraps the pills from
+                          `md:` rather than scroll them sideways. */}
                       <DietaryPresets
                         value={responses()[guestId]?.dietaryPresets ?? []}
                         onChange={(next) => setDietaryPresets(guestId, next)}
                         label={`Dietary requirements for ${member.firstName}`}
+                        wrap="md"
                       />
                     </div>
                     {/* Same reveal as the real sheet — this demo is what a
