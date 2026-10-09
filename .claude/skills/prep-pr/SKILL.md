@@ -236,7 +236,25 @@ uncommitted and are never grouped into a commit.
 
 ## Step 4 — Build, test, and review test surface
 
-Dispatch a **`reviewer`** agent (`.claude/agents/reviewer.md`) to run the `review-tests` skill (`.claude/skills/review-tests/SKILL.md`), passing the list of affected workspace paths as arguments and stating that it is alone in the worktree, so it may build and run tests. Pass no `model` or `effort`; the definition sets both. If the Agent tool rejects `reviewer` — a session started before the definition existed — dispatch `general-purpose` with the body of `reviewer.md` pasted into the brief; it carries the rules but not the tool limit. Open the dispatch prompt with `TASK-BRANCH: <branch>` on its own line — the collector reads it back out (`tools/pr-metrics/index.ts`, `resolveDispatchBranch`) to attribute this review's spend to the branch's card; without it the spend banks against whatever branch the dispatching session happened to be on.
+**Size the diff first.** A review agent costs about the same whatever it reads, so a branch that changes only docs and tests does not get all three:
+
+```bash
+bun run scripts/review-scope.ts "${DIFF_BASE:?run Step 0 first}"
+```
+
+It reads the committed diff against the base, the uncommitted changes and the untracked files itself. The script decides — run it rather than reasoning about it. An error, or any output but the two trivial words, means `full`:
+
+| Verdict | Step 4 | Step 6 |
+|---|---|---|
+| `full` | The `review-tests` agent, as below | Both agents |
+| `trivial-tests` | The `review-tests` agent, as below | No agents |
+| `trivial` | No agent: run the gates inline | No agents |
+
+Trivial means every change is a plain Markdown file (`*.md`; `*.mdx` carries script) or test code — a `.ts`, `.tsx`, `.js`, `.mjs`, `.sh` or `.snap` file in a `tests/` directory or named `*.test.*` or `*.spec.*`. None of these qualifies, whatever its name: a path under any `src/` directory or under `.github/`; a `package.json` or lockfile; `AGENTS.md`, `CLAUDE.md`, or anything under `.claude/` or `.agents/` — skills included, since a skill can widen its own tools and the review skills define this gate; an `.env` file; a symlink, a submodule, or a file whose mode changed. So a one-line change to auth, a schema, a route, a Worker binding, a build config or an agent's instructions always gets every review.
+
+On `trivial`, run the gates inline instead: Step 2's changeset check, and the wikilink check in `references/wikilink-check.md` when a wiki page changed. Each review that did not run gets its `## Test plan` row as `inline — trivial diff`, with one sentence of your own verdict on the diff.
+
+Otherwise, dispatch a **`reviewer`** agent (`.claude/agents/reviewer.md`) to run the `review-tests` skill (`.claude/skills/review-tests/SKILL.md`), passing the list of affected workspace paths as arguments and stating that it is alone in the worktree, so it may build and run tests. Pass no `model` or `effort`; the definition sets both. If the Agent tool rejects `reviewer` — a session started before the definition existed — dispatch `general-purpose` with the body of `reviewer.md` pasted into the brief; it carries the rules but not the tool limit. Open the dispatch prompt with `TASK-BRANCH: <branch>` on its own line — the collector reads it back out (`tools/pr-metrics/index.ts`, `resolveDispatchBranch`) to attribute this review's spend to the branch's card; without it the spend banks against whatever branch the dispatching session happened to be on.
 
 **Unless the task says the reviews have already run.** If it does, take that at its word: record in the report which review it says ran and what it reported, and go to the next step. Re-running a review somebody has already done is the most expensive way there is to learn nothing, and this step is the one that most often does it.
 
@@ -292,6 +310,8 @@ Three traps in reading the number:
 ## Step 6 — Parallel reviews
 
 **Unless the task says these reviews have already run** — then record what it says they found in the report, and go to Step 7. A finding reaches the PR body only in the form `write-pr` allows.
+
+**Unless Step 4 sized the diff `trivial` or `trivial-tests`** — then dispatch neither agent. The Performance and Security rows of `## Test plan` read `inline — trivial diff`, each with one sentence of your own verdict, and you go to Step 7.
 
 Otherwise run the following two **`reviewer`** agents **in parallel** using the Agent tool, as Step 4 describes.
 Open each dispatch prompt with `TASK-BRANCH: <branch>` on its own line, for

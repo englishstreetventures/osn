@@ -4,8 +4,10 @@ import {
   aggregateInteraction,
   aggregateSpend,
   aggregateWindow,
+  branchCards,
   branchSlug,
   type Card,
+  cardFileName,
   classifyPath,
   type ContentBlock,
   costOf,
@@ -18,6 +20,8 @@ import {
   parseNumstat,
   rateKeyFor,
   readUsage,
+  recordsInWindow,
+  recordWindow,
   type SessionRecord,
   skillCommandsIn,
 } from "../index";
@@ -634,6 +638,168 @@ test("otherPullRequest lets a run replace a card that is its own or names nobody
   expect(otherPullRequest(cardFor(null), null)).toBeNull();
   // A card whose number is not a number names no pull request either.
   expect(otherPullRequest(cardFor("984"), 1375)).toBeNull();
+});
+
+// --- reused branch names ----------------------------------------------------
+
+test("cardFileName keeps the first card's path and suffixes every later one", () => {
+  expect(cardFileName("chore/cire-migration-baseline", 984, true)).toBe(
+    "chore-cire-migration-baseline.json",
+  );
+  expect(cardFileName("chore/cire-migration-baseline", 1375, false)).toBe(
+    "chore-cire-migration-baseline-1375.json",
+  );
+});
+
+test("branchCards reads this branch name's cards and leaves a slug neighbour's out", () => {
+  const dir = require("node:fs").mkdtempSync(
+    `${require("node:os").tmpdir()}/branch-cards-`,
+  ) as string;
+  const write = (file: string, branch: string, number: number) =>
+    require("node:fs").writeFileSync(
+      `${dir}/${file}`,
+      JSON.stringify({ pr: { number, branch }, spend: {}, interaction: {} }),
+    );
+
+  try {
+    write("feat-x.json", "feat/x", 1);
+    write("feat-x-2.json", "feat/x", 2);
+    // `feat/x-12` flattens to this file name too, and is another branch.
+    write("feat-x-12.json", "feat/x-12", 12);
+    write("feat-xy.json", "feat/xy", 3);
+    require("node:fs").writeFileSync(`${dir}/feat-x-3.json`, "{ truncated");
+
+    expect(branchCards(dir, "feat/x").map(({ file }) => file)).toEqual([
+      "feat-x-2.json",
+      "feat-x.json",
+    ]);
+    expect(branchCards(`${dir}/missing`, "feat/x")).toEqual([]);
+  } finally {
+    require("node:fs").rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+const MERGED_984 = { number: 984, mergedAt: "2026-09-10T04:12:16Z", state: "MERGED" as const };
+
+test("recordWindow leaves a branch name used once open both ways", () => {
+  expect(recordWindow({ mergedAt: null }, [])).toEqual({
+    kind: "window",
+    after: null,
+    until: null,
+  });
+});
+
+test("recordWindow starts a later pull request after the earlier merge", () => {
+  expect(recordWindow({ mergedAt: null }, [MERGED_984])).toEqual({
+    kind: "window",
+    after: MERGED_984.mergedAt,
+    until: null,
+  });
+  expect(recordWindow({ mergedAt: "2026-10-07T00:00:00Z" }, [MERGED_984])).toEqual({
+    kind: "window",
+    after: MERGED_984.mergedAt,
+    until: null,
+  });
+});
+
+test("recordWindow ends an earlier pull request at its own merge", () => {
+  const later = { number: 1375, mergedAt: "2026-10-07T00:00:00Z", state: "MERGED" as const };
+
+  expect(recordWindow({ mergedAt: MERGED_984.mergedAt }, [later])).toEqual({
+    kind: "window",
+    after: null,
+    until: MERGED_984.mergedAt,
+  });
+});
+
+test("recordWindow takes the nearest merge on each side of a middle pull request", () => {
+  const third = { number: 1500, mergedAt: "2026-11-01T00:00:00Z", state: "MERGED" as const };
+  const second = "2026-10-07T00:00:00Z";
+
+  expect(recordWindow({ mergedAt: second }, [third, MERGED_984])).toEqual({
+    kind: "window",
+    after: MERGED_984.mergedAt,
+    until: second,
+  });
+});
+
+// A third pull request on a reused name starts after the second merge, never
+// the first, whatever order the others arrive in.
+test("recordWindow starts after the latest earlier merge", () => {
+  const first = { number: 1, mergedAt: "2026-09-01T00:00:00Z", state: "MERGED" as const };
+  const second = { number: 2, mergedAt: "2026-09-10T00:00:00Z", state: "MERGED" as const };
+  const expected = { kind: "window" as const, after: second.mergedAt, until: null };
+
+  expect(recordWindow({ mergedAt: null }, [first, second])).toEqual(expected);
+  expect(recordWindow({ mergedAt: null }, [second, first])).toEqual(expected);
+});
+
+// A typed `--merged-at` or junk on the card must not open the window both ways.
+test("recordWindow will not place this pull request when its own merge time is not a date", () => {
+  expect(recordWindow({ mergedAt: "yesterday" }, [MERGED_984])).toEqual({
+    kind: "unplaceable",
+    pull: null,
+    reason: "unknown",
+  });
+});
+
+test("recordWindow places an open pull request after every merge", () => {
+  const open = { number: 2, mergedAt: null, state: "OPEN" as const };
+
+  expect(recordWindow({ mergedAt: MERGED_984.mergedAt }, [open])).toEqual({
+    kind: "window",
+    after: null,
+    until: MERGED_984.mergedAt,
+  });
+});
+
+test("recordWindow will not place a pull request it cannot put on the line", () => {
+  expect(
+    recordWindow({ mergedAt: null }, [{ number: 7, mergedAt: null, state: "CLOSED" }]),
+  ).toEqual({ kind: "unplaceable", pull: 7, reason: "closed" });
+  expect(recordWindow({ mergedAt: null }, [{ number: 7, mergedAt: null, state: null }])).toEqual({
+    kind: "unplaceable",
+    pull: 7,
+    reason: "unknown",
+  });
+  expect(
+    recordWindow({ mergedAt: null }, [{ number: 7, mergedAt: "not a date", state: "MERGED" }]),
+  ).toEqual({ kind: "unplaceable", pull: 7, reason: "unknown" });
+});
+
+test("recordsInWindow returns every record when the window is open", () => {
+  const records = [assistant({ timestamp: undefined }), assistant()];
+
+  expect(recordsInWindow(records, { after: null, until: null })).toBe(records);
+});
+
+// GitHub writes `…:00Z` and transcripts `…:00.000Z`; as strings the second
+// sorts before the first for the same instant.
+test("recordsInWindow compares instants, not strings, and drops what it cannot place", () => {
+  const at = (timestamp: string | undefined) => assistant({ timestamp, uuid: timestamp });
+  // The `.500Z` records sit where the two orders disagree: as strings,
+  // `10:00:45.500Z` sorts before `10:00:45Z` and `10:02:00.500Z` before
+  // `10:02:00Z`, so a string comparison would drop the first and keep the second.
+  const records = [
+    at("2026-09-07T10:00:00.000Z"),
+    at("2026-09-07T10:00:45.000Z"),
+    at("2026-09-07T10:00:45.500Z"),
+    at("2026-09-07T10:01:00.000Z"),
+    at("2026-09-07T10:02:00.000Z"),
+    at("2026-09-07T10:02:00.500Z"),
+    at(undefined),
+  ];
+
+  const kept = recordsInWindow(records, {
+    after: "2026-09-07T10:00:45Z",
+    until: "2026-09-07T10:02:00Z",
+  });
+
+  expect(kept.map((r) => r.timestamp)).toEqual([
+    "2026-09-07T10:00:45.500Z",
+    "2026-09-07T10:01:00.000Z",
+    "2026-09-07T10:02:00.000Z",
+  ]);
 });
 
 // --- edits made through the shell ------------------------------------------

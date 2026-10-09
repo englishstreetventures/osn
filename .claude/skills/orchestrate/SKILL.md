@@ -138,7 +138,7 @@ git -C /Users/ac/.work/osn.git cat-file -e "origin/main:.claude/metrics/$(printf
 gh api "repos/englishstreetventures/osn/pulls?state=all&head=englishstreetventures:<prefix>/<dir>" --jq '.[] | "taken: #\(.number)"'
 ```
 
-A `taken` line means an earlier pull request used the name, and the session-metrics collector, which joins transcripts by branch name, would mix the two; add `-2` and check again.
+A `taken` line means an earlier pull request used the name, and the session-metrics collector, which joins transcripts by branch name, could separate the two only at the earlier merge; add `-2` and check again.
 
 **Claim the issue** immediately before `git worktree add`, with `next-batch` §Claim. If another session holds it, skip the task, write why into `ORCHESTRATE.md` and take the next one; if the check fails, wait and check again — a failed check is not a free issue. Write the `claimed:` line into the task's block.
 
@@ -298,7 +298,7 @@ The full table, with the reason behind each, is `references/gotchas.md`. The one
 
 - Feature input dispatched straight into the loop → the subagent guesses scope. Step 00 first.
 - `gh pr ready` does not propagate at once; a still-draft PR shows `BLOCKED` with green checks. Wait, then read.
-- Pre-push runs `bun audit --audit-level=high`. An advisory in an installed package is a real stop; do not push with `--no-verify` to get past one — fix or override it in `package.json` and say so in the PR. When no fixed version exists, an `--ignore` entry is possible only on the terms in the comment above `audit` in `lefthook.yml` (never for a malicious-package advisory), and it is the owner's call, not yours: write the evidence into the issue, label it `needs:decision`, and do not merge that pull request until the owner approves it.
+- Pre-push runs `bun audit --audit-level=high`. An advisory in an installed package is a real stop; do not push with `--no-verify` to get past one — fix or override it in `package.json` and say so in the PR. When no fixed version exists, an `--ignore` entry is possible only on the terms in the comment above `audit` in `lefthook.yml`, with its dated `DROP AFTER` marker (never for a malicious-package advisory), and it is the owner's call, not yours: write the evidence into the issue, label it `needs:decision`, and do not merge that pull request until the owner approves it.
 - Merging several PRs in sequence: the release workflow versions on every merge, so sibling PRs touching `wrangler.toml` or an `index.ts` conflict. Merge in dependency order and rebase additively.
 - Wrangler named environments inherit no top-level bindings. Every `[[d1_databases]]`, `[[r2_buckets]]` and `[images]` is mirrored into `[env.production]` and `[env.dev]`; verify with `wrangler deploy --dry-run`.
 

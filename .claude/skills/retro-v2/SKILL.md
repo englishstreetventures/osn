@@ -8,8 +8,9 @@ current branch if it is empty. Then stop.
 
 ## What this run must produce
 
-One thing: **the card.** `.claude/metrics/<branch-slug>.json`, carrying this
-branch's pull request number, issue number and issue labels — committed, pushed,
+One thing: **the card.** `.claude/metrics/<branch-slug>.json` — or
+`<branch-slug>-<pr>.json` on a branch name an earlier pull request used —
+carrying this branch's pull request number, issue number and issue labels — committed, pushed,
 and rendered onto the pull-request body as a `<details>` block.
 
 Nothing else. No `RETRO.md`, no findings, no changes to the skills, `AGENTS.md`,
@@ -110,7 +111,10 @@ Four rules about that pair:
   there.
 
 ```bash
-git add ".claude/metrics/$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/^-*//;s/-*$//').json"
+SLUG=$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/^-*//;s/-*$//')
+CARD=".claude/metrics/$SLUG.json"
+[ -f ".claude/metrics/$SLUG-$PR.json" ] && CARD=".claude/metrics/$SLUG-$PR.json"
+git add "$CARD"
 git commit -m "chore: session-metrics card for $BRANCH"
 git push
 ```
@@ -141,9 +145,12 @@ permits exactly five top-level headings, and appending a sixth fails a body that
 is otherwise correct.
 
 **When a step here cannot run**, record which and carry on — a missing card
-never blocks anything. The exception is `card` exiting 1 because the card on
-disk names another pull request. If its message shows `gh` named the wrong pull
-request, rerun with `--pr <n>`; otherwise stop — no block, no commit — and quote
+never blocks anything. The exception is `card` exiting 1 because it cannot keep
+this pull request's sessions apart from another's: a card on disk that names
+another pull request, or an earlier pull request on this branch name whose merge
+time is unknown or that closed without merging. If its message shows `gh` named
+the wrong pull request, rerun with `--pr <n>`; if it asks for `--resolve-issue`,
+rerun with it; otherwise stop — no block, no commit — and quote
 it in the final message. No `gh`: write the card with whatever identity you know
 and leave the block in a file, naming that file in the final message. No
 network: commit the card locally; it pushes with the next push.
