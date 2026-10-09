@@ -360,7 +360,11 @@ describe("POST /api/account/link", () => {
   // On D1 a failed insert arrives wrapped, its message naming only the
   // statement and the database's reason on its cause.
   it("answers both conflicts 409 when the reason is on the error's cause, as on D1", async () => {
-    const { db, app } = buildApp(); // okResolver → same account for any profile
+    // One account per profile, so each refused link below meets one index only.
+    const { db, app } = buildApp(async (profileId) => ({
+      ok: true,
+      accountId: `acc_${profileId}`,
+    }));
     failLikeD1(db);
     const cookie = await claimCookie(app, SAMPLETON);
     const bo = guestIdByName(db, "Bo");
@@ -369,10 +373,14 @@ describe("POST /api/account/link", () => {
     expect(first.status).toBe(201);
     const fresh = rotatedCookie(first, cookie);
 
-    // The same seat again, then the same account on a second seat.
-    for (const guestId of [bo, cleo]) {
-      const res = await postLink(app, { cookie: fresh, bearer: await auth.sign("usr_b"), guestId });
-      expect(res.status, guestId).toBe(409);
+    // Another account on the same seat (`guest_id`), then the same account on
+    // a second seat (`family_id, osn_account_id`).
+    for (const [profile, guestId] of [
+      ["usr_b", bo],
+      ["usr_a", cleo],
+    ] as const) {
+      const res = await postLink(app, { cookie: fresh, bearer: await auth.sign(profile), guestId });
+      expect(res.status, profile).toBe(409);
       expect(await jsonBody(res)).toEqual({ error: "already_linked" });
     }
   });

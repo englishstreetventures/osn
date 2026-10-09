@@ -798,6 +798,29 @@ describe("startPurchase across products", () => {
     // Counted like every other press told to wait.
     expect(await counterValue(name, attrs)).toBe(before + 1);
   });
+
+  it("answers a write error, not processing, when the insert fails for any other reason", async () => {
+    // Failed as D1 fails it, with a reason that is no unique conflict: the
+    // organiser must not be told to wait, and the press is no contention.
+    const db = createDb();
+    seedWedding(db);
+    failLikeD1(db);
+    db.$client.exec(
+      "CREATE TRIGGER upg_fail BEFORE INSERT ON wedding_upgrade_purchases BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END",
+    );
+    const stripe = stubStripe();
+    const svc = makeService(stripe.client, { t: BASE_MS });
+    const name = CIRE_METRICS.upgradeCheckoutStarted;
+    const attrs = { tier: "crimson", from_tier: "ivory", result: "processing" };
+    const before = await counterValue(name, attrs);
+
+    const error = await run(db, svc.startPurchase(CRIMSON).pipe(Effect.flip));
+
+    expect(error).toMatchObject({ _tag: "UpgradeWriteError", op: "insert-purchase" });
+    expect((error as { reason: string }).reason).toContain("disk I/O error");
+    expect(stripe.created).toEqual([]);
+    expect(await counterValue(name, attrs)).toBe(before);
+  });
 });
 
 /**

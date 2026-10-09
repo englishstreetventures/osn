@@ -274,6 +274,21 @@ describe("what may be bought", () => {
       .all();
     expect(pending).toEqual([{ id: "upg_rival" }]);
   });
+
+  it("500s, not 409, when the purchase insert fails for another reason, as D1 reports it", async () => {
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    failLikeD1(db);
+    db.$client.exec(
+      "CREATE TRIGGER upg_fail BEFORE INSERT ON wedding_upgrade_purchases BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END",
+    );
+
+    const res = await startSession(app, OWNER, { tier: "gold" });
+
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "internal" });
+    expect(stripe.created).toEqual([]);
+  });
 });
 
 describe("where Stripe sends the organiser back", () => {

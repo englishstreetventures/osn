@@ -501,6 +501,24 @@ describe("vendor directory write routes (add-from-directory)", () => {
     });
   }
 
+  it("500s, not 409, when the insert fails for another reason, as D1 reports it", async () => {
+    const { app, db } = buildWriteFixture();
+    failLikeD1(db);
+    db.$client.exec(
+      "CREATE TRIGGER ven_fail BEFORE INSERT ON vendors BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END",
+    );
+
+    const res = await postAdd(app, LA, { category: "venue" }, EDITOR);
+
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+    const rows = db
+      .select({ id: vendors.id })
+      .from(vendors)
+      .where(eq(vendors.directoryVendorId, LA));
+    expect(rows.all()).toEqual([]);
+  });
+
   // The organiser portal reaches this route with the session cookie; other
   // callers send a bearer. Each way in is tested on the allow and deny side.
   it("adds on a live session cookie and refuses a dead cookie, no credential or a foreign token", async () => {
@@ -591,6 +609,9 @@ describe("isDirectoryDuplicate", () => {
     expect(isDirectoryDuplicate(onId)).toBe(false);
     expect(isDirectoryDuplicate(new Error("UNIQUE constraint failed: guests.email"))).toBe(false);
     expect(isDirectoryDuplicate(new Error("NOT NULL constraint failed: vendors.name"))).toBe(false);
+    // The column alone is not enough: only a unique failure on it is a duplicate.
+    const notNull = new Error("NOT NULL constraint failed: vendors.directory_vendor_id");
+    expect(isDirectoryDuplicate(notNull)).toBe(false);
     expect(isDirectoryDuplicate(undefined)).toBe(false);
   });
 });
