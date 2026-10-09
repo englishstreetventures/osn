@@ -13,7 +13,7 @@ describe("Hero", () => {
   });
 
   it("renders the primary CTA to the organiser portal", () => {
-    expect(hero).toContain("Create your invitation");
+    expect(hero).toContain("Start your wedding free");
     expect(hero).toContain("ORGANISER_URL");
   });
 });

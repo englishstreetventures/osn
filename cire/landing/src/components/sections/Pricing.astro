@@ -1,0 +1,9 @@
+---
+import { PLANS, GOLD_TO_CRIMSON_PRICE } from '../../lib/plans'
+import { ORGANISER_URL } from '../../lib/site'
+---
+<section id="pricing" class="pricing-section section-wrap section-space" aria-labelledby="pricing-heading">
+  <div class="section-heading" data-reveal><h2 id="pricing-heading" class="display">Start with the invitation.<br />Make room for everything else.</h2><p>A free beginning. One-time upgrades for your wedding.<br />All prices in Australian dollars.</p></div>
+  <div class="plans" data-reveal>{PLANS.map(plan => <article class:list={['plan', { 'plan-featured': plan.id === 'gold' }]} aria-labelledby={`plan-${plan.id}`}><div class="plan-top"><h3 id={`plan-${plan.id}`} class="display">{plan.name}</h3><p>{plan.description}</p></div><p class="plan-price">{plan.price === 0 ? 'Free' : <><span>A$</span>{plan.price}</>}</p><p class="plan-period">{plan.price === 0 ? 'Your place to begin' : 'Once, for your wedding'}</p><p class="plan-cap">Up to <strong>{plan.guestCap.toLocaleString('en-AU')} guests</strong></p><ul>{plan.inclusions.map(item => <li><span aria-hidden="true">✓</span>{item}</li>)}</ul><a href={ORGANISER_URL} class={plan.id === 'gold' ? 'cta-primary' : 'cta-ghost'} aria-label={`Start free, then choose ${plan.name}`}>{plan.price === 0 ? 'Start with Ivory' : `Start free, choose ${plan.name}`}<span aria-hidden="true">↗</span></a></article>)}</div>
+  <p class="pricing-footnote">Already on Gold? Move to Crimson for A${GOLD_TO_CRIMSON_PRICE}. Every paid plan includes the one below it.</p>
+</section>
