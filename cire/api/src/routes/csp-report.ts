@@ -23,6 +23,11 @@
  *  - **Per-IP rate limit.** A generous bucket (≈60/min) purely to stop a
  *    log-spam DoS — fail-OPEN here (a 429-equivalent just drops the report; we
  *    still 204) because spamming the limiter is itself the only thing it guards.
+ *  - **At most {@link MAX_VIOLATIONS_PER_REQUEST} violations per request.** A
+ *    Reporting API body is an array, so the limiter alone would bound requests
+ *    but not log lines. An entry naming no directive is skipped, the rest past
+ *    the cap are dropped, and one `csp report batch truncated` line carries the
+ *    dropped count.
  *  - **No D1 write.** Avoids a write-amplification DoS — log + metric only.
  *  - **No Turnstile, no Origin/auth requirement.** Browsers send CSP reports as
  *    an automated POST with no creds and (for `report-to`) cross-origin without
@@ -32,9 +37,12 @@
  *    separate fields (query/hash stripped — a claim code could ride in the
  *    query), the site label and the disposition. Never the full URL. The
  *    document path can contain a public wedding slug — that is not PII.
- *  - **Bounded labels.** The site is one of the configured guest, organiser
- *    and vendor origins or `other`; the disposition is `enforce`, `report` or
- *    `unknown`. Neither ever carries a browser-supplied string.
+ *  - **Bounded labels, chosen by the sender.** The site is one of the
+ *    configured guest, organiser and vendor origins or `other`; the disposition
+ *    is `enforce`, `report` or `unknown`. The values are a fixed set, but the
+ *    report picks which: any POST can name a cire origin and either
+ *    disposition. A line shows that something reported a violation, not that a
+ *    cire page blocked a load.
  */
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect } from "effect";
@@ -55,6 +63,13 @@ const MAX_REPORT_BYTES = 16 * 1024;
 
 /** Cap on every logged URI/path field, as a coarse log-bloat backstop. */
 const MAX_FIELD_CHARS = 128;
+
+/**
+ * The most violations one request may log and count. A browser batches only a
+ * handful of reports per upload; the cap stops one 16 KB array from writing
+ * thousands of log lines.
+ */
+export const MAX_VIOLATIONS_PER_REQUEST = 20;
 
 /** The normalised, bounded slice of a single CSP violation we log + count. */
 export interface NormalisedCspViolation {
@@ -157,39 +172,36 @@ export function reduceBlockedUri(raw: unknown): string {
   return value.slice(0, MAX_FIELD_CHARS);
 }
 
-/**
- * Reduce a document URL to its `scheme://host[:port]` origin — never its path,
- * query, fragment or userinfo — truncated to {@link MAX_FIELD_CHARS}. A value
- * that is not an absolute URL, or a document with an opaque origin
- * (`about:blank`, `data:`), gives `""`.
- */
-export function reduceDocumentOrigin(raw: unknown): string {
-  if (typeof raw !== "string" || raw.length === 0) return "";
-  try {
-    const { origin } = new URL(raw.trim());
-    return origin === "null" ? "" : origin.slice(0, MAX_FIELD_CHARS);
-  } catch {
-    return "";
-  }
+/** A document URL reduced to the two fields the collector logs. */
+export interface ReducedDocumentUrl {
+  /** `scheme://host[:port]`, or `""` when the document has none. */
+  origin: string;
+  /** The path alone, with no query or fragment. */
+  path: string;
 }
 
 /**
- * Reduce a document URL to its PATH only (query + hash stripped). A guest-site
- * document URL is `https://invite.cireweddings.com/<slug>?code=…` — the slug is
- * public but the query can carry a claim code, so we keep only the path.
- * Truncated to {@link MAX_FIELD_CHARS}. A non-absolute value is treated as a
- * path already.
+ * Reduce a document URL, parsed once, to two fields: its `scheme://host[:port]`
+ * origin and its PATH. Neither carries the query, fragment or userinfo — a
+ * guest-site document URL is `https://invite.cireweddings.com/<slug>?code=…`,
+ * where the slug is public but the query can carry a claim code. Both are
+ * truncated to {@link MAX_FIELD_CHARS}. A document with an opaque origin
+ * (`about:blank`, `data:`) has origin `""`; a value that is not an absolute URL
+ * is treated as a path already, with origin `""`.
  */
-export function reduceDocumentPath(raw: unknown): string {
-  if (typeof raw !== "string" || raw.length === 0) return "";
+export function reduceDocumentUrl(raw: unknown): ReducedDocumentUrl {
+  if (typeof raw !== "string" || raw.length === 0) return { origin: "", path: "" };
   const value = raw.trim();
   try {
     const url = new URL(value);
-    return url.pathname.slice(0, MAX_FIELD_CHARS);
+    return {
+      origin: url.origin === "null" ? "" : url.origin.slice(0, MAX_FIELD_CHARS),
+      path: url.pathname.slice(0, MAX_FIELD_CHARS),
+    };
   } catch {
     // Not an absolute URL — strip any query/hash by hand, keep the path part.
     const path = value.split(/[?#]/)[0] ?? value;
-    return path.slice(0, MAX_FIELD_CHARS);
+    return { origin: "", path: path.slice(0, MAX_FIELD_CHARS) };
   }
 }
 
@@ -199,9 +211,33 @@ function reduceDisposition(raw: unknown): CspDisposition {
 }
 
 /**
+ * One bounded violation from a report's raw fields, or `null` when it names no
+ * directive — every real browser report does, so such an entry is noise.
+ */
+function toViolation(fields: {
+  effectiveDirective: unknown;
+  violatedDirective: unknown;
+  blockedUri: unknown;
+  documentUrl: unknown;
+  disposition: unknown;
+}): NormalisedCspViolation | null {
+  const effectiveDirective = pickDirective(fields.effectiveDirective, fields.violatedDirective);
+  if (effectiveDirective.length === 0) return null;
+  const document = reduceDocumentUrl(fields.documentUrl);
+  return {
+    effectiveDirective,
+    blockedUri: reduceBlockedUri(fields.blockedUri),
+    documentOrigin: document.origin,
+    documentPath: document.path,
+    disposition: reduceDisposition(fields.disposition),
+  };
+}
+
+/**
  * Normalise whatever CSP-report shape arrived into a flat list of bounded
- * violations. Handles BOTH wire formats and tolerates any malformed input by
- * returning `[]` (the caller still answers 204):
+ * violations. Handles BOTH wire formats, skips an entry that names no
+ * directive, and tolerates any malformed input by returning `[]` (the caller
+ * still answers 204):
  *
  *  - Legacy `report-uri` (`application/csp-report`): a single object
  *    `{ "csp-report": { "document-uri", "violated-directive",
@@ -219,13 +255,14 @@ export function normaliseCspReports(body: unknown): NormalisedCspViolation[] {
       // Only CSP-violation reports — a `report-to` group can be shared.
       if (entry.type !== undefined && entry.type !== "csp-violation") continue;
       const inner: CspViolationBody = isCspViolationBody(entry.body) ? entry.body : {};
-      out.push({
-        effectiveDirective: pickDirective(inner.effectiveDirective, inner.violatedDirective),
-        blockedUri: reduceBlockedUri(inner.blockedURL),
-        documentOrigin: reduceDocumentOrigin(inner.documentURL),
-        documentPath: reduceDocumentPath(inner.documentURL),
-        disposition: reduceDisposition(inner.disposition),
+      const violation = toViolation({
+        effectiveDirective: inner.effectiveDirective,
+        violatedDirective: inner.violatedDirective,
+        blockedUri: inner.blockedURL,
+        documentUrl: inner.documentURL,
+        disposition: inner.disposition,
       });
+      if (violation) out.push(violation);
     }
     return out;
   }
@@ -234,18 +271,14 @@ export function normaliseCspReports(body: unknown): NormalisedCspViolation[] {
   if (body && isLegacyCspReportDocument(body)) {
     const inner = body["csp-report"];
     if (inner && isLegacyCspReport(inner)) {
-      return [
-        {
-          effectiveDirective: pickDirective(
-            inner["effective-directive"],
-            inner["violated-directive"],
-          ),
-          blockedUri: reduceBlockedUri(inner["blocked-uri"]),
-          documentOrigin: reduceDocumentOrigin(inner["document-uri"]),
-          documentPath: reduceDocumentPath(inner["document-uri"]),
-          disposition: reduceDisposition(inner.disposition),
-        },
-      ];
+      const violation = toViolation({
+        effectiveDirective: inner["effective-directive"],
+        violatedDirective: inner["violated-directive"],
+        blockedUri: inner["blocked-uri"],
+        documentUrl: inner["document-uri"],
+        disposition: inner.disposition,
+      });
+      return violation ? [violation] : [];
     }
   }
 
@@ -378,9 +411,17 @@ export const createCspReportRoutes = ({ limiter, siteOrigins }: CspReportRouteOp
       }
 
       const violations = normaliseCspReports(parsed);
+      const recorded = violations.slice(0, MAX_VIOLATIONS_PER_REQUEST);
       // Best-effort log/metric — never let an observability hiccup throw.
       try {
-        await Promise.all(violations.map(recordViolation));
+        await Promise.all(recorded.map(recordViolation));
+        if (violations.length > recorded.length) {
+          await runCire(
+            Effect.logWarning("csp report batch truncated", {
+              dropped: violations.length - recorded.length,
+            }),
+          );
+        }
       } catch {
         // swallow — the report is fire-and-forget
       }

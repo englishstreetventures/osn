@@ -1,6 +1,13 @@
 import { describe, expect, it } from "bun:test";
 
-import { bucketCspDisposition, bucketParseReason } from "../src/metrics";
+import {
+  bucketCspDisposition,
+  bucketParseReason,
+  CIRE_METRICS,
+  metricCspReport,
+  type CspReportAttrs,
+} from "../src/metrics";
+import { counterValue } from "./test-helpers/metrics-harness";
 
 /**
  * `bucketParseReason` is the one branching, attribute-shaping bit of the
@@ -46,5 +53,21 @@ describe("bucketCspDisposition", () => {
     expect(bucketCspDisposition("")).toBe("unknown");
     expect(bucketCspDisposition("block")).toBe("unknown");
     expect(bucketCspDisposition("report-only")).toBe("unknown");
+  });
+});
+
+describe("metricCspReport", () => {
+  it("records only the three declared attributes, whatever else the object carries", async () => {
+    const attrs: CspReportAttrs = {
+      effectiveDirective: "child-src",
+      site: "vendor",
+      disposition: "report",
+    };
+    const wider = { ...attrs, documentPath: "/listing", blockedUri: "https://x.example" };
+    const before = await counterValue(CIRE_METRICS.cspReport, attrs);
+    metricCspReport(wider);
+    // `counterValue` matches a data point's whole attribute set, so an extra
+    // key would land on a different point and leave this one unchanged.
+    expect(await counterValue(CIRE_METRICS.cspReport, attrs)).toBe(before + 1);
   });
 });

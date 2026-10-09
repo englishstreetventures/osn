@@ -16,7 +16,7 @@ import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
 import { organiserOriginFrom } from "./lib/organiser-origin";
 import { registryOutboundLimiters } from "./lib/registry-limiters";
 import { resendEmailConfig } from "./lib/resend-email";
-import { webOriginProblem } from "./lib/web-origin";
+import { siteOriginOptions, webOriginProblem } from "./lib/web-origin";
 import { flushCireTelemetry, runCire } from "./observability";
 import { assetReconcileService } from "./services/asset-reconcile";
 import { claimReviewService, type PendingClaimsSummary } from "./services/claim-review";
@@ -463,7 +463,6 @@ const handler: ExportedHandler<Env> = {
         );
       }
       const appOptions: AppOptions = {
-        webOrigin: origins[0],
         allowedOrigins: origins,
         claimLimiter: edgeLimiter,
         accountLinkLimiter: edgeLimiter,
@@ -525,10 +524,10 @@ const handler: ExportedHandler<Env> = {
       };
       // WEB_ORIGIN is a comma-list: [guest invite, organiser host, vendor
       // portal]. Enquiry thread links live on the organiser origin; vendor
-      // claim links on the vendor portal. Fall back to createApp's prod
-      // defaults if a tier only configures the guest origin.
-      if (origins[1]) appOptions.organiserOrigin = origins[1];
-      if (origins[2]) appOptions.vendorPortalOrigin = origins[2];
+      // claim links on the vendor portal; the CSP collector labels a report's
+      // site from all three. Fall back to createApp's prod defaults if a tier
+      // only configures the guest origin.
+      Object.assign(appOptions, siteOriginOptions(origins));
       // Its own edge limiter, NOT `edgeLimiter` — that one is bound to
       // CLAIM_RATE_LIMITER (5/min), the exact budget this route was split
       // away from. Absent binding ⇒ createApp's in-memory 60/min default.

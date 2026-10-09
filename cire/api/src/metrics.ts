@@ -358,17 +358,19 @@ export type CspDirective =
   | "other";
 
 /**
- * Which cire site a CSP report came from, by its document's origin matched
+ * Which cire site a CSP report says it came from: its document's origin matched
  * against the guest, organiser and vendor origins cire-api is configured with
- * (`WEB_ORIGIN`). Any other origin — a Pages alias, a blank document, a forged
- * report — and a missing one collapse to `other`.
+ * (`WEB_ORIGIN`). Any other origin — a Pages alias, a blank document — and a
+ * missing one collapse to `other`. The report supplies the origin, so a forged
+ * one can claim any of the three sites; the label set stays bounded either way.
  */
 export type CspSite = "invites" | "host" | "vendor" | "other";
 
 /**
- * Whether the browser blocked the load (`enforce`) or only reported it under a
- * Report-Only policy (`report`). A missing or unrecognised value is `unknown`,
- * never `report`, so a block is never filed among the report-only lines.
+ * Whether the report says the browser blocked the load (`enforce`) or only
+ * reported it under a Report-Only policy (`report`). A missing or unrecognised
+ * value is `unknown`, never `report`, so a block is never filed among the
+ * report-only lines.
  */
 export type CspDisposition = "enforce" | "report" | "unknown";
 

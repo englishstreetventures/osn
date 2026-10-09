@@ -458,15 +458,19 @@ a report-only policy. The log is harder to read than it looks:
 
 - `site` is `invites`, `host` or `vendor` when the document's origin is that
   entry of cire-api's `WEB_ORIGIN`, and `other` for anything else: a Pages
-  `*.pages.dev` alias, a blank document such as the invite preview window
-  before it loads (its `documentOrigin` is empty), or a forged report.
+  `*.pages.dev` alias, or a blank document such as the invite preview window
+  before it loads (its `documentOrigin` is empty).
 - `disposition` is `unknown` when the browser left the field out. `site` still
   tells the modes apart: the guest site reports only, and the portals enforce.
+- A line records what a report claims. The collector cannot tell a browser
+  from a script, and anyone can POST a report naming a cire origin and
+  `enforce`, so confirm a block in DevTools before changing a policy.
 - Chrome queues `report-to` reports and sends them in batches, so a report
   arrives some time after the load. Wait a minute or two before calling a
   step clean.
 - The collector drops reports past 60 a minute from one IP address and still
-  answers 204. Walk at a normal pace.
+  answers 204. Walk at a normal pace. From one request it logs at most 20
+  reports, then one `csp report batch truncated` line with the number dropped.
 - The `cire.csp.report` counter is keyed by directive, site and disposition,
   never by blocked origin, and records nothing on workerd until metric export
   is wired ([[cire-workerd]]). Read the logs.

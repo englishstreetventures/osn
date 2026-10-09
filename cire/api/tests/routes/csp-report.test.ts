@@ -7,11 +7,12 @@ import { createDb, seedDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import {
   createCspSiteResolver,
+  MAX_VIOLATIONS_PER_REQUEST,
   normaliseCspReports,
   reduceBlockedUri,
-  reduceDocumentOrigin,
-  reduceDocumentPath,
+  reduceDocumentUrl,
 } from "../../src/routes/csp-report";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 
 // The collector is keyed per-IP and fail-closed on an unresolved IP, so every
@@ -55,14 +56,13 @@ function buildApp() {
 const cspReportCount = (attrs: { effectiveDirective: string; site: string; disposition: string }) =>
   counterValue(CIRE_METRICS.cspReport, attrs);
 
+/** `ip: null` sends no `cf-connecting-ip`, so the client address is unresolved. */
 function post(
   app: ReturnType<typeof createApp>,
-  opts: { contentType: string; body: string; ip?: string; contentLength?: string },
+  opts: { contentType: string; body: string; ip?: string | null; contentLength?: string },
 ): Promise<Response> {
-  const headers: Record<string, string> = {
-    "Content-Type": opts.contentType,
-    "cf-connecting-ip": opts.ip ?? TEST_CF_IP,
-  };
+  const headers: Record<string, string> = { "Content-Type": opts.contentType };
+  if (opts.ip !== null) headers["cf-connecting-ip"] = opts.ip ?? TEST_CF_IP;
   if (opts.contentLength !== undefined) headers["Content-Length"] = opts.contentLength;
   return Promise.resolve(
     app.fetch(
@@ -110,48 +110,56 @@ describe("reduceBlockedUri", () => {
   });
 });
 
-describe("reduceDocumentPath", () => {
-  it("strips the query string (a claim code could ride there) keeping the path", () => {
-    expect(reduceDocumentPath("https://cireweddings.com/smith-jones?code=NGUYEN-ABCD")).toBe(
+describe("reduceDocumentUrl", () => {
+  it("keeps the path and drops the query (a claim code could ride there)", () => {
+    expect(reduceDocumentUrl("https://cireweddings.com/smith-jones?code=NGUYEN-ABCD").path).toBe(
       "/smith-jones",
     );
   });
 
-  it("strips a fragment too", () => {
-    expect(reduceDocumentPath("https://cireweddings.com/smith-jones#story")).toBe("/smith-jones");
-  });
-
-  it("keeps a bare path (non-absolute) but drops its query", () => {
-    expect(reduceDocumentPath("/the-wedding?code=X")).toBe("/the-wedding");
-  });
-});
-
-describe("reduceDocumentOrigin", () => {
-  it("keeps only the origin, dropping the path, query and fragment", () => {
-    expect(reduceDocumentOrigin("https://invite.cireweddings.com/smith-jones?code=AB#story")).toBe(
-      "https://invite.cireweddings.com",
+  it("drops a fragment from the path too", () => {
+    expect(reduceDocumentUrl("https://cireweddings.com/smith-jones#story").path).toBe(
+      "/smith-jones",
     );
   });
 
-  it("keeps the port", () => {
-    expect(reduceDocumentOrigin("http://localhost:4321/login")).toBe("http://localhost:4321");
+  it("keeps a bare path (non-absolute) but drops its query, with no origin", () => {
+    expect(reduceDocumentUrl("/the-wedding?code=X")).toEqual({ origin: "", path: "/the-wedding" });
   });
 
-  it("drops userinfo", () => {
-    expect(reduceDocumentOrigin("https://user:secret@host.cireweddings.com/login")).toBe(
+  it("keeps only the origin, dropping the path, query and fragment", () => {
+    expect(reduceDocumentUrl("https://invite.cireweddings.com/smith-jones?code=AB#story")).toEqual({
+      origin: "https://invite.cireweddings.com",
+      path: "/smith-jones",
+    });
+  });
+
+  it("keeps the port, and drops userinfo", () => {
+    expect(reduceDocumentUrl("http://localhost:4321/login").origin).toBe("http://localhost:4321");
+    expect(reduceDocumentUrl("https://user:secret@host.cireweddings.com/login").origin).toBe(
       "https://host.cireweddings.com",
     );
   });
 
-  it("returns empty string for a relative path or a document with an opaque origin", () => {
-    expect(reduceDocumentOrigin("/the-wedding?code=X")).toBe("");
-    expect(reduceDocumentOrigin("about:blank")).toBe("");
+  it("writes the origin the way a browser does: lower-case host, no default port", () => {
+    const host = new URL(HOST_ORIGIN).hostname;
+    expect(reduceDocumentUrl(`https://${host.toUpperCase()}:443/login`).origin).toBe(HOST_ORIGIN);
   });
 
-  it("returns empty string for non-strings / empty", () => {
-    expect(reduceDocumentOrigin(undefined)).toBe("");
-    expect(reduceDocumentOrigin(123)).toBe("");
-    expect(reduceDocumentOrigin("")).toBe("");
+  it("truncates a long origin to 128 chars", () => {
+    const label = "a".repeat(60);
+    const origin = reduceDocumentUrl(`https://${label}.${label}.${label}.${label}/x`).origin;
+    expect(origin.length).toBe(128);
+  });
+
+  it("gives no origin for a document with an opaque origin", () => {
+    expect(reduceDocumentUrl("about:blank").origin).toBe("");
+  });
+
+  it("returns empty fields for non-strings / empty", () => {
+    expect(reduceDocumentUrl(undefined)).toEqual({ origin: "", path: "" });
+    expect(reduceDocumentUrl(123)).toEqual({ origin: "", path: "" });
+    expect(reduceDocumentUrl("")).toEqual({ origin: "", path: "" });
   });
 });
 
@@ -166,6 +174,13 @@ describe("createCspSiteResolver", () => {
     expect(siteOf(INVITES_ORIGIN)).toBe("invites");
     expect(siteOf(HOST_ORIGIN)).toBe("host");
     expect(siteOf(VENDOR_ORIGIN)).toBe("vendor");
+  });
+
+  it("labels a URL that spells the host differently, once reduced", () => {
+    const host = new URL(HOST_ORIGIN).hostname;
+    expect(siteOf(reduceDocumentUrl(`https://${host.toUpperCase()}:443/login`).origin)).toBe(
+      "host",
+    );
   });
 
   it("buckets any other origin, and a missing one, as other", () => {
@@ -284,6 +299,14 @@ describe("normaliseCspReports", () => {
     });
     expect(out[0]?.effectiveDirective).toBe("style-src 'self'");
     expect(out[0]?.blockedUri).toBe("inline");
+  });
+
+  it("skips an entry that names no directive, in both wire formats", () => {
+    expect(normaliseCspReports({ "csp-report": { "blocked-uri": "inline" } })).toEqual([]);
+    expect(normaliseCspReports([[], {}, { type: "csp-violation", body: {} }])).toEqual([]);
+    expect(
+      normaliseCspReports([[], { type: "csp-violation", body: { effectiveDirective: "img-src" } }]),
+    ).toHaveLength(1);
   });
 
   it("tolerates malformed shapes by returning []", () => {
@@ -421,23 +444,48 @@ describe("POST /api/csp-report", () => {
     expect(res.status).toBe(204);
   });
 
-  it("rate-limits to 204 (never 429/500) and keeps draining reports", async () => {
+  it("rate-limits to 204 (never 429/500), counting only the report it let through", async () => {
     const db = createDb(":memory:");
     seedDb(db);
     const app = createApp(db, {
+      webOrigin: INVITES_ORIGIN,
       cspReportLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
     });
-    const first = await post(app, {
-      contentType: "application/csp-report",
-      body: JSON.stringify({ "csp-report": { "effective-directive": "img-src" } }),
+    const attrs = { effectiveDirective: "object-src", site: "invites", disposition: "report" };
+    const body = JSON.stringify({
+      "csp-report": {
+        "document-uri": `${INVITES_ORIGIN}/a`,
+        "effective-directive": "object-src",
+        disposition: "report",
+      },
     });
-    const second = await post(app, {
-      contentType: "application/csp-report",
-      body: JSON.stringify({ "csp-report": { "effective-directive": "img-src" } }),
-    });
+    const before = await cspReportCount(attrs);
+    const first = await post(app, { contentType: "application/csp-report", body });
+    expect(await cspReportCount(attrs)).toBe(before + 1);
+    const second = await post(app, { contentType: "application/csp-report", body });
     // Both 204 — the limiter drop is silent (fail-open), never a 429.
     expect(first.status).toBe(204);
     expect(second.status).toBe(204);
+    expect(await cspReportCount(attrs)).toBe(before + 1);
+  });
+
+  it("drops a report whose client address cannot be resolved, still 204", async () => {
+    const app = buildApp();
+    const attrs = { effectiveDirective: "base-uri", site: "invites", disposition: "report" };
+    const before = await cspReportCount(attrs);
+    const res = await post(app, {
+      contentType: "application/csp-report",
+      ip: null,
+      body: JSON.stringify({
+        "csp-report": {
+          "document-uri": `${INVITES_ORIGIN}/a`,
+          "effective-directive": "base-uri",
+          disposition: "report",
+        },
+      }),
+    });
+    expect(res.status).toBe(204);
+    expect(await cspReportCount(attrs)).toBe(before);
   });
 });
 
@@ -511,7 +559,7 @@ describe("POST /api/csp-report counts by directive, site and disposition", () =>
     const app = buildApp();
     const attrs = { effectiveDirective: "font-src", site: "other", disposition: "unknown" };
     const before = await cspReportCount(attrs);
-    await post(app, {
+    const res = await post(app, {
       contentType: "application/csp-report",
       body: JSON.stringify({
         "csp-report": {
@@ -521,6 +569,98 @@ describe("POST /api/csp-report counts by directive, site and disposition", () =>
         },
       }),
     });
+    expect(res.status).toBe(204);
     expect(await cspReportCount(attrs)).toBe(before + 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The log line, and the per-request cap.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/csp-report log line", () => {
+  it("logs each report's origin, path, site and disposition, never its query or fragment", async () => {
+    const app = buildApp();
+    const logs = await captureLogs(async () => {
+      await post(app, {
+        contentType: "application/csp-report",
+        body: JSON.stringify({
+          "csp-report": {
+            "document-uri": `${HOST_ORIGIN}/login?code=SECRET-1234#frag`,
+            "effective-directive": "img-src",
+            "blocked-uri": "https://avatars.example/a.png?u=SECRET-AVATAR",
+            disposition: "enforce",
+          },
+        }),
+      });
+      await post(app, {
+        contentType: "application/reports+json",
+        body: JSON.stringify([
+          {
+            type: "csp-violation",
+            body: {
+              documentURL: `${VENDOR_ORIGIN}/enquiries?code=SECRET-5678`,
+              effectiveDirective: "connect-src",
+              blockedURL: "https://api.example/x",
+              disposition: "report",
+            },
+          },
+        ]),
+      });
+    });
+    expect(logs).toContain("csp violation report");
+    expect(logs).toContain(`"documentOrigin":"${HOST_ORIGIN}"`);
+    expect(logs).toContain('"documentPath":"/login"');
+    expect(logs).toContain('"site":"host"');
+    expect(logs).toContain('"disposition":"enforce"');
+    expect(logs).toContain(`"documentOrigin":"${VENDOR_ORIGIN}"`);
+    expect(logs).toContain('"documentPath":"/enquiries"');
+    expect(logs).toContain('"site":"vendor"');
+    expect(logs).toContain('"disposition":"report"');
+    expect(logs).not.toContain("SECRET");
+    expect(logs).not.toContain("?code=");
+    expect(logs).not.toContain("#frag");
+  });
+});
+
+describe("POST /api/csp-report per-request cap", () => {
+  const entry = {
+    type: "csp-violation",
+    body: {
+      documentURL: `${HOST_ORIGIN}/registry`,
+      effectiveDirective: "frame-src",
+      blockedURL: "https://frames.example/",
+      disposition: "enforce",
+    },
+  };
+
+  it(`records at most ${MAX_VIOLATIONS_PER_REQUEST} reports from one request and logs how many it dropped`, async () => {
+    const app = buildApp();
+    const attrs = { effectiveDirective: "frame-src", site: "host", disposition: "enforce" };
+    const before = await cspReportCount(attrs);
+    const logs = await captureLogs(() =>
+      post(app, {
+        contentType: "application/reports+json",
+        body: JSON.stringify(Array.from({ length: MAX_VIOLATIONS_PER_REQUEST + 5 }, () => entry)),
+      }),
+    );
+    expect(await cspReportCount(attrs)).toBe(before + MAX_VIOLATIONS_PER_REQUEST);
+    expect(logs.split("csp violation report").length - 1).toBe(MAX_VIOLATIONS_PER_REQUEST);
+    expect(logs).toContain("csp report batch truncated");
+    expect(logs).toContain('"dropped":5');
+  });
+
+  it("writes nothing for a body full of entries that name no directive", async () => {
+    const app = buildApp();
+    const attrs = { effectiveDirective: "other", site: "other", disposition: "unknown" };
+    const flood = JSON.stringify(Array.from({ length: 5000 }, () => []));
+    expect(flood.length).toBeLessThan(16 * 1024);
+    const before = await cspReportCount(attrs);
+    const logs = await captureLogs(() =>
+      post(app, { contentType: "application/reports+json", body: flood }),
+    );
+    expect(await cspReportCount(attrs)).toBe(before);
+    expect(logs).not.toContain("csp violation report");
+    expect(logs).not.toContain("csp report batch truncated");
   });
 });

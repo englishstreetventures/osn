@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import { createApp } from "./app";
 import { createDb, repointDevOwnerSeat, seedDb } from "./db/setup";
 import { localResendConfig } from "./lib/resend-email";
+import { siteOriginOptions } from "./lib/web-origin";
 import { runCireSync } from "./observability";
 import { createAssetsStub } from "./services/invite-assets";
 import { createR2Stub } from "./services/r2-imports";
@@ -31,17 +32,6 @@ const origins = (process.env.WEB_ORIGIN ?? "http://localhost:4321,http://localho
   .split(",")
   .map((o) => o.trim())
   .filter(Boolean);
-const webOrigin = origins[0];
-// Entry 1 is the organiser portal, as it is in the Worker (`index.ts` reads the
-// same comma-list). Without this `createApp` falls back to its PRODUCTION
-// default, so every Stripe return URL minted in local dev sends the developer
-// to host.cireweddings.com — which makes the upgrade flow untestable locally
-// and silently points a test payment's return at the live portal.
-const organiserOrigin = origins[1];
-// Entry 2 is the vendor portal, as it is in the Worker. Without it vendor claim
-// links minted in local dev point at the production vendor portal, and the CSP
-// collector labels a local vendor report `other`.
-const vendorPortalOrigin = origins[2];
 const port = Number(process.env.PORT ?? 8787);
 
 const r2 = createR2Stub();
@@ -72,8 +62,13 @@ const assets = createAssetsStub();
 // one.
 const stripe = createStripeClientFromEnv({ STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY });
 
+// The guest, organiser and vendor origins come from WEB_ORIGIN's three
+// entries, read as the Worker reads them. Without the organiser and vendor
+// entries `createApp` falls back to its PRODUCTION defaults, so every Stripe
+// return URL and vendor claim link minted in local dev would point at the live
+// portals, and the CSP collector would label local portal reports `other`.
 const appOptions: Parameters<typeof createApp>[1] = {
-  webOrigin,
+  ...siteOriginOptions(origins),
   allowedOrigins: origins,
   r2,
   assets,
@@ -90,12 +85,6 @@ const appOptions: Parameters<typeof createApp>[1] = {
   },
   stripeAccountCountry: process.env.STRIPE_ACCOUNT_COUNTRY,
 };
-// Only when WEB_ORIGIN actually named one: an explicit `undefined` would beat
-// createApp's default parameter and leave the origin empty rather than falling
-// back to it.
-if (organiserOrigin) appOptions.organiserOrigin = organiserOrigin;
-if (vendorPortalOrigin) appOptions.vendorPortalOrigin = vendorPortalOrigin;
-
 // Mail leaves this dev server only for a local Resend emulator; the rule and
 // its refusal of a bad override live in lib/resend-email.ts.
 const localResend = localResendConfig({
