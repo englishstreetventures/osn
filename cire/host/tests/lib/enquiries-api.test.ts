@@ -31,12 +31,25 @@ describe("fetchEnquiries", () => {
         category: "florals",
       },
     ];
-    const authFetch = vi.fn().mockResolvedValue(jsonRes({ enquiries }));
+    const authFetch = vi.fn().mockResolvedValue(jsonRes({ enquiries, nextCursor: "1.enq_1" }));
     const result = await fetchEnquiries(authFetch, "wed_1");
-    expect(result).toEqual(enquiries);
+    expect(result).toEqual({ enquiries, nextCursor: "1.enq_1" });
     const [url] = authFetch.mock.calls[0]!;
     expect(String(url)).toMatch(/\/weddings\/wed_1\/enquiries$/);
     expect(authFetch.mock.calls[0]![1]).toBeUndefined();
+  });
+
+  it("asks for the page after a cursor, encoded into the query", async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonRes({ enquiries: [], nextCursor: null }));
+    await fetchEnquiries(authFetch, "wed_1", "1784541600.enq_a&b");
+    const [url] = authFetch.mock.calls[0]!;
+    expect(String(url)).toMatch(/\/weddings\/wed_1\/enquiries\?cursor=1784541600\.enq_a%26b$/);
+  });
+
+  // The portal can reach production before the API that pages the inbox.
+  it("reads a response with no nextCursor as the last page", async () => {
+    const authFetch = vi.fn().mockResolvedValue(jsonRes({ enquiries: [] }));
+    expect(await fetchEnquiries(authFetch, "wed_1")).toEqual({ enquiries: [], nextCursor: null });
   });
 });
 

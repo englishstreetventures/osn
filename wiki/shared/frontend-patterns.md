@@ -22,7 +22,7 @@ related:
 packages:
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-09
 ---
 
 # Frontend Patterns
@@ -128,6 +128,15 @@ stepping by a grid's column count, say), keep the literal at the usage site,
 export the constant, and add a static drift guard in the tests asserting the two
 agree. `SECTION_MENU_COLUMNS` (`cire/host` `invite/InviteBuilder.tsx`) and the
 `auto-grid` / `page-frame` utilities use this pattern.
+
+### A component prop is a getter, so a call written in the JSX runs on every read
+
+Solid compiles `<Inbox store={createStore()} />` to a prop *getter*: each
+`props.store` inside the component calls `createStore()` again, so `onMount`
+fills one store and the render reads another, empty one. Nothing errors; the
+view just never leaves its loading state. Build the value first and pass the
+variable — `const store = createStore(); return <Inbox store={store} />;` — as
+`VendorApp` does with its enquiry inbox holder (`cire/vendor`).
 
 ### `createMemo` runs eagerly, so declare memos below their dependencies
 
@@ -393,6 +402,18 @@ writer already has the answer and a re-read would only cost a request.
 ([[cire-invite-designs#Returning households]]). Its `.ssr` test proves the first
 rule; `tests/designs/InviteHeader.ssr.test.tsx` and the unit test's
 `createRoot` case prove the second, since no tier here hydrates.
+
+## Client caches of server rows
+
+A client cache of server rows that re-reads them — on mount, after a thread, on
+"load more" — replaces its rows with the answer rather than merging the answer
+into them. A merge keeps every held row the server has stopped returning, and
+those are exactly the rows the caller has lost access to: an organisation left,
+a wedding deleted. Keep the place by re-reading as many pages as are held, not
+by keeping old ones, and clear the rows on a failed read rather than leaving
+them behind an error. `cire/vendor/src/lib/enquiry-inbox.ts` and the organiser
+caches ([[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]])
+follow it.
 
 ## Source Files
 

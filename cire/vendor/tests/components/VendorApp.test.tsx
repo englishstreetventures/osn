@@ -44,6 +44,14 @@ vi.mock("../../src/lib/vendor-store", async (importOriginal) => {
     fetchListing: vi.fn().mockResolvedValue(null),
   };
 });
+vi.mock("../../src/lib/enquiries-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/lib/enquiries-store")>();
+  return {
+    ...actual,
+    listEnquiries: vi.fn(),
+    getEnquiryMessages: vi.fn().mockResolvedValue([]),
+  };
+});
 vi.mock("../../src/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/lib/api")>();
   return {
@@ -54,6 +62,7 @@ vi.mock("../../src/lib/api", async (importOriginal) => {
 
 import VendorApp from "../../src/components/VendorApp";
 import { redirectToLogin } from "../../src/lib/api";
+import { listEnquiries, type VendorEnquiryListItem } from "../../src/lib/enquiries-store";
 import { fetchListing, type Listing, seedClaimedListing } from "../../src/lib/vendor-store";
 
 const CLAIMED_LISTING_KEY = "cire.vendor.claimed-listing";
@@ -134,6 +143,51 @@ describe("VendorApp", () => {
       fireEvent.click(await screen.findByRole("button", { name: /Acme/ }));
 
       await waitFor(() => expect(fetchListing).toHaveBeenCalledWith(expect.anything(), "o1"));
+    });
+  });
+
+  describe("enquiries", () => {
+    const enquiry = (id: string, weddingName: string, lastMessageAt: number) =>
+      ({
+        id,
+        weddingId: `w_${id}`,
+        directoryVendorId: "dv1",
+        vendorId: "v1",
+        zapChatId: "chat_1",
+        status: "open",
+        createdBy: "p1",
+        quotedMinor: null,
+        lastMessageAt,
+        createdAt: 0,
+        updatedAt: 0,
+        vendorName: "Vendor",
+        category: "venue",
+        weddingName,
+      }) satisfies VendorEnquiryListItem;
+
+    it("keeps the pages it loaded through a visit to a thread", async () => {
+      const pageOne = { enquiries: [enquiry("e2", "Alex & Sam", 2_000)], nextCursor: "2.e2" };
+      const pageTwo = { enquiries: [enquiry("e1", "Kim & Lee", 1_000)], nextCursor: null };
+      vi.mocked(listEnquiries).mockImplementation(async (_fetch, cursor) =>
+        cursor === undefined ? pageOne : pageTwo,
+      );
+      history.replaceState(null, "", "/#/enquiries");
+
+      render(() => <VendorApp />);
+      fireEvent.click(await screen.findByRole("button", { name: "Load more enquiries" }));
+      fireEvent.click(await screen.findByRole("button", { name: /Kim & Lee/ }));
+      fireEvent.click(await screen.findByRole("button", { name: /Back to enquiries/ }));
+
+      // Both pages again, read afresh along the cursor: the dashboard's holder
+      // still knew two were loaded.
+      expect(await screen.findByRole("button", { name: /Kim & Lee/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Alex & Sam/ })).toBeInTheDocument();
+      expect(vi.mocked(listEnquiries).mock.calls.map((call) => call[1])).toEqual([
+        undefined,
+        "2.e2",
+        undefined,
+        "2.e2",
+      ]);
     });
   });
 });

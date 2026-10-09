@@ -17,7 +17,7 @@ export interface VendorEnquiryListItem {
   lastMessageAt: number;
   createdAt: number;
   updatedAt: number;
-  // Joined fields (added by API, Task 1)
+  // Joined fields
   vendorName: string;
   category: string;
   weddingName: string;
@@ -50,11 +50,29 @@ async function ensureOk(res: Response): Promise<void> {
   throw new Error(msg.length > 200 ? `${msg.slice(0, 200)}…` : msg);
 }
 
-export async function listEnquiries(authFetch: AuthFetch): Promise<VendorEnquiryListItem[]> {
-  const res = await authFetch(apiUrl("/api/vendor/enquiries"));
+/** One page of the inbox. `nextCursor` continues after its last row; `null` on the last page. */
+export interface VendorEnquiryPage {
+  enquiries: VendorEnquiryListItem[];
+  nextCursor: string | null;
+}
+
+/**
+ * One page of the inbox, newest first: page one without a cursor, the page
+ * after it with the `nextCursor` it returned. An API that predates paging
+ * sends no `nextCursor`, which reads as the last page.
+ */
+export async function listEnquiries(
+  authFetch: AuthFetch,
+  cursor?: string,
+): Promise<VendorEnquiryPage> {
+  const query = cursor === undefined ? "" : `?cursor=${encodeURIComponent(cursor)}`;
+  const res = await authFetch(apiUrl(`/api/vendor/enquiries${query}`));
   await ensureOk(res);
-  const body = await safeJson<{ enquiries: VendorEnquiryListItem[] }>(res);
-  return body?.enquiries ?? [];
+  const body = await safeJson<{ enquiries?: VendorEnquiryListItem[]; nextCursor?: unknown }>(res);
+  return {
+    enquiries: body?.enquiries ?? [],
+    nextCursor: typeof body?.nextCursor === "string" ? body.nextCursor : null,
+  };
 }
 
 export async function getEnquiryMessages(

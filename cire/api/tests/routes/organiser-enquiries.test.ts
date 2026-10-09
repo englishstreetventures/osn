@@ -8,6 +8,7 @@ import {
   guests,
   vendorClaims,
   vendorEnquiries,
+  vendors,
   weddingHosts,
 } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
@@ -17,6 +18,7 @@ import { eq } from "drizzle-orm";
 import { createApp } from "../../src/app";
 import type { Db } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import { ENQUIRY_PAGE_MAX } from "../../src/lib/enquiry-page";
 import type { Tier } from "../../src/services/tiers";
 import type { ZapChatClient } from "../../src/services/zap-bridge";
 import { appRequest, jsonBody, setTier } from "../test-helpers";
@@ -302,7 +304,102 @@ describe("GET /api/organiser/weddings/:weddingId/enquiries", () => {
     expect(body.enquiries[0]!.id).toBe(opened.id);
     expect(body.enquiries.every((e) => e.weddingId === BOOTSTRAP_WEDDING_ID)).toBe(true);
   });
+
+  it("never answers more than a page, however large the limit asked for", async () => {
+    const { app, db } = buildApp();
+    seedInboxRows(db, ENQUIRY_PAGE_MAX + 1);
+
+    const res = await req(app, `${enquiriesPath}?limit=999`, { profileId: BOOTSTRAP_OWNER });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { enquiries: { id: string }[]; nextCursor: string | null };
+    expect(body.enquiries).toHaveLength(ENQUIRY_PAGE_MAX);
+    expect(body.nextCursor).not.toBeNull();
+  });
+
+  it("pages through the inbox by nextCursor, each enquiry once, newest first", async () => {
+    const { app, db } = buildApp();
+    const ids = seedInboxRows(db, 5);
+
+    const seen: string[] = [];
+    let url = `${enquiriesPath}?limit=2`;
+    for (let pages = 1; ; pages++) {
+      // Sequential by nature: each page's cursor comes from the one before.
+      // eslint-disable-next-line no-await-in-loop
+      const res = await req(app, url, { profileId: BOOTSTRAP_OWNER });
+      expect(res.status).toBe(200);
+      // eslint-disable-next-line no-await-in-loop
+      const body = (await res.json()) as { enquiries: { id: string }[]; nextCursor: string | null };
+      expect(body.enquiries.length).toBeLessThanOrEqual(2);
+      seen.push(...body.enquiries.map((e) => e.id));
+      if (body.nextCursor === null) break;
+      expect(pages).toBeLessThan(5);
+      url = `${enquiriesPath}?limit=2&cursor=${encodeURIComponent(body.nextCursor)}`;
+    }
+    expect(seen).toEqual(ids.toReversed());
+  });
+
+  it("is 401 for a bearer that is not a token", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, enquiriesPath, {
+      headers: { Authorization: "Bearer not-a-token" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("answers 500, and no rows, when the inbox cannot be read", async () => {
+    const { app, db } = buildApp();
+    seedInboxRows(db, 2);
+    db.run("DROP TABLE vendor_enquiries");
+    const res = await req(app, enquiriesPath, { profileId: BOOTSTRAP_OWNER });
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+  });
+
+  it("refuses a cursor it did not write with 400 invalid_cursor", async () => {
+    const { app } = buildApp();
+    const res = await req(app, `${enquiriesPath}?cursor=page-two`, { profileId: BOOTSTRAP_OWNER });
+    expect(res.status).toBe(400);
+    expect(await jsonBody(res)).toEqual({ error: "invalid_cursor" });
+  });
 });
+
+/**
+ * `count` enquiries in the bootstrap wedding, one a second apart, each against
+ * its own listing. Returns their ids oldest first.
+ */
+function seedInboxRows(db: Db, count: number): string[] {
+  const ids: string[] = [];
+  for (let n = 0; n < count; n++) {
+    const id = `enq_page_${String(n).padStart(3, "0")}`;
+    const at = new Date((1_784_000_000 + n) * 1000);
+    db.insert(vendors)
+      .values({
+        id: `ven_page_${n}`,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        directoryVendorId: `dv_page_${n}`,
+        name: `Vendor ${n}`,
+        category: "florals",
+        createdAt: at,
+        updatedAt: at,
+      })
+      .run();
+    db.insert(vendorEnquiries)
+      .values({
+        id,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        directoryVendorId: `dv_page_${n}`,
+        vendorId: `ven_page_${n}`,
+        status: "open",
+        createdBy: BOOTSTRAP_OWNER,
+        lastMessageAt: at,
+        createdAt: at,
+        updatedAt: at,
+      })
+      .run();
+    ids.push(id);
+  }
+  return ids;
+}
 
 describe("POST /api/organiser/weddings/:weddingId/enquiries", () => {
   it("is 403 read_only_role for a viewer co-host (weddingEditor gate)", async () => {

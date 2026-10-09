@@ -1,5 +1,5 @@
 import { apiUrl, weddingPath } from "./api";
-import type { EnquiryListItem, EnquiryMessage } from "./enquiries-store";
+import type { EnquiryListItem, EnquiryMessage, EnquiryPage } from "./enquiries-store";
 
 export type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -21,14 +21,24 @@ async function ensureOk(res: Response): Promise<void> {
   throw new EnquiryApiError(body?.error ?? `http_${res.status}`, res.status);
 }
 
+/**
+ * One page of the inbox, newest first: page one without a cursor, the page
+ * after it with the `nextCursor` it returned. An API that predates paging
+ * sends no `nextCursor`, which reads as the last page.
+ */
 export async function fetchEnquiries(
   authFetch: AuthFetch,
   weddingId: string,
-): Promise<EnquiryListItem[]> {
-  const res = await authFetch(apiUrl(base(weddingId)));
+  cursor?: string,
+): Promise<EnquiryPage> {
+  const query = cursor === undefined ? "" : `?cursor=${encodeURIComponent(cursor)}`;
+  const res = await authFetch(apiUrl(`${base(weddingId)}${query}`));
   await ensureOk(res);
-  const body = (await res.json()) as { enquiries: EnquiryListItem[] };
-  return body.enquiries ?? [];
+  const body = (await res.json()) as { enquiries?: EnquiryListItem[]; nextCursor?: unknown };
+  return {
+    enquiries: body.enquiries ?? [],
+    nextCursor: typeof body.nextCursor === "string" ? body.nextCursor : null,
+  };
 }
 
 export async function fetchMessages(

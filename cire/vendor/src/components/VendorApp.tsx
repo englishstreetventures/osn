@@ -7,6 +7,8 @@ import { createEffect, createSignal, onCleanup, onMount, type ParentProps, Show 
 import { redirectToLogin } from "../lib/api";
 import { createAutoSize } from "../lib/auto-size";
 import { reloadOnRestore } from "../lib/bfcache";
+import { listEnquiries } from "../lib/enquiries-store";
+import { createEnquiryInbox } from "../lib/enquiry-inbox";
 import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/theme";
 import { drainClaimedListing, type OrgSummary } from "../lib/vendor-store";
@@ -69,7 +71,11 @@ function initialView(): VendorView {
 }
 
 function Dashboard() {
-  const { logout, activeProfileId, session } = useAuth();
+  const { logout, activeProfileId, session, authFetch } = useAuth();
+
+  // The enquiry inbox's pages live here rather than in the inbox, which
+  // unmounts while a thread is open.
+  const inbox = createEnquiryInbox((cursor) => listEnquiries(authFetch, cursor));
 
   // ── View toggle (account-level: "listings" | "enquiries") ────────────────
   const [view, setView] = createSignal<VendorView>(initialView());
@@ -215,7 +221,7 @@ function Dashboard() {
                   <Show when={view() === "enquiries"}>
                     <Show
                       when={selectedEnquiryId()}
-                      fallback={<VendorEnquiryInbox onOpen={setSelectedEnquiryId} />}
+                      fallback={<VendorEnquiryInbox inbox={inbox} onOpen={setSelectedEnquiryId} />}
                     >
                       {(id) => (
                         <VendorEnquiryThread

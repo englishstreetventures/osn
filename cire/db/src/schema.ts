@@ -626,10 +626,13 @@ export const vendorEnquiries = sqliteTable(
   (t) => [
     // One thread per (wedding, listing) — the idempotency key for open.
     uniqueIndex("vendor_enquiries_wedding_directory_uniq").on(t.weddingId, t.directoryVendorId),
-    // Couple inbox: newest-first per wedding.
-    index("vendor_enquiries_wedding_last_msg_idx").on(t.weddingId, t.lastMessageAt),
-    // Vendor inbox: find a listing's enquiries.
-    index("vendor_enquiries_directory_idx").on(t.directoryVendorId),
+    // Couple inbox: a wedding's enquiries newest first. `id` breaks ties within
+    // a second, so a page cursor of (last_message_at, id) seeks straight to
+    // the next page in index order.
+    index("vendor_enquiries_wedding_last_msg_idx").on(t.weddingId, t.lastMessageAt, t.id),
+    // Vendor inbox: a listing's enquiries newest first, the same keyset. Its
+    // prefix also serves any lookup of a listing's enquiries.
+    index("vendor_enquiries_directory_last_msg_idx").on(t.directoryVendorId, t.lastMessageAt, t.id),
     // The `ON DELETE cascade` from `vendors`: deleting a CRM vendor (a purge
     // deletes all of a wedding's) searches this table on `vendor_id`, which
     // without an index is a scan of every wedding's enquiries per vendor.
