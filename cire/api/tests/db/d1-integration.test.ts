@@ -89,7 +89,7 @@ import {
 } from "../../src/services/sheet-reconcile";
 import type { StripeClient } from "../../src/services/stripe";
 import { tasksService } from "../../src/services/tasks";
-import { BASE_GUEST_CAP, tierService } from "../../src/services/tiers";
+import { BASE_GUEST_CAP, TIER_PEOPLE_LIMIT, tierService } from "../../src/services/tiers";
 import { unlockCodeService } from "../../src/services/unlock-codes";
 import { createUpgradeCatalogue } from "../../src/services/upgrade-catalogue";
 import { createUpgradeService } from "../../src/services/upgrades";
@@ -2612,13 +2612,19 @@ describe("cire/api over real D1 (Miniflare)", () => {
           weddingId: BOOTSTRAP_WEDDING_ID,
           osnProfileId: "usr_second",
           role: "editor",
+          actorOsnProfileId: "usr_second",
         }),
       );
       expect(stepDown.previousRole).toBe("owner");
       expect(await seatRole("usr_second")).toBe("editor");
       const demote = await Effect.runPromiseExit(
         hostsService
-          .setRole({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_test", role: "viewer" })
+          .setRole({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_test",
+            role: "viewer",
+            actorOsnProfileId: "usr_test",
+          })
           .pipe(Effect.provideService(DbService, db)),
       );
       expect(Exit.isFailure(demote) && Cause.squash(demote.cause)).toMatchObject({
@@ -2656,20 +2662,17 @@ describe("cire/api over real D1 (Miniflare)", () => {
       ).toHaveLength(0);
 
       // The seat cap, owners counted, inside the INSERT: fill the wedding with
-      // owners, then one more is refused.
+      // owners, then one more is refused. The people limit stops `add` at 42
+      // seats on any tier, so the fill is written directly, as on a wedding
+      // seeded before either limit existed; the refusal still names the cap.
       const seated = await db
         .select({ id: weddingHosts.id })
         .from(weddingHosts)
         .where(eq(weddingHosts.weddingId, BOOTSTRAP_WEDDING_ID));
+      // One row per statement: a multi-row insert binds a parameter per value,
+      // and D1 refuses more than 100 in a statement.
       for (let i = seated.length; i < MAX_HOSTS_PER_WEDDING; i += 1) {
-        await run(
-          hostsService.add({
-            weddingId: BOOTSTRAP_WEDDING_ID,
-            osnProfileId: `usr_owner_${i}`,
-            addedByOsnProfileId: "usr_test",
-            role: "owner",
-          }),
-        );
+        await db.insert(weddingHosts).values(ownerSeat(BOOTSTRAP_WEDDING_ID, `usr_owner_${i}`));
       }
       const overCap = await Effect.runPromiseExit(
         hostsService
@@ -3130,6 +3133,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
               weddingId: BOOTSTRAP_WEDDING_ID,
               osnProfileId: profile,
               role: "editor",
+              actorOsnProfileId: profile === "usr_test" ? "usr_second" : "usr_test",
             }),
           ),
         ),
@@ -3167,6 +3171,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
             weddingId: BOOTSTRAP_WEDDING_ID,
             osnProfileId: "usr_test",
             role: "editor",
+            actorOsnProfileId: "usr_test",
           }),
         ),
         exitOf(
@@ -3175,6 +3180,144 @@ describe("cire/api over real D1 (Miniflare)", () => {
       ]);
       expect(results.filter(Exit.isSuccess)).toHaveLength(1);
       expect(await ownerIds()).toHaveLength(1);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  /** Seat `n` viewers on the seeded wedding, one statement each. */
+  const seatViewers = async (n: number) => {
+    for (let i = 0; i < n; i += 1) {
+      await db.insert(weddingHosts).values({
+        ...ownerSeat(BOOTSTRAP_WEDDING_ID, `usr_v_${i}`),
+        addedByOsnProfileId: "usr_test",
+        role: "viewer",
+      });
+    }
+  };
+
+  const addViewer = (osnProfileId: string) =>
+    hostsService.add({
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      osnProfileId,
+      addedByOsnProfileId: "usr_test",
+      role: "viewer",
+    });
+
+  // The people limit is read from the tier and counted inside each writing
+  // statement, so two writes racing for the last place cannot both see it free.
+  it(
+    "two adds racing for the last place under the people limit: one is seated, the other refused",
+    async () => {
+      await seatViewers(TIER_PEOPLE_LIMIT.ivory - 1);
+      const results = await Promise.all([exitOf(addViewer("usr_a")), exitOf(addViewer("usr_b"))]);
+      expect(results.filter(Exit.isSuccess)).toHaveLength(1);
+      const failed = results.find(Exit.isFailure);
+      expect(failed && Cause.squash(failed.cause)).toMatchObject({
+        _tag: "PeopleLimitReached",
+        peopleLimit: { used: 6, limit: 6, tier: "gold" },
+      });
+      // The list reads the same count, from its own statement, over D1.
+      expect((await run(hostsService.list(BOOTSTRAP_WEDDING_ID))).peopleLimit).toEqual({
+        used: TIER_PEOPLE_LIMIT.ivory,
+        limit: TIER_PEOPLE_LIMIT.ivory,
+        tier: "gold",
+      });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "an add and another owner's demotion racing for the last place: one wins",
+    async () => {
+      await seatSecondOwner();
+      await seatViewers(TIER_PEOPLE_LIMIT.ivory - 1);
+      const results: Exit.Exit<void, unknown>[] = await Promise.all([
+        exitOf(addViewer("usr_a")),
+        exitOf(
+          hostsService.setRole({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_second",
+            role: "editor",
+            actorOsnProfileId: "usr_test",
+          }),
+        ),
+      ]);
+      expect(results.filter(Exit.isSuccess)).toHaveLength(1);
+      const failed = results.find(Exit.isFailure);
+      expect(failed && Cause.squash(failed.cause)).toMatchObject({
+        _tag: "PeopleLimitReached",
+        peopleLimit: { used: 6, limit: 6, tier: "gold" },
+      });
+      expect((await run(hostsService.list(BOOTSTRAP_WEDDING_ID))).peopleLimit.used).toBe(
+        TIER_PEOPLE_LIMIT.ivory,
+      );
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "reads each batch's count from its own place in D1's batch results",
+    async () => {
+      // `commitBatchResults` calls D1's `batch()` here and chains statements on
+      // bun:sqlite, so the index each write reads its count from is pinned on
+      // the driver production runs.
+      await seatSecondOwner();
+      await seatViewers(TIER_PEOPLE_LIMIT.ivory);
+      const demote = await exitOf(
+        hostsService.setRole({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_second",
+          role: "editor",
+          actorOsnProfileId: "usr_test",
+        }),
+      );
+      expect(Exit.isFailure(demote) && Cause.squash(demote.cause)).toMatchObject({
+        _tag: "PeopleLimitReached",
+        peopleLimit: { used: 6, limit: 6, tier: "gold" },
+      });
+      const promoted = await run(
+        hostsService.setRole({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_v_0",
+          role: "owner",
+          actorOsnProfileId: "usr_test",
+        }),
+      );
+      expect(promoted.peopleLimit).toEqual({ used: 6, limit: 6, tier: "gold" });
+      const removed = await run(
+        hostsService.remove({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_v_1",
+          withPeopleLimit: true,
+        }),
+      );
+      expect(removed.peopleLimit).toEqual({ used: 5, limit: 6, tier: "ivory" });
+      expect((await run(addViewer("usr_a"))).peopleLimit).toEqual({
+        used: 6,
+        limit: 6,
+        tier: "gold",
+      });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "re-adding a seated profile answers already_host over D1's batch",
+    async () => {
+      await run(addViewer("usr_a"));
+      const again = await exitOf(addViewer("usr_a"));
+      expect(Exit.isFailure(again) && Cause.squash(again.cause)).toMatchObject({
+        _tag: "HostConflict",
+        reason: "already_host",
+      });
+      // At the limit the INSERT's WHERE refuses first; the seat read in the
+      // same batch still names the duplicate.
+      await seatViewers(TIER_PEOPLE_LIMIT.ivory - 1);
+      const atLimit = await exitOf(addViewer("usr_a"));
+      expect(Exit.isFailure(atLimit) && Cause.squash(atLimit.cause)).toMatchObject({
+        _tag: "HostConflict",
+        reason: "already_host",
+      });
     },
     MF_TIMEOUT_MS,
   );

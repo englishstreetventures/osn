@@ -10,15 +10,20 @@ import {
   BASE_GUEST_CAP,
   CapacityExceeded,
   capForTier,
+  EXEMPT_OWNER_SEATS,
   isPaidTier,
   isTier,
   legacyEntitlementKeys,
   normaliseTier,
+  peopleLimitOf,
+  peopleLimitSql,
   roomForOneMoreGuest,
   TIER_GUEST_CAP,
+  TIER_PEOPLE_LIMIT,
   TIERS,
   tierAtLeast,
   tierForGuests,
+  tierForPeople,
   tierRankSql,
   tierService,
   tiersBelow,
@@ -95,6 +100,82 @@ describe("the tier ladder", () => {
     expect(tierForGuests(501)).toBe("crimson");
     expect(tierForGuests(1000)).toBe("crimson");
     expect(tierForGuests(1001)).toBeNull();
+  });
+
+  it("limits people to 6, 15 and 40, and exempts two owners", () => {
+    expect(TIER_PEOPLE_LIMIT).toEqual({ ivory: 6, gold: 15, crimson: 40 });
+    expect(EXEMPT_OWNER_SEATS).toBe(2);
+  });
+
+  it("names the lowest tier whose people limit holds a count, or none", () => {
+    expect(tierForPeople(0)).toBe("ivory");
+    expect(tierForPeople(6)).toBe("ivory");
+    expect(tierForPeople(7)).toBe("gold");
+    expect(tierForPeople(15)).toBe("gold");
+    expect(tierForPeople(16)).toBe("crimson");
+    expect(tierForPeople(40)).toBe("crimson");
+    expect(tierForPeople(41)).toBeNull();
+  });
+
+  describe("peopleLimitOf", () => {
+    it("reports the tier's limit and the count it was given", () => {
+      expect(peopleLimitOf("ivory", 4)).toMatchObject({ used: 4, limit: 6 });
+      expect(peopleLimitOf("gold", 4)).toMatchObject({ used: 4, limit: 15 });
+      expect(peopleLimitOf("crimson", 4)).toMatchObject({ used: 4, limit: 40 });
+    });
+
+    it("names the wedding's own tier while it has room, never a lower one", () => {
+      // Gold with 3 people: Ivory would hold a fourth, but the wedding holds Gold.
+      expect(peopleLimitOf("gold", 3).tier).toBe("gold");
+      expect(peopleLimitOf("ivory", 5).tier).toBe("ivory");
+      expect(peopleLimitOf("crimson", 0).tier).toBe("crimson");
+    });
+
+    it("names the tier to upgrade to at the limit", () => {
+      expect(peopleLimitOf("ivory", 6).tier).toBe("gold");
+      expect(peopleLimitOf("gold", 15).tier).toBe("crimson");
+    });
+
+    it("names the lowest tier that holds one more when the wedding is over its limit", () => {
+      // Lowered from Crimson to Ivory with 20 people: Gold's 15 cannot hold 21.
+      expect(peopleLimitOf("ivory", 20)).toEqual({ used: 20, limit: 6, tier: "crimson" });
+      expect(peopleLimitOf("ivory", 10)).toEqual({ used: 10, limit: 6, tier: "gold" });
+    });
+
+    it("names no tier when even the top one cannot hold one more", () => {
+      expect(peopleLimitOf("crimson", 40)).toEqual({ used: 40, limit: 40, tier: null });
+      expect(peopleLimitOf("ivory", 45).tier).toBeNull();
+    });
+  });
+
+  it("reads each wedding's people limit in SQL as TIER_PEOPLE_LIMIT does, and an unknown tier as Ivory's", () => {
+    const db = createDb(":memory:");
+    const stored = { wed_i: "ivory", wed_g: "gold", wed_c: "crimson", wed_x: "platinum" } as const;
+    for (const [id, tier] of Object.entries(stored)) {
+      seedWedding(db, id);
+      db.update(weddings)
+        .set({ tier: tier as Tier })
+        .where(eq(weddings.id, id))
+        .run();
+    }
+    const limits = Object.fromEntries(
+      Object.keys(stored).map((id) => [
+        id,
+        Number(
+          db
+            .select({ limit: peopleLimitSql(id) })
+            .from(weddings)
+            .where(eq(weddings.id, id))
+            .get()?.limit,
+        ),
+      ]),
+    );
+    expect(limits).toEqual({
+      wed_i: TIER_PEOPLE_LIMIT.ivory,
+      wed_g: TIER_PEOPLE_LIMIT.gold,
+      wed_c: TIER_PEOPLE_LIMIT.crimson,
+      wed_x: TIER_PEOPLE_LIMIT.ivory,
+    });
   });
 
   it("reads anything it does not recognise as ivory", () => {

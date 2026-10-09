@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-development]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-09
 ---
 
 # Self-serve upgrades — buying a plan tier
@@ -299,7 +299,10 @@ id>'` on the wedding.
 
 `UpgradeDialog` (`cire/host/src/components/UpgradeDialog.tsx`) is mounted
 **once** for the whole nav, not once per locked row, and afresh for each offer.
-It sells the tier the row's lock names ([[cire-host-portal-layout]]):
+It sells the tier the row's lock names ([[cire-host-portal-layout]]). The
+co-host panel mounts its own, afresh for each offer too, selling the tier the
+people limit names and returning the owner to Settings
+([[cire-entitlements#People limit]]):
 
 - It is a `Modal`, the platform `<dialog>` ([[native-dialog-over-kobalte]]):
   Tab stays inside, Escape and the backdrop close it, and the page behind is

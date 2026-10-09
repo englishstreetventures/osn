@@ -22,10 +22,27 @@ import { weddingSeat } from "../middleware/wedding-seat";
 import { runCire } from "../observability";
 import { AddHostBody, UpdateHostRoleBody } from "../schemas/host";
 import { hostsService } from "../services/hosts";
-import type { HostNotFound, HostWriteError, LastOwner, WeddingRole } from "../services/hosts";
+import type {
+  HostNotFound,
+  HostWriteError,
+  LastOwner,
+  PeopleLimitReached,
+  WeddingRole,
+} from "../services/hosts";
 import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../services/osn-bridge";
 
 const PREFIX = "/api/organiser";
+
+/**
+ * The 409 for a write the wedding's people limit refused: the count the write
+ * saw, the tier's limit, and the tier that would have let it through (`null`
+ * when none would) — what the portal words the refusal and its upgrade offer
+ * from.
+ */
+const peopleLimitRefusal = (err: PeopleLimitReached) => ({
+  error: "people_limit_reached" as const,
+  ...err.peopleLimit,
+});
 
 /**
  * A person on the co-host panel. `handle` and `displayName` are absent — not
@@ -48,12 +65,16 @@ interface HostSeatDto extends HostPersonDto {
 }
 
 /** The metric label for a role change the service refused or failed. */
-function roleChangeFailure(err: HostNotFound | LastOwner | HostWriteError): HostRoleChangeResult {
+function roleChangeFailure(
+  err: HostNotFound | LastOwner | PeopleLimitReached | HostWriteError,
+): HostRoleChangeResult {
   switch (err._tag) {
     case "HostNotFound":
       return "not_found";
     case "LastOwner":
       return "last_owner";
+    case "PeopleLimitReached":
+      return "people_limit_reached";
     case "HostWriteError":
       return "error";
   }
@@ -110,7 +131,7 @@ export const createOrganiserHostsReadRoutes = (
             // returns an empty map, so a missing/unreachable ARC bridge simply
             // leaves the profile id as the on-screen fallback (no 500). The
             // `Effect.tryPromise` catch is a belt-and-braces guard for the same.
-            Effect.flatMap(({ hosts, total }) =>
+            Effect.flatMap(({ hosts, total, peopleLimit }) =>
               Effect.gen(function* () {
                 const displays = resolveOsnProfileDisplays
                   ? yield* Effect.tryPromise({
@@ -145,6 +166,9 @@ export const createOrganiserHostsReadRoutes = (
                   }),
                   // True row count, so a truncated list can never look complete.
                   total,
+                  // Shown to every member as "4 of 6 people"; an owner at the
+                  // limit is offered `peopleLimit.tier` instead of the add form.
+                  peopleLimit,
                 };
               }),
             ),
@@ -239,7 +263,11 @@ export const createOrganiserHostsWriteRoutes = (
                     Effect.tapError((err) =>
                       Effect.sync(() =>
                         metricHostAdded(
-                          err._tag === "HostConflict" ? err.reason : "error",
+                          err._tag === "HostConflict"
+                            ? err.reason
+                            : err._tag === "PeopleLimitReached"
+                              ? "people_limit_reached"
+                              : "error",
                           body.role,
                         ),
                       ),
@@ -264,6 +292,7 @@ export const createOrganiserHostsWriteRoutes = (
                     role: host.role,
                     createdAt: host.createdAt.getTime(),
                   },
+                  peopleLimit: host.peopleLimit,
                 };
               }).pipe(
                 Effect.provideService(DbService, db),
@@ -283,6 +312,11 @@ export const createOrganiserHostsWriteRoutes = (
                       // where the service failed, with the role.
                       set.status = 409;
                       return { error: err.reason };
+                    }),
+                  PeopleLimitReached: (err) =>
+                    Effect.sync(() => {
+                      set.status = 409;
+                      return peopleLimitRefusal(err);
                     }),
                   OsnHandleLookupError: (err) =>
                     Effect.logError("osn handle lookup failed", { reason: err.reason }).pipe(
@@ -314,10 +348,12 @@ export const createOrganiserHostsWriteRoutes = (
           { parse: () => ({}) },
         )
         // Set any seat's role to any assignable one, an owner's included — the
-        // caller's own is how an owner steps down. 404 when the profile holds
-        // no seat on this wedding; 409 `last_owner` when the change would leave
-        // it with no owner. A role change never adds a seat, so the host cap
-        // has nothing to say about it.
+        // caller's own is how an owner steps down, which is always allowed
+        // while another owner remains. 404 when the profile holds no seat on
+        // this wedding; 409 `last_owner` when the change would leave it with no
+        // owner; 409 `people_limit_reached` when moving ANOTHER owner below
+        // owner would pass the tier's people limit. A role change never adds a
+        // seat, so the host cap has nothing to say about it.
         .put(
           "/hosts/:osnProfileId/role",
           async ({ request, weddingId, osnProfileId, params, set }) => {
@@ -335,6 +371,7 @@ export const createOrganiserHostsWriteRoutes = (
                     weddingId,
                     osnProfileId: params.osnProfileId,
                     role: body.role,
+                    actorOsnProfileId,
                   })
                   .pipe(
                     Effect.tapError((err) =>
@@ -368,6 +405,7 @@ export const createOrganiserHostsWriteRoutes = (
                     role: host.role,
                     createdAt: host.createdAt.getTime(),
                   },
+                  peopleLimit: host.peopleLimit,
                 };
               }).pipe(
                 Effect.provideService(DbService, db),
@@ -387,6 +425,11 @@ export const createOrganiserHostsWriteRoutes = (
                     Effect.sync(() => {
                       set.status = 409;
                       return { error: "last_owner" };
+                    }),
+                  PeopleLimitReached: (err) =>
+                    Effect.sync(() => {
+                      set.status = 409;
+                      return peopleLimitRefusal(err);
                     }),
                   HostWriteError: () =>
                     Effect.sync(() => {
@@ -415,42 +458,49 @@ export const createOrganiserHostsWriteRoutes = (
             return { error: "Internal error" };
           }
           return runCire(
-            hostsService.remove({ weddingId, osnProfileId: params.osnProfileId }).pipe(
-              Effect.provideService(DbService, db),
-              Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "owner"))),
-              Effect.tap(({ removed }) =>
-                removed?.role === "owner"
-                  ? notifyOwnerChange(db, request, ownerNotices, {
-                      weddingId,
-                      actorOsnProfileId: osnProfileId,
-                      subjectOsnProfileId: params.osnProfileId,
-                      change: "removed",
-                      subjectSeat: removed,
-                    })
-                  : Effect.void,
-              ),
-              Effect.as({ removed: true, osnProfileId: params.osnProfileId }),
-              Effect.catchTags({
-                LastOwner: () =>
-                  Effect.sync(() => {
-                    metricHostRemoved("last_owner", "owner");
-                    set.status = 409;
-                    return { error: "last_owner" };
-                  }),
-                HostWriteError: () =>
-                  Effect.sync(() => {
-                    metricHostRemoved("error", "owner");
-                    set.status = 500;
-                    return { error: "Could not remove host" };
-                  }),
-              }),
-              Effect.catchDefect(() =>
-                Effect.sync(() => {
-                  set.status = 500;
-                  return { error: "Internal error" };
+            // The panel shows the new people count from this answer.
+            hostsService
+              .remove({ weddingId, osnProfileId: params.osnProfileId, withPeopleLimit: true })
+              .pipe(
+                Effect.provideService(DbService, db),
+                Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "owner"))),
+                Effect.tap(({ removed }) =>
+                  removed?.role === "owner"
+                    ? notifyOwnerChange(db, request, ownerNotices, {
+                        weddingId,
+                        actorOsnProfileId: osnProfileId,
+                        subjectOsnProfileId: params.osnProfileId,
+                        change: "removed",
+                        subjectSeat: removed,
+                      })
+                    : Effect.void,
+                ),
+                Effect.map(({ peopleLimit }) => ({
+                  removed: true,
+                  osnProfileId: params.osnProfileId,
+                  peopleLimit,
+                })),
+                Effect.catchTags({
+                  LastOwner: () =>
+                    Effect.sync(() => {
+                      metricHostRemoved("last_owner", "owner");
+                      set.status = 409;
+                      return { error: "last_owner" };
+                    }),
+                  HostWriteError: () =>
+                    Effect.sync(() => {
+                      metricHostRemoved("error", "owner");
+                      set.status = 500;
+                      return { error: "Could not remove host" };
+                    }),
                 }),
+                Effect.catchDefect(() =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
               ),
-            ),
           );
         }),
     )

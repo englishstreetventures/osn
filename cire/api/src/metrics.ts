@@ -295,6 +295,9 @@ export type HostAddResult =
   // someone is trying to create seats in bulk, which is the abuse the cap
   // exists to bound.
   | "host_cap_reached"
+  // The wedding has no room under its tier's people limit. A rise here is
+  // couples meeting the limit — demand for the next tier — not abuse.
+  | "people_limit_reached"
   | "disabled"
   | "error";
 
@@ -310,8 +313,14 @@ export type HostRemoveResult = "ok" | "last_owner" | "error";
 export type HostRemoveActor = "owner" | "self";
 
 /** Outcome of changing a seat's role. `last_owner` — refused, it would have
- *  left the wedding without an owner. */
-export type HostRoleChangeResult = "ok" | "not_found" | "last_owner" | "error";
+ *  left the wedding without an owner; `people_limit_reached` — refused,
+ *  moving another owner below owner would have passed the tier's people limit. */
+export type HostRoleChangeResult =
+  | "ok"
+  | "not_found"
+  | "last_owner"
+  | "people_limit_reached"
+  | "error";
 
 /** The role a seat change asked for, as a metric attribute: one of the
  *  wedding roles, or `none` before a request body named one. Bounded by the

@@ -7,7 +7,7 @@ related:
   - "[[schema-layers]]"
   - "[[commands]]"
   - "[[bundle-size-guards]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-09
 ---
 
 # Testing Patterns
@@ -330,6 +330,16 @@ change genuinely cannot be committed yet, copy the file aside and restore from
 the copy. A read-only reviewer should mutate a copy of the whole worktree
 instead — `cp -Rc` is a cheap clone on APFS — which also means an interrupted
 review costs nothing.
+
+### `document.activeElement` is `<body>` when nothing has focus
+
+A test that a focus move landed asserted
+`document.activeElement?.contains(notice)`. With the move deleted, focus stayed
+on `<body>`, which contains the whole page, so the test stayed green. Assert the
+element itself — `expect(document.activeElement).toBe(target)` — or at least
+that it is not `document.body` before any `contains` check.
+`cire/host/tests/components/HostsPanel.test.tsx` ("moves focus to the offer…")
+shows the form.
 
 ## Kobalte overlays and the tests after them
 

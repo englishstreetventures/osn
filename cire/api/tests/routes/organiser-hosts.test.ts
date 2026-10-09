@@ -18,7 +18,7 @@ import type {
   OsnOrganiserEmailLookup,
   OsnProfileDisplayResolver,
 } from "../../src/services/osn-bridge";
-import { appRequest, jsonBody, TEST_CF_IP, TEST_ORIGIN } from "../test-helpers";
+import { appRequest, jsonBody, setTier, TEST_CF_IP, TEST_ORIGIN } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
@@ -255,6 +255,95 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     ).toBe(before + 1);
   });
 
+  it("answers the new seat with the wedding's people count", async () => {
+    const { app } = buildApp();
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { peopleLimit: unknown };
+    expect(body.peopleLimit).toEqual({ used: 1, limit: 6, tier: "ivory" });
+  });
+
+  it("returns 409 people_limit_reached at the tier's limit, naming the tier to upgrade to", async () => {
+    const { db, app } = buildApp();
+    for (let i = 0; i < 6; i += 1) seedHostSeat(db, `usr_v_${i}`, "viewer");
+    const before = await counterValue(CIRE_METRICS.hostAdded, {
+      result: "people_limit_reached",
+      role: "viewer",
+    });
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({
+      error: "people_limit_reached",
+      used: 6,
+      limit: 6,
+      tier: "gold",
+    });
+    expect(
+      await counterValue(CIRE_METRICS.hostAdded, {
+        result: "people_limit_reached",
+        role: "viewer",
+      }),
+    ).toBe(before + 1);
+    expect(
+      db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all(),
+    ).toEqual([]);
+  });
+
+  it("names no tier when the wedding is at the top tier's limit", async () => {
+    const { db, app } = buildApp();
+    setTier(db, WEDDING_ID, "crimson");
+    for (let i = 0; i < 40; i += 1) seedHostSeat(db, `usr_v_${i}`, "viewer");
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({
+      error: "people_limit_reached",
+      used: 40,
+      limit: 40,
+      tier: null,
+    });
+  });
+
+  it("seats the second owner at the limit: the couple never count", async () => {
+    const { db, app } = buildApp();
+    for (let i = 0; i < 6; i += 1) seedHostSeat(db, `usr_v_${i}`, "viewer");
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob", role: "owner" });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { peopleLimit: { used: number } }).peopleLimit.used).toBe(6);
+    // A third owner is one more person.
+    const third = await req(app, "POST", hostsPath, OWNER, { handle: "carol", role: "owner" });
+    expect(third.status).toBe(409);
+    expect(((await third.json()) as { error: string }).error).toBe("people_limit_reached");
+  });
+
+  it("adds on the portal's session cookie, answering the count, and refuses a dead one", async () => {
+    const { db, app } = buildApp();
+    const dead = await appRequest(app, hostsPath, {
+      method: "POST",
+      headers: {
+        cookie: "cire_org_session=not-a-live-session-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ handle: "bob" }),
+    });
+    expect(dead.status).toBe(401);
+    expect(
+      db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all(),
+    ).toEqual([]);
+
+    const token = await seedOrganiserSession(db, OWNER);
+    const ok = await appRequest(app, hostsPath, {
+      method: "POST",
+      headers: { cookie: `cire_org_session=${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ handle: "bob" }),
+    });
+    expect(ok.status).toBe(201);
+    expect(((await ok.json()) as { peopleLimit: unknown }).peopleLimit).toEqual({
+      used: 1,
+      limit: 6,
+      tier: "ivory",
+    });
+  });
+
   it("returns 403 forbidden for a VIEWER or a HELPER trying to add a host", async () => {
     const { db, app } = buildApp();
     seedHostSeat(db, COHOST, "viewer");
@@ -406,6 +495,38 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     expect(body.total).toBe(2);
     // Owners are seats; there is no separate owner field to fall out of step.
     expect(body).not.toHaveProperty("owner");
+  });
+
+  it("carries the wedding's people count and limit, for any member", async () => {
+    const { db, app } = buildApp();
+    setTier(db, WEDDING_ID, "gold");
+    seedCohost(db);
+    seedHostSeat(db, "usr_viewer", "viewer");
+    for (const caller of [OWNER, "usr_viewer"]) {
+      const res = await req(app, "GET", hostsPath, caller);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { peopleLimit: unknown };
+      expect(body.peopleLimit).toEqual({ used: 2, limit: 15, tier: "gold" });
+    }
+  });
+
+  it("lists on the portal's session cookie, with the count, and refuses a dead one", async () => {
+    const { db, app } = buildApp();
+    const dead = await appRequest(app, hostsPath, {
+      headers: { cookie: "cire_org_session=not-a-live-session-token" },
+    });
+    expect(dead.status).toBe(401);
+
+    const token = await seedOrganiserSession(db, OWNER);
+    const ok = await appRequest(app, hostsPath, {
+      headers: { cookie: `cire_org_session=${token}` },
+    });
+    expect(ok.status).toBe(200);
+    expect(((await ok.json()) as { peopleLimit: unknown }).peopleLimit).toEqual({
+      used: 0,
+      limit: 6,
+      tier: "ivory",
+    });
   });
 
   it("lists a second owner as an owner, alongside the first", async () => {
@@ -591,6 +712,22 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/:osnProfileId (remove)
     expect(
       db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all(),
     ).toEqual([]);
+  });
+
+  it("removes on the portal's session cookie, answering the new count", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db);
+    const token = await seedOrganiserSession(db, OWNER);
+    const res = await appRequest(app, `${hostsPath}/${COHOST}`, {
+      method: "DELETE",
+      headers: { cookie: `cire_org_session=${token}` },
+    });
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({
+      removed: true,
+      osnProfileId: COHOST,
+      peopleLimit: { used: 0, limit: 6, tier: "ivory" },
+    });
   });
 
   it("lets an owner remove another owner, or leave while another remains", async () => {
@@ -831,7 +968,11 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/me (leave)", () => {
     seedHostSeat(db, "meadow", "viewer");
     const res = await req(app, "DELETE", `${hostsPath}/meadow`, OWNER);
     expect(res.status).toBe(200);
-    expect(await jsonBody(res)).toEqual({ removed: true, osnProfileId: "meadow" });
+    expect(await jsonBody(res)).toEqual({
+      removed: true,
+      osnProfileId: "meadow",
+      peopleLimit: { used: 0, limit: 6, tier: "ivory" },
+    });
     expect(await seatIds(db)).toEqual([OWNER]);
   });
 });
@@ -952,6 +1093,35 @@ describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/role", () =
     expect(await counterValue(CIRE_METRICS.hostRoleChanged, labels)).toBe(before + 1);
     const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, OWNER)).all();
     expect(row!.role).toBe("owner");
+  });
+
+  it("returns 409 people_limit_reached when demoting another owner would pass the limit", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db, "owner");
+    for (let i = 0; i < 6; i += 1) seedHostSeat(db, `usr_v_${i}`, "viewer");
+    const labels = { result: "people_limit_reached", role: "editor" };
+    const before = await counterValue(CIRE_METRICS.hostRoleChanged, labels);
+    const res = await req(app, "PUT", rolePath, OWNER, { role: "editor" });
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({
+      error: "people_limit_reached",
+      used: 6,
+      limit: 6,
+      tier: "gold",
+    });
+    expect(await counterValue(CIRE_METRICS.hostRoleChanged, labels)).toBe(before + 1);
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
+    expect(row!.role).toBe("owner");
+  });
+
+  it("lets an owner step down past the limit, answering the new count", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db, "owner");
+    for (let i = 0; i < 6; i += 1) seedHostSeat(db, `usr_v_${i}`, "viewer");
+    const res = await req(app, "PUT", `${hostsPath}/${OWNER}/role`, OWNER, { role: "editor" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { peopleLimit: unknown };
+    expect(body.peopleLimit).toEqual({ used: 7, limit: 6, tier: "gold" });
   });
 
   it("returns 404 host_not_found for a profile that holds no seat", async () => {
