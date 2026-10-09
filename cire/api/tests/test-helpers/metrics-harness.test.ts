@@ -16,8 +16,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 
 import { metrics } from "@opentelemetry/api";
 
-import { CIRE_METRICS, metricDietaryPreset } from "../../src/metrics";
-import { counterValue } from "./metrics-harness";
+import { CIRE_METRICS, metricDietaryPreset, metricR2ReconcileBatch } from "../../src/metrics";
+import { counterValue, histogramPoint } from "./metrics-harness";
 
 // Every test that disturbs the global provider puts it back, or every later
 // FILE in the run reads zero — `bun test` shares one process.
@@ -66,5 +66,27 @@ describe("counterValue", () => {
     const before = await counterValue(CIRE_METRICS.dietaryPreset, { preset: "sesame" });
     metricDietaryPreset("sesame");
     expect(await counterValue(CIRE_METRICS.dietaryPreset, { preset: "sesame" })).toBe(before + 1);
+  });
+});
+
+describe("histogramPoint", () => {
+  it("reads a histogram's count and sum, on the whole attribute set", async () => {
+    const before = await histogramPoint(CIRE_METRICS.r2ReconcileBatchSize, { bucket: "assets" });
+    metricR2ReconcileBatch("assets", 3);
+    metricR2ReconcileBatch("assets", 4);
+    expect(await histogramPoint(CIRE_METRICS.r2ReconcileBatchSize, { bucket: "assets" })).toEqual({
+      count: before.count + 2,
+      sum: before.sum + 7,
+    });
+    expect(
+      await histogramPoint(CIRE_METRICS.r2ReconcileBatchSize, { bucket: "assets", extra: "x" }),
+    ).toEqual({ count: 0, sum: 0 });
+  });
+
+  it("throws rather than answering zeros when this harness is not the provider", async () => {
+    metrics.disable();
+    await expect(
+      histogramPoint(CIRE_METRICS.r2ReconcileBatchSize, { bucket: "assets" }),
+    ).rejects.toThrow(/not the installed MeterProvider/);
   });
 });

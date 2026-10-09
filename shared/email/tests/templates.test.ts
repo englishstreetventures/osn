@@ -124,6 +124,15 @@ describe("renderTemplate", () => {
       vendorName: "Bloom & Co",
     },
     "vendor-claim-review-pending": { pending: 2, oldestWaitingDays: 3, env: "production" },
+    "r2-reconcile-alert": {
+      kind: "held",
+      env: "production",
+      bucket: "cire-sheets",
+      referencingRows: 40,
+      previousRows: 100,
+      heldRuns: 1,
+      runsLeft: 6,
+    },
     "wedding-delete-started": {
       weddingName: "Ama & Jonah",
       actorName: "Ama Mensah (@ama)",

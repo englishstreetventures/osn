@@ -108,3 +108,27 @@ export async function counterValue(name: string, attrs: Attributes = {}): Promis
   const point = metric.dataPoints.find((p) => sameAttributes(p.attributes, attrs));
   return typeof point?.value === "number" ? point.value : 0;
 }
+
+/**
+ * How many values one histogram data point has recorded, and their sum; zeros
+ * when nothing has recorded it yet. `attrs` is the point's whole attribute set,
+ * as for {@link counterValue}, and the same delta rule applies to both fields.
+ */
+export async function histogramPoint(
+  name: string,
+  attrs: Attributes = {},
+): Promise<{ count: number; sum: number }> {
+  if (metrics.getMeterProvider() !== provider) {
+    throw new Error(
+      `metrics harness is not the installed MeterProvider — histogram "${name}" would read 0 whatever the code does. ` +
+        `Run through \`bun run --cwd cire/api test\`, which preloads tests/test-helpers/metrics-harness.ts.`,
+    );
+  }
+  const metric = (await collectAll()).find((m) => m.descriptor.name === name);
+  const point = metric?.dataPoints.find((p) => sameAttributes(p.attributes, attrs));
+  const value = point?.value;
+  if (typeof value !== "object" || value === null || !("count" in value)) {
+    return { count: 0, sum: 0 };
+  }
+  return { count: value.count, sum: value.sum ?? 0 };
+}

@@ -18,6 +18,9 @@
  * The walk and its guards are {@link reconcileOrphanObjects} in
  * `r2-reconcile.ts`. An empty `imports` table while sheets exist is one of those
  * guards: the run deletes nothing and logs a warning until any change row exists.
+ * Another holds the run, and emails the operator, while `imports` has fewer
+ * than half the rows counted before; the lookup counts them in the same scan
+ * that names the keys.
  */
 import { imports } from "@cire/db";
 import { sql, type SQL } from "drizzle-orm";
@@ -27,9 +30,11 @@ import { DbService, dbQuery } from "../db";
 import { r2PositionStore, reconcileOrphanObjects } from "./r2-reconcile";
 import type {
   ListLimits,
+  NamedKeys,
   PositionBucket,
   R2ReconcileError,
   ReconcilableBucket,
+  ReconcilePlan,
 } from "./r2-reconcile";
 
 /** Every sheet object lives under this prefix; nothing else is touched. */
@@ -48,7 +53,8 @@ export const SHEET_LIST_LIMITS: ListLimits = { maxObjects: 1_000, maxListCalls: 
 /**
  * Where the walk keeps its place: one small JSON object in `cire-sheets`,
  * outside `imports/`, so the walk never lists or deletes it. It holds an
- * object key and a timestamp, no guest data.
+ * object key, a timestamp, a row count and how many runs a hold has lasted —
+ * no guest data.
  */
 export const SHEET_POSITION_KEY = "reconcile/imports-position.json";
 
@@ -67,40 +73,51 @@ const liveSheetSample: Effect.Effect<string | undefined, never, DbService> = Eff
 );
 
 /**
- * The four key columns of every `imports` row that names one of `keys`. The
- * list rides as ONE bound parameter, unpacked once by the `listed` CTE, where
- * `jsonEachIn` would bind it once per column it is compared with. D1 still
- * reads the whole table — no index covers these columns — but returns only the
- * rows that match.
+ * One row: how many `imports` rows there are (`n`), and, as a JSON array of
+ * four-key arrays, every row that names one of `keys` in any key column
+ * (`hits`). One scan does both — D1 reads the whole table, since no index
+ * covers these columns — so the count and the names describe the same rows.
+ * The list rides as ONE bound parameter, unpacked once by the `listed` CTE,
+ * where `jsonEachIn` would bind it once per column it is compared with. A full
+ * page of matches is about 270 KB in `hits`, inside D1's 2 MB value limit.
  */
 export function namedSheetKeysQuery(keys: ReadonlyArray<string>): SQL {
   const list = JSON.stringify(keys);
   return sql`WITH listed(r2_key) AS (SELECT value FROM json_each(${list}))
-    SELECT ${imports.eventsR2Key} AS e, ${imports.guestsR2Key} AS g,
-      ${imports.beforeEventsR2Key} AS be, ${imports.beforeGuestsR2Key} AS bg
-    FROM ${imports}
-    WHERE ${imports.eventsR2Key} IN listed OR ${imports.guestsR2Key} IN listed
-      OR ${imports.beforeEventsR2Key} IN listed OR ${imports.beforeGuestsR2Key} IN listed`;
+    SELECT count(*) AS n,
+      json_group_array(json_array(${imports.eventsR2Key}, ${imports.guestsR2Key},
+        ${imports.beforeEventsR2Key}, ${imports.beforeGuestsR2Key}))
+        FILTER (WHERE ${imports.eventsR2Key} IN listed OR ${imports.guestsR2Key} IN listed
+          OR ${imports.beforeEventsR2Key} IN listed OR ${imports.beforeGuestsR2Key} IN listed)
+        AS hits
+    FROM ${imports}`;
 }
 
-/** Of `keys`, every one some `imports` row names in any of its four key columns. */
+/**
+ * Of `keys`, every one some `imports` row names in any of its four key columns,
+ * and how many `imports` rows there are. Every row names two keys at least
+ * (`events_r2_key` and `guests_r2_key` are NOT NULL), so each is a referencing
+ * row. A `hits` value that is not an array of key arrays is a defect, which
+ * aborts the run.
+ */
 export function namedSheetKeys(
   keys: ReadonlyArray<string>,
-): Effect.Effect<Set<string>, never, DbService> {
+): Effect.Effect<NamedKeys, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
     const rows = yield* dbQuery(() =>
-      db.all<{ e: string; g: string; be: string | null; bg: string | null }>(
-        namedSheetKeysQuery(keys),
-      ),
+      db.all<{ n: number; hits: string }>(namedSheetKeysQuery(keys)),
     );
+    const parsed: unknown = JSON.parse(rows[0]?.hits ?? "[]");
+    if (!Array.isArray(parsed)) throw new Error("imports lookup returned no key list");
     const named = new Set<string>();
-    for (const row of rows) {
-      for (const key of [row.e, row.g, row.be, row.bg]) {
-        if (key) named.add(key);
+    for (const row of parsed) {
+      if (!Array.isArray(row)) throw new Error("imports lookup returned a malformed row");
+      for (const key of row) {
+        if (typeof key === "string" && key) named.add(key);
       }
     }
-    return named;
+    return { named, referencingRows: rows[0]?.n ?? 0 };
   });
 }
 
@@ -110,12 +127,14 @@ export const sheetReconcileService = {
    * than the grace window, walking at most {@link SHEET_LIST_LIMITS} a run from
    * where the last run stopped. Returns the number deleted; 0 on an abort.
    *
-   * @param bucket the `SHEETS` binding. Absent: no-op.
-   * @param now    the clock the grace window is measured against.
+   * @param bucket  the `SHEETS` binding. Absent: no-op.
+   * @param now     the clock the grace window is measured against.
+   * @param options `alertOperator`, told when the run is stopped or held.
    */
   reconcileOrphans(
     bucket: SheetsBucket | undefined,
     now: Date = new Date(),
+    options: Pick<ReconcilePlan<DbService>, "alertOperator"> = {},
   ): Effect.Effect<number, R2ReconcileError, DbService> {
     return reconcileOrphanObjects(
       bucket,
@@ -124,6 +143,7 @@ export const sheetReconcileService = {
         prefix: SHEETS_PREFIX,
         liveSample: liveSheetSample,
         named: namedSheetKeys,
+        alertOperator: options.alertOperator,
         budget: bucket && {
           ...SHEET_LIST_LIMITS,
           position: r2PositionStore(bucket, SHEET_POSITION_KEY, "sheets"),

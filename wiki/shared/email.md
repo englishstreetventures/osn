@@ -24,7 +24,7 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-10
 ---
 
 # Email Transport
@@ -107,6 +107,7 @@ cire-api sends from the same catalogue:
 | `wedding-owner-change` | `WeddingOwnerChangeData` — wedding name, who acted, whose seat changed, the change (`added`, `promoted`, `removed`, `demoted`), the new role, which copy this is (`subject`, `actor`, `owner`) | a change of owner, to the actor and every other owner, and for a removal or demotion to the person affected — see [[cire-auth]] |
 | `wedding-delete-started` | `WeddingDeleteStartedData` — wedding name, who deleted it, the restore deadline, which copy this is (`actor`, `owner`) | an owner deleting a wedding, to every owner — see [[cire-auth]] |
 | `vendor-claim-review-pending` | `{ pending, oldestWaitingDays, env }` — counts only, no listing or claimant | the daily cron, to the operator address in `CIRE_OPS_EMAIL` — see [[cire-vendors]] |
+| `r2-reconcile-alert` | `R2ReconcileAlertData` — one of `held` (bucket name, both row counts, runs held and left), `released`, `stopped` (bucket name, days stopped) or `disabled`, plus the tier; counts and commands only, no object key or guest data | the daily cron's R2 orphan reconcilers, to the operator address in `CIRE_OPS_EMAIL` — see [[backup-dr]] |
 
 `otp-recovery` is the only OTP template sent from an **unauthenticated**
 endpoint, which shapes its copy: anyone who knows the address can cause it to

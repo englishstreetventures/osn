@@ -14,6 +14,7 @@ import { setExecutionCtx } from "./lib/execution-ctx";
 import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
 import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
 import { organiserOriginFrom } from "./lib/organiser-origin";
+import { sendReconcileAlert, type OperatorReconcileAlert } from "./lib/reconcile-alert-email";
 import { registryOutboundLimiters } from "./lib/registry-limiters";
 import { resendEmailConfig } from "./lib/resend-email";
 import { siteOriginOptions, webOriginProblem } from "./lib/web-origin";
@@ -32,6 +33,7 @@ import {
   createProfileDisplayResolverFromEnv,
   createProfileOrgsResolverFromEnv,
 } from "./services/osn-bridge";
+import { reconcileDisabled } from "./services/r2-reconcile";
 import { retentionService, type GiftSummaryNotice } from "./services/retention";
 import { rsvpChangeService } from "./services/rsvp-changes";
 import { rsvpDigestService } from "./services/rsvp-digest";
@@ -195,6 +197,12 @@ export interface Env {
   GROWTHBOOK_CLIENT_KEY?: string;
   GROWTHBOOK_API_HOST?: string;
   KV_GB_PAYLOAD?: KVNamespace;
+  // Stop flag for the two R2 orphan reconcilers in `scheduled`, declared
+  // "false" in every wrangler.toml tier. Anything but absent, `false` or the
+  // text "false" leaves both off and logs a warning each run; the other cron
+  // jobs still run. Typed `unknown` because wrangler passes a TOML or dashboard
+  // value through with its own type. Parsed by `reconcileDisabled`.
+  CIRE_R2_RECONCILE_DISABLED?: unknown;
 }
 
 // The Elysia app graph (root + cors + route factories + auth plugins) is
@@ -606,6 +614,8 @@ const handler: ExportedHandler<Env> = {
   //     1,000 objects a run and resuming where the last run stopped. See
   //     services/sheet-reconcile.ts.
   //
+  // `CIRE_R2_RECONCILE_DISABLED` leaves out 4 and 11 and nothing else.
+  //
   // Each is its own `waitUntil` + `catchAll`, so a failure in one never aborts
   // the other and the isolate stays alive until each delete settles. All eleven
   // share this one invocation's Workers limits (CPU, subrequests, D1 queries).
@@ -850,42 +860,77 @@ const handler: ExportedHandler<Env> = {
       );
     }
 
+    // The two R2 orphan reconcilers are the only cron jobs that delete objects
+    // no row names, so they alone have stops: `reconcile/stop` in a bucket
+    // (checked by the reconciler) and this flag for the whole tier. With the
+    // flag set neither is handed to `waitUntil`, and the warning and alert
+    // below say so on every run. Alerts go to the same operator address as the
+    // claim reminder, on the same conditions.
+    const reconcilersOff = reconcileDisabled(env.CIRE_R2_RECONCILE_DISABLED);
+    const alertReconcile =
+      alertTarget && resendConfig
+        ? (alert: OperatorReconcileAlert) =>
+            sendReconcileAlert({ ...alertTarget, alert }).pipe(
+              Effect.provide(makeResendEmailLive(resendConfig)),
+            )
+        : undefined;
+
     // Reconcile orphaned `cire-assets` invite images (re-upload/remove
     // best-effort-delete failures leave objects no DB row references). Pass the
     // ASSETS binding; absent ⇒ the reconcile is a no-op. The service refuses to
     // delete anything unless it can positively confirm the live set (abort on a
     // failed/empty referenced-key read) and only reaps objects past a 7-day
     // grace window — so a freshly uploaded image whose row write lags is safe.
-    runSweep(() =>
-      Effect.runPromise(
-        assetReconcileService.reconcileOrphans(env.ASSETS).pipe(
-          Effect.catch((err) =>
-            Effect.logError("scheduled cire-assets reconciliation failed", {
-              reason: err.reason,
-            }),
-          ),
-          Effect.provide(dbLayer),
+    if (!reconcilersOff) {
+      runSweep(() =>
+        Effect.runPromise(
+          assetReconcileService
+            .reconcileOrphans(env.ASSETS, new Date(), { alertOperator: alertReconcile })
+            .pipe(
+              Effect.catch((err) =>
+                Effect.logError("scheduled cire-assets reconciliation failed", {
+                  reason: err.reason,
+                }),
+              ),
+              Effect.provide(dbLayer),
+            ),
         ),
-      ),
-    );
+      );
+    }
 
     // Reconcile orphaned `cire-sheets` objects: every flow that deletes or
     // rewrites an `imports` row deletes its objects best-effort afterwards, and
     // a failed delete leaves guest PII that nothing else retries. Same guards as
     // the assets walk, plus a listing budget and a position kept in the bucket.
     // Absent SHEETS ⇒ no-op.
-    runSweep(() =>
-      Effect.runPromise(
-        sheetReconcileService.reconcileOrphans(env.SHEETS).pipe(
-          Effect.catch((err) =>
-            Effect.logError("scheduled cire-sheets reconciliation failed", {
-              reason: err.reason,
-            }),
-          ),
-          Effect.provide(dbLayer),
+    if (!reconcilersOff) {
+      runSweep(() =>
+        Effect.runPromise(
+          sheetReconcileService
+            .reconcileOrphans(env.SHEETS, new Date(), { alertOperator: alertReconcile })
+            .pipe(
+              Effect.catch((err) =>
+                Effect.logError("scheduled cire-sheets reconciliation failed", {
+                  reason: err.reason,
+                }),
+              ),
+              Effect.provide(dbLayer),
+            ),
         ),
-      ),
-    );
+      );
+    }
+
+    // Logged and mailed after every sweep is handed off, so no sweep waits on
+    // either.
+    if (reconcilersOff) {
+      await runCire(
+        Effect.logWarning(
+          "r2 reconcile disabled by CIRE_R2_RECONCILE_DISABLED — no orphan objects deleted",
+          { buckets: ["assets", "sheets"] },
+        ),
+      );
+      if (alertReconcile) await runCire(alertReconcile({ kind: "disabled" }));
+    }
 
     if (resend.problem) {
       await runCire(
