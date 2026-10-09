@@ -28,6 +28,7 @@ import type {
   PositionBucket,
   R2ReconcileError,
   ReconcilableBucket,
+  ReconcilePlan,
 } from "./r2-reconcile";
 
 /** R2 key prefix that holds invite images. ONLY keys under this are touched. */
@@ -42,8 +43,9 @@ export const ASSET_LIST_LIMITS: ListLimits = { maxObjects: 1_000, maxListCalls: 
 
 /**
  * Where the walk keeps its place: one small JSON object in `cire-assets`,
- * outside `assets/`, so the walk never lists or deletes it. The image routes
- * serve only keys a row names, so it is never served.
+ * outside `assets/`, so the walk never lists or deletes it. It holds an object
+ * key, a timestamp, a row count and how many runs a hold has lasted. The image
+ * routes serve only keys a row names, so it is never served.
  */
 export const ASSET_POSITION_KEY = "reconcile/assets-position.json";
 
@@ -116,12 +118,14 @@ export const assetReconcileService = {
    * than the grace window, walking at most {@link ASSET_LIST_LIMITS} a run from
    * where the last run stopped. Returns the number deleted; 0 on an abort.
    *
-   * @param bucket the `ASSETS` binding. Absent: no-op.
-   * @param now    the clock the grace window is measured against.
+   * @param bucket  the `ASSETS` binding. Absent: no-op.
+   * @param now     the clock the grace window is measured against.
+   * @param options `alertOperator`, told when the run is stopped or held.
    */
   reconcileOrphans(
     bucket: AssetsBucket | undefined,
     now: Date = new Date(),
+    options: Pick<ReconcilePlan<DbService>, "alertOperator"> = {},
   ): Effect.Effect<number, R2ReconcileError, DbService> {
     return Effect.gen(function* () {
       const live = yield* Effect.cached(loadReferencedKeys());
@@ -134,6 +138,7 @@ export const assetReconcileService = {
           // Every live key: it answers for each key the walk asks about.
           named: () =>
             live.pipe(Effect.map(({ keys, rows }) => ({ named: keys, referencingRows: rows }))),
+          alertOperator: options.alertOperator,
           budget: bucket && {
             ...ASSET_LIST_LIMITS,
             position: r2PositionStore(bucket, ASSET_POSITION_KEY, "assets"),

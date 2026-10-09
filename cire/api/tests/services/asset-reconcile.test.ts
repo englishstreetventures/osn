@@ -14,7 +14,13 @@ import {
   ASSETS_PREFIX,
   type AssetsBucket,
 } from "../../src/services/asset-reconcile";
-import { RECONCILE_GRACE_MS, RECONCILE_DELETE_CAP } from "../../src/services/r2-reconcile";
+import {
+  RECONCILE_DELETE_CAP,
+  RECONCILE_GRACE_MS,
+  RECONCILE_HOLD_RUNS,
+  RECONCILE_STOP_KEY,
+  type ReconcileAlert,
+} from "../../src/services/r2-reconcile";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
@@ -51,7 +57,8 @@ function createAssetsStub(
     remaining: () => [...store.keys()],
     stored: (key) => texts.get(key),
     head(key) {
-      return Promise.resolve(store.has(key) ? { key } : null);
+      const uploaded = store.get(key);
+      return Promise.resolve(uploaded ? { key, uploaded } : null);
     },
     // The walk's position, kept beside the images as the real bucket keeps it.
     // `list` pages by its own cursor and ignores `startAfter`, so a test that
@@ -490,7 +497,7 @@ describe("assetReconcileService.reconcileOrphans", () => {
   );
 
   it(
-    "holds a run in which the rows naming images fell by more than half, then reaps on the next",
+    "holds while the rows naming images number fewer than half of those counted before, alerting, and reaps once they recover",
     withDb(
       Effect.gen(function* () {
         yield* seedReferenced({ hero: "assets/wedL/hero-live" });
@@ -498,17 +505,62 @@ describe("assetReconcileService.reconcileOrphans", () => {
           { key: "assets/wedL/hero-live", uploaded: OLD },
           { key: "assets/wedL/orphan", uploaded: OLD },
         ]);
+        const alerts: ReconcileAlert[] = [];
+        const alertOperator = (alert: ReconcileAlert) => Effect.sync(() => void alerts.push(alert));
         // The last run counted three rows; one is left.
         yield* Effect.promise(() =>
           bucket.put(ASSET_POSITION_KEY, JSON.stringify({ referenced: 3 })),
         );
 
-        expect(yield* assetReconcileService.reconcileOrphans(bucket, NOW)).toBe(0);
+        expect(yield* assetReconcileService.reconcileOrphans(bucket, NOW, { alertOperator })).toBe(
+          0,
+        );
         expect(bucket.remaining()).toContain("assets/wedL/orphan");
-        expect(JSON.parse(bucket.stored(ASSET_POSITION_KEY)!)).toEqual({ referenced: 1 });
+        expect(JSON.parse(bucket.stored(ASSET_POSITION_KEY)!)).toEqual({
+          referenced: 3,
+          heldRuns: 1,
+        });
+        expect(alerts).toEqual([
+          {
+            kind: "held",
+            bucket: "assets",
+            referencingRows: 1,
+            previousRows: 3,
+            heldRuns: 1,
+            runsLeft: RECONCILE_HOLD_RUNS - 1,
+          },
+        ]);
 
-        expect(yield* assetReconcileService.reconcileOrphans(bucket, NOW)).toBe(1);
+        // Two rows is not more than half gone.
+        yield* seedReferenced({ eventKey: "assets/wedM/event-live" });
+        expect(yield* assetReconcileService.reconcileOrphans(bucket, NOW, { alertOperator })).toBe(
+          1,
+        );
         expect(bucket.deleted).toEqual(new Set(["assets/wedL/orphan"]));
+      }),
+    ),
+  );
+
+  it(
+    "deletes nothing and alerts while reconcile/stop is in the bucket",
+    withDb(
+      Effect.gen(function* () {
+        yield* seedReferenced({ hero: "assets/wedS/hero-live" });
+        const bucket = createAssetsStub([
+          { key: "assets/wedS/hero-live", uploaded: OLD },
+          { key: "assets/wedS/orphan", uploaded: OLD },
+          { key: RECONCILE_STOP_KEY, uploaded: FRESH },
+        ]);
+        const alerts: ReconcileAlert[] = [];
+
+        expect(
+          yield* assetReconcileService.reconcileOrphans(bucket, NOW, {
+            alertOperator: (alert) => Effect.sync(() => void alerts.push(alert)),
+          }),
+        ).toBe(0);
+        expect(bucket.deleted.size).toBe(0);
+        expect(alerts).toEqual([{ kind: "stopped", bucket: "assets", stoppedDays: 0 }]);
+        expect(RECONCILE_STOP_KEY.startsWith(ASSETS_PREFIX)).toBe(false);
       }),
     ),
   );

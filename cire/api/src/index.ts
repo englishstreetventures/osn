@@ -14,6 +14,7 @@ import { setExecutionCtx } from "./lib/execution-ctx";
 import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
 import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
 import { organiserOriginFrom } from "./lib/organiser-origin";
+import { sendReconcileAlert, type OperatorReconcileAlert } from "./lib/reconcile-alert-email";
 import { registryOutboundLimiters } from "./lib/registry-limiters";
 import { resendEmailConfig } from "./lib/resend-email";
 import { siteOriginOptions, webOriginProblem } from "./lib/web-origin";
@@ -860,9 +861,19 @@ const handler: ExportedHandler<Env> = {
     }
 
     // The two R2 orphan reconcilers are the only cron jobs that delete objects
-    // no row names, so they alone have a stop flag. Off, neither is handed to
-    // `waitUntil`, and the warning below says so on every run.
+    // no row names, so they alone have stops: `reconcile/stop` in a bucket
+    // (checked by the reconciler) and this flag for the whole tier. With the
+    // flag set neither is handed to `waitUntil`, and the warning and alert
+    // below say so on every run. Alerts go to the same operator address as the
+    // claim reminder, on the same conditions.
     const reconcilersOff = reconcileDisabled(env.CIRE_R2_RECONCILE_DISABLED);
+    const alertReconcile =
+      alertTarget && resendConfig
+        ? (alert: OperatorReconcileAlert) =>
+            sendReconcileAlert({ ...alertTarget, alert }).pipe(
+              Effect.provide(makeResendEmailLive(resendConfig)),
+            )
+        : undefined;
 
     // Reconcile orphaned `cire-assets` invite images (re-upload/remove
     // best-effort-delete failures leave objects no DB row references). Pass the
@@ -873,14 +884,16 @@ const handler: ExportedHandler<Env> = {
     if (!reconcilersOff) {
       runSweep(() =>
         Effect.runPromise(
-          assetReconcileService.reconcileOrphans(env.ASSETS).pipe(
-            Effect.catch((err) =>
-              Effect.logError("scheduled cire-assets reconciliation failed", {
-                reason: err.reason,
-              }),
+          assetReconcileService
+            .reconcileOrphans(env.ASSETS, new Date(), { alertOperator: alertReconcile })
+            .pipe(
+              Effect.catch((err) =>
+                Effect.logError("scheduled cire-assets reconciliation failed", {
+                  reason: err.reason,
+                }),
+              ),
+              Effect.provide(dbLayer),
             ),
-            Effect.provide(dbLayer),
-          ),
         ),
       );
     }
@@ -893,19 +906,22 @@ const handler: ExportedHandler<Env> = {
     if (!reconcilersOff) {
       runSweep(() =>
         Effect.runPromise(
-          sheetReconcileService.reconcileOrphans(env.SHEETS).pipe(
-            Effect.catch((err) =>
-              Effect.logError("scheduled cire-sheets reconciliation failed", {
-                reason: err.reason,
-              }),
+          sheetReconcileService
+            .reconcileOrphans(env.SHEETS, new Date(), { alertOperator: alertReconcile })
+            .pipe(
+              Effect.catch((err) =>
+                Effect.logError("scheduled cire-sheets reconciliation failed", {
+                  reason: err.reason,
+                }),
+              ),
+              Effect.provide(dbLayer),
             ),
-            Effect.provide(dbLayer),
-          ),
         ),
       );
     }
 
-    // Logged after every sweep is handed off, so no sweep waits on the logger.
+    // Logged and mailed after every sweep is handed off, so no sweep waits on
+    // either.
     if (reconcilersOff) {
       await runCire(
         Effect.logWarning(
@@ -913,6 +929,7 @@ const handler: ExportedHandler<Env> = {
           { buckets: ["assets", "sheets"] },
         ),
       );
+      if (alertReconcile) await runCire(alertReconcile({ kind: "disabled" }));
     }
 
     if (resend.problem) {

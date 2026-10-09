@@ -85,10 +85,12 @@ ZAP_API_URL = "http://localhost:3002"
 # disabled (503). The SAME value must be provisioned on the osn-api side.
 #
 # CIRE_OPS_EMAIL — the operator address for the daily "vendor claims are
-# waiting for review" reminder (src/index.ts `scheduled`). A SECRET, never a
+# waiting for review" reminder and the R2 orphan reconcilers' alerts
+# (src/index.ts `scheduled`). A SECRET, never a
 # committed var: this repo is public and the address is a person's. Locally put
 # it in `.dev.vars`; in a deployed tier `wrangler secret put CIRE_OPS_EMAIL`.
-# Absent (or no RESEND_API_KEY) ⇒ no reminder; the cron's log line remains.
+# Absent (or no RESEND_API_KEY) ⇒ no reminder or alert; the cron's log lines
+# remain.
 #
 # RESEND_API_URL — NEVER set in any tier here, as a var or a secret. It points
 # Resend mail at a local emulator and belongs in `.dev.vars` / `.env` only. A
@@ -164,20 +166,25 @@ ZAP_API_URL = "http://localhost:3002"
 GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
 # GROWTHBOOK_CLIENT_KEY = "sdk-xxxxxxxx"   # set after creating the GrowthBook SDK connection
 
-# ── R2 orphan reconcilers' stop flag ─────────────────────────────────────────
+# ── R2 orphan reconcilers' tier-wide switch ──────────────────────────────────
 # "false" runs the daily cron's two R2 orphan reconcilers (cire-assets and
-# cire-sheets, src/services/r2-reconcile.ts); any other value leaves both out of
-# `scheduled` (src/index.ts, parsed by `reconcileDisabled`) and logs
-# "r2 reconcile disabled by CIRE_R2_RECONCILE_DISABLED" each run. Every other
+# cire-sheets, src/services/r2-reconcile.ts); "true" leaves both out of
+# `scheduled` (src/index.ts, parsed by `reconcileDisabled`, which treats any
+# value but "false" as off), logs "r2 reconcile disabled by
+# CIRE_R2_RECONCILE_DISABLED" and emails CIRE_OPS_EMAIL each run. Every other
 # cron job — retention, the wedding purge, the session sweeps — still runs.
-# Set "true" in a tier before restoring that tier's cire-db to an earlier point.
+# It changes only with a reviewed deploy of this file, so it suits switching a
+# tier off for good, not an emergency.
 #
-# Declared "false" in every tier below (named envs inherit no vars), and
-# tests/services/r2-reconcile.test.ts fails unless each holds that string. To
-# stop the reconcilers, change the tier's value here and deploy it. A dashboard
-# edit takes effect at once, but the next deploy of that tier writes this
-# file's value back, so land the change here too before anything else deploys.
-# Never make it a secret: a secret cannot share a name with a declared var.
+# To stop a reconciler now — before a cire-db restore — put `reconcile/stop` in
+# its bucket, which no deploy touches (wiki/compliance/backup-dr.md):
+#   printf 'restore\n' | bunx wrangler r2 object put <bucket>/reconcile/stop --pipe --remote
+# and delete it to resume. A dashboard edit of this var is written back by the
+# next deploy of the tier. Never make it a secret: a secret cannot share a name
+# with a declared var.
+#
+# Declared in every tier below (named envs inherit no vars), and
+# tests/services/r2-reconcile.test.ts fails unless each holds "false" or "true".
 CIRE_R2_RECONCILE_DISABLED = "false"
 
 # Native Cloudflare Workers Rate Limiting binding for the pre-auth claim
@@ -255,9 +262,10 @@ migrations_dir = "../db/migrations"
 # R2 bucket for the organiser change flow: each `imports` row's uploaded sheets
 # (or editor draft) and, once applied, its before-image. Guest PII. Objects no
 # row names are reaped by the daily cron (src/services/sheet-reconcile.ts),
-# which keeps its place in `reconcile/imports-position.json` — a key and a
-# timestamp, no guest data. Created 2026-06-17 — if you ever rebuild the
-# account from scratch:
+# which keeps its place in `reconcile/imports-position.json` — a key, a
+# timestamp, a row count and how many runs a hold has lasted, no guest data —
+# and stops while `reconcile/stop` is in the bucket. Created 2026-06-17 — if
+# you ever rebuild the account from scratch:
 #   bunx wrangler r2 bucket create cire-sheets
 [[r2_buckets]]
 binding = "SHEETS"
@@ -267,7 +275,9 @@ bucket_name = "cire-sheets"
 # SHEETS: binary content, served publicly through the API, different retention.
 # Objects no row names are reaped by the daily cron
 # (src/services/asset-reconcile.ts), which keeps its place in
-# `reconcile/assets-position.json` — a key and a timestamp, never served.
+# `reconcile/assets-position.json` — a key, a timestamp, a row count and how
+# many runs a hold has lasted, never served — and stops while `reconcile/stop`
+# is in the bucket.
 # Created 2026-06-15 — if you ever rebuild the account from scratch:
 #   bunx wrangler r2 bucket create cire-assets
 [[r2_buckets]]

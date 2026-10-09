@@ -9,6 +9,7 @@ import { DDL } from "../src/db/setup";
 import handler from "../src/index";
 import { CIRE_METRICS } from "../src/metrics";
 import * as osnBridge from "../src/services/osn-bridge";
+import { RECONCILE_STOP_KEY } from "../src/services/r2-reconcile";
 import { jsonBody } from "./test-helpers";
 import { captureLogs } from "./test-helpers/capture-logs";
 import { counterValue } from "./test-helpers/metrics-harness";
@@ -676,7 +677,9 @@ describe("D1 session routing at the entry points", () => {
             truncated: false,
           }),
         delete: () => Promise.resolve(),
-        head: (key: string) => Promise.resolve({ key }),
+        // Every object but the operator's stop is there.
+        head: (key: string) =>
+          Promise.resolve(key === RECONCILE_STOP_KEY ? null : { key, uploaded }),
         get: () => Promise.resolve(null),
         put: () => Promise.resolve(),
       };
@@ -756,6 +759,37 @@ describe("D1 session routing at the entry points", () => {
     });
     expect(on.pending).toHaveLength(10);
     expect(listed).toBe(2);
+  }, 30_000);
+
+  it("emails the operator once a run while CIRE_R2_RECONCILE_DISABLED is set, after every sweep is handed off", async () => {
+    const sent: Array<{ subject: string; to: string[] }> = [];
+    const resend = spyOn(globalThis, "fetch").mockImplementation(((
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.startsWith("https://api.resend.com/")) {
+        sent.push(JSON.parse(String(init?.body)) as { subject: string; to: string[] });
+        return Promise.resolve(Response.json({ id: "email_test" }));
+      }
+      return Promise.reject(new Error(`unexpected fetch ${url}`));
+    }) as typeof fetch);
+    try {
+      const { pending } = await runCron({
+        CIRE_R2_RECONCILE_DISABLED: "true",
+        CIRE_OPS_EMAIL: "ops@example.test",
+        RESEND_API_KEY: "re_test",
+      });
+      expect(pending).toHaveLength(8);
+      expect(sent).toEqual([
+        expect.objectContaining({
+          to: ["ops@example.test"],
+          subject: "Cire: R2 orphan deletion disabled for this tier",
+        }),
+      ]);
+    } finally {
+      resend.mockRestore();
+    }
   }, 30_000);
 
   it("adds the RSVP digest, in a session of its own, only when it has a transport and osn-api", async () => {

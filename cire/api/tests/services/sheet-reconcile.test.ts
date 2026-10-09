@@ -14,7 +14,12 @@ import {
   storeBeforeImage,
   storeUpload,
 } from "../../src/services/r2-imports";
-import { RECONCILE_GRACE_MS } from "../../src/services/r2-reconcile";
+import {
+  RECONCILE_GRACE_MS,
+  RECONCILE_HOLD_RUNS,
+  RECONCILE_STOP_KEY,
+  type ReconcileAlert,
+} from "../../src/services/r2-reconcile";
 import {
   namedSheetKeys,
   namedSheetKeysQuery,
@@ -53,7 +58,8 @@ function createSheetsStub(initial: ReadonlyArray<{ key: string; uploaded: Date }
     remaining: () => [...store.keys()].toSorted(),
     stored: (key) => texts.get(key),
     head(key) {
-      return Promise.resolve(store.has(key) ? { key } : null);
+      const uploaded = store.get(key);
+      return Promise.resolve(uploaded ? { key, uploaded } : null);
     },
     list(options) {
       const prefix = options?.prefix ?? "";
@@ -185,7 +191,29 @@ describe("sheet reconciliation settings", () => {
     expect(new TextEncoder().encode(params[0] as string).length).toBeLessThan(100_000);
   });
 
-  it("scans imports once for the lookup and once for the row count, never per row", () => {
+  it(
+    "answers a full page of the longest keys in one value well under D1's 2 MB row limit",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const weddingId = seedWedding(db);
+        const asked: string[] = [];
+        // One more row than a run can ask about: each matches on its before-image.
+        for (let i = 0; i <= SHEET_LIST_LIMITS.maxObjects; i++) {
+          asked.push(insertChange(db, weddingId, crypto.randomUUID()).beforeEvents);
+        }
+        const [row] = yield* Effect.promise(() =>
+          Promise.resolve(db.all<{ n: number; hits: string }>(namedSheetKeysQuery(asked))),
+        );
+
+        expect(row!.n).toBe(SHEET_LIST_LIMITS.maxObjects + 1);
+        expect(JSON.parse(row!.hits)).toHaveLength(SHEET_LIST_LIMITS.maxObjects + 1);
+        expect(new TextEncoder().encode(row!.hits).length).toBeLessThan(500_000);
+      }),
+    ),
+  );
+
+  it("counts and matches imports in one scan, never per row", () => {
     const db = createDb(":memory:");
     const { sql: text, params } = new SQLiteSyncDialect().sqlToQuery(
       namedSheetKeysQuery(["imports/a/events.csv", "imports/b/guests.csv"]),
@@ -194,12 +222,7 @@ describe("sheet reconciliation settings", () => {
       .query<{ detail: string }, never[]>(`EXPLAIN QUERY PLAN ${text}`)
       .all(...(params as never[]))
       .map((r) => r.detail);
-    const scans = plan.filter((d) => /\bimports\b/.test(d));
-    expect(scans).toHaveLength(2);
-    expect(scans).toContain("SCAN imports");
-    expect(scans.filter((d) => d !== "SCAN imports")).toEqual([
-      expect.stringMatching(/^SCAN imports USING COVERING INDEX \w+$/),
-    ]);
+    expect(plan.filter((d) => /\bimports\b/.test(d))).toEqual(["SCAN imports"]);
     expect(plan.join("\n")).not.toMatch(/CORRELATED/);
   });
 
@@ -212,7 +235,8 @@ describe("sheet reconciliation settings", () => {
       .toSorted();
     const { sql: text } = new SQLiteSyncDialect().sqlToQuery(namedSheetKeysQuery([]));
     const matched = [...text.matchAll(/"imports"\."(\w+)" IN listed/g)].map((m) => m[1]).toSorted();
-    const selected = [...text.matchAll(/"imports"\."(\w+)" AS/g)].map((m) => m[1]).toSorted();
+    const array = /json_array\(([^)]*)\)/.exec(text)?.[1] ?? "";
+    const selected = [...array.matchAll(/"imports"\."(\w+)"/g)].map((m) => m[1]).toSorted();
     expect(keyColumns).toHaveLength(4);
     expect(matched).toEqual(keyColumns);
     expect(selected).toEqual(keyColumns);
@@ -474,23 +498,69 @@ describe("sheetReconcileService.reconcileOrphans", () => {
   );
 
   it(
-    "holds a run in which imports lost more than half its rows, then reaps on the next",
+    "holds while imports has fewer than half the rows counted before, alerting, and reaps once they recover",
     withDb(
       Effect.gen(function* () {
         const live = yield* seedChange({ before: false });
         const orphan = keysFor(crypto.randomUUID());
         const bucket = createSheetsStub(old(live.events, live.guests, orphan.events));
+        const alerts: ReconcileAlert[] = [];
+        const alertOperator = (alert: ReconcileAlert) => Effect.sync(() => void alerts.push(alert));
         // The last run counted three rows; one is left.
         yield* Effect.promise(() =>
           bucket.put(SHEET_POSITION_KEY, JSON.stringify({ referenced: 3 })),
         );
 
-        expect(yield* sheetReconcileService.reconcileOrphans(bucket, NOW)).toBe(0);
+        expect(yield* sheetReconcileService.reconcileOrphans(bucket, NOW, { alertOperator })).toBe(
+          0,
+        );
         expect(bucket.remaining()).toContain(orphan.events);
-        expect(JSON.parse(bucket.stored(SHEET_POSITION_KEY)!)).toEqual({ referenced: 1 });
+        expect(JSON.parse(bucket.stored(SHEET_POSITION_KEY)!)).toEqual({
+          referenced: 3,
+          heldRuns: 1,
+        });
+        expect(alerts).toEqual([
+          {
+            kind: "held",
+            bucket: "sheets",
+            referencingRows: 1,
+            previousRows: 3,
+            heldRuns: 1,
+            runsLeft: RECONCILE_HOLD_RUNS - 1,
+          },
+        ]);
 
-        expect(yield* sheetReconcileService.reconcileOrphans(bucket, NOW)).toBe(1);
+        // Two rows is not more than half gone.
+        yield* seedChange({ before: false });
+        expect(yield* sheetReconcileService.reconcileOrphans(bucket, NOW, { alertOperator })).toBe(
+          1,
+        );
         expect(bucket.deleted).toEqual(new Set([orphan.events]));
+        expect(JSON.parse(bucket.stored(SHEET_POSITION_KEY)!)).toEqual({ referenced: 2 });
+      }),
+    ),
+  );
+
+  it(
+    "deletes nothing and alerts while reconcile/stop is in the bucket",
+    withDb(
+      Effect.gen(function* () {
+        const live = yield* seedChange({ before: false });
+        const orphan = keysFor(crypto.randomUUID());
+        const bucket = createSheetsStub([
+          ...old(live.events, live.guests, orphan.events),
+          { key: RECONCILE_STOP_KEY, uploaded: OLD },
+        ]);
+        const alerts: ReconcileAlert[] = [];
+
+        expect(
+          yield* sheetReconcileService.reconcileOrphans(bucket, NOW, {
+            alertOperator: (alert) => Effect.sync(() => void alerts.push(alert)),
+          }),
+        ).toBe(0);
+        expect(bucket.deleted.size).toBe(0);
+        expect(alerts).toEqual([{ kind: "stopped", bucket: "sheets", stoppedDays: 7 }]);
+        expect(RECONCILE_STOP_KEY.startsWith(SHEETS_PREFIX)).toBe(false);
       }),
     ),
   );

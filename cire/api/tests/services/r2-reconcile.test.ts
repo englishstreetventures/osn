@@ -8,6 +8,8 @@ import {
   R2ReconcileError,
   RECONCILE_DELETE_CAP,
   RECONCILE_GRACE_MS,
+  RECONCILE_HOLD_RUNS,
+  RECONCILE_STOP_KEY,
   r2PositionStore,
   reconcileDisabled,
   reconcileOrphanObjects,
@@ -15,6 +17,7 @@ import {
   type PositionBucket,
   type PositionStore,
   type ReconcilableBucket,
+  type ReconcileAlert,
   type ReconcilePlan,
 } from "../../src/services/r2-reconcile";
 import { captureLogs } from "../test-helpers/capture-logs";
@@ -37,7 +40,8 @@ type ListOptions = { prefix?: string; cursor?: string; startAfter?: string; limi
  * every page while still reporting `truncated`, which R2 may do. Every `list`
  * call is recorded. The other options make the bucket misbehave in one way
  * each: ignore the prefix or `startAfter`, include the `startAfter` key, drop
- * the cursor, fail a list call, or reject deletes while `deletes.reject` is set.
+ * the cursor, fail a list call or one key's `head`, or reject deletes while
+ * `deletes.reject` is set. A `reconcile/stop` object is held like any other.
  */
 function createBucket(
   initial: ReadonlyArray<{ key: string; uploaded: Date }>,
@@ -48,7 +52,8 @@ function createBucket(
     inclusiveStartAfter?: boolean;
     ignorePrefix?: boolean;
     dropCursor?: boolean;
-    headThrows?: boolean;
+    /** `head` of this key rejects. */
+    headThrowsFor?: string;
   } = {},
 ): ReconcilableBucket & {
   deleted: Set<string>;
@@ -66,8 +71,9 @@ function createBucket(
     deletes,
     keys: () => [...store.keys()].toSorted(),
     head(key) {
-      if (opts.headThrows) return Promise.reject(new Error("head boom"));
-      return Promise.resolve(store.has(key) ? { key } : null);
+      if (opts.headThrowsFor === key) return Promise.reject(new Error("head boom"));
+      const uploaded = store.get(key);
+      return Promise.resolve(uploaded ? { key, uploaded } : null);
     },
     list(options) {
       listCalls.push({ ...options });
@@ -104,7 +110,12 @@ function createBucket(
 }
 
 /** What a reconciler keeps in its position object, as the tests read it back. */
-type StoredPosition = { after?: string | null; lapStartedAt?: number; referenced?: number };
+type StoredPosition = {
+  after?: string | null;
+  lapStartedAt?: number;
+  referenced?: number;
+  heldRuns?: number;
+};
 
 /** A position held in memory, recording every write. */
 function memoryPosition(
@@ -134,7 +145,7 @@ function memoryPosition(
 /**
  * A plan whose live rows name exactly `live`, one key a row, so the lookup
  * reports `live.length` referencing rows unless `rows` says otherwise. Records
- * each `named` lookup and how often the sample was read.
+ * each `named` lookup, how often the sample was read, and every operator alert.
  */
 function plan(
   live: ReadonlyArray<string>,
@@ -143,10 +154,12 @@ function plan(
 ) {
   const liveSet = new Set(live);
   const lookups: Array<ReadonlyArray<string>> = [];
+  const alerts: ReconcileAlert[] = [];
   let samplesRead = 0;
   const p: ReconcilePlan<never> = {
     label: "sheets",
     prefix: PREFIX,
+    alertOperator: (alert) => Effect.sync(() => void alerts.push(alert)),
     liveSample: Effect.sync(() => {
       samplesRead += 1;
       return live[0];
@@ -158,7 +171,7 @@ function plan(
       }),
     ...extra,
   };
-  return { plan: p, lookups, samplesRead: () => samplesRead };
+  return { plan: p, lookups, alerts, samplesRead: () => samplesRead };
 }
 
 const budget = (limits: ListLimits, position: PositionStore) => ({ ...limits, position });
@@ -274,7 +287,7 @@ describe("reconcileOrphanObjects", () => {
         { key: "imports/a/events.csv", uploaded: OLD },
         { key: "imports/live", uploaded: OLD },
       ],
-      { headThrows: true },
+      { headThrowsFor: "imports/live" },
     );
 
     expect(await outcome(reconcileOrphanObjects(bucket, plan(["imports/live"]).plan, NOW))).toBe(
@@ -612,6 +625,10 @@ describe("reconcileOrphanObjects", () => {
       ["a negative count", JSON.stringify({ after: null, lapStartedAt: 0, referenced: -1 })],
       ["a fractional count", JSON.stringify({ referenced: 1.5 })],
       ["an empty object", "{}"],
+      ["held runs with no count", JSON.stringify({ heldRuns: 1 })],
+      ["no held runs", JSON.stringify({ referenced: 10, heldRuns: 0 })],
+      ["more held runs than a hold lasts", JSON.stringify({ referenced: 10, heldRuns: 8 })],
+      ["fractional held runs", JSON.stringify({ referenced: 10, heldRuns: 1.5 })],
     ])(
       "starts a new lap from the first key, with a warning, on %s, and replaces it with the count",
       async (_, stored) => {
@@ -886,6 +903,52 @@ describe("reconcileOrphanObjects", () => {
       expect(position.current()).toEqual({ referenced: 40 });
     });
 
+    describe("the stop object", () => {
+      const stopAt = (uploaded: Date) => ({ key: RECONCILE_STOP_KEY, uploaded });
+
+      it("deletes nothing, reads no position and asks nothing about references while reconcile/stop is there, and alerts with its age", async () => {
+        const bucket = createBucket([
+          ...objectsAt(5),
+          stopAt(new Date(NOW.getTime() - 3 * DAY_MS)),
+        ]);
+        const position = memoryPosition({ referenced: 100, heldRuns: 2 });
+        let readCount = 0;
+        const store: PositionStore = {
+          read: Effect.sync(() => void (readCount += 1)).pipe(Effect.andThen(position.store.read)),
+          write: position.store.write,
+        };
+        const p = plan([keyAt(0)], { budget: budget({ maxObjects: 10, maxListCalls: 10 }, store) });
+        let deleted = -1;
+
+        const logs = await captureLogs(async () => {
+          deleted = await run(reconcileOrphanObjects(bucket, p.plan, NOW));
+        });
+
+        expect(deleted).toBe(0);
+        expect(bucket.deleted.size).toBe(0);
+        expect(bucket.listCalls).toHaveLength(0);
+        expect(readCount).toBe(0);
+        expect(position.writes).toEqual([]);
+        expect(p.samplesRead()).toBe(0);
+        expect(logs).toContain("reconcile/stop");
+        expect(p.alerts).toEqual([{ kind: "stopped", bucket: "sheets", stoppedDays: 3 }]);
+      });
+
+      it("fails, listing and deleting nothing, when the stop object cannot be checked", async () => {
+        const bucket = createBucket(objectsAt(5), { headThrowsFor: RECONCILE_STOP_KEY });
+
+        expect(await outcome(reconcileOrphanObjects(bucket, plan([keyAt(0)]).plan, NOW))).toBe(
+          "failed: stop check failed: Error: head boom",
+        );
+        expect(bucket.listCalls).toHaveLength(0);
+        expect(bucket.deleted.size).toBe(0);
+      });
+
+      it("lies outside the walked prefix, so no walk lists or deletes it", () => {
+        expect(RECONCILE_STOP_KEY.startsWith(PREFIX)).toBe(false);
+      });
+    });
+
     describe("the referencing-row guard", () => {
       // Thirty old objects, every one live but keyAt(12): one orphan a run.
       const objects = () => objectsAt(30);
@@ -910,44 +973,137 @@ describe("reconcileOrphanObjects", () => {
 
         expect(deleted).toBe(expected);
         expect(bucket.deleted.size).toBe(expected);
-        expect(position.current()).toEqual({ referenced: rows });
+        // A held run keeps the count from before the drop.
+        expect(position.current()).toEqual(
+          expected === 0 ? { referenced: 100, heldRuns: 1 } : { referenced: rows },
+        );
       });
 
-      it("holds a run whose rows fell by more than half, keeping its place, and stores the new count", async () => {
+      it("holds a run whose rows fell by more than half, keeping its place and the count before the drop, and alerts", async () => {
         const bucket = createBucket(objects());
         const stored = { after: keyAt(9), lapStartedAt: NOW.getTime() - DAY_MS, referenced: 100 };
         const position = memoryPosition(stored);
         let deleted = -1;
 
+        const p = plan(
+          live,
+          { budget: budget({ maxObjects: 10, maxListCalls: 10 }, position.store) },
+          40,
+        );
         const logs = await captureLogs(async () => {
-          deleted = await run(
-            reconcileOrphanObjects(
-              bucket,
-              plan(
-                live,
-                { budget: budget({ maxObjects: 10, maxListCalls: 10 }, position.store) },
-                40,
-              ).plan,
-              NOW,
-            ),
-          );
+          deleted = await run(reconcileOrphanObjects(bucket, p.plan, NOW));
         });
 
         expect(deleted).toBe(0);
         expect(bucket.deleted.size).toBe(0);
-        expect(logs).toContain("referencing rows fell by more than half since the last run");
+        expect(logs).toContain("referencing rows fell by more than half");
         expect(logs).toContain("previousRows");
-        // Same stretch next run; the comparison is now with this run's count.
-        expect(position.current()).toEqual({ ...stored, referenced: 40 });
+        // Same stretch next run, compared with the count before the drop.
+        expect(position.current()).toEqual({ ...stored, heldRuns: 1 });
+        expect(p.alerts).toEqual([
+          {
+            kind: "held",
+            bucket: "sheets",
+            referencingRows: 40,
+            previousRows: 100,
+            heldRuns: 1,
+            runsLeft: RECONCILE_HOLD_RUNS - 1,
+          },
+        ]);
       });
 
-      it("compares with the last run only, so a hold lasts one run", async () => {
+      it("keeps holding against the count before the drop until the rows recover to half", async () => {
         const bucket = createBucket(objects());
         const position = memoryPosition({ referenced: 100 });
 
         expect(await run(reconcileOrphanObjects(bucket, guarded(position, 40).plan, NOW))).toBe(0);
-        expect(await run(reconcileOrphanObjects(bucket, guarded(position, 40).plan, NOW))).toBe(1);
+        expect(await run(reconcileOrphanObjects(bucket, guarded(position, 45).plan, NOW))).toBe(0);
+        expect(position.current()).toEqual({ referenced: 100, heldRuns: 2 });
+
+        expect(await run(reconcileOrphanObjects(bucket, guarded(position, 50).plan, NOW))).toBe(1);
         expect([...bucket.deleted]).toEqual([keyAt(12)]);
+        expect(position.current()).toEqual({ referenced: 50 });
+      });
+
+      it(`ends a hold after ${RECONCILE_HOLD_RUNS} held runs, accepting the lower count, and says so`, async () => {
+        const bucket = createBucket(objects());
+        const position = memoryPosition({ referenced: 100 });
+        const p = guarded(position, 40);
+
+        for (let i = 1; i <= RECONCILE_HOLD_RUNS; i++) {
+          expect(await run(reconcileOrphanObjects(bucket, p.plan, NOW))).toBe(0);
+          expect(position.current()).toEqual({ referenced: 100, heldRuns: i });
+        }
+        expect(p.alerts.map((a) => (a.kind === "held" ? a.runsLeft : -1))).toEqual(
+          Array.from({ length: RECONCILE_HOLD_RUNS }, (_, i) => RECONCILE_HOLD_RUNS - 1 - i),
+        );
+
+        let deleted = -1;
+        const logs = await captureLogs(async () => {
+          deleted = await run(reconcileOrphanObjects(bucket, p.plan, NOW));
+        });
+        expect(deleted).toBe(1);
+        expect(position.current()).toEqual({ referenced: 40 });
+        expect(logs).toContain("hold ended");
+        expect(p.alerts.at(-1)).toEqual({
+          kind: "released",
+          bucket: "sheets",
+          referencingRows: 40,
+          previousRows: 100,
+        });
+      });
+
+      it("keeps a hold through a stored text round trip in the bucket", async () => {
+        const texts = new Map<string, string>();
+        const positionBucket: PositionBucket = {
+          get: (key) =>
+            Promise.resolve(
+              texts.has(key) ? { text: () => Promise.resolve(texts.get(key)!) } : null,
+            ),
+          put: (key, value) => Promise.resolve(void texts.set(key, value)),
+          delete: (key) => Promise.resolve(void texts.delete(key as string)),
+        };
+        texts.set("reconcile/p.json", JSON.stringify({ referenced: 100 }));
+        const bucket = createBucket(objects());
+        const p = plan(
+          live,
+          { budget: budget(limits, r2PositionStore(positionBucket, "reconcile/p.json", "sheets")) },
+          40,
+        );
+
+        await run(reconcileOrphanObjects(bucket, p.plan, NOW));
+        await run(reconcileOrphanObjects(bucket, p.plan, NOW));
+
+        expect(JSON.parse(texts.get("reconcile/p.json")!)).toEqual({
+          referenced: 100,
+          heldRuns: 2,
+        });
+        expect(bucket.deleted.size).toBe(0);
+      });
+
+      it("sends the alert before it saves the position, and a failing alert fails nothing", async () => {
+        const events: string[] = [];
+        const position = memoryPosition({ referenced: 100 });
+        const store: PositionStore = {
+          read: position.store.read,
+          write: (text) =>
+            position.store
+              .write(text)
+              .pipe(Effect.tap(() => Effect.sync(() => events.push("write")))),
+        };
+        const p = plan(
+          live,
+          {
+            budget: budget(limits, store),
+            alertOperator: () =>
+              Effect.sync(() => events.push("alert")).pipe(Effect.andThen(Effect.die("mail down"))),
+          },
+          40,
+        );
+
+        expect(await run(reconcileOrphanObjects(createBucket(objects()), p.plan, NOW))).toBe(0);
+        expect(events).toEqual(["alert", "write"]);
+        expect(position.current()).toEqual({ referenced: 100, heldRuns: 1 });
       });
 
       it("deletes, and stores the count, when no count is stored", async () => {
@@ -1048,9 +1204,10 @@ describe("reconcileDisabled", () => {
 });
 
 describe("wrangler.toml", () => {
-  // Named environments inherit no vars, so each tier declares the flag; the
-  // string "false" is the value that keeps both reconcilers running.
-  it('declares CIRE_R2_RECONCILE_DISABLED as the string "false" in every tier', async () => {
+  // Named environments inherit no vars, so each tier declares the flag, spelt
+  // as one of the two values `reconcileDisabled` is written for. Either may be
+  // committed: "true" turns the reconcilers off for that tier.
+  it('declares CIRE_R2_RECONCILE_DISABLED in every tier as "false" or "true"', async () => {
     const toml = Bun.TOML.parse(
       await Bun.file(new URL("../../wrangler.toml", import.meta.url)).text(),
     ) as {
@@ -1064,7 +1221,7 @@ describe("wrangler.toml", () => {
 
     expect(Object.keys(tiers).toSorted()).toEqual(["dev", "production", "top"]);
     for (const vars of Object.values(tiers)) {
-      expect(vars?.CIRE_R2_RECONCILE_DISABLED).toBe("false");
+      expect(["false", "true"]).toContain(vars?.CIRE_R2_RECONCILE_DISABLED as string);
     }
   });
 });
@@ -1134,7 +1291,7 @@ export default {
         }
         case "head": {
           const object = await r2.head(args[0]);
-          return Response.json(object && { key: object.key });
+          return Response.json(object && { key: object.key, uploaded: object.uploaded.toISOString() });
         }
         case "get": {
           const object = await r2.get(args[0]);
@@ -1205,7 +1362,10 @@ describe("reconcileOrphanObjects against workerd's R2", () => {
         objects: page.objects.map((o) => ({ key: o.key, uploaded: new Date(o.uploaded) })),
       };
     },
-    head: (key) => call<{ key: string } | null>(bucket, "head", key),
+    head: async (key) => {
+      const object = await call<{ key: string; uploaded: string } | null>(bucket, "head", key);
+      return object && { key: object.key, uploaded: new Date(object.uploaded) };
+    },
     get: async (key) => {
       const object = await call<{ text: string } | null>(bucket, "get", key);
       return object && { text: async () => object.text };
@@ -1305,7 +1465,7 @@ describe("reconcileOrphanObjects against workerd's R2", () => {
     expect(await allKeys(resumed)).toEqual([...live, positionKey].toSorted());
   }, 30_000);
 
-  it("keeps the referencing-row count in the bucket's position object and holds one run when it halves", async () => {
+  it("holds against the count before a halving, in the bucket's position object, until the rows recover, and stops on reconcile/stop", async () => {
     const live = Array.from({ length: 6 }, (_, i) => `imports/g-${i}/e`);
     const orphan = "imports/g-9/x";
     await seed("GUARDED", [...live, orphan]);
@@ -1326,15 +1486,22 @@ describe("reconcileOrphanObjects against workerd's R2", () => {
       return object && (JSON.parse(await object.text()) as StoredPosition);
     };
 
-    // The last run counted 100 rows and this one 49: it holds and keeps 49.
-    // The next run compares with 49 and reaps the orphan.
+    // The last run counted 100 rows. Two runs at 49 hold, keeping 100.
     await call("GUARDED", "put", positionKey, JSON.stringify({ referenced: 100 }));
     expect(await run(reconcileOrphanObjects(halved, halvedPlan(49), later()))).toBe(0);
-    expect(await stored()).toEqual({ referenced: 49 });
+    expect(await run(reconcileOrphanObjects(halved, halvedPlan(49), later()))).toBe(0);
+    expect(await stored()).toEqual({ referenced: 100, heldRuns: 2 });
     expect(await allKeys(halved)).toContain(orphan);
 
-    expect(await run(reconcileOrphanObjects(halved, halvedPlan(49), later()))).toBe(1);
-    expect(await stored()).toEqual({ referenced: 49 });
+    // A stop object in the bucket: nothing runs, nothing is written.
+    await call("GUARDED", "put", RECONCILE_STOP_KEY, "restore");
+    expect(await run(reconcileOrphanObjects(halved, halvedPlan(50), later()))).toBe(0);
+    expect(await stored()).toEqual({ referenced: 100, heldRuns: 2 });
+    await call("GUARDED", "delete", RECONCILE_STOP_KEY);
+
+    // Recovered to half: the orphan goes and the count is the new one.
+    expect(await run(reconcileOrphanObjects(halved, halvedPlan(50), later()))).toBe(1);
+    expect(await stored()).toEqual({ referenced: 50 });
     expect(await allKeys(halved)).not.toContain(orphan);
   }, 30_000);
 });
