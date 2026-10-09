@@ -81,7 +81,7 @@ function workspaceNames(deps: Manifest["dependencies"]): string[] {
  * the import scan below holds to). Each resolves through its importer's
  * `node_modules` link, as the bundler does.
  */
-function walkPackages(): Map<string, string> {
+function walkPackages(): Map<string, { dir: string; manifest: Manifest }> {
   const own = readManifest(appRoot);
   const queue: Array<readonly [from: string, name: string]> = [
     ...workspaceNames(own.dependencies),
@@ -89,23 +89,36 @@ function walkPackages(): Map<string, string> {
   ]
     .filter((name) => !BUILD_ONLY.has(name))
     .map((name) => [appRoot, name] as const);
-  const found = new Map<string, string>();
+  const found = new Map<string, { dir: string; manifest: Manifest }>();
   for (let next = queue.shift(); next; next = queue.shift()) {
     const [from, name] = next;
     if (found.has(name)) continue;
     const dir = realpathSync(join(from, "node_modules", name));
-    found.set(name, dir);
-    for (const dep of workspaceNames(readManifest(dir).dependencies)) queue.push([dir, dep]);
+    const manifest = readManifest(dir);
+    found.set(name, { dir, manifest });
+    for (const dep of workspaceNames(manifest.dependencies)) queue.push([dir, dep]);
   }
   return found;
 }
+
+/** The shared presets, parsed once for every config that extends them. */
+const extendedConfigs = new Map<string, ts.ExtendedConfigCacheEntry>();
 
 /** A package's `tsconfig.json` as written, and parsed with `extends` followed from its own directory. */
 function readTsconfig(dir: string) {
   const file = join(dir, "tsconfig.json");
   const { config, error } = ts.readConfigFile(file, ts.sys.readFile);
   if (error) throw new Error(ts.flattenDiagnosticMessageText(error.messageText, "\n"));
-  const parsed = ts.parseJsonConfigFileContent(config, ts.sys, dir, undefined, file);
+  const parsed = ts.parseJsonConfigFileContent(
+    config,
+    ts.sys,
+    dir,
+    undefined,
+    file,
+    undefined,
+    undefined,
+    extendedConfigs,
+  );
   return { written: config as { compilerOptions?: { lib?: unknown } }, parsed };
 }
 
@@ -191,8 +204,7 @@ describe("browser floor of the packages the guest site imports", () => {
     ).toEqual([]);
   });
 
-  describe.each([...packages])("%s", (_name, dir) => {
-    const manifest = readManifest(dir);
+  describe.each([...packages])("%s", (_name, { dir, manifest }) => {
     const { written, parsed } = readTsconfig(dir);
 
     it("parses its tsconfig, extends included, without errors", () => {
