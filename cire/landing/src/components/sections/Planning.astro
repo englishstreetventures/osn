@@ -1,0 +1,16 @@
+---
+const tools = [
+  { id: 'budget', title: 'Room for every detail.', label: 'Budget', description: 'Keep estimates, quotes and payments together, so you can see where your wedding budget stands.', tier: 'Gold and Crimson' },
+  { id: 'checklist', title: 'A little closer, every day.', label: 'Checklist', description: 'Give the things still to do a place of their own, from the first booking to the final details.', tier: 'Gold and Crimson' },
+  { id: 'registry', title: 'For your next chapter.', label: 'Gift registry', description: 'Create your gift list and keep track of what your guests have chosen.', tier: 'Gold and Crimson' },
+  { id: 'vendors', title: 'Your people behind the day.', label: 'Vendors', description: 'Gather supplier details, track conversations and quotes, and manage your wedding team.', tier: 'Crimson' },
+]
+---
+<section id="planning" class="planning-section section-space" aria-labelledby="planning-heading">
+  <div class="section-wrap">
+    <div class="section-heading" data-reveal><h2 id="planning-heading" class="display">Behind a beautiful day,<br />a calmer kind of planning.</h2><p>The guest list is only the beginning. Keep the decisions, details and people in one thoughtfully organised space.</p></div>
+    <figure class="workspace-showcase" data-reveal><img src="/images/overview.webp" width="1920" height="1350" loading="lazy" alt="Example organiser overview with upcoming tasks, RSVP totals, budget and checklist summaries" /><figcaption>Your wedding at a glance. Example wedding data shown.</figcaption></figure>
+    <div class="planning-tools">{tools.map(tool => <article class="planning-tool" data-reveal><div class="tool-image"><img src={`/images/${tool.id}.webp`} width="1920" height="1350" loading="lazy" alt={`Example Cire ${tool.label.toLowerCase()} workspace with synthetic wedding data`} /></div><div class="tool-copy"><p class="tool-label">{tool.label}<span>{tool.tier}</span></p><h3 class="display">{tool.title}</h3><p>{tool.description}</p></div></article>)}</div>
+    <a href="#pricing" class="text-link planning-link">Find the plan for your day <span aria-hidden="true">↗</span></a>
+  </div>
+</section>

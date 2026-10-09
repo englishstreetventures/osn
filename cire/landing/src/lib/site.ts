@@ -4,7 +4,7 @@
 // through markup. See [[wiki/cire/cire-landing]].
 
 /**
- * Organiser portal — target of every primary "Create your invitation" CTA.
+ * Organiser portal — target of every primary wedding-start CTA.
  * Build-time override via PUBLIC_ORGANISER_URL; the default is the local
  * organiser dev server so `bun run dev` works without env wiring. End-state prod
  * value is https://host.cireweddings.com (set in deploy.yml at cutover).
@@ -22,9 +22,9 @@ export const DEMO_INVITE_URL = import.meta.env.PUBLIC_DEMO_INVITE_URL ?? null;
 export const DEMO_ANCHOR = "#see-it-live";
 
 export const SITE_NAME = "Cire";
-export const SITE_TAGLINE = "Invitations worthy of the moment";
+export const SITE_TAGLINE = "Your wedding, beautifully together";
 export const SITE_DESCRIPTION =
-  "Cire is a bespoke digital wedding invitation: tactile, animated and personal as handcrafted paper, with every RSVP tracked for you. Share one link, and watch the replies roll in.";
+  "Beautiful wedding invitations and a calmer place to plan. Bring your guests, RSVPs, budget, checklist, registry and vendors together with Cire. Start free.";
 
 /**
  * Hotlinked Unsplash imagery. These load in the visitor's browser straight from

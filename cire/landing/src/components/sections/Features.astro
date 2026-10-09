@@ -1,88 +1,24 @@
 ---
-// What's inside — told the way you'd read down an invitation, not across a
-// feature grid. Two lead moments get a full image + prose split (the opening and
-// the RSVP, the emotional and the practical hooks). The remaining three are set
-// as a quiet index of what every invitation carries, so the section has rhythm
-// instead of five identical alternating rows. Every feature ships today.
-import Figure from '../Figure.astro'
-import { IMAGES } from '../../lib/site'
-
-const index = [
-  {
-    title: 'A greeting by name',
-    body:
-      'One link, but no two arrivals alike. Each household sees its own warm greeting and only the events they are invited to.',
-  },
-  {
-    title: 'Everything they need',
-    body:
-      'Times, venues, an interactive map, add to calendar and dress code, all inside the invitation. No follow-up group chats.',
-  },
-  {
-    title: 'Themed to your day',
-    body:
-      'Colour palettes, fonts and moodboards make each invitation unmistakably yours, so it already feels like your wedding.',
-  },
-] as const
+const details = [
+  { title: 'Your style, from the start', body: 'Choose Classic or Gala, then make it yours with your colours, photographs and words.' },
+  { title: 'A welcome just for them', body: 'Households enter their own code and see the celebrations they are invited to.' },
+  { title: 'The details, beautifully gathered', body: 'Give guests the dates, places and dress codes they need, right inside your invitation.' },
+]
 ---
-<section id="features" class="px-6 py-20 md:py-28" aria-labelledby="features-heading">
-  <div class="mx-auto max-w-[64rem]">
-    <div class="letter-column mb-16 text-center md:mb-24" data-reveal>
-      <h2
-        id="features-heading"
-        class="display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-ui-tight"
-      >
-        Beautiful to open. Effortless to run.
-      </h2>
-    </div>
-
-    {/* Lead split A — the opening. */}
-    <div class="grid items-center gap-8 md:grid-cols-2 md:gap-14" data-reveal>
-      <Figure image={IMAGES.reveal} class="aspect-[4/3] md:order-1" />
-      <div class="md:order-2">
-        <h3 class="display text-text mb-4 text-[clamp(1.6rem,3.5vw,2.25rem)] font-normal">
-          An invitation that unwraps
-        </h3>
-        <p class="font-body text-text-muted text-ui-md leading-ui-relaxed font-light">
-          Every Cire invite opens with motion: a wax seal that breaks, a letter that unfolds. The
-          first thing your guests feel is occasion, not a web page.
-        </p>
-      </div>
-    </div>
-
-    {/* Lead split B — the RSVP. Mirrored. Two splits is the cap; the rest index. */}
-    <div class="mt-16 grid items-center gap-8 md:mt-24 md:grid-cols-2 md:gap-14" data-reveal>
-      <Figure image={IMAGES.rsvp} class="aspect-[4/3] md:order-2" />
-      <div class="md:order-1">
-        <h3 class="display text-text mb-4 text-[clamp(1.6rem,3.5vw,2.25rem)] font-normal">
-          Effortless RSVPs, counted live
-        </h3>
-        <p class="font-body text-text-muted text-ui-md leading-ui-relaxed font-light">
-          Guests reply in a tap, attending or not, per person, with dietary notes. You watch the
-          numbers land in real time on a dashboard built for the couple, not a spreadsheet.
-        </p>
-      </div>
-    </div>
-
-    <hr class="rule-gold my-16 md:my-24" />
-
-    {/* The index — the rest of what every invitation carries. A list, not cards. */}
-    <div data-reveal>
-      <h3 class="display text-text mb-10 text-center text-ui-lg font-normal md:text-left">
-        Inside every invitation
-      </h3>
-      <ul class="grid gap-x-14 gap-y-8 md:grid-cols-3">
-        {
-          index.map((item) => (
-            <li class="border-border border-t pt-5">
-              <h4 class="display text-text mb-2 text-ui-lg font-normal">{item.title}</h4>
-              <p class="font-body text-text-muted text-ui-base leading-ui-relaxed font-light">
-                {item.body}
-              </p>
-            </li>
-          ))
-        }
-      </ul>
-    </div>
+<section id="features" class="invitation-section section-wrap section-space" aria-labelledby="invitation-heading">
+  <div class="section-heading" data-reveal>
+    <h2 id="invitation-heading" class="display">The first glimpse<br />of your day.</h2>
+    <p>Set the feeling before the celebrations begin. An invitation that looks, reads and feels like the two of you.</p>
   </div>
+  <div class="design-gallery" data-reveal>
+    <figure class="design-classic">
+      <div class="design-image"><img src="/images/classic.webp" width="900" height="1200" loading="lazy" alt="Classic invitation design with centred names over a sunlit wedding photograph" /></div>
+      <figcaption><h3>Classic</h3><p>A timeless, considered welcome.</p><span>Included with Ivory</span></figcaption>
+    </figure>
+    <figure class="design-gala">
+      <div class="design-image"><img src="/images/gala.webp" width="900" height="1200" loading="lazy" alt="Gala invitation design with an editorial layout for the example wedding of Isla and Elliot" /></div>
+      <figcaption><h3>Gala</h3><p>A little more expression.</p><span>Included with Ivory</span></figcaption>
+    </figure>
+  </div>
+  <dl class="invitation-details" data-reveal>{details.map(detail => <div><dt>{detail.title}</dt><dd>{detail.body}</dd></div>)}</dl>
 </section>

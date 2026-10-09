@@ -1,27 +1,17 @@
 ---
-// "Show, don't tell": a real, interactive invitation rendered right in the page.
-// The RSVP is a deliberate no-op (nothing is sent) — see DemoRsvp. This is one of
-// only two sections on the page that earns an eyebrow.
 import { DemoRsvp } from '../demo/DemoRsvp'
 ---
-<section id="see-it-live" class="px-6 py-24 md:py-32" aria-labelledby="see-heading">
-  <div class="mx-auto max-w-[64rem]">
-    <div class="letter-column mb-14 text-center" data-reveal>
-      <p class="eyebrow mb-5">See it live</p>
-      <h2
-        id="see-heading"
-        class="display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-ui-tight"
-      >
-        Go on, open it.
-      </h2>
-      <p class="font-body text-text-muted mx-auto mt-6 max-w-[34rem] text-ui-md leading-ui-relaxed font-light">
-        A working Cire invitation, right here on the page. Respond as a guest would. It is fully
-        interactive, and nothing you enter is saved.
-      </p>
-    </div>
-
-    <div data-reveal>
-      <DemoRsvp client:visible />
-    </div>
+<section id="see-it-live" class="responses-section section-wrap section-space" aria-labelledby="responses-heading">
+  <div class="responses-copy" data-reveal>
+    <p class="eyebrow">From their invitation to your guest list</p>
+    <h2 id="responses-heading" class="display">Every guest.<br />Every celebration.<br /><span>Every reply.</span></h2>
+    <p>One household, several celebrations. Guests respond for each person and event, with dietary details kept alongside their replies.</p>
+    <dl class="response-benefits">
+      <div><dt>Invite the right people to each moment</dt><dd>Keep the ceremony, reception and other events organised separately.</dd></div>
+      <div><dt>See who is coming</dt><dd>Bring attendance and dietary notes together in your organiser workspace.</dd></div>
+      <div><dt>Easy for your guests</dt><dd>A link and a household code. Nothing to download or sign up for.</dd></div>
+    </dl>
+    <p class="demo-note">Try the invitation beside this text. It is an example; nothing you enter is saved.</p>
   </div>
+  <div class="responses-demo" data-reveal><DemoRsvp client:visible /><noscript><p class="demo-note">Enable JavaScript to try the RSVP preview.</p></noscript></div>
 </section>
