@@ -1517,6 +1517,71 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "the retention sweep stores a gift summary only with the delete it records: one batch, or neither",
+    async () => {
+      await db
+        .update(events)
+        .set({ startAt: "2025-04-20T10:00:00+11:00", endAt: "2025-04-20T12:00:00+11:00" })
+        .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID));
+      const stamp = new Date("2025-04-21T00:00:00.000Z");
+      await db.insert(registrySettings).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        published: true,
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+      await db.insert(registryContributions).values({
+        id: "rct_d1_atomic",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: null,
+        familyId: FAMILY_ID,
+        status: "succeeded",
+        amountMinor: 5_000,
+        currency: "AUD",
+        stripeCheckoutSessionId: "cs_d1_atomic",
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+      const now = new Date("2026-06-17T04:00:00.000Z");
+      const summary = async () =>
+        (
+          await db
+            .select({ json: registrySettings.giftSummaryJson })
+            .from(registrySettings)
+            .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+        )[0]?.json ?? null;
+
+      // The families delete runs ahead of the summary in the batch; failing it
+      // must take the summary, and the guest deletes before it, down too.
+      await d1
+        .prepare(
+          "CREATE TRIGGER fail_family_delete BEFORE DELETE ON families BEGIN SELECT RAISE(ABORT, 'boom'); END",
+        )
+        .run();
+      try {
+        const exit = await run(Effect.exit(retentionService.sweepExpiredGuestData(now)));
+        expect(Exit.isFailure(exit)).toBe(true);
+        expect(await summary()).toBeNull();
+        expect(await db.select().from(guests).where(eq(guests.familyId, FAMILY_ID))).not.toEqual(
+          [],
+        );
+      } finally {
+        // beforeEach clears rows, not triggers.
+        await d1.prepare("DROP TRIGGER IF EXISTS fail_family_delete").run();
+      }
+
+      // The next run counts the gift once: nothing of the failed run was kept.
+      await run(retentionService.sweepExpiredGuestData(now));
+      expect(JSON.parse((await summary()) ?? "{}").contributions).toEqual({
+        count: 1,
+        totals: [{ currency: "AUD", amountMinor: 5_000 }],
+      });
+      expect(await db.select().from(guests).where(eq(guests.familyId, FAMILY_ID))).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "the retention sweep reaches every expired wedding across runs, past its per-run cap",
     async () => {
       // The bootstrap wedding's events carry no date, which reads as long past,

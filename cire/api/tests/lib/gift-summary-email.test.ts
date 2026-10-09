@@ -321,6 +321,86 @@ describe("sendGiftSummaryEmails", () => {
     expect(await unmailed("lookup_failed")).toBe(before + 2);
   });
 
+  it("sends the whole cohort in one batch call when the transport takes batches", async () => {
+    const batches: SendEmailInput[][] = [];
+    const layer = Layer.succeed(EmailService, {
+      send: () => Effect.die(new Error("a batch-capable transport is sent one batch")),
+      sendBatch: (inputs: readonly SendEmailInput[]) =>
+        Effect.sync(() => {
+          batches.push([...inputs]);
+        }),
+    });
+
+    const exit = await Effect.runPromiseExit(
+      sendGiftSummaryEmails(
+        [
+          notice({ ownerOsnProfileIds: ["usr_owner1", "usr_owner2"] }),
+          notice({ weddingId: "wed_2", ownerOsnProfileIds: ["usr_owner3"] }),
+        ],
+        lookupOf({
+          usr_owner1: "ada@example.com",
+          usr_owner2: "bo@example.com",
+          usr_owner3: "cy@example.com",
+        }),
+      ).pipe(Effect.provide(layer)),
+    );
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    // One provider call for every recipient: each send is an external
+    // subrequest, and the cron's whole invocation shares a small budget.
+    expect(batches).toHaveLength(1);
+    expect(batches[0]?.map((input) => input.to).toSorted()).toEqual([
+      "ada@example.com",
+      "bo@example.com",
+      "cy@example.com",
+    ]);
+  });
+
+  it("logs a failed batch once and still succeeds", async () => {
+    const layer = Layer.succeed(EmailService, {
+      send: () => Effect.die(new Error("a batch-capable transport is sent one batch")),
+      sendBatch: () => Effect.fail(new EmailError({ reason: "rate_limited" })),
+    });
+
+    let ok = false;
+    const logs = await captureLogs(async () => {
+      const exit = await Effect.runPromiseExit(
+        sendGiftSummaryEmails([notice()], lookupOf({ usr_owner1: "couple@example.com" })).pipe(
+          Effect.provide(layer),
+        ),
+      );
+      ok = Exit.isSuccess(exit);
+    });
+
+    expect(ok).toBe(true);
+    expect(logs).toContain("batch send failed");
+    expect(logs).not.toContain("couple@example.com");
+  });
+
+  it("labels a defect in delivery as a defect, and still succeeds", async () => {
+    // A transport that throws instead of failing never reaches the per-send
+    // catch; the outer one must hold it.
+    const layer = Layer.succeed(EmailService, {
+      send: () => {
+        throw new Error("transport bug");
+      },
+    });
+
+    let ok = false;
+    const logs = await captureLogs(async () => {
+      const exit = await Effect.runPromiseExit(
+        sendGiftSummaryEmails([notice()], lookupOf({ usr_owner1: "couple@example.com" })).pipe(
+          Effect.provide(layer),
+        ),
+      );
+      ok = Exit.isSuccess(exit);
+    });
+
+    expect(ok).toBe(true);
+    expect(logs).toContain("summary delivery failed");
+    expect(logs).toContain("defect");
+  });
+
   it("does nothing at all for an empty cohort", async () => {
     const { layer, calls } = makeRecordingStub();
     let lookedUp = false;

@@ -19,8 +19,8 @@
  * counted here, and a wedding that reached nobody is counted by why.
  */
 
-import { EmailService } from "@shared/email";
-import { Cause, Effect } from "effect";
+import { EmailService, type SendEmailInput } from "@shared/email";
+import { Effect } from "effect";
 
 import { metricGiftSummaryUnmailed } from "../metrics";
 import type { OrganiserEmailAnswer, OsnOrganiserEmailLookup } from "../services/osn-bridge";
@@ -41,6 +41,25 @@ const reportUnanswered = (unmailed: number, weddings: number): Effect.Effect<voi
       }),
     ),
   );
+
+/**
+ * The `registry-gift-summary` template's data for one notice. The total is in
+ * the wedding's own currency, or the first currency a gift came in when none
+ * came in its own, printed with that currency's minor unit.
+ */
+function summaryEmailData(notice: GiftSummaryNotice) {
+  const totals = notice.summary.contributions.totals;
+  const primary = totals.find((t) => t.currency === notice.currency) ?? totals[0] ?? null;
+  return {
+    weddingName: notice.weddingName,
+    finalEventOn: notice.finalEventOn,
+    sweptOn: notice.summary.sweptOn,
+    giftCount: notice.summary.contributions.count,
+    giftTotal: primary ? formatMinor(primary.amountMinor, primary.currency) : null,
+    listPurchased: notice.summary.claims.purchased,
+    listReserved: notice.summary.claims.reserved,
+  };
+}
 
 export function sendGiftSummaryEmails(
   notices: readonly GiftSummaryNotice[],
@@ -82,55 +101,60 @@ export function sendGiftSummaryEmails(
       yield* Effect.sync(() => metricGiftSummaryUnmailed("no_address", unmailed));
     }
     const sends = plans.flatMap(({ notice, recipients }) =>
-      [...recipients].map((to) => ({ notice, to })),
+      [...recipients].map((to) => ({
+        weddingId: notice.weddingId,
+        input: {
+          template: "registry-gift-summary",
+          to,
+          data: summaryEmailData(notice),
+        } satisfies SendEmailInput,
+      })),
     );
     yield* Effect.annotateCurrentSpan({ recipients: sends.length, unmailed });
+    if (sends.length === 0) return;
 
-    // `Effect.forEach` with bounded concurrency rather than a for/await loop:
-    // the sends are independent, `no-await-in-loop` is on for exactly this
-    // case, and a cohort is however many weddings passed their year on the
-    // same day — which should not become that many simultaneous sends.
+    // One provider call for the cohort where the transport takes batches.
+    // Each send is an external subrequest, and the cron's one invocation —
+    // every sweep, the RSVP digest included — shares a budget of 50; a cohort
+    // of 25 weddings with two owners each would spend all of it one by one.
+    // A failed batch is logged once: the transport has already counted each
+    // email's outcome by template, and there is no later chance to send.
+    if (emailSvc.sendBatch) {
+      yield* emailSvc
+        .sendBatch(sends.map((s) => s.input))
+        .pipe(
+          Effect.catchCause(() =>
+            Effect.logWarning("[gift-summary-email] batch send failed — continuing").pipe(
+              Effect.annotateLogs({ template: "registry-gift-summary", recipients: sends.length }),
+            ),
+          ),
+        );
+      return;
+    }
+
+    // Without batches, one send each, four at a time: the sends are
+    // independent, and a cohort is however many weddings passed their year on
+    // the same day — which should not become that many simultaneous sends.
     yield* Effect.forEach(
       sends,
-      ({ notice, to }) => {
-        const totals = notice.summary.contributions.totals;
-        const primary = totals.find((t) => t.currency === notice.currency) ?? totals[0] ?? null;
-
-        return emailSvc
-          .send({
-            template: "registry-gift-summary",
-            to,
-            data: {
-              weddingName: notice.weddingName,
-              finalEventOn: notice.finalEventOn,
-              sweptOn: notice.summary.sweptOn,
-              giftCount: notice.summary.contributions.count,
-              giftTotal: primary ? formatMinor(primary.amountMinor, primary.currency) : null,
-              listPurchased: notice.summary.claims.purchased,
-              listReserved: notice.summary.claims.reserved,
-            },
-          })
-          .pipe(
-            // Caught per send, so one bounced address costs neither the
-            // wedding's other owners nor the rest of the cohort their summary.
-            Effect.catchCause(() =>
-              Effect.logWarning("[gift-summary-email] send failed — continuing").pipe(
-                Effect.annotateLogs({
-                  template: "registry-gift-summary",
-                  weddingId: notice.weddingId,
-                }),
-              ),
+      ({ weddingId, input }) =>
+        emailSvc.send(input).pipe(
+          // Caught per send, so one bounced address costs neither the
+          // wedding's other owners nor the rest of the cohort their summary.
+          Effect.catchCause(() =>
+            Effect.logWarning("[gift-summary-email] send failed — continuing").pipe(
+              Effect.annotateLogs({ template: "registry-gift-summary", weddingId }),
             ),
-          );
-      },
+          ),
+        ),
       { concurrency: 4, discard: true },
     );
   }).pipe(
-    // The lookup and every send are already caught, so only an interrupt (the
-    // sweep's timeout) or a defect can reach here.
-    Effect.catchCause((cause) =>
+    // The lookup and every send are already caught, so only a defect — a
+    // transport that throws instead of failing — can reach here.
+    Effect.catchCause(() =>
       Effect.logWarning("[gift-summary-email] summary delivery failed — sweep unaffected").pipe(
-        Effect.annotateLogs({ reason: Cause.hasInterruptsOnly(cause) ? "interrupted" : "defect" }),
+        Effect.annotateLogs({ reason: "defect" }),
       ),
     ),
     Effect.withSpan("cire.retention.sendGiftSummaryEmails"),

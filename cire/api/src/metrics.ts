@@ -406,10 +406,10 @@ export type OidcLoginOutcome =
 type OidcLoginAttrs = { outcome: OidcLoginOutcome };
 type GuestDataSweptAttrs = { result: "ok" | "error" };
 /**
- * What happened to a wedding's gift summary in one sweep. `ok` — written;
- * `write_failed` — its commit failed; `read_failed` — the gifts of the cohort
- * it was in could not be counted. A wedding not written is held back from that
- * run's delete.
+ * What happened to a wedding's gift summary in one sweep. `ok` — written, with
+ * the delete; `write_failed` — the batch that writes it with the delete did not
+ * commit; `read_failed` — the gifts of the cohort it was in could not be
+ * counted. A wedding not written is not deleted that run.
  */
 export type GiftSummaryWrittenResult = "ok" | "write_failed" | "read_failed";
 type GiftSummaryWrittenAttrs = { result: GiftSummaryWrittenResult };

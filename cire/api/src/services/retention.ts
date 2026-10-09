@@ -12,17 +12,11 @@ import {
   weddings,
 } from "@cire/db";
 import { jsonEachIn, rowsChanged } from "@shared/db-utils";
-import { and, asc, eq, inArray, isNotNull, lt, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, ne, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Cause, Data, Effect } from "effect";
 
-import {
-  commitBatchResults,
-  DbService,
-  dbQuery,
-  MAX_STATEMENTS_PER_BATCH,
-  outerColumn,
-} from "../db";
+import { commitBatchResults, type Db, DbService, dbQuery, outerColumn } from "../db";
 import { weddingIsLive } from "../db/live-wedding";
 import {
   metricGiftSummaryUnmailed,
@@ -132,11 +126,12 @@ export const retentionService = {
    * holds no household and no import has nothing left to delete and is not
    * selected, so weddings already swept never fill the per-run cap.
    *
-   * A wedding whose gift summary cannot be written — its gifts could not be
-   * counted, or its summary did not commit — is held back from this run's
-   * delete: deleting it would take the gifts with no record left of them. It
-   * still holds its households, so the next run tries it again, and every run
-   * that holds one back logs an error. See {@link writeGiftSummaries}.
+   * No gift is deleted without its record. The gift summaries are counted
+   * first and written in the same D1 batch as the delete, so they commit
+   * together or not at all. If the gifts cannot be counted, or the batch does
+   * not commit, nothing is deleted that run: the weddings still hold their
+   * households, the next run tries them again, and every run that holds them
+   * back logs an error. See {@link countGiftSummaries}.
    *
    * R2 reaping: the deleted `imports` rows reference personal-data R2 objects
    * that D1's `ON DELETE cascade` can NEVER reach — the uploaded guest/event
@@ -225,7 +220,7 @@ export const retentionService = {
         return 0;
       }
 
-      // ── LEAVE THE COUPLE A RECORD, BEFORE TAKING THE DETAIL AWAY ──────────
+      // ── COUNT THE COUPLE'S RECORD, BEFORE TAKING THE DETAIL AWAY ──────────
       // Gifts are guest data: claims and contributions both hang off
       // `families`, so the delete below cascades them away and the couple's
       // record of what arrived goes with it. That window is deliberate (cire
@@ -233,21 +228,47 @@ export const retentionService = {
       // record vanishing unannounced is not. A parting summary — counts and
       // totals, no household, no name, no note — lands on `registry_settings`,
       // which this sweep keeps. `wiki/compliance/retention.md` §Contributions.
-      // The notices come back so the couple can be TOLD, below — writing the
-      // record where only a portal visit would find it is not telling anyone.
-      // A wedding whose summary could not be written is held back: everything
-      // below runs over the rest only.
-      const { notices, heldBack } = yield* writeGiftSummaries(weddingIds, finalEventAtById, now);
-      const deletable =
-        heldBack.size === 0 ? weddingIds : weddingIds.filter((id) => !heldBack.has(id));
-      if (deletable.length === 0) {
+      //
+      // Counted first. If the gifts cannot be counted, nothing is deleted this
+      // run: one read covers the cohort, so a failed one cannot say which
+      // weddings had gifts, and deleting any of them could take gifts with no
+      // record left. The weddings keep their households, so the next run
+      // counts them again.
+      const counted = yield* countGiftSummaries(weddingIds, now).pipe(
+        // Cause-level: `dbQuery` surfaces a failed query as a defect.
+        Effect.catchCause((cause) =>
+          Effect.logError("gift summaries not written — held back from the delete").pipe(
+            Effect.annotateLogs({
+              weddings: weddingIds.length,
+              reason: String(Cause.squash(cause)),
+            }),
+            Effect.andThen(
+              Effect.sync(() => metricGiftSummaryWritten("read_failed", weddingIds.length)),
+            ),
+            Effect.as(null),
+          ),
+        ),
+      );
+      if (counted === null) {
         yield* Effect.sync(() => metricGuestDataSwept("ok", 0));
         yield* Effect.logInfo("guest-data retention sweep complete", {
           weddings: 0,
           deleted: 0,
-          heldBack: heldBack.size,
+          heldBack: weddingIds.length,
         });
         return 0;
+      }
+      // A gift needs a published registry, so its settings row should exist.
+      // A summary with no row to land on is neither stored nor mailed; holding
+      // the wedding back would only wait for a row nothing creates.
+      const summaries = new Map(
+        [...counted.summaries].filter(([weddingId]) => counted.withRow.has(weddingId)),
+      );
+      const rowless = counted.summaries.size - summaries.size;
+      if (rowless > 0) {
+        yield* Effect.logWarning("gift summaries had no registry row to land on — not mailed").pipe(
+          Effect.annotateLogs({ weddings: rowless }),
+        );
       }
 
       // ── COLLECT R2 SHEET KEYS FIRST ────────────────────────────────────────
@@ -265,7 +286,7 @@ export const retentionService = {
       // not depend on FK cascade being enabled on every driver, and so the guest
       // delete result gives us an exact reclaimed-row count for the metric.
       //
-      // Both reads are keyed only on `deletable`, so they run together.
+      // Both reads are keyed only on `weddingIds`, so they run together.
       const [importRows, familyRows] = yield* Effect.all(
         [
           dbQuery(() =>
@@ -277,14 +298,14 @@ export const retentionService = {
                 beforeGuestsKey: imports.beforeGuestsR2Key,
               })
               .from(imports)
-              .where(inArray(imports.weddingId, jsonEachIn(deletable)))
+              .where(inArray(imports.weddingId, jsonEachIn(weddingIds)))
               .all(),
           ),
           dbQuery(() =>
             db
               .select({ id: families.id })
               .from(families)
-              .where(inArray(families.weddingId, jsonEachIn(deletable)))
+              .where(inArray(families.weddingId, jsonEachIn(weddingIds)))
               .all(),
           ),
         ],
@@ -336,19 +357,42 @@ export const retentionService = {
           // imports bookkeeping (the uploaded-sheet PII references). The R2
           // objects behind these (+ the invite-image columns) are reaped AFTER
           // this batch commits — their keys were collected above, pre-delete.
-          // Last, so the batch is never empty. The statements are in FK order,
-          // children first, which the bun:sqlite fallback keeps.
+          // Always present, so the batch is never empty. The statements are in
+          // FK order, children first, which the bun:sqlite fallback keeps.
+          //
+          // The summaries go in the SAME batch, last. On D1 a batch commits or
+          // fails as one, so a stored summary always describes rows that are
+          // already gone — and adding a returning wedding's new gifts to it
+          // can never count a row twice. A failed batch stores no summary and
+          // deletes nothing, and the next run counts the same rows afresh. On
+          // bun:sqlite, which runs the statements one by one, last still means
+          // no summary is stored while its rows remain.
           return commitBatchResults(db, [
             ...stmts,
-            db.delete(imports).where(inArray(imports.weddingId, jsonEachIn(deletable))),
+            db.delete(imports).where(inArray(imports.weddingId, jsonEachIn(weddingIds))),
+            ...(summaries.size > 0 ? [storeGiftSummaries(db, summaries, now)] : []),
           ]);
         },
         catch: (e) => new RetentionWriteError({ op: "sweep", reason: String(e) }),
       }).pipe(
         Effect.tapError((err) =>
-          Effect.logError("guest-data retention sweep failed", { reason: err.reason }),
+          Effect.logError("guest-data retention sweep failed", { reason: err.reason }).pipe(
+            Effect.andThen(
+              summaries.size > 0
+                ? Effect.logError("gift summaries not written — held back from the delete").pipe(
+                    Effect.annotateLogs({ weddings: summaries.size }),
+                    Effect.andThen(
+                      Effect.sync(() => metricGiftSummaryWritten("write_failed", summaries.size)),
+                    ),
+                  )
+                : Effect.void,
+            ),
+          ),
         ),
       );
+      if (summaries.size > 0) {
+        yield* Effect.sync(() => metricGiftSummaryWritten("ok", summaries.size));
+      }
 
       // The guests delete is the (familyIds>0 ? third : absent) statement
       // (after the rsvps + guest_events child deletes); report the guest count
@@ -358,9 +402,9 @@ export const retentionService = {
 
       yield* Effect.sync(() => metricGuestDataSwept("ok", guestsDeleted));
       yield* Effect.logInfo("guest-data retention sweep complete", {
-        weddings: deletable.length,
+        weddings: weddingIds.length,
         deleted: guestsDeleted,
-        heldBack: heldBack.size,
+        summaries: summaries.size,
       });
 
       // ── REAP R2 OBJECTS (best-effort, post-delete) ─────────────────────────
@@ -373,12 +417,16 @@ export const retentionService = {
       // ── TELL THE COUPLE, LAST ─────────────────────────────────────────────
       // After the deletes have committed, and deliberately so: the email says
       // the detail is gone, so it must not go out while it is still there.
+      // Only stored summaries are mailed, and the owners are read only when
+      // there is one, so a cohort with no gifts pays for none of it.
       //
       // One attempt, no retry, no queue. The notifier cannot fail (error
       // channel `never`) but it can HANG — an unreachable mail host or a stuck
       // osn-api — and a cron sweep that waits on a mailbox is a sweep that
       // stops running. The timeout bounds that, the catch swallows what the
       // timeout raises, and neither can reach the sweep's own error channel.
+      const notices =
+        notify && summaries.size > 0 ? yield* giftSummaryNotices(summaries, finalEventAtById) : [];
       if (notify && notices.length > 0) {
         yield* notify(notices).pipe(
           Effect.timeout("30 seconds"),
@@ -406,17 +454,15 @@ export const retentionService = {
       // must count and log like the typed delete failure (which is logged where
       // it is raised, above).
       Effect.tapCause((cause) =>
-        Cause.hasInterruptsOnly(cause)
-          ? Effect.void
-          : Effect.sync(() => metricGuestDataSwept("error")).pipe(
-              Effect.andThen(
-                Cause.hasDies(cause)
-                  ? Effect.logError("guest-data retention sweep failed").pipe(
-                      Effect.annotateLogs({ reason: String(Cause.squash(cause)) }),
-                    )
-                  : Effect.void,
-              ),
-            ),
+        Effect.sync(() => metricGuestDataSwept("error")).pipe(
+          Effect.andThen(
+            Cause.hasDies(cause)
+              ? Effect.logError("guest-data retention sweep failed").pipe(
+                  Effect.annotateLogs({ reason: String(Cause.squash(cause)) }),
+                )
+              : Effect.void,
+          ),
+        ),
       ),
       Effect.withSpan("cire.retention.sweepExpiredGuestData"),
     );
@@ -510,26 +556,6 @@ export type GiftSummaryNotifier = (
   notices: readonly GiftSummaryNotice[],
 ) => Effect.Effect<void, never, never>;
 
-/** What {@link writeGiftSummaries} hands back to the sweep. */
-interface GiftSummaryOutcome {
-  /** One per wedding whose summary is stored and whose owners were read. */
-  readonly notices: readonly GiftSummaryNotice[];
-  /**
-   * Weddings whose summary could not be written. The sweep keeps their guest
-   * data for the next run, which counts their gifts again.
-   */
-  readonly heldBack: ReadonlySet<string>;
-}
-
-/**
- * Handle a failure, but pass an interruption on: a sweep that is being
- * stopped must stop, not log a database failure and carry on.
- */
-const unlessInterrupted =
-  <A>(handle: (cause: Cause.Cause<unknown>) => Effect.Effect<A>) =>
-  (cause: Cause.Cause<unknown>): Effect.Effect<A> =>
-    Cause.hasInterruptsOnly(cause) ? Effect.interrupt : handle(cause);
-
 /**
  * A wedding's summary from an earlier sweep with this sweep's new gifts added
  * in. A wedding comes back into the cohort when it gains a household after
@@ -562,14 +588,19 @@ function mergeGiftSummaries(stored: GiftSummary, fresh: GiftSummary): GiftSummar
 /**
  * Count each expiring wedding's gifts into the summary it will keep: the
  * claims and contributions aggregates, folded per wedding, merged into any
- * summary an earlier sweep stored. A wedding with no gifts has no entry. Fails
- * as a whole — the reads span the cohort, so a failed one cannot say which
- * weddings had gifts.
+ * summary an earlier sweep stored. A wedding with no gifts has no entry in
+ * `summaries`; `withRow` is the weddings with a `registry_settings` row for a
+ * summary to land on. Fails as a whole — the reads span the cohort, so a
+ * failed one cannot say which weddings had gifts.
  */
 function countGiftSummaries(
   weddingIds: readonly string[],
   now: Date,
-): Effect.Effect<Map<string, GiftSummary>, never, DbService> {
+): Effect.Effect<
+  { summaries: Map<string, GiftSummary>; withRow: ReadonlySet<string> },
+  never,
+  DbService
+> {
   return Effect.gen(function* () {
     const db = yield* DbService;
     const ids = [...weddingIds];
@@ -581,8 +612,9 @@ function countGiftSummaries(
     // is a handful of rows per wedding whatever the traffic was.
     //
     // All three reads are keyed only on `ids`, so they run together. The third
-    // finds the summaries earlier sweeps stored, which only a wedding that came
-    // back into the cohort has.
+    // reads each wedding's settings row: whether it has one, and the summary an
+    // earlier sweep stored there, which only a wedding that came back into the
+    // cohort has.
     const [claimRows, giftRows, storedRows] = yield* Effect.all(
       [
         dbQuery(() =>
@@ -647,12 +679,7 @@ function countGiftSummaries(
               at: registrySettings.giftSummaryAt,
             })
             .from(registrySettings)
-            .where(
-              and(
-                inArray(registrySettings.weddingId, jsonEachIn(ids)),
-                isNotNull(registrySettings.giftSummaryJson),
-              ),
-            )
+            .where(inArray(registrySettings.weddingId, jsonEachIn(ids)))
             .all(),
         ),
       ],
@@ -728,7 +755,7 @@ function countGiftSummaries(
     // would mean the counts came from nowhere; saying "on the day we swept" is
     // wrong by at most a year, where a missing field would leave the portal
     // deciding what to print out of nothing.
-    return new Map(
+    const merged = new Map(
       [...summaries].map(([weddingId, draft]) => {
         const fresh: GiftSummary = {
           sweptOn,
@@ -741,85 +768,36 @@ function countGiftSummaries(
         return [weddingId, earlier ? mergeGiftSummaries(earlier, fresh) : fresh];
       }),
     );
+    return { summaries: merged, withRow: new Set(storedRows.map((row) => row.weddingId)) };
   });
 }
 
 /**
- * Store each summary on its wedding's `registry_settings` row, one D1 batch of
- * at most `MAX_STATEMENTS_PER_BATCH` single-row UPDATEs at a time. Each batch
- * commits or fails as a unit, and on its own: a failed one holds back its
- * weddings and the rest carry on. A wedding counts as stored only when its
- * UPDATE changed a row.
+ * One statement that stores every summary on its wedding's `registry_settings`
+ * row, for the sweep's delete batch. Every summary rides in ONE bound JSON
+ * parameter, unpacked with `json_each`, so the statement binds four
+ * parameters whatever the cohort size (D1 allows 100) and the batch stays one
+ * statement longer however many weddings it records.
  */
-function commitGiftSummaries(
+function storeGiftSummaries(
+  db: Db,
   summaries: ReadonlyMap<string, GiftSummary>,
   now: Date,
-): Effect.Effect<
-  { stored: ReadonlyMap<string, GiftSummary>; heldBack: ReadonlySet<string> },
-  never,
-  DbService
-> {
-  return Effect.gen(function* () {
-    const db = yield* DbService;
-    const entries = [...summaries];
-    const chunks: (readonly [string, GiftSummary])[][] = [];
-    for (let i = 0; i < entries.length; i += MAX_STATEMENTS_PER_BATCH) {
-      chunks.push(entries.slice(i, i + MAX_STATEMENTS_PER_BATCH));
-    }
-
-    const outcomes = yield* Effect.forEach(chunks, (chunk) =>
-      dbQuery(() =>
-        commitBatchResults(
-          db,
-          chunk.map(([weddingId, summary]) =>
-            db
-              .update(registrySettings)
-              .set({
-                giftSummaryJson: JSON.stringify(summary),
-                giftSummaryAt: now,
-                updatedAt: now,
-              })
-              .where(eq(registrySettings.weddingId, weddingId)),
-          ),
-        ),
-      ).pipe(
-        Effect.map((results) => ({
-          stored: chunk.filter((_, i) => rowsChanged(results[i]) > 0),
-          rowless: chunk.filter((_, i) => rowsChanged(results[i]) === 0).length,
-          failed: [] as string[],
-        })),
-        Effect.catchCause(
-          unlessInterrupted((cause) =>
-            Effect.logError("gift summaries not written — held back from the delete").pipe(
-              Effect.annotateLogs({ weddings: chunk.length, reason: String(Cause.squash(cause)) }),
-              Effect.andThen(
-                Effect.sync(() => metricGiftSummaryWritten("write_failed", chunk.length)),
-              ),
-              Effect.as({
-                stored: [] as (readonly [string, GiftSummary])[],
-                rowless: 0,
-                failed: chunk.map(([weddingId]) => weddingId),
-              }),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    const stored = new Map(outcomes.flatMap((o) => o.stored));
-    const heldBack = new Set(outcomes.flatMap((o) => o.failed));
-    const rowless = outcomes.reduce((n, o) => n + o.rowless, 0);
-    if (stored.size > 0) yield* Effect.sync(() => metricGiftSummaryWritten("ok", stored.size));
-    if (rowless > 0) {
-      // A gift needs a published registry, so its settings row should exist.
-      // One that does not has nowhere to keep the summary; it is not mailed,
-      // and holding the wedding back would only wait for a row nothing creates.
-      yield* Effect.logWarning("gift summaries had no registry row to land on — not mailed").pipe(
-        Effect.annotateLogs({ weddings: rowless }),
-      );
-    }
-    return { stored, heldBack };
-  });
+): BatchItem<"sqlite"> {
+  const payload = JSON.stringify(
+    [...summaries].map(([weddingId, summary]) => ({
+      weddingId,
+      summary: JSON.stringify(summary),
+    })),
+  );
+  return db
+    .update(registrySettings)
+    .set({
+      giftSummaryJson: sql`(select json_extract(value, '$.summary') from json_each(${payload}) where json_extract(value, '$.weddingId') = ${outerColumn(registrySettings.weddingId)})`,
+      giftSummaryAt: now,
+      updatedAt: now,
+    })
+    .where(inArray(registrySettings.weddingId, jsonEachIn([...summaries.keys()])));
 }
 
 /**
@@ -883,73 +861,15 @@ function giftSummaryNotices(
       ];
     });
   }).pipe(
-    Effect.catchCause(
-      unlessInterrupted((cause) =>
-        // The summaries are stored, so the line must not say they were lost:
-        // what failed is finding who to tell.
-        Effect.logError("gift summaries written, owners not read — none mailed").pipe(
-          Effect.annotateLogs({ summaries: stored.size, reason: String(Cause.squash(cause)) }),
-          Effect.andThen(
-            Effect.sync(() => metricGiftSummaryUnmailed("owners_unread", stored.size)),
-          ),
-          Effect.as([] as readonly GiftSummaryNotice[]),
-        ),
+    // Cause-level: `dbQuery` surfaces a failed query as a defect. The summaries
+    // are stored, so the line must not say they were lost: what failed is
+    // finding who to tell.
+    Effect.catchCause((cause) =>
+      Effect.logError("gift summaries written, owners not read — none mailed").pipe(
+        Effect.annotateLogs({ summaries: stored.size, reason: String(Cause.squash(cause)) }),
+        Effect.andThen(Effect.sync(() => metricGiftSummaryUnmailed("owners_unread", stored.size))),
+        Effect.as([] as readonly GiftSummaryNotice[]),
       ),
     ),
   );
-}
-
-/**
- * Write each expiring wedding's parting gift summary, and return what was
- * written so the caller can deliver it, and which weddings to hold back.
- *
- * Runs BEFORE the delete, obviously — afterwards there is nothing to count. A
- * wedding with no gifts at all gets no row written: an empty summary is noise
- * on a page, and its absence says the same thing more quietly.
- *
- * Never fails the sweep, and never lets it delete gifts it could not record.
- * A wedding whose gifts could not be counted, or whose summary did not
- * commit, comes back in `heldBack`, and the sweep keeps its guest data for the
- * next run. How many that is follows the queries: a failed count holds back
- * the whole cohort (one read covers it), a failed commit holds back the
- * weddings in that batch. Every failure is logged at error level on every run
- * it happens. A summary that is not stored is never mailed.
- *
- * Every catch here is cause-level: `dbQuery` surfaces a failed query as a
- * defect, which `Effect.catch` would not see.
- */
-function writeGiftSummaries(
-  weddingIds: readonly string[],
-  /** Each wedding's final-event effective end, from the sweep's cohort query. */
-  finalEventAtById: ReadonlyMap<string, string>,
-  now: Date,
-): Effect.Effect<GiftSummaryOutcome, never, DbService> {
-  return Effect.gen(function* () {
-    const counted = yield* countGiftSummaries(weddingIds, now).pipe(
-      Effect.catchCause(
-        unlessInterrupted((cause) =>
-          Effect.logError("gift summaries not written — held back from the delete").pipe(
-            Effect.annotateLogs({
-              weddings: weddingIds.length,
-              reason: String(Cause.squash(cause)),
-            }),
-            Effect.andThen(
-              Effect.sync(() => metricGiftSummaryWritten("read_failed", weddingIds.length)),
-            ),
-            Effect.as(null),
-          ),
-        ),
-      ),
-    );
-    if (counted === null) return { notices: [], heldBack: new Set(weddingIds) };
-    if (counted.size === 0) return { notices: [], heldBack: new Set<string>() };
-
-    const { stored, heldBack } = yield* commitGiftSummaries(counted, now);
-    // Everything below is for the EMAIL, not the stored summary: an address to
-    // reach the couple at, a name to call the wedding, and a currency to print
-    // the total in. Read after the summaries are written so a cohort with no
-    // gifts pays for none of it.
-    const notices = stored.size > 0 ? yield* giftSummaryNotices(stored, finalEventAtById) : [];
-    return { notices, heldBack };
-  }).pipe(Effect.withSpan("cire.retention.writeGiftSummaries"));
 }
