@@ -22,7 +22,7 @@ related:
 packages:
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-10
 ---
 
 # Frontend Patterns

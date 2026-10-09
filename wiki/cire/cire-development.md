@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-10
 ---
 
 # Cire development guide
