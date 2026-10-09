@@ -21,7 +21,7 @@ import { weddingUpgradePurchases, weddings, platformSales } from "@cire/db";
 import { and, eq, gt, inArray, isNotNull, isNull, notInArray, or } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { commitGroupedBatchesReturning, type Db, DbService, dbQuery } from "../db";
+import { commitGroupedBatchesReturning, type Db, DbService, dbQuery, driverErrorText } from "../db";
 import { metricUpgradeCheckoutStarted, metricUpgradePurchaseSettled } from "../metrics";
 import type { StripeClient } from "./stripe";
 import {
@@ -60,11 +60,12 @@ export class UpgradeProviderError extends Data.TaggedError("UpgradeProviderError
 }> {}
 
 /**
- * Tell a unique-constraint violation from any other write failure.
+ * Tell a unique-constraint violation from any other write failure, in the text
+ * `driverErrorText` reads from the failed write.
  *
- * A violation only ever reaches the error channel as a MESSAGE — both
- * bun:sqlite and D1 carry "UNIQUE constraint failed" — so the sniff is the only
- * way to distinguish it, and it must be narrow: a conflict on
+ * A violation only ever reaches the error channel as text — on bun:sqlite as
+ * the error's message, on D1 as the message of its `cause` — so the sniff is
+ * the only way to distinguish it, and it must be narrow: a conflict on
  * `checkout_session_id` is a different situation from one on the partial
  * one-pending index, and anything that is not a conflict at all must surface as
  * a write error rather than a cheerful 409.
@@ -77,12 +78,18 @@ export class UpgradeProviderError extends Data.TaggedError("UpgradeProviderError
  * can never fire: the caller then gets a 500 where the contract says 409, and
  * the organiser is told to try again on the one path whose whole purpose is
  * telling them to wait.
+ *
+ * AND ON `table.column`, NEVER A BARE COLUMN. On D1 the text also holds
+ * drizzle's `Failed query: <statement>`, and the purchase INSERT names every
+ * column, `checkout_session_id` included, whatever the conflict was on. Drizzle
+ * quotes each name, so the unquoted `table.column` appears only in the
+ * database's reason.
  */
 export function upgradeConflictReason(message: string): "processing" | "session_taken" | null {
   if (!message.includes("UNIQUE constraint failed")) return null;
   // Checked first: a session conflict names that column alone, and the
   // one-pending index must not swallow it.
-  if (message.includes("checkout_session_id")) return "session_taken";
+  if (message.includes("wedding_upgrade_purchases.checkout_session_id")) return "session_taken";
   return message.includes("wedding_upgrade_purchases.wedding_id") ? "processing" : null;
 }
 
@@ -493,15 +500,18 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
                 })
                 .run(),
             ),
-          catch: (e) => {
-            const message = String(e);
-            const reason = upgradeConflictReason(message);
+          catch: (e) =>
             // Lost the race to another press: somebody else's attempt is live.
-            return reason === "processing"
+            // The logged reason is the statement alone: the database's own
+            // text can quote a bound value (D1 names the value it could not bind).
+            upgradeConflictReason(driverErrorText(e)) === "processing"
               ? new UpgradeConflict({ reason: "processing" })
-              : new UpgradeWriteError({ op: "insert-purchase", reason: message });
-          },
-        });
+              : new UpgradeWriteError({ op: "insert-purchase", reason: String(e) }),
+        }).pipe(
+          Effect.tapError((err) =>
+            err._tag === "UpgradeConflict" ? Effect.sync(() => started("processing")) : Effect.void,
+          ),
+        );
 
         // 5. Mint the session. On failure close our own row in the same request
         //    so the next press is not made to wait out the staleness window.

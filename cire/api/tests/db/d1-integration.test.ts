@@ -51,9 +51,11 @@ import { commitBatch, createD1Db, DbService } from "../../src/db/index";
 import type { Db } from "../../src/db/index";
 import { DDL } from "../../src/db/setup";
 import { decodeEnquiryCursor, type EnquiryCursor } from "../../src/lib/enquiry-page";
+import { isDirectoryDuplicate } from "../../src/routes/vendor-directory";
 import type { ImportPlan } from "../../src/schemas/import";
 import { FAQ_LIMITS } from "../../src/schemas/invite-faq";
 import { PLUS_ONE_NAME_MAX, PLUS_ONE_REMOVALS_MAX } from "../../src/schemas/plus-one";
+import { AccountLinkConflict, accountLinkService } from "../../src/services/account-link";
 import {
   ChangeConflict,
   claimChanges,
@@ -100,6 +102,7 @@ import { BASE_GUEST_CAP, TIER_PEOPLE_LIMIT, tierService } from "../../src/servic
 import { unlockCodeService } from "../../src/services/unlock-codes";
 import { createUpgradeCatalogue } from "../../src/services/upgrade-catalogue";
 import { createUpgradeService } from "../../src/services/upgrades";
+import { vendorsService } from "../../src/services/vendors";
 import { weddingLifecycleService } from "../../src/services/wedding-lifecycle";
 import {
   fullWeddingKeys,
@@ -1845,6 +1848,124 @@ describe("cire/api over real D1 (Miniflare)", () => {
     },
     MF_TIMEOUT_MS,
   );
+
+  // On D1 a failed single statement arrives as drizzle's `DrizzleQueryError`:
+  // its message names only the statement, and the database's reason sits on
+  // its `cause`. Each unique conflict must still reach its documented answer.
+  describe("unique conflicts over D1", () => {
+    it(
+      "a second link for a seat, or for an account already seated, is AccountLinkConflict",
+      async () => {
+        const link = (guestId: string, osnAccountId: string) =>
+          accountLinkService.link({
+            familyId: FAMILY_ID,
+            guestId,
+            osnAccountId,
+            osnProfileId: `usr_${osnAccountId}`,
+          });
+        await run(link(GUEST_1, "acc_1"));
+
+        // The same seat again, then the same account on a second seat.
+        for (const [guestId, account] of [
+          [GUEST_1, "acc_2"],
+          [GUEST_2, "acc_1"],
+        ] as const) {
+          const error = await run(link(guestId, account).pipe(Effect.flip));
+          expect(error).toBeInstanceOf(AccountLinkConflict);
+          expect(error).toMatchObject({ reason: "already_linked" });
+        }
+        const linked = await db
+          .select({ guestId: guestAccountLinks.guestId })
+          .from(guestAccountLinks);
+        expect(linked).toEqual([{ guestId: GUEST_1 }]);
+      },
+      MF_TIMEOUT_MS,
+    );
+
+    it(
+      "a purchase that loses the insert to another press's is UpgradeConflict processing",
+      async () => {
+        // Stripe's Price read sits between the opening read and the insert, so
+        // a purchase written there is one the opening read never saw.
+        const minted: string[] = [];
+        const stripe = {
+          retrievePrice: () =>
+            Effect.promise(async () => {
+              const now = new Date();
+              await db.insert(weddingUpgradePurchases).values({
+                id: "upg_rival",
+                weddingId: BOOTSTRAP_WEDDING_ID,
+                entitlement: "gold",
+                fromTier: "ivory",
+                createdByOsnProfileId: "usr_test",
+                createdAt: now,
+                updatedAt: now,
+              });
+              return { unitAmountMinor: 4900, currency: "AUD" };
+            }),
+          createPlatformCheckoutSession: (input: { clientReferenceId: string }) => {
+            minted.push(input.clientReferenceId);
+            return Effect.succeed({ id: "cs_d1", url: "https://pay.test/cs_d1" });
+          },
+        } as unknown as StripeClient;
+        const upgrades = createUpgradeService({
+          stripe,
+          catalogue: createUpgradeCatalogue({ stripe, prices: { gold: "price_g" } }),
+        });
+
+        const error = await run(
+          upgrades
+            .startPurchase({
+              weddingId: BOOTSTRAP_WEDDING_ID,
+              tier: "gold",
+              actorProfileId: "usr_test",
+              successUrlFor: () => "https://host.test/",
+              cancelUrl: "https://host.test/",
+            })
+            .pipe(Effect.flip),
+        );
+
+        expect(error).toMatchObject({ _tag: "UpgradeConflict", reason: "processing" });
+        expect(minted).toEqual([]);
+        const pending = await db
+          .select({ id: weddingUpgradePurchases.id })
+          .from(weddingUpgradePurchases)
+          .where(eq(weddingUpgradePurchases.status, "pending"));
+        expect(pending).toEqual([{ id: "upg_rival" }]);
+      },
+      MF_TIMEOUT_MS,
+    );
+
+    // The add route reads the defect `vendorsService.create` dies with; this
+    // proves its reading of the defect D1 really produces.
+    it(
+      "a second add of one directory listing reads as the listing already in the wedding",
+      async () => {
+        const add = () =>
+          vendorsService.create({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            name: "Apricot Hall",
+            category: "venue",
+            status: "researching",
+            contactName: null,
+            email: null,
+            phone: null,
+            notes: null,
+            quotedMinor: null,
+            directoryVendorId: "dv_d1",
+          });
+        await run(add());
+        const exit = await Effect.runPromiseExit(add().pipe(Effect.provideService(DbService, db)));
+
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (!Exit.isFailure(exit)) return;
+        const defect = Cause.squash(exit.cause);
+        expect(String(defect)).not.toContain("UNIQUE constraint failed");
+        expect(isDirectoryDuplicate(defect)).toBe(true);
+      },
+      MF_TIMEOUT_MS,
+    );
+  });
 
   describe("unlock codes over D1", () => {
     const CODE = "3f9a-0c1e-b7d2-48aa";

@@ -1,9 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
+import { weddingUpgradePurchases } from "@cire/db";
 import { Cause, Effect, Exit } from "effect";
 
 import { buildTierChange, tierChangeToSql } from "../../scripts/grant-tier";
-import { DbService } from "../../src/db";
+import { DbService, driverErrorText } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import type { PlatformSessionState, StripeClient } from "../../src/services/stripe";
@@ -18,6 +19,7 @@ import {
   UpgradeConflict,
   upgradeConflictReason,
 } from "../../src/services/upgrades";
+import { failLikeD1 } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
 
 /**
@@ -275,6 +277,36 @@ describe("upgradeConflictReason", () => {
       message = String(e);
     }
     expect(upgradeConflictReason(message)).toBe("session_taken");
+  });
+
+  it("classifies the one-pending conflict as D1 reports it, statement and all", () => {
+    // On D1 the text read through `driverErrorText` opens with drizzle's
+    // `Failed query: <statement>`, and the INSERT names `checkout_session_id`
+    // whatever the conflict was on.
+    const db = createDb();
+    seedWedding(db);
+    seedPurchase(db, { id: "upg_a", product: "gold" });
+    failLikeD1(db);
+    let text = "";
+    try {
+      const now = new Date();
+      db.insert(weddingUpgradePurchases)
+        .values({
+          id: "upg_b",
+          weddingId: "wed_test",
+          entitlement: "crimson",
+          createdByOsnProfileId: "usr_owner",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    } catch (e) {
+      text = driverErrorText(e);
+    }
+
+    expect(text).toContain('"checkout_session_id"');
+    expect(text).toContain("UNIQUE constraint failed: wedding_upgrade_purchases.wedding_id");
+    expect(upgradeConflictReason(text)).toBe("processing");
   });
 
   it("returns null for anything that is not a unique violation", () => {
@@ -752,6 +784,9 @@ describe("startPurchase across products", () => {
       seedPurchase(db, { id: "upg_rival", product: "crimson", sessionId: "cs_rival" });
     };
     const svc = makeService(stripe.client, { t: BASE_MS });
+    const name = CIRE_METRICS.upgradeCheckoutStarted;
+    const attrs = { tier: "crimson", from_tier: "ivory", result: "processing" };
+    const before = await counterValue(name, attrs);
 
     expect(await conflictOf(db, svc.startPurchase(CRIMSON))).toBe("processing");
     expect(stripe.created).toEqual([]);
@@ -760,6 +795,35 @@ describe("startPurchase across products", () => {
         .filter((r) => r.status === "pending")
         .map((r) => r.id),
     ).toEqual(["upg_rival"]);
+    // Counted like every other press told to wait.
+    expect(await counterValue(name, attrs)).toBe(before + 1);
+  });
+
+  it("answers a write error, not processing, when the insert fails for any other reason", async () => {
+    // Failed as D1 fails it, with a reason that is no unique conflict: the
+    // organiser must not be told to wait, and the press is no contention.
+    // The database's text here stands in for one that quotes a bound value.
+    const db = createDb();
+    seedWedding(db);
+    failLikeD1(db);
+    db.$client.exec(
+      "CREATE TRIGGER upg_fail BEFORE INSERT ON wedding_upgrade_purchases BEGIN SELECT RAISE(ABORT, 'value Annabelle not supported'); END",
+    );
+    const stripe = stubStripe();
+    const svc = makeService(stripe.client, { t: BASE_MS });
+    const name = CIRE_METRICS.upgradeCheckoutStarted;
+    const attrs = { tier: "crimson", from_tier: "ivory", result: "processing" };
+    const before = await counterValue(name, attrs);
+
+    const error = await run(db, svc.startPurchase(CRIMSON).pipe(Effect.flip));
+
+    expect(error).toMatchObject({ _tag: "UpgradeWriteError", op: "insert-purchase" });
+    // The logged reason names the statement and never the database's text.
+    const { reason } = error as { reason: string };
+    expect(reason).toContain('Failed query: insert into "wedding_upgrade_purchases"');
+    expect(reason).not.toContain("Annabelle");
+    expect(stripe.created).toEqual([]);
+    expect(await counterValue(name, attrs)).toBe(before);
   });
 });
 

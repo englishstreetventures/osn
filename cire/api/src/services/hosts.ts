@@ -257,12 +257,18 @@ export class HostNotFound extends Data.TaggedError("HostNotFound")<{
 
 /**
  * Maps a SQLite UNIQUE-constraint failure on the (wedding_id, osn_profile_id)
- * index to the `already_host` conflict. Exported so the brittle string match is
- * pinned by a direct unit test, independent of the driver's exact wording.
+ * index to the `already_host` conflict. Exported so the string match is pinned
+ * by a direct unit test.
+ *
+ * Matched on the database's own `table.column` wording. A primary-key clash
+ * names the table too, and on D1 the text also holds drizzle's
+ * `Failed query: <statement>`, which names the table and every column; drizzle
+ * quotes each name, so the unquoted `wedding_hosts.osn_profile_id` appears only
+ * in the database's reason.
  */
 export function hostConflictReason(message: string): HostConflict["reason"] | null {
   if (!message.includes("UNIQUE constraint failed")) return null;
-  if (message.includes("wedding_hosts")) return "already_host";
+  if (message.includes("wedding_hosts.osn_profile_id")) return "already_host";
   return null;
 }
 
@@ -270,12 +276,15 @@ export function hostConflictReason(message: string): HostConflict["reason"] | nu
  * Map a failed seat INSERT to its error. The text is read through
  * {@link driverErrorText}: on D1 a failed single statement reaches the caller
  * wrapped, with the database's reason on its `cause`, and only the full text
- * names the unique index that makes it `already_host`.
+ * names the unique index that makes it `already_host`. The logged reason is the
+ * statement alone: the database's own text can quote a bound value (D1 names
+ * the value it could not bind).
  */
 export function hostAddFailure(error: unknown): HostConflict | HostWriteError {
-  const text = driverErrorText(error) || String(error);
-  const reason = hostConflictReason(text);
-  return reason ? new HostConflict({ reason }) : new HostWriteError({ op: "insert", reason: text });
+  const reason = hostConflictReason(driverErrorText(error));
+  return reason
+    ? new HostConflict({ reason })
+    : new HostWriteError({ op: "insert", reason: String(error) });
 }
 
 // The subqueries below are keyed by the bound `weddingId`, never by the row of
