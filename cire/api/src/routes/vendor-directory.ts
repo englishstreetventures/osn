@@ -2,7 +2,7 @@ import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
-import { DbService } from "../db";
+import { DbService, driverErrorText } from "../db";
 import type { Db } from "../db";
 import { isServiceCategory } from "../lib/service-categories";
 import { osnAuth } from "../middleware/osn-auth";
@@ -51,14 +51,21 @@ const conflict = (set: { status?: number | string }) =>
     return { error: "already_in_wedding" };
   });
 
-/** UNIQUE-constraint backstop for a double-click race (bun:sqlite + D1 both
- *  carry "UNIQUE constraint" in the message). The listing read's `inWedding`
- *  column handles the common case; this maps the rare concurrent collision to
- *  409 instead of 500. */
-function isUniqueViolation(defect: unknown): boolean {
-  return String((defect as { message?: unknown })?.message ?? defect)
-    .toLowerCase()
-    .includes("unique constraint");
+/**
+ * Whether a failed add is the listing already in the wedding: the
+ * `vendors_wedding_directory_uniq` index refusing the insert, which happens
+ * when a second add lands between this one's listing read and its insert. The
+ * read's `inWedding` column answers the common case; this maps the rare
+ * concurrent collision to 409 instead of 500.
+ *
+ * Read through `driverErrorText`: on D1 the database's reason sits on the
+ * error's `cause`, under drizzle's `Failed query: <statement>`. Matched on the
+ * database's unquoted `table.column` wording, which the statement, quoting
+ * every name, never contains.
+ */
+export function isDirectoryDuplicate(defect: unknown): boolean {
+  const text = driverErrorText(defect);
+  return text.includes("UNIQUE constraint failed") && text.includes("vendors.directory_vendor_id");
 }
 
 export const createVendorDirectoryReadRoutes = (
@@ -142,7 +149,9 @@ export const createVendorDirectoryWriteRoutes = (
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () => badRequest(set)),
-                Effect.catchDefect((d) => (isUniqueViolation(d) ? conflict(set) : internal(set))),
+                Effect.catchDefect((d) =>
+                  isDirectoryDuplicate(d) ? conflict(set) : internal(set),
+                ),
               ),
             );
           },

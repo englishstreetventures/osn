@@ -4,15 +4,26 @@ import {
   BOOTSTRAP_WEDDING_ID,
   directoryVendorCategories,
   directoryVendors,
+  vendors,
   weddingHosts,
 } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
+import { eq } from "drizzle-orm";
+import { DrizzleQueryError } from "drizzle-orm/errors";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
+import { isDirectoryDuplicate } from "../../src/routes/vendor-directory";
 import { createDirectoryService } from "../../src/services/directory";
 import type { Tier } from "../../src/services/tiers";
-import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
+import {
+  appRequest,
+  beforeStatement,
+  failLikeD1,
+  jsonBody,
+  recordStatements,
+  setTier,
+} from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -455,6 +466,59 @@ describe("vendor directory write routes (add-from-directory)", () => {
     expect(statements.some((s) => /^insert into "vendors"/i.test(s.sql))).toBe(false);
   });
 
+  // A second add can land between this add's listing read and its insert; the
+  // unique index then refuses the insert. bun:sqlite throws the database's
+  // error bare, D1 wraps it with the reason on the cause: both answer 409.
+  for (const shape of ["bun:sqlite", "D1"] as const) {
+    it(`409 already_in_wedding when a concurrent add wins the insert (${shape})`, async () => {
+      const { app, db } = buildWriteFixture();
+      if (shape === "D1") failLikeD1(db);
+      beforeStatement(db, /^insert into "vendors"/, () => {
+        const now = new Date();
+        db.insert(vendors)
+          .values({
+            id: "ven_rival",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            directoryVendorId: LA,
+            name: "Apricot Hall",
+            category: "venue",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+      });
+
+      const res = await postAdd(app, LA, { category: "venue" }, EDITOR);
+
+      expect(res.status).toBe(409);
+      expect(await jsonBody(res)).toEqual({ error: "already_in_wedding" });
+      const rows = db
+        .select({ id: vendors.id })
+        .from(vendors)
+        .where(eq(vendors.directoryVendorId, LA))
+        .all();
+      expect(rows).toEqual([{ id: "ven_rival" }]);
+    });
+  }
+
+  it("500s, not 409, when the insert fails for another reason, as D1 reports it", async () => {
+    const { app, db } = buildWriteFixture();
+    failLikeD1(db);
+    db.$client.exec(
+      "CREATE TRIGGER ven_fail BEFORE INSERT ON vendors BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END",
+    );
+
+    const res = await postAdd(app, LA, { category: "venue" }, EDITOR);
+
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+    const rows = db
+      .select({ id: vendors.id })
+      .from(vendors)
+      .where(eq(vendors.directoryVendorId, LA));
+    expect(rows.all()).toEqual([]);
+  });
+
   // The organiser portal reaches this route with the session cookie; other
   // callers send a bearer. Each way in is tested on the allow and deny side.
   it("adds on a live session cookie and refuses a dead cookie, no credential or a foreign token", async () => {
@@ -518,5 +582,36 @@ describe("vendor directory write routes (add-from-directory)", () => {
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("read_only_role");
+  });
+});
+
+describe("isDirectoryDuplicate", () => {
+  const REASON = "UNIQUE constraint failed: vendors.wedding_id, vendors.directory_vendor_id";
+  const INSERT =
+    'insert into "vendors" ("id", "wedding_id", "directory_vendor_id") values (?, ?, ?)';
+
+  it("reads the index's refusal as bun:sqlite and D1 report it", () => {
+    expect(isDirectoryDuplicate(new Error(REASON))).toBe(true);
+    const d1 = new DrizzleQueryError(
+      INSERT,
+      [],
+      new Error(`D1_ERROR: ${REASON}: SQLITE_CONSTRAINT`),
+    );
+    expect(isDirectoryDuplicate(d1)).toBe(true);
+  });
+
+  it("leaves every other failure a 500, even under a statement naming the column", () => {
+    const onId = new DrizzleQueryError(
+      INSERT,
+      [],
+      new Error("UNIQUE constraint failed: vendors.id"),
+    );
+    expect(isDirectoryDuplicate(onId)).toBe(false);
+    expect(isDirectoryDuplicate(new Error("UNIQUE constraint failed: guests.email"))).toBe(false);
+    expect(isDirectoryDuplicate(new Error("NOT NULL constraint failed: vendors.name"))).toBe(false);
+    // The column alone is not enough: only a unique failure on it is a duplicate.
+    const notNull = new Error("NOT NULL constraint failed: vendors.directory_vendor_id");
+    expect(isDirectoryDuplicate(notNull)).toBe(false);
+    expect(isDirectoryDuplicate(undefined)).toBe(false);
   });
 });

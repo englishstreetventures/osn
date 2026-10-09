@@ -2,7 +2,7 @@ import { families, guestAccountLinks, guests } from "@cire/db";
 import { and, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { DbService, dbQuery, driverErrorText } from "../db";
 import type { AccountLinkMatchResult } from "../metrics";
 import { organiserSessionService } from "./organiser-session";
 import type { ValidatedOrganiserSession } from "./organiser-session";
@@ -33,10 +33,10 @@ export class PlusOneSeatNotLinkable extends Data.TaggedError("PlusOneSeatNotLink
 /**
  * The link would violate a uniqueness invariant.
  *
- * AL-S-L2: the conflicting index is deliberately NOT distinguished. Two
- * distinct UNIQUE constraints can fail here — `guest_id` (this invitee already
- * linked an account) and `(family_id, osn_account_id)` (some OSN account is
- * already seated elsewhere in this household). Surfacing them separately let a
+ * The conflicting index is deliberately NOT distinguished. Two distinct UNIQUE
+ * constraints can fail here — `guest_id` (this invitee already linked an
+ * account) and `(family_id, osn_account_id)` (some OSN account is already
+ * seated elsewhere in this household). Surfacing them separately would let a
  * caller probe sibling-seat membership of their own household (a membership
  * oracle). Both collapse to a single opaque `already_linked` reason so the two
  * cases are indistinguishable end-to-end (same tag → same 409 → same body).
@@ -132,21 +132,30 @@ export interface AccountLinkByAccount {
 }
 
 /**
- * Detects a SQLite UNIQUE-constraint failure on either account-link index.
- * Exported so the brittle string-matching is pinned by a direct unit test,
- * independent of the SQLite driver's exact error wording (T-S2).
+ * Detects a SQLite UNIQUE-constraint failure on either account-link index, in
+ * the text `driverErrorText` reads from a failed insert. Exported so the
+ * string-matching is pinned by a direct unit test.
  *
- * AL-S-L2: returns a single opaque `"already_linked"` for BOTH conflicting
- * indexes — `guest_id` (this invitee already linked) and
- * `(family_id, osn_account_id)` (some account already seated in this household).
- * The two are intentionally not distinguished so the caller can't probe
- * sibling-seat membership of their own household.
+ * Matched on the database's own `table.column` wording. On D1 the text also
+ * holds drizzle's `Failed query: <statement>`, and the INSERT names every
+ * column, `guest_id` and `osn_account_id` included, whatever the conflict was
+ * on; drizzle quotes each name, so the unquoted `table.column` appears only in
+ * the database's reason.
+ *
+ * Returns a single opaque `"already_linked"` for BOTH conflicting indexes —
+ * `guest_id` (this invitee already linked) and `(family_id, osn_account_id)`
+ * (some account already seated in this household). The two are intentionally
+ * not distinguished so the caller can't probe sibling-seat membership of their
+ * own household.
  */
 export function conflictReason(message: string): AccountLinkConflict["reason"] | null {
   if (!message.includes("UNIQUE constraint failed")) return null;
   // Either the `guest_id` UNIQUE or the `(family_id, osn_account_id)` UNIQUE —
   // both collapse to the same opaque reason (membership-oracle defence).
-  if (message.includes("osn_account_id") || message.includes("guest_id")) {
+  if (
+    message.includes("guest_account_links.osn_account_id") ||
+    message.includes("guest_account_links.guest_id")
+  ) {
     return "already_linked";
   }
   return null;
@@ -217,11 +226,12 @@ export const accountLinkService = {
               .run(),
           ),
         catch: (e) => {
-          const message = String(e);
-          const reason = conflictReason(message);
+          const reason = conflictReason(driverErrorText(e));
+          // The logged reason is the statement alone: the database's own text
+          // can quote a bound value (D1 names the value it could not bind).
           return reason
             ? new AccountLinkConflict({ reason })
-            : new AccountLinkWriteError({ op: "insert", reason: message });
+            : new AccountLinkWriteError({ op: "insert", reason: String(e) });
         },
       }).pipe(
         Effect.tapError((err) =>

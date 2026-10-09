@@ -6,7 +6,7 @@ related:
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
   - "[[access-control]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-09
 ---
 # Vendors — directory, CRM, and email-verification claim
 
@@ -315,7 +315,7 @@ Adds a directory listing to the wedding's Vendor CRM. The handler:
 
 1. Reads the listing with `directoryService.getLiveListingById(listingId, weddingId)` — one statement that returns the listing, its categories and `inWedding`, the same "is this listing already in this wedding's CRM" EXISTS test browse makes. A missing or not-`live` listing returns 404 `listing_not_found` (draft listings cannot be added).
 2. Validates the request body's `category` is one of the listing's categories (400 `invalid_category` otherwise). This check comes before the duplicate check, so a duplicate add with a wrong category is a 400.
-3. Deduplication: `inWedding` true returns **409** `already_in_wedding` without trying the insert. The `vendors_wedding_directory_uniq` **partial unique index** (`UNIQUE (wedding_id, directory_vendor_id) WHERE directory_vendor_id IS NOT NULL`) catches a concurrent race; the route maps that `UNIQUE constraint` defect to the same **409** `already_in_wedding`.
+3. Deduplication: `inWedding` true returns **409** `already_in_wedding` without trying the insert. The `vendors_wedding_directory_uniq` **partial unique index** (`UNIQUE (wedding_id, directory_vendor_id) WHERE directory_vendor_id IS NOT NULL`) catches a concurrent race. The route reads the defect through `driverErrorText` (`isDirectoryDuplicate`), so a failure naming `vendors.directory_vendor_id` maps to the same **409** `already_in_wedding` on bun:sqlite and on D1, where the reason sits on the error's `cause` ([[cire-development]]). Any other failure is a 500.
 4. Otherwise snapshots the listing's `name`, `email`, `phone` into a new `vendors` CRM row for the wedding under the chosen `category`, with `status = 'researching'`, `directory_vendor_id` linked, and `sort_order` one past the top of its status group (`vendorsService.create` reads that one row, not the group).
 
 Routes in `cire/api/src/routes/vendor-directory.ts`.
