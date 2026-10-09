@@ -22,7 +22,7 @@ related:
 packages:
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-10
 ---
 
 # Frontend Patterns
@@ -92,16 +92,17 @@ major that moves its default fails a test instead of quietly moving the floor.
 The test resolves `musubi/social`'s Vite config; the other plain-Vite apps set no
 `build.target` and resolve to the same default (`pulse/web` checked by hand with
 Vite's `resolveConfig`, 2026-09-25).
-When it fails, edit `.browserslistrc` (and review the `lib` of `cire/invites`, see
-[[cire-development#Type-check configs]]), or pin `build.target` in the app's Vite
-config.
+When it fails, edit `.browserslistrc` (and review the `lib` of `cire/invites`,
+which `cire/invites/tests/browser-floor.test.ts` carries to every package the
+guest site imports, see [[cire-development#The guest site's packages]]), or pin
+`build.target` in the app's Vite config.
 
 What holds each kind of app to the floor:
 
 | Apps | Syntax | Library methods (`toSorted`, …) |
 |---|---|---|
 | Plain Vite: `musubi/social`, `pulse/web`, `tools/lab`, `tools/metrics` | Lowered to the floor by Vite's build target | Not checked: these apps type-check at `lib` ES2023 |
-| Astro: `cire/host`, `cire/invites`, `cire/landing`, `cire/vendor`, `musubi/landing`, `pulse/landing` | Not lowered: Astro builds the client bundle at `esnext` | `cire/invites` type-checks its own source at `lib` ES2022; the rest at their own `lib` |
+| Astro: `cire/host`, `cire/invites`, `cire/landing`, `cire/vendor`, `musubi/landing`, `pulse/landing` | Not lowered: Astro builds the client bundle at `esnext` | `cire/invites` and every workspace package it imports type-check at `lib` ES2022; the rest at their own `lib` |
 
 Nothing polyfills. Babel core finds the file when it resolves `targets` for the
 Solid transform, but no plugin in the build acts on them, so the file changes no
@@ -259,7 +260,7 @@ work — `Field.tsx` appends its own resize class after the caller's, so both
 land on the element and Tailwind resolves the conflict by the two utilities'
 order in the generated stylesheet, not by attribute order. Reach for a real
 prop, not a class override, whenever a component appends its own class after
-the caller's (englishstventures/osn-tracker#130).
+the caller's.
 
 ### `sr-only` is `position: absolute`, so a pill in a scroller needs a positioned parent
 

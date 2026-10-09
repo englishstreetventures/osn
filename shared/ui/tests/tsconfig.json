@@ -1,0 +1,8 @@
+{
+  // The tests, browser tier included. Vitest's browser provider pulls in
+  // `@types/node`, whose library references (`Float16Array`, the disposable
+  // built-ins) are newer than the floor, so they stay out of
+  // `../tsconfig.json`, which covers only the shipped source.
+  "extends": "../tsconfig.json",
+  "include": ["./**/*"]
+}

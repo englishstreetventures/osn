@@ -1,5 +1,17 @@
 {
-  "extends": "@shared/typescript-config/node.json",
+  "extends": "@shared/typescript-config/base.json",
+  "compilerOptions": {
+    // The guest site (`cire/invites`) ships this source to browsers, so it
+    // checks at that site's `lib`, the floor in the root `.browserslistrc`: an
+    // ES2023 method such as `toSorted` fails `check`. Stated here rather than
+    // inherited, so a change to the shared config cannot quietly raise it;
+    // `cire/invites/tests/browser-floor.test.ts` fails if it is ever wider than
+    // that site's. No ambient types: `bun-types` declares newer built-ins
+    // (`Promise.withResolvers`, `Array.fromAsync`) whatever `lib` says.
+    // The tests get ES2023 and `bun-types` from `tests/tsconfig.json`.
+    "lib": ["ES2022"],
+    "types": []
+  },
   "include": ["src/**/*"],
   "exclude": ["node_modules"]
 }

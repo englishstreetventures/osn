@@ -10,6 +10,8 @@ packages:
   - "@cire/api"
   - "@cire/db"
   - "@cire/build-tools"
+  - "@cire/dietary"
+  - "@cire/theme"
 related:
   - "[[cire]]"
   - "[[cire-auth]]"
@@ -21,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-10
 ---
 
 # Cire development guide
@@ -188,7 +190,7 @@ Platform conventions are in [[testing-patterns]]; the real-Chromium tier is in
 
 ## Type-check configs
 
-Two cire packages check their shipped source under a narrower config than their
+Four cire packages check their shipped source under a narrower config than their
 tests, so the compiler rejects what the runtime lacks. Each package's `check`
 script runs both configs, and the test config sits at `tests/tsconfig.json` so
 the editor finds it for test files (see [[testing-patterns#Rules]]).
@@ -197,6 +199,51 @@ the editor finds it for test files (see [[testing-patterns#Rules]]).
 |---|---|---|
 | `@cire/api` | The Worker: Workers types only, `lib` ES2023. Leaves out `src/local.ts` and `src/db/setup.ts`, the two files that only run under Bun | Adds `bun-types`; includes the tests and those two files |
 | `@cire/invites` | `lib` ES2022 + DOM, set in the file rather than inherited, which the browser floor in the root `.browserslistrc` implements (see [[frontend-patterns#Supported browsers]]) | `lib` ES2023, for `toSorted` and `toReversed` in tests |
+| `@cire/dietary`, `@cire/theme` | `lib` ES2022 and no ambient types, the guest site's floor (see [[#The guest site's packages]]) | `lib` ES2023 and `bun-types`, for `bun:test`, `node:fs` and `toSorted` in tests |
+
+### The guest site's packages
+
+`astro check` reports only the files in its own project, so the source of a
+workspace package the guest site imports is checked by that package's own
+`check`, under that package's tsconfig. Each one states the site's `lib` in its
+own `tsconfig.json`, rather than inheriting it from a preset, and loads no
+ambient types: `bun-types` declares `Promise.withResolvers`, `Array.fromAsync`
+and other built-ins newer than the floor whatever `lib` says.
+
+| Packages | Shipped-source `tsconfig.json` |
+|---|---|
+| `@cire/dietary`, `@cire/invite-designs`, `@cire/theme`, `@shared/color`, `@shared/design-tokens`, `@shared/legal` | Extends `base.json`; `lib` ES2022, `types: []` |
+| `@cire/ui`, `@shared/ui`, `@shared/rp-auth`, `@shared/toast` | Extends `solid.json`; `lib` ES2022 + DOM, restated |
+
+The Worker, the organiser and vendor portals, musubi and pulse compile the same
+source under their own, wider `lib`, so the narrower package config still
+type-checks for them.
+
+Where a package's tests reach `@types/node` (through Vitest's browser provider,
+or a `node:` import), they move to `tests/tsconfig.json`, so the shipped-source
+program stays at the floor: `@cire/dietary`, `@cire/theme`, `@shared/color`,
+`@shared/design-tokens` and `@shared/ui` do this.
+
+`cire/invites/tests/browser-floor.test.ts` walks the site's workspace
+dependencies (its `dependencies` and `devDependencies`, then each package's
+`dependencies`) and fails when:
+
+- the site's own `lib` is not ES2022 + DOM, so raising the floor means editing
+  that test and `cire/invites/tsconfig.json` together;
+- a package states no `lib` of its own;
+- the TypeScript program a package's `check` builds loads a library outside the
+  site's `lib`, from `lib`, a `/// <reference lib>` or a type package, or loads
+  any `bun-types` file;
+- a package's `check` script does not start with `tsc --noEmit` on that config,
+  or the config leaves out a module the package exports;
+- the site's source, `.astro` files included, or a package's `src` imports a
+  `@cire/` or `@shared/` package the walk did not reach.
+
+It lists the packages it expects, so a new dependency fails it until it meets
+the floor and joins the list. It exempts three build-only packages by name, and
+fails if any of them moves from `devDependencies` to `dependencies`:
+`@cire/build-tools` (an Astro integration that reads the filesystem; it states
+ES2022 but keeps `bun-types`), `@shared/dev-urls` and `@shared/typescript-config`.
 
 What this does and does not catch:
 
@@ -211,13 +258,14 @@ What this does and does not catch:
   encoding: `buf.toString("hex")` in Worker source, or in a shared file the
   Worker imports, fails `check` with TS2554. Build hex from the bytes instead
   (`generateRecoveryCode` in `shared/crypto/src/recovery.ts` does).
-- An ES2023 method such as `toSorted` in `cire/invites/src` (a `.ts`, `.tsx` or
-  `.astro` file) fails `check`. The same call in a workspace package the guest site
-  imports (`@cire/theme`, `@cire/invite-designs`, `@cire/dietary`, `@shared/legal`,
-  `@shared/design-tokens`) does not: those packages check at ES2023 because the
-  Worker uses them too, and `astro check` reports only the files in its own
-  project. Astro also builds the client bundle at `esnext`, so nothing lowers
-  newer syntax for old browsers either.
+- An ES2023 method such as `toSorted` fails `check` in `cire/invites/src` (a
+  `.ts`, `.tsx` or `.astro` file) and in every package the guest site imports.
+- `lib` does not cover everything above the floor, and these stay review rules:
+  Astro builds the client bundle at `esnext`, so nothing lowers or rejects newer
+  syntax; the site's own program loads `@types/node` through Vite's and
+  `undici-types`' declarations, which brings in `Float16Array` and the disposable
+  built-ins; ES2022's `Intl.Segmenter` arrived in Firefox 125, above the floor's
+  114; and the DOM library has no versions at all.
 - In the editor, `cire/api/src/local.ts` and `src/db/setup.ts` belong to neither
   package config and fall back to the repo-root `tsconfig.json`. `check` is still
   right for them.

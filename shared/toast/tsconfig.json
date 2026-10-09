@@ -1,5 +1,13 @@
 {
   "extends": "@shared/typescript-config/solid.json",
+  "compilerOptions": {
+    // The guest site (`cire/invites`) ships this source to browsers, so it
+    // checks at that site's `lib`, the floor in the root `.browserslistrc`.
+    // Stated here rather than inherited, so a change to `solid.json` cannot
+    // quietly raise it; `cire/invites/tests/browser-floor.test.ts` fails if it
+    // is ever wider than that site's.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
   "include": ["src/**/*", "tests/**/*"],
   "exclude": ["node_modules"]
 }
