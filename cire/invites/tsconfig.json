@@ -6,7 +6,10 @@
   "extends": "@shared/typescript-config/solid.json",
   "compilerOptions": {
     // Stated here rather than inherited from `solid.json`, so a change to the
-    // shared config cannot quietly raise it.
+    // shared config cannot quietly raise it. `astro check` reports only this
+    // package's files, so every workspace package this site imports states it
+    // too, in its own tsconfig; `tests/browser-floor.test.ts` fails when one is
+    // wider than this.
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "preserve",
     "jsxImportSource": "solid-js"
