@@ -1,6 +1,6 @@
 {
   "name": "@shared/design-tokens",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -15,7 +15,7 @@
     "./tokens.css": "./src/tokens.css"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },

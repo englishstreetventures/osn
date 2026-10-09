@@ -12,7 +12,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
     "test": "bun test",
     "test:run": "bun test"
   },

@@ -1,6 +1,6 @@
 {
   "name": "@shared/color",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -13,7 +13,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },
