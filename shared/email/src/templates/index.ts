@@ -26,6 +26,7 @@ import {
   renderRegistrationOtp,
   renderStepUpOtp,
 } from "./otp";
+import { renderR2ReconcileAlert, type R2ReconcileAlertData } from "./r2-reconcile-alert";
 import {
   renderRsvpChangeDigest,
   type RsvpChangeDigestData,
@@ -73,6 +74,7 @@ export type EmailTemplate =
   | "totp-enrolled"
   | "totp-disabled"
   | "cross-device-login"
+  | "r2-reconcile-alert"
   | "registry-gift-summary"
   | "rsvp-change-digest"
   | "vendor-claim-invite"
@@ -97,6 +99,7 @@ export interface EmailTemplateDataMap {
   "totp-enrolled": Record<string, never>;
   "totp-disabled": Record<string, never>;
   "cross-device-login": Record<string, never>;
+  "r2-reconcile-alert": R2ReconcileAlertData;
   "registry-gift-summary": RegistryGiftSummaryData;
   "rsvp-change-digest": RsvpChangeDigestData;
   "vendor-claim-invite": { claimUrl: string; vendorName: string };
@@ -160,6 +163,8 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderTotpDisabled();
     case "cross-device-login":
       return renderCrossDeviceLogin();
+    case "r2-reconcile-alert":
+      return renderR2ReconcileAlert(data as EmailTemplateData<"r2-reconcile-alert">);
     case "registry-gift-summary":
       return renderRegistryGiftSummary(data as EmailTemplateData<"registry-gift-summary">);
     case "rsvp-change-digest":
@@ -196,6 +201,7 @@ export {
   renderTotpEnrolled,
   renderTotpDisabled,
   renderCrossDeviceLogin,
+  renderR2ReconcileAlert,
   renderRegistryGiftSummary,
   renderRsvpChangeDigest,
   renderVendorClaimInvite,
@@ -208,6 +214,7 @@ export type {
   EnquiryNewData,
   EnquiryReplyData,
   EnquiryQuoteData,
+  R2ReconcileAlertData,
   RegistryGiftSummaryData,
   RsvpChangeDigestData,
   RsvpDigestChangeKind,
