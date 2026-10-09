@@ -98,6 +98,32 @@ describe("sendReconcileAlert", () => {
   });
 });
 
+describe("sendReconcileAlert when the email layer throws", () => {
+  it("logs the defect and never fails, so a broken transport cannot fail the cron", async () => {
+    let calls = 0;
+    const layer = Layer.succeed(EmailService, {
+      send: () => {
+        calls += 1;
+        throw new Error("transport exploded");
+      },
+    });
+    let ok = false;
+    const logs = await captureLogs(async () => {
+      const exit = await Effect.runPromiseExit(
+        sendReconcileAlert(
+          { to: "ops@example.test", env: "production", alert: { kind: "disabled" } },
+          { retryDelayMs: 0 },
+        ).pipe(Effect.provide(layer)),
+      );
+      ok = Exit.isSuccess(exit);
+    });
+    expect(ok).toBe(true);
+    expect(calls).toBe(1);
+    expect(logs).toContain("r2 reconcile alert send failed");
+    expect(logs).toContain("defect");
+  });
+});
+
 describe("reconcileBucketName", () => {
   it("matches the bucket each tier binds in wrangler.toml", async () => {
     type Buckets = { r2_buckets: Array<{ binding: string; bucket_name: string }> };

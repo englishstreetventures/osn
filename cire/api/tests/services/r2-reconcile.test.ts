@@ -894,13 +894,14 @@ describe("reconcileOrphanObjects", () => {
     it("keeps the stored count through a run that reads none", async () => {
       // Nothing is old enough to judge, so no lookup runs and no count is read.
       const bucket = createBucket(objectsAt(5, FRESH));
-      const position = memoryPosition({ referenced: 40 });
+      const position = memoryPosition({ referenced: 40, heldRuns: 3 });
       const p = plan([], { budget: budget({ maxObjects: 10, maxListCalls: 10 }, position.store) });
 
       await run(reconcileOrphanObjects(bucket, p.plan, NOW));
 
       expect(p.lookups).toHaveLength(0);
-      expect(position.current()).toEqual({ referenced: 40 });
+      expect(position.writes).toEqual([]);
+      expect(position.current()).toEqual({ referenced: 40, heldRuns: 3 });
     });
 
     describe("the stop object", () => {
@@ -932,6 +933,14 @@ describe("reconcileOrphanObjects", () => {
         expect(p.samplesRead()).toBe(0);
         expect(logs).toContain("reconcile/stop");
         expect(p.alerts).toEqual([{ kind: "stopped", bucket: "sheets", stoppedDays: 3 }]);
+      });
+
+      it("counts a stop written after the Worker's clock as 0 days, never fewer", async () => {
+        const bucket = createBucket([...objectsAt(5), stopAt(new Date(NOW.getTime() + DAY_MS))]);
+        const p = plan([keyAt(0)]);
+
+        expect(await run(reconcileOrphanObjects(bucket, p.plan, NOW))).toBe(0);
+        expect(p.alerts).toEqual([{ kind: "stopped", bucket: "sheets", stoppedDays: 0 }]);
       });
 
       it("fails, listing and deleting nothing, when the stop object cannot be checked", async () => {
@@ -1053,6 +1062,36 @@ describe("reconcileOrphanObjects", () => {
         });
       });
 
+      it("holds in the middle of a lap on the same stretch every run, then releases it there", async () => {
+        const bucket = createBucket(objects());
+        const lapStartedAt = NOW.getTime() - DAY_MS;
+        const position = memoryPosition({ after: keyAt(9), lapStartedAt, referenced: 100 });
+        const p = plan(
+          live,
+          { budget: budget({ maxObjects: 10, maxListCalls: 10 }, position.store) },
+          40,
+        );
+
+        for (let i = 1; i <= RECONCILE_HOLD_RUNS; i++) {
+          expect(await run(reconcileOrphanObjects(bucket, p.plan, NOW))).toBe(0);
+          expect(bucket.listCalls.at(-1)).toEqual({
+            prefix: PREFIX,
+            startAfter: keyAt(9),
+            limit: 10,
+          });
+          expect(position.current()).toEqual({
+            after: keyAt(9),
+            lapStartedAt,
+            referenced: 100,
+            heldRuns: i,
+          });
+        }
+
+        expect(await run(reconcileOrphanObjects(bucket, p.plan, NOW))).toBe(1);
+        expect([...bucket.deleted]).toEqual([keyAt(12)]);
+        expect(position.current()).toEqual({ after: keyAt(19), lapStartedAt, referenced: 40 });
+      });
+
       it("keeps a hold through a stored text round trip in the bucket", async () => {
         const texts = new Map<string, string>();
         const positionBucket: PositionBucket = {
@@ -1101,9 +1140,14 @@ describe("reconcileOrphanObjects", () => {
           40,
         );
 
-        expect(await run(reconcileOrphanObjects(createBucket(objects()), p.plan, NOW))).toBe(0);
+        let deleted = -1;
+        const logs = await captureLogs(async () => {
+          deleted = await run(reconcileOrphanObjects(createBucket(objects()), p.plan, NOW));
+        });
+        expect(deleted).toBe(0);
         expect(events).toEqual(["alert", "write"]);
         expect(position.current()).toEqual({ referenced: 100, heldRuns: 1 });
+        expect(logs).toContain("r2 reconcile operator alert failed");
       });
 
       it("deletes, and stores the count, when no count is stored", async () => {

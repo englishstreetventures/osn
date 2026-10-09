@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { imports } from "@cire/db";
 import { sql } from "drizzle-orm";
 import { getTableConfig, SQLiteSyncDialect } from "drizzle-orm/sqlite-core";
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb } from "../../src/db/setup";
@@ -18,6 +18,7 @@ import {
   RECONCILE_GRACE_MS,
   RECONCILE_HOLD_RUNS,
   RECONCILE_STOP_KEY,
+  reconcileOrphanObjects,
   type ReconcileAlert,
 } from "../../src/services/r2-reconcile";
 import {
@@ -294,6 +295,47 @@ describe("namedSheetKeys", () => {
       }),
     ),
   );
+});
+
+describe("namedSheetKeys given a malformed answer", () => {
+  /** A database whose lookup answers one row with this `hits` value. */
+  const answering = (hits: string) =>
+    ({ all: () => [{ n: 1, hits }] }) as unknown as DbService["Service"];
+
+  it.each([
+    ["an object", '{"a":1}'],
+    ["a list of keys, not key rows", '["imports/a/events.csv"]'],
+    ["text that is not JSON", "not json"],
+  ])("dies on %s rather than naming fewer keys", async (_, hits) => {
+    const exit = await Effect.runPromiseExit(
+      namedSheetKeys(["imports/a/events.csv"]).pipe(
+        Effect.provideService(DbService, answering(hits)),
+      ),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(exit._tag === "Failure" && exit.cause.reasons.every((r) => r._tag === "Die")).toBe(true);
+  });
+
+  it("aborts the reconcile, deleting nothing, on a malformed answer", async () => {
+    const live = keysFor("live").events;
+    const bucket = createSheetsStub(old(live, keysFor("orphan").events));
+    const error = await Effect.runPromise(
+      Effect.flip(
+        reconcileOrphanObjects(
+          bucket,
+          {
+            label: "sheets",
+            prefix: SHEETS_PREFIX,
+            liveSample: Effect.succeed(live),
+            named: namedSheetKeys,
+          },
+          NOW,
+        ),
+      ).pipe(Effect.provideService(DbService, answering(`["${live}"]`))),
+    );
+    expect(error._tag).toBe("R2ReconcileError");
+    expect(bucket.deleted.size).toBe(0);
+  });
 });
 
 describe("sheetReconcileService.reconcileOrphans", () => {

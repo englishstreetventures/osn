@@ -79,4 +79,51 @@ describe("r2-reconcile-alert", () => {
     expect(out.text).toContain("CIRE_R2_RECONCILE_DISABLED");
     expect(out.text).toContain("cire/api/wrangler.toml");
   });
+
+  it("keeps a bucket name to the characters a bucket may hold", () => {
+    const out = renderTemplate("r2-reconcile-alert", {
+      kind: "stopped",
+      env: "production",
+      bucket: "cire-sheets\n<b>x</b>; rm -rf",
+      stoppedDays: 2,
+    });
+    expect(out.subject).toBe("Cire: cire-sheetsbxbrm-rf orphan deletion stopped for 2 days");
+    expect(out.html).not.toContain("<b>");
+    expect(out.text).toContain("cire-sheetsbxbrm-rf/reconcile/stop");
+  });
+
+  it("renders a stray fraction or negative as a whole number from zero", () => {
+    const out = renderTemplate("r2-reconcile-alert", {
+      kind: "held",
+      env: "production",
+      bucket: "cire-assets",
+      referencingRows: 40.7,
+      previousRows: 100,
+      heldRuns: 7,
+      runsLeft: -1,
+    });
+    expect(out.subject).toContain("fell from 100 to 40");
+    expect(out.text).toContain("held for 7 runs");
+    expect(out.text).toContain("0 more runs");
+  });
+
+  it("puts every kind's command in the HTML body as well", () => {
+    for (const data of [
+      {
+        kind: "released",
+        env: "production",
+        bucket: "cire-sheets",
+        referencingRows: 1,
+        previousRows: 3,
+      },
+      { kind: "stopped", env: "production", bucket: "cire-sheets", stoppedDays: 1 },
+    ] as const) {
+      const out = renderTemplate("r2-reconcile-alert", data);
+      expect(out.html).toContain("cire-sheets/reconcile/stop");
+      expect(out.html).toContain("wiki/compliance/backup-dr.md");
+    }
+    const disabled = renderTemplate("r2-reconcile-alert", { kind: "disabled", env: "dev" });
+    expect(disabled.html).toContain("CIRE_R2_RECONCILE_DISABLED");
+    expect(disabled.subject).toBe("Cire (dev): R2 orphan deletion disabled for this tier");
+  });
 });
