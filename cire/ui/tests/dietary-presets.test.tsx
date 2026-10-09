@@ -230,6 +230,70 @@ describe("a key this build does not know", () => {
   });
 });
 
+/*
+ * The three layouts, by class. Whether a track scrolls or wraps at a given
+ * width is a layout fact happy-dom cannot compute;
+ * `cire/invites/tests/components/DietaryPresets.browser.test.tsx` measures the
+ * guest sheet's at a phone and two desktop widths. This pins which classes
+ * each `wrap` value hands to the track, the band columns and the pill rows —
+ * the unknown-key row included, since it is a row like the others.
+ */
+describe("the layout the caller asks for", () => {
+  function parts(wrap?: boolean | "md") {
+    render(() => (
+      <DietaryPresets value={["vegan", "a_future_key"]} onChange={() => {}} wrap={wrap} />
+    ));
+    const track = screen.getByRole("group").firstElementChild as HTMLElement;
+    const children = [...track.children] as HTMLElement[];
+    // Every band, and the trailing row of keys this build does not know.
+    const unknownRow = children.at(-1) as HTMLElement;
+    const bands = children.slice(0, -1);
+    const rows = [...bands.map((band) => band.lastElementChild as HTMLElement), unknownRow];
+    const classes = (el: HTMLElement) => el.className.split(/\s+/);
+    return {
+      track: classes(track),
+      bands: bands.map(classes),
+      rows: rows.map(classes),
+      all: [track, ...bands, ...rows].flatMap(classes),
+    };
+  }
+
+  it("scrolls sideways at every width by default", () => {
+    const { track, rows, all } = parts();
+    expect(track).toEqual(expect.arrayContaining(["overflow-x-auto", "snap-x"]));
+    for (const row of rows) expect(row).not.toContain("flex-wrap");
+    expect(all.filter((c) => c.startsWith("md:"))).toEqual([]);
+  });
+
+  it("wraps at every width with `wrap`", () => {
+    const { track, bands, rows, all } = parts(true);
+    expect(track).toContain("flex-col");
+    expect(track).not.toContain("overflow-x-auto");
+    for (const band of bands)
+      expect(band).toEqual(expect.arrayContaining(["flex-col", "items-start"]));
+    for (const row of rows) expect(row).toContain("flex-wrap");
+    expect(all.filter((c) => c.startsWith("md:"))).toEqual([]);
+  });
+
+  it('scrolls below `md:` and wraps from it with `wrap="md"`', () => {
+    const { track, bands, rows } = parts("md");
+    // Below the breakpoint: the default's sideways track, unprefixed.
+    expect(track).toEqual(expect.arrayContaining(["overflow-x-auto", "snap-x"]));
+    expect(track).not.toContain("flex-col");
+    // From it: the `wrap` layout, with the scroller switched off.
+    expect(track).toEqual(
+      expect.arrayContaining(["md:flex-col", "md:overflow-x-visible", "md:snap-none", "md:pb-0"]),
+    );
+    for (const band of bands) {
+      expect(band).toEqual(expect.arrayContaining(["md:flex-col", "md:items-start"]));
+    }
+    for (const row of rows) {
+      expect(row).toContain("md:flex-wrap");
+      expect(row).not.toContain("flex-wrap");
+    }
+  });
+});
+
 describe("the pill's containing block", () => {
   it("positions each pill, so its hidden checkbox resolves inside it", () => {
     // `sr-only` is `position: absolute`. With a static label the input resolves

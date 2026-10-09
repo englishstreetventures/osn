@@ -389,10 +389,12 @@ rules make that safe.
   request it serves, so one request's value would reach the next one's HTML.
   The setter returns early when `typeof window === "undefined"`.
 - **Hold it back until the reader has mounted.** Hydration keeps the server's
-  text node for a string an island renders, rather than writing it, so an
-  island whose first client render reads a value the server did not have
-  keeps the server's words with nothing to change them later. Gate the read
-  on a `mounted` signal set in `onMount`.
+  text node for a string an island renders, rather than writing it, and keeps
+  the server's attributes too: Solid's `setAttribute` and `className` return
+  early while hydrating (`classList` and `style` do not). So an island whose
+  first client render reads a value the server did not have keeps the
+  server's words, or its `class` and `aria-*`, with nothing to change them
+  later. Gate the read on a `mounted` signal set in `onMount`.
 
 The other way across is a payload-less window event that tells listeners to
 re-read the server (`CLAIM_SESSION_EVENT` in `cire/invites`). Use the event

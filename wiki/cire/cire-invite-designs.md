@@ -12,7 +12,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-09
 ---
 # Invite design selector
 
@@ -181,20 +181,45 @@ Both surfaces change on page load when the session restores and at the moment
 a code is accepted. For a typed code the hero is above the guest's scroll
 position by then.
 
-The swap has a cost on a hero with no couple title. Once the restore lands, the
-longer title wraps to one more line, which moves the title block within the
-hero: a layout shift inside it, with nothing below the hero moving, since the
-hero is at least the screen's height. Whether it also moves Largest Contentful
-Paint on a hero with no image is unmeasured. A hero with a couple title, the
-usual case, does not change.
+**A hero with no couple title holds room for both titles.**
+[`HeroFallbackTitle`](../../cire/invites/src/components/HeroFallbackTitle.tsx)
+renders "You're Invited" and "Welcome back to your invite" in one grid cell from
+the first paint, and the one not shown is `invisible` and `aria-hidden`, so a
+screen reader reaches the painted title only. The cell takes the longer string's
+size, so when the restore lands only the painted string changes: no box in the
+hero moves. Each pack places the shorter string in that room the way it places
+its title block: classic centres it, gala sets it on the cell's foot against the
+subtitle. The cost falls on a first visit, whose title-less hero holds the room
+the welcome-back title needs:
+
+| Pack | Phone (320 and 390px) | Desktop (1024 and 1440px) |
+|---|---|---|
+| classic | one line more | none: both titles fit one line |
+| gala | one line more | one line more |
+
+*Measured 2026-10-09 — line heights of both strings in real Chromium at the default heading scale, `bun run --cwd cire/invites test:browser` with a probe mounting each pack's header.*
+
+The welcome-back title is a first paint when it appears, so on a hero with no
+image it is a new Largest Contentful Paint entry at the moment the session
+restores, about twice the first-visit title's area. Rewriting the words of one
+painted element instead adds no entry. The guest sees the new words at the same
+moment either way; only the metric moves. A hero with an image keeps the image
+as its largest paint, and a hero with a couple title, the usual case, draws
+neither string.
+
+*Measured 2026-10-09 — `largest-contentful-paint` observer in real Chromium at 1440x900, classic pack, `bun run --cwd cire/invites test:browser` with a probe: entries 37,606 then 75,574 px² across the swap; a single span whose text is rewritten keeps one entry.*
 
 Tests: in `@cire/api`, `tests/services/claim.test.ts` ("householdReplied in the
 claim payload"). In `@cire/invites`, `tests/components/invite-progress.test.ts`,
 `tests/components/LoginSection.test.tsx` ("returning household"), both packs'
 `InvitePage.test.tsx` (a first-time guest's greeting survives their first
 reply), `tests/components/returning-household.test.ts` and its `.ssr` twin,
-and `tests/designs/InviteHeader.ssr.test.tsx`. In real Chromium,
-`InviteHeader.browser.test.tsx` checks that the welcome-back title still stops
+`tests/components/HeroFallbackTitle.test.tsx`, both packs'
+`InviteHeader.test.tsx`, and `tests/designs/InviteHeader.ssr.test.tsx` (the
+server sends both strings, the welcome-back one hidden). In real Chromium,
+`InviteHeader.browser.test.tsx` checks that turning to the welcome-back title
+records no layout shift and moves neither the title block nor the subtitle, in
+both packs at 320x568 and 1440x900, and that the welcome-back title still stops
 above the scroll cue at 320px and at both test widths.
 
 ## The hero scroll cue

@@ -340,7 +340,10 @@ describe("InviteHeader render", () => {
       <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
     ));
 
-    await waitFor(() => expect(getByText("You're Invited")).toBeTruthy());
+    // The words a reader reaches; the welcome-back string is held hidden.
+    await waitFor(() =>
+      expect(getByText("You're Invited", { ignore: "[aria-hidden='true']" })).toBeTruthy(),
+    );
     expect(queryByText("V")).toBeNull();
     expect(queryByText("R")).toBeNull();
     expect(container.querySelectorAll("section")).toHaveLength(1);
@@ -743,30 +746,37 @@ describe("classic InviteHeader fallback title for a returning household", () => 
     };
   }
 
+  // Both strings are always in the hero, the one not shown `aria-hidden`, so
+  // "what the guest is shown" is the text outside every `aria-hidden` subtree.
+  const READABLE = { ignore: "[aria-hidden='true']" };
+
   it("welcomes back the household the panel found, and goes back once it signs out", async () => {
     const { getByText, queryByText } = render(() => (
       <InviteHeader apiUrl="https://api.test" slug="s" initial={hero(null)} />
     ));
-    expect(getByText("You're Invited")).toBeTruthy();
+    expect(getByText("You're Invited", READABLE)).toBeTruthy();
+    expect(getByText("Welcome back to your invite").getAttribute("aria-hidden")).toBe("true");
 
     // The welcome panel is another island; it publishes what it found.
     setReturningHousehold(true);
-    await waitFor(() => expect(getByText("Welcome back to your invite")).toBeTruthy());
-    expect(queryByText("You're Invited")).toBeNull();
+    await waitFor(() => expect(getByText("Welcome back to your invite", READABLE)).toBeTruthy());
+    expect(queryByText("You're Invited", READABLE)).toBeNull();
+    expect(getByText("You're Invited").getAttribute("aria-hidden")).toBe("true");
 
     setReturningHousehold(false);
-    await waitFor(() => expect(getByText("You're Invited")).toBeTruthy());
-    expect(queryByText("Welcome back to your invite")).toBeNull();
+    await waitFor(() => expect(getByText("You're Invited", READABLE)).toBeTruthy());
+    expect(queryByText("Welcome back to your invite", READABLE)).toBeNull();
   });
 
   it("welcomes back once mounted when the panel found the household first", async () => {
     // The panel's island can settle before the hero's; the hero still opens
-    // on the server's words and swaps once it has mounted.
+    // on the server's choice and swaps once it has mounted.
     setReturningHousehold(true);
-    const { getByText } = render(() => (
+    const { getByText, queryByText } = render(() => (
       <InviteHeader apiUrl="https://api.test" slug="s" initial={hero(null)} />
     ));
-    await waitFor(() => expect(getByText("Welcome back to your invite")).toBeTruthy());
+    await waitFor(() => expect(getByText("Welcome back to your invite", READABLE)).toBeTruthy());
+    expect(queryByText("You're Invited", READABLE)).toBeNull();
   });
 
   it("never replaces the couple's own title", () => {
@@ -775,6 +785,8 @@ describe("classic InviteHeader fallback title for a returning household", () => 
       <InviteHeader apiUrl="https://api.test" slug="s" initial={hero("Anita & Ben")} />
     ));
     expect(getByText("Anita & Ben")).toBeTruthy();
+    // Not even held hidden: the couple's title draws no fallback at all.
     expect(queryByText("Welcome back to your invite")).toBeNull();
+    expect(queryByText("You're Invited")).toBeNull();
   });
 });

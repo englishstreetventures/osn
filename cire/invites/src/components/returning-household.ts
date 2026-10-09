@@ -36,17 +36,19 @@ export function setReturningHousehold(value: boolean): void {
 }
 
 /**
- * The hero's fallback title: "Welcome back to your invite" for a returning
- * household, "You're Invited" otherwise.
+ * Whether the hero's fallback title shows "Welcome back to your invite" rather
+ * than "You're Invited": true for a returning household, once the hero has
+ * mounted.
  *
- * The server always renders "You're Invited", and so does the hero's first
+ * The server always shows "You're Invited", and so does the hero's first
  * client render, which runs during hydration: hydration keeps the server's
- * text node rather than writing a string, so a different first value would
- * leave the old words on screen with nothing to change them later. The swap
- * waits for the hero's mount.
+ * attributes rather than writing them (`setAttribute` and `className` return
+ * early while hydrating), so a different first value would leave the server's
+ * choice on screen with nothing to change it later. The swap waits for the
+ * hero's mount.
  */
-export function createHeroFallbackTitle(): Accessor<string> {
+export function createWelcomeBack(): Accessor<boolean> {
   const [mounted, setMounted] = createSignal(false);
   onMount(() => setMounted(true));
-  return () => (mounted() && returning() ? WELCOME_BACK : HERO_FALLBACK_TITLE);
+  return () => mounted() && returning();
 }

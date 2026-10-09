@@ -1,6 +1,7 @@
 import { createEffect, Show } from "solid-js";
 
 import { createHeroBackdrop } from "../../components/hero-backdrop";
+import { HeroFallbackTitle } from "../../components/HeroFallbackTitle";
 import { HeroScrollCue } from "../../components/HeroScrollCue";
 import {
   cropAspectRatio,
@@ -13,7 +14,6 @@ import { heroState, storyState } from "../../components/invite-emptiness";
 import { buildSrcSet, HERO_BG_VARIANT, variantSrc } from "../../components/invite-images";
 import { createInviteRetry } from "../../components/invite-retry";
 import { applyPaletteToRoot, filterThemeVars, sectionVars } from "../../components/invite-theme";
-import { createHeroFallbackTitle } from "../../components/returning-household";
 import type { HeroDisplay, InviteCustomisation } from "../types";
 
 // The Our Story photo's default display aspect (4∶3) — the shape the box used
@@ -91,11 +91,6 @@ export default function InviteHeader(props: InviteHeaderProps) {
     );
   // Whether to paint the title legibility panel at all (opacity 0 ⇒ none).
   const showTitleBackdrop = () => titleBackdropOpacity() > 0;
-
-  // The title for a hero the organiser gave none: "You're Invited", or
-  // "Welcome back to your invite" once the welcome panel finds a household that
-  // has replied before. The organiser's own title is never replaced.
-  const fallbackTitle = createHeroFallbackTitle();
 
   // Per-section CSS-variable maps. Each only contains the variables the organiser
   // actually set (and that passed validation); an absent variable falls through
@@ -298,14 +293,17 @@ export default function InviteHeader(props: InviteHeaderProps) {
             >
               <Show
                 when={hero()?.title}
-                // Neutral fallback for a shown hero with no couple title (an
-                // image/subtitle-only hero). Previously the bespoke "V & R"
-                // monogram — a multi-tenant product must never default to one
-                // couple's initials.
+                // Neutral copy for a shown hero with no couple title (an
+                // image/subtitle-only hero): a multi-tenant product never
+                // defaults to one couple's initials. It holds room for its
+                // longer welcome-back string, so a returning household's
+                // restore moves nothing; the organiser's own title is never
+                // replaced. Centred in that room, like the block in the hero.
                 fallback={
-                  <span class="font-display text-gold leading-ui-none max-w-full pb-1 text-center text-[calc(clamp(2.5rem,8vw,5.5rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] break-words [font-style:var(--invite-heading-style,normal)] select-none">
-                    {fallbackTitle()}
-                  </span>
+                  <HeroFallbackTitle
+                    align="center"
+                    class="font-display text-gold leading-ui-none max-w-full pb-1 text-center text-[calc(clamp(2.5rem,8vw,5.5rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] break-words [font-style:var(--invite-heading-style,normal)] select-none"
+                  />
                 }
               >
                 {(title) => (

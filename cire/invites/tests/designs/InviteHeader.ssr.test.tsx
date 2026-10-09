@@ -31,6 +31,13 @@ function serverRender(island: () => JSX.Element): Promise<string> {
   return renderToStringAsync(() => <Suspense>{island()}</Suspense>);
 }
 
+/** The opening tag of the element whose text is `text`, from server HTML. */
+function openingTagOf(html: string, text: string): string {
+  const at = html.indexOf(`>${text}<`);
+  expect(at, `"${text}" is in the HTML as an element's whole text`).toBeGreaterThan(-1);
+  return html.slice(html.lastIndexOf("<", at), at + 1);
+}
+
 const packs = [
   ["classic", ClassicInviteHeader],
   ["gala", GalaInviteHeader],
@@ -87,7 +94,9 @@ describe.each(packs)("%s InviteHeader, rendered on the server", (_pack, InviteHe
   it("serves the first-visit title even when the store says the household is returning", async () => {
     // The Worker never learns the household, and the store ignores writes
     // there; force it true to prove the hero's own guard. The hero's first
-    // render must match this HTML, since hydration keeps the server's text.
+    // render must match this HTML, since hydration keeps the server's
+    // attributes. Both strings are in it — the welcome-back one held hidden,
+    // so it reserves its room from the first paint.
     vi.stubGlobal("window", {});
     setReturningHousehold(true);
     vi.unstubAllGlobals();
@@ -104,8 +113,12 @@ describe.each(packs)("%s InviteHeader, rendered on the server", (_pack, InviteHe
         />
       ));
 
-      expect(html).toContain("You're Invited");
-      expect(html).not.toContain("Welcome back to your invite");
+      const firstVisit = openingTagOf(html, "You're Invited");
+      const welcome = openingTagOf(html, "Welcome back to your invite");
+      expect(firstVisit).not.toContain("aria-hidden");
+      expect(firstVisit).not.toMatch(/\binvisible\b/);
+      expect(welcome).toContain('aria-hidden="true"');
+      expect(welcome).toMatch(/\binvisible\b/);
     } finally {
       vi.stubGlobal("window", {});
       setReturningHousehold(false);
