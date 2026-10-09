@@ -4,25 +4,56 @@ import { createRateLimiter } from "@shared/rate-limit";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
+import { CIRE_METRICS } from "../../src/metrics";
 import {
+  createCspSiteResolver,
   normaliseCspReports,
   reduceBlockedUri,
+  reduceDocumentOrigin,
   reduceDocumentPath,
 } from "../../src/routes/csp-report";
+import { counterValue } from "../test-helpers/metrics-harness";
 
 // The collector is keyed per-IP and fail-closed on an unresolved IP, so every
 // request needs a resolvable `cf-connecting-ip` (simulates the CF edge).
 const TEST_CF_IP = "203.0.113.42";
+
+// The production tier's site origins, read from the committed `WEB_ORIGIN`
+// (guest invite, organiser portal, vendor portal — the order `src/index.ts`
+// maps onto `webOrigin`, `organiserOrigin` and `vendorPortalOrigin`).
+const committedToml = await Bun.file(new URL("../../wrangler.toml", import.meta.url)).text();
+const productionOrigins = (
+  Bun.TOML.parse(committedToml) as { env: { production: { vars: { WEB_ORIGIN: string } } } }
+).env.production.vars.WEB_ORIGIN.split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+function productionOrigin(index: number): string {
+  const origin = productionOrigins[index];
+  if (!origin) throw new Error(`production WEB_ORIGIN has no entry ${index + 1}`);
+  return origin;
+}
+
+const INVITES_ORIGIN = productionOrigin(0);
+const HOST_ORIGIN = productionOrigin(1);
+const VENDOR_ORIGIN = productionOrigin(2);
 
 function buildApp() {
   const db = createDb(":memory:");
   seedDb(db);
   // Generous limiter so the multi-request tests don't trip it.
   const app = createApp(db, {
+    webOrigin: INVITES_ORIGIN,
+    organiserOrigin: HOST_ORIGIN,
+    vendorPortalOrigin: VENDOR_ORIGIN,
     cspReportLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
   });
   return app;
 }
+
+/** The counter's value for one whole attribute set (see the metrics harness). */
+const cspReportCount = (attrs: { effectiveDirective: string; site: string; disposition: string }) =>
+  counterValue(CIRE_METRICS.cspReport, attrs);
 
 function post(
   app: ReturnType<typeof createApp>,
@@ -95,11 +126,80 @@ describe("reduceDocumentPath", () => {
   });
 });
 
+describe("reduceDocumentOrigin", () => {
+  it("keeps only the origin, dropping the path, query and fragment", () => {
+    expect(reduceDocumentOrigin("https://invite.cireweddings.com/smith-jones?code=AB#story")).toBe(
+      "https://invite.cireweddings.com",
+    );
+  });
+
+  it("keeps the port", () => {
+    expect(reduceDocumentOrigin("http://localhost:4321/login")).toBe("http://localhost:4321");
+  });
+
+  it("drops userinfo", () => {
+    expect(reduceDocumentOrigin("https://user:secret@host.cireweddings.com/login")).toBe(
+      "https://host.cireweddings.com",
+    );
+  });
+
+  it("returns empty string for a relative path or a document with an opaque origin", () => {
+    expect(reduceDocumentOrigin("/the-wedding?code=X")).toBe("");
+    expect(reduceDocumentOrigin("about:blank")).toBe("");
+  });
+
+  it("returns empty string for non-strings / empty", () => {
+    expect(reduceDocumentOrigin(undefined)).toBe("");
+    expect(reduceDocumentOrigin(123)).toBe("");
+    expect(reduceDocumentOrigin("")).toBe("");
+  });
+});
+
+describe("createCspSiteResolver", () => {
+  const siteOf = createCspSiteResolver({
+    invites: INVITES_ORIGIN,
+    host: HOST_ORIGIN,
+    vendor: VENDOR_ORIGIN,
+  });
+
+  it("labels each configured site origin", () => {
+    expect(siteOf(INVITES_ORIGIN)).toBe("invites");
+    expect(siteOf(HOST_ORIGIN)).toBe("host");
+    expect(siteOf(VENDOR_ORIGIN)).toBe("vendor");
+  });
+
+  it("buckets any other origin, and a missing one, as other", () => {
+    expect(siteOf("https://cireweddings.com")).toBe("other");
+    expect(siteOf("https://evil.example")).toBe("other");
+    expect(siteOf("")).toBe("other");
+  });
+
+  it("matches a configured value written with a trailing slash, and skips one that is not a URL", () => {
+    const lenient = createCspSiteResolver({
+      invites: `${INVITES_ORIGIN}/`,
+      host: "not a url",
+      vendor: VENDOR_ORIGIN,
+    });
+    expect(lenient(INVITES_ORIGIN)).toBe("invites");
+    expect(lenient("not a url")).toBe("other");
+    expect(lenient(VENDOR_ORIGIN)).toBe("vendor");
+  });
+
+  it("gives an origin configured for two sites to the first, in invites, host, vendor order", () => {
+    const shared = createCspSiteResolver({
+      invites: VENDOR_ORIGIN,
+      host: HOST_ORIGIN,
+      vendor: VENDOR_ORIGIN,
+    });
+    expect(shared(VENDOR_ORIGIN)).toBe("invites");
+  });
+});
+
 describe("normaliseCspReports", () => {
   it("parses the legacy report-uri `{ csp-report }` shape", () => {
     const body = {
       "csp-report": {
-        "document-uri": "https://cireweddings.com/slug?code=SECRET",
+        "document-uri": "https://invite.cireweddings.com/slug?code=SECRET",
         "violated-directive": "script-src https://evil.example",
         "effective-directive": "script-src",
         "blocked-uri": "https://evil.example/x.js?t=1",
@@ -111,6 +211,7 @@ describe("normaliseCspReports", () => {
     expect(out[0]).toEqual({
       effectiveDirective: "script-src",
       blockedUri: "https://evil.example",
+      documentOrigin: "https://invite.cireweddings.com",
       documentPath: "/slug",
       disposition: "report",
     });
@@ -141,9 +242,27 @@ describe("normaliseCspReports", () => {
     expect(out).toHaveLength(2);
     expect(out[0]?.effectiveDirective).toBe("img-src");
     expect(out[0]?.blockedUri).toBe("https://i.evil.example");
+    expect(out[0]?.documentOrigin).toBe("https://cireweddings.com");
     expect(out[0]?.documentPath).toBe("/a");
+    expect(out[0]?.disposition).toBe("report");
     expect(out[1]?.effectiveDirective).toBe("connect-src");
     expect(out[1]?.disposition).toBe("enforce");
+  });
+
+  it("reads a missing or unrecognised disposition as unknown, in both wire formats", () => {
+    const legacyMissing = normaliseCspReports({
+      "csp-report": { "effective-directive": "img-src" },
+    });
+    const legacyOdd = normaliseCspReports({
+      "csp-report": { "effective-directive": "img-src", disposition: "block" },
+    });
+    const reportingApi = normaliseCspReports([
+      { type: "csp-violation", body: { effectiveDirective: "img-src" } },
+      { type: "csp-violation", body: { effectiveDirective: "img-src", disposition: 7 } },
+    ]);
+    expect(legacyMissing[0]?.disposition).toBe("unknown");
+    expect(legacyOdd[0]?.disposition).toBe("unknown");
+    expect(reportingApi.map((v) => v.disposition)).toEqual(["unknown", "unknown"]);
   });
 
   it("skips non-csp-violation entries in a Reporting-API array", () => {
@@ -237,19 +356,51 @@ describe("POST /api/csp-report", () => {
 
   it("returns 204 and drops an oversized body declared via Content-Length", async () => {
     const app = buildApp();
+    const attrs = { effectiveDirective: "media-src", site: "vendor", disposition: "enforce" };
+    const body = JSON.stringify({
+      "csp-report": {
+        "document-uri": `${VENDOR_ORIGIN}/listing`,
+        "effective-directive": "media-src",
+        disposition: "enforce",
+      },
+    });
+    const before = await cspReportCount(attrs);
     const res = await post(app, {
       contentType: "application/csp-report",
-      body: "{}",
+      body,
       contentLength: String(64 * 1024),
     });
     expect(res.status).toBe(204);
+    expect(await cspReportCount(attrs)).toBe(before);
+
+    // Control: the same body under its true length is counted, so the
+    // unchanged count above is the size cap's doing.
+    await post(app, { contentType: "application/csp-report", body });
+    expect(await cspReportCount(attrs)).toBe(before + 1);
   });
 
   it("returns 204 and drops an oversized body even if Content-Length lies", async () => {
     const app = buildApp();
-    const big = JSON.stringify({ "csp-report": { "blocked-uri": "x".repeat(20 * 1024) } });
+    const attrs = { effectiveDirective: "worker-src", site: "vendor", disposition: "enforce" };
+    const report = {
+      "document-uri": `${VENDOR_ORIGIN}/listing`,
+      "effective-directive": "worker-src",
+      disposition: "enforce",
+    };
+    const before = await cspReportCount(attrs);
+    const big = JSON.stringify({
+      "csp-report": { ...report, "script-sample": "x".repeat(20 * 1024) },
+    });
     const res = await post(app, { contentType: "application/csp-report", body: big });
     expect(res.status).toBe(204);
+    expect(await cspReportCount(attrs)).toBe(before);
+
+    // Control: the same report without the padding is counted.
+    await post(app, {
+      contentType: "application/csp-report",
+      body: JSON.stringify({ "csp-report": report }),
+    });
+    expect(await cspReportCount(attrs)).toBe(before + 1);
   });
 
   it("is reachable cross-origin / Origin-less (the CSRF guard does not gate it)", async () => {
@@ -287,5 +438,89 @@ describe("POST /api/csp-report", () => {
     // Both 204 — the limiter drop is silent (fail-open), never a 429.
     expect(first.status).toBe(204);
     expect(second.status).toBe(204);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The `cire.csp.report` counter's bounded attributes.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/csp-report counts by directive, site and disposition", () => {
+  it("counts a legacy report from the organiser portal as host, enforce", async () => {
+    const app = buildApp();
+    const attrs = { effectiveDirective: "img-src", site: "host", disposition: "enforce" };
+    const before = await cspReportCount(attrs);
+    const res = await post(app, {
+      contentType: "application/csp-report",
+      body: JSON.stringify({
+        "csp-report": {
+          "document-uri": `${HOST_ORIGIN}/login?next=%2F`,
+          "effective-directive": "img-src",
+          "blocked-uri": "https://avatars.example/a.png",
+          disposition: "enforce",
+        },
+      }),
+    });
+    expect(res.status).toBe(204);
+    expect(await cspReportCount(attrs)).toBe(before + 1);
+  });
+
+  it("counts each Reporting-API entry by its own document's site", async () => {
+    const app = buildApp();
+    const invitesAttrs = {
+      effectiveDirective: "script-src",
+      site: "invites",
+      disposition: "report",
+    };
+    const vendorAttrs = {
+      effectiveDirective: "connect-src",
+      site: "vendor",
+      disposition: "enforce",
+    };
+    const invitesBefore = await cspReportCount(invitesAttrs);
+    const vendorBefore = await cspReportCount(vendorAttrs);
+    const res = await post(app, {
+      contentType: "application/reports+json",
+      body: JSON.stringify([
+        {
+          type: "csp-violation",
+          body: {
+            documentURL: `${INVITES_ORIGIN}/smith-jones?code=SECRET`,
+            effectiveDirective: "script-src",
+            blockedURL: "https://cdn.example/x.js",
+            disposition: "report",
+          },
+        },
+        {
+          type: "csp-violation",
+          body: {
+            documentURL: `${VENDOR_ORIGIN}/enquiries`,
+            effectiveDirective: "connect-src",
+            blockedURL: "https://api.example/x",
+            disposition: "enforce",
+          },
+        },
+      ]),
+    });
+    expect(res.status).toBe(204);
+    expect(await cspReportCount(invitesAttrs)).toBe(invitesBefore + 1);
+    expect(await cspReportCount(vendorAttrs)).toBe(vendorBefore + 1);
+  });
+
+  it("counts a report from an unlisted origin with no disposition as other, unknown", async () => {
+    const app = buildApp();
+    const attrs = { effectiveDirective: "font-src", site: "other", disposition: "unknown" };
+    const before = await cspReportCount(attrs);
+    await post(app, {
+      contentType: "application/csp-report",
+      body: JSON.stringify({
+        "csp-report": {
+          "document-uri": "https://cireweddings.com/",
+          "effective-directive": "font-src",
+          "blocked-uri": "https://fonts.example/a.woff2",
+        },
+      }),
+    });
+    expect(await cspReportCount(attrs)).toBe(before + 1);
   });
 });

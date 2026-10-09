@@ -38,6 +38,10 @@ const webOrigin = origins[0];
 // to host.cireweddings.com — which makes the upgrade flow untestable locally
 // and silently points a test payment's return at the live portal.
 const organiserOrigin = origins[1];
+// Entry 2 is the vendor portal, as it is in the Worker. Without it vendor claim
+// links minted in local dev point at the production vendor portal, and the CSP
+// collector labels a local vendor report `other`.
+const vendorPortalOrigin = origins[2];
 const port = Number(process.env.PORT ?? 8787);
 
 const r2 = createR2Stub();
@@ -90,6 +94,7 @@ const appOptions: Parameters<typeof createApp>[1] = {
 // createApp's default parameter and leave the origin empty rather than falling
 // back to it.
 if (organiserOrigin) appOptions.organiserOrigin = organiserOrigin;
+if (vendorPortalOrigin) appOptions.vendorPortalOrigin = vendorPortalOrigin;
 
 // Mail leaves this dev server only for a local Resend emulator; the rule and
 // its refusal of a bad override live in lib/resend-email.ts.

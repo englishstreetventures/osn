@@ -1,12 +1,15 @@
 /**
  * Public, unauthenticated CSP violation-report collector.
  *
- * The guest site (`cire/invites`) ships its Content-Security-Policy in Report-Only
- * mode and points `report-uri` / `report-to` here, so real guests' browsers
- * POST a JSON document describing anything the policy WOULD block. This route
- * normalises the two wire formats, logs a small bounded slice of each violation
- * to observability (Workers Logs / Grafana), bumps a bounded-cardinality metric,
- * and ALWAYS answers `204 No Content` — reflecting nothing back.
+ * Three sites point `report-uri` / `report-to` here: the guest site
+ * (`cire/invites`, Report-Only — the browser reports what the policy WOULD
+ * block), and the organiser portal (`cire/host`) and vendor portal
+ * (`cire/vendor`), which enforce theirs and report each block. Browsers POST a
+ * JSON document per violation. This route normalises the two wire formats, logs
+ * a small bounded slice of each violation to observability (Workers Logs /
+ * Grafana) labelled with the site it came from and its disposition, bumps a
+ * bounded-cardinality metric, and ALWAYS answers `204 No Content` — reflecting
+ * nothing back.
  *
  * WHY THIS IS DELIBERATELY MINIMAL + ABUSE-HARDENED (it is PUBLIC + creds-less —
  * any browser, or a script pretending to be one, can POST here):
@@ -25,16 +28,26 @@
  *    an automated POST with no creds and (for `report-to`) cross-origin without
  *    a CORS preflight, so any such gate would simply discard every real report.
  *  - **PII discipline.** We log the directive, the blocked URI **reduced to its
- *    origin** (or truncated), the document **path only** (query/hash stripped —
- *    a claim code could ride in the query), and the disposition. Never the full
- *    URL. The document path can contain a public wedding slug — that is not PII.
+ *    origin** (or truncated), the document's **origin** and **path** as two
+ *    separate fields (query/hash stripped — a claim code could ride in the
+ *    query), the site label and the disposition. Never the full URL. The
+ *    document path can contain a public wedding slug — that is not PII.
+ *  - **Bounded labels.** The site is one of the configured guest, organiser
+ *    and vendor origins or `other`; the disposition is `enforce`, `report` or
+ *    `unknown`. Neither ever carries a browser-supplied string.
  */
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect } from "effect";
 import { Elysia } from "elysia";
 
 import { getClientIp, isUnresolvedIp } from "../lib/client-ip";
-import { bucketCspDirective, metricCspReport } from "../metrics";
+import {
+  bucketCspDirective,
+  bucketCspDisposition,
+  metricCspReport,
+  type CspDisposition,
+  type CspSite,
+} from "../metrics";
 import { runCire } from "../observability";
 
 /** Reports above this many bytes are dropped unparsed (a real report is ~1 KB). */
@@ -49,10 +62,12 @@ export interface NormalisedCspViolation {
   effectiveDirective: string;
   /** The blocked resource reduced to its origin, or truncated to 128 chars. */
   blockedUri: string;
+  /** The document's `scheme://host[:port]` origin, or `""` when it has none. */
+  documentOrigin: string;
   /** The document the violation occurred on — PATH ONLY (query/hash stripped). */
   documentPath: string;
-  /** `"enforce"` or `"report"` (Report-Only). Free-ish but bounded by browsers. */
-  disposition: string;
+  /** Whether the browser blocked the load or only reported it; bounded. */
+  disposition: CspDisposition;
 }
 
 /*
@@ -143,10 +158,27 @@ export function reduceBlockedUri(raw: unknown): string {
 }
 
 /**
+ * Reduce a document URL to its `scheme://host[:port]` origin — never its path,
+ * query, fragment or userinfo — truncated to {@link MAX_FIELD_CHARS}. A value
+ * that is not an absolute URL, or a document with an opaque origin
+ * (`about:blank`, `data:`), gives `""`.
+ */
+export function reduceDocumentOrigin(raw: unknown): string {
+  if (typeof raw !== "string" || raw.length === 0) return "";
+  try {
+    const { origin } = new URL(raw.trim());
+    return origin === "null" ? "" : origin.slice(0, MAX_FIELD_CHARS);
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Reduce a document URL to its PATH only (query + hash stripped). A guest-site
- * document URL is `https://cireweddings.com/<slug>?code=…` — the slug is public
- * but the query can carry a claim code, so we keep only the path. Truncated to
- * {@link MAX_FIELD_CHARS}. A non-absolute value is treated as a path already.
+ * document URL is `https://invite.cireweddings.com/<slug>?code=…` — the slug is
+ * public but the query can carry a claim code, so we keep only the path.
+ * Truncated to {@link MAX_FIELD_CHARS}. A non-absolute value is treated as a
+ * path already.
  */
 export function reduceDocumentPath(raw: unknown): string {
   if (typeof raw !== "string" || raw.length === 0) return "";
@@ -161,9 +193,9 @@ export function reduceDocumentPath(raw: unknown): string {
   }
 }
 
-/** Coerce a disposition into a short bounded string (defaults to `"report"`). */
-function reduceDisposition(raw: unknown): string {
-  return typeof raw === "string" && raw.length > 0 ? raw.slice(0, 32) : "report";
+/** Bucket a disposition: `enforce`, `report`, or `unknown` for anything else. */
+function reduceDisposition(raw: unknown): CspDisposition {
+  return bucketCspDisposition(typeof raw === "string" ? raw : undefined);
 }
 
 /**
@@ -190,6 +222,7 @@ export function normaliseCspReports(body: unknown): NormalisedCspViolation[] {
       out.push({
         effectiveDirective: pickDirective(inner.effectiveDirective, inner.violatedDirective),
         blockedUri: reduceBlockedUri(inner.blockedURL),
+        documentOrigin: reduceDocumentOrigin(inner.documentURL),
         documentPath: reduceDocumentPath(inner.documentURL),
         disposition: reduceDisposition(inner.disposition),
       });
@@ -208,6 +241,7 @@ export function normaliseCspReports(body: unknown): NormalisedCspViolation[] {
             inner["violated-directive"],
           ),
           blockedUri: reduceBlockedUri(inner["blocked-uri"]),
+          documentOrigin: reduceDocumentOrigin(inner["document-uri"]),
           documentPath: reduceDocumentPath(inner["document-uri"]),
           disposition: reduceDisposition(inner.disposition),
         },
@@ -229,22 +263,45 @@ function pickDirective(effective: unknown, violated: unknown): string {
   return value.slice(0, MAX_FIELD_CHARS);
 }
 
-/** Log + count one normalised violation. Bounded fields only; no PII. */
-function recordViolation(v: NormalisedCspViolation): Promise<void> {
-  metricCspReport(bucketCspDirective(v.effectiveDirective));
-  return runCire(
-    Effect.logWarning("csp violation report", {
-      effectiveDirective: v.effectiveDirective,
-      blockedUri: v.blockedUri,
-      documentPath: v.documentPath,
-      disposition: v.disposition,
-    }),
-  );
+/** The origin each reporting site is served from on this tier. */
+export interface CspSiteOrigins {
+  /** The guest site (`cire/invites`) — `WEB_ORIGIN` entry 1. */
+  invites: string;
+  /** The organiser portal (`cire/host`) — `WEB_ORIGIN` entry 2. */
+  host: string;
+  /** The vendor portal (`cire/vendor`) — `WEB_ORIGIN` entry 3. */
+  vendor: string;
+}
+
+/**
+ * Build the lookup from a reduced document origin to its {@link CspSite}
+ * label. Each configured value is compared by its parsed `URL.origin`, so a
+ * trailing slash still matches; a value that does not parse is skipped. When two
+ * sites share an origin the first, in invites, host, vendor order, keeps it.
+ * Anything not configured — including `""` — is `other`.
+ */
+export function createCspSiteResolver(
+  origins: CspSiteOrigins,
+): (documentOrigin: string) => CspSite {
+  const byOrigin = new Map<string, CspSite>();
+  const sites: readonly Exclude<CspSite, "other">[] = ["invites", "host", "vendor"];
+  for (const site of sites) {
+    let origin: string;
+    try {
+      origin = new URL(origins[site]).origin;
+    } catch {
+      continue;
+    }
+    if (origin !== "null" && !byOrigin.has(origin)) byOrigin.set(origin, site);
+  }
+  return (documentOrigin) => byOrigin.get(documentOrigin) ?? "other";
 }
 
 export interface CspReportRouteOptions {
   /** Per-IP rate limiter (generous bucket — just stops log-spam DoS). */
   limiter: RateLimiterBackend;
+  /** The origins that label a report's site; any other origin is `other`. */
+  siteOrigins: CspSiteOrigins;
 }
 
 /**
@@ -256,8 +313,30 @@ export interface CspReportRouteOptions {
  * no D1 access (log + metric only, to avoid a write-amplification DoS on a
  * public endpoint).
  */
-export const createCspReportRoutes = ({ limiter }: CspReportRouteOptions) =>
-  new Elysia({ prefix: "/api/csp-report" }).post(
+export const createCspReportRoutes = ({ limiter, siteOrigins }: CspReportRouteOptions) => {
+  const siteOf = createCspSiteResolver(siteOrigins);
+
+  /** Log + count one normalised violation. Bounded fields only; no PII. */
+  const recordViolation = (v: NormalisedCspViolation): Promise<void> => {
+    const site = siteOf(v.documentOrigin);
+    metricCspReport({
+      effectiveDirective: bucketCspDirective(v.effectiveDirective),
+      site,
+      disposition: v.disposition,
+    });
+    return runCire(
+      Effect.logWarning("csp violation report", {
+        effectiveDirective: v.effectiveDirective,
+        blockedUri: v.blockedUri,
+        documentOrigin: v.documentOrigin,
+        documentPath: v.documentPath,
+        site,
+        disposition: v.disposition,
+      }),
+    );
+  };
+
+  return new Elysia({ prefix: "/api/csp-report" }).post(
     "/",
     async ({ request, set }) => {
       // Always answer 204, reflect nothing. Set it up front so every early
@@ -312,3 +391,4 @@ export const createCspReportRoutes = ({ limiter }: CspReportRouteOptions) =>
     // content-type the framework doesn't model can't trip a parser error).
     { parse: () => ({}) },
   );
+};

@@ -867,7 +867,14 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // D1 write, and always 204s — there is no state to protect here. (Elysia
       // `onBeforeHandle({ as: "global" })` applies to routes mounted after it on
       // the chain, so ordering this `.use` first keeps the guard off this route.)
-      .use(createCspReportRoutes({ limiter: cspReportLimiter }))
+      // A report's site label comes from the same three origins the rest of the
+      // app uses for the guest site, the organiser portal and the vendor portal.
+      .use(
+        createCspReportRoutes({
+          limiter: cspReportLimiter,
+          siteOrigins: { invites: webOrigin, host: organiserOrigin, vendor: vendorPortalOrigin },
+        }),
+      )
       // Internal back-channel organiser-session revocation (osn-api → cire on
       // connection-revoke / account-delete). Mounted BEFORE the origin guard for
       // the same reason as the CSP collector: it is a server-to-server POST with

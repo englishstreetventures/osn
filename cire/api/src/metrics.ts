@@ -151,9 +151,10 @@ export const CIRE_METRICS = {
   hostRoleChanged: "cire.host.role_changed",
   // S2S osn-api handle→profile resolve latency (the ARC call for add-host).
   hostResolveDuration: "cire.host.resolve.duration",
-  // CSP violation reports posted by guests' browsers to the public collector
-  // (`POST /api/csp-report`). Counted by the violated effective-directive only
-  // (a small fixed set) — NEVER the blocked URI (unbounded).
+  // CSP violation reports posted to the public collector (`POST /api/csp-report`)
+  // by browsers on the guest site, the organiser portal and the vendor portal.
+  // Counted by the bounded effective-directive, site and disposition labels —
+  // NEVER the blocked URI or the document URL (unbounded).
   cspReport: "cire.csp.report",
   // Gift registry — organiser item writes and gift-log thank-you toggles. Both
   // are attributed by ACTION only; no weddingId, itemId or familyId ever reaches
@@ -355,6 +356,21 @@ export type CspDirective =
   | "form-action"
   | "child-src"
   | "other";
+
+/**
+ * Which cire site a CSP report came from, by its document's origin matched
+ * against the guest, organiser and vendor origins cire-api is configured with
+ * (`WEB_ORIGIN`). Any other origin — a Pages alias, a blank document, a forged
+ * report — and a missing one collapse to `other`.
+ */
+export type CspSite = "invites" | "host" | "vendor" | "other";
+
+/**
+ * Whether the browser blocked the load (`enforce`) or only reported it under a
+ * Report-Only policy (`report`). A missing or unrecognised value is `unknown`,
+ * never `report`, so a block is never filed among the report-only lines.
+ */
+export type CspDisposition = "enforce" | "report" | "unknown";
 
 type ClaimAttemptsAttrs = { result: ClaimResult };
 type ClaimLookupDurationAttrs = { result: "ok" | "error" };
@@ -630,7 +646,11 @@ type HostAddedAttrs = { result: HostAddResult; role: HostMetricRole };
 type HostRemovedAttrs = { result: HostRemoveResult; actor: HostRemoveActor };
 type HostRoleChangedAttrs = { result: HostRoleChangeResult; role: HostMetricRole };
 type HostResolveDurationAttrs = { result: ResolveResult };
-type CspReportAttrs = { effectiveDirective: CspDirective };
+export type CspReportAttrs = {
+  effectiveDirective: CspDirective;
+  site: CspSite;
+  disposition: CspDisposition;
+};
 
 // ---------------------------------------------------------------------------
 // Instruments.
@@ -1075,7 +1095,7 @@ const hostResolveDuration = createHistogram<HostResolveDurationAttrs>({
 const cspReport = createCounter<CspReportAttrs>({
   name: CIRE_METRICS.cspReport,
   description:
-    "CSP violation reports posted by guests' browsers to the public collector, by the bounded effective-directive label (the blocked URI is NEVER an attribute — it is logged, reduced to origin)",
+    "CSP violation reports posted to the public collector by the guest site, organiser portal and vendor portal, by bounded effective-directive, site and disposition labels (the blocked URI and document URL are NEVER attributes — they are logged, reduced)",
   unit: "{report}",
 });
 
@@ -1402,9 +1422,23 @@ export const bucketCspDirective = (directive: string | undefined): CspDirective 
   return CSP_DIRECTIVE_LABELS.has(token as CspDirective) ? (token as CspDirective) : "other";
 };
 
-/** Record one CSP violation report, counted by its bounded effective-directive. */
-export const metricCspReport = (effectiveDirective: CspDirective): void =>
-  cspReport.inc({ effectiveDirective });
+/**
+ * Map a browser-supplied CSP report `disposition` onto the bounded
+ * {@link CspDisposition} label: `enforce` or `report` (case and surrounding
+ * whitespace ignored), anything else or nothing `unknown`.
+ */
+export const bucketCspDisposition = (disposition: string | undefined): CspDisposition => {
+  const token = (disposition ?? "").trim().toLowerCase();
+  return token === "enforce" || token === "report" ? token : "unknown";
+};
+
+/**
+ * Record one CSP violation report by its bounded directive, site and
+ * disposition. The three keys are copied out by name, so a wider object passed
+ * in cannot add an attribute.
+ */
+export const metricCspReport = ({ effectiveDirective, site, disposition }: CspReportAttrs): void =>
+  cspReport.inc({ effectiveDirective, site, disposition });
 
 // ---------------------------------------------------------------------------
 // Effect combinators for timed operations (mirrors pulse `measureSeconds`).
