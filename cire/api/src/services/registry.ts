@@ -516,9 +516,11 @@ const isGiftSummary = (value: unknown): value is GiftSummary =>
  * built out of typed columns, and spreading it would let anything a later writer
  * (or a hand-edited row) puts in there ride out to the portal. Malformed reads as
  * ABSENT rather than throwing: a bad blob then costs the couple one band on a
- * page, where a throw costs them the whole registry screen.
+ * page, where a throw costs them the whole registry screen. The retention sweep
+ * reads a stored summary through this too, before adding a returning wedding's
+ * new gifts to it.
  */
-function decodeGiftSummary(raw: string | null, at: Date | null): GiftSummary | null {
+export function decodeGiftSummary(raw: string | null, at: Date | null): GiftSummary | null {
   if (raw === null || at === null) return null;
   let parsed: unknown;
   try {

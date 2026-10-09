@@ -81,7 +81,11 @@ import {
   registryService,
   SettingsChanged,
 } from "../../src/services/registry";
-import { type GiftSummaryNotice, retentionService } from "../../src/services/retention";
+import {
+  type GiftSummaryNotice,
+  MAX_WEDDINGS_PER_SWEEP,
+  retentionService,
+} from "../../src/services/retention";
 import { rsvpService } from "../../src/services/rsvp";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import { rsvpDigestService } from "../../src/services/rsvp-digest";
@@ -1508,6 +1512,81 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .from(families)
         .where(inArray(families.weddingId, jsonEachIn(ids)));
       expect(left).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the retention sweep reaches every expired wedding across runs, past its per-run cap",
+    async () => {
+      // The bootstrap wedding's events carry no date, which reads as long past,
+      // and it has a household; a recent date keeps it out of this cohort.
+      await db
+        .update(events)
+        .set({ startAt: "2026-06-01T10:00:00+00:00", endAt: "2026-06-01T11:00:00+00:00" })
+        .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID));
+      // One more expired wedding than one run takes, each a day later than the
+      // last, so the cap's oldest-first order leaves exactly the newest behind.
+      const n = MAX_WEDDINGS_PER_SWEEP + 1;
+      const stamp = new Date("2023-01-01T00:00:00.000Z");
+      const day = 24 * 60 * 60 * 1000;
+      const ids = Array.from({ length: n }, (_, i) => `wed_d1_cap_${String(i).padStart(3, "0")}`);
+      const dateOf = (i: number) => new Date(stamp.getTime() + i * day).toISOString().slice(0, 10);
+      await db.run(
+        insertManyViaJsonEach(
+          weddings,
+          ids.map((id) => ({
+            id,
+            slug: `slug-${id}`,
+            displayName: `Wedding ${id}`,
+            createdAt: stamp,
+            updatedAt: stamp,
+          })),
+        ),
+      );
+      await db.run(
+        insertManyViaJsonEach(
+          events,
+          ids.map((id, i) => ({
+            id: `ev_${id}`,
+            weddingId: id,
+            slug: "ceremony",
+            name: "Ceremony",
+            startAt: `${dateOf(i)}T10:00:00+00:00`,
+            endAt: `${dateOf(i)}T11:00:00+00:00`,
+            timezone: "UTC",
+          })),
+        ),
+      );
+      await db.run(
+        insertManyViaJsonEach(
+          families,
+          ids.map((id, i) => ({
+            id: `fam_${id}`,
+            weddingId: id,
+            publicId: `CAP${String(i).padStart(3, "0")}`,
+            familyName: "Family",
+            createdAt: stamp,
+            updatedAt: stamp,
+          })),
+        ),
+      );
+      const now = new Date("2026-06-17T04:00:00.000Z");
+      const householdsLeft = async () =>
+        (
+          await db
+            .select({ weddingId: families.weddingId })
+            .from(families)
+            .where(inArray(families.weddingId, jsonEachIn(ids)))
+        ).map((r) => r.weddingId);
+
+      await run(retentionService.sweepExpiredGuestData(now));
+      expect(await householdsLeft()).toEqual([ids[n - 1]]);
+
+      // The swept weddings keep their events but hold nothing left to delete,
+      // so they no longer fill the cap and the next run reaches the newest.
+      await run(retentionService.sweepExpiredGuestData(now));
+      expect(await householdsLeft()).toEqual([]);
     },
     MF_TIMEOUT_MS,
   );

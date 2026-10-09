@@ -16,10 +16,15 @@ import {
   weddingHosts,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 
 import { DbService, dbQuery } from "../../src/db";
-import { createDb, seedDb } from "../../src/db/setup";
+import { createDb, seedDb, type TestDb } from "../../src/db/setup";
+import {
+  CIRE_METRICS,
+  type GiftSummaryUnmailedReason,
+  type GiftSummaryWrittenResult,
+} from "../../src/metrics";
 import type { DeletableBucket } from "../../src/services/r2-cleanup";
 import {
   type GiftSummaryNotice,
@@ -28,7 +33,9 @@ import {
   RETENTION_AFTER_FINAL_EVENT_MS,
 } from "../../src/services/retention";
 import { TestDbLayer } from "../db/test-layer";
-import { effWith, recordStatements } from "../test-helpers";
+import { effWith, failStatements, recordStatements } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
+import { counterValue } from "../test-helpers/metrics-harness";
 import { insertWedding } from "../test-helpers/wedding";
 
 const withDb = effWith(TestDbLayer);
@@ -235,6 +242,86 @@ function makeWedding(opts: {
   });
 }
 
+/** A seeded database the test holds the concrete handle of — `failStatements` needs it. */
+function freshDb(): TestDb {
+  const db = createDb(":memory:");
+  seedDb(db);
+  return db;
+}
+
+const runOn = <A, E>(db: TestDb, effect: Effect.Effect<A, E, DbService>): Promise<A> =>
+  Effect.runPromise(effect.pipe(Effect.provideService(DbService, db)));
+
+const GIFT_STAMP = new Date("2025-05-11T00:00:00.000Z");
+
+/** One settled money gift from `familyId`. */
+function addGift(
+  weddingId: string,
+  familyId: string,
+  opts: { amountMinor?: number; currency?: string; at?: Date } = {},
+): Effect.Effect<void, never, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const at = opts.at ?? GIFT_STAMP;
+    db.insert(registryContributions)
+      .values({
+        id: `rct_${crypto.randomUUID()}`,
+        weddingId,
+        itemId: null,
+        familyId,
+        status: "succeeded",
+        amountMinor: opts.amountMinor ?? 5_000,
+        currency: opts.currency ?? "AUD",
+        stripeCheckoutSessionId: `cs_${crypto.randomUUID()}`,
+        createdAt: at,
+        updatedAt: at,
+      })
+      .run();
+  });
+}
+
+/** {@link makeWedding} with a published registry and one settled gift. */
+function makeGiftedWedding(
+  eventDate: string,
+  opts: { withImport?: boolean; amountMinor?: number } = {},
+): ReturnType<typeof makeWedding> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const wedding = yield* makeWedding({ eventDates: [eventDate], withImport: opts.withImport });
+    db.insert(registrySettings)
+      .values({
+        weddingId: wedding.weddingId,
+        published: true,
+        createdAt: GIFT_STAMP,
+        updatedAt: GIFT_STAMP,
+      })
+      .run();
+    yield* addGift(wedding.weddingId, wedding.familyId, { amountMinor: opts.amountMinor });
+    return wedding;
+  });
+}
+
+const guestsLeft = (db: TestDb, guestId: string): number =>
+  db.select().from(guests).where(eq(guests.id, guestId)).all().length;
+
+const importsLeft = (db: TestDb, weddingId: string): number =>
+  db.select().from(imports).where(eq(imports.weddingId, weddingId)).all().length;
+
+const storedSummary = (db: TestDb, weddingId: string): string | null =>
+  db
+    .select({ json: registrySettings.giftSummaryJson })
+    .from(registrySettings)
+    .where(eq(registrySettings.weddingId, weddingId))
+    .get()?.json ?? null;
+
+const written = (result: GiftSummaryWrittenResult) =>
+  counterValue(CIRE_METRICS.giftSummaryWritten, { result });
+
+const unmailed = (reason: GiftSummaryUnmailedReason) =>
+  counterValue(CIRE_METRICS.giftSummaryUnmailed, { reason });
+
+const SWEEP_AT = new Date("2026-06-17T04:00:00.000Z");
+
 describe("RETENTION_AFTER_FINAL_EVENT_MS", () => {
   it("is exactly 365 days in milliseconds", () => {
     expect(RETENTION_AFTER_FINAL_EVENT_MS).toBe(YEAR_MS);
@@ -327,43 +414,65 @@ describe("retentionService.sweepExpiredGuestData", () => {
     ),
   );
 
-  it("takes the longest-overdue weddings first when the cohort is over the per-run cap", async () => {
-    // A fresh database: swept weddings keep their events, so any wedding an
-    // earlier test swept would still be in the cohort and crowd the cap.
-    const db = createDb(":memory:");
-    seedDb(db);
+  it("takes the longest-overdue weddings first when the cohort is over the per-run cap, and the rest on the next run", async () => {
+    const db = freshDb();
     const now = new Date("2026-06-17T04:00:00.000Z");
     const day = 24 * 60 * 60 * 1000;
     const start = Date.parse("2023-01-01T00:00:00.000Z");
 
-    const guestsLeft = await Effect.runPromise(
+    // One more expired wedding than one run will take, each a day later than
+    // the last, and inserted newest-first so row order cannot stand in for the
+    // ORDER BY.
+    const seeded = await runOn(
+      db,
       Effect.gen(function* () {
-        // One more expired wedding than one run will take, each a day later
-        // than the last, and inserted newest-first so row order cannot stand
-        // in for the ORDER BY.
-        const seeded = [];
+        const out = [];
         for (let i = MAX_WEDDINGS_PER_SWEEP; i >= 0; i--) {
           const date = new Date(start + i * day).toISOString().slice(0, 10);
-          seeded.push(yield* makeWedding({ eventDates: [date] }));
+          out.push(yield* makeWedding({ eventDates: [date] }));
         }
-        const newest = seeded[0]!;
-        const oldest = seeded[seeded.length - 1]!;
-
-        const deleted = yield* retentionService.sweepExpiredGuestData(now);
-        expect(deleted).toBe(MAX_WEDDINGS_PER_SWEEP);
-
-        const left = (guestId: string) =>
-          dbQuery(() => db.select().from(guests).where(eq(guests.id, guestId)).all());
-        return {
-          newest: (yield* left(newest.guestId)).length,
-          oldest: (yield* left(oldest.guestId)).length,
-        };
-      }).pipe(Effect.provideService(DbService, db)),
+        return out;
+      }),
     );
+    const newest = seeded[0]!;
+    const oldest = seeded[seeded.length - 1]!;
 
+    expect(await runOn(db, retentionService.sweepExpiredGuestData(now))).toBe(
+      MAX_WEDDINGS_PER_SWEEP,
+    );
     // The one wedding the cap left behind is the most recent, not an
-    // arbitrary one; the next run takes it.
-    expect(guestsLeft).toEqual({ newest: 1, oldest: 0 });
+    // arbitrary one.
+    expect({
+      newest: guestsLeft(db, newest.guestId),
+      oldest: guestsLeft(db, oldest.guestId),
+    }).toEqual({ newest: 1, oldest: 0 });
+
+    // The swept weddings keep their events, but hold nothing left to delete,
+    // so they no longer fill the cohort: the next run reaches the newest.
+    expect(await runOn(db, retentionService.sweepExpiredGuestData(now))).toBe(1);
+    expect(guestsLeft(db, newest.guestId)).toBe(0);
+  });
+
+  it("counts and logs a sweep whose cohort read fails", async () => {
+    const db = freshDb();
+    await runOn(db, makeWedding({ eventDates: ["2025-04-01"] }));
+    const before = await counterValue(CIRE_METRICS.guestDataSwept, { result: "error" });
+    // A failed read surfaces as a defect, not a typed failure; it must still
+    // be counted and logged here rather than only in the runtime's record.
+    const fault = failStatements(db, (sql) => sql.includes('from "events"'));
+
+    let failed = false;
+    const logs = await captureLogs(async () => {
+      const exit = await Effect.runPromiseExit(
+        retentionService.sweepExpiredGuestData(SWEEP_AT).pipe(Effect.provideService(DbService, db)),
+      );
+      failed = Exit.isFailure(exit);
+    });
+
+    expect(fault.failed()).toBe(1);
+    expect(failed).toBe(true);
+    expect(logs).toContain("guest-data retention sweep failed");
+    expect(await counterValue(CIRE_METRICS.guestDataSwept, { result: "error" })).toBe(before + 1);
   });
 
   it(
@@ -876,7 +985,9 @@ describe("the parting gift summary", () => {
         // rows as the counts.
         gift("pending", 99_999, "AUD", new Date("2026-01-05T00:00:00.000Z"));
 
+        const writtenBefore = yield* Effect.promise(() => written("ok"));
         yield* retentionService.sweepExpiredGuestData(now);
+        expect(yield* Effect.promise(() => written("ok"))).toBe(writtenBefore + 1);
 
         const row = yield* dbQuery(() =>
           db.select().from(registrySettings).where(eq(registrySettings.weddingId, weddingId)).get(),
@@ -1256,5 +1367,185 @@ describe("the parting gift summary", () => {
     const finalEventOn = new Map(seen.map((n) => [n.weddingId, n.finalEventOn]));
     expect(finalEventOn.get(closedId)).toBe("2025-05-10");
     expect(finalEventOn.get(openEndedId)).toBe("2025-04-20");
+  });
+
+  it("holds a wedding back from the delete while its summary cannot be written, and sweeps it once it can", async () => {
+    const db = freshDb();
+    const sheets = createDeleteStub();
+    const wedding = await runOn(db, makeGiftedWedding("2025-05-10", { withImport: true }));
+    // A wedding with no gift writes no summary, so it is deleted on time in
+    // the same run — the delete runs, and must not reach the held-back one.
+    const plain = await runOn(db, makeWedding({ eventDates: ["2025-04-01"], withImport: true }));
+    const before = await written("write_failed");
+    const fault = failStatements(db, (sql) => sql.startsWith('update "registry_settings"'));
+
+    const logs = await captureLogs(() =>
+      runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT, { sheets })),
+    );
+
+    expect(fault.failed()).toBe(1);
+    expect(logs).toContain("gift summaries not written");
+    expect(await written("write_failed")).toBe(before + 1);
+    expect(guestsLeft(db, plain.guestId)).toBe(0);
+    expect(importsLeft(db, plain.weddingId)).toBe(0);
+    expect(plain.sheetKeys.every((key) => sheets.deleted.has(key))).toBe(true);
+    // Nothing of the held-back wedding went: not its households, not its
+    // import rows, and not the sheets those rows name — the gifts are still
+    // there to count.
+    expect(storedSummary(db, wedding.weddingId)).toBeNull();
+    expect(guestsLeft(db, wedding.guestId)).toBe(1);
+    expect(importsLeft(db, wedding.weddingId)).toBeGreaterThan(0);
+    expect(wedding.sheetKeys.filter((key) => sheets.deleted.has(key))).toEqual([]);
+
+    // The database recovers: the next run writes the summary and takes the rest.
+    fault.restore();
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT, { sheets }));
+    expect(storedSummary(db, wedding.weddingId)).not.toBeNull();
+    expect(guestsLeft(db, wedding.guestId)).toBe(0);
+    expect(importsLeft(db, wedding.weddingId)).toBe(0);
+    expect(wedding.sheetKeys.every((key) => sheets.deleted.has(key))).toBe(true);
+  });
+
+  it("holds back the whole cohort when its gifts cannot be read", async () => {
+    const db = freshDb();
+    const gifted = await runOn(db, makeGiftedWedding("2025-05-10"));
+    const plain = await runOn(db, makeWedding({ eventDates: ["2025-04-01"] }));
+    const before = await written("read_failed");
+    const fault = failStatements(db, (sql) => sql.includes('from "registry_contributions"'));
+
+    const logs = await captureLogs(() =>
+      runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
+    );
+
+    expect(fault.failed()).toBe(1);
+    expect(logs).toContain("gift summaries not written");
+    // One read covers the cohort, so a failed one cannot say which weddings had
+    // gifts: none is deleted, the one that never had a gift included.
+    expect(await written("read_failed")).toBe(before + 2);
+    expect(guestsLeft(db, gifted.guestId)).toBe(1);
+    expect(guestsLeft(db, plain.guestId)).toBe(1);
+  });
+
+  it("deletes and mails the weddings whose summaries committed when a later batch fails", async () => {
+    const db = freshDb();
+    // One more wedding with a gift than one batch of summaries holds.
+    const gifted = await runOn(
+      db,
+      Effect.gen(function* () {
+        const out = [];
+        for (let i = 0; i < 51; i++) out.push(yield* makeGiftedWedding("2025-05-10"));
+        return out;
+      }),
+    );
+    const okBefore = await written("ok");
+    const failedBefore = await written("write_failed");
+    let updates = 0;
+    const fault = failStatements(
+      db,
+      (sql) => sql.startsWith('update "registry_settings"') && ++updates === 51,
+    );
+    const seen: GiftSummaryNotice[] = [];
+
+    await captureLogs(() =>
+      runOn(
+        db,
+        retentionService.sweepExpiredGuestData(SWEEP_AT, {}, (notices) =>
+          Effect.sync(() => {
+            seen.push(...notices);
+          }),
+        ),
+      ),
+    );
+
+    expect(fault.failed()).toBe(1);
+    const held = gifted.filter((w) => guestsLeft(db, w.guestId) === 1);
+    expect(held).toHaveLength(1);
+    expect(storedSummary(db, held[0]!.weddingId)).toBeNull();
+    expect(seen).toHaveLength(50);
+    expect(seen.map((n) => n.weddingId)).not.toContain(held[0]!.weddingId);
+    expect(await written("ok")).toBe(okBefore + 50);
+    expect(await written("write_failed")).toBe(failedBefore + 1);
+  });
+
+  it("keeps the summary and deletes on time when the owners cannot be read", async () => {
+    const db = freshDb();
+    const wedding = await runOn(db, makeGiftedWedding("2025-05-10"));
+    const before = await unmailed("owners_unread");
+    const fault = failStatements(db, (sql) => sql.includes('join "wedding_hosts"'));
+    const seen: GiftSummaryNotice[] = [];
+
+    const logs = await captureLogs(() =>
+      runOn(
+        db,
+        retentionService.sweepExpiredGuestData(SWEEP_AT, {}, (notices) =>
+          Effect.sync(() => {
+            seen.push(...notices);
+          }),
+        ),
+      ),
+    );
+
+    expect(fault.failed()).toBe(1);
+    // The summary is stored, so the line must not say it was lost.
+    expect(logs).toContain("owners not read");
+    expect(logs).not.toContain("gift summaries not written");
+    expect(await unmailed("owners_unread")).toBe(before + 1);
+    expect(seen).toEqual([]);
+    expect(storedSummary(db, wedding.weddingId)).not.toBeNull();
+    expect(guestsLeft(db, wedding.guestId)).toBe(0);
+  });
+
+  it("adds a returning wedding's new gifts to the summary it already holds", async () => {
+    const db = freshDb();
+    const wedding = await runOn(db, makeGiftedWedding("2025-05-10", { amountMinor: 12_500 }));
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+
+    // A household that arrives after the sweep — a re-import, or the host's
+    // own preview household — brings the wedding back into the cohort, and
+    // gives again.
+    const later = new Date("2026-06-18T00:00:00.000Z");
+    const familyId = crypto.randomUUID();
+    db.insert(families)
+      .values({
+        id: familyId,
+        weddingId: wedding.weddingId,
+        publicId: `PUB-late-${familyId}`,
+        familyName: "Late",
+        createdAt: later,
+        updatedAt: later,
+      })
+      .run();
+    await runOn(db, addGift(wedding.weddingId, familyId, { amountMinor: 5_000, at: later }));
+    await runOn(
+      db,
+      addGift(wedding.weddingId, familyId, { amountMinor: 3_000, currency: "JPY", at: later }),
+    );
+    const seen: GiftSummaryNotice[] = [];
+
+    await runOn(
+      db,
+      retentionService.sweepExpiredGuestData(new Date("2026-06-20T04:00:00.000Z"), {}, (notices) =>
+        Effect.sync(() => {
+          seen.push(...notices);
+        }),
+      ),
+    );
+
+    // The record is everything ever swept, not only the latest rows.
+    const summary = JSON.parse(storedSummary(db, wedding.weddingId) ?? "{}");
+    expect(summary).toEqual({
+      sweptOn: "2026-06-20",
+      firstGiftOn: "2025-05-11",
+      lastGiftOn: "2026-06-18",
+      claims: { reserved: 0, purchased: 0 },
+      contributions: {
+        count: 3,
+        totals: [
+          { currency: "AUD", amountMinor: 17_500 },
+          { currency: "JPY", amountMinor: 3_000 },
+        ],
+      },
+    });
+    expect(seen[0]?.summary).toEqual(summary);
   });
 });

@@ -12,9 +12,9 @@ import { instrumentedFetch } from "@shared/observability/fetch";
  * the DB-free, metric-free `@shared/crypto/jwk` subpath. The outbound call goes
  * through `instrumentedFetch` (from `@shared/observability/fetch`, which imports
  * only the workerd-safe `@opentelemetry/api` surface, never the SDK) so the S2S
- * request carries a W3C `traceparent`; osn-api adopts it because the call is
- * ARC-authenticated (S-H18). The wrapper leaves the `Authorization: ARC` header
- * untouched.
+ * request carries a W3C `traceparent`; osn-api adopts a caller's trace only
+ * when the call is ARC-authenticated. The wrapper leaves the
+ * `Authorization: ARC` header untouched.
  *
  * Key distribution: cire holds a stable ES256 private key (the
  * `CIRE_API_ARC_PRIVATE_KEY` wrangler secret); the matching public key is
@@ -30,8 +30,9 @@ const ARC_AUDIENCE = "osn-api";
 const ARC_SCOPE = "graph:read";
 /**
  * Dedicated scope for the profileId → accountId lookup — osn-api's
- * `/graph/internal/profile-account` rejects plain `graph:read` (S-M1
- * pulse-onboarding: least privilege on the multi-account privacy invariant).
+ * `/graph/internal/profile-account` rejects plain `graph:read`, so only a
+ * caller granted it can link a profile to the account behind it (least
+ * privilege on the rule that one account's profiles are not linkable).
  */
 const ARC_RESOLVE_ACCOUNT_SCOPE = "graph:resolve-account";
 /**
