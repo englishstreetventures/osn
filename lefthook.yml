@@ -97,11 +97,14 @@ pre-push:
         --ignore=GHSA-vfj7-8cjw-p6xm
         --ignore=GHSA-ch52-4w7c-c8xp
     audit-ignores:
-      # Fails when an `--ignore` above has no `DROP AFTER` marker, a marker
-      # whose date has passed or is more than 90 days out, or an id that is
-      # not a whole GHSA id; and when the audit command holds a `#`, carries a
-      # key that can stop it running (`skip`, `only`, `glob`, `files`), or is
-      # gone. CI's `script-tests` job runs the same check.
+      # Fails when an `--ignore` above has no `DROP AFTER` marker, or one whose
+      # date has passed or is more than 90 days out. Also fails unless the
+      # `audit` command, whitespace collapsed, is exactly
+      # `bun audit --audit-level=high` followed only by `--ignore=<GHSA id>`
+      # flags; unless `audit` carries only `run:` and this hook only
+      # `parallel:` and `commands:`; and on a top-level `extends`, `remotes`,
+      # `rc` or `templates`. CI's `script-tests` job runs the same check on
+      # the committed file.
       run: bun run scripts/check-audit-ignores.ts
     release-age:
       # The third guard over the same dependency surface, and the one that

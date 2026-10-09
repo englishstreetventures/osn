@@ -236,15 +236,13 @@ uncommitted and are never grouped into a commit.
 
 ## Step 4 — Build, test, and review test surface
 
-**Size the diff first.** A review agent costs about the same whatever it reads, so a branch that changes only docs, skills and tests does not get all three:
+**Size the diff first.** A review agent costs about the same whatever it reads, so a branch that changes only docs and tests does not get all three:
 
 ```bash
-{ git diff --name-only --no-renames "${DIFF_BASE:?run Step 0 first}"...HEAD
-  git diff --name-only --no-renames HEAD
-  git ls-files --others --exclude-standard; } | sort -u | bun run scripts/review-scope.ts
+bun run scripts/review-scope.ts "${DIFF_BASE:?run Step 0 first}"
 ```
 
-The second and third lines add work still uncommitted; `--no-renames` keeps the old path of a moved file. The script decides — run it rather than reasoning about it:
+It reads the committed diff against the base, the uncommitted changes and the untracked files itself. The script decides — run it rather than reasoning about it. An error, or any output but the two trivial words, means `full`:
 
 | Verdict | Step 4 | Step 6 |
 |---|---|---|
@@ -252,9 +250,9 @@ The second and third lines add work still uncommitted; `--no-renames` keeps the 
 | `trivial-tests` | The `review-tests` agent, as below | No agents |
 | `trivial` | No agent: run the gates inline | No agents |
 
-Trivial means every changed path is a Markdown file (`*.md`, skills included; `*.mdx` carries script and is not) or a test — a path through a `tests/` directory, or a `*.test.*` or `*.spec.*` file. Nothing under any `src/` directory, nothing under `.github/workflows/`, no `package.json` and no lockfile qualifies, whatever its name or extension; neither does anything under `.agents/`, `.claude/agents/` or `.claude/metrics/`, nor a script or symlink under `.claude/skills/`. So a one-line change to auth, a schema, a route, a Worker binding or a build config always gets every review.
+Trivial means every change is a plain Markdown file (`*.md`; `*.mdx` carries script) or test code — a `.ts`, `.tsx`, `.js`, `.mjs`, `.sh` or `.snap` file in a `tests/` directory or named `*.test.*` or `*.spec.*`. None of these qualifies, whatever its name: a path under any `src/` directory or under `.github/`; a `package.json` or lockfile; `AGENTS.md`, `CLAUDE.md`, or anything under `.claude/` or `.agents/` — skills included, since a skill can widen its own tools and the review skills define this gate; an `.env` file; a symlink, a submodule, or a file whose mode changed. So a one-line change to auth, a schema, a route, a Worker binding, a build config or an agent's instructions always gets every review.
 
-On `trivial`, run the gates inline instead: Step 2's changeset check, `bun run scripts/skill-evals.ts check-names` when a skill changed, and the wikilink check in `references/wikilink-check.md` when a wiki page changed. Each review that did not run gets its `## Test plan` row as `inline — trivial diff`, with one sentence of your own verdict on the diff.
+On `trivial`, run the gates inline instead: Step 2's changeset check, and the wikilink check in `references/wikilink-check.md` when a wiki page changed. Each review that did not run gets its `## Test plan` row as `inline — trivial diff`, with one sentence of your own verdict on the diff.
 
 Otherwise, dispatch a **`reviewer`** agent (`.claude/agents/reviewer.md`) to run the `review-tests` skill (`.claude/skills/review-tests/SKILL.md`), passing the list of affected workspace paths as arguments and stating that it is alone in the worktree, so it may build and run tests. Pass no `model` or `effort`; the definition sets both. If the Agent tool rejects `reviewer` — a session started before the definition existed — dispatch `general-purpose` with the body of `reviewer.md` pasted into the brief; it carries the rules but not the tool limit. Open the dispatch prompt with `TASK-BRANCH: <branch>` on its own line — the collector reads it back out (`tools/pr-metrics/index.ts`, `resolveDispatchBranch`) to attribute this review's spend to the branch's card; without it the spend banks against whatever branch the dispatching session happened to be on.
 
