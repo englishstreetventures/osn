@@ -16,15 +16,15 @@ related:
   - "[[cire-plus-ones]]"
   - "[[cire-invite-designs]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-09
 ---
 # Plan tiers — what a wedding has paid for
 
 Every wedding is on exactly one plan tier, stored on the wedding row itself as
-`weddings.tier`. The tier decides which portal modules open and how many guests
-the wedding may hold. The API enforces it, a 402 from a tier gate, and the
-organiser portal reads the same rule only so it never offers a module the API
-would refuse.
+`weddings.tier`. The tier decides which portal modules open, how many guests
+the wedding may hold, and how many people besides the couple may help run it.
+The API enforces it, a 402 from a tier gate, and the organiser portal reads the
+same rule only so it never offers a module the API would refuse.
 
 ## The tiers
 
@@ -32,14 +32,14 @@ The list is ranked lowest first, and the order **is** the ranking:
 `tierAtLeast(held, min)` compares positions, so a higher tier includes
 everything a lower one does.
 
-| Tier | Price | Opens | Guest cap |
-|---|---|---|---|
-| `ivory` | free | The invite and its design, events, the guest list, RSVPs, import, settings, co-hosts | 100 |
-| `gold` | paid | Everything in Ivory, plus the budget, the checklist and the gift registry | 500 |
-| `crimson` | paid | Everything in Gold, plus vendors (the CRM, the directory and enquiries) and every premium invite design | 1,000 |
+| Tier | Price | Opens | Guest cap | People limit |
+|---|---|---|---|---|
+| `ivory` | free | The invite and its design, events, the guest list, RSVPs, import, settings, co-hosts | 100 | 6 |
+| `gold` | paid | Everything in Ivory, plus the budget, the checklist and the gift registry | 500 | 15 |
+| `crimson` | paid | Everything in Gold, plus vendors (the CRM, the directory and enquiries) and every premium invite design | 1,000 | 40 |
 
 `cire/api/src/services/tiers.ts` is the authority (`TIERS`, `tierAtLeast`,
-`TIER_GUEST_CAP`). `cire/host/src/lib/tiers.ts` mirrors the list and the
+`TIER_GUEST_CAP`, `TIER_PEOPLE_LIMIT`). `cire/host/src/lib/tiers.ts` mirrors the list and the
 ranking for the portal, and `cire/host/tests/lib/tiers.test.ts` pins the order.
 On both sides a stored value that is not a known tier reads as `ivory`
 (`normaliseTier`, `tierOf`), the tier that opens nothing paid, so an unknown
@@ -229,6 +229,79 @@ imports and editor saves):
 to Gold") and says plainly when it is `null`. `entitlement: "capacity"` stays
 for a portal build that reads it, until englishstventures/osn#1315. Naming a
 plus-one past the cap answers `409 guest_capacity` instead.
+
+---
+
+## People limit
+
+How many people besides the couple a wedding may hold: 6 on Ivory, 15 on Gold,
+40 on Crimson (`TIER_PEOPLE_LIMIT`).
+
+**Who counts:** every `wedding_hosts` seat below owner — editor, viewer, helper,
+the legacy `host` value and any role the code does not recognise — plus every
+owner beyond the first two (`EXEMPT_OWNER_SEATS`). The first two owners are the
+couple and never count; a third owner counts like a co-host, so promoting a
+co-host to owner frees no place. One SQL fragment, `peopleCountSql` in
+`cire/api/src/services/hosts.ts`, is the definition: every guard and every read
+of the count embeds it. Claimed vendors do not count yet
+(englishstventures/osn#1457).
+
+**Where it is enforced** — inside the statement that writes, with the limit
+read from the wedding's tier in the same statement (`peopleLimitSql`), so two
+requests racing for the last place cannot both win. D1 runs each batch as one
+transaction, one at a time. `cire/api/tests/db/d1-integration.test.ts` stages
+two adds racing for the last place, and an add racing an owner's demotion.
+
+| Write | Checked when | Refusal |
+|---|---|---|
+| `POST /hosts` at a role below owner | always | 409 `people_limit_reached` |
+| `POST /hosts` as owner | the wedding already has two owners, or is over its limit | 409 `people_limit_reached` |
+| `PUT /hosts/:id/role`, one owner moving another below owner | the wedding has no more than two owners | 409 `people_limit_reached` |
+| `PUT /hosts/:id/role`, an owner stepping down from their own seat | never: always allowed, even past the limit | — |
+| Any promotion, a change between roles below owner, a removal | never: none of them raises the count | — |
+
+The 50-seat cap (`MAX_HOSTS_PER_WEDDING`, [[cire-auth#Equal owners]]) stays as
+the ceiling behind the limit. `add` can seat at most the top tier's 40 plus the
+two exempt owners, so the cap binds only a wedding seeded past both, and it is
+the refusal named first when both apply.
+
+**A wedding over its limit keeps everyone.** Lowering a tier
+(`grant-tier.ts --lower`) touches no seat, and an owner may step down past the
+limit. Until it is back under, such a wedding can re-role its people, promote
+them and remove them, but adds nothing — not even a second owner. That is what
+bounds step-downs: the partner joins at the limit and may step down to one
+past it, and no further owner joins until someone is removed. Without it,
+seating owners who then step down would climb to the seat cap.
+
+`add` reads the target's seat in its batch too, so re-adding someone already
+seated answers `already_host` even when the limit refused the insert first.
+Leaving (`DELETE /hosts/me`) reads no count: `remove` reads one only when the
+owner's route asks for it.
+
+**The count travels with every answer.** `GET /hosts` and the responses of
+`POST`, `PUT …/role` and `DELETE /hosts/:id` carry `peopleLimit`, read in the
+same statement or batch as the write, and every refusal carries the same three
+fields:
+
+```json
+{ "error": "people_limit_reached", "used": 6, "limit": 6, "tier": "gold" }
+```
+
+`tier` is the lowest tier, at or above the wedding's own, with room for one
+more person (`peopleLimitOf` in `tiers.ts`): the wedding's own tier while it has
+room, the tier to upgrade to at the limit, and `null` when no tier has room. It
+is a 409 rather than a 402 because the top tier has nothing to sell, and every
+other seat refusal is a 409 too.
+
+**The portal** holds no copy of the limits. The co-host panel
+(`cire/host/src/components/HostsPanel.tsx`, read through
+`cire/host/src/lib/people-limit.ts`) shows every member "4 of 6 people". At the
+limit, an owner sees why and an **Upgrade to Gold** button that opens
+`UpgradeDialog` in place of the add form; with only one owner and the count
+exactly at the limit, the form stays as **Add as owner**, behind a
+confirmation, so the partner can still be seated. When an add the owner just
+made takes the form away, focus moves to the notice and it is announced. A
+payload without `peopleLimit` leaves the panel as it was.
 
 ---
 
@@ -462,11 +535,16 @@ queries are in [[production-deploy]] §5.6.
 | `unlock code redeemed` | Info log, `{ weddingId, profileId, codeId, tier }` |
 | `unlock code refused` | Warning log, `{ weddingId, profileId }`. Never the code or its hash; `unlockCode` is on the redaction list |
 | Spans | `cire.tier.tierOf`, `cire.tier.grant`, `cire.tier.hasPremiumTemplates`, `cire.tier.premiumTemplateHolders`, `cire.tier.assertGuestCapacity`, `cire.tier.redeemUnlockCode` |
+| `cire.host.added`, `cire.host.role_changed` | Counters; `result: people_limit_reached` is a write the people limit refused |
+| `host add refused`, `host change refused: people limit` | Warning logs, `{ weddingId, reason: "people_limit_reached" }` |
 
 A rise in `payment_required` on a tier nobody is being offered usually means a
 portal build and an API build disagree about which modules a tier opens. A
 sustained rise in unlock-code `refused` is someone guessing codes rather than
-owners mistyping them; the warning log names the wedding.
+owners mistyping them; the warning log names the wedding. `people_limit_reached`
+is couples meeting their limit, which is demand for the next tier rather than
+abuse; the people-limit checks ride the existing `cire.host.add` and
+`cire.host.setRole` spans.
 
 ## Related
 

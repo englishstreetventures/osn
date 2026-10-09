@@ -85,6 +85,72 @@ export function tierForGuests(guestCount: number): Tier | null {
   return TIERS.find((tier) => TIER_GUEST_CAP[tier] >= guestCount) ?? null;
 }
 
+/**
+ * How many people each tier lets a wedding hold besides the couple: every seat
+ * below owner, plus every owner beyond the first {@link EXEMPT_OWNER_SEATS}.
+ * `services/hosts.ts` counts them, and checks the limit inside each statement
+ * that could raise the count.
+ */
+export const TIER_PEOPLE_LIMIT = {
+  ivory: 6,
+  gold: 15,
+  crimson: 40,
+} as const satisfies Record<Tier, number>;
+
+/**
+ * Owner seats that never count towards the people limit: the couple. A third
+ * or later owner counts like a co-host, so promoting a co-host to owner frees
+ * no place.
+ */
+export const EXEMPT_OWNER_SEATS = 2;
+
+/** The lowest tier whose people limit holds `people`, or `null` when even the
+ *  top tier's does not. */
+export function tierForPeople(people: number): Tier | null {
+  return TIERS.find((tier) => TIER_PEOPLE_LIMIT[tier] >= people) ?? null;
+}
+
+/**
+ * A wedding's people count against its tier's limit.
+ *
+ * `tier` is the lowest tier, at or above the one the wedding holds, whose limit
+ * has room for one more person: the wedding's own tier while it has room, the
+ * tier to upgrade to once it is at or over its limit, and `null` when no tier
+ * has room. It means what `tier` means on the guest-cap 402: the tier that lets
+ * the next write through.
+ */
+export interface PeopleLimit {
+  used: number;
+  limit: number;
+  tier: Tier | null;
+}
+
+/** The one place a {@link PeopleLimit} is built: from the tier the wedding
+ *  holds and the count `services/hosts.ts` read in the same statement. */
+export function peopleLimitOf(held: Tier, used: number): PeopleLimit {
+  const needed = tierForPeople(used + 1);
+  return {
+    used,
+    limit: TIER_PEOPLE_LIMIT[held],
+    tier: needed === null ? null : tierAtLeast(needed, held) ? needed : held,
+  };
+}
+
+/**
+ * The wedding's people limit as a scalar SQL subquery, read from its tier in
+ * the statement that uses it, so a tier changed by a concurrent request is the
+ * one the write is checked against. Keyed by the bound `weddingId`, not by the
+ * row of the statement around it, and its columns are qualified, so it reads
+ * the same in a WHERE and in a select list. A tier this code does not know
+ * reads as Ivory's limit, as {@link normaliseTier} reads the tier.
+ */
+export function peopleLimitSql(weddingId: string): SQL<number> {
+  const limits = TIERS.filter((tier) => tier !== "ivory").map(
+    (tier) => sql`WHEN ${tier} THEN ${TIER_PEOPLE_LIMIT[tier]}`,
+  );
+  return sql<number>`(SELECT CASE ${qualified(weddings, weddings.tier)} ${sql.join(limits, sql` `)} ELSE ${TIER_PEOPLE_LIMIT.ivory} END FROM ${weddings} WHERE ${qualified(weddings, weddings.id)} = ${weddingId})`;
+}
+
 /** Raised when a guest-adding write would breach the wedding's tier cap. */
 export class CapacityExceeded extends Data.TaggedError("CapacityExceeded")<{
   limit: number;

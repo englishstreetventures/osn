@@ -2,11 +2,12 @@ import { hostRsvpNotices, weddingHosts, weddingInviteCustomisations, weddings } 
 import { and, asc, eq, getTableColumns, ne, notExists, or, sql, type SQL } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { commitBatchResults, DbService, dbQuery } from "../db";
+import { commitBatchResults, DbService, dbQuery, driverErrorText } from "../db";
+import type { Db } from "../db";
 import { weddingIsLive } from "../db/live-wedding";
 import type { InviteImageKeys } from "./invite";
-import { normaliseTier } from "./tiers";
-import type { Tier } from "./tiers";
+import { EXEMPT_OWNER_SEATS, normaliseTier, peopleLimitOf, peopleLimitSql } from "./tiers";
+import type { PeopleLimit, Tier } from "./tiers";
 
 /**
  * Every value the `wedding_hosts.role` column may hold, read off the column
@@ -203,6 +204,17 @@ export class LastOwner extends Data.TaggedError("LastOwner")<{
 }> {}
 
 /**
+ * A seat could not be added, or another owner moved below owner, because the
+ * wedding has no room under its tier's people limit. `peopleLimit` is the count
+ * the refused write saw, and names the tier that would have let it through. The
+ * refused write changed nothing.
+ */
+export class PeopleLimitReached extends Data.TaggedError("PeopleLimitReached")<{
+  weddingId: string;
+  peopleLimit: PeopleLimit;
+}> {}
+
+/**
  * How many seats — owners included — one wedding may hold, and the reason there
  * is a number here at all.
  *
@@ -217,6 +229,10 @@ export class LastOwner extends Data.TaggedError("LastOwner")<{
  * seat" from a coincidence into a structural invariant. Owners count towards
  * it because owners are listed too. 50 is far past any real wedding (both sets
  * of parents, siblings, a planner) and far short of 200.
+ *
+ * The tier's people limit sits below it: `add` seats at most the top tier's
+ * limit plus the two exempt owners. The cap is the ceiling behind that, and the
+ * first refusal named when a wedding seeded past both is full.
  */
 export const MAX_HOSTS_PER_WEDDING = 50;
 
@@ -250,15 +266,95 @@ export function hostConflictReason(message: string): HostConflict["reason"] | nu
   return null;
 }
 
+/**
+ * Map a failed seat INSERT to its error. The text is read through
+ * {@link driverErrorText}: on D1 a failed single statement reaches the caller
+ * wrapped, with the database's reason on its `cause`, and only the full text
+ * names the unique index that makes it `already_host`.
+ */
+export function hostAddFailure(error: unknown): HostConflict | HostWriteError {
+  const text = driverErrorText(error) || String(error);
+  const reason = hostConflictReason(text);
+  return reason ? new HostConflict({ reason }) : new HostWriteError({ op: "insert", reason: text });
+}
+
+// The subqueries below are keyed by the bound `weddingId`, never by the row of
+// the statement around them. Drizzle writes their columns bare when they sit in
+// a select list, and a bare name binds to the subquery's own table first, so
+// they read the same in a WHERE and in a select list. Tying one to the outer
+// row instead would bind `id` to the wrong table without an error.
+
 /** `weddingId`'s owner seats, counted inside whatever statement embeds it. */
 function ownerSeatCount(weddingId: string): SQL<number> {
   return sql<number>`(SELECT count(*) FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${weddingId} AND ${weddingHosts.role} = 'owner')`;
 }
 
-/** `weddingId`'s seats, owners included, counted inside whatever statement
- *  embeds it — what {@link MAX_HOSTS_PER_WEDDING} bounds. */
-function seatCount(weddingId: string): SQL<number> {
-  return sql<number>`(SELECT count(*) FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${weddingId})`;
+/** Owner seats, as an aggregate over the `wedding_hosts` rows of the query
+ *  that embeds it. */
+const OWNER_SEATS = sql<number>`total(${weddingHosts.role} = 'owner')`;
+
+/**
+ * The people a wedding's tier limit counts, from its seat and owner counts:
+ * every seat below owner — `role` is NOT NULL, so that is seats less owners,
+ * an unrecognised or legacy role included — plus every owner beyond the first
+ * {@link EXEMPT_OWNER_SEATS}. The one definition of who counts: every guard and
+ * every read builds its count with this.
+ */
+function peopleFrom(seats: SQL, owners: SQL): SQL<number> {
+  return sql<number>`((${seats}) - (${owners}) + max(0, (${owners}) - ${EXEMPT_OWNER_SEATS}))`;
+}
+
+/**
+ * A condition over `weddingId`'s seat and owner counts, read in one pass over
+ * its seats inside whatever statement embeds it — for a guard in a WHERE.
+ */
+function overSeats(weddingId: string, condition: (seats: SQL, owners: SQL) => SQL): SQL {
+  return sql`(SELECT ${condition(sql`count(*)`, OWNER_SEATS)} FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${weddingId})`;
+}
+
+/** "One more person fits under the wedding's people limit", for a guard built
+ *  with {@link overSeats}; the limit is read from the tier in the same
+ *  statement. */
+const roomForOnePerson = (weddingId: string, seats: SQL, owners: SQL): SQL =>
+  sql`${peopleFrom(seats, owners)} < ${peopleLimitSql(weddingId)}`;
+
+/** The wedding's tier, read by primary key inside a statement over another
+ *  table. A subquery, not the column, so it reads the same in any select. */
+const weddingTierSql = (weddingId: string) =>
+  sql<string>`(SELECT ${weddings.tier} FROM ${weddings} WHERE ${weddings.id} = ${weddingId})`;
+
+/**
+ * The wedding's tier and counts, as a statement for the tail of a host batch:
+ * one pass over its seats. Run after the write in the same batch, it reads the
+ * state that write left — or, when the write's guard refused, the state the
+ * guard saw, which is what names the refusal.
+ */
+const seatUsage = (db: Db, weddingId: string) =>
+  db
+    .select({
+      tier: weddingTierSql(weddingId),
+      people: peopleFrom(sql`count(*)`, OWNER_SEATS),
+      owners: OWNER_SEATS,
+      seats: sql<number>`count(*)`,
+    })
+    .from(weddingHosts)
+    .where(eq(weddingHosts.weddingId, weddingId));
+
+interface SeatUsage {
+  peopleLimit: PeopleLimit;
+  owners: number;
+  seats: number;
+}
+
+/** A {@link seatUsage} result. A wedding with no row reads as Ivory with no
+ *  one on it; every caller has already proved the wedding exists. */
+function readSeatUsage(rows: unknown): SeatUsage {
+  const [row] = rows as readonly { tier: string; people: number; owners: number; seats: number }[];
+  return {
+    peopleLimit: peopleLimitOf(normaliseTier(row?.tier), Number(row?.people ?? 0)),
+    owners: Number(row?.owners ?? 0),
+    seats: Number(row?.seats ?? 0),
+  };
 }
 
 /** The (wedding, profile) pair that names one seat. */
@@ -364,27 +460,54 @@ export const hostsService = {
    * and an owner may grant any assignable role, `owner` included.
    * `addedByOsnProfileId` is the caller, kept for attribution.
    *
-   * ONE statement, so the cap holds under concurrent adds: the INSERT's own
-   * WHERE counts the wedding's seats against {@link MAX_HOSTS_PER_WEDDING}, and
-   * a wedding already at the cap inserts nothing, which RETURNING reports as no
+   * The limits hold under concurrent adds because the INSERT's own WHERE
+   * checks them: the wedding's seats against {@link MAX_HOSTS_PER_WEDDING}, and
+   * its people against its tier's limit, read from the tier in the same
+   * statement. A refused add inserts nothing, which RETURNING reports as no
    * row. A count-then-insert would let two adds at the same moment both pass.
+   * The first two owners are free, so seating the partner of a wedding at its
+   * limit still works; a third owner counts like anyone else, and a wedding
+   * already over its limit seats no one.
    *
-   * Two ways to be refused: the target already holds a seat, owners included
-   * (`already_host`, from the unique index — never a duplicate seat, and never
-   * a silent change of an existing seat's role), or the wedding is at the cap
-   * (`host_cap_reached`).
+   * One batch, one round trip: the INSERT, then reads of the wedding's counts
+   * and of the target's seat, which D1 runs in the same transaction. On
+   * success the counts are the new ones; on a refusal they are the state the
+   * INSERT's WHERE saw, so they name the reason.
+   *
+   * Three ways to be refused, named in this order: the target already holds a
+   * seat, owners included (`already_host` — never a duplicate seat, and never a
+   * silent change of an existing seat's role; the unique index answers it when
+   * the WHERE lets the row through, and the seat read when the WHERE refused
+   * first); the wedding is at the seat cap (`host_cap_reached`: no tier lifts
+   * it); or it has no room under its people limit ({@link PeopleLimitReached}).
    */
   add(input: {
     weddingId: string;
     osnProfileId: string;
     addedByOsnProfileId: string;
     role: AssignableHostRole;
-  }): Effect.Effect<WeddingHostRow, HostConflict | HostWriteError, DbService> {
+  }): Effect.Effect<
+    WeddingHostRow & { peopleLimit: PeopleLimit },
+    HostConflict | PeopleLimitReached | HostWriteError,
+    DbService
+  > {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const id = `whost_${crypto.randomUUID()}`;
       const now = new Date();
-      const room = sql`${seatCount(input.weddingId)} < ${MAX_HOSTS_PER_WEDDING}`;
+      // One pass over the wedding's seats. An owner within the first two adds
+      // no one to the count, so the partner joins a wedding at its limit — but
+      // not one already over it, which adds no one until it is back under.
+      // Without that, seating a second owner who then steps down would raise
+      // the count by one each time, with no bound short of the seat cap.
+      const room = overSeats(input.weddingId, (seats, owners) => {
+        const personFits = roomForOnePerson(input.weddingId, seats, owners);
+        const peopleRoom =
+          input.role === "owner"
+            ? sql`((${owners} < ${EXEMPT_OWNER_SEATS} AND ${peopleFrom(seats, owners)} <= ${peopleLimitSql(input.weddingId)}) OR ${personFits})`
+            : personFits;
+        return sql`${seats} < ${MAX_HOSTS_PER_WEDDING} AND ${peopleRoom}`;
+      });
 
       // The SELECT lists its values in the table's column order, which is the
       // column list drizzle writes for an INSERT … SELECT. Built off the
@@ -406,22 +529,20 @@ export const hostsService = {
         return values[key as keyof typeof values];
       });
 
-      const inserted = yield* Effect.tryPromise({
+      const results = yield* Effect.tryPromise({
         try: () =>
-          Promise.resolve(
+          commitBatchResults(db, [
             db
               .insert(weddingHosts)
               .select(sql`SELECT ${sql.join(selectList, sql`, `)} WHERE ${room}`)
-              .returning({ id: weddingHosts.id })
-              .all(),
-          ),
-        catch: (e) => {
-          const message = String(e);
-          const reason = hostConflictReason(message);
-          return reason
-            ? new HostConflict({ reason })
-            : new HostWriteError({ op: "insert", reason: message });
-        },
+              .returning({ id: weddingHosts.id }),
+            seatUsage(db, input.weddingId),
+            db
+              .select({ id: weddingHosts.id })
+              .from(weddingHosts)
+              .where(seatOf(input.weddingId, input.osnProfileId)),
+          ]),
+        catch: hostAddFailure,
       }).pipe(
         Effect.tapError((err) =>
           err._tag === "HostConflict"
@@ -429,10 +550,23 @@ export const hostsService = {
             : Effect.logError("host insert failed", { reason: err.reason }),
         ),
       );
+      const inserted = results[0] as readonly { id: string }[];
+      const usage = readSeatUsage(results[1]);
+      const seated = (results[2] as readonly { id: string }[]).length > 0;
 
       if (inserted.length === 0) {
-        yield* logRefusal("host add refused", input.weddingId, "host_cap_reached");
-        return yield* Effect.fail(new HostConflict({ reason: "host_cap_reached" }));
+        if (seated) {
+          yield* logRefusal("host add refused", input.weddingId, "already_host");
+          return yield* Effect.fail(new HostConflict({ reason: "already_host" }));
+        }
+        if (usage.seats >= MAX_HOSTS_PER_WEDDING) {
+          yield* logRefusal("host add refused", input.weddingId, "host_cap_reached");
+          return yield* Effect.fail(new HostConflict({ reason: "host_cap_reached" }));
+        }
+        yield* logRefusal("host add refused", input.weddingId, "people_limit_reached");
+        return yield* Effect.fail(
+          new PeopleLimitReached({ weddingId: input.weddingId, peopleLimit: usage.peopleLimit }),
+        );
       }
 
       return {
@@ -441,6 +575,7 @@ export const hostsService = {
         role: input.role,
         createdAt: now,
         addedByOsnProfileId: input.addedByOsnProfileId,
+        peopleLimit: usage.peopleLimit,
       };
     }).pipe(Effect.withSpan("cire.host.add"));
   },
@@ -455,10 +590,19 @@ export const hostsService = {
    * exceed it, and a caller that cannot tell "50 seats" from "50 of 211 seats"
    * will quietly show an owner an incomplete list of who can read their
    * guests' data.
+   *
+   * `peopleLimit` comes from the same statement: the people count and the
+   * wedding's tier ride along every row as scalar subqueries.
    */
-  list(
-    weddingId: string,
-  ): Effect.Effect<{ hosts: WeddingHostRow[]; total: number }, never, DbService> {
+  list(weddingId: string): Effect.Effect<
+    {
+      hosts: WeddingHostRow[];
+      total: number;
+      peopleLimit: PeopleLimit;
+    },
+    never,
+    DbService
+  > {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const rows = yield* dbQuery(() =>
@@ -469,9 +613,12 @@ export const hostsService = {
             role: weddingHosts.role,
             createdAt: weddingHosts.createdAt,
             addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
-            // The window runs before LIMIT, so every row carries the wedding's
-            // true seat count, not the number returned.
+            // The windows run before LIMIT, so every row carries the wedding's
+            // true seat and people counts, not the number returned, from the
+            // rows this read already holds.
             total: sql<number>`count(*) over ()`,
+            people: peopleFrom(sql`count(*) over ()`, sql`${OWNER_SEATS} over ()`),
+            tier: weddingTierSql(weddingId),
           })
           .from(weddingHosts)
           .where(eq(weddingHosts.weddingId, weddingId))
@@ -481,13 +628,19 @@ export const hostsService = {
           .limit(LIST_CEILING)
           .all(),
       );
+      const first = rows[0];
       return {
-        hosts: rows.map(({ total: _total, ...row }) => ({
-          ...row,
+        hosts: rows.map((row) => ({
+          id: row.id,
+          osnProfileId: row.osnProfileId,
           role: normaliseHostRole(row.role),
+          createdAt: row.createdAt,
+          addedByOsnProfileId: row.addedByOsnProfileId,
         })),
-        // No row means no seat, so the count is 0.
-        total: rows[0]?.total ?? 0,
+        // No row means no seat, so the count is 0. Every live wedding holds an
+        // owner seat, so the Ivory fallback is never what a gated caller sees.
+        total: first?.total ?? 0,
+        peopleLimit: peopleLimitOf(normaliseTier(first?.tier), Number(first?.people ?? 0)),
       };
     }).pipe(Effect.withSpan("cire.host.list"));
   },
@@ -498,35 +651,55 @@ export const hostsService = {
    * wedding, so this can't retarget another wedding's seat. Setting the role a
    * seat already has succeeds (idempotent).
    *
-   * The last-owner guard rides in the UPDATE's own WHERE, so it holds however
-   * many owners act at once: moving an owner down needs another owner to
-   * remain. A refused change writes nothing. A role change neither adds nor
-   * removes a seat, so the seat cap does not apply. A read of the seat opens
-   * the same batch, so the reason given is the one the UPDATE saw, and the
-   * result carries the role the seat held before (`previousRole`) — what tells
-   * a caller an owner was demoted.
+   * Both guards ride in the UPDATE's own WHERE, so they hold however many
+   * owners act at once. Moving an owner down needs another owner to remain.
+   * When `actorOsnProfileId` moves ANOTHER owner below owner with no more than
+   * the two exempt owners on the wedding, that adds a person to the people
+   * count, so it also needs room under the tier's limit; an owner stepping down
+   * from their own seat is always allowed, even past the limit. Every other
+   * change leaves the count where it was or lowers it: a promotion to owner
+   * moves one person out of the co-hosts and, past the first two owners, one
+   * into the owners beyond them. A role change adds no seat, so the seat cap
+   * does not apply. A refused change writes nothing.
    *
-   * Fails `HostNotFound` when the profile holds no seat, and `LastOwner` when
-   * the seat is the wedding's only owner.
+   * One batch: a read of the seat as it stood, the UPDATE, and a read of the
+   * wedding's counts after it. The first gives `previousRole` — what tells a
+   * caller an owner was demoted — and the last gives the new `peopleLimit`, or,
+   * on a refusal, the state the UPDATE's guards saw, which names the reason.
+   *
+   * Fails `HostNotFound` when the profile holds no seat, `LastOwner` when the
+   * seat is the wedding's only owner (named ahead of the limit), and
+   * {@link PeopleLimitReached} when demoting another owner has no room.
    */
   setRole(input: {
     weddingId: string;
     osnProfileId: string;
     role: AssignableHostRole;
+    /** The owner making the change. Equal to `osnProfileId` for a step-down. */
+    actorOsnProfileId: string;
   }): Effect.Effect<
-    WeddingHostRow & { previousRole: WeddingRole },
-    HostNotFound | LastOwner | HostWriteError,
+    WeddingHostRow & { previousRole: WeddingRole; peopleLimit: PeopleLimit },
+    HostNotFound | LastOwner | PeopleLimitReached | HostWriteError,
     DbService
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      // An owner staying an owner, or any seat moving to owner, leaves the
-      // owner count where it was or raises it; only an owner moving down needs
-      // another owner to remain.
+      const ownStepDown = input.actorOsnProfileId === input.osnProfileId;
+      // A seat below owner, or one moving to owner, passes; an owner moving
+      // down needs another owner to remain, and — unless they are stepping
+      // down themselves — room for the person their move adds. One pass over
+      // the wedding's seats.
       const allowed =
         input.role === "owner"
           ? undefined
-          : or(ne(weddingHosts.role, "owner"), sql`${ownerSeatCount(input.weddingId)} > 1`);
+          : or(
+              ne(weddingHosts.role, "owner"),
+              overSeats(input.weddingId, (seats, owners) =>
+                ownStepDown
+                  ? sql`${owners} > 1`
+                  : sql`${owners} > 1 AND (${owners} > ${EXEMPT_OWNER_SEATS} OR ${roomForOnePerson(input.weddingId, seats, owners)})`,
+              ),
+            );
 
       const results = yield* Effect.tryPromise({
         try: () =>
@@ -546,6 +719,7 @@ export const hostsService = {
                 createdAt: weddingHosts.createdAt,
                 addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
               }),
+            seatUsage(db, input.weddingId),
           ]),
         catch: (e) => new HostWriteError({ op: "update", reason: String(e) }),
       }).pipe(
@@ -559,6 +733,7 @@ export const hostsService = {
         createdAt: Date;
         addedByOsnProfileId: string;
       }[];
+      const usage = readSeatUsage(results[2]);
 
       if (updated && !seat) {
         // Both statements ran in one batch, so a write with no seat before it
@@ -569,10 +744,21 @@ export const hostsService = {
       }
       if (!updated || !seat) {
         if (!seat) return yield* Effect.fail(new HostNotFound({ weddingId: input.weddingId }));
-        // The seat is there and the UPDATE matched nothing: only the last-owner
-        // guard refuses a seat that exists.
-        yield* logRefusal("host change refused: last owner", input.weddingId, "last_owner");
-        return yield* Effect.fail(new LastOwner({ weddingId: input.weddingId }));
+        // The seat is there and the UPDATE matched nothing, so it is an owner
+        // moving down: with no other owner it is the last-owner guard, and
+        // otherwise the people limit.
+        if (usage.owners <= 1) {
+          yield* logRefusal("host change refused: last owner", input.weddingId, "last_owner");
+          return yield* Effect.fail(new LastOwner({ weddingId: input.weddingId }));
+        }
+        yield* logRefusal(
+          "host change refused: people limit",
+          input.weddingId,
+          "people_limit_reached",
+        );
+        return yield* Effect.fail(
+          new PeopleLimitReached({ weddingId: input.weddingId, peopleLimit: usage.peopleLimit }),
+        );
       }
 
       return {
@@ -582,6 +768,7 @@ export const hostsService = {
         createdAt: updated.createdAt,
         addedByOsnProfileId: updated.addedByOsnProfileId,
         previousRole: normaliseHostRole(seat.role),
+        peopleLimit: usage.peopleLimit,
       };
     }).pipe(Effect.withSpan("cire.host.setRole"));
   },
@@ -600,12 +787,21 @@ export const hostsService = {
    * seat without its notice row. A read of the seat closes the batch: still
    * there means the guard refused it, which fails `LastOwner`. On success,
    * `removed` is the seat as it stood — its role, who created it and when — or
-   * `null` when there was none.
+   * `null` when there was none. With `withPeopleLimit`, a read of the
+   * wedding's counts closes the batch and `peopleLimit` is the count after the
+   * removal; without it — leaving, whose caller shows no count — the batch
+   * reads nothing more and `peopleLimit` is `null`. A removal never adds
+   * anyone, so the people limit has nothing to refuse here.
    */
   remove(input: {
     weddingId: string;
     osnProfileId: string;
-  }): Effect.Effect<{ removed: RemovedSeat | null }, LastOwner | HostWriteError, DbService> {
+    withPeopleLimit?: boolean;
+  }): Effect.Effect<
+    { removed: RemovedSeat | null; peopleLimit: PeopleLimit | null },
+    LastOwner | HostWriteError,
+    DbService
+  > {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const results = yield* Effect.tryPromise({
@@ -646,6 +842,7 @@ export const hostsService = {
               .select({ id: weddingHosts.id })
               .from(weddingHosts)
               .where(seatOf(input.weddingId, input.osnProfileId)),
+            ...(input.withPeopleLimit ? [seatUsage(db, input.weddingId)] : []),
           ]),
         catch: (e) => new HostWriteError({ op: "delete", reason: String(e) }),
       }).pipe(
@@ -669,6 +866,7 @@ export const hostsService = {
               createdAt: removed.createdAt,
             }
           : null,
+        peopleLimit: input.withPeopleLimit ? readSeatUsage(results[3]).peopleLimit : null,
       };
     }).pipe(Effect.withSpan("cire.host.remove"));
   },
