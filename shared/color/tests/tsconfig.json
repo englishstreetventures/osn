@@ -1,0 +1,11 @@
+{
+  // The tests run under Vitest on Node (`node:fs`, `node:url`) and may use
+  // ES2023 methods such as `toSorted`; the shipped source keeps the narrower
+  // `../tsconfig.json`.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["bun-types"]
+  },
+  "include": ["./**/*"]
+}
