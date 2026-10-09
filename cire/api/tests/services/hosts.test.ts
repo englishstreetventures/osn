@@ -24,7 +24,7 @@ import type {
   StoredHostRole,
 } from "../../src/services/hosts";
 import { TIER_PEOPLE_LIMIT, TIERS } from "../../src/services/tiers";
-import { recordStatements, setTier } from "../test-helpers";
+import { failLikeD1, recordStatements, setTier } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
 
 /** Every value the role column may hold, taken from the guard rather than
@@ -90,6 +90,18 @@ describe("hostConflictReason", () => {
     expect(hostConflictReason("disk full")).toBeNull();
     expect(hostConflictReason("UNIQUE constraint failed: weddings.slug")).toBeNull();
   });
+
+  it("reads the database's wording, not the table a clash or the statement names", () => {
+    // A primary-key clash names the table, and on D1 the text read through
+    // `driverErrorText` opens with drizzle's `Failed query: insert into
+    // "wedding_hosts" …`. Neither is one person seated twice.
+    expect(hostConflictReason("UNIQUE constraint failed: wedding_hosts.id")).toBeNull();
+    expect(
+      hostConflictReason(
+        'Failed query: insert into "wedding_hosts" select ?\nD1_ERROR: UNIQUE constraint failed: wedding_hosts.id: SQLITE_CONSTRAINT',
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("hostAddFailure", () => {
@@ -116,10 +128,31 @@ describe("hostAddFailure", () => {
     expect((failure as HostConflict).reason).toBe("already_host");
   });
 
-  it("leaves any other failure a write error, carrying the driver's text", () => {
-    const failure = hostAddFailure(new DrizzleQueryError("insert …", [], new Error("disk I/O")));
+  it("leaves any other failure a write error, logged by its statement alone", () => {
+    // The database's own text can quote a bound value: D1 names the value it
+    // could not bind.
+    const failure = hostAddFailure(
+      new DrizzleQueryError(
+        'insert into "wedding_hosts" select ?',
+        ["whost_x"],
+        new Error("D1_TYPE_ERROR: Type 'object' not supported for value 'Annabelle'"),
+      ),
+    );
     expect(failure._tag).toBe("HostWriteError");
-    expect((failure as HostWriteError).reason).toContain("disk I/O");
+    const { reason } = failure as HostWriteError;
+    expect(reason).toContain('Failed query: insert into "wedding_hosts"');
+    expect(reason).not.toContain("Annabelle");
+  });
+
+  it("leaves a primary-key clash a write error, not already_host", () => {
+    const failure = hostAddFailure(
+      new DrizzleQueryError(
+        'insert into "wedding_hosts" select ?',
+        ["whost_x"],
+        new Error("D1_ERROR: UNIQUE constraint failed: wedding_hosts.id: SQLITE_CONSTRAINT"),
+      ),
+    );
+    expect(failure._tag).toBe("HostWriteError");
   });
 });
 
@@ -229,6 +262,32 @@ describe("hostsService.add", () => {
     expect((err as { reason: string }).reason).toBe("already_host");
     // Still one seat each — the owner's and Alice's — no duplicate.
     expect(db.select().from(weddingHosts).all()).toHaveLength(2);
+  });
+
+  it("logs a failed seat insert by its statement, never the database's text", async () => {
+    // Failed as D1 fails it. The database's text here stands in for one that
+    // quotes a bound value, as D1's own refusal to bind a value does.
+    const db = buildDb();
+    failLikeD1(db);
+    db.$client.exec(
+      "CREATE TRIGGER whost_fail BEFORE INSERT ON wedding_hosts BEGIN SELECT RAISE(ABORT, 'value Annabelle not supported'); END",
+    );
+    const err = await run(
+      db,
+      hostsService
+        .add({
+          weddingId: WEDDING_ID,
+          osnProfileId: ALICE,
+          addedByOsnProfileId: OWNER,
+          role: "editor",
+        })
+        .pipe(Effect.flip),
+    );
+
+    expect(err._tag).toBe("HostWriteError");
+    const { reason } = err as HostWriteError;
+    expect(reason).toContain('Failed query: insert into "wedding_hosts"');
+    expect(reason).not.toContain("Annabelle");
   });
 
   it("refuses to seat an owner again (already_host) and leaves their owner seat alone", async () => {
