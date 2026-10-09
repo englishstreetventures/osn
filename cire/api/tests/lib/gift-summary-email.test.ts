@@ -4,10 +4,11 @@
  *
  * The behaviour worth pinning is what happens when things go wrong: by the time
  * this runs the deletes have committed, so nothing here may fail the caller.
- * An owner whose address osn-api could not resolve is skipped silently, a
- * bounced send costs one owner their summary and no more, and a lookup that
- * throws outright still leaves the effect successful. Every owner of a wedding
- * gets the summary, once per address.
+ * An owner osn-api has no address for is skipped, a bounced send costs one
+ * owner their summary and no more, and an osn-api that does not answer — fails,
+ * rejects or hangs until the sweep's timeout — still leaves the effect
+ * successful, but is logged and counted, because no later sweep resends the
+ * summary. Every owner of a wedding gets the summary, once per address.
  */
 
 import { describe, it, expect } from "bun:test";
@@ -15,8 +16,12 @@ import { describe, it, expect } from "bun:test";
 import { EmailError, EmailService, type SendEmailInput } from "@shared/email";
 import { Effect, Exit, Layer } from "effect";
 
-import { sendGiftSummaryEmails, type OrganiserEmailLookup } from "../../src/lib/gift-summary-email";
+import { sendGiftSummaryEmails } from "../../src/lib/gift-summary-email";
+import { CIRE_METRICS, type GiftSummaryUnmailedReason } from "../../src/metrics";
+import type { OsnOrganiserEmailLookup } from "../../src/services/osn-bridge";
 import type { GiftSummaryNotice } from "../../src/services/retention";
+import { captureLogs } from "../test-helpers/capture-logs";
+import { counterValue } from "../test-helpers/metrics-harness";
 
 function makeRecordingStub(): {
   layer: Layer.Layer<EmailService>;
@@ -63,10 +68,47 @@ function notice(overrides: Partial<GiftSummaryNotice> = {}): GiftSummaryNotice {
   };
 }
 
+/** A notice for a wedding whose gifts all arrived in one currency. */
+function inOneCurrency(currency: string, amountMinor: number): GiftSummaryNotice {
+  const base = notice();
+  return notice({
+    currency,
+    summary: {
+      ...base.summary,
+      contributions: { count: 2, totals: [{ currency, amountMinor }] },
+    },
+  });
+}
+
+/** What `Intl` itself prints for a MAJOR-unit amount, in the runtime's locale. */
+const intl = (major: number, currency: string): string =>
+  new Intl.NumberFormat(undefined, { style: "currency", currency }).format(major);
+
+/** osn-api answered every call, with these addresses. */
 const lookupOf =
-  (pairs: Record<string, string>): OrganiserEmailLookup =>
+  (pairs: Record<string, string>): OsnOrganiserEmailLookup =>
   () =>
-    Promise.resolve(new Map(Object.entries(pairs)));
+    Promise.resolve({ answered: true, emails: new Map(Object.entries(pairs)) });
+
+/** At least one call to osn-api failed; these are what the others returned. */
+const unansweredWith =
+  (pairs: Record<string, string>): OsnOrganiserEmailLookup =>
+  () =>
+    Promise.resolve({ answered: false, emails: new Map(Object.entries(pairs)) });
+
+const unmailed = (reason: GiftSummaryUnmailedReason) =>
+  counterValue(CIRE_METRICS.giftSummaryUnmailed, { reason });
+
+/** The money line's total for one notice, as the email is handed it. */
+async function totalFor(n: GiftSummaryNotice): Promise<unknown> {
+  const { layer, calls } = makeRecordingStub();
+  await Effect.runPromise(
+    sendGiftSummaryEmails([n], lookupOf({ usr_owner1: "couple@example.com" })).pipe(
+      Effect.provide(layer),
+    ),
+  );
+  return (calls[0]?.data as Record<string, unknown> | undefined)?.giftTotal;
+}
 
 describe("sendGiftSummaryEmails", () => {
   it("sends one email per wedding, addressed and totalled in the wedding's currency", async () => {
@@ -88,22 +130,44 @@ describe("sendGiftSummaryEmails", () => {
     expect(data.listPurchased).toBe(5);
     // AUD is the wedding's own currency, so it wins over the NZD row that
     // happens to sit first-equal in the totals.
-    expect(String(data.giftTotal)).toContain("450");
+    expect(data.giftTotal).toBe(intl(450, "AUD"));
   });
 
-  it("skips a wedding whose address the lookup could not answer for", async () => {
+  it("prints a yen total without dividing it", async () => {
+    // A fixed `/ 100` told a JPY wedding its gifts came to ¥10.
+    expect(await totalFor(inOneCurrency("JPY", 1000))).toBe(intl(1000, "JPY"));
+  });
+
+  it("prints a dinar total to the thousandth", async () => {
+    // A fixed `/ 100` told a KWD wedding its gifts came to ten times 1.500 dinar.
+    const total = await totalFor(inOneCurrency("KWD", 1500));
+    expect(total).toBe(intl(1.5, "KWD"));
+    expect(String(total)).toContain("1.500");
+  });
+
+  it("prints a euro total from its cents", async () => {
+    expect(await totalFor(inOneCurrency("EUR", 1999))).toBe(intl(19.99, "EUR"));
+  });
+
+  it("skips a wedding osn-api has no address for, and counts it", async () => {
     const { layer, calls } = makeRecordingStub();
+    const before = await unmailed("no_address");
 
-    const exit = await Effect.runPromiseExit(
-      sendGiftSummaryEmails(
-        [notice(), notice({ weddingId: "wed_2", ownerOsnProfileIds: ["usr_gone"] })],
-        lookupOf({ usr_owner1: "couple@example.com" }),
-      ).pipe(Effect.provide(layer)),
-    );
+    const logs = await captureLogs(async () => {
+      const exit = await Effect.runPromiseExit(
+        sendGiftSummaryEmails(
+          [notice(), notice({ weddingId: "wed_2", ownerOsnProfileIds: ["usr_gone"] })],
+          lookupOf({ usr_owner1: "couple@example.com" }),
+        ).pipe(Effect.provide(layer)),
+      );
+      expect(Exit.isSuccess(exit)).toBe(true);
+    });
 
-    expect(Exit.isSuccess(exit)).toBe(true);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.to).toBe("couple@example.com");
+    expect(await unmailed("no_address")).toBe(before + 1);
+    // osn-api answered: an owner it has no address for is not an outage.
+    expect(logs).not.toContain("osn-api did not answer");
   });
 
   it("sends the summary to every owner of the wedding, in one lookup", async () => {
@@ -115,12 +179,13 @@ describe("sendGiftSummaryEmails", () => {
         [notice({ ownerOsnProfileIds: ["usr_owner1", "usr_owner2"] })],
         (ids) => {
           asked.push([...ids]);
-          return Promise.resolve(
-            new Map([
+          return Promise.resolve({
+            answered: true,
+            emails: new Map([
               ["usr_owner1", "ada@example.com"],
               ["usr_owner2", "bo@example.com"],
             ]),
-          );
+          });
         },
       ).pipe(Effect.provide(layer)),
     );
@@ -177,17 +242,163 @@ describe("sendGiftSummaryEmails", () => {
     expect(Exit.isSuccess(exit)).toBe(true);
   });
 
-  it("succeeds when the address lookup itself throws", async () => {
+  it("warns and counts when osn-api did not answer, naming no owner", async () => {
     const { layer, calls } = makeRecordingStub();
+    const before = await unmailed("lookup_failed");
+
+    const logs = await captureLogs(async () => {
+      const exit = await Effect.runPromiseExit(
+        sendGiftSummaryEmails(
+          [notice(), notice({ weddingId: "wed_2", ownerOsnProfileIds: ["usr_owner2"] })],
+          unansweredWith({}),
+        ).pipe(Effect.provide(layer)),
+      );
+      expect(Exit.isSuccess(exit)).toBe(true);
+    });
+
+    expect(calls).toHaveLength(0);
+    expect(logs).toContain("osn-api did not answer");
+    // Counts only: no profile id and no address reaches the log line.
+    expect(logs).not.toContain("usr_owner");
+    expect(logs).not.toContain("@example.com");
+    expect(await unmailed("lookup_failed")).toBe(before + 2);
+  });
+
+  it("still mails the owners osn-api did answer for when another call failed", async () => {
+    const { layer, calls } = makeRecordingStub();
+    const before = await unmailed("lookup_failed");
+
+    const logs = await captureLogs(async () => {
+      await Effect.runPromise(
+        sendGiftSummaryEmails(
+          [notice(), notice({ weddingId: "wed_2", ownerOsnProfileIds: ["usr_owner2"] })],
+          unansweredWith({ usr_owner1: "couple@example.com" }),
+        ).pipe(Effect.provide(layer)),
+      );
+    });
+
+    // No later sweep resends a summary, so what did resolve is sent now.
+    expect(calls.map((c) => c.to)).toEqual(["couple@example.com"]);
+    expect(logs).toContain("osn-api did not answer");
+    expect(await unmailed("lookup_failed")).toBe(before + 1);
+  });
+
+  it("treats a lookup that rejects as osn-api not answering", async () => {
+    const { layer, calls } = makeRecordingStub();
+    const before = await unmailed("lookup_failed");
+
+    const logs = await captureLogs(async () => {
+      const exit = await Effect.runPromiseExit(
+        sendGiftSummaryEmails([notice()], () => Promise.reject(new Error("osn-api 500"))).pipe(
+          Effect.provide(layer),
+        ),
+      );
+      expect(Exit.isSuccess(exit)).toBe(true);
+    });
+
+    expect(calls).toHaveLength(0);
+    expect(logs).toContain("osn-api did not answer");
+    expect(await unmailed("lookup_failed")).toBe(before + 1);
+  });
+
+  it("warns and counts when osn-api hangs until the caller's timeout", async () => {
+    const { layer, calls } = makeRecordingStub();
+    const before = await unmailed("lookup_failed");
+
+    // The sweep bounds the notifier with `Effect.timeout`; a hung osn-api is
+    // the most likely outage, and its interrupt must still be reported.
+    const logs = await captureLogs(async () => {
+      await Effect.runPromiseExit(
+        sendGiftSummaryEmails(
+          [notice(), notice({ weddingId: "wed_2", ownerOsnProfileIds: ["usr_owner2"] })],
+          () => new Promise(() => {}),
+        ).pipe(Effect.provide(layer), Effect.timeout("20 millis")),
+      );
+    });
+
+    expect(calls).toHaveLength(0);
+    expect(logs).toContain("osn-api did not answer");
+    expect(await unmailed("lookup_failed")).toBe(before + 2);
+  });
+
+  it("sends the whole cohort in one batch call when the transport takes batches", async () => {
+    const batches: SendEmailInput[][] = [];
+    const layer = Layer.succeed(EmailService, {
+      send: () => Effect.die(new Error("a batch-capable transport is sent one batch")),
+      sendBatch: (inputs: readonly SendEmailInput[]) =>
+        Effect.sync(() => {
+          batches.push([...inputs]);
+        }),
+    });
 
     const exit = await Effect.runPromiseExit(
-      sendGiftSummaryEmails([notice()], () => Promise.reject(new Error("osn-api 500"))).pipe(
-        Effect.provide(layer),
-      ),
+      sendGiftSummaryEmails(
+        [
+          notice({ ownerOsnProfileIds: ["usr_owner1", "usr_owner2"] }),
+          notice({ weddingId: "wed_2", ownerOsnProfileIds: ["usr_owner3"] }),
+        ],
+        lookupOf({
+          usr_owner1: "ada@example.com",
+          usr_owner2: "bo@example.com",
+          usr_owner3: "cy@example.com",
+        }),
+      ).pipe(Effect.provide(layer)),
     );
 
     expect(Exit.isSuccess(exit)).toBe(true);
-    expect(calls).toHaveLength(0);
+    // One provider call for every recipient: each send is an external
+    // subrequest, and the cron's whole invocation shares a small budget.
+    expect(batches).toHaveLength(1);
+    expect(batches[0]?.map((input) => input.to).toSorted()).toEqual([
+      "ada@example.com",
+      "bo@example.com",
+      "cy@example.com",
+    ]);
+  });
+
+  it("logs a failed batch once and still succeeds", async () => {
+    const layer = Layer.succeed(EmailService, {
+      send: () => Effect.die(new Error("a batch-capable transport is sent one batch")),
+      sendBatch: () => Effect.fail(new EmailError({ reason: "rate_limited" })),
+    });
+
+    let ok = false;
+    const logs = await captureLogs(async () => {
+      const exit = await Effect.runPromiseExit(
+        sendGiftSummaryEmails([notice()], lookupOf({ usr_owner1: "couple@example.com" })).pipe(
+          Effect.provide(layer),
+        ),
+      );
+      ok = Exit.isSuccess(exit);
+    });
+
+    expect(ok).toBe(true);
+    expect(logs).toContain("batch send failed");
+    expect(logs).not.toContain("couple@example.com");
+  });
+
+  it("labels a defect in delivery as a defect, and still succeeds", async () => {
+    // A transport that throws instead of failing never reaches the per-send
+    // catch; the outer one must hold it.
+    const layer = Layer.succeed(EmailService, {
+      send: () => {
+        throw new Error("transport bug");
+      },
+    });
+
+    let ok = false;
+    const logs = await captureLogs(async () => {
+      const exit = await Effect.runPromiseExit(
+        sendGiftSummaryEmails([notice()], lookupOf({ usr_owner1: "couple@example.com" })).pipe(
+          Effect.provide(layer),
+        ),
+      );
+      ok = Exit.isSuccess(exit);
+    });
+
+    expect(ok).toBe(true);
+    expect(logs).toContain("summary delivery failed");
+    expect(logs).toContain("defect");
   });
 
   it("does nothing at all for an empty cohort", async () => {
@@ -197,7 +408,7 @@ describe("sendGiftSummaryEmails", () => {
     const exit = await Effect.runPromiseExit(
       sendGiftSummaryEmails([], () => {
         lookedUp = true;
-        return Promise.resolve(new Map());
+        return Promise.resolve({ answered: true, emails: new Map() });
       }).pipe(Effect.provide(layer)),
     );
 

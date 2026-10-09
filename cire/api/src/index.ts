@@ -28,7 +28,6 @@ import {
   createHandleResolverFromEnv,
   createHandleSearchResolverFromEnv,
   createOrganiserEmailLookupFromEnv,
-  createOrganiserEmailResolverFromEnv,
   createOrgMembershipResolverFromEnv,
   createProfileDisplayResolverFromEnv,
   createProfileOrgsResolverFromEnv,
@@ -682,17 +681,22 @@ const handler: ExportedHandler<Env> = {
     // record claim the couple was told when they were not.
     // The reason a refused RESEND_API_URL leaves no transport is logged after
     // the last sweep below, so no sweep waits on the logger.
+    //
+    // One address lookup serves this and the RSVP digest below. It keeps
+    // "osn-api did not answer" apart from "no address", which both need: the
+    // digest holds its markers on an outage, and the summary logs it, since no
+    // later sweep resends a summary.
     const resend = resendEmailConfig(env, isDeployedEnv(env));
     const resendConfig = resend.config;
-    const organiserEmails = await createOrganiserEmailResolverFromEnv({
+    const organiserEmailLookup = await createOrganiserEmailLookupFromEnv({
       osnApiUrl: env.OSN_API_URL,
       arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
       arcKeyId: env.CIRE_API_ARC_KEY_ID,
     });
     const giftSummaryNotifier =
-      organiserEmails && resendConfig
+      organiserEmailLookup && resendConfig
         ? (notices: readonly GiftSummaryNotice[]) =>
-            sendGiftSummaryEmails(notices, organiserEmails).pipe(
+            sendGiftSummaryEmails(notices, organiserEmailLookup).pipe(
               Effect.provide(makeResendEmailLive(resendConfig)),
             )
         : undefined;
@@ -807,9 +811,9 @@ const handler: ExportedHandler<Env> = {
     // The daily RSVP digest. Same two preconditions as the gift summary, for
     // the same reason: without a way to ask osn-api for addresses, or a real
     // transport, there is nobody to mail, and a log stand-in would move every
-    // recipient's marker past changes nobody was told about. Its lookup keeps
-    // "osn-api did not answer" apart from "no address", so an outage holds the
-    // markers. The portal link uses the tier's organiser origin, the second
+    // recipient's marker past changes nobody was told about. It shares the
+    // gift summary's address lookup, so an outage holds the markers. The
+    // portal link uses the tier's organiser origin, the second
     // entry of WEB_ORIGIN, so the digest is skipped when WEB_ORIGIN fails the
     // same check `fetch` applies: an isolate woken only by cron never runs it.
     const digestOriginProblem = webOriginProblem(env.WEB_ORIGIN ?? "", () => isDeployedEnv(env));
@@ -820,11 +824,6 @@ const handler: ExportedHandler<Env> = {
         }),
       );
     }
-    const organiserEmailLookup = await createOrganiserEmailLookupFromEnv({
-      osnApiUrl: env.OSN_API_URL,
-      arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
-      arcKeyId: env.CIRE_API_ARC_KEY_ID,
-    });
     if (organiserEmailLookup && resendConfig && !digestOriginProblem) {
       const organiserOrigin = organiserOriginFrom(env.WEB_ORIGIN);
       // Each email's one-click stop link points at this Worker's own origin
