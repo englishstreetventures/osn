@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { webOriginProblem } from "../../src/lib/web-origin";
+import { siteOriginOptions, webOriginProblem } from "../../src/lib/web-origin";
 
 const deployed = () => true;
 const local = () => false;
@@ -86,5 +86,26 @@ describe("webOriginProblem", () => {
     expect(calls).toBe(0);
     webOriginProblem("http://localhost:4321", counting);
     expect(calls).toBe(1);
+  });
+});
+
+describe("siteOriginOptions", () => {
+  const invites = "https://invite.cireweddings.com";
+  const host = "https://host.cireweddings.com";
+  const vendor = "https://vendor.cireweddings.com";
+
+  it("maps the three entries, in order, to the guest, organiser and vendor origins", () => {
+    expect(siteOriginOptions([invites, host, vendor])).toEqual({
+      webOrigin: invites,
+      organiserOrigin: host,
+      vendorPortalOrigin: vendor,
+    });
+  });
+
+  it("leaves out the key for a missing entry, so createApp's default applies", () => {
+    const two = siteOriginOptions([invites, host]);
+    expect(two).toEqual({ webOrigin: invites, organiserOrigin: host });
+    expect(two).not.toHaveProperty("vendorPortalOrigin");
+    expect(siteOriginOptions([])).toEqual({});
   });
 });

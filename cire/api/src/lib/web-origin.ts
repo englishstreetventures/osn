@@ -42,3 +42,27 @@ export function webOriginProblem(raw: string, isDeployed: () => boolean): string
   }
   return null;
 }
+
+/** The `createApp` options that `WEB_ORIGIN`'s three entries set. */
+export interface SiteOriginOptions {
+  /** Entry 1: the guest invite site. */
+  webOrigin?: string;
+  /** Entry 2: the organiser portal. */
+  organiserOrigin?: string;
+  /** Entry 3: the vendor portal. */
+  vendorPortalOrigin?: string;
+}
+
+/**
+ * The site origins a split `WEB_ORIGIN` list names, in its fixed order: guest
+ * invite site, organiser portal, vendor portal. A key is present only when its
+ * entry is, so a missing entry leaves `createApp`'s default in place.
+ */
+export function siteOriginOptions(origins: readonly string[]): SiteOriginOptions {
+  const [webOrigin, organiserOrigin, vendorPortalOrigin] = origins;
+  const options: SiteOriginOptions = {};
+  if (webOrigin) options.webOrigin = webOrigin;
+  if (organiserOrigin) options.organiserOrigin = organiserOrigin;
+  if (vendorPortalOrigin) options.vendorPortalOrigin = vendorPortalOrigin;
+  return options;
+}

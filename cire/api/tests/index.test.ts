@@ -7,9 +7,11 @@ import { probeRequests, type ProbeRequest } from "../scripts/d1-latency-probe";
 import { D1_SESSION_CONSTRAINT } from "../src/db/d1-session";
 import { DDL } from "../src/db/setup";
 import handler from "../src/index";
+import { CIRE_METRICS } from "../src/metrics";
 import * as osnBridge from "../src/services/osn-bridge";
 import { jsonBody } from "./test-helpers";
 import { captureLogs } from "./test-helpers/capture-logs";
+import { counterValue } from "./test-helpers/metrics-harness";
 
 // Boot-time behaviour of the Worker entry point. The organiser dashboard must
 // serve ANY authenticated OSN user with NO special bootstrap config — there is
@@ -841,5 +843,56 @@ describe("D1 session routing at the entry points", () => {
     expect(statuses).toEqual([404, 404]);
     expect(logs.split("email disabled: Resend misconfigured").length - 1).toBe(1);
     expect(logs).not.toContain("localhost:4008");
+  });
+});
+
+// The CSP collector labels a report by the site its document came from, using
+// the origins the Worker reads out of `WEB_ORIGIN` (guest invite, organiser
+// portal, vendor portal). Driven through the real entry point with the
+// committed dev-tier list, so a change to that mapping in `src/index.ts` or to
+// the list's order in `wrangler.toml` shows up here.
+describe("CSP report site labels from WEB_ORIGIN", () => {
+  it("labels a report from the dev vendor portal as vendor", async () => {
+    const toml = await Bun.file(new URL("../wrangler.toml", import.meta.url)).text();
+    const devWebOrigin = (
+      Bun.TOML.parse(toml) as { env: { dev: { vars: { WEB_ORIGIN: string } } } }
+    ).env.dev.vars.WEB_ORIGIN;
+    const vendorOrigin = devWebOrigin.split(",").map((origin) => origin.trim())[2];
+    expect(vendorOrigin).toBeDefined();
+
+    // The Worker caches its app per D1 binding, so a binding it has not seen
+    // makes it build one from this env's WEB_ORIGIN.
+    const freshBinding = {
+      prepare: (query: string) => DB.prepare(query),
+      batch: (statements: D1PreparedStatement[]) => DB.batch(statements),
+      withSession: (constraint: string) => DB.withSession(constraint),
+    };
+    const env = {
+      ...BASE_ENV,
+      WEB_ORIGIN: devWebOrigin,
+      DB: freshBinding,
+    } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
+
+    const attrs = { effectiveDirective: "manifest-src", site: "vendor", disposition: "enforce" };
+    const before = await counterValue(CIRE_METRICS.cspReport, attrs);
+    const res = await handler.fetch!(
+      new Request("https://api.example.com/api/csp-report", {
+        method: "POST",
+        headers: { "content-type": "application/csp-report", "cf-connecting-ip": "203.0.113.61" },
+        body: JSON.stringify({
+          "csp-report": {
+            "document-uri": `${vendorOrigin}/claim?token=x`,
+            "effective-directive": "manifest-src",
+            "blocked-uri": "https://cdn.example/manifest.json",
+            disposition: "enforce",
+          },
+        }),
+      }) as unknown as Parameters<NonNullable<typeof handler.fetch>>[0],
+      env,
+      ctx,
+    );
+
+    expect(res.status).toBe(204);
+    expect(await counterValue(CIRE_METRICS.cspReport, attrs)).toBe(before + 1);
   });
 });
