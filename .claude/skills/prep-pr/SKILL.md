@@ -236,7 +236,7 @@ uncommitted and are never grouped into a commit.
 
 ## Step 4 — Build, test, and review test surface
 
-Invoke the `review-tests` skill (`.claude/skills/review-tests/SKILL.md`) as an Agent subagent, passing the list of affected workspace paths as arguments. Open the dispatch prompt with `TASK-BRANCH: <branch>` on its own line — the collector reads it back out (`tools/pr-metrics/index.ts`, `resolveDispatchBranch`) to attribute this review's spend to the branch's card; without it the spend banks against whatever branch the dispatching session happened to be on.
+Dispatch a **`reviewer`** agent (`.claude/agents/reviewer.md`) to run the `review-tests` skill (`.claude/skills/review-tests/SKILL.md`), passing the list of affected workspace paths as arguments and stating that it is alone in the worktree, so it may build and run tests. Pass no `model` or `effort`; the definition sets both. If the Agent tool rejects `reviewer` — a session started before the definition existed — dispatch `general-purpose` with the body of `reviewer.md` pasted into the brief; it carries the rules but not the tool limit. Open the dispatch prompt with `TASK-BRANCH: <branch>` on its own line — the collector reads it back out (`tools/pr-metrics/index.ts`, `resolveDispatchBranch`) to attribute this review's spend to the branch's card; without it the spend banks against whatever branch the dispatching session happened to be on.
 
 **Unless the task says the reviews have already run.** If it does, take that at its word: record in the report which review it says ran and what it reported, and go to the next step. Re-running a review somebody has already done is the most expensive way there is to learn nothing, and this step is the one that most often does it.
 
@@ -293,15 +293,17 @@ Three traps in reading the number:
 
 **Unless the task says these reviews have already run** — then record what it says they found in the report, and go to Step 7. A finding reaches the PR body only in the form `write-pr` allows.
 
-Otherwise run the following two agents **in parallel** using the Agent tool.
+Otherwise run the following two **`reviewer`** agents **in parallel** using the Agent tool, as Step 4 describes.
 Open each dispatch prompt with `TASK-BRANCH: <branch>` on its own line, for
 the same reason as Step 4's — the collector reads it back out to attribute
-the reviewer's spend to this branch's card:
+the reviewer's spend to this branch's card. Tell each that it is **not** alone
+in the worktree, so it builds nothing; a number it needs from a build is yours
+to measure afterwards:
 
-**Agent 1 — Performance review** (general-purpose agent):
+**Agent 1 — Performance review** (`reviewer` agent):
 Invoke the `review-performance` skill (`.claude/skills/review-performance/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context.
 
-**Agent 2 — Security review** (general-purpose agent):
+**Agent 2 — Security review** (`reviewer` agent):
 Invoke the `review-security` skill (`.claude/skills/review-security/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context.
 
 Wait for both agents to complete. Present both reports to the user in full, using the finding IDs from each review (e.g. S-H1, P-W2) so they can be referred to in discussion, in the report and in the tracker issues Step 7 files. The PR is public and never carries a finding ID; `write-pr` says what it carries instead.

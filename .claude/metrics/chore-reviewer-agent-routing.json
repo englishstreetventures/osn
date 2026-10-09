@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1463,
+    "branch": "chore/reviewer-agent-routing",
+    "base_sha": "64e94db3a55ec37b9c8903076ee39c40da04ae9f",
+    "head_sha": "33a05f8fb85573629e53b9673ac9ebe2090bb998",
+    "generated_at": "2026-10-09T02:00:56.173Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1458,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:2",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 6,
+    "first_ts": "2026-10-08T16:46:55.722Z",
+    "last_ts": "2026-10-09T02:00:52.799Z",
+    "span_seconds": 33237,
+    "active_seconds": 1773,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 15.802421439999996,
+    "tokens": {
+      "input": 355,
+      "output": 66015,
+      "thinking": 11368,
+      "cache_write_5m": 440329,
+      "cache_write_1h": 403238,
+      "cache_read": 24087609
+    },
+    "by_model": {
+      "claude-haiku-5-5": {
+        "tokens": {
+          "input": 8,
+          "output": 665,
+          "thinking": 395,
+          "cache_write_5m": 45000,
+          "cache_write_1h": 55852,
+          "cache_read": 61314
+        },
+        "usd_equivalent": 0.017741840000000002,
+        "messages": 4
+      },
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 27,
+          "output": 4826,
+          "thinking": 0,
+          "cache_write_5m": 46702,
+          "cache_write_1h": 0,
+          "cache_read": 275061
+        },
+        "usd_equivalent": 0.550203,
+        "messages": 12
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 320,
+          "output": 60524,
+          "thinking": 10973,
+          "cache_write_5m": 348627,
+          "cache_write_1h": 347386,
+          "cache_read": 23751234
+        },
+        "usd_equivalent": 15.234476599999994,
+        "messages": 160
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 183,
+          "output": 64936,
+          "thinking": 11368,
+          "cache_write_5m": 46702,
+          "cache_write_1h": 403238,
+          "cache_read": 17423610
+        },
+        "usd_equivalent": 11.381786960000001,
+        "messages": 90
+      },
+      "subagent": {
+        "tokens": {
+          "input": 172,
+          "output": 1079,
+          "thinking": 0,
+          "cache_write_5m": 393627,
+          "cache_write_1h": 0,
+          "cache_read": 6663999
+        },
+        "usd_equivalent": 4.4206344799999995,
+        "messages": 86
+      }
+    },
+    "effort": {
+      "medium": 122,
+      "low": 2,
+      "high": 40
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 0,
+      "test": 0,
+      "docs": 8,
+      "config": 2,
+      "source": 0
+    },
+    "loc": {
+      "generated": {
+        "added": 0,
+        "deleted": 0
+      },
+      "test": {
+        "added": 0,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 139,
+        "deleted": 81
+      },
+      "config": {
+        "added": 8,
+        "deleted": 4
+      },
+      "source": {
+        "added": 0,
+        "deleted": 0
+      }
+    },
+    "packages": [],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 5,
+    "corrective_turns": 5,
+    "tokens_before_first_edit": 319652,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 138,
+      "Edit": 30,
+      "Read": 20,
+      "Write": 16,
+      "Agent": 8,
+      "Skill": 7,
+      "SubagentHandback": 5,
+      "StructuredOutput": 3,
+      "EnterWorktree": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 7,
+      "max_edits_one_file": 6
+    },
+    "skills": {
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "prep-pr": 1,
+      "review-performance": 1,
+      "review-tests": 1,
+      "review-security": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "shepherd": 1,
+      "reviewer": 3,
+      "general-purpose": 3
+    }
+  }
+}
