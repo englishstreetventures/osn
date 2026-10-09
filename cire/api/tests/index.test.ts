@@ -727,6 +727,37 @@ describe("D1 session routing at the entry points", () => {
     30_000,
   );
 
+  it("hands neither R2 reconciler to the cron while CIRE_R2_RECONCILE_DISABLED is set, and says so", async () => {
+    let listed = 0;
+    const bucket = {
+      list: () => {
+        listed += 1;
+        return Promise.resolve({ objects: [], truncated: false });
+      },
+      delete: () => Promise.resolve(),
+      head: () => Promise.resolve(null),
+      get: () => Promise.resolve(null),
+      put: () => Promise.resolve(),
+    };
+    let off: Awaited<ReturnType<typeof runCron>> | undefined;
+    const logs = await captureLogs(async () => {
+      off = await runCron({ SHEETS: bucket, ASSETS: bucket, CIRE_R2_RECONCILE_DISABLED: "true" });
+    });
+    // Every other sweep still runs, each in a session of its own.
+    expect(off?.pending).toHaveLength(8);
+    expect(off?.probe.constraints).toEqual(Array.from({ length: 8 }, () => D1_SESSION_CONSTRAINT));
+    expect(listed).toBe(0);
+    expect(logs).toContain("r2 reconcile disabled by CIRE_R2_RECONCILE_DISABLED");
+
+    const on = await runCron({
+      SHEETS: bucket,
+      ASSETS: bucket,
+      CIRE_R2_RECONCILE_DISABLED: "false",
+    });
+    expect(on.pending).toHaveLength(10);
+    expect(listed).toBe(2);
+  }, 30_000);
+
   it("adds the RSVP digest, in a session of its own, only when it has a transport and osn-api", async () => {
     const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
     const mail = { RESEND_API_KEY: "re_test", OSN_API_URL: "https://osn.example.test" };

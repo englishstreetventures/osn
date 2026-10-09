@@ -18,6 +18,8 @@
  * The walk and its guards are {@link reconcileOrphanObjects} in
  * `r2-reconcile.ts`. An empty `imports` table while sheets exist is one of those
  * guards: the run deletes nothing and logs a warning until any change row exists.
+ * Another holds a run in which `imports` has fewer than half the rows the last
+ * run counted; the lookup counts them in the statement that names the keys.
  */
 import { imports } from "@cire/db";
 import { sql, type SQL } from "drizzle-orm";
@@ -27,6 +29,7 @@ import { DbService, dbQuery } from "../db";
 import { r2PositionStore, reconcileOrphanObjects } from "./r2-reconcile";
 import type {
   ListLimits,
+  NamedKeys,
   PositionBucket,
   R2ReconcileError,
   ReconcilableBucket,
@@ -67,30 +70,38 @@ const liveSheetSample: Effect.Effect<string | undefined, never, DbService> = Eff
 );
 
 /**
- * The four key columns of every `imports` row that names one of `keys`. The
- * list rides as ONE bound parameter, unpacked once by the `listed` CTE, where
- * `jsonEachIn` would bind it once per column it is compared with. D1 still
- * reads the whole table — no index covers these columns — but returns only the
- * rows that match.
+ * The four key columns of every `imports` row that names one of `keys`, each
+ * with the table's row count. The list rides as ONE bound parameter, unpacked
+ * once by the `listed` CTE, where `jsonEachIn` would bind it once per column it
+ * is compared with. D1 reads the whole table — no index covers these columns —
+ * but returns only the rows that match; the count is one more uncorrelated
+ * read of the table, in the same statement so it describes the same rows.
  */
 export function namedSheetKeysQuery(keys: ReadonlyArray<string>): SQL {
   const list = JSON.stringify(keys);
   return sql`WITH listed(r2_key) AS (SELECT value FROM json_each(${list}))
     SELECT ${imports.eventsR2Key} AS e, ${imports.guestsR2Key} AS g,
-      ${imports.beforeEventsR2Key} AS be, ${imports.beforeGuestsR2Key} AS bg
+      ${imports.beforeEventsR2Key} AS be, ${imports.beforeGuestsR2Key} AS bg,
+      (SELECT count(*) FROM ${imports}) AS n
     FROM ${imports}
     WHERE ${imports.eventsR2Key} IN listed OR ${imports.guestsR2Key} IN listed
       OR ${imports.beforeEventsR2Key} IN listed OR ${imports.beforeGuestsR2Key} IN listed`;
 }
 
-/** Of `keys`, every one some `imports` row names in any of its four key columns. */
+/**
+ * Of `keys`, every one some `imports` row names in any of its four key columns,
+ * and how many `imports` rows there are. Every row names two keys at least
+ * (`events_r2_key` and `guests_r2_key` are NOT NULL), so each is a referencing
+ * row. With no row matched the count is 0; the caller's control has already
+ * failed the run then, since its live sample is always asked about.
+ */
 export function namedSheetKeys(
   keys: ReadonlyArray<string>,
-): Effect.Effect<Set<string>, never, DbService> {
+): Effect.Effect<NamedKeys, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
     const rows = yield* dbQuery(() =>
-      db.all<{ e: string; g: string; be: string | null; bg: string | null }>(
+      db.all<{ e: string; g: string; be: string | null; bg: string | null; n: number }>(
         namedSheetKeysQuery(keys),
       ),
     );
@@ -100,7 +111,7 @@ export function namedSheetKeys(
         if (key) named.add(key);
       }
     }
-    return named;
+    return { named, referencingRows: rows[0]?.n ?? 0 };
   });
 }
 

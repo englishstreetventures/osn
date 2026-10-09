@@ -34,8 +34,13 @@ const FRESH = new Date(NOW.getTime() - 60_000); // within grace
 function createAssetsStub(
   initial: Array<{ key: string; uploaded: Date }>,
   opts: { pageSize?: number; listThrows?: boolean } = {},
-): AssetsBucket & { deleted: Set<string>; remaining: () => string[] } {
+): AssetsBucket & {
+  deleted: Set<string>;
+  remaining: () => string[];
+  stored: (key: string) => string | undefined;
+} {
   const store = new Map<string, Date>(initial.map((o) => [o.key, o.uploaded]));
+  const texts = new Map<string, string>();
   const deleted = new Set<string>();
   const pageSize = opts.pageSize ?? 1000;
   const removeOne = (key: string) => {
@@ -44,13 +49,21 @@ function createAssetsStub(
   return {
     deleted,
     remaining: () => [...store.keys()],
+    stored: (key) => texts.get(key),
     head(key) {
       return Promise.resolve(store.has(key) ? { key } : null);
     },
-    // The walk's position. Every bucket here fits in one run, so only a capped
-    // run stores one.
-    get: () => Promise.resolve(null),
-    put: () => Promise.resolve(),
+    // The walk's position, kept beside the images as the real bucket keeps it.
+    // `list` pages by its own cursor and ignores `startAfter`, so a test that
+    // runs twice must fit its walk in one run.
+    get(key) {
+      const text = texts.get(key);
+      return Promise.resolve(text === undefined ? null : { text: () => Promise.resolve(text) });
+    },
+    put(key, value) {
+      texts.set(key, value);
+      return Promise.resolve();
+    },
     list(options) {
       if (opts.listThrows) throw new Error("list boom");
       const prefix = options?.prefix ?? "";
@@ -437,6 +450,65 @@ describe("assetReconcileService.reconcileOrphans", () => {
           after: "assets/wedP/fresh-0999",
           lapStartedAt: NOW.getTime(),
         });
+      }),
+    ),
+  );
+
+  it(
+    "counts each row that names an image once, and no row that names none",
+    withDb(
+      Effect.gen(function* () {
+        // One customisation row with two images, one event, one registry item.
+        yield* seedReferenced({
+          hero: "assets/wedK/hero-live",
+          story: "assets/wedK/story-live",
+          eventKey: "assets/wedK/event-live",
+          registryKey: "assets/wedK/registry-live",
+        });
+        // A wedding whose customisation row names no image.
+        const db = yield* DbService;
+        const bare = `wed_${crypto.randomUUID()}`;
+        const now = new Date();
+        insertWedding(db, {
+          id: bare,
+          slug: `slug-${bare}`,
+          displayName: "Bare Wedding",
+          createdAt: now,
+          updatedAt: now,
+          owners: ["usr_test"],
+        });
+        db.insert(weddingInviteCustomisations).values({ weddingId: bare, updatedAt: now }).run();
+        const bucket = createAssetsStub([
+          { key: "assets/wedK/hero-live", uploaded: OLD },
+          { key: "assets/wedK/orphan", uploaded: OLD },
+        ]);
+
+        expect(yield* assetReconcileService.reconcileOrphans(bucket, NOW)).toBe(1);
+        expect(JSON.parse(bucket.stored(ASSET_POSITION_KEY)!)).toEqual({ referenced: 3 });
+      }),
+    ),
+  );
+
+  it(
+    "holds a run in which the rows naming images fell by more than half, then reaps on the next",
+    withDb(
+      Effect.gen(function* () {
+        yield* seedReferenced({ hero: "assets/wedL/hero-live" });
+        const bucket = createAssetsStub([
+          { key: "assets/wedL/hero-live", uploaded: OLD },
+          { key: "assets/wedL/orphan", uploaded: OLD },
+        ]);
+        // The last run counted three rows; one is left.
+        yield* Effect.promise(() =>
+          bucket.put(ASSET_POSITION_KEY, JSON.stringify({ referenced: 3 })),
+        );
+
+        expect(yield* assetReconcileService.reconcileOrphans(bucket, NOW)).toBe(0);
+        expect(bucket.remaining()).toContain("assets/wedL/orphan");
+        expect(JSON.parse(bucket.stored(ASSET_POSITION_KEY)!)).toEqual({ referenced: 1 });
+
+        expect(yield* assetReconcileService.reconcileOrphans(bucket, NOW)).toBe(1);
+        expect(bucket.deleted).toEqual(new Set(["assets/wedL/orphan"]));
       }),
     ),
   );

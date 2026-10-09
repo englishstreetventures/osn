@@ -185,7 +185,7 @@ describe("sheet reconciliation settings", () => {
     expect(new TextEncoder().encode(params[0] as string).length).toBeLessThan(100_000);
   });
 
-  it("reads imports once, with the list unpacked once and never per row", () => {
+  it("scans imports once for the lookup and once for the row count, never per row", () => {
     const db = createDb(":memory:");
     const { sql: text, params } = new SQLiteSyncDialect().sqlToQuery(
       namedSheetKeysQuery(["imports/a/events.csv", "imports/b/guests.csv"]),
@@ -194,7 +194,12 @@ describe("sheet reconciliation settings", () => {
       .query<{ detail: string }, never[]>(`EXPLAIN QUERY PLAN ${text}`)
       .all(...(params as never[]))
       .map((r) => r.detail);
-    expect(plan.filter((d) => /\bimports\b/.test(d))).toEqual(["SCAN imports"]);
+    const scans = plan.filter((d) => /\bimports\b/.test(d));
+    expect(scans).toHaveLength(2);
+    expect(scans).toContain("SCAN imports");
+    expect(scans.filter((d) => d !== "SCAN imports")).toEqual([
+      expect.stringMatching(/^SCAN imports USING COVERING INDEX \w+$/),
+    ]);
     expect(plan.join("\n")).not.toMatch(/CORRELATED/);
   });
 
@@ -234,9 +239,11 @@ describe("namedSheetKeys", () => {
           ` ${other.beforeEvents}`,
         ]);
 
-        expect([...named].toSorted()).toEqual(Object.values(asked).toSorted());
-        expect(named.has(other.events)).toBe(false);
-        expect(named.has(pruned.beforeEvents)).toBe(false);
+        expect([...named.named].toSorted()).toEqual(Object.values(asked).toSorted());
+        expect(named.named.has(other.events)).toBe(false);
+        expect(named.named.has(pruned.beforeEvents)).toBe(false);
+        // Every row counts, whether or not it was asked about.
+        expect(named.referencingRows).toBe(3);
       }),
     ),
   );
@@ -258,7 +265,8 @@ describe("namedSheetKeys", () => {
           rows[3]!.beforeGuests,
         ]);
 
-        expect(named.size).toBe(16);
+        expect(named.named.size).toBe(16);
+        expect(named.referencingRows).toBe(4);
       }),
     ),
   );
@@ -458,8 +466,31 @@ describe("sheetReconcileService.reconcileOrphans", () => {
         // The second run reaches the orphan and the end of the bucket.
         expect(yield* sheetReconcileService.reconcileOrphans(bucket, NOW)).toBe(1);
         expect(bucket.deleted).toEqual(new Set([orphan]));
-        expect(bucket.stored(SHEET_POSITION_KEY)).toBeUndefined();
+        // Between laps the object keeps only the row count.
+        expect(JSON.parse(bucket.stored(SHEET_POSITION_KEY)!)).toEqual({ referenced: 505 });
         expect(bucket.remaining()).toEqual(live.toSorted());
+      }),
+    ),
+  );
+
+  it(
+    "holds a run in which imports lost more than half its rows, then reaps on the next",
+    withDb(
+      Effect.gen(function* () {
+        const live = yield* seedChange({ before: false });
+        const orphan = keysFor(crypto.randomUUID());
+        const bucket = createSheetsStub(old(live.events, live.guests, orphan.events));
+        // The last run counted three rows; one is left.
+        yield* Effect.promise(() =>
+          bucket.put(SHEET_POSITION_KEY, JSON.stringify({ referenced: 3 })),
+        );
+
+        expect(yield* sheetReconcileService.reconcileOrphans(bucket, NOW)).toBe(0);
+        expect(bucket.remaining()).toContain(orphan.events);
+        expect(JSON.parse(bucket.stored(SHEET_POSITION_KEY)!)).toEqual({ referenced: 1 });
+
+        expect(yield* sheetReconcileService.reconcileOrphans(bucket, NOW)).toBe(1);
+        expect(bucket.deleted).toEqual(new Set([orphan.events]));
       }),
     ),
   );
