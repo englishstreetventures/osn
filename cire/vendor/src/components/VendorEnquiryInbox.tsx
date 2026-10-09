@@ -1,12 +1,13 @@
+import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Loading from "@cire/ui/loading";
-import { useAuth } from "@shared/rp-auth/solid";
 import { Chip, type ChipTone } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Notice } from "@shared/ui/ui/notice";
-import { createResource, For, Show } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 
-import { listEnquiries, type VendorEnquiryListItem } from "../lib/enquiries-store";
+import type { VendorEnquiryListItem } from "../lib/enquiries-store";
+import type { EnquiryInbox } from "../lib/enquiry-inbox";
 import { categoryLabel } from "../lib/service-categories";
 /**
  * A status, as a tone.
@@ -43,6 +44,8 @@ function shortDate(epochMs: number): string {
 }
 
 interface VendorEnquiryInboxProps {
+  /** The dashboard's inbox: the pages loaded so far outlive this component. */
+  inbox: EnquiryInbox;
   onOpen: (id: string) => void;
 }
 
@@ -50,9 +53,25 @@ interface VendorEnquiryInboxProps {
 const aud = new Intl.NumberFormat(undefined, { style: "currency", currency: "AUD" });
 
 export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
-  const { authFetch } = useAuth();
+  // Read again on every mount, so a row a thread just changed is fresh; the
+  // rows already held show meanwhile.
+  onMount(() => void props.inbox.refresh());
+  const rows = () => props.inbox.rows();
 
-  const [rows] = createResource(() => listEnquiries(authFetch));
+  // After a next page lands, focus moves to its first row and the count is
+  // announced: the button the vendor pressed may be gone (the last page) and
+  // the new rows arrive below it, out of view of a screen reader.
+  const rowButtons = new Map<string, HTMLButtonElement>();
+  const [announcement, setAnnouncement] = createSignal("");
+  const loadMore = async () => {
+    const before = rows()?.length ?? 0;
+    await props.inbox.loadMore();
+    const after = rows();
+    if (!after || after.length <= before) return;
+    const added = after.length - before;
+    setAnnouncement(added === 1 ? "1 more enquiry loaded" : `${added} more enquiries loaded`);
+    rowButtons.get(after[before]!.id)?.focus();
+  };
 
   return (
     <div class="flex flex-col gap-4">
@@ -61,24 +80,26 @@ export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
         <h2 class="font-display text-text text-ui-lg leading-tight font-light">Your inbox</h2>
       </div>
 
-      <Show when={rows.loading}>
+      <output class="sr-only">{announcement()}</output>
+
+      <Show when={rows() === null && !props.inbox.failed()}>
         <Loading label="Loading enquiries…" />
       </Show>
 
-      <Show when={rows.error}>
+      <Show when={props.inbox.failed()}>
         <Notice tone="danger" alert>
           Could not load enquiries. Please refresh.
         </Notice>
       </Show>
 
-      <Show when={!rows.loading && !rows.error && (rows()?.length ?? 0) === 0}>
+      <Show when={rows()?.length === 0}>
         <EmptyState
           title="No enquiries yet"
           description="When a couple asks about one of your listings, their message lands here."
         />
       </Show>
 
-      <Show when={!rows.loading && !rows.error && (rows()?.length ?? 0) > 0}>
+      <Show when={(rows()?.length ?? 0) > 0}>
         <ul class="flex list-none flex-col gap-2 p-0">
           <For each={rows()}>
             {(item) => (
@@ -88,6 +109,7 @@ export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
                     `<div role="button">`. */}
                 <button
                   type="button"
+                  ref={(el) => rowButtons.set(item.id, el)}
                   onClick={() => props.onOpen(item.id)}
                   class={`${cardClass({ interactive: true })} w-full gap-1.5 p-4`}
                   aria-label={`${item.weddingName} – ${categoryLabel(item.category)}`}
@@ -123,6 +145,19 @@ export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
             )}
           </For>
         </ul>
+        <Show when={props.inbox.nextCursor() !== null}>
+          {/* `aria-disabled`, not `disabled`, so the button keeps focus while
+              the page loads; `Button` swallows the click meanwhile. */}
+          <Button
+            variant="quiet"
+            size="sm"
+            class="self-start"
+            aria-disabled={props.inbox.loadingMore() ? "true" : undefined}
+            onClick={() => void loadMore()}
+          >
+            {props.inbox.loadingMore() ? "Loading…" : "Load more enquiries"}
+          </Button>
+        </Show>
       </Show>
     </div>
   );

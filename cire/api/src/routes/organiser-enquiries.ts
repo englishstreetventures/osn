@@ -6,6 +6,7 @@ import { Elysia } from "elysia";
 
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
+import { parseEnquiryPage } from "../lib/enquiry-page";
 import { isServiceCategory } from "../lib/service-categories";
 import type { ServiceCategory } from "../lib/service-categories";
 import { osnAuth } from "../middleware/osn-auth";
@@ -91,7 +92,7 @@ const loadEnquiryInWedding = (
 /**
  * Couple-side vendor-enquiry routes (Vendors S4), mounted under /api/organiser.
  * osnAuth() gates every route. The per-wedding subtree splits by authorisation:
- *  - READS (`GET /enquiries`, `GET /enquiries/:id/messages`) use
+ *  - READS (`GET /enquiries`, one page at a time; `GET /enquiries/:id/messages`) use
  *    `weddingMember()` — owner OR any co-host (editor AND viewer).
  *  - WRITES (`POST /enquiries`, reply, add-to-budget) use `weddingEditor()`
  *    (owner or editor; a viewer co-host gets 403 `read_only_role`) behind a
@@ -124,12 +125,15 @@ export const createOrganiserEnquiriesRoutes = (
         group
           .use(weddingMember(db))
           .use(weddingTier(db, "crimson"))
-          .get("/enquiries", ({ weddingId, set }) => {
+          // One page, newest first: `?limit=` (at most ENQUIRY_PAGE_MAX) and
+          // `?cursor=` from the previous page's `nextCursor`.
+          .get("/enquiries", ({ weddingId, query, set }) => {
             if (!weddingId) return internalSync(set);
+            const page = parseEnquiryPage(query);
+            if (!page) return invalidCursorSync(set);
             return runCire(
-              enquiryService.list(weddingId).pipe(
+              enquiryService.list(weddingId, page).pipe(
                 Effect.provideService(DbService, db),
-                Effect.map((enquiries) => ({ enquiries })),
                 Effect.catchDefect(() => internal(set)),
               ),
             );
@@ -352,4 +356,9 @@ export const createOrganiserEnquiriesRoutes = (
 function internalSync(set: { status?: number | string }) {
   set.status = 500;
   return { error: "Internal error" };
+}
+
+function invalidCursorSync(set: { status?: number | string }) {
+  set.status = 400;
+  return { error: "invalid_cursor" };
 }

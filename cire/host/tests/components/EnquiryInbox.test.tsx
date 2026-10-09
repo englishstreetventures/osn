@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
+import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import EnquiryInbox from "../../src/components/EnquiryInbox";
@@ -93,5 +94,65 @@ describe("EnquiryInbox", () => {
       .filter((b) => b.getAttribute("aria-current") !== null);
     expect(marked).toHaveLength(1);
     expect(marked[0]).toHaveAccessibleName(/Southbank Strings/);
+  });
+
+  it("offers the next page under the list while one follows, and asks for it", () => {
+    const onLoadMore = vi.fn();
+    render(() => (
+      <EnquiryInbox
+        items={[item()]}
+        currency="AUD"
+        onOpen={() => {}}
+        hasMore
+        onLoadMore={onLoadMore}
+      />
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "Load more enquiries" }));
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds the button while the next page is on its way, without taking its focus", () => {
+    const onLoadMore = vi.fn(async () => {});
+    render(() => (
+      <EnquiryInbox
+        items={[item()]}
+        currency="AUD"
+        onOpen={() => {}}
+        hasMore
+        loadingMore
+        onLoadMore={onLoadMore}
+      />
+    ));
+    const button = screen.getByRole("button", { name: "Loading…" });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).not.toBeDisabled();
+    fireEvent.click(button);
+    expect(onLoadMore).not.toHaveBeenCalled();
+  });
+
+  it("moves focus to the first new row and announces how many arrived", async () => {
+    const [items, setItems] = createSignal([item({ id: "enq_new", vendorName: "Blue Roses" })]);
+    render(() => (
+      <EnquiryInbox
+        items={items()}
+        currency="AUD"
+        onOpen={() => {}}
+        hasMore
+        onLoadMore={async () => {
+          setItems((rows) => [...rows, item({ id: "enq_old", vendorName: "Old Oak Films" })]);
+        }}
+      />
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "Load more enquiries" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Old Oak Films/ })).toHaveFocus(),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("1 more enquiry loaded");
+  });
+
+  it("offers no next page once the last one is loaded", () => {
+    render(() => <EnquiryInbox items={[item()]} currency="AUD" onOpen={() => {}} />);
+    expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
   });
 });

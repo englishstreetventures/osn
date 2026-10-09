@@ -9,8 +9,12 @@ import {
   setCachedEnquiries,
   invalidateEnquiries,
   upsertCachedEnquiry,
+  enquiriesNextCursor,
+  loadMoreEnquiries,
   type EnquiryListItem,
+  type EnquiryPage,
 } from "../../src/lib/enquiries-store";
+import { __resetWeddingScope, closeWeddingScope } from "../../src/lib/wedding-scope";
 
 const item = (over: Partial<EnquiryListItem> = {}): EnquiryListItem => ({
   id: "enq_1",
@@ -29,7 +33,26 @@ const item = (over: Partial<EnquiryListItem> = {}): EnquiryListItem => ({
   ...over,
 });
 
-beforeEach(() => __resetEnquiriesCache());
+const page = (enquiries: EnquiryListItem[], nextCursor: string | null = null): EnquiryPage => ({
+  enquiries,
+  nextCursor,
+});
+
+/** A fetch the test settles by hand. */
+function held<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (err: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+beforeEach(() => {
+  __resetEnquiriesCache();
+  __resetWeddingScope();
+});
 
 describe("enquiries-store", () => {
   it("caches and reads back per wedding", () => {
@@ -42,7 +65,7 @@ describe("enquiries-store", () => {
     let calls = 0;
     const fetcher = async () => {
       calls++;
-      return [item()];
+      return page([item()]);
     };
     await Promise.all([
       ensureEnquiriesLoaded("wed_1", fetcher),
@@ -103,7 +126,7 @@ describe("enquiries-store", () => {
     let calls = 0;
     await ensureEnquiriesLoaded("wed_1", async () => {
       calls++;
-      return [];
+      return page([]);
     });
     expect(calls).toBe(1);
   });
@@ -111,9 +134,9 @@ describe("enquiries-store", () => {
   it("ensureEnquiriesLoaded refetches after invalidate and replaces the stale rows on success", async () => {
     setCachedEnquiries("wed_1", [item({ id: "enq_a" })]);
     invalidateEnquiries("wed_1");
-    await expect(ensureEnquiriesLoaded("wed_1", async () => [item({ id: "enq_b" })])).resolves.toBe(
-      true,
-    );
+    await expect(
+      ensureEnquiriesLoaded("wed_1", async () => page([item({ id: "enq_b" })])),
+    ).resolves.toBe(true);
     expect(enquiriesAccessor("wed_1")()?.map((e) => e.id)).toEqual(["enq_b"]);
     expect(hasCachedEnquiries("wed_1")).toBe(true);
   });
@@ -145,7 +168,7 @@ describe("enquiries-store", () => {
     let calls = 0;
     const fetcher = async () => {
       calls++;
-      return [item()];
+      return page([item()]);
     };
     await expect(ensureEnquiriesLoaded("wed_1", fetcher)).resolves.toBe(true);
     await expect(ensureEnquiriesLoaded("wed_1", fetcher)).resolves.toBe(true);
@@ -165,17 +188,17 @@ describe("enquiries-store", () => {
    * writing those stale rows in afterwards — the generation bump does.
    */
   it("does not adopt a fetch that was in flight when the cache was invalidated", async () => {
-    let resolveStale!: (items: EnquiryListItem[]) => void;
-    const stale = new Promise<EnquiryListItem[]>((r) => {
+    let resolveStale!: (p: EnquiryPage) => void;
+    const stale = new Promise<EnquiryPage>((r) => {
       resolveStale = r;
     });
     const pending = ensureEnquiriesLoaded("wed_1", () => stale);
 
     invalidateEnquiries("wed_1");
-    resolveStale([item({ id: "stale" })]);
+    resolveStale(page([item({ id: "stale" })]));
     await pending;
 
-    const fresh = async () => [item({ id: "fresh" })];
+    const fresh = async () => page([item({ id: "fresh" })]);
     await ensureEnquiriesLoaded("wed_1", fresh);
 
     expect(peekCachedEnquiries("wed_1")?.map((r) => r.id)).toEqual(["fresh"]);
@@ -185,7 +208,7 @@ describe("enquiries-store", () => {
   it("upsertCachedEnquiry and peekCachedEnquiries still work after an invalidate/reload cycle", async () => {
     setCachedEnquiries("wed_1", [item({ id: "enq_1" })]);
     invalidateEnquiries("wed_1");
-    await ensureEnquiriesLoaded("wed_1", async () => [item({ id: "enq_1" })]);
+    await ensureEnquiriesLoaded("wed_1", async () => page([item({ id: "enq_1" })]));
     upsertCachedEnquiry("wed_1", item({ id: "enq_2" }));
     expect(peekCachedEnquiries("wed_1")?.map((r) => r.id)).toContain("enq_2");
   });
@@ -216,7 +239,7 @@ describe("enquiries-store", () => {
     let recoveringCalls = 0;
     await ensureEnquiriesLoaded("wed_1", async () => {
       recoveringCalls++;
-      return [item()];
+      return page([item()]);
     });
     expect(recoveringCalls).toBe(1);
   });
@@ -259,7 +282,7 @@ describe("enquiries-store", () => {
    * rows no in-generation load ever confirmed.
    */
   it("a generation-stale success writes no rows and leaves the wedding stale", async () => {
-    await ensureEnquiriesLoaded("wed_1", async () => [item({ id: "seed" })]);
+    await ensureEnquiriesLoaded("wed_1", async () => page([item({ id: "seed" })]));
     invalidateEnquiries("wed_1");
 
     let release!: () => void;
@@ -268,7 +291,7 @@ describe("enquiries-store", () => {
     });
     const pending = ensureEnquiriesLoaded("wed_1", async () => {
       await gate;
-      return [item({ id: "abandoned" })];
+      return page([item({ id: "abandoned" })]);
     });
 
     invalidateEnquiries("wed_1"); // a second invalidate, while that load is still in flight
@@ -277,5 +300,211 @@ describe("enquiries-store", () => {
 
     expect(enquiriesAccessor("wed_1")()?.map((r) => r.id)).toEqual(["seed"]);
     expect(hasCachedEnquiries("wed_1")).toBe(false);
+  });
+});
+
+describe("enquiries-store paging", () => {
+  /** Page one loaded: rows at seconds 300 and 200, with a cursor after the second. */
+  async function loadPageOne() {
+    await ensureEnquiriesLoaded("wed_1", async () =>
+      page(
+        [
+          item({ id: "enq_c", lastMessageAt: 300_000 }),
+          item({ id: "enq_b", lastMessageAt: 200_000 }),
+        ],
+        "200.enq_b",
+      ),
+    );
+  }
+
+  it("keeps page one's cursor beside its rows", async () => {
+    await loadPageOne();
+    expect(enquiriesNextCursor("wed_1")()).toBe("200.enq_b");
+  });
+
+  it("appends the next page in inbox order and moves the cursor on", async () => {
+    await loadPageOne();
+    const cursors: string[] = [];
+    await expect(
+      loadMoreEnquiries("wed_1", async (cursor) => {
+        cursors.push(cursor);
+        return page([item({ id: "enq_a", lastMessageAt: 100_000 })]);
+      }),
+    ).resolves.toBe(true);
+    expect(cursors).toEqual(["200.enq_b"]);
+    expect(peekCachedEnquiries("wed_1")?.map((e) => e.id)).toEqual(["enq_c", "enq_b", "enq_a"]);
+    expect(enquiriesNextCursor("wed_1")()).toBeNull();
+  });
+
+  it("keeps one copy of an enquiry both hold, the page's, in its place in the order", async () => {
+    await loadPageOne();
+    // An enquiry an organiser re-opened on a cold row sits in the cache at its
+    // own time; the next page brings the server's copy of it.
+    upsertCachedEnquiry("wed_1", item({ id: "enq_old", lastMessageAt: 50_000, status: "open" }));
+    await loadMoreEnquiries("wed_1", async () =>
+      page([
+        item({ id: "enq_a", lastMessageAt: 100_000 }),
+        item({ id: "enq_old", lastMessageAt: 50_000, status: "quoted" }),
+      ]),
+    );
+    const rows = peekCachedEnquiries("wed_1")!;
+    expect(rows.map((e) => e.id)).toEqual(["enq_c", "enq_b", "enq_a", "enq_old"]);
+    expect(rows.find((e) => e.id === "enq_old")!.status).toBe("quoted");
+  });
+
+  it("sorts a cached row older than the new page below that page's rows", async () => {
+    await loadPageOne();
+    // A row the cache holds although its page is not loaded yet.
+    upsertCachedEnquiry("wed_1", item({ id: "enq_old", lastMessageAt: 50_000 }));
+    await loadMoreEnquiries("wed_1", async () =>
+      page([item({ id: "enq_a", lastMessageAt: 100_000 })], "100.enq_a"),
+    );
+    expect(peekCachedEnquiries("wed_1")?.map((e) => e.id)).toEqual([
+      "enq_c",
+      "enq_b",
+      "enq_a",
+      "enq_old",
+    ]);
+  });
+
+  it("orders a tie within one millisecond by id, greater first, as the server does", () => {
+    setCachedEnquiries("wed_1", [item({ id: "enq_b", lastMessageAt: 5 })]);
+    upsertCachedEnquiry("wed_1", item({ id: "enq_a", lastMessageAt: 5 }));
+    upsertCachedEnquiry("wed_1", item({ id: "enq_c", lastMessageAt: 5 }));
+    expect(peekCachedEnquiries("wed_1")?.map((e) => e.id)).toEqual(["enq_c", "enq_b", "enq_a"]);
+  });
+
+  it("merges into the rows as they are when the page arrives, not when it was asked for", async () => {
+    await loadPageOne();
+    const next = held<EnquiryPage>();
+    const pending = loadMoreEnquiries("wed_1", () => next.promise);
+    upsertCachedEnquiry("wed_1", item({ id: "enq_new", lastMessageAt: 400_000 }));
+    next.resolve(page([item({ id: "enq_a", lastMessageAt: 100_000 })]));
+    await pending;
+    expect(peekCachedEnquiries("wed_1")?.map((e) => e.id)).toEqual([
+      "enq_new",
+      "enq_c",
+      "enq_b",
+      "enq_a",
+    ]);
+  });
+
+  it("shares one request between clicks that overlap", async () => {
+    await loadPageOne();
+    let calls = 0;
+    const next = held<EnquiryPage>();
+    const fetcher = () => {
+      calls++;
+      return next.promise;
+    };
+    const both = Promise.all([
+      loadMoreEnquiries("wed_1", fetcher),
+      loadMoreEnquiries("wed_1", fetcher),
+    ]);
+    next.resolve(page([item({ id: "enq_a", lastMessageAt: 100_000 })]));
+    expect(await both).toEqual([true, true]);
+    expect(calls).toBe(1);
+    expect(peekCachedEnquiries("wed_1")).toHaveLength(3);
+  });
+
+  it("fetches nothing when there is no next page, nothing loaded, or the wedding is closed", async () => {
+    let calls = 0;
+    const fetcher = async () => {
+      calls++;
+      return page([]);
+    };
+    // Nothing loaded.
+    expect(await loadMoreEnquiries("wed_1", fetcher)).toBe(false);
+    // Loaded, last page.
+    await ensureEnquiriesLoaded("wed_1", async () => page([item()]));
+    expect(await loadMoreEnquiries("wed_1", fetcher)).toBe(false);
+    // Closed.
+    await ensureEnquiriesLoaded("wed_2", async () => page([item()], "1.enq_1"));
+    closeWeddingScope("wed_2");
+    expect(await loadMoreEnquiries("wed_2", fetcher)).toBe(false);
+    expect(calls).toBe(0);
+  });
+
+  // A page from the old cursor, landing after a fresh page one, would sit
+  // below it with the rows between them missing.
+  it("fetches nothing while page one is stale", async () => {
+    await loadPageOne();
+    invalidateEnquiries("wed_1");
+    let calls = 0;
+    expect(
+      await loadMoreEnquiries("wed_1", async () => {
+        calls++;
+        return page([]);
+      }),
+    ).toBe(false);
+    expect(calls).toBe(0);
+  });
+
+  it("asks for the next page again once a reload has replaced page one", async () => {
+    await loadPageOne();
+    const abandoned = held<EnquiryPage>();
+    void loadMoreEnquiries("wed_1", () => abandoned.promise);
+    invalidateEnquiries("wed_1");
+    await ensureEnquiriesLoaded("wed_1", async () =>
+      page([item({ id: "enq_c", lastMessageAt: 300_000 })], "300.enq_c"),
+    );
+
+    const cursors: string[] = [];
+    await expect(
+      loadMoreEnquiries("wed_1", async (cursor) => {
+        cursors.push(cursor);
+        return page([item({ id: "enq_b", lastMessageAt: 200_000 })]);
+      }),
+    ).resolves.toBe(true);
+    expect(cursors).toEqual(["300.enq_c"]);
+    expect(peekCachedEnquiries("wed_1")?.map((e) => e.id)).toEqual(["enq_c", "enq_b"]);
+  });
+
+  it("drops a page that lands after an invalidation", async () => {
+    await loadPageOne();
+    const next = held<EnquiryPage>();
+    const pending = loadMoreEnquiries("wed_1", () => next.promise);
+    invalidateEnquiries("wed_1");
+    next.resolve(page([item({ id: "enq_a", lastMessageAt: 100_000 })]));
+    expect(await pending).toBe(false);
+    expect(peekCachedEnquiries("wed_1")?.map((e) => e.id)).toEqual(["enq_c", "enq_b"]);
+  });
+
+  // The next page is a server check like the reload: an organiser who has lost
+  // access must not keep reading the pages already loaded behind an error.
+  it("blanks the rows and the cursor and rethrows when the next page is refused", async () => {
+    await loadPageOne();
+    const refusal = new Error("403");
+    await expect(
+      loadMoreEnquiries("wed_1", async () => {
+        throw refusal;
+      }),
+    ).rejects.toBe(refusal);
+    expect(enquiriesAccessor("wed_1")()).toBeNull();
+    expect(enquiriesNextCursor("wed_1")()).toBeNull();
+    expect(hasCachedEnquiries("wed_1")).toBe(false);
+  });
+
+  it("leaves rows a newer load owns alone when a superseded page is refused", async () => {
+    await loadPageOne();
+    const next = held<EnquiryPage>();
+    const pending = loadMoreEnquiries("wed_1", () => next.promise);
+    invalidateEnquiries("wed_1");
+    await ensureEnquiriesLoaded("wed_1", async () => page([item({ id: "enq_fresh" })], "9.enq_x"));
+    next.reject(new Error("network down"));
+    await expect(pending).rejects.toThrow("network down");
+    expect(peekCachedEnquiries("wed_1")?.map((e) => e.id)).toEqual(["enq_fresh"]);
+    expect(enquiriesNextCursor("wed_1")()).toBe("9.enq_x");
+  });
+
+  it("a refused reload clears the cursor too", async () => {
+    await loadPageOne();
+    invalidateEnquiries("wed_1");
+    await expect(
+      ensureEnquiriesLoaded("wed_1", async () => {
+        throw new Error("403");
+      }),
+    ).rejects.toThrow("403");
+    expect(enquiriesNextCursor("wed_1")()).toBeNull();
   });
 });

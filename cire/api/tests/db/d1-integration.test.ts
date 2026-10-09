@@ -23,6 +23,7 @@ import {
   unlockCodeRedemptions,
   unlockCodes,
   vendorClaims,
+  vendorEnquiries,
   vendors,
   weddingFaqs,
   platformSales,
@@ -49,6 +50,7 @@ import {
 import { commitBatch, createD1Db, DbService } from "../../src/db/index";
 import type { Db } from "../../src/db/index";
 import { DDL } from "../../src/db/setup";
+import { decodeEnquiryCursor, type EnquiryCursor } from "../../src/lib/enquiry-page";
 import type { ImportPlan } from "../../src/schemas/import";
 import { FAQ_LIMITS } from "../../src/schemas/invite-faq";
 import { PLUS_ONE_NAME_MAX, PLUS_ONE_REMOVALS_MAX } from "../../src/schemas/plus-one";
@@ -64,6 +66,7 @@ import {
   createDirectoryService,
   OrgAlreadyHasListing,
 } from "../../src/services/directory";
+import { createEnquiryService, listingEnquiriesQuery } from "../../src/services/enquiries";
 import { giftExportService } from "../../src/services/gift-export";
 import { hostsService, MAX_HOSTS_PER_WEDDING } from "../../src/services/hosts";
 import { applyImport } from "../../src/services/import";
@@ -3411,4 +3414,148 @@ describe("cire/api over real D1 (Miniflare)", () => {
     },
     MF_TIMEOUT_MS,
   );
+  describe("enquiry inboxes over D1", () => {
+    const inboxes = createEnquiryService({
+      zap: null,
+      sendEmail: () => Effect.void,
+      threadBaseUrl: "https://host.test/enquiries",
+    });
+
+    /** One enquiry from `weddingId` (created on first use) to `listing`, at epoch second `s`. */
+    async function enquiry(id: string, listing: string, weddingId: string, s: number) {
+      const now = new Date();
+      const [known] = await db.select().from(weddings).where(eq(weddings.id, weddingId));
+      if (!known) {
+        await db.insert(weddings).values({
+          id: weddingId,
+          slug: weddingId,
+          displayName: `Wedding ${weddingId}`,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      await db.insert(vendors).values({
+        id: `ven_${id}`,
+        weddingId,
+        directoryVendorId: listing,
+        name: `CRM ${id}`,
+        category: "photography",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(vendorEnquiries).values({
+        id,
+        weddingId,
+        directoryVendorId: listing,
+        vendorId: `ven_${id}`,
+        status: "open",
+        createdBy: "usr_test",
+        lastMessageAt: new Date(s * 1000),
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    async function walk(
+      read: (after: EnquiryCursor | null) => Promise<{
+        enquiries: { id: string }[];
+        nextCursor: string | null;
+      }>,
+    ): Promise<string[]> {
+      const ids: string[] = [];
+      let after: EnquiryCursor | null = null;
+      for (let pages = 0; pages < 20; pages++) {
+        const page = await read(after);
+        ids.push(...page.enquiries.map((e) => e.id));
+        if (page.nextCursor === null) return ids;
+        after = decodeEnquiryCursor(page.nextCursor);
+      }
+      throw new Error("walk did not end");
+    }
+
+    it(
+      "walks six listings' inbox page by page, each enquiry once, across ties in one second",
+      async () => {
+        const now = new Date();
+        // Six listings: two UNION ALL statements, five arms and one, which is
+        // D1's compound-select ceiling exactly.
+        for (let n = 0; n < 6; n++) {
+          await db.insert(directoryVendors).values({
+            id: `dv_inbox_${n}`,
+            ownerOrgId: `org_inbox_${n}`,
+            name: `Listing ${n}`,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+        const expected: Array<[string, string, number]> = [
+          ["enq_k", "dv_inbox_5", 900],
+          ["enq_j", "dv_inbox_0", 800],
+          ["enq_i", "dv_inbox_3", 800],
+          ["enq_h", "dv_inbox_1", 800],
+          ["enq_g", "dv_inbox_4", 700],
+          ["enq_f", "dv_inbox_2", 600],
+          ["enq_e", "dv_inbox_5", 600],
+          ["enq_d", "dv_inbox_0", 500],
+          ["enq_c", "dv_inbox_1", 400],
+        ];
+        for (const [id, listing, s] of expected.toReversed()) {
+          await enquiry(id, listing, `wed_${id}`, s);
+        }
+
+        const orgs = Array.from({ length: 6 }, (_, n) => `org_inbox_${n}`);
+        expect(await walk((after) => run(inboxes.vendorInbox(orgs, { limit: 2, after })))).toEqual(
+          expected.map(([id]) => id),
+        );
+      },
+      MF_TIMEOUT_MS,
+    );
+
+    it(
+      "walks a wedding's inbox page by page across ties in one second",
+      async () => {
+        const expected: Array<[string, number]> = [
+          ["enq_w_d", 300],
+          ["enq_w_c", 300],
+          ["enq_w_b", 300],
+          ["enq_w_a", 100],
+        ];
+        for (const [id, s] of expected.toReversed()) {
+          await enquiry(id, `dv_${id}`, BOOTSTRAP_WEDDING_ID, s);
+        }
+
+        expect(
+          await walk((after) => run(inboxes.list(BOOTSTRAP_WEDDING_ID, { limit: 2, after }))),
+        ).toEqual(expected.map(([id]) => id));
+      },
+      MF_TIMEOUT_MS,
+    );
+
+    it(
+      "reads each listing through the keyset index on D1, with no sort",
+      async () => {
+        const { sql: text, params } = listingEnquiriesQuery(
+          db,
+          [{ listingId: "dv_a" }, { ownerOrgId: "org_b" }],
+          { limit: 50, after: { lastMessageAt: 100, id: "enq_x" } },
+        ).toSQL();
+        const { results } = await d1
+          .prepare(`EXPLAIN QUERY PLAN ${text}`)
+          .bind(...params)
+          .all<{ detail: string }>();
+        const plan = results.map((r) => r.detail).join("\n");
+        expect(
+          plan.match(
+            /SEARCH vendor_enquiries USING INDEX vendor_enquiries_directory_last_msg_idx \(directory_vendor_id=\? AND \(last_message_at,id\)<\(\?,\?\)\)/g,
+          ),
+        ).toHaveLength(2);
+        // The organisation's arm finds its listing by a probe of the unique index.
+        expect(plan).toMatch(
+          /SEARCH directory_vendors USING (COVERING )?INDEX directory_vendors_owner_uniq \(owner_org_id=\?\)/,
+        );
+        expect(plan).not.toContain("TEMP B-TREE");
+      },
+      MF_TIMEOUT_MS,
+    );
+  });
 });

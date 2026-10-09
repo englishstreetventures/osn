@@ -12,8 +12,10 @@ import {
 } from "../lib/enquiries-api";
 import {
   enquiriesAccessor,
+  enquiriesNextCursor,
   ensureEnquiriesLoaded,
   type EnquiryMessage,
+  loadMoreEnquiries,
   upsertCachedEnquiry,
 } from "../lib/enquiries-store";
 import EnquiryInbox from "./EnquiryInbox";
@@ -44,6 +46,26 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
 
   // Reactive accessor for the enquiry list.
   const enquiries = () => enquiriesAccessor(props.weddingId)() ?? [];
+
+  // The inbox arrives a page at a time; the cursor says whether another follows.
+  const hasMore = () => enquiriesNextCursor(props.weddingId)() !== null;
+  const [loadingMore, setLoadingMore] = createSignal(false);
+  const handleLoadMore = async () => {
+    if (loadingMore()) return;
+    setLoadingMore(true);
+    try {
+      await loadMoreEnquiries(props.weddingId, (cursor) =>
+        fetchEnquiries(authFetch, props.weddingId, cursor),
+      );
+    } catch (err) {
+      // The store has already cleared the inbox: a refused page is the same
+      // re-check as a refused reload.
+      if (isAuthExpired(err)) redirectToLogin();
+      else toast.error(enquiryErrorMessage(err));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   // Find the selected enquiry by id from the cached list.
   const selectedEnquiry = () => {
@@ -78,17 +100,13 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
     if (!id) return;
     const sent = await replyEnquiry(authFetch, props.weddingId, id, message);
     // Refresh the inbox row by writing through the LIVE signal, not by
-    // invalidate-then-reload. `invalidateEnquiries` now notifies the same
-    // signal the mounted inbox reads, so a reload WOULD reach it — but it
-    // would still cost a whole-list round-trip to learn one row's new
-    // timestamp, which is exactly the round-trip ENQ-P-I1 (below) paid down.
-    //
-    // ENQ-P-I1: refetching the WHOLE inbox to learn one row's new timestamp
-    // was a list-sized round-trip per reply. The server's reply path sets only
-    // `lastMessageAt` + `updatedAt` on this one row — never `status`, which
-    // moves on quote, not on message — so the post-reply row is derivable
-    // locally, and `upsertCachedEnquiry` re-sorts the list the same way the
-    // server's `ORDER BY lastMessageAt DESC` does.
+    // invalidate-then-reload. A reload would reach the mounted inbox too, but
+    // it would cost a page-sized round trip to learn one row's new timestamp,
+    // and would put the inbox back to page one. The server's reply path sets
+    // only `lastMessageAt` + `updatedAt` on this one row — never `status`,
+    // which moves on quote, not on message — so the post-reply row is
+    // derivable locally, and `upsertCachedEnquiry` re-sorts the list the way
+    // the server orders it.
     //
     // No `else`: `selectedEnquiry()` is derived from this same cached list, so
     // a miss means the thread was never on screen and this handler could not
@@ -141,6 +159,9 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
             currency={props.currency}
             selectedId={selectedId()}
             onOpen={setSelectedId}
+            hasMore={hasMore()}
+            loadingMore={loadingMore()}
+            onLoadMore={handleLoadMore}
           />
         </div>
 

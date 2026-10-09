@@ -6,6 +6,7 @@ import {
   directoryVendors,
   vendorEnquiries,
   vendors,
+  weddings,
 } from "@cire/db";
 import type { SendEmailInput } from "@shared/email";
 import { eq } from "drizzle-orm";
@@ -14,15 +15,27 @@ import { Cause, Effect, Exit, Option } from "effect";
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
+import {
+  decodeEnquiryCursor,
+  type EnquiryCursor,
+  type EnquiryPageRequest,
+} from "../../src/lib/enquiry-page";
 import type { DirectoryVendorRow } from "../../src/services/directory";
 import {
   createEnquiryService,
   EnquiryAwaitingVendor,
   type EnquiryRow,
   flushBufferedEnquiry,
+  listingEnquiriesQuery,
+  MAX_INBOX_LISTINGS,
+  type VendorInboxArm,
+  weddingEnquiriesQuery,
   ZapUnavailable,
 } from "../../src/services/enquiries";
 import { type ZapChatClient, ZapChatRejected } from "../../src/services/zap-bridge";
+import { recordStatements } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
+import { insertWedding } from "../test-helpers/wedding";
 
 // ---------------------------------------------------------------------------
 // Fixtures — a claimed + an unclaimed directory listing under the seed wedding.
@@ -177,6 +190,137 @@ function readEnquiry(db: TestDb, id: string): EnquiryRow {
   const row = db.select().from(vendorEnquiries).where(eq(vendorEnquiries.id, id)).get();
   if (!row) throw new Error(`enquiry ${id} not found`);
   return row as unknown as EnquiryRow;
+}
+
+// ---------------------------------------------------------------------------
+// Inbox paging fixtures
+// ---------------------------------------------------------------------------
+
+const FIRST_PAGE: EnquiryPageRequest = { limit: 50, after: null };
+
+/** Epoch second `s` as the Date a timestamp column takes. */
+const at = (s: number) => new Date(s * 1000);
+
+/** A list-only service: the inbox reads touch neither zap nor email. */
+const inboxService = () =>
+  createEnquiryService({ zap: null, sendEmail: fakeEmail().sendEmail, threadBaseUrl: THREAD_BASE });
+
+/** One enquiry in the seed wedding, against its own made-up listing. */
+function seedCoupleEnquiry(db: TestDb, id: string, lastMessageAt: Date): void {
+  const now = new Date();
+  const vendorId = `ven_${id}`;
+  db.insert(vendors)
+    .values({
+      id: vendorId,
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      directoryVendorId: `dv_${id}`,
+      name: `Vendor ${id}`,
+      category: "florist",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(vendorEnquiries)
+    .values({
+      id,
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      directoryVendorId: `dv_${id}`,
+      vendorId,
+      status: "open",
+      createdBy: ORGANISER_PROFILE_ID,
+      lastMessageAt,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
+
+/** A bare database for the vendor inbox: no seed wedding, so every row is the test's own. */
+function inboxDb(): TestDb {
+  return createDb(":memory:");
+}
+
+function seedListing(db: TestDb, id: string, ownerOrgId: string): void {
+  const now = new Date();
+  db.insert(directoryVendors)
+    .values({ id, ownerOrgId, name: `Listing ${id}`, createdAt: now, updatedAt: now })
+    .run();
+}
+
+/** An enquiry from wedding `wedding` (created on first use) to listing `listing`. */
+function seedVendorEnquiry(
+  db: TestDb,
+  e: { id: string; listing: string; wedding: string; s: number },
+): void {
+  const now = new Date();
+  if (!db.select().from(weddings).where(eq(weddings.id, e.wedding)).get()) {
+    insertWedding(db, { id: e.wedding, slug: e.wedding, displayName: `Wedding ${e.wedding}` });
+  }
+  const vendorId = `ven_${e.id}`;
+  db.insert(vendors)
+    .values({
+      id: vendorId,
+      weddingId: e.wedding,
+      directoryVendorId: e.listing,
+      name: `CRM ${e.wedding}`,
+      category: "photography",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(vendorEnquiries)
+    .values({
+      id: e.id,
+      weddingId: e.wedding,
+      directoryVendorId: e.listing,
+      vendorId,
+      status: "open",
+      createdBy: ORGANISER_PROFILE_ID,
+      lastMessageAt: at(e.s),
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
+
+async function inbox(db: TestDb, orgIds: string[], page: EnquiryPageRequest) {
+  const res = await run(db, inboxService().vendorInbox(orgIds, page));
+  if (!Exit.isSuccess(res)) throw new Error("vendorInbox failed");
+  return res.value;
+}
+
+/** Follow `nextCursor` from page one to the end, collecting ids in order. */
+async function walk(
+  read: (
+    after: EnquiryCursor | null,
+  ) => Promise<{ enquiries: { id: string }[]; nextCursor: string | null }>,
+): Promise<{ ids: string[]; pages: number }> {
+  const ids: string[] = [];
+  let after: EnquiryCursor | null = null;
+  let pages = 0;
+  for (;;) {
+    // Sequential by nature: each page's cursor comes from the one before.
+    // eslint-disable-next-line no-await-in-loop
+    const page = await read(after);
+    pages++;
+    ids.push(...page.enquiries.map((e) => e.id));
+    if (page.nextCursor === null) return { ids, pages };
+    after = decodeEnquiryCursor(page.nextCursor);
+    if (after === null) throw new Error(`unreadable cursor ${page.nextCursor}`);
+    if (pages > 50) throw new Error("walk did not end");
+  }
+}
+
+/** The plan SQLite chooses for a Drizzle query, one detail line per step. */
+function planOf(db: TestDb, query: { toSQL(): { sql: string; params: unknown[] } }): string {
+  const { sql, params } = query.toSQL();
+  return (
+    db.$client.query(`EXPLAIN QUERY PLAN ${sql}`).all(...(params as never[])) as Array<{
+      detail: string;
+    }>
+  )
+    .map((r) => r.detail)
+    .join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -899,10 +1043,268 @@ describe("enquiryService.list", () => {
     seed(1, CLAIMED_VENDOR_ID, new Date("2026-07-01T00:00:00Z"));
     seed(2, UNCLAIMED_VENDOR_ID, new Date("2026-07-20T00:00:00Z"));
 
-    const res = await run(db, svc.list(BOOTSTRAP_WEDDING_ID));
+    const res = await run(db, svc.list(BOOTSTRAP_WEDDING_ID, FIRST_PAGE));
     if (!Exit.isSuccess(res)) throw new Error("list failed");
-    expect(res.value.map((e) => e.id)).toEqual(["enq_list_2", "enq_list_1"]);
+    expect(res.value.enquiries.map((e) => e.id)).toEqual(["enq_list_2", "enq_list_1"]);
     // The join columns ride along.
-    expect(res.value[0]!.vendorName).toBe("Vendor 2");
+    expect(res.value.enquiries[0]!.vendorName).toBe("Vendor 2");
+    expect(res.value.nextCursor).toBeNull();
+  });
+
+  it("never returns more than the page it was asked for, and says where the next one starts", async () => {
+    const db = db0();
+    for (let n = 0; n < 5; n++) seedCoupleEnquiry(db, `enq_cap_${n}`, at(100 + n));
+
+    const res = await run(db, inboxService().list(BOOTSTRAP_WEDDING_ID, { limit: 2, after: null }));
+    if (!Exit.isSuccess(res)) throw new Error("list failed");
+    expect(res.value.enquiries.map((e) => e.id)).toEqual(["enq_cap_4", "enq_cap_3"]);
+    expect(res.value.nextCursor).toBe(`${100 + 3}.enq_cap_3`);
+  });
+
+  it("asks the database for a page and one row, not the whole inbox", async () => {
+    const db = db0();
+    for (let n = 0; n < 5; n++) seedCoupleEnquiry(db, `enq_lim_${n}`, at(100 + n));
+
+    const statements = recordStatements(db);
+    const res = await run(db, inboxService().list(BOOTSTRAP_WEDDING_ID, { limit: 2, after: null }));
+    if (!Exit.isSuccess(res)) throw new Error("list failed");
+    expect(statements).toHaveLength(1);
+    expect(statements[0]!.rowCounts).toEqual([3]);
+  });
+
+  it("walks every enquiry exactly once when a page boundary falls inside one second", async () => {
+    const db = db0();
+    // Four enquiries share second 200, so a page of two splits them; `id`
+    // decides their order and where page two picks up.
+    const expected = [
+      ["enq_t_z", 300],
+      ["enq_t_d", 200],
+      ["enq_t_c", 200],
+      ["enq_t_b", 200],
+      ["enq_t_a", 200],
+      ["enq_t_y", 100],
+      ["enq_t_x", 50],
+    ] as const;
+    // Inserted in an order that matches neither rowid nor the answer.
+    for (const [id, s] of expected.toReversed()) seedCoupleEnquiry(db, id, at(s));
+
+    const seen = await walk(async (after) => {
+      const res = await run(db, inboxService().list(BOOTSTRAP_WEDDING_ID, { limit: 2, after }));
+      if (!Exit.isSuccess(res)) throw new Error("list failed");
+      return res.value;
+    });
+    expect(seen.pages).toBe(4);
+    expect(seen.ids).toEqual(expected.map(([id]) => id));
+  });
+
+  it("ends on an exact multiple of the page size without a phantom empty page", async () => {
+    const db = db0();
+    for (let n = 0; n < 4; n++) seedCoupleEnquiry(db, `enq_ex_${n}`, at(100 + n));
+
+    const seen = await walk(async (after) => {
+      const res = await run(db, inboxService().list(BOOTSTRAP_WEDDING_ID, { limit: 2, after }));
+      if (!Exit.isSuccess(res)) throw new Error("list failed");
+      return res.value;
+    });
+    expect(seen.pages).toBe(2);
+    expect(seen.ids).toHaveLength(4);
+  });
+
+  it("reads one statement through the keyset index, with no sort", () => {
+    const db = db0();
+    for (const after of [null, { lastMessageAt: 100, id: "enq_x" }]) {
+      const plan = planOf(
+        db,
+        weddingEnquiriesQuery(db, BOOTSTRAP_WEDDING_ID, { limit: 50, after }),
+      );
+      expect(plan).toMatch(
+        after
+          ? /SEARCH vendor_enquiries USING INDEX vendor_enquiries_wedding_last_msg_idx \(wedding_id=\? AND \(last_message_at,id\)<\(\?,\?\)\)/
+          : /SEARCH vendor_enquiries USING INDEX vendor_enquiries_wedding_last_msg_idx \(wedding_id=\?\)/,
+      );
+      expect(plan).not.toContain("TEMP B-TREE");
+    }
+  });
+});
+
+describe("enquiryService.vendorInbox", () => {
+  it("lists only the enquiries on listings the caller's organisations own", async () => {
+    const db = inboxDb();
+    seedListing(db, "dv_mine", "org_mine");
+    seedListing(db, "dv_theirs", "org_theirs");
+    seedVendorEnquiry(db, { id: "enq_mine", listing: "dv_mine", wedding: "wed_a", s: 100 });
+    seedVendorEnquiry(db, { id: "enq_theirs", listing: "dv_theirs", wedding: "wed_a", s: 200 });
+
+    const page = await inbox(db, ["org_mine", "org_none"], FIRST_PAGE);
+    expect(page.enquiries.map((e) => e.id)).toEqual(["enq_mine"]);
+    expect(page.enquiries[0]).toMatchObject({
+      directoryVendorId: "dv_mine",
+      weddingName: "Wedding wed_a",
+      vendorName: "CRM wed_a",
+      category: "photography",
+      lastMessageAt: at(100).getTime(),
+    });
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it("answers an empty page from one statement when the organisations own no listing", async () => {
+    const db = inboxDb();
+    seedListing(db, "dv_theirs", "org_theirs");
+    seedVendorEnquiry(db, { id: "enq_theirs", listing: "dv_theirs", wedding: "wed_a", s: 200 });
+
+    const statements = recordStatements(db);
+    const page = await inbox(db, ["org_mine"], FIRST_PAGE);
+    expect(page).toEqual({ enquiries: [], nextCursor: null });
+    expect(statements).toHaveLength(1);
+  });
+
+  it("walks one listing's inbox exactly once across a boundary inside one second", async () => {
+    const db = inboxDb();
+    seedListing(db, "dv_mine", "org_mine");
+    const expected = [
+      ["enq_v_9", 500],
+      ["enq_v_4", 400],
+      ["enq_v_3", 400],
+      ["enq_v_2", 400],
+      ["enq_v_1", 300],
+    ] as const;
+    for (const [id, s] of expected.toReversed()) {
+      seedVendorEnquiry(db, { id, listing: "dv_mine", wedding: `wed_${id}`, s });
+    }
+
+    const seen = await walk((after) => inbox(db, ["org_mine"], { limit: 2, after }));
+    expect(seen.ids).toEqual(expected.map(([id]) => id));
+    expect(seen.pages).toBe(3);
+  });
+
+  it("merges several listings into one newest-first inbox, page by page", async () => {
+    const db = inboxDb();
+    seedListing(db, "dv_one", "org_one");
+    seedListing(db, "dv_two", "org_two");
+    // Interleaved in time across the two listings, with a tie between them.
+    const rows = [
+      ["enq_1a", "dv_one", 100],
+      ["enq_2a", "dv_two", 150],
+      ["enq_1b", "dv_one", 200],
+      ["enq_2b", "dv_two", 200],
+      ["enq_2c", "dv_two", 250],
+      ["enq_1c", "dv_one", 300],
+    ] as const;
+    for (const [id, listing, s] of rows) {
+      seedVendorEnquiry(db, { id, listing, wedding: `wed_${id}`, s });
+    }
+
+    const seen = await walk((after) => inbox(db, ["org_one", "org_two"], { limit: 2, after }));
+    expect(seen.ids).toEqual(["enq_1c", "enq_2c", "enq_2b", "enq_1b", "enq_2a", "enq_1a"]);
+  });
+
+  it("reads at most five listings per statement and at most a page and one from each", async () => {
+    const db = inboxDb();
+    const orgs: string[] = [];
+    for (let n = 0; n < 6; n++) {
+      seedListing(db, `dv_${n}`, `org_${n}`);
+      orgs.push(`org_${n}`);
+      // Three enquiries on each listing, so each could answer more than a page of one.
+      for (let k = 0; k < 3; k++) {
+        seedVendorEnquiry(db, {
+          id: `enq_${n}_${k}`,
+          listing: `dv_${n}`,
+          wedding: `wed_${n}_${k}`,
+          s: 1000 + n * 10 + k,
+        });
+      }
+    }
+
+    const statements = recordStatements(db);
+    const page = await inbox(db, orgs, { limit: 1, after: null });
+    expect(page.enquiries.map((e) => e.id)).toEqual(["enq_5_2"]);
+    expect(page.nextCursor).toBe("1052.enq_5_2");
+
+    // The listing lookup, then two reads: five arms and one.
+    const reads = statements.filter((s) => s.sql.includes('"vendor_enquiries"'));
+    expect(statements).toHaveLength(3);
+    expect(reads.map((s) => s.sql.split(" union all ").length).toSorted()).toEqual([1, 5]);
+    // Each arm stops at limit + 1 = 2 rows: 12 rows from six listings, not 18.
+    expect(reads.flatMap((s) => s.rowCounts).reduce((a, b) => a + b, 0)).toBe(12);
+  });
+
+  it("reads up to five organisations in one statement, each arm finding its own listing", async () => {
+    const db = inboxDb();
+    seedListing(db, "dv_one", "org_one");
+    seedListing(db, "dv_two", "org_two");
+    seedVendorEnquiry(db, { id: "enq_1", listing: "dv_one", wedding: "wed_1", s: 100 });
+    seedVendorEnquiry(db, { id: "enq_2", listing: "dv_two", wedding: "wed_2", s: 200 });
+
+    const statements = recordStatements(db);
+    const page = await inbox(db, ["org_two", "org_none", "org_one", "org_two"], FIRST_PAGE);
+    expect(page.enquiries.map((e) => e.id)).toEqual(["enq_2", "enq_1"]);
+    // No listing lookup of its own: one statement, an arm per distinct organisation.
+    expect(statements).toHaveLength(1);
+    expect(statements[0]!.sql.split(" union all ")).toHaveLength(3);
+  });
+
+  it("reads at most MAX_INBOX_LISTINGS listings, and says when it left some out", async () => {
+    const db = inboxDb();
+    const orgs: string[] = [];
+    for (let n = 0; n <= MAX_INBOX_LISTINGS; n++) {
+      const id = String(n).padStart(3, "0");
+      seedListing(db, `dv_${id}`, `org_${id}`);
+      orgs.push(`org_${id}`);
+    }
+    // The newest enquiry sits on the listing that sorts last, the one left out.
+    seedVendorEnquiry(db, { id: "enq_kept", listing: "dv_000", wedding: "wed_k", s: 100 });
+    seedVendorEnquiry(db, {
+      id: "enq_dropped",
+      listing: `dv_${String(MAX_INBOX_LISTINGS).padStart(3, "0")}`,
+      wedding: "wed_d",
+      s: 200,
+    });
+
+    const statements = recordStatements(db);
+    let page: Awaited<ReturnType<typeof inbox>> | undefined;
+    const logs = await captureLogs(async () => {
+      page = await inbox(db, orgs, FIRST_PAGE);
+    });
+    expect(page!.enquiries.map((e) => e.id)).toEqual(["enq_kept"]);
+    expect(statements).toHaveLength(1 + MAX_INBOX_LISTINGS / 5);
+    expect(logs).toContain("vendor inbox read the first listings only");
+  });
+
+  it("leaves out a soft-deleted wedding's enquiries without short-filling the page", async () => {
+    const db = inboxDb();
+    seedListing(db, "dv_mine", "org_mine");
+    seedVendorEnquiry(db, { id: "enq_live_1", listing: "dv_mine", wedding: "wed_1", s: 100 });
+    seedVendorEnquiry(db, { id: "enq_gone", listing: "dv_mine", wedding: "wed_2", s: 200 });
+    seedVendorEnquiry(db, { id: "enq_live_3", listing: "dv_mine", wedding: "wed_3", s: 300 });
+    db.update(weddings)
+      .set({ deletedAt: at(400) })
+      .where(eq(weddings.id, "wed_2"))
+      .run();
+
+    const page = await inbox(db, ["org_mine"], { limit: 2, after: null });
+    expect(page.enquiries.map((e) => e.id)).toEqual(["enq_live_3", "enq_live_1"]);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it("reads each listing through the keyset index, with no sort", () => {
+    const db = inboxDb();
+    const shapes: Array<[VendorInboxArm, ...VendorInboxArm[]]> = [
+      [{ listingId: "dv_a" }],
+      [{ listingId: "dv_a" }, { listingId: "dv_b" }, { listingId: "dv_c" }],
+      [{ ownerOrgId: "org_a" }, { ownerOrgId: "org_b" }],
+    ];
+    for (const listings of shapes) {
+      for (const after of [null, { lastMessageAt: 100, id: "enq_x" }]) {
+        const plan = planOf(db, listingEnquiriesQuery(db, listings, { limit: 50, after }));
+        const seeks = plan.match(
+          after
+            ? /SEARCH vendor_enquiries USING INDEX vendor_enquiries_directory_last_msg_idx \(directory_vendor_id=\? AND \(last_message_at,id\)<\(\?,\?\)\)/g
+            : /SEARCH vendor_enquiries USING INDEX vendor_enquiries_directory_last_msg_idx \(directory_vendor_id=\?\)/g,
+        );
+        expect(seeks).toHaveLength(listings.length);
+        expect(plan).not.toContain("TEMP B-TREE");
+        expect(plan).not.toMatch(/SCAN vendor_enquiries/);
+      }
+    }
   });
 });
