@@ -1,5 +1,6 @@
 import { weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
+import { DrizzleQueryError } from "drizzle-orm/errors";
 import { Effect, Layer } from "effect";
 
 import type { Db } from "../src/db";
@@ -193,6 +194,68 @@ export function failStatements(
       else Reflect.deleteProperty(client, "prepare");
     },
   };
+}
+
+/**
+ * Makes `db` fail a statement, from here on, the way a single statement fails
+ * on D1. Drizzle's D1 session wraps every failed query in `DrizzleQueryError`,
+ * whose message names only the statement and whose `cause` is the database's
+ * error; its bun:sqlite session throws the driver's error bare. Code that reads
+ * the database's reason from `String(error)` therefore passes on bun:sqlite and
+ * misses on D1 — and, under this, misses here too.
+ *
+ * Every statement is wrapped, those the bun:sqlite fallback of `commitBatch`
+ * runs one at a time included, whereas a failed D1 `batch()` throws the
+ * database's error bare. `driverErrorText` reads both shapes.
+ */
+export function failLikeD1(db: TestDb): void {
+  const client = db.$client;
+  const prepare = client.prepare.bind(client);
+  Object.defineProperty(client, "prepare", {
+    configurable: true,
+    value: (sql: string) => {
+      const statement = prepare(sql);
+      for (const method of ["run", "all", "get", "values"] as const) {
+        const original = statement[method].bind(statement) as (...params: unknown[]) => unknown;
+        Object.defineProperty(statement, method, {
+          configurable: true,
+          value: (...params: unknown[]) => {
+            try {
+              return original(...params);
+            } catch (error) {
+              throw new DrizzleQueryError(sql, params, error as Error);
+            }
+          },
+        });
+      }
+      return statement;
+    },
+  });
+}
+
+/**
+ * Runs `write` once, just before `db` next prepares a statement whose SQL
+ * matches `pattern`: another request's write landing between this request's
+ * read and its own write. Drizzle prepares a query when it runs it, so every
+ * statement before the matching one has run by then.
+ *
+ * `write` may go through `db`, even with a statement `pattern` matches: the
+ * hook is spent before `write` runs.
+ */
+export function beforeStatement(db: TestDb, pattern: RegExp, write: () => void): void {
+  const client = db.$client;
+  const prepare = client.prepare.bind(client);
+  let spent = false;
+  Object.defineProperty(client, "prepare", {
+    configurable: true,
+    value: (sql: string) => {
+      if (!spent && pattern.test(sql)) {
+        spent = true;
+        write();
+      }
+      return prepare(sql);
+    },
+  });
 }
 
 /**

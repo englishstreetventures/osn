@@ -14,7 +14,7 @@ import { parseSessionToken } from "../../src/lib/cookie";
 import { hostCodeService } from "../../src/services/host-code";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import type { OsnAccountResolver } from "../../src/services/osn-bridge";
-import { jsonBody } from "../test-helpers";
+import { failLikeD1, jsonBody } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -355,6 +355,26 @@ describe("POST /api/account/link", () => {
     expect(res.status).toBe(409);
     // Same opaque body as the guest-already-linked 409 — no `account_already_in_family`.
     expect(await jsonBody(res)).toEqual({ error: "already_linked" });
+  });
+
+  // On D1 a failed insert arrives wrapped, its message naming only the
+  // statement and the database's reason on its cause.
+  it("answers both conflicts 409 when the reason is on the error's cause, as on D1", async () => {
+    const { db, app } = buildApp(); // okResolver → same account for any profile
+    failLikeD1(db);
+    const cookie = await claimCookie(app, SAMPLETON);
+    const bo = guestIdByName(db, "Bo");
+    const cleo = guestIdByName(db, "Cleo");
+    const first = await postLink(app, { cookie, bearer: await auth.sign("usr_a"), guestId: bo });
+    expect(first.status).toBe(201);
+    const fresh = rotatedCookie(first, cookie);
+
+    // The same seat again, then the same account on a second seat.
+    for (const guestId of [bo, cleo]) {
+      const res = await postLink(app, { cookie: fresh, bearer: await auth.sign("usr_b"), guestId });
+      expect(res.status, guestId).toBe(409);
+      expect(await jsonBody(res)).toEqual({ error: "already_linked" });
+    }
   });
 
   it("returns 404 when OSN reports the profile does not exist", async () => {

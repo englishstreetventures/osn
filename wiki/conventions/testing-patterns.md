@@ -539,6 +539,17 @@ The R2 walk test read a thousand listed objects through the proxy and took 28–
 
 *Measured 2026-10-07 — `bun run test` on ubuntu-latest with no turbo cache, n=3*
 
+### D1's error shape in a bun test
+
+A failed single statement looks different on the two drivers. On D1, drizzle wraps it in `DrizzleQueryError`: the message is `Failed query: <statement>` and the database's reason is on its `cause`. bun:sqlite throws the database's error bare. Code that reads the reason from `String(e)` passes every bun:sqlite test and fails on D1, which is why cire reads it through `driverErrorText` ([[cire-development]]).
+
+Two helpers in [cire/api/tests/test-helpers.ts](../../cire/api/tests/test-helpers.ts) let a bun:sqlite test reach those paths without Miniflare:
+
+- `failLikeD1(db)` makes every statement `db` runs from then on fail as a D1 statement does, wrapped, with the reason on `cause`. It wraps statements that the bun:sqlite fallback of `commitBatch` runs one at a time too, though a real D1 `batch()` failure is not wrapped.
+- `beforeStatement(db, pattern, write)` runs `write` once, just before `db` prepares the first statement matching `pattern`. That stands in for another request's write landing between this request's read and its own write: the race a unique index exists to settle. The hook is spent before `write` runs, so `write` may insert into the same table.
+
+The route tests for the account link, the upgrade checkout and the vendor directory's add use both. The D1 lane still proves the real wording: `tests/db/d1-integration.test.ts` "unique conflicts over D1" drives each conflict on Miniflare.
+
 ## Testing an oxlint rule
 
 `tools/oxlint/house` holds the repo's own oxlint rules, and its tests are the odd

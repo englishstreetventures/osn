@@ -1,14 +1,15 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, weddingHosts } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, weddingHosts, weddingUpgradePurchases } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { StripeError, type StripeClient } from "../../src/services/stripe";
 import type { Tier } from "../../src/services/tiers";
-import { appRequest, jsonBody, setTier } from "../test-helpers";
+import { appRequest, beforeStatement, failLikeD1, jsonBody, setTier } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -237,6 +238,41 @@ describe("what may be bought", () => {
     const { app } = buildApp({ tier: "gold", stripe: stripe.client });
     expect((await startSession(app, OWNER, { tier: "crimson" })).status).toBe(200);
     expect(stripe.created.map((c) => c.priceId)).toEqual(["price_cg"]);
+  });
+
+  // Another press's purchase lands after this one read the wedding and before
+  // it inserts its own, so the one-pending index refuses the insert. On D1
+  // that refusal arrives wrapped, the database's reason on its cause.
+  it("409s processing when another press's purchase lands first, as D1 reports it", async () => {
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    failLikeD1(db);
+    beforeStatement(db, /^insert into "wedding_upgrade_purchases"/, () => {
+      const now = new Date();
+      db.insert(weddingUpgradePurchases)
+        .values({
+          id: "upg_rival",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          entitlement: "gold",
+          fromTier: "ivory",
+          createdByOsnProfileId: OWNER,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    });
+
+    const res = await startSession(app, OWNER, { tier: "gold" });
+
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "processing" });
+    expect(stripe.created).toEqual([]);
+    const pending = db
+      .select({ id: weddingUpgradePurchases.id })
+      .from(weddingUpgradePurchases)
+      .where(eq(weddingUpgradePurchases.status, "pending"))
+      .all();
+    expect(pending).toEqual([{ id: "upg_rival" }]);
   });
 });
 

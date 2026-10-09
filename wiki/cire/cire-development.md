@@ -65,7 +65,13 @@ The platform shape is in [[backend-patterns]]. Cire's departures:
   statement; the database's reason (`D1_ERROR: UNIQUE constraint failed: …`)
   sits on its `cause`. bun:sqlite and a failed `batch()` put it on the error
   itself, so a sniffer reading `String(e)` passes every route test and misses
-  every conflict in production.
+  every conflict in production. Match the database's own `table.column`
+  wording (`guest_account_links.guest_id`), never a bare column or table name:
+  on D1 the text also holds the statement, and drizzle's INSERT names every
+  column of the table whatever the conflict was on. Drizzle quotes each name,
+  so the unquoted `table.column` appears only in the database's reason. A
+  bun:sqlite test fails the way D1 does under `failLikeD1` — see
+  [[testing-patterns#D1's error shape in a bun test]].
 - **D1 access is Drizzle only** — no raw SQL string construction.
 - **The Drizzle handle is built over the session-routing shim**, never over
   `env.DB` directly, and each Worker invocation opens exactly one D1 session at

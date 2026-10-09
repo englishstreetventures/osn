@@ -1,19 +1,20 @@
 import { describe, it, expect } from "bun:test";
 
-import { families, guests, organiserSessions } from "@cire/db";
+import { families, guestAccountLinks, guests, organiserSessions } from "@cire/db";
 import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 
-import { DbService, type Db } from "../../src/db";
-import { createDb } from "../../src/db/setup";
+import { DbService, driverErrorText, type Db } from "../../src/db";
+import { createDb, type TestDb } from "../../src/db/setup";
 import { accountLinkService, conflictReason } from "../../src/services/account-link";
+import { failLikeD1 } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { insertWedding } from "../test-helpers/wedding";
 
 const now = new Date();
 
 /** Bare two-family fixture across two weddings — no JSON seed needed. */
-function fixture(): Db {
+function fixture(): TestDb {
   const db = createDb(":memory:");
   const seedWedding = (id: string, slug: string) =>
     insertWedding(db, {
@@ -229,6 +230,37 @@ describe("conflictReason", () => {
   it("returns null for a non-UNIQUE failure (→ 500, not 409)", () => {
     expect(conflictReason("SQLiteError: no such table: guest_account_links")).toBeNull();
     expect(conflictReason("FOREIGN KEY constraint failed")).toBeNull();
+  });
+  it("reads the database's wording, not the columns the statement names", () => {
+    // On D1 the text read through `driverErrorText` opens with drizzle's
+    // `Failed query: <statement>`, and the INSERT names `guest_id` and
+    // `osn_account_id` whatever the conflict was on. A clash on the row id is
+    // no link conflict.
+    const db = fixture();
+    const row = {
+      id: "gal_1",
+      guestId: "gst_a1",
+      familyId: "fam_a",
+      weddingId: "wed_a",
+      osnAccountId: "acc_1",
+      osnProfileId: "usr_1",
+      linkedAt: now,
+      updatedAt: now,
+    };
+    db.insert(guestAccountLinks).values(row).run();
+    failLikeD1(db);
+    let text = "";
+    try {
+      db.insert(guestAccountLinks)
+        .values({ ...row, guestId: "gst_a2", osnAccountId: "acc_2" })
+        .run();
+    } catch (e) {
+      text = driverErrorText(e);
+    }
+
+    expect(text).toContain('"guest_id"');
+    expect(text).toContain("UNIQUE constraint failed: guest_account_links.id");
+    expect(conflictReason(text)).toBeNull();
   });
 });
 
