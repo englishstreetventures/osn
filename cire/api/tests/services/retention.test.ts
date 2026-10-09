@@ -301,7 +301,7 @@ function makeGiftedWedding(
   });
 }
 
-const guestsLeft = (db: TestDb, guestId: string): number =>
+const guestCount = (db: TestDb, guestId: string): number =>
   db.select().from(guests).where(eq(guests.id, guestId)).all().length;
 
 const importsLeft = (db: TestDb, weddingId: string): number =>
@@ -443,14 +443,14 @@ describe("retentionService.sweepExpiredGuestData", () => {
     // The one wedding the cap left behind is the most recent, not an
     // arbitrary one.
     expect({
-      newest: guestsLeft(db, newest.guestId),
-      oldest: guestsLeft(db, oldest.guestId),
+      newest: guestCount(db, newest.guestId),
+      oldest: guestCount(db, oldest.guestId),
     }).toEqual({ newest: 1, oldest: 0 });
 
     // The swept weddings keep their events, but hold nothing left to delete,
     // so they no longer fill the cohort: the next run reaches the newest.
     expect(await runOn(db, retentionService.sweepExpiredGuestData(now))).toBe(1);
-    expect(guestsLeft(db, newest.guestId)).toBe(0);
+    expect(guestCount(db, newest.guestId)).toBe(0);
   });
 
   it("counts and logs a sweep whose cohort read fails", async () => {
@@ -1386,14 +1386,14 @@ describe("the parting gift summary", () => {
     expect(fault.failed()).toBe(1);
     expect(logs).toContain("gift summaries not written");
     expect(await written("write_failed")).toBe(before + 1);
-    expect(guestsLeft(db, plain.guestId)).toBe(0);
+    expect(guestCount(db, plain.guestId)).toBe(0);
     expect(importsLeft(db, plain.weddingId)).toBe(0);
     expect(plain.sheetKeys.every((key) => sheets.deleted.has(key))).toBe(true);
     // Nothing of the held-back wedding went: not its households, not its
     // import rows, and not the sheets those rows name — the gifts are still
     // there to count.
     expect(storedSummary(db, wedding.weddingId)).toBeNull();
-    expect(guestsLeft(db, wedding.guestId)).toBe(1);
+    expect(guestCount(db, wedding.guestId)).toBe(1);
     expect(importsLeft(db, wedding.weddingId)).toBeGreaterThan(0);
     expect(wedding.sheetKeys.filter((key) => sheets.deleted.has(key))).toEqual([]);
 
@@ -1401,7 +1401,7 @@ describe("the parting gift summary", () => {
     fault.restore();
     await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT, { sheets }));
     expect(storedSummary(db, wedding.weddingId)).not.toBeNull();
-    expect(guestsLeft(db, wedding.guestId)).toBe(0);
+    expect(guestCount(db, wedding.guestId)).toBe(0);
     expect(importsLeft(db, wedding.weddingId)).toBe(0);
     expect(wedding.sheetKeys.every((key) => sheets.deleted.has(key))).toBe(true);
   });
@@ -1422,8 +1422,8 @@ describe("the parting gift summary", () => {
     // One read covers the cohort, so a failed one cannot say which weddings had
     // gifts: none is deleted, the one that never had a gift included.
     expect(await written("read_failed")).toBe(before + 2);
-    expect(guestsLeft(db, gifted.guestId)).toBe(1);
-    expect(guestsLeft(db, plain.guestId)).toBe(1);
+    expect(guestCount(db, gifted.guestId)).toBe(1);
+    expect(guestCount(db, plain.guestId)).toBe(1);
   });
 
   it("deletes and mails the weddings whose summaries committed when a later batch fails", async () => {
@@ -1458,7 +1458,7 @@ describe("the parting gift summary", () => {
     );
 
     expect(fault.failed()).toBe(1);
-    const held = gifted.filter((w) => guestsLeft(db, w.guestId) === 1);
+    const held = gifted.filter((w) => guestCount(db, w.guestId) === 1);
     expect(held).toHaveLength(1);
     expect(storedSummary(db, held[0]!.weddingId)).toBeNull();
     expect(seen).toHaveLength(50);
@@ -1492,7 +1492,7 @@ describe("the parting gift summary", () => {
     expect(await unmailed("owners_unread")).toBe(before + 1);
     expect(seen).toEqual([]);
     expect(storedSummary(db, wedding.weddingId)).not.toBeNull();
-    expect(guestsLeft(db, wedding.guestId)).toBe(0);
+    expect(guestCount(db, wedding.guestId)).toBe(0);
   });
 
   it("adds a returning wedding's new gifts to the summary it already holds", async () => {

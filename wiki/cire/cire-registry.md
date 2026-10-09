@@ -11,7 +11,7 @@ related:
   - "[[drag-and-drop]]"
   - "[[cire-development]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-09
 ---
 
 # Gift registry
@@ -157,7 +157,7 @@ Creating that endpoint in the Stripe dashboard — its scope, the nine events, t
 
 Guest data goes at one year, and gifts go with it — the household, the name a guest typed, the note they wrote. That is right for the personal detail and wrong for the fact that people gave: a couple who opens the registry two years on should not find that their wedding received nothing.
 
-So the sweep writes before it deletes. `writeGiftSummaries` runs inside `sweepExpiredGuestData`, immediately ahead of the delete batch, and leaves one JSON blob per wedding on `registry_settings` — a row the sweep does not touch, because it hangs off the wedding rather than off a guest:
+So the sweep writes before it deletes. `writeGiftSummaries` runs inside `sweepExpiredGuestData` straight after the cohort read, before anything is read for deletion, and leaves one JSON blob per wedding on `registry_settings` — a row the sweep does not touch, because it hangs off the wedding rather than off a guest:
 
 ```json
 {
@@ -169,11 +169,12 @@ So the sweep writes before it deletes. `writeGiftSummaries` runs inside `sweepEx
 }
 ```
 
-Three rules it keeps:
+Four rules it keeps:
 
 - **Only what arrived counts.** Released claims are excluded — a household that changed its mind never bought anything — and only `succeeded` contributions are counted, so a `pending` row that never settled is not money.
 - **Totals are per currency, never converted.** A rate from the day of the sweep would make the number a guess; two lines that each say what they are is the honest shape.
-- **It never fails the sweep.** A summary that cannot be written is logged and stepped over. The deletion is the obligation; the keepsake is not.
+- **No gift is deleted without its record.** A wedding whose summary cannot be written is held back from that run's delete and keeps its guest data until a run writes it; it still holds its households, so the next run tries again. Every run that holds one back logs `gift summaries not written — held back from the delete` at error level. How many are held back follows the queries: a failed count holds back the whole cohort, because one read covers it; a failed write holds back the weddings in that batch of at most 50, because a D1 batch commits or fails as a unit. The rest of the cohort is deleted on time, and the sweep itself never fails on a summary.
+- **A returning wedding adds to its record.** A wedding that gains a household after it was swept — a re-import, or the host's own preview household — comes back into the cohort. Any new gift is added to the stored summary (counts summed, totals summed per currency, span widened), never written over it.
 
 `firstGiftOn` and `lastGiftOn` give the span the counted gifts arrived over, taken from the same rows as the counts.
 
@@ -181,8 +182,9 @@ Three rules it keeps:
 
 - **Who gets it.** The seats with the `owner` role on a live wedding that received at least one gift. Editors are not mailed, and neither is a soft-deleted wedding, whose summary is written but not sent. Each wedding sends one email per distinct address, so two owners who share an inbox get one copy.
 - **Where the address comes from.** cire stores none. It asks osn-api's `POST /internal/accounts/emails` over ARC with the `account:email-read` scope: one lookup for the whole cohort, split into requests of 100 profile ids with at most four in flight ([`services/osn-bridge.ts`](../../cire/api/src/services/osn-bridge.ts)). An owner osn-api returns no address for is skipped.
-- **What it says.** Template `registry-gift-summary`, from `hello@cireweddings.com`: the wedding's name, the date of its last event, the sweep date, the number of money gifts with one total, and how many list gifts were bought and reserved. The total is in the wedding's own currency, or in the first currency a gift came in when none came in its own; the per-currency totals stay only on `registry_settings`. The money line has two known faults, tracked in englishstventures/osn#1435: it divides every currency by 100, which misstates yen and the three-decimal dinars, and its count covers every currency while its total covers one.
-- **One attempt, best-effort.** The whole cohort gets one try, bounded at 30 seconds in total, with no retry and no resend: the next day's sweep finds no gift rows left and writes no notice. Delivery never fails the sweep. A send that fails is logged and the rest go on. An osn-api that cannot be reached reads as "no address", so nothing is sent and nothing is logged (englishstventures/osn#1436).
+- **What it says.** Template `registry-gift-summary`, from `hello@cireweddings.com`: the wedding's name, the date of its last event, the sweep date, the number of money gifts with one total, and how many list gifts were bought and reserved. The total is in the wedding's own currency, or in the first currency a gift came in when none came in its own, printed with that currency's own minor unit (`formatMinor` in [`lib/money.ts`](../../cire/api/src/lib/money.ts): none for yen, three decimals for the dinars); the per-currency totals stay only on `registry_settings`. One known fault remains, tracked in englishstventures/osn#1435: the count covers every currency while the total covers one.
+- **One attempt, best-effort.** The whole cohort gets one try, bounded at 30 seconds in total, with no retry and no resend: the next day's sweep finds no gift rows left and writes no notice. Delivery never fails the sweep. A send that fails is logged and the rest go on. An osn-api that does not answer every call — a failure, a rejection, or a hang the 30-second bound cuts off — logs `[gift-summary-email] osn-api did not answer for every owner` with counts only, and the addresses that did come back are still mailed. A summary written but not mailed because the owners could not be read logs `gift summaries written, owners not read — none mailed`.
+- **Counted.** `cire.gift_summary.written` counts weddings by `ok`, `write_failed` or `read_failed`; `cire.gift_summary.unmailed` counts weddings whose stored summary reached nobody, by `owners_unread`, `lookup_failed` or `no_address`. Sends are counted by template in `osn.email.send.attempts`. cire's metrics are a no-op meter on workerd until an exporter is attached ([[cire-workerd]]), so in production the log lines above are the signal.
 - **Only where it can be delivered.** The notifier exists only when the Worker has `OSN_API_URL`, a `CIRE_API_ARC_PRIVATE_KEY` that imports, `CIRE_API_ARC_KEY_ID` and `RESEND_API_KEY` (`scheduled` in [`cire/api/src/index.ts`](../../cire/api/src/index.ts)). Without them the sweep still deletes on time and sends nothing. It never falls back to logging the email, because a summary in a log is not a summary the couple received.
 
 ---
