@@ -1294,7 +1294,7 @@ export interface BranchPull {
  * open. */
 export type RecordWindow =
   | { kind: "window"; after: string | null; until: string | null }
-  | { kind: "unplaceable"; pull: number; reason: "closed" | "unknown" };
+  | { kind: "unplaceable"; pull: number | null; reason: "closed" | "unknown" };
 
 /**
  * Where one pull request's records start and stop when its branch name carried
@@ -1310,7 +1310,8 @@ export type RecordWindow =
  * `self.mergedAt` null means not merged yet, so after every merge. Another pull
  * request that is `OPEN` is placed the same way. One that closed without
  * merging, or whose merge time is unknown, has no place on the line, and the
- * caller must not guess one.
+ * caller must not guess one. Nor does this pull request when its own merge time
+ * is set but is not a date: `pull` is then `null`.
  */
 export function recordWindow(
   self: { mergedAt: string | null },
@@ -1333,6 +1334,7 @@ export function recordWindow(
   }
 
   const selfAt = at(self.mergedAt);
+  if (Number.isNaN(selfAt)) return { kind: "unplaceable", pull: null, reason: "unknown" };
   const merged = others.filter((o) => o.mergedAt !== null) as (BranchPull & { mergedAt: string })[];
   const before = merged.filter((o) => at(o.mergedAt) < selfAt);
   const after =
@@ -2249,6 +2251,18 @@ if (import.meta.main) {
 
   const window = recordWindow({ mergedAt: selfMergedAt }, others);
 
+  if (window.kind === "unplaceable" && window.pull === null) {
+    process.stderr.write(
+      [
+        `❌ pr-metrics: this run's own merge time, ${JSON.stringify(selfMergedAt)}, is not a date, so`,
+        "   it cannot be placed beside the other pull requests on this branch name.",
+        "   Nothing was written. Pass --merged-at as an ISO 8601 time.",
+        "",
+      ].join("\n"),
+    );
+    process.exit(1);
+  }
+
   if (window.kind === "unplaceable") {
     const otherFile = branchCards(outDir, branch).find((c) => c.card.pr.number === window.pull);
     const why =
@@ -2302,7 +2316,7 @@ if (import.meta.main) {
       flag("complexity-method") ?? (override ? "manual" : (resolved?.method ?? fromLabels.method)),
     baseSha: git(["rev-parse", base]) || null,
     headSha: git(["rev-parse", "HEAD"]) || null,
-    mergedAt: flag("merged-at"),
+    mergedAt: selfMergedAt,
     phase: flag("phase") === "at-merge" ? "at-merge" : "at-open",
     generatedAt: new Date().toISOString(),
   });

@@ -967,3 +967,49 @@ test("an earlier pull request with no known merge time holds the later one back"
     await rm(f.dir, { recursive: true, force: true });
   }
 });
+
+// A slug neighbour's card left by an earlier run: `feat-backfill-fixture` is
+// another branch name that flattens to the same file. The in-run collision
+// check cannot see it, since this run never claimed the file.
+test("backfill never writes over another pull request's card left by an earlier run", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const planted = await plantCard(f, `${SLUG}.json`, { number: 777, merged_at: null });
+    await writeFile(
+      join(f.binDir, "gh"),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_CALL_LOG"
+case "$*" in
+  *"pr list"*)
+    printf '%s' '[{"number":9999,"headRefName":"${SLUG}","mergedAt":"2026-09-09T13:00:00Z","baseRefOid":"ccc","headRefOid":"ddd","labels":[],"closingIssuesReferences":[]}]' ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p9999":{"commits":{"totalCount":1}}}}}' ;;
+  *"/files"*) printf '%s\\n' '{"filename":"osn/api/src/svc.ts","additions":1,"deletions":0}' ;;
+  *) printf '%s' '3' ;;
+esac
+`,
+    );
+    await chmod(join(f.binDir, "gh"), 0o755);
+    const project = join(f.sessions, await projectDirFor(f.dir));
+    await writeFile(
+      join(project, "sess-2.jsonl"),
+      `${JSON.stringify({
+        type: "assistant",
+        sessionId: "sess-2",
+        gitBranch: SLUG,
+        requestId: "req-neighbour",
+        timestamp: "2026-09-09T11:00:00.000Z",
+        message: { model: "claude-opus-5", usage: { output_tokens: 50 } },
+      })}\n`,
+    );
+
+    const run = await runBackfill(f);
+
+    expect(run.exitCode).toBe(0);
+    expect(await readFile(f.log, "utf8")).toContain("pr list");
+    expect(run.stderr).toContain(`${SLUG}.json is the card for #777`);
+    expect(run.stdout).toContain("held back 1 PR(s)");
+    expect(await readFile(join(f.dir, "cards", `${SLUG}.json`), "utf8")).toBe(planted);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});

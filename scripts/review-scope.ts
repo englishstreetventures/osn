@@ -60,9 +60,14 @@ export function classifyPath(path: string): PathClass {
   if (path.startsWith(".agents/") || path.startsWith(".claude/agents/")) return "other";
   if (path.startsWith(".claude/metrics/")) return "other";
 
-  if (path.startsWith(".claude/skills/")) return "skill";
+  // Skill text only. A script under a skill runs, and the tracked symlink
+  // `.claude/skills/<name>` points into `.agents/`; neither is prose.
+  if (path.startsWith(".claude/skills/") && name.endsWith(".md")) return "skill";
   if (segments.slice(0, -1).includes("tests") || /\.(test|spec)\.[^.]+$/.test(name)) return "test";
-  if (/\.mdx?$/.test(name)) return "doc";
+  // Plain Markdown only. `.mdx` carries components and script, and no build
+  // here reads Markdown from outside a `src/` directory today: a change that
+  // makes one do so is not trivial either.
+  if (name.endsWith(".md")) return "doc";
 
   return "other";
 }

@@ -82,6 +82,16 @@ test("a marker that is not a real calendar date fails", () => {
   expect(findings[0]!.problem).toContain("not a real calendar date");
 });
 
+// `Date` rolls an out-of-range day into the next month instead of rejecting
+// it: 2026-11-31 parses as 2026-12-01, 53 days out and otherwise valid.
+test("a marker on a day the month does not have fails", () => {
+  const text = lefthook({ comments: [`# DROP AFTER ${BRACES} 2026-11-31`, MARKED[1]!] });
+  const findings = checkAuditIgnores(text, NOW);
+
+  expect(findings).toHaveLength(1);
+  expect(findings[0]!.problem).toContain("not a real calendar date");
+});
+
 test("a marker exactly 90 days out passes", () => {
   const text = lefthook({ comments: [`# DROP AFTER ${BRACES} 2027-01-07`, MARKED[1]!] });
 
@@ -173,6 +183,29 @@ test("a skipped audit command fails", () => {
 
   expect(findings).toHaveLength(1);
   expect(findings[0]!.problem).toContain("skip");
+});
+
+// lefthook also takes `skip` as a list of conditions, and `only`, `glob` and
+// `files` can each stop a command running.
+test("every key that can stop the audit running fails", () => {
+  for (const extra of [
+    "      skip:\n        - ref: main\n",
+    "      only:\n        - ref: main\n",
+    '      glob: "*.ts"\n',
+    "      files: git diff --name-only\n",
+  ]) {
+    const findings = checkAuditIgnores(lefthook({ comments: MARKED, extra }), NOW);
+    const key = extra.trim().split(":")[0]!;
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.problem).toContain(`\`${key}:`);
+  }
+});
+
+test("`skip: false` keeps the audit running and passes", () => {
+  expect(
+    checkAuditIgnores(lefthook({ comments: MARKED, extra: "      skip: false\n" }), NOW),
+  ).toEqual([]);
 });
 
 test("an ignore in a second command running `bun audit` is checked too", () => {

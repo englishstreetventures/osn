@@ -252,7 +252,7 @@ The second and third lines add work still uncommitted; `--no-renames` keeps the 
 | `trivial-tests` | The `review-tests` agent, as below | No agents |
 | `trivial` | No agent: run the gates inline | No agents |
 
-Trivial means every changed path is a Markdown file (`*.md`, `*.mdx`), a file under `.claude/skills/`, or a test — a path through a `tests/` directory, or a `*.test.*` or `*.spec.*` file. Nothing under any `src/` directory, nothing under `.github/workflows/`, no `package.json` and no lockfile qualifies, whatever its name or extension; neither does anything under `.agents/`, `.claude/agents/` or `.claude/metrics/`. So a one-line change to auth, a schema, a route, a Worker binding or a build config always gets every review.
+Trivial means every changed path is a Markdown file (`*.md`, skills included; `*.mdx` carries script and is not) or a test — a path through a `tests/` directory, or a `*.test.*` or `*.spec.*` file. Nothing under any `src/` directory, nothing under `.github/workflows/`, no `package.json` and no lockfile qualifies, whatever its name or extension; neither does anything under `.agents/`, `.claude/agents/` or `.claude/metrics/`, nor a script or symlink under `.claude/skills/`. So a one-line change to auth, a schema, a route, a Worker binding or a build config always gets every review.
 
 On `trivial`, run the gates inline instead: Step 2's changeset check, `bun run scripts/skill-evals.ts check-names` when a skill changed, and the wikilink check in `references/wikilink-check.md` when a wiki page changed. Each review that did not run gets its `## Test plan` row as `inline — trivial diff`, with one sentence of your own verdict on the diff.
 

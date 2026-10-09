@@ -60,6 +60,8 @@ interface CliRun {
   writes: { mtimeMs: number; text: string }[];
   /** Every file in the output directory after the last invocation, by name. */
   files: Record<string, string>;
+  /** And each one's modification time then. */
+  mtimes: Record<string, number>;
 }
 
 interface RunOptions {
@@ -239,11 +241,13 @@ async function run(
     const card = JSON.parse(writes[writes.length - 1]!.text) as Card;
 
     const files: Record<string, string> = {};
+    const mtimes: Record<string, number> = {};
     for (const name of await readdir(join(dir, "out"))) {
       files[name] = await Bun.file(join(dir, "out", name)).text();
+      mtimes[name] = (await stat(join(dir, "out", name))).mtimeMs;
     }
 
-    return { exitCode, stdout, stderr, card, writes, files };
+    return { exitCode, stdout, stderr, card, writes, files, mtimes };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -836,6 +840,103 @@ test("an earlier card is bounded at its own merge when a later pull request is o
   expect(card.pr.number).toBe(1);
   expect(card.spend.tokens.output).toBe(100);
   expect(card.window.last_ts).toBe("2026-09-07T10:00:30.000Z");
+});
+
+/** Plants a card for pull request #2 at `<slug>-2.json`, merged at
+ * 10:01:30, built from the card the first run wrote. */
+function plantSecond(fields: { branch?: string; number?: number; mergedAt?: string | null } = {}) {
+  return async ({ outPath }: { outPath: string }) => {
+    const second = JSON.parse(await Bun.file(outPath).text()) as Card;
+    second.pr.number = fields.number ?? 2;
+    second.pr.branch = fields.branch ?? BRANCH;
+    second.pr.merged_at = fields.mergedAt === undefined ? "2026-09-07T10:01:30Z" : fields.mergedAt;
+    require("node:fs").writeFileSync(
+      outPath.replace(SLUG_FILE, SECOND_FILE),
+      JSON.stringify(second),
+    );
+  };
+}
+
+// The first card refreshed with no `--merged-at`, after the second exists. Its
+// own card holds the merge time; dropping it would bound nothing and leave the
+// second card's next run with no merge to split at.
+test("refreshing the earlier card keeps its merge time and its window", async () => {
+  const { exitCode, card } = await run(
+    ["--pr", "1", "--merged-at", FIRST_MERGE],
+    2,
+    ["--pr", "1"],
+    plantSecond(),
+  );
+
+  expect(exitCode).toBe(0);
+  expect(card.pr.merged_at).toBe(FIRST_MERGE);
+  expect(card.spend.tokens.output).toBe(100);
+  expect(card.window.last_ts).toBe("2026-09-07T10:00:30.000Z");
+});
+
+test("an earlier card with no merge time of its own takes it from gh", async () => {
+  const { exitCode, card } = await run(
+    ["--pr", "1"],
+    2,
+    ["--pr", "1", "--resolve-issue"],
+    plantSecond(),
+    { ghPrView: { 1: `{"state":"MERGED","mergedAt":"${FIRST_MERGE}"}` } },
+  );
+
+  expect(exitCode).toBe(0);
+  expect(card.pr.merged_at).toBe(FIRST_MERGE);
+  expect(card.spend.tokens.output).toBe(100);
+});
+
+// `feat/metrics-cli-fixture-2` flattens to the file a second pull request on
+// `feat/metrics-cli-fixture` takes. That file is another branch's record.
+test("the CLI refuses when another branch's card holds the second card's file", async () => {
+  let planted = "";
+  const { exitCode, stderr, files } = await run(
+    ["--pr", "1", "--merged-at", FIRST_MERGE],
+    2,
+    ["--pr", "2"],
+    async (paths) => {
+      await plantSecond({ branch: "feat/metrics-cli-fixture-2", number: 984 })(paths);
+      planted = await Bun.file(paths.outPath.replace(SLUG_FILE, SECOND_FILE)).text();
+    },
+  );
+
+  expect(exitCode).toBe(1);
+  expect(stderr).toContain("#984");
+  expect(stderr).toContain("Another branch name flattens to the same file");
+  expect(files[SECOND_FILE]).toBe(planted);
+});
+
+test("the CLI refuses a merge time that is not a date on a reused branch name", async () => {
+  const { exitCode, stderr, files } = await run(["--pr", "1", "--merged-at", FIRST_MERGE], 2, [
+    "--pr",
+    "2",
+    "--merged-at",
+    "yesterday",
+  ]);
+
+  expect(exitCode).toBe(1);
+  expect(stderr).toContain("is not a date");
+  expect(Object.keys(files)).toEqual([SLUG_FILE]);
+});
+
+// `retro` writes the card, then a review adds a commit and it runs again.
+test("a re-run over unchanged inputs leaves the second card's file alone", async () => {
+  let afterSecondRun = 0;
+  const { exitCode, mtimes } = await run(
+    ["--pr", "1", "--merged-at", FIRST_MERGE],
+    3,
+    ["--pr", "2"],
+    async ({ outPath }) => {
+      const second = outPath.replace(SLUG_FILE, SECOND_FILE);
+      if (await Bun.file(second).exists()) afterSecondRun = (await stat(second)).mtimeMs;
+    },
+  );
+
+  expect(exitCode).toBe(0);
+  expect(afterSecondRun).toBeGreaterThan(0);
+  expect(mtimes[SECOND_FILE]).toBe(afterSecondRun);
 });
 
 // With no merge time for the earlier pull request, nothing separates the two

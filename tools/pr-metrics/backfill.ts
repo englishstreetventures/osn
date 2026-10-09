@@ -562,7 +562,7 @@ if (import.meta.main) {
 
   if (heldBack.length > 0) {
     process.stdout.write(
-      `held back ${heldBack.length} PR(s) whose sessions could not be told apart from another's: ${heldBack.join(", ")}\n`,
+      `held back ${heldBack.length} PR(s) with transcripts but no card, each named above: ${heldBack.join(", ")}\n`,
     );
   }
 

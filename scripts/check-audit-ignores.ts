@@ -22,8 +22,9 @@
  *   of the advisory URL, so `--ignore=GHSA-` silences every advisory;
  * - a `#` inside the folded `run: >` block: YAML folds it into the command,
  *   and the shell then drops every flag after it as a comment;
- * - no pre-push command running `bun audit` at all, or one set to `skip`: a
- *   renamed command would otherwise leave this check passing on nothing.
+ * - no pre-push command running `bun audit` at all, or one carrying a key that
+ *   can stop it running (`skip`, `only`, `glob`, `files`): a renamed or
+ *   switched-off command would otherwise leave this check passing on nothing.
  *
  * Run by the `audit-ignores` pre-push command in `lefthook.yml` and by the
  * `script-tests` job in `.github/workflows/ci.yml`. Tests in
@@ -49,10 +50,18 @@ export type AuditCommand = {
   /** `commands.<name>` or `jobs[<index>]`, for the finding text. */
   readonly where: string;
   readonly run: string;
-  readonly skip: unknown;
+  /** Each lefthook key set on the command that can stop it running, written
+   * as `key: value`. */
+  readonly gates: readonly string[];
 };
 
-type HookEntry = { readonly run?: unknown; readonly skip?: unknown };
+type HookEntry = {
+  readonly run?: unknown;
+  readonly skip?: unknown;
+  readonly only?: unknown;
+  readonly glob?: unknown;
+  readonly files?: unknown;
+};
 type Hook = {
   readonly commands?: Readonly<Record<string, HookEntry | null>>;
   readonly jobs?: readonly (HookEntry | null)[];
@@ -66,6 +75,19 @@ function isValidCalendarDate(date: string): boolean {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
 }
 
+/** `skip` and `only` turn a command off on a condition, and `glob` or `files`
+ * make lefthook skip it when no file matches; on the audit, any of them can
+ * switch it off without a word. `skip: false` is the one setting that keeps it
+ * on. */
+function gatesOf(entry: HookEntry): readonly string[] {
+  return (["skip", "only", "glob", "files"] as const).flatMap((key) => {
+    const value = entry[key];
+    if (value === undefined || (key === "skip" && value === false)) return [];
+
+    return [`${key}: ${JSON.stringify(value)}`];
+  });
+}
+
 /** Every pre-push command or job whose `run` invokes `bun audit`, with the
  * command string as YAML hands it to the shell. */
 export function auditCommands(yamlText: string): readonly AuditCommand[] {
@@ -75,13 +97,13 @@ export function auditCommands(yamlText: string): readonly AuditCommand[] {
 
   for (const [name, entry] of Object.entries(hook.commands ?? {})) {
     if (typeof entry?.run === "string" && entry.run.includes("bun audit")) {
-      found.push({ where: `commands.${name}`, run: entry.run, skip: entry.skip });
+      found.push({ where: `commands.${name}`, run: entry.run, gates: gatesOf(entry) });
     }
   }
 
   (hook.jobs ?? []).forEach((entry, index) => {
     if (typeof entry?.run === "string" && entry.run.includes("bun audit")) {
-      found.push({ where: `jobs[${index}]`, run: entry.run, skip: entry.skip });
+      found.push({ where: `jobs[${index}]`, run: entry.run, gates: gatesOf(entry) });
     }
   });
 
@@ -134,11 +156,11 @@ export function checkAuditIgnores(yamlText: string, now: Date = new Date()): rea
     });
   }
 
-  for (const { where, run, skip } of commands) {
-    if (skip !== undefined && skip !== false) {
+  for (const { where, run, gates } of commands) {
+    for (const gate of gates) {
       findings.push({
         name: where,
-        problem: `the audit is set to skip (${JSON.stringify(skip)}); remove the key`,
+        problem: `\`${gate}\` can stop the audit running; remove the key`,
       });
     }
 

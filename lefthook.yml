@@ -99,8 +99,9 @@ pre-push:
     audit-ignores:
       # Fails when an `--ignore` above has no `DROP AFTER` marker, a marker
       # whose date has passed or is more than 90 days out, or an id that is
-      # not a whole GHSA id; and when the audit command holds a `#`, is set to
-      # skip, or is gone. CI's `script-tests` job runs the same check.
+      # not a whole GHSA id; and when the audit command holds a `#`, carries a
+      # key that can stop it running (`skip`, `only`, `glob`, `files`), or is
+      # gone. CI's `script-tests` job runs the same check.
       run: bun run scripts/check-audit-ignores.ts
     release-age:
       # The third guard over the same dependency surface, and the one that

@@ -723,6 +723,26 @@ test("recordWindow takes the nearest merge on each side of a middle pull request
   });
 });
 
+// A third pull request on a reused name starts after the second merge, never
+// the first, whatever order the others arrive in.
+test("recordWindow starts after the latest earlier merge", () => {
+  const first = { number: 1, mergedAt: "2026-09-01T00:00:00Z", state: "MERGED" as const };
+  const second = { number: 2, mergedAt: "2026-09-10T00:00:00Z", state: "MERGED" as const };
+  const expected = { kind: "window" as const, after: second.mergedAt, until: null };
+
+  expect(recordWindow({ mergedAt: null }, [first, second])).toEqual(expected);
+  expect(recordWindow({ mergedAt: null }, [second, first])).toEqual(expected);
+});
+
+// A typed `--merged-at` or junk on the card must not open the window both ways.
+test("recordWindow will not place this pull request when its own merge time is not a date", () => {
+  expect(recordWindow({ mergedAt: "yesterday" }, [MERGED_984])).toEqual({
+    kind: "unplaceable",
+    pull: null,
+    reason: "unknown",
+  });
+});
+
 test("recordWindow places an open pull request after every merge", () => {
   const open = { number: 2, mergedAt: null, state: "OPEN" as const };
 
@@ -757,11 +777,16 @@ test("recordsInWindow returns every record when the window is open", () => {
 // sorts before the first for the same instant.
 test("recordsInWindow compares instants, not strings, and drops what it cannot place", () => {
   const at = (timestamp: string | undefined) => assistant({ timestamp, uuid: timestamp });
+  // The `.500Z` records sit where the two orders disagree: as strings,
+  // `10:00:45.500Z` sorts before `10:00:45Z` and `10:02:00.500Z` before
+  // `10:02:00Z`, so a string comparison would drop the first and keep the second.
   const records = [
     at("2026-09-07T10:00:00.000Z"),
     at("2026-09-07T10:00:45.000Z"),
+    at("2026-09-07T10:00:45.500Z"),
     at("2026-09-07T10:01:00.000Z"),
     at("2026-09-07T10:02:00.000Z"),
+    at("2026-09-07T10:02:00.500Z"),
     at(undefined),
   ];
 
@@ -771,6 +796,7 @@ test("recordsInWindow compares instants, not strings, and drops what it cannot p
   });
 
   expect(kept.map((r) => r.timestamp)).toEqual([
+    "2026-09-07T10:00:45.500Z",
     "2026-09-07T10:01:00.000Z",
     "2026-09-07T10:02:00.000Z",
   ]);

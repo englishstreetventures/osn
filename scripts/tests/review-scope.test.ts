@@ -7,17 +7,27 @@ test("Markdown anywhere outside a src/ directory is a doc", () => {
   expect(classifyPath("AGENTS.md")).toBe("doc");
   expect(classifyPath("tools/pr-metrics/README.md")).toBe("doc");
   expect(classifyPath(".changeset/quiet-owls-sing.md")).toBe("doc");
-  expect(classifyPath("docs/superpowers/plans/plan.mdx")).toBe("doc");
+  expect(classifyPath("docs/superpowers/plans/plan.md")).toBe("doc");
 });
 
-test("only Markdown counts as a doc, wherever it sits", () => {
+// MDX carries components and script, so it is source, not prose.
+test("only plain Markdown counts as a doc, wherever it sits", () => {
+  expect(classifyPath("docs/page.mdx")).toBe("other");
   expect(classifyPath("wiki/assets/diagram.svg")).toBe("other");
   expect(classifyPath("docs/plugin.js")).toBe("other");
 });
 
-test("any file under .claude/skills/ is a skill", () => {
+test("Markdown under .claude/skills/ is a skill", () => {
   expect(classifyPath(".claude/skills/prep-pr/SKILL.md")).toBe("skill");
   expect(classifyPath(".claude/skills/prep-pr/references/workflow-steps.md")).toBe("skill");
+});
+
+// A script under a skill runs, and `.claude/skills/webgpu-threejs-tsl` is a
+// tracked symlink into `.agents/`; `git diff --name-only` cannot tell either
+// from text, so only Markdown qualifies.
+test("a script or a symlink under .claude/skills/ is not trivial", () => {
+  expect(classifyPath(".claude/skills/prep-pr/scripts/run.sh")).toBe("other");
+  expect(classifyPath(".claude/skills/webgpu-threejs-tsl")).toBe("other");
 });
 
 test("a tests/ directory or a .test./.spec. name is a test", () => {
