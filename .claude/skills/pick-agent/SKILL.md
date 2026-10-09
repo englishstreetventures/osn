@@ -28,7 +28,7 @@ than assuming either, and name both in your sentence.
 |---|---|
 | `implementer` | Anything that designs something. New behaviour, a schema change, a major version bump, auth or session work, a bug whose cause is unknown. The default. |
 | `mechanic` | Work whose answer is fixed before it starts: patch and minor dependency sweeps, renames, changesets, a known pattern applied across files. |
-| `reviewer` | Reviewing a branch through one lens — `review-tests`, `review-security`, `review-performance`, `review-docs`, or a plan task's spec and quality. Reports findings; fixes nothing. |
+| `reviewer` | Reviewing a branch through one lens — `review-tests`, `review-security`, `review-performance`, `review-docs`, or a whole branch against its plan. Reports findings; fixes nothing. |
 | `explorer` | Read-only orientation. Returns `file:line`, proposes nothing. |
 | `shepherd` | Polling a pull request to a terminal state. |
 | `attacker` | Attacking a plan, cold, in a fresh context. |
@@ -63,10 +63,14 @@ whole-task hand-offs making up most of the rest; `analyse-sessions` gives the
 current split. `general-purpose` is right only for one-off research, a probe of
 the harness, or a skill's own eval run — work no definition describes.
 
-A plugin skill's dispatch template is not an exception.
-`superpowers:subagent-driven-development` hard-codes `general-purpose` and a
-`model`; send its implementer prompts to `implementer` and its reviews to
-`reviewer`.
+A plugin skill's dispatch template is not a licence either.
+`superpowers:subagent-driven-development` hard-codes `general-purpose` and picks
+a model per task. Send an implementer prompt it would put on its cheapest tier —
+the plan holds the complete code — to `mechanic`, every other implementer prompt
+to `implementer`, and its final whole-branch review to `reviewer`, none with a
+`model`. Its per-task reviews and re-reviews are the one exception: they keep
+the plugin's own `general-purpose` dispatch and model choice, because routing
+each of them to `reviewer` would run every small review at `xhigh`.
 
 ## Pass no `model` and no `effort`
 
@@ -123,9 +127,9 @@ be nice to pay. A cheaper agent that does the job worse costs more, because the
 work comes back.
 
 **One code-writing agent per worktree.** Two agents writing code in the same
-worktree corrupt each other's branches. Only `reviewer` agents share a worktree,
-because the definition forbids changing the checkout, and they build only when
-the brief says they are alone in it.
+worktree corrupt each other's branches. Only `reviewer` agents share a worktree:
+their tool grant has no `Edit`, their definition tells them never to change the
+checkout, and they build only when the brief says they are alone in it.
 
 ## What consumes this
 

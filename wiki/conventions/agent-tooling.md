@@ -26,7 +26,7 @@ Locally the repository is the bare `~/.work/osn.git`, and every worktree — `ma
 
 ## Subagents
 
-`.claude/agents/*.md` defines one agent per role — `implementer`, `mechanic`, `reviewer`, `explorer`, `shepherd`, `attacker` — each with a `model` and an `effort`. Skills and wiki pages name the agent and read its file, so a model change touches one line. That holds only while dispatches pass no `model` or `effort`: the Agent call takes both, and either overrides the definition. A `general-purpose` dispatch skips the definitions altogether and runs at its parent's settings, so review, plan-attack and whole-task work never go there. The `pick-agent` skill maps a task and its `complexity:` label to one. Two code-writing agents in one worktree corrupt each other's branches: give each its own worktree.
+`.claude/agents/*.md` defines one agent per role — `implementer`, `mechanic`, `reviewer`, `explorer`, `shepherd`, `attacker` — each with a `model` and an `effort`. Skills and wiki pages name the agent and read its file, so a model change touches one line. That holds only while dispatches pass no `model` or `effort`: the Agent call takes both, and either overrides the definition. A `general-purpose` dispatch skips the definitions altogether and runs at its parent's settings, so review, plan-attack and whole-task work never go there, apart from the one plugin exception `pick-agent` names. The `pick-agent` skill maps a task and its `complexity:` label to one. Two code-writing agents in one worktree corrupt each other's branches: give each its own worktree.
 
 ## Skills and their evals
 

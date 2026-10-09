@@ -203,7 +203,7 @@ Then the instructions themselves:
 
 Do not re-implement or second-guess its design. Its final message is a report to you, not to the user.
 
-For a **large phase** — a plan with many independent tasks — tell the subagent to run `superpowers:subagent-driven-development` against the plan file instead of `new-feat`: a fresh implementer per task, a review per task, a review of the whole branch, all inside the one branch. Still one PR; `prep-pr` runs once at the end. That plugin's templates dispatch `general-purpose` with a `model`; tell the subagent to send its implementer prompts to `implementer` and its reviews to `reviewer` instead, with no `model`.
+For a **large phase** — a plan with many independent tasks — tell the subagent to run `superpowers:subagent-driven-development` against the plan file instead of `new-feat`: a fresh implementer per task, a review per task, a review of the whole branch, all inside the one branch. Still one PR; `prep-pr` runs once at the end. That plugin's templates dispatch `general-purpose` with a `model`; tell the subagent to route them as `pick-agent` §Never `general-purpose` says — cheapest-tier implementer prompts to `mechanic`, the rest to `implementer`, the final whole-branch review to `reviewer`, per-task reviews left as the plugin dispatches them.
 
 ### Step 4 — `prep-pr`, with findings fixed
 
@@ -229,9 +229,9 @@ Two rules for anything you dispatch into a worktree:
 - **One code-writing agent per worktree**, and never a review alongside your own
   uncommitted edits. A review agent comparing an old shape against a new one
   reaches for `git checkout <ref> -- <path>`, and putting it back discards
-  whatever you had uncommitted in that tree. Only the `reviewer` definition
-  forbids that, so only `reviewer` agents share a worktree, as `prep-pr` Step 6
-  runs two.
+  whatever you had uncommitted in that tree. Only `reviewer` agents share a
+  worktree, as `prep-pr` Step 6 runs two: their tool grant has no `Edit` and
+  their definition tells them never to change the checkout.
 
 Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. This skill's contract is stronger: **after the reviews, dispatch `implementer` fix subagents to add the missing tests and fix every security and performance finding** — Critical, High and Medium at minimum, Low and Info when cheap — then re-verify. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. A Medium deliberately deferred is carried into the PR body as a tracked follow-up. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the five-section PR body with the `write-pr` skill, push, and open the PR. Once it is open, move the issue's card to In Review (`next-batch` §Claim, step 4).
 

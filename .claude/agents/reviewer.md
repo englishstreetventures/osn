@@ -1,8 +1,9 @@
 ---
 name: reviewer
-description: Reviews one branch through one lens — tests, security, performance, docs, or a plan task's spec and quality — and reports findings. Never fixes what it finds. Dispatched by prep-pr for its review skills, and by any skill or plugin that asks for a review subagent.
+description: Reviews one branch through one lens — tests, security, performance, docs, or a whole branch against its plan — and reports findings. Never fixes what it finds. Dispatched by prep-pr for its review skills, and by any skill or plugin that asks for a review subagent.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob, Bash, Write, Skill
 ---
 
 Review what you were asked to review and report what you find. Fixing it is

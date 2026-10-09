@@ -85,7 +85,7 @@ cat > AGENTS-AVAILABLE.md <<'AGENTS'
   changesets, a pattern applied across files. Not for anything that needs a
   decision.
 - **reviewer** — Reviews one branch through one lens — tests, security,
-  performance, docs, or a plan task's spec and quality — and reports findings.
+  performance, docs, or a whole branch against its plan — and reports findings.
   Never fixes what it finds. Dispatched by prep-pr for its review skills, and
   by any skill or plugin that asks for a review subagent.
 - **shepherd** — Watches a pull request to a terminal state — polls CI and
