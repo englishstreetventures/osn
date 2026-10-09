@@ -764,3 +764,252 @@ test("a second backfill over unchanged inputs rewrites nothing", async () => {
     await rm(f.dir, { recursive: true, force: true });
   }
 });
+
+// --- one branch name, several merged pull requests ---------------------------
+
+const LATER_PR = 5000;
+
+/** A stub `gh` listing the given merged pull requests, newest first as the
+ * real listing is, all on `BRANCH` unless they say otherwise. */
+async function stubListing(
+  f: Awaited<ReturnType<typeof fixture>>,
+  pulls: { number: number; mergedAt: string }[],
+) {
+  const listing = JSON.stringify(
+    pulls.map((p) => ({
+      number: p.number,
+      headRefName: BRANCH,
+      mergedAt: p.mergedAt,
+      baseRefOid: "aaa",
+      headRefOid: "bbb",
+      labels: [],
+      closingIssuesReferences: [],
+    })),
+  );
+  const commits = JSON.stringify({
+    data: {
+      repository: Object.fromEntries(
+        pulls.map((p) => [`p${p.number}`, { commits: { totalCount: 1 } }]),
+      ),
+    },
+  });
+
+  await writeFile(
+    join(f.binDir, "gh"),
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_CALL_LOG"
+case "$*" in
+  *"pr list"*) printf '%s' '${listing}' ;;
+  *"api graphql"*) printf '%s' '${commits}' ;;
+  *"/files"*) printf '%s\\n' '{"filename":"osn/api/src/svc.ts","additions":1,"deletions":0}' ;;
+  *) printf '%s' '3' ;;
+esac
+`,
+  );
+  await chmod(join(f.binDir, "gh"), 0o755);
+}
+
+/** A second session on `BRANCH`, two days after the first pull request merged:
+ * 100 output tokens that belong to the later pull request alone. */
+async function laterSession(f: Awaited<ReturnType<typeof fixture>>) {
+  const project = join(f.sessions, await projectDirFor(f.dir));
+  await writeFile(
+    join(project, "sess-3.jsonl"),
+    [
+      ["2026-09-11T09:00:00.000Z", 70],
+      ["2026-09-11T09:05:00.000Z", 30],
+    ]
+      .map(([timestamp, output], i) =>
+        JSON.stringify({
+          type: "assistant",
+          sessionId: "sess-3",
+          gitBranch: BRANCH,
+          uuid: `later-${i}`,
+          requestId: `req-later-${i}`,
+          timestamp,
+          message: { model: "claude-opus-5", usage: { output_tokens: output } },
+        }),
+      )
+      .join("\n"),
+  );
+}
+
+/** A card already on disk, as an earlier run or `retro` would have left it. */
+async function plantCard(
+  f: Awaited<ReturnType<typeof fixture>>,
+  file: string,
+  pr: { number: number; merged_at: string | null },
+) {
+  await mkdir(join(f.dir, "cards"), { recursive: true });
+  const text = `${JSON.stringify({
+    schema_version: 1,
+    pr: { ...pr, branch: BRANCH, phase: "at-open", generated_at: "2026-09-01T00:00:00Z" },
+    spend: { usd_equivalent: 12.34 },
+    interaction: {},
+  })}\n`;
+  await writeFile(join(f.dir, "cards", file), text);
+
+  return text;
+}
+
+interface WrittenCard {
+  pr: { number: number };
+  window: { sessions: number; first_ts: string; last_ts: string };
+  spend: { tokens: { output: number } };
+}
+
+async function readCard(f: Awaited<ReturnType<typeof fixture>>, file: string) {
+  return JSON.parse(await readFile(join(f.dir, "cards", file), "utf8")) as WrittenCard;
+}
+
+// The case the cards were wrong about: #984 and #1375 shared one branch name,
+// and a backfill over both wrote the later card over the earlier one, carrying
+// both pull requests' sessions.
+test("two merged pull requests on one branch name get two cards, each from its own records", async () => {
+  const f = await fixture({ withTranscript: true });
+  try {
+    await stubListing(f, [
+      { number: LATER_PR, mergedAt: "2026-09-12T12:00:00Z" },
+      { number: PR, mergedAt: "2026-09-09T12:00:00Z" },
+    ]);
+    await laterSession(f);
+
+    const run = await runBackfill(f);
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain("wrote 2 card(s).");
+    expect(await readFile(f.log, "utf8")).toContain("pr list");
+
+    const first = await readCard(f, `${SLUG}.json`);
+    expect(first.pr.number).toBe(PR);
+    expect(first.window.sessions).toBe(1);
+    expect(first.window.first_ts).toBe("2026-09-09T10:01:00.000Z");
+    expect(first.window.last_ts).toBe("2026-09-09T10:02:00.000Z");
+    expect(first.spend.tokens.output).toBe(1000);
+
+    const second = await readCard(f, `${SLUG}-${LATER_PR}.json`);
+    expect(second.pr.number).toBe(LATER_PR);
+    expect(second.window.sessions).toBe(1);
+    expect(second.window.first_ts).toBe("2026-09-11T09:00:00.000Z");
+    expect(second.spend.tokens.output).toBe(100);
+
+    // A second pass finds both cards already right and touches neither.
+    const again = await runBackfill(f);
+    expect(again.stdout).toContain("wrote 0 card(s).");
+    expect(again.stdout).toContain("left 2 card(s) untouched");
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+// `--limit` reaches back only so far: the earlier pull request may be in no
+// listing, and its card on disk is then the only record that it exists.
+test("a card on disk for an earlier pull request outside the listing keeps its file", async () => {
+  const f = await fixture({ withTranscript: true });
+  try {
+    await stubListing(f, [{ number: PR, mergedAt: "2026-09-09T12:00:00Z" }]);
+    const planted = await plantCard(f, `${SLUG}.json`, {
+      number: 777,
+      merged_at: "2026-09-01T00:00:00Z",
+    });
+
+    const run = await runBackfill(f);
+    expect(run.exitCode).toBe(0);
+
+    expect(await readFile(join(f.dir, "cards", `${SLUG}.json`), "utf8")).toBe(planted);
+    const card = await readCard(f, `${SLUG}-${PR}.json`);
+    expect(card.pr.number).toBe(PR);
+    expect(card.spend.tokens.output).toBe(1000);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+// Once the earlier pull request's transcripts age out, its window is empty. A
+// zero card written over its measured one would read like a cheap pull request.
+test("a pull request whose window holds no records is held back, its card untouched", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    await stubListing(f, [
+      { number: LATER_PR, mergedAt: "2026-09-12T12:00:00Z" },
+      { number: PR, mergedAt: "2026-09-09T12:00:00Z" },
+    ]);
+    await laterSession(f);
+    const planted = await plantCard(f, `${SLUG}.json`, {
+      number: PR,
+      merged_at: "2026-09-09T12:00:00Z",
+    });
+
+    const run = await runBackfill(f);
+    expect(run.exitCode).toBe(0);
+    expect(run.stderr).toContain(`#${PR}: no records`);
+    expect(run.stdout).toContain(`held back 1 PR(s)`);
+
+    expect(await readFile(join(f.dir, "cards", `${SLUG}.json`), "utf8")).toBe(planted);
+    expect((await readCard(f, `${SLUG}-${LATER_PR}.json`)).spend.tokens.output).toBe(100);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+test("an earlier pull request with no known merge time holds the later one back", async () => {
+  const f = await fixture({ withTranscript: true });
+  try {
+    await stubListing(f, [{ number: PR, mergedAt: "2026-09-09T12:00:00Z" }]);
+    const planted = await plantCard(f, `${SLUG}.json`, { number: 777, merged_at: null });
+
+    const run = await runBackfill(f);
+    expect(run.exitCode).toBe(0);
+    expect(run.stderr).toContain("#777, whose merge time is unknown");
+    expect(run.stdout).toContain("wrote 0 card(s).");
+    expect(await readFile(join(f.dir, "cards", `${SLUG}.json`), "utf8")).toBe(planted);
+    expect(await Bun.file(join(f.dir, "cards", `${SLUG}-${PR}.json`)).exists()).toBe(false);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+// A slug neighbour's card left by an earlier run: `feat-backfill-fixture` is
+// another branch name that flattens to the same file. The in-run collision
+// check cannot see it, since this run never claimed the file.
+test("backfill never writes over another pull request's card left by an earlier run", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const planted = await plantCard(f, `${SLUG}.json`, { number: 777, merged_at: null });
+    await writeFile(
+      join(f.binDir, "gh"),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_CALL_LOG"
+case "$*" in
+  *"pr list"*)
+    printf '%s' '[{"number":9999,"headRefName":"${SLUG}","mergedAt":"2026-09-09T13:00:00Z","baseRefOid":"ccc","headRefOid":"ddd","labels":[],"closingIssuesReferences":[]}]' ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p9999":{"commits":{"totalCount":1}}}}}' ;;
+  *"/files"*) printf '%s\\n' '{"filename":"osn/api/src/svc.ts","additions":1,"deletions":0}' ;;
+  *) printf '%s' '3' ;;
+esac
+`,
+    );
+    await chmod(join(f.binDir, "gh"), 0o755);
+    const project = join(f.sessions, await projectDirFor(f.dir));
+    await writeFile(
+      join(project, "sess-2.jsonl"),
+      `${JSON.stringify({
+        type: "assistant",
+        sessionId: "sess-2",
+        gitBranch: SLUG,
+        requestId: "req-neighbour",
+        timestamp: "2026-09-09T11:00:00.000Z",
+        message: { model: "claude-opus-5", usage: { output_tokens: 50 } },
+      })}\n`,
+    );
+
+    const run = await runBackfill(f);
+
+    expect(run.exitCode).toBe(0);
+    expect(await readFile(f.log, "utf8")).toContain("pr list");
+    expect(run.stderr).toContain(`${SLUG}.json is the card for #777`);
+    expect(run.stdout).toContain("held back 1 PR(s)");
+    expect(await readFile(join(f.dir, "cards", `${SLUG}.json`), "utf8")).toBe(planted);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});

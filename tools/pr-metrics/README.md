@@ -2,7 +2,9 @@
 
 Builds a **session-performance card** for a branch: what the agent session that
 produced a pull request cost, what it changed, and how much steering it needed.
-Writes one JSON file per branch to `.claude/metrics/<branch-slug>.json`.
+Writes one JSON file per pull request to `.claude/metrics/<branch-slug>.json`, or
+`<branch-slug>-<pr>.json` when an earlier pull request already used the branch
+name.
 
 ```bash
 bun run --cwd tools/pr-metrics card                          # current branch
@@ -45,12 +47,15 @@ end, and the result would sit in the corpus looking complete while answering
 none of the questions the cards exist for.
 
 Neither writes over a card that names another pull request. Transcripts are
-joined by branch name alone, so a branch name reused from an earlier pull
-request would mix both pieces of work into one card: `card` writes nothing,
-renders nothing and exits 1 instead.
+joined by branch name alone, so on a branch name an earlier pull request used,
+the earlier merge separates the two: the later card is `<branch-slug>-<pr>.json`
+and holds only the records after that merge. Where the merge time is unknown,
+or the earlier pull request closed without merging, `card` writes nothing,
+renders nothing and exits 1.
 
 `backfill` is the third writer and is retrospective: merged pull requests that
-predate cards, or whose card was never written.
+predate cards, or whose card was never written. It splits a reused branch name
+the same way, and skips a pull request it cannot place rather than writing it.
 
 ## Read this before changing it
 

@@ -63,6 +63,11 @@ pre-push:
       # package, and remove the entry if it fails. `bun audit` cannot see
       # copies bundled inside other packages.
       #
+      # Each entry also carries a `# DROP AFTER <GHSA id> <YYYY-MM-DD>`
+      # marker, dated no more than 90 days out, and the `audit-ignores`
+      # command below fails once the date passes. Then repeat the check: if it
+      # holds, move the date; if not, remove the flag and its paragraph.
+      #
       # GHSA-vfj7-8cjw-p6xm — braces 3.0.3, stack exhaustion on deeply nested
       # patterns. Installed via @pulse/web › @solidjs/start 2.0.4 › micromatch
       # and fast-glob, which only its Vite plugins call (the route scanner and
@@ -71,6 +76,7 @@ pre-push:
       # bundled in vite, tsx, prettier, oxfmt and playwright-core are build,
       # dev and test tooling. Drop when braces > 3.0.3 ships and bun.lock
       # resolves it, or when @solidjs/start stops depending on micromatch.
+      # DROP AFTER GHSA-vfj7-8cjw-p6xm 2027-01-07
       #
       # GHSA-ch52-4w7c-c8xp — http-cache-semantics 4.2.0, max-stale handling
       # in a shared cache. Installed via astro 7.2.10, which uses it only in
@@ -81,6 +87,7 @@ pre-push:
       # the D1 test tier, for one developer's own Worker. Drop when
       # http-cache-semantics > 4.2.0 ships and bun.lock resolves it, or when
       # astro stops depending on it.
+      # DROP AFTER GHSA-ch52-4w7c-c8xp 2027-01-07
       #
       # Comments stay above `run:`. Inside the folded block a `#` line is part
       # of the command, and the shell would drop every flag after it.
@@ -89,6 +96,16 @@ pre-push:
         bun audit --audit-level=high
         --ignore=GHSA-vfj7-8cjw-p6xm
         --ignore=GHSA-ch52-4w7c-c8xp
+    audit-ignores:
+      # Fails when an `--ignore` above has no `DROP AFTER` marker, or one whose
+      # date has passed or is more than 90 days out. Also fails unless the
+      # `audit` command, whitespace collapsed, is exactly
+      # `bun audit --audit-level=high` followed only by `--ignore=<GHSA id>`
+      # flags; unless `audit` carries only `run:` and this hook only
+      # `parallel:` and `commands:`; and on a top-level `extends`, `remotes`,
+      # `rc` or `templates`. CI's `script-tests` job runs the same check on
+      # the committed file.
+      run: bun run scripts/check-audit-ignores.ts
     release-age:
       # The third guard over the same dependency surface, and the one that
       # covers the soak policy itself rather than the packages under it: every

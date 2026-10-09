@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 /**
  * Collect a session-performance card for the current branch and write it to
- * `.claude/metrics/<branch-slug>.json`.
+ * `.claude/metrics/<branch-slug>.json`, or `<branch-slug>-<pr>.json` when an
+ * earlier pull request already used the branch name.
  *
  * The question this exists to answer: where is agent effort going, and which
  * of it was worth spending? A PR that cost 60M tokens is not a problem on its
@@ -30,8 +31,9 @@
  * assistant message. That field is what makes a card possible at all: this
  * repository's rule is one worktree and one branch per task, so branch is a
  * reliable join key from a transcript to a pull request while no branch name is
- * used twice. `new-feat` checks a name is unused before cutting it, and the CLI
- * refuses to write over a card that names another pull request.
+ * used twice. `new-feat` checks a name is unused before cutting it. Where a name
+ * was used twice anyway, the merges split its records (`recordWindow`), and the
+ * CLI never writes over a card that names another pull request.
  *
  * Subagent spend lives in a sibling `<session-id>/subagents/*.jsonl` directory
  * rather than the main transcript — miss it and a card under-reports by however
@@ -1063,7 +1065,7 @@ function share(part: number, whole: number): string {
  * "API-equivalent" is spelled out every time because this work runs on a
  * subscription and the number must never be read as a bill.
  */
-export function renderDetails(card: Card): string {
+export function renderDetails(card: Card, file = `${branchSlug(card.pr.branch)}.json`): string {
   const { spend, diff, interaction, window: session, complexity } = card;
   const tokens = spend.tokens;
   const total =
@@ -1132,7 +1134,7 @@ export function renderDetails(card: Card): string {
     "|---|---|",
     ...rows.map(([label, value]) => `| ${label} | ${value} |`),
     "",
-    `<sub>Card: \`.claude/metrics/${branchSlug(card.pr.branch)}.json\` · phase \`${card.pr.phase}\` · [schema](../blob/main/wiki/conventions/session-metrics.md)</sub>`,
+    `<sub>Card: \`.claude/metrics/${file}\` · phase \`${card.pr.phase}\` · [schema](../blob/main/wiki/conventions/session-metrics.md)</sub>`,
     "</details>",
   ].join("\n");
 }
@@ -1235,6 +1237,143 @@ export function otherPullRequest(onDisk: Card | null, prNumber: number | null): 
   const owner: unknown = onDisk?.pr.number;
 
   return typeof owner === "number" && owner !== prNumber ? owner : null;
+}
+
+/**
+ * The file a card goes to. The first pull request on a branch name takes
+ * `<slug>.json`; each later one on the same name takes `<slug>-<pr>.json`, so
+ * the earlier card keeps its path and its committed record.
+ */
+export function cardFileName(branch: string, prNumber: number, first: boolean): string {
+  return first ? `${branchSlug(branch)}.json` : `${branchSlug(branch)}-${prNumber}.json`;
+}
+
+export interface BranchCard {
+  file: string;
+  card: Card;
+}
+
+/**
+ * Every readable card on disk for this exact branch name: `<slug>.json` and
+ * each `<slug>-<n>.json`. A card whose `pr.branch` is another name is a slug
+ * neighbour's — `feat/x-12` flattens to `feat-x-12` too — and is left out.
+ */
+export function branchCards(outDir: string, branch: string): BranchCard[] {
+  const slug = branchSlug(branch);
+  const pattern = new RegExp(`^${slug.replaceAll(".", "\\.")}(-\\d+)?\\.json$`);
+
+  let names: string[];
+  try {
+    names = readdirSync(outDir);
+  } catch {
+    return [];
+  }
+
+  return names
+    .filter((name) => pattern.test(name))
+    .toSorted()
+    .flatMap((file) => {
+      const card = readCardFile(`${outDir}/${file}`);
+
+      return card !== null && card.pr.branch === branch ? [{ file, card }] : [];
+    });
+}
+
+/** Another pull request on the same branch name, as far as its place in time
+ * is known. */
+export interface BranchPull {
+  number: number;
+  mergedAt: string | null;
+  /** GitHub's state where it was asked; `null` when nobody asked or the
+   * answer did not land. */
+  state: "MERGED" | "OPEN" | "CLOSED" | null;
+}
+
+/** The span of time whose records belong to one pull request: after the merge
+ * before it, up to its own merge when a later one follows. `null` bounds are
+ * open. */
+export type RecordWindow =
+  | { kind: "window"; after: string | null; until: string | null }
+  | { kind: "unplaceable"; pull: number | null; reason: "closed" | "unknown" };
+
+/**
+ * Where one pull request's records start and stop when its branch name carried
+ * other pull requests too.
+ *
+ * Transcripts are joined to a card by branch name alone, so on a reused name
+ * the only thing that separates two pull requests' sessions is time. Each
+ * merge is the boundary: a pull request takes the records after the merge
+ * before it, and up to its own merge when another merged after it. With no
+ * other pull request the window is open both ways and every record counts, as
+ * on any branch whose name was used once.
+ *
+ * `self.mergedAt` null means not merged yet, so after every merge. Another pull
+ * request that is `OPEN` is placed the same way. One that closed without
+ * merging, or whose merge time is unknown, has no place on the line, and the
+ * caller must not guess one. Nor does this pull request when its own merge time
+ * is set but is not a date: `pull` is then `null`.
+ */
+export function recordWindow(
+  self: { mergedAt: string | null },
+  others: readonly BranchPull[],
+): RecordWindow {
+  if (others.length === 0) return { kind: "window", after: null, until: null };
+
+  const at = (mergedAt: string | null) =>
+    mergedAt === null ? Number.POSITIVE_INFINITY : Date.parse(mergedAt);
+
+  for (const other of others) {
+    if (other.mergedAt === null && other.state === "OPEN") continue;
+    if (other.mergedAt === null || Number.isNaN(at(other.mergedAt))) {
+      return {
+        kind: "unplaceable",
+        pull: other.number,
+        reason: other.state === "CLOSED" ? "closed" : "unknown",
+      };
+    }
+  }
+
+  const selfAt = at(self.mergedAt);
+  if (Number.isNaN(selfAt)) return { kind: "unplaceable", pull: null, reason: "unknown" };
+  const merged = others.filter((o) => o.mergedAt !== null) as (BranchPull & { mergedAt: string })[];
+  const before = merged.filter((o) => at(o.mergedAt) < selfAt);
+  const after =
+    before.length === 0
+      ? null
+      : before.reduce((a, b) => (at(a.mergedAt) >= at(b.mergedAt) ? a : b));
+  const laterExists = Number.isFinite(selfAt) && others.some((o) => at(o.mergedAt) > selfAt);
+
+  return {
+    kind: "window",
+    after: after?.mergedAt ?? null,
+    until: laterExists ? self.mergedAt : null,
+  };
+}
+
+/**
+ * The records inside a window. An open window returns every record untouched.
+ * Otherwise a record counts only when its timestamp parses and falls after
+ * `after` and no later than `until`; one with no timestamp cannot be placed and
+ * is left out. Compared as instants, never as strings: GitHub writes
+ * `…:00Z` and transcripts write `…:00.000Z`, which sort apart for one moment.
+ *
+ * A session that runs across a boundary is cut at it, so each side's
+ * interaction figures for that session come from a fragment of it.
+ */
+export function recordsInWindow(
+  records: SessionRecord[],
+  window: { after: string | null; until: string | null },
+): SessionRecord[] {
+  if (window.after === null && window.until === null) return records;
+
+  const after = window.after === null ? Number.NEGATIVE_INFINITY : Date.parse(window.after);
+  const until = window.until === null ? Number.POSITIVE_INFINITY : Date.parse(window.until);
+
+  return records.filter((record) => {
+    const t = Date.parse(record.timestamp ?? "");
+
+    return !Number.isNaN(t) && t > after && t <= until;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1859,6 +1998,27 @@ function gh(args: string[]): string | null {
   }
 }
 
+/** A pull request's state and merge time from `gh`, or both `null` where the
+ * call fails or answers with something else. */
+function mergeState(number: number): Pick<BranchPull, "mergedAt" | "state"> {
+  const raw = gh(["pr", "view", String(number), "--json", "state,mergedAt"]);
+  if (raw === null) return { mergedAt: null, state: null };
+
+  try {
+    const parsed = JSON.parse(raw) as { state?: unknown; mergedAt?: unknown };
+    const state =
+      parsed.state === "MERGED" || parsed.state === "OPEN" || parsed.state === "CLOSED"
+        ? parsed.state
+        : null;
+    const mergedAt =
+      typeof parsed.mergedAt === "string" && parsed.mergedAt !== "" ? parsed.mergedAt : null;
+
+    return { mergedAt, state };
+  } catch {
+    return { mergedAt: null, state: null };
+  }
+}
+
 /** What `--resolve-issue` recovers: the pull request for a branch, its first
  * linked issue, and that issue's labels where reading them is allowed. */
 interface ResolvedIdentity {
@@ -1978,18 +2138,20 @@ if (import.meta.main) {
   // fallback writes a card for a branch that has none and never touches one
   // that exists. `retro` owns the identity-bearing write and always overwrites.
   const outDir = flag("out-dir") ?? defaultMetricsDir();
-  const outPath = `${outDir}/${branchSlug(branch)}.json`;
+  const slugPath = `${outDir}/${branchSlug(branch)}.json`;
 
-  // One read serves every check below. `branchSlug` turns `/` and anything
-  // else outside `[A-Za-z0-9._-]` into `-`, so `feat/a-b` and `feat-a-b` land
-  // on one file, and `.claude/metrics/` is tracked, so every worktree already
-  // holds every merged branch's card. `ownCard` is the card only when it is
-  // this branch's: without that, `--if-absent` would read a colliding
-  // neighbour as this branch's card and leave that other branch's spend and
-  // `tool_calls` standing as this one's public record — silently, since the
-  // hook discards its output.
-  const onDisk = readCardFile(outPath);
-  const ownCard = onDisk !== null && onDisk.pr.branch === branch ? onDisk : null;
+  // One read serves the `--if-absent` check. `branchSlug` turns `/` and
+  // anything else outside `[A-Za-z0-9._-]` into `-`, so `feat/a-b` and
+  // `feat-a-b` land on one file, and `.claude/metrics/` is tracked, so every
+  // worktree already holds every merged branch's card. `ownCard` is the card
+  // only when it is this branch's: without that, `--if-absent` would read a
+  // colliding neighbour as this branch's card and leave that other branch's
+  // spend and `tool_calls` standing as this one's public record — silently,
+  // since the hook discards its output. On a reused branch name the earlier
+  // pull request's card is this branch's too, so the fallback leaves it alone
+  // and `retro` writes the later one.
+  const slugCard = readCardFile(slugPath);
+  const ownCard = slugCard !== null && slugCard.pr.branch === branch ? slugCard : null;
 
   // Checked here rather than beside the write below so the fallback costs one
   // read and not a transcript scan — `SessionEnd` hooks run on a timeout.
@@ -2004,7 +2166,7 @@ if (import.meta.main) {
     Bun.argv.includes("--if-absent") && flag("format") !== "markdown" && ownCard !== null;
 
   if (skipExisting) {
-    console.log(`pr-metrics: ${outPath} already exists — leaving it alone (--if-absent).`);
+    console.log(`pr-metrics: ${slugPath} already exists — leaving it alone (--if-absent).`);
     process.exit(0);
   }
 
@@ -2030,12 +2192,24 @@ if (import.meta.main) {
     ? Number.parseInt(flag("pr") as string, 10)
     : (resolved?.prNumber ?? null);
 
+  // A branch name an earlier pull request used: its card keeps `<slug>.json`,
+  // and this one goes to `<slug>-<pr>.json`. A run that names no pull request
+  // cannot name that file, and a slug neighbour's card (another branch name)
+  // is not a reuse; both fall to the refusal below.
+  const reused =
+    prNumber !== null &&
+    ownCard !== null &&
+    typeof ownCard.pr.number === "number" &&
+    ownCard.pr.number !== prNumber;
+  const outPath = reused ? `${outDir}/${cardFileName(branch, prNumber, false)}` : slugPath;
+  const onDisk = reused ? readCardFile(outPath) : slugCard;
+  const existing = onDisk !== null && onDisk.pr.branch === branch ? onDisk : null;
+
   // Checked before a single transcript is read, since a refused run would
   // discard the scan, and before the markdown render as well as the write:
   // `retro` appends that render to the pull-request body, and it is built from
-  // the same mixed transcripts the card would be. Against `onDisk`, not
-  // `ownCard`, because a slug neighbour's card is another pull request's
-  // record too.
+  // the same transcripts the card would be. Against `onDisk`, not `existing`,
+  // because a slug neighbour's card is another pull request's record too.
   const owner = otherPullRequest(onDisk, prNumber);
 
   if (owner !== null) {
@@ -2046,8 +2220,70 @@ if (import.meta.main) {
         "   Transcripts are joined to a card by branch name alone, so this card would carry",
         `   #${owner}'s sessions as well. Nothing was written.`,
         "   - `gh` named the wrong pull request, or none: pass --pr <n>.",
-        `   - The branch name was reused: this branch cannot be carded apart from #${owner}. Report it.`,
+        "   - Another branch name flattens to the same file: report it.",
         `   - Both pull requests are one piece of work: delete ${outPath} and run again.`,
+        "",
+      ].join("\n"),
+    );
+    process.exit(1);
+  }
+
+  // The other pull requests on this branch name decide which records are this
+  // one's. Only a `--resolve-issue` run asks `gh`, as for the identity above.
+  const resolveMerges = Bun.argv.includes("--resolve-issue");
+  const others: BranchPull[] = branchCards(outDir, branch)
+    .filter(({ card: c }) => typeof c.pr.number === "number" && c.pr.number !== prNumber)
+    .map(({ card: c }): BranchPull => {
+      const number = c.pr.number as number;
+      if (typeof c.pr.merged_at === "string") {
+        return { number, mergedAt: c.pr.merged_at, state: "MERGED" };
+      }
+
+      const asked = resolveMerges ? mergeState(number) : null;
+
+      return { number, mergedAt: asked?.mergedAt ?? null, state: asked?.state ?? null };
+    });
+
+  let selfMergedAt = flag("merged-at") ?? existing?.pr.merged_at ?? null;
+  if (selfMergedAt === null && others.length > 0 && resolveMerges && prNumber !== null) {
+    selfMergedAt = mergeState(prNumber).mergedAt;
+  }
+
+  const window = recordWindow({ mergedAt: selfMergedAt }, others);
+
+  if (window.kind === "unplaceable" && window.pull === null) {
+    process.stderr.write(
+      [
+        `❌ pr-metrics: this run's own merge time, ${JSON.stringify(selfMergedAt)}, is not a date, so`,
+        "   it cannot be placed beside the other pull requests on this branch name.",
+        "   Nothing was written. Pass --merged-at as an ISO 8601 time.",
+        "",
+      ].join("\n"),
+    );
+    process.exit(1);
+  }
+
+  if (window.kind === "unplaceable") {
+    const otherFile = branchCards(outDir, branch).find((c) => c.card.pr.number === window.pull);
+    const why =
+      window.reason === "closed"
+        ? [
+            `   #${window.pull} closed without merging, so no merge separates its sessions from this run's.`,
+            `   - Both pull requests are one piece of work: delete ${outDir}/${otherFile?.file ?? `${branchSlug(branch)}.json`} and run again.`,
+          ]
+        : [
+            `   #${window.pull}'s merge time is unknown: its card has no merged_at${
+              resolveMerges ? " and `gh` did not answer" : ""
+            }.`,
+            resolveMerges
+              ? "   - Run again once `gh` can reach GitHub."
+              : "   - Run again with --resolve-issue, so `gh` can supply it.",
+          ];
+    process.stderr.write(
+      [
+        `❌ pr-metrics: branch \`${branch}\` also carried pull request #${window.pull}, and this run`,
+        "   cannot tell which of the branch's sessions are whose. Nothing was written.",
+        ...why,
         "",
       ].join("\n"),
     );
@@ -2056,7 +2292,10 @@ if (import.meta.main) {
 
   const sessionsDir = flag("sessions-dir") ?? `${process.env.HOME}/.claude/projects`;
   const base = flag("base") ?? "origin/main";
-  const records = readRecordsForBranch(sessionsDir, branch, { repoPaths: repoProjectPaths() });
+  const records = recordsInWindow(
+    readRecordsForBranch(sessionsDir, branch, { repoPaths: repoProjectPaths() }),
+    window,
+  );
 
   const numstat = git(["diff", "--numstat", `${base}...HEAD`]);
   const commits = git(["rev-list", "--count", `${base}..HEAD`]);
@@ -2077,7 +2316,7 @@ if (import.meta.main) {
       flag("complexity-method") ?? (override ? "manual" : (resolved?.method ?? fromLabels.method)),
     baseSha: git(["rev-parse", base]) || null,
     headSha: git(["rev-parse", "HEAD"]) || null,
-    mergedAt: flag("merged-at"),
+    mergedAt: selfMergedAt,
     phase: flag("phase") === "at-merge" ? "at-merge" : "at-open",
     generatedAt: new Date().toISOString(),
   });
@@ -2086,14 +2325,14 @@ if (import.meta.main) {
   // nothing, so `retro` can append it to a pull-request body without a
   // temporary file and without the warnings below landing in the markdown.
   if (flag("format") === "markdown") {
-    console.log(renderDetails(card));
+    console.log(renderDetails(card, outPath.slice(outDir.length + 1)));
     process.exit(0);
   }
 
   // A re-run on the same branch is common — `retro` writes the card, then the
   // review adds a commit and it is written again. Where nothing but the
   // timestamp moved, leave the file as it stands.
-  if (ownCard === null || !sameApartFromGeneratedAt(ownCard, card)) {
+  if (existing === null || !sameApartFromGeneratedAt(existing, card)) {
     require("node:fs").mkdirSync(outDir, { recursive: true });
     require("node:fs").writeFileSync(outPath, `${JSON.stringify(card, null, 2)}\n`);
   }

@@ -14,7 +14,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-09
 ---
 
 # Session Metrics
@@ -22,7 +22,9 @@ last-reviewed: 2026-10-08
 Every pull request gets a **card**: a JSON record of what the agent session that
 produced it cost, what it changed, and how much steering it needed. Cards live
 at `.claude/metrics/<branch-slug>.json`, one file per branch, committed in the
-pull request they describe.
+pull request they describe. A branch name an earlier pull request already used
+gives the later one `<branch-slug>-<pr>.json` — see
+[[#One card per pull request]].
 
 The point is not to spend less. A hard task should cost more than an easy one,
 and a card that only said "this PR cost $58" would be a number nobody could act
@@ -89,9 +91,10 @@ Three writers, and only one of them is the owner.
 | `backfill` | Retrospectively, over merged pull requests | From the GitHub API — see [[#Backfilling]] |
 
 `retro` runs after the pull request is open, so the card covers the whole
-session — `prep-pr` dispatches `review-tests`, `review-performance` and
-`review-security`, and a card written before those finish measures building the
-change rather than shipping it.
+session — on any diff that is not docs and tests alone, `prep-pr`
+dispatches `review-tests`, `review-performance` and `review-security`, and a
+card written before those finish measures building the change rather than
+shipping it.
 
 > [!warning] The fallback must never overwrite the owner's card.
 > The hook has no way to know the pull request, the issue or the rating — it
@@ -104,20 +107,37 @@ change rather than shipping it.
 
 ### One card per pull request
 
-A card names one pull request, and `card` never writes over a card that names
-another. When the file at the branch's slug path carries a `pr.number` that is
-not this run's — a run that resolved no pull request included — it prints both
-numbers on stderr, writes nothing, renders no `--format markdown` block, and
-exits 1. Transcripts are joined to a card by branch name alone, so a run on a
-branch name an earlier pull request used would put both pieces of work into one
-card, over the earlier one's committed record. A card whose `pr.number` is null
-is the fallback's identity-less one, and `retro` replaces it.
+A card names one pull request, and neither `card` nor `backfill` ever writes
+over a card that names another.
 
-`new-feat` Step 1 and `orchestrate` Step 2 check a name is unused before cutting
-it: no card for it on `origin/main`, and no pull request with that head branch.
-`backfill` does not refuse yet: two merged pull requests on one branch name both
-write the same file, each carrying both pieces of work, until
-englishstreetventures/osn#1443 lands.
+**A reused branch name.** Transcripts are joined to a card by branch name alone,
+so two pull requests on one name share every record. The merges separate them:
+the first pull request on the name keeps `<branch-slug>.json` and takes the
+records up to its merge; each later one writes `<branch-slug>-<pr>.json` and
+takes the records after the merge before it. An open pull request counts as
+after every merge. A session that runs across a merge is cut at it, so each
+side's interaction figures for that session come from part of it.
+`chore-cire-migration-baseline.json` (#984) and
+`chore-cire-migration-baseline-1375.json` (#1375) are the pair that made this
+rule.
+
+| Case | `card` | `backfill` |
+|---|---|---|
+| The file at the slug path names another pull request on the same branch name | Writes `<branch-slug>-<pr>.json` from the records after that pull request's merge | Same, oldest merge first; cards already on disk count as well as the listing, so one older than `--limit` still holds its file |
+| The earlier pull request's merge time is unknown — its card has no `merged_at` | Asks `gh` with `--resolve-issue`; refuses without it, or when `gh` cannot answer | Skips the pull request and says why |
+| The earlier pull request closed without merging | Refuses: no merge separates the two. If both are one piece of work, delete the earlier card and run again | Not listed: `backfill` reads merged pull requests only |
+| A pull request's window holds no records — its transcripts are gone | Writes the card with zero spend, as on any branch with no transcript | Skips it, so a measured card is never replaced by a zero one |
+| The file names another pull request on another branch name — `feat/a-b` and `feat-a-b` flatten to one file — or this run names no pull request | Refuses | Keeps the first and skips the second |
+
+A refusal prints both numbers on stderr, writes nothing, renders no
+`--format markdown` block, and exits 1. A card whose `pr.number` is null is the
+fallback's identity-less one, and `retro` replaces it.
+
+`new-feat` Step 1 and `orchestrate` Step 2 still check a name is unused before
+cutting it — no card for it on `origin/main`, and no pull request with that head
+branch — because the split is only as good as the merge times: a session that
+does the earlier pull request's follow-up work after its merge lands on the
+later card.
 
 ## Where the data comes from
 
@@ -418,7 +438,10 @@ this machine's logs and only for branches this machine worked on.
 
 **A pull request with no local transcript is skipped, not written as zero.** A
 zero-cost card is indistinguishable from a genuinely cheap one once it is in
-the datalake, and it would drag every average it touches toward nothing.
+the datalake, and it would drag every average it touches toward nothing. The
+same holds on a reused branch name for a pull request whose window between the
+merges holds no records; see [[#One card per pull request]] for how `backfill`
+splits a name two pull requests share.
 
 Ratings are transcribed, never invented: a backfilled card carries whatever the
 issue's `complexity:` label says, and `rate-complexity`'s backfill mode marks
@@ -526,8 +549,8 @@ point and points back here.
 
 It never fails on missing transcripts — a card with a diff and zero spend is
 still a true record, and it warns on stderr rather than exiting non-zero. It
-does exit 1 when the card on disk names another pull request — see
-[[#One card per pull request]].
+does exit 1 when it cannot keep this pull request's records apart from another's
+— see [[#One card per pull request]].
 
 ## Querying the cards
 
