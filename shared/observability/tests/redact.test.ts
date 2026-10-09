@@ -79,6 +79,22 @@ describe("redact", () => {
     expect(out.unlockCode).toBe(REDACTION_PLACEHOLDER);
   });
 
+  it("redacts the email transports' bearer credentials wherever a config object is logged", () => {
+    const out = redact({
+      problem: "email disabled",
+      config: { apiKey: "re_live_secret", fromAddress: "hello@example.test" },
+      cloudflare: { accountId: "acct", apiToken: "cf_secret" },
+    }) as {
+      problem: string;
+      config: Record<string, unknown>;
+      cloudflare: Record<string, unknown>;
+    };
+    expect(out.problem).toBe("email disabled");
+    expect(out.config.apiKey).toBe(REDACTION_PLACEHOLDER);
+    expect(out.config.fromAddress).toBe("hello@example.test");
+    expect(out.cloudflare.apiToken).toBe(REDACTION_PLACEHOLDER);
+  });
+
   it("redacts WebAuthn assertion bodies", () => {
     const input = {
       identifier: "u_123",
@@ -386,7 +402,7 @@ describe("redact", () => {
       jwt: "eyJ...",
       sessionToken: "tok",
       // cookie: moved to deny-list (C3 — HttpOnly session cookies)
-      apiKey: "sk_live_",
+      // apiKey: on the deny-list — the email transports' bearer credential
       secretKey: "sk",
       // E2E / Signal — no messaging impl yet:
       ciphertext: "aGVsbG8=",
@@ -441,6 +457,8 @@ describe("redact", () => {
       "codehash",
       "code_hash",
       "unlockcode",
+      "apikey",
+      "apitoken",
       "stepuptoken",
       "step_up_token",
       "totpsecret",

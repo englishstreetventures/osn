@@ -106,6 +106,19 @@ describe("ResendEmailLive.sendBatch", () => {
     expect(calls.map((c) => (c.body as unknown[]).length)).toEqual([100, 1]);
   });
 
+  it("sends to the override's /emails/batch when apiUrl names a local emulator", async () => {
+    const local = makeResendEmailLive({ apiKey: KEY, apiUrl: "http://localhost:4008" });
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const email = yield* EmailService;
+        if (!email.sendBatch) throw new Error("the Resend transport has no sendBatch");
+        return yield* Effect.result(email.sendBatch([digest("a@example.test")]));
+      }).pipe(Effect.provide(local)),
+    );
+    expect(Result.isSuccess(result)).toBe(true);
+    expect(calls.map((c) => c.url)).toEqual(["http://localhost:4008/emails/batch"]);
+  });
+
   it("makes no call for no emails", async () => {
     const result = await run([]);
     expect(Result.isSuccess(result)).toBe(true);

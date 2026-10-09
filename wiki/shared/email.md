@@ -23,7 +23,8 @@ related:
 packages:
   - "@shared/email"
   - "@osn/api"
-last-reviewed: 2026-10-02
+  - "@cire/api"
+last-reviewed: 2026-10-09
 ---
 
 # Email Transport
@@ -50,7 +51,8 @@ email.
 ```
 
 The **live transport is Resend** — a single bearer-authed HTTPS POST to
-`https://api.resend.com/emails`. Resend works on workerd over plain HTTP
+`https://api.resend.com/emails` (locally, optionally to a Resend emulator: see
+[[#Local emulation]]). Resend works on workerd over plain HTTP
 (no paid Workers plan required), so we prefer it over the Cloudflare
 Email Service transport. The Cloudflare transport
 (`https://api.cloudflare.com/client/v4/accounts/{id}/email-service/send`)
@@ -167,7 +169,13 @@ Content-Type: application/json
   Cloudflare transport (429 → `rate_limited`, other non-2xx →
   `dispatch_failed`, fetch reject → `api_unreachable`). The
   `RESEND_API_KEY` is placed only in the `Authorization` header — never in
-  a URL, span/metric attribute, or `EmailError.cause`.
+  a URL, span/metric attribute, or `EmailError.cause`. `config.apiUrl`
+  swaps `https://api.resend.com` for a local emulator's origin; anything but
+  a loopback origin makes `makeResendEmailLive` throw. A loopback origin is
+  `localhost`, `127.0.0.1` or `[::1]` over http or https, or a `*.localhost`
+  name over https only, with no credentials, path, query or fragment.
+  `resendApiUrlProblem` is that check, exported for callers that want the
+  reason instead of a throw.
 - `makeCloudflareEmailLive(config)` — legacy real dispatch. POSTs directly
   to Cloudflare's Email Service REST API via `instrumentedFetch` so the
   call becomes a child span.
@@ -222,7 +230,10 @@ priority order:
 
 1. `RESEND_API_KEY` present in a non-local env → `ResendEmailLive`
    (**preferred**; wins over Cloudflare creds and the opt-in). Locally the
-   recorder is still preferred so dev/test never make a live API call.
+   recorder is still preferred so dev/test never make a live API call —
+   unless `RESEND_API_URL` is set too, which sends to that local emulator
+   ([[#Local emulation]]). `RESEND_API_URL` in a non-local env **throws** at
+   startup, whatever its value.
 2. `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` present →
    `CloudflareEmailLive` (legacy fallback; creds win over the opt-in).
 3. Local env (`OSN_ENV` unset/`"local"`) → `LogEmailLive` recorder.
@@ -268,6 +279,13 @@ Environment variables for `@osn/api`:
 | `CLOUDFLARE_ACCOUNT_ID` | optional / legacy | Cloudflare account ID (fallback transport) |
 | `CLOUDFLARE_EMAIL_API_TOKEN` | optional / legacy | API token with Email Send permission (fallback transport) |
 | `OSN_EMAIL_FROM` | optional | Verified sender address (default: `noreply@osn.local`; prod: `hello@cireweddings.com`) |
+| `RESEND_API_URL` | local only | Origin of a local Resend emulator, e.g. `http://localhost:4008`. Unset ⇒ `https://api.resend.com`. Loopback origins only (a `*.localhost` name needs https). **Never set in a deployed tier**: osn-api refuses to boot with it, the production deploy refuses to run while it exists as a secret, and a test fails if `wrangler.toml` sets it. |
+
+cire-api reads `RESEND_API_KEY` and `RESEND_API_URL` under the same names and
+rules (`cire/api/src/lib/resend-email.ts`), but fail-soft, as all its email is:
+a refused override leaves no Resend transport and logs `email disabled: Resend
+misconfigured` with the reason, and the Worker keeps serving. Its production
+deploy refuses to run while `RESEND_API_URL` exists as a secret.
 
 > **The sender stayed on `cireweddings.com` through the identity move.** osn-api
 > now serves `id.musubi.social`, but `cireweddings.com` is the only domain verified
@@ -296,13 +314,66 @@ The Cloudflare Email Service path remains available as a fallback (onboard
 the sender domain in Cloudflare Email Sending, create an Email-Send token,
 set the `CLOUDFLARE_*` vars) but is no longer the live transport.
 
+## Local emulation
+
+Locally, mail can go through the real Resend code path to an emulator you can
+read, instead of the in-memory recorder: the Resend service in
+[`emulate`](https://github.com/vercel-labs/emulate). It implements
+`POST /emails` and `POST /emails/batch` and checks no API key.
+
+1. Start it. It needs Node 24 or later and runs as its own process, not as a
+   workspace dependency:
+
+   ```bash
+   npx emulate@0.12.1 --service resend --port 4008
+   ```
+
+   Keep `--port`: emulate numbers ports from 4000 in the order of the services
+   it runs, so `--service resend` alone takes 4000, which is osn-api's port.
+2. Give the API both values. The key can be any non-empty string.
+
+   ```bash
+   RESEND_API_KEY=re_local
+   RESEND_API_URL=http://localhost:4008
+   ```
+
+   | API, run as | File |
+   |---|---|
+   | osn-api, `bun run dev` or `dev:app` | `osn/api/.env` |
+   | osn-api, `wrangler dev` | `osn/api/.dev.vars` (`KEY = "value"`) |
+   | cire-api, `bun run dev` or `dev:app` | `cire/api/.env` |
+   | cire-api, `wrangler dev` | `cire/api/.dev.vars` (`KEY = "value"`) |
+
+   Shell variables do not reach the API under `bun run dev`: turbo hands each
+   task only the variables `turbo.json` passes through
+   ([[devloop-urls#Running without the proxy]]). Bun reads the package's own
+   `.env`, and wrangler its `.dev.vars`; all four files are gitignored.
+3. Send something, and read it at `http://localhost:4008/inbox`. In osn-api, a
+   registration (`POST /register/begin`) sends its OTP. Every cire mail needs a
+   signed-in organiser or osn-api's account lookups, so cire needs the whole
+   local stack running.
+
+Under `wrangler dev`, osn-api's per-IP limiters see no client address and
+refuse the auth routes: add `TRUSTED_PROXY_COUNT = "1"` to `.dev.vars` and send
+an `X-Forwarded-For` header.
+
+Without `RESEND_API_URL`, local osn-api and cire's Bun dev server keep the
+in-memory recorder even when a key is set. cire under `wrangler dev` sends
+through Resend itself whenever the key is set.
+
 ## Security notes
 
 - **Resend API key**: a bearer secret. Placed only in the `Authorization`
   header — never in the URL, span/metric attributes, or `EmailError.cause`.
-  The hardcoded `https://api.resend.com/emails` endpoint means no
-  request-controlled URL (no SSRF surface). SPF/DKIM/DMARC are configured on
-  the verified Resend sender domain.
+  The endpoint comes from deployment config, never from request input (no
+  SSRF surface): `https://api.resend.com`, or locally an emulator's origin.
+  `resendApiUrlProblem` refuses any override that is not a loopback origin,
+  and both Workers refuse an override in a deployed tier, so the key and the
+  mail never go to another host. A `*.localhost` name must use https: a
+  resolver decides where that name goes, and only the certificate check stops
+  a wrong answer from receiving the key. The deny-list in `@shared/observability`
+  carries `apiKey` and `apiToken`, so a logged transport config shows neither. SPF/DKIM/DMARC are configured on the
+  verified Resend sender domain.
 - **Cloudflare token (legacy)**: Cloudflare's own API token (scoped to
   Email Send only). SPF/DKIM/DMARC auto-configured by Cloudflare.
 - **OTP bodies**: the rendered `text` / `html` contains the OTP digit
@@ -346,7 +417,8 @@ Feature-flagged via `RESEND_API_KEY` (key-optional — absent ⇒ behaviour is
 exactly as before this transport landed):
 
 1. **Local / tests**: no key → `LogEmailLive`. Zero behavioural change.
-   `bun run test` stays offline (selection ignores a key when local).
+   `bun run test` stays offline (selection ignores a key when local, unless
+   `RESEND_API_URL` names a local emulator — [[#Local emulation]]).
 2. **Staging / production**: verify the `cireweddings.com` sender domain in
    Resend (SPF/DKIM/return-path records into the Cloudflare DNS zone), create
    a Resend API key, `wrangler secret put RESEND_API_KEY`. Send real mail to a

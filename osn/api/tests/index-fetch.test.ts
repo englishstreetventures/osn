@@ -5,7 +5,7 @@ import { handler, type Env } from "../src/index";
 import { _resetOutboundKeyForTests } from "../src/lib/outbound-arc";
 
 /**
- * T-R1 — Workers `fetch` handler fail-closed paths.
+ * Workers `fetch` handler fail-closed paths.
  *
  * Drives the real exported `handler.fetch(req, env)` with a fake `env` and
  * asserts the fail-closed 503 posture. These paths need NO DB binding: they
@@ -16,7 +16,7 @@ import { _resetOutboundKeyForTests } from "../src/lib/outbound-arc";
  * Miniflare-backed `tests/d1/d1-integration.test.ts` (run under `bun test`); wiring
  * a full D1 round-trip into this synchronous vitest suite is impractical, so
  * the request-id echo/mint contract is covered directly in `request-id.test.ts`
- * via the `resolveRequestId` unit (T-S2).
+ * via the `resolveRequestId` unit.
  */
 
 const req = (url = "https://api.osn.test/"): Request => new Request(url);
@@ -60,6 +60,26 @@ describe("handler.fetch — fail-closed (T-R1)", () => {
     expect(error).toContain("DB");
   });
 
+  it("returns 503 naming RESEND_API_URL when a deployed tier carries the emulator override", async () => {
+    // Every edge check and the Upstash gate pass, so the build reaches email
+    // selection, which refuses the override in any non-local tier.
+    const env = {
+      OSN_ENV: "production",
+      DB: {} as Env["DB"],
+      OSN_ISSUER_URL: "https://id.osn.test",
+      OSN_CORS_ORIGIN: "https://osn.test",
+      OSN_RP_ID: "osn.test",
+      UPSTASH_REDIS_REST_URL: "https://redis.osn.test",
+      UPSTASH_REDIS_REST_TOKEN: "token",
+      RESEND_API_KEY: "re_live",
+      RESEND_API_URL: "http://localhost:4008",
+    } as Env;
+    const { error } = await read503(await handler.fetch(req(), env));
+    expect(error).toContain("Worker misconfigured");
+    expect(error).toContain("RESEND_API_URL");
+    expect(error).not.toContain("localhost:4008");
+  });
+
   it("does NOT require the issuer/CORS/RP vars in a local tier", async () => {
     // OSN_ENV unset ⇒ local: only DB is required. With DB absent the 503 body
     // must NOT mention the non-local-only vars.
@@ -72,7 +92,7 @@ describe("handler.fetch — fail-closed (T-R1)", () => {
 });
 
 /**
- * T-R2 — the cron `scheduled` handler registers osn's outbound ARC public key
+ * The cron `scheduled` handler registers osn's outbound ARC public key
  * with each downstream BEFORE the fan-out sweeps. Pulse/Zap verify osn's ARC
  * tokens against a pre-registered key, so without this the very first
  * `/internal/account-deleted` POST is 401'd and GDPR Art. 17 erasure stalls.

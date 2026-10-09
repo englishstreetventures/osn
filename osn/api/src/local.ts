@@ -52,7 +52,9 @@ export async function buildAppDeps_Bun(): Promise<
   //   - Non-local WITHOUT a real provider and WITHOUT the opt-in → throws
   //     (fail-closed). With Resend configured the opt-in is no longer needed.
   //   - Local dev / tests → LogEmailLive records sends to an in-memory ring, so
-  //     no OTP codes end up in logs.
+  //     no OTP codes end up in logs — unless RESEND_API_KEY and RESEND_API_URL
+  //     are both set, which sends through ResendEmailLive to the local Resend
+  //     emulator RESEND_API_URL names (a loopback origin; refused non-locally).
   // -------------------------------------------------------------------------
   // Both take the vars they read by name, and Bun types `process.env` as an
   // interface carrying only NODE_ENV/TZ — no name in common, which trips TS's

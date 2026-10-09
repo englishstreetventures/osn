@@ -1,7 +1,9 @@
+import { makeResendEmailLive } from "@shared/email";
 import { Effect } from "effect";
 
 import { createApp } from "./app";
 import { createDb, repointDevOwnerSeat, seedDb } from "./db/setup";
+import { localResendConfig } from "./lib/resend-email";
 import { runCireSync } from "./observability";
 import { createAssetsStub } from "./services/invite-assets";
 import { createR2Stub } from "./services/r2-imports";
@@ -88,6 +90,14 @@ const appOptions: Parameters<typeof createApp>[1] = {
 // createApp's default parameter and leave the origin empty rather than falling
 // back to it.
 if (organiserOrigin) appOptions.organiserOrigin = organiserOrigin;
+
+// Mail leaves this dev server only for a local Resend emulator; the rule and
+// its refusal of a bad override live in lib/resend-email.ts.
+const localResend = localResendConfig({
+  RESEND_API_KEY: process.env.RESEND_API_KEY,
+  RESEND_API_URL: process.env.RESEND_API_URL,
+});
+if (localResend) appOptions.emailLayer = makeResendEmailLive(localResend);
 
 const app = createApp(db, appOptions);
 
