@@ -124,7 +124,7 @@ State the ordered list and which tasks get their own branch in one short message
 
 ### Step 1 — Gather context, lightly
 
-Collect **orientation pointers** for the subagent: the files in play, the pattern to copy from elsewhere in the repo, the schema and types involved, the footguns. `Explore`, grep, Read. This is context, not a design.
+Collect **orientation pointers** for the subagent: the files in play, the pattern to copy from elsewhere in the repo, the schema and types involved, the footguns. The `explorer` agent, grep, Read. This is context, not a design.
 
 **Hit the wiki before the source** — its system pages already hold the contract, the finding history and the footguns. Use the three-tier ladder in `AGENTS.md` §The wiki (detail in `wiki/conventions/wiki-search.md`), pulling one heading (`get_note_outline`, `get_vault_file_partial`) rather than a whole page. Hand the subagent **wiki page paths, not pasted prose**: it has its own context window. Include the pages the task will make stale — that is `prep-pr`'s docs work list.
 
@@ -203,7 +203,7 @@ Then the instructions themselves:
 
 Do not re-implement or second-guess its design. Its final message is a report to you, not to the user.
 
-For a **large phase** — a plan with many independent tasks — tell the subagent to run `superpowers:subagent-driven-development` against the plan file instead of `new-feat`: a fresh implementer per task, a review per task, a review of the whole branch, all inside the one branch. Still one PR; `prep-pr` runs once at the end.
+For a **large phase** — a plan with many independent tasks — tell the subagent to run `superpowers:subagent-driven-development` against the plan file instead of `new-feat`: a fresh implementer per task, a review per task, a review of the whole branch, all inside the one branch. Still one PR; `prep-pr` runs once at the end. That plugin's templates dispatch `general-purpose` with a `model`; tell the subagent to route them as `pick-agent` §Never `general-purpose` says — cheapest-tier implementer prompts to `mechanic`, the rest to `implementer`, the final whole-branch review to `reviewer`, per-task reviews left as the plugin dispatches them.
 
 ### Step 4 — `prep-pr`, with findings fixed
 
@@ -218,17 +218,20 @@ the gates.
 
 Two rules for anything you dispatch into a worktree:
 
-- **A reviewer never builds.** Read-only means read-only about the tree, not just
-  about your files: two builds running at once in one checkout interleave their
-  output into a directory that never existed, and the measurements taken from it
-  are not real. Take measurements yourself, in a worktree nothing else is
-  touching. A finding quoting a measured number states the worktree and the file
+- **A reviewer builds only when it is alone in the worktree.** Read-only means
+  read-only about the tree, not just about your files: two builds running at once
+  in one checkout interleave their output into a directory that never existed,
+  and the measurements taken from it are not real. Say in each brief whether the
+  `reviewer` is alone; when it is not, take the measurements yourself, in a
+  worktree nothing else is touching. A finding quoting a measured number states the worktree and the file
   count it measured, so you can reject it on sight when the count disagrees with
   what the app emits.
-- **One agent per worktree, reviewers included**, and never one alongside your own
+- **One code-writing agent per worktree**, and never a review alongside your own
   uncommitted edits. A review agent comparing an old shape against a new one
   reaches for `git checkout <ref> -- <path>`, and putting it back discards
-  whatever you had uncommitted in that tree.
+  whatever you had uncommitted in that tree. Only `reviewer` agents share a
+  worktree, as `prep-pr` Step 6 runs two: their tool grant has no `Edit` and
+  their definition tells them never to change the checkout.
 
 Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. This skill's contract is stronger: **after the reviews, dispatch `implementer` fix subagents to add the missing tests and fix every security and performance finding** — Critical, High and Medium at minimum, Low and Info when cheap — then re-verify. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. A Medium deliberately deferred is carried into the PR body as a tracked follow-up. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the five-section PR body with the `write-pr` skill, push, and open the PR. Once it is open, move the issue's card to In Review (`next-batch` §Claim, step 4).
 
