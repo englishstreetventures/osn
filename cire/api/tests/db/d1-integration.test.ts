@@ -1521,9 +1521,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
     async () => {
       await db
         .update(events)
-        .set({ startAt: "2025-04-20T10:00:00+11:00", endAt: "2025-04-20T12:00:00+11:00" })
+        // Inside the 30-day hold-back, so the batch's failure deletes nothing.
+        .set({ startAt: "2025-06-01T10:00:00+11:00", endAt: "2025-06-01T12:00:00+11:00" })
         .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID));
-      const stamp = new Date("2025-04-21T00:00:00.000Z");
+      const stamp = new Date("2025-06-02T00:00:00.000Z");
       await db.insert(registrySettings).values({
         weddingId: BOOTSTRAP_WEDDING_ID,
         published: true,
@@ -1577,6 +1578,100 @@ describe("cire/api over real D1 (Miniflare)", () => {
         totals: [{ currency: "AUD", amountMinor: 5_000 }],
       });
       expect(await db.select().from(guests).where(eq(guests.familyId, FAMILY_ID))).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the retention sweep deletes a wedding past the 30-day hold-back without its summary, and holds back one inside it",
+    async () => {
+      // The bootstrap wedding fell due on 2026-05-01: past the ceiling on
+      // 2026-06-17. A second wedding fell due on 2026-06-01: inside it.
+      await db
+        .update(events)
+        .set({ startAt: "2025-05-01T10:00:00+11:00", endAt: "2025-05-01T12:00:00+11:00" })
+        .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID));
+      const stamp = new Date("2025-05-02T00:00:00.000Z");
+      const inside = "wed_d1_inside";
+      await db.insert(weddings).values({
+        id: inside,
+        slug: "inside",
+        displayName: "Inside",
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+      await db.insert(events).values({
+        id: "ev_d1_inside",
+        weddingId: inside,
+        slug: "ceremony",
+        name: "Ceremony",
+        startAt: "2025-06-01T10:00:00+11:00",
+        endAt: "2025-06-01T12:00:00+11:00",
+        timezone: "Australia/Sydney",
+      });
+      await db.insert(families).values({
+        id: "fam_d1_inside",
+        weddingId: inside,
+        publicId: "INSIDE001",
+        familyName: "Inside",
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+      for (const [weddingId, familyId, n] of [
+        [BOOTSTRAP_WEDDING_ID, FAMILY_ID, "a"],
+        [inside, "fam_d1_inside", "b"],
+      ] as const) {
+        await db.insert(registrySettings).values({
+          weddingId,
+          published: true,
+          createdAt: stamp,
+          updatedAt: stamp,
+        });
+        await db.insert(registryContributions).values({
+          id: `rct_d1_ceiling_${n}`,
+          weddingId,
+          itemId: null,
+          familyId,
+          status: "succeeded",
+          amountMinor: 5_000,
+          currency: "AUD",
+          stripeCheckoutSessionId: `cs_d1_ceiling_${n}`,
+          createdAt: stamp,
+          updatedAt: stamp,
+        });
+      }
+      const householdsOf = async (weddingId: string) =>
+        db.select().from(families).where(eq(families.weddingId, weddingId));
+      const summaryOf = async (weddingId: string) =>
+        (
+          await db
+            .select({ json: registrySettings.giftSummaryJson })
+            .from(registrySettings)
+            .where(eq(registrySettings.weddingId, weddingId))
+        )[0]?.json ?? null;
+
+      // Every summary write fails; the deletes do not.
+      await d1
+        .prepare(
+          "CREATE TRIGGER fail_summary_write BEFORE UPDATE OF gift_summary_json ON registry_settings BEGIN SELECT RAISE(ABORT, 'boom'); END",
+        )
+        .run();
+      try {
+        const exit = await run(
+          Effect.exit(retentionService.sweepExpiredGuestData(new Date("2026-06-17T04:00:00.000Z"))),
+        );
+        expect(Exit.isSuccess(exit)).toBe(true);
+        // Past the ceiling: deleted, with no record.
+        expect(await householdsOf(BOOTSTRAP_WEDDING_ID)).toEqual([]);
+        expect(await summaryOf(BOOTSTRAP_WEDDING_ID)).toBeNull();
+        // Inside it: the first batch rolled back whole, so it waits for a run
+        // that can write its record.
+        expect(await householdsOf(inside)).toHaveLength(1);
+        expect(await summaryOf(inside)).toBeNull();
+      } finally {
+        // beforeEach clears rows, not triggers.
+        await d1.prepare("DROP TRIGGER IF EXISTS fail_summary_write").run();
+      }
     },
     MF_TIMEOUT_MS,
   );

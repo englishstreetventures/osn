@@ -67,6 +67,14 @@ export class RetentionWriteError extends Data.TaggedError("RetentionWriteError")
 export const RETENTION_AFTER_FINAL_EVENT_MS = 365 * 24 * 60 * 60 * 1000;
 
 /**
+ * How long past its retention date a wedding is held back while its parting
+ * gift summary keeps failing. The sweep runs daily, so this is 30 runs; after
+ * it, the wedding's guest data is deleted without the summary, and the loss is
+ * logged at error level. 30 days in milliseconds.
+ */
+export const GIFT_SUMMARY_HOLD_BACK_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
  * Most weddings one sweep will take. The cohort is every wedding whose last
  * event passed a year ago and that still holds something the sweep deletes —
  * a household or an import. After a run of failed crons, or a busy season a
@@ -126,12 +134,15 @@ export const retentionService = {
    * holds no household and no import has nothing left to delete and is not
    * selected, so weddings already swept never fill the per-run cap.
    *
-   * No gift is deleted without its record. The gift summaries are counted
-   * first and written in the same D1 batch as the delete, so they commit
-   * together or not at all. If the gifts cannot be counted, or the batch does
-   * not commit, nothing is deleted that run: the weddings still hold their
-   * households, the next run tries them again, and every run that holds them
-   * back logs an error. See {@link countGiftSummaries}.
+   * No gift is deleted without its record, for up to 30 days. The gift
+   * summaries are counted first and written in the same D1 batch as the
+   * delete, so they commit together or not at all. If the gifts cannot be
+   * counted, or the batch does not commit, nothing is deleted that run: the
+   * weddings still hold their households, the next run tries them again, and
+   * every run that holds them back logs an error. A wedding more than
+   * {@link GIFT_SUMMARY_HOLD_BACK_MS} past its retention date is the
+   * exception: it is deleted without its summary, and the loss is logged.
+   * See {@link countGiftSummaries}.
    *
    * R2 reaping: the deleted `imports` rows reference personal-data R2 objects
    * that D1's `ON DELETE cascade` can NEVER reach — the uploaded guest/event
@@ -230,10 +241,10 @@ export const retentionService = {
       // which this sweep keeps. `wiki/compliance/retention.md` §Contributions.
       //
       // Counted first. If the gifts cannot be counted, nothing is deleted this
-      // run: one read covers the cohort, so a failed one cannot say which
-      // weddings had gifts, and deleting any of them could take gifts with no
-      // record left. The weddings keep their households, so the next run
-      // counts them again.
+      // run except the weddings past the hold-back ceiling: one read covers
+      // the cohort, so a failed one cannot say which weddings had gifts, and
+      // deleting any of them could take gifts with no record left. The rest
+      // keep their households, so the next run counts them again.
       const counted = yield* countGiftSummaries(weddingIds, now).pipe(
         // Cause-level: `dbQuery` surfaces a failed query as a defect.
         Effect.catchCause((cause) =>
@@ -249,162 +260,210 @@ export const retentionService = {
           ),
         ),
       );
-      if (counted === null) {
-        yield* Effect.sync(() => metricGuestDataSwept("ok", 0));
-        yield* Effect.logInfo("guest-data retention sweep complete", {
-          weddings: 0,
-          deleted: 0,
-          heldBack: weddingIds.length,
-        });
-        return 0;
-      }
       // A gift needs a published registry, so its settings row should exist.
       // A summary with no row to land on is neither stored nor mailed; holding
       // the wedding back would only wait for a row nothing creates.
       const summaries = new Map(
-        [...counted.summaries].filter(([weddingId]) => counted.withRow.has(weddingId)),
+        counted === null
+          ? []
+          : [...counted.summaries].filter(([weddingId]) => counted.withRow.has(weddingId)),
       );
-      const rowless = counted.summaries.size - summaries.size;
+      const rowless = counted === null ? 0 : counted.summaries.size - summaries.size;
       if (rowless > 0) {
         yield* Effect.logWarning("gift summaries had no registry row to land on — not mailed").pipe(
           Effect.annotateLogs({ weddings: rowless }),
         );
       }
 
-      // ── COLLECT R2 SHEET KEYS FIRST ────────────────────────────────────────
-      // Read every R2 key the about-to-be-deleted `imports` rows reference,
-      // uploads and before-images alike, BEFORE deleting them: once the rows
-      // are gone the keys are unrecoverable (D1 cascade never reaches R2). These
-      // live in the `cire-sheets` bucket and carry guest PII, so they MUST be
-      // reaped. (The `cire-assets` invite images are deliberately untouched —
-      // see the sweep docstring + RetentionBuckets.)
-      //
-      // Family ids in scope — `guests` is keyed by `family_id`, not `wedding_id`,
-      // so we delete guests via their families. `rsvps` is keyed by `guest_id`;
-      // ON DELETE CASCADE from families → guests → rsvps would handle the
-      // children, but we issue explicit deletes (parent-last) so the sweep does
-      // not depend on FK cascade being enabled on every driver, and so the guest
-      // delete result gives us an exact reclaimed-row count for the metric.
-      //
-      // Both reads are keyed only on `weddingIds`, so they run together.
-      const [importRows, familyRows] = yield* Effect.all(
-        [
-          dbQuery(() =>
-            db
-              .select({
-                eventsKey: imports.eventsR2Key,
-                guestsKey: imports.guestsR2Key,
-                beforeEventsKey: imports.beforeEventsR2Key,
-                beforeGuestsKey: imports.beforeGuestsR2Key,
-              })
-              .from(imports)
-              .where(inArray(imports.weddingId, jsonEachIn(weddingIds)))
-              .all(),
-          ),
-          dbQuery(() =>
-            db
-              .select({ id: families.id })
-              .from(families)
-              .where(inArray(families.weddingId, jsonEachIn(weddingIds)))
-              .all(),
-          ),
-        ],
-        { concurrency: "unbounded" },
-      );
-      // The before keys are NULL on rows that never applied or whose
-      // before-image was pruned; the reaper drops nulls.
-      const sheetKeys = importRows.flatMap((r) => [
-        r.eventsKey,
-        r.guestsKey,
-        r.beforeEventsKey,
-        r.beforeGuestsKey,
-      ]);
-      const familyIds = familyRows.map((r) => r.id);
+      // The hold-back has a ceiling. A wedding more than
+      // GIFT_SUMMARY_HOLD_BACK_MS past its retention date has been held back on
+      // every run since it fell due, so it is deleted without its record rather
+      // than kept indefinitely: the privacy notice's year outranks the
+      // keepsake. Measured from the final event, the only date the sweep has;
+      // with the cron running daily, that is the run count since it fell due.
+      const ceiling = cutoffDateString(new Date(now.getTime() - GIFT_SUMMARY_HOLD_BACK_MS));
+      const pastCeiling = weddingIds.filter((id) => (finalEventAtById.get(id) ?? "") < ceiling);
 
-      const result = yield* Effect.tryPromise({
-        try: () => {
-          const stmts: BatchItem<"sqlite">[] = [];
-          if (familyIds.length > 0) {
-            // rsvps + guest_events → guests (children) before families (parent).
-            // guest_events included for the same reason as rsvps: the sweep's
-            // stated contract is to not depend on FK cascade, and it previously
-            // left this one child table to the cascade it said it avoided.
-            stmts.push(
-              db.delete(rsvps).where(
-                inArray(
-                  rsvps.guestId,
-                  db
-                    .select({ id: guests.id })
-                    .from(guests)
-                    .where(inArray(guests.familyId, jsonEachIn(familyIds))),
-                ),
+      /**
+       * Delete `ids`' guest data, and store `toStore` in the same batch.
+       *
+       * The keys are read first: every R2 key the about-to-be-deleted `imports`
+       * rows reference, uploads and before-images alike, BEFORE deleting them —
+       * once the rows are gone the keys are unrecoverable (D1 cascade never
+       * reaches R2). These live in the `cire-sheets` bucket and carry guest
+       * PII, so they MUST be reaped. (The `cire-assets` invite images are
+       * deliberately untouched — see the sweep docstring + RetentionBuckets.)
+       *
+       * Family ids in scope — `guests` is keyed by `family_id`, not
+       * `wedding_id`, so guests are deleted via their families. `rsvps` is
+       * keyed by `guest_id`; ON DELETE CASCADE from families → guests → rsvps
+       * would handle the children, but the deletes are explicit (parent-last)
+       * so the sweep does not depend on FK cascade being enabled on every
+       * driver, and so the guest delete result gives an exact reclaimed-row
+       * count for the metric.
+       */
+      const purge = (ids: readonly string[], toStore: ReadonlyMap<string, GiftSummary>) =>
+        Effect.gen(function* () {
+          // Both reads are keyed only on `ids`, so they run together.
+          const [importRows, familyRows] = yield* Effect.all(
+            [
+              dbQuery(() =>
+                db
+                  .select({
+                    eventsKey: imports.eventsR2Key,
+                    guestsKey: imports.guestsR2Key,
+                    beforeEventsKey: imports.beforeEventsR2Key,
+                    beforeGuestsKey: imports.beforeGuestsR2Key,
+                  })
+                  .from(imports)
+                  .where(inArray(imports.weddingId, jsonEachIn(ids)))
+                  .all(),
               ),
-            );
-            stmts.push(
-              db.delete(guestEvents).where(
-                inArray(
-                  guestEvents.guestId,
-                  db
-                    .select({ id: guests.id })
-                    .from(guests)
-                    .where(inArray(guests.familyId, jsonEachIn(familyIds))),
-                ),
+              dbQuery(() =>
+                db
+                  .select({ id: families.id })
+                  .from(families)
+                  .where(inArray(families.weddingId, jsonEachIn(ids)))
+                  .all(),
               ),
-            );
-            stmts.push(db.delete(guests).where(inArray(guests.familyId, jsonEachIn(familyIds))));
-            stmts.push(db.delete(families).where(inArray(families.id, jsonEachIn(familyIds))));
-          }
-          // imports bookkeeping (the uploaded-sheet PII references). The R2
-          // objects behind these (+ the invite-image columns) are reaped AFTER
-          // this batch commits — their keys were collected above, pre-delete.
-          // Always present, so the batch is never empty. The statements are in
-          // FK order, children first, which the bun:sqlite fallback keeps.
-          //
-          // The summaries go in the SAME batch, last. On D1 a batch commits or
-          // fails as one, so a stored summary always describes rows that are
-          // already gone — and adding a returning wedding's new gifts to it
-          // can never count a row twice. A failed batch stores no summary and
-          // deletes nothing, and the next run counts the same rows afresh. On
-          // bun:sqlite, which runs the statements one by one, last still means
-          // no summary is stored while its rows remain.
-          return commitBatchResults(db, [
-            ...stmts,
-            db.delete(imports).where(inArray(imports.weddingId, jsonEachIn(weddingIds))),
-            ...(summaries.size > 0 ? [storeGiftSummaries(db, summaries, now)] : []),
+            ],
+            { concurrency: "unbounded" },
+          );
+          // The before keys are NULL on rows that never applied or whose
+          // before-image was pruned; the reaper drops nulls.
+          const sheetKeys = importRows.flatMap((r) => [
+            r.eventsKey,
+            r.guestsKey,
+            r.beforeEventsKey,
+            r.beforeGuestsKey,
           ]);
-        },
-        catch: (e) => new RetentionWriteError({ op: "sweep", reason: String(e) }),
-      }).pipe(
-        Effect.tapError((err) =>
-          Effect.logError("guest-data retention sweep failed", { reason: err.reason }).pipe(
-            Effect.andThen(
-              summaries.size > 0
-                ? Effect.logError("gift summaries not written — held back from the delete").pipe(
-                    Effect.annotateLogs({ weddings: summaries.size }),
-                    Effect.andThen(
-                      Effect.sync(() => metricGiftSummaryWritten("write_failed", summaries.size)),
-                    ),
-                  )
-                : Effect.void,
-            ),
-          ),
-        ),
-      );
-      if (summaries.size > 0) {
-        yield* Effect.sync(() => metricGiftSummaryWritten("ok", summaries.size));
-      }
+          const familyIds = familyRows.map((r) => r.id);
 
-      // The guests delete is the (familyIds>0 ? third : absent) statement
-      // (after the rsvps + guest_events child deletes); report the guest count
-      // as the subject.
-      const guestsDeleted =
-        familyIds.length > 0 && Array.isArray(result) ? rowsChanged(result[2]) : 0;
+          const result = yield* Effect.tryPromise({
+            try: () => {
+              const stmts: BatchItem<"sqlite">[] = [];
+              if (familyIds.length > 0) {
+                // rsvps + guest_events → guests (children) before families
+                // (parent). guest_events included for the same reason as
+                // rsvps: the sweep's stated contract is to not depend on FK
+                // cascade.
+                stmts.push(
+                  db.delete(rsvps).where(
+                    inArray(
+                      rsvps.guestId,
+                      db
+                        .select({ id: guests.id })
+                        .from(guests)
+                        .where(inArray(guests.familyId, jsonEachIn(familyIds))),
+                    ),
+                  ),
+                );
+                stmts.push(
+                  db.delete(guestEvents).where(
+                    inArray(
+                      guestEvents.guestId,
+                      db
+                        .select({ id: guests.id })
+                        .from(guests)
+                        .where(inArray(guests.familyId, jsonEachIn(familyIds))),
+                    ),
+                  ),
+                );
+                stmts.push(
+                  db.delete(guests).where(inArray(guests.familyId, jsonEachIn(familyIds))),
+                );
+                stmts.push(db.delete(families).where(inArray(families.id, jsonEachIn(familyIds))));
+              }
+              // imports bookkeeping (the uploaded-sheet PII references). The R2
+              // objects behind these are reaped AFTER this batch commits —
+              // their keys were collected above, pre-delete. Always present, so
+              // the batch is never empty. The statements are in FK order,
+              // children first, which the bun:sqlite fallback keeps.
+              //
+              // The summaries go in the SAME batch, last. On D1 a batch commits
+              // or fails as one, so a stored summary always describes rows that
+              // are already gone — and adding a returning wedding's new gifts to
+              // it can never count a row twice. A failed batch stores no summary
+              // and deletes nothing. On bun:sqlite, which runs the statements
+              // one by one, last still means no summary is stored while its
+              // rows remain.
+              return commitBatchResults(db, [
+                ...stmts,
+                db.delete(imports).where(inArray(imports.weddingId, jsonEachIn(ids))),
+                ...(toStore.size > 0 ? [storeGiftSummaries(db, toStore, now)] : []),
+              ]);
+            },
+            catch: (e) => new RetentionWriteError({ op: "sweep", reason: String(e) }),
+          }).pipe(
+            Effect.tapError((err) =>
+              Effect.logError("guest-data delete batch failed", { reason: err.reason }).pipe(
+                Effect.andThen(
+                  toStore.size > 0
+                    ? Effect.logError(
+                        "gift summaries not written — held back from the delete",
+                      ).pipe(
+                        Effect.annotateLogs({ weddings: toStore.size }),
+                        Effect.andThen(
+                          Effect.sync(() => metricGiftSummaryWritten("write_failed", toStore.size)),
+                        ),
+                      )
+                    : Effect.void,
+                ),
+              ),
+            ),
+          );
+
+          // The guests delete is the (familyIds>0 ? third : absent) statement
+          // (after the rsvps + guest_events child deletes); report the guest
+          // count as the subject.
+          const guestsDeleted =
+            familyIds.length > 0 && Array.isArray(result) ? rowsChanged(result[2]) : 0;
+          return { guestsDeleted, sheetKeys, weddings: ids.length, stored: toStore, lost: 0 };
+        });
+
+      // One attempt with every summary. If the gifts could not be counted, only
+      // the weddings past the ceiling are deleted, with no summary. If the
+      // batch with the summaries fails, the weddings past the ceiling get one
+      // more attempt without theirs, and the rest wait for the next run.
+      const none = new Map<string, GiftSummary>();
+      const firstIds = counted === null ? pastCeiling : weddingIds;
+      const outcome =
+        firstIds.length === 0
+          ? { guestsDeleted: 0, sheetKeys: [], weddings: 0, stored: none, lost: 0 }
+          : yield* purge(firstIds, summaries).pipe(
+              Effect.map((done) => ({
+                ...done,
+                // Uncounted, so none of these weddings' gifts was recorded.
+                lost: counted === null ? firstIds.length : 0,
+              })),
+              Effect.catch((err) => {
+                const pending = pastCeiling.filter((id) => summaries.has(id));
+                return pending.length === 0
+                  ? Effect.fail(err)
+                  : purge(pastCeiling, none).pipe(
+                      Effect.map((done) => ({ ...done, lost: pending.length })),
+                    );
+              }),
+            );
+      if (outcome.lost > 0) {
+        yield* Effect.logError(
+          "gift summaries not written — deleted past the 30-day hold-back",
+        ).pipe(
+          Effect.annotateLogs({ weddings: outcome.lost }),
+          Effect.andThen(Effect.sync(() => metricGiftSummaryWritten("abandoned", outcome.lost))),
+        );
+      }
+      if (outcome.stored.size > 0) {
+        yield* Effect.sync(() => metricGiftSummaryWritten("ok", outcome.stored.size));
+      }
+      const guestsDeleted = outcome.guestsDeleted;
 
       yield* Effect.sync(() => metricGuestDataSwept("ok", guestsDeleted));
       yield* Effect.logInfo("guest-data retention sweep complete", {
-        weddings: weddingIds.length,
+        weddings: outcome.weddings,
         deleted: guestsDeleted,
-        summaries: summaries.size,
+        summaries: outcome.stored.size,
+        heldBack: weddingIds.length - outcome.weddings,
       });
 
       // ── REAP R2 OBJECTS (best-effort, post-delete) ─────────────────────────
@@ -412,7 +471,7 @@ export const retentionService = {
       // at. Best-effort (logs + counts failures, never throws) so an R2
       // hiccup can't fail the sweep or leave guest PII stuck in D1. Keys were
       // collected before the deletes above.
-      yield* reapR2Objects(buckets.sheets, "sheets", sheetKeys);
+      yield* reapR2Objects(buckets.sheets, "sheets", outcome.sheetKeys);
 
       // ── TELL THE COUPLE, LAST ─────────────────────────────────────────────
       // After the deletes have committed, and deliberately so: the email says
@@ -426,7 +485,9 @@ export const retentionService = {
       // stops running. The timeout bounds that, the catch swallows what the
       // timeout raises, and neither can reach the sweep's own error channel.
       const notices =
-        notify && summaries.size > 0 ? yield* giftSummaryNotices(summaries, finalEventAtById) : [];
+        notify && outcome.stored.size > 0
+          ? yield* giftSummaryNotices(outcome.stored, finalEventAtById)
+          : [];
       if (notify && notices.length > 0) {
         yield* notify(notices).pipe(
           Effect.timeout("30 seconds"),

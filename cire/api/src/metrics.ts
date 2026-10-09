@@ -409,9 +409,10 @@ type GuestDataSweptAttrs = { result: "ok" | "error" };
  * What happened to a wedding's gift summary in one sweep. `ok` — written, with
  * the delete; `write_failed` — the batch that writes it with the delete did not
  * commit; `read_failed` — the gifts of the cohort it was in could not be
- * counted. A wedding not written is not deleted that run.
+ * counted; `abandoned` — deleted without it, past the 30-day hold-back. A
+ * wedding not written is not deleted that run unless it is past that ceiling.
  */
-export type GiftSummaryWrittenResult = "ok" | "write_failed" | "read_failed";
+export type GiftSummaryWrittenResult = "ok" | "write_failed" | "read_failed" | "abandoned";
 type GiftSummaryWrittenAttrs = { result: GiftSummaryWrittenResult };
 /**
  * Why a written summary reached no owner. `owners_unread` — the owner read

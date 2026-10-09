@@ -31,6 +31,7 @@ import {
   MAX_WEDDINGS_PER_SWEEP,
   retentionService,
   RETENTION_AFTER_FINAL_EVENT_MS,
+  GIFT_SUMMARY_HOLD_BACK_MS,
 } from "../../src/services/retention";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith, failStatements, recordStatements } from "../test-helpers";
@@ -1379,7 +1380,8 @@ describe("the parting gift summary", () => {
   it("stores no summary while the delete does not commit, and counts each gift once when it does", async () => {
     const db = freshDb();
     const sheets = createDeleteStub();
-    const wedding = await runOn(db, makeGiftedWedding("2025-05-10", { withImport: true }));
+    // Inside the 30-day hold-back, so nothing is deleted without its record.
+    const wedding = await runOn(db, makeGiftedWedding("2025-06-01", { withImport: true }));
     const writeFailed = await written("write_failed");
     const sweepErrors = await counterValue(CIRE_METRICS.guestDataSwept, { result: "error" });
     // The families delete is in the same batch as the summary, ahead of it.
@@ -1424,8 +1426,9 @@ describe("the parting gift summary", () => {
 
   it("holds back the whole cohort when its gifts cannot be read", async () => {
     const db = freshDb();
-    const gifted = await runOn(db, makeGiftedWedding("2025-05-10"));
-    const plain = await runOn(db, makeWedding({ eventDates: ["2025-04-01"] }));
+    // Both inside the 30-day hold-back: due on 2026-06-01 and 2026-06-05.
+    const gifted = await runOn(db, makeGiftedWedding("2025-06-01"));
+    const plain = await runOn(db, makeWedding({ eventDates: ["2025-06-05"] }));
     const before = await written("read_failed");
     const fault = failStatements(db, (sql) => sql.includes('from "registry_contributions"'));
 
@@ -1608,6 +1611,62 @@ describe("the parting gift summary", () => {
     expect(logs).toContain("no registry row to land on");
     expect(seen).toEqual([]);
     expect(await written("ok")).toBe(okBefore);
+  });
+});
+
+describe("the gift summary hold-back ceiling", () => {
+  it("is 30 days", () => {
+    expect(GIFT_SUMMARY_HOLD_BACK_MS).toBe(30 * 24 * 60 * 60 * 1000);
+  });
+
+  it("deletes a wedding more than 30 days past due without its record, and holds back one on the 30th day", async () => {
+    // Swept on 2026-06-17: the retention date of a wedding whose last event
+    // was 2025-05-18 is 2026-05-18, 30 days back — still held. One a day
+    // older is past the ceiling.
+    const db = freshDb();
+    const onCeiling = await runOn(db, makeGiftedWedding("2025-05-18"));
+    const pastCeiling = await runOn(db, makeGiftedWedding("2025-05-17"));
+    const before = await written("abandoned");
+    failStatements(db, (sql) => sql.includes('from "registry_contributions"'));
+
+    const logs = await captureLogs(() =>
+      runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
+    );
+
+    expect(guestCount(db, onCeiling.guestId)).toBe(1);
+    expect(guestCount(db, pastCeiling.guestId)).toBe(0);
+    expect(storedSummary(db, pastCeiling.weddingId)).toBeNull();
+    expect(logs).toContain("deleted past the 30-day hold-back");
+    // The count only: no wedding id reaches the line.
+    expect(logs).not.toContain(pastCeiling.weddingId);
+    expect(await written("abandoned")).toBe(before + 1);
+  });
+
+  it("deletes a wedding past the ceiling without its summary when the batch with the summary fails", async () => {
+    const db = freshDb();
+    const wedding = await runOn(db, makeGiftedWedding("2025-05-01"));
+    const abandoned = await written("abandoned");
+    const writeFailed = await written("write_failed");
+    let updates = 0;
+    // Only the first batch writes a summary; the retry without it must commit.
+    failStatements(db, (sql) => sql.startsWith('update "registry_settings"') && ++updates === 1);
+
+    let ok = false;
+    const logs = await captureLogs(async () => {
+      const exit = await Effect.runPromiseExit(
+        retentionService.sweepExpiredGuestData(SWEEP_AT).pipe(Effect.provideService(DbService, db)),
+      );
+      ok = Exit.isSuccess(exit);
+    });
+
+    expect(ok).toBe(true);
+    expect(logs).toContain("gift summaries not written — held back from the delete");
+    expect(logs).toContain("deleted past the 30-day hold-back");
+    expect(await written("write_failed")).toBe(writeFailed + 1);
+    expect(await written("abandoned")).toBe(abandoned + 1);
+    expect(storedSummary(db, wedding.weddingId)).toBeNull();
+    expect(guestCount(db, wedding.guestId)).toBe(0);
+    expect(contributionCount(db, wedding.weddingId)).toBe(0);
   });
 });
 

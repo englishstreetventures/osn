@@ -11,7 +11,8 @@ Retention sweep and parting gift summary:
   writes them in the same D1 batch as the delete, so a summary and the deletion
   of what it counts commit together or not at all. If the gifts cannot be
   counted or the batch does not commit, nothing is deleted that run and an error
-  is logged; a summary written but not mailed because the owners could not be
+  is logged, for at most 30 days past a wedding's retention date; past that it
+  is deleted without its summary and the loss is logged; a summary written but not mailed because the owners could not be
   read logs its own line. Both are counted in `cire.gift_summary.written` and
   `cire.gift_summary.unmailed`.
 - The email sender takes the organiser address lookup that keeps osn-api's
