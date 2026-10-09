@@ -159,6 +159,43 @@ export function recordStatements(db: TestDb): RecordedStatement[] {
 }
 
 /**
+ * Makes every statement whose SQL `matches` fail from here on, as a database
+ * would: the driver throws when the statement is prepared, so the query
+ * rejects. Same mechanism as {@link recordStatements} — drizzle's bun:sqlite
+ * session prepares every query through `client.prepare` — and the same rule:
+ * takes the concrete test handle, and is installed after seeding. `failed()`
+ * says how many statements it failed, so a test can show its failure was the
+ * one hit; `restore()` puts the driver back, for a test that runs again once
+ * the database has recovered.
+ */
+export function failStatements(
+  db: TestDb,
+  matches: (sql: string) => boolean,
+): { failed: () => number; restore: () => void } {
+  const client = db.$client;
+  const own = Object.getOwnPropertyDescriptor(client, "prepare");
+  const prepare = client.prepare.bind(client);
+  let failed = 0;
+  Object.defineProperty(client, "prepare", {
+    configurable: true,
+    value: (sql: string) => {
+      if (matches(sql)) {
+        failed += 1;
+        throw new Error("injected database failure");
+      }
+      return prepare(sql);
+    },
+  });
+  return {
+    failed: () => failed,
+    restore: () => {
+      if (own) Object.defineProperty(client, "prepare", own);
+      else Reflect.deleteProperty(client, "prepare");
+    },
+  };
+}
+
+/**
  * How many parameters a recorded statement binds. Drizzle's SQLite dialect
  * writes each one as a bare `?` and never inlines a value, so counting them is
  * exact. D1 refuses a statement over 100 and bun:sqlite does not, so a test

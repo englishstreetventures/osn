@@ -4,7 +4,6 @@ import { exportKeyToJwk, generateArcKeyPair } from "@shared/crypto/jwk";
 
 import {
   createArcOrganiserEmailLookup,
-  createArcOrganiserEmailResolver,
   createOrganiserEmailLookupFromEnv,
 } from "../../src/services/osn-bridge";
 import { mockFetch } from "../test-helpers";
@@ -87,18 +86,6 @@ describe("createArcOrganiserEmailLookup", () => {
   });
 });
 
-describe("createArcOrganiserEmailResolver", () => {
-  it("still resolves to the addresses alone, empty when osn-api is down", async () => {
-    const resolve = createArcOrganiserEmailResolver(await config());
-    globalThis.fetch = mockFetch(async () =>
-      answer([{ profile_id: "usr_a", email: "a@example.test" }]),
-    );
-    expect([...(await resolve(["usr_a"]))]).toEqual([["usr_a", "a@example.test"]]);
-    globalThis.fetch = mockFetch(async () => answer([], 500));
-    expect((await resolve(["usr_a"])).size).toBe(0);
-  });
-});
-
 describe("createOrganiserEmailLookupFromEnv", () => {
   it("is null when any piece of the ARC config is missing or the key does not import", async () => {
     const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
@@ -119,5 +106,36 @@ describe("createOrganiserEmailLookupFromEnv", () => {
         arcPrivateKeyJwk: jwk,
       }),
     ).not.toBeNull();
+    expect(
+      await createOrganiserEmailLookupFromEnv({ osnApiUrl: "https://o", arcPrivateKeyJwk: jwk }),
+    ).toBeNull();
+    expect(
+      await createOrganiserEmailLookupFromEnv({ osnApiUrl: "https://o", arcKeyId: "k" }),
+    ).toBeNull();
+  });
+
+  it("calls osn-api at the configured URL, signing with the configured key id", async () => {
+    const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
+    let calledUrl = "";
+    let kid: unknown;
+    globalThis.fetch = mockFetch(async (url, init) => {
+      calledUrl = String(url);
+      const auth = new Headers(init?.headers).get("authorization") ?? "";
+      const [header = ""] = auth.replace(/^ARC /, "").split(".");
+      kid = (JSON.parse(Buffer.from(header, "base64url").toString("utf8")) as { kid?: unknown })
+        .kid;
+      return answer([{ profile_id: "usr_a", email: "a@example.test" }]);
+    });
+
+    const lookup = await createOrganiserEmailLookupFromEnv({
+      osnApiUrl: "https://osn.example/",
+      arcKeyId: "kid-env",
+      arcPrivateKeyJwk: jwk,
+    });
+    const result = await lookup?.(["usr_a"]);
+
+    expect(calledUrl).toBe("https://osn.example/internal/accounts/emails");
+    expect(kid).toBe("kid-env");
+    expect(result?.answered).toBe(true);
   });
 });

@@ -12,9 +12,9 @@ import { instrumentedFetch } from "@shared/observability/fetch";
  * the DB-free, metric-free `@shared/crypto/jwk` subpath. The outbound call goes
  * through `instrumentedFetch` (from `@shared/observability/fetch`, which imports
  * only the workerd-safe `@opentelemetry/api` surface, never the SDK) so the S2S
- * request carries a W3C `traceparent`; osn-api adopts it because the call is
- * ARC-authenticated (S-H18). The wrapper leaves the `Authorization: ARC` header
- * untouched.
+ * request carries a W3C `traceparent`; osn-api adopts a caller's trace only
+ * when the call is ARC-authenticated. The wrapper leaves the
+ * `Authorization: ARC` header untouched.
  *
  * Key distribution: cire holds a stable ES256 private key (the
  * `CIRE_API_ARC_PRIVATE_KEY` wrangler secret); the matching public key is
@@ -30,8 +30,9 @@ const ARC_AUDIENCE = "osn-api";
 const ARC_SCOPE = "graph:read";
 /**
  * Dedicated scope for the profileId → accountId lookup — osn-api's
- * `/graph/internal/profile-account` rejects plain `graph:read` (S-M1
- * pulse-onboarding: least privilege on the multi-account privacy invariant).
+ * `/graph/internal/profile-account` rejects plain `graph:read`, so only a
+ * caller granted it can link a profile to the account behind it (least
+ * privilege on the rule that one account's profiles are not linkable).
  */
 const ARC_RESOLVE_ACCOUNT_SCOPE = "graph:resolve-account";
 /**
@@ -471,36 +472,27 @@ export async function createHandleSearchResolverFromEnv(env: {
 }
 
 /**
- * Resolves OSN profile ids (`usr_*`) to the email address osn-api holds for the
- * account that owns each. Keyed by profile id, with an entry ONLY for the ids
- * osn-api answered for.
- *
- * A missing entry means "no mail", and nothing more: the profile may not
- * exist, its account may be mid-erasure, or it may have no usable address, and
- * the route deliberately does not say which. Do not treat absence as an error.
- *
- * FAIL-SOFT: any transport or infra failure resolves to an EMPTY map. The
- * caller is the retention sweep's parting summary, which has already deleted
- * the data by the time this runs, so an unreachable osn-api costs a courtesy
- * email, never the deletion. A caller that must tell "down" from "no address"
- * uses {@link OsnOrganiserEmailLookup} instead.
- */
-export type OsnOrganiserEmailResolver = (
-  profileIds: readonly string[],
-) => Promise<ReadonlyMap<string, string>>;
-
-/**
  * What an organiser address lookup got back. `answered` is false when any call
  * to osn-api failed — a transport error, a non-2xx, a malformed body — so a
  * caller can tell "osn-api is down" from "osn-api has no address for these".
- * `emails` holds whatever the calls that did answer returned.
+ * `emails` holds whatever the calls that did answer returned, keyed by profile
+ * id, with an entry ONLY for the ids osn-api answered for.
+ *
+ * A missing entry from an answered call means "no mail", and nothing more: the
+ * profile may not exist, its account may be mid-erasure, or it may have no
+ * usable address, and the route deliberately does not say which.
  */
 export interface OrganiserEmailAnswer {
   readonly answered: boolean;
   readonly emails: ReadonlyMap<string, string>;
 }
 
-/** {@link OsnOrganiserEmailResolver} with the answer's status kept. Never rejects. */
+/**
+ * Resolves OSN profile ids (`usr_*`) to the email address osn-api holds for the
+ * account that owns each. Never rejects: any transport or infra failure is
+ * `answered: false`, so the callers — the RSVP digest, the owner notices and
+ * the retention sweep's parting summary — never fail on an unreachable osn-api.
+ */
 export type OsnOrganiserEmailLookup = (
   profileIds: readonly string[],
 ) => Promise<OrganiserEmailAnswer>;
@@ -590,55 +582,25 @@ export function createArcOrganiserEmailLookup(config: ArcResolverConfig): OsnOrg
 }
 
 /**
- * Builds an {@link OsnOrganiserEmailResolver}: the lookup above, with only the
- * addresses kept, so a failed call reads as an empty answer.
- */
-export function createArcOrganiserEmailResolver(
-  config: ArcResolverConfig,
-): OsnOrganiserEmailResolver {
-  const lookup = createArcOrganiserEmailLookup(config);
-  return async (profileIds) => (await lookup(profileIds)).emails;
-}
-
-/** The ARC config both organiser-address builders need, or null when a piece is missing. */
-async function organiserEmailConfigFromEnv(env: {
-  osnApiUrl?: string;
-  arcPrivateKeyJwk?: string;
-  arcKeyId?: string;
-}): Promise<ArcResolverConfig | null> {
-  if (!env.osnApiUrl || !env.arcPrivateKeyJwk || !env.arcKeyId) return null;
-  const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk).catch(() => null);
-  if (!arcPrivateKey) return null;
-  return { osnApiUrl: env.osnApiUrl, arcPrivateKey, arcKeyId: env.arcKeyId };
-}
-
-/**
- * Builds the organiser-address resolver from raw env material — the sibling of
- * {@link createHandleSearchResolverFromEnv}. Returns `null` when any piece is
- * absent, which simply means the retention sweep sends no summary email that
- * run; it never fails to boot and never blocks the sweep.
- */
-export async function createOrganiserEmailResolverFromEnv(env: {
-  osnApiUrl?: string;
-  arcPrivateKeyJwk?: string;
-  arcKeyId?: string;
-}): Promise<OsnOrganiserEmailResolver | null> {
-  const config = await organiserEmailConfigFromEnv(env);
-  return config ? createArcOrganiserEmailResolver(config) : null;
-}
-
-/**
- * The status-keeping lookup from raw env material, for the RSVP digest and the
- * owner notices. `null` when any piece is absent, which means no digest that
- * run and no owner notices from that app.
+ * The organiser address lookup from raw env material, for the RSVP digest, the
+ * owner notices and the retention sweep's parting summary — the sibling of
+ * {@link createHandleSearchResolverFromEnv}. `null` when any piece is absent or
+ * the key does not import, which means no digest, no owner notices and no
+ * summary email from that app; it never fails to boot and never blocks a sweep.
  */
 export async function createOrganiserEmailLookupFromEnv(env: {
   osnApiUrl?: string;
   arcPrivateKeyJwk?: string;
   arcKeyId?: string;
 }): Promise<OsnOrganiserEmailLookup | null> {
-  const config = await organiserEmailConfigFromEnv(env);
-  return config ? createArcOrganiserEmailLookup(config) : null;
+  if (!env.osnApiUrl || !env.arcPrivateKeyJwk || !env.arcKeyId) return null;
+  const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk).catch(() => null);
+  if (!arcPrivateKey) return null;
+  return createArcOrganiserEmailLookup({
+    osnApiUrl: env.osnApiUrl,
+    arcPrivateKey,
+    arcKeyId: env.arcKeyId,
+  });
 }
 
 /**

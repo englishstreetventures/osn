@@ -81,7 +81,11 @@ import {
   registryService,
   SettingsChanged,
 } from "../../src/services/registry";
-import { type GiftSummaryNotice, retentionService } from "../../src/services/retention";
+import {
+  type GiftSummaryNotice,
+  MAX_WEDDINGS_PER_SWEEP,
+  retentionService,
+} from "../../src/services/retention";
 import { rsvpService } from "../../src/services/rsvp";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import { rsvpDigestService } from "../../src/services/rsvp-digest";
@@ -1508,6 +1512,241 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .from(families)
         .where(inArray(families.weddingId, jsonEachIn(ids)));
       expect(left).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the retention sweep stores a gift summary only with the delete it records: one batch, or neither",
+    async () => {
+      await db
+        .update(events)
+        // Inside the 30-day hold-back, so the batch's failure deletes nothing.
+        .set({ startAt: "2025-06-01T10:00:00+11:00", endAt: "2025-06-01T12:00:00+11:00" })
+        .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID));
+      const stamp = new Date("2025-06-02T00:00:00.000Z");
+      await db.insert(registrySettings).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        published: true,
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+      await db.insert(registryContributions).values({
+        id: "rct_d1_atomic",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: null,
+        familyId: FAMILY_ID,
+        status: "succeeded",
+        amountMinor: 5_000,
+        currency: "AUD",
+        stripeCheckoutSessionId: "cs_d1_atomic",
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+      const now = new Date("2026-06-17T04:00:00.000Z");
+      const summary = async () =>
+        (
+          await db
+            .select({ json: registrySettings.giftSummaryJson })
+            .from(registrySettings)
+            .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+        )[0]?.json ?? null;
+
+      // The families delete runs ahead of the summary in the batch; failing it
+      // must take the summary, and the guest deletes before it, down too.
+      await d1
+        .prepare(
+          "CREATE TRIGGER fail_family_delete BEFORE DELETE ON families BEGIN SELECT RAISE(ABORT, 'boom'); END",
+        )
+        .run();
+      try {
+        const exit = await run(Effect.exit(retentionService.sweepExpiredGuestData(now)));
+        expect(Exit.isFailure(exit)).toBe(true);
+        expect(await summary()).toBeNull();
+        expect(await db.select().from(guests).where(eq(guests.familyId, FAMILY_ID))).not.toEqual(
+          [],
+        );
+      } finally {
+        // beforeEach clears rows, not triggers.
+        await d1.prepare("DROP TRIGGER IF EXISTS fail_family_delete").run();
+      }
+
+      // The next run counts the gift once: nothing of the failed run was kept.
+      await run(retentionService.sweepExpiredGuestData(now));
+      expect(JSON.parse((await summary()) ?? "{}").contributions).toEqual({
+        count: 1,
+        totals: [{ currency: "AUD", amountMinor: 5_000 }],
+      });
+      expect(await db.select().from(guests).where(eq(guests.familyId, FAMILY_ID))).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the retention sweep deletes a wedding past the 30-day hold-back without its summary, and holds back one inside it",
+    async () => {
+      // The bootstrap wedding fell due on 2026-05-01: past the ceiling on
+      // 2026-06-17. A second wedding fell due on 2026-06-01: inside it.
+      await db
+        .update(events)
+        .set({ startAt: "2025-05-01T10:00:00+11:00", endAt: "2025-05-01T12:00:00+11:00" })
+        .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID));
+      const stamp = new Date("2025-05-02T00:00:00.000Z");
+      const inside = "wed_d1_inside";
+      await db.insert(weddings).values({
+        id: inside,
+        slug: "inside",
+        displayName: "Inside",
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+      await db.insert(events).values({
+        id: "ev_d1_inside",
+        weddingId: inside,
+        slug: "ceremony",
+        name: "Ceremony",
+        startAt: "2025-06-01T10:00:00+11:00",
+        endAt: "2025-06-01T12:00:00+11:00",
+        timezone: "Australia/Sydney",
+      });
+      await db.insert(families).values({
+        id: "fam_d1_inside",
+        weddingId: inside,
+        publicId: "INSIDE001",
+        familyName: "Inside",
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+      for (const [weddingId, familyId, n] of [
+        [BOOTSTRAP_WEDDING_ID, FAMILY_ID, "a"],
+        [inside, "fam_d1_inside", "b"],
+      ] as const) {
+        await db.insert(registrySettings).values({
+          weddingId,
+          published: true,
+          createdAt: stamp,
+          updatedAt: stamp,
+        });
+        await db.insert(registryContributions).values({
+          id: `rct_d1_ceiling_${n}`,
+          weddingId,
+          itemId: null,
+          familyId,
+          status: "succeeded",
+          amountMinor: 5_000,
+          currency: "AUD",
+          stripeCheckoutSessionId: `cs_d1_ceiling_${n}`,
+          createdAt: stamp,
+          updatedAt: stamp,
+        });
+      }
+      const householdsOf = async (weddingId: string) =>
+        db.select().from(families).where(eq(families.weddingId, weddingId));
+      const summaryOf = async (weddingId: string) =>
+        (
+          await db
+            .select({ json: registrySettings.giftSummaryJson })
+            .from(registrySettings)
+            .where(eq(registrySettings.weddingId, weddingId))
+        )[0]?.json ?? null;
+
+      // Every summary write fails; the deletes do not.
+      await d1
+        .prepare(
+          "CREATE TRIGGER fail_summary_write BEFORE UPDATE OF gift_summary_json ON registry_settings BEGIN SELECT RAISE(ABORT, 'boom'); END",
+        )
+        .run();
+      try {
+        const exit = await run(
+          Effect.exit(retentionService.sweepExpiredGuestData(new Date("2026-06-17T04:00:00.000Z"))),
+        );
+        expect(Exit.isSuccess(exit)).toBe(true);
+        // Past the ceiling: deleted, with no record.
+        expect(await householdsOf(BOOTSTRAP_WEDDING_ID)).toEqual([]);
+        expect(await summaryOf(BOOTSTRAP_WEDDING_ID)).toBeNull();
+        // Inside it: the first batch rolled back whole, so it waits for a run
+        // that can write its record.
+        expect(await householdsOf(inside)).toHaveLength(1);
+        expect(await summaryOf(inside)).toBeNull();
+      } finally {
+        // beforeEach clears rows, not triggers.
+        await d1.prepare("DROP TRIGGER IF EXISTS fail_summary_write").run();
+      }
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the retention sweep reaches every expired wedding across runs, past its per-run cap",
+    async () => {
+      // The bootstrap wedding's events carry no date, which reads as long past,
+      // and it has a household; a recent date keeps it out of this cohort.
+      await db
+        .update(events)
+        .set({ startAt: "2026-06-01T10:00:00+00:00", endAt: "2026-06-01T11:00:00+00:00" })
+        .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID));
+      // One more expired wedding than one run takes, each a day later than the
+      // last, so the cap's oldest-first order leaves exactly the newest behind.
+      const n = MAX_WEDDINGS_PER_SWEEP + 1;
+      const stamp = new Date("2023-01-01T00:00:00.000Z");
+      const day = 24 * 60 * 60 * 1000;
+      const ids = Array.from({ length: n }, (_, i) => `wed_d1_cap_${String(i).padStart(3, "0")}`);
+      const dateOf = (i: number) => new Date(stamp.getTime() + i * day).toISOString().slice(0, 10);
+      await db.run(
+        insertManyViaJsonEach(
+          weddings,
+          ids.map((id) => ({
+            id,
+            slug: `slug-${id}`,
+            displayName: `Wedding ${id}`,
+            createdAt: stamp,
+            updatedAt: stamp,
+          })),
+        ),
+      );
+      await db.run(
+        insertManyViaJsonEach(
+          events,
+          ids.map((id, i) => ({
+            id: `ev_${id}`,
+            weddingId: id,
+            slug: "ceremony",
+            name: "Ceremony",
+            startAt: `${dateOf(i)}T10:00:00+00:00`,
+            endAt: `${dateOf(i)}T11:00:00+00:00`,
+            timezone: "UTC",
+          })),
+        ),
+      );
+      await db.run(
+        insertManyViaJsonEach(
+          families,
+          ids.map((id, i) => ({
+            id: `fam_${id}`,
+            weddingId: id,
+            publicId: `CAP${String(i).padStart(3, "0")}`,
+            familyName: "Family",
+            createdAt: stamp,
+            updatedAt: stamp,
+          })),
+        ),
+      );
+      const now = new Date("2026-06-17T04:00:00.000Z");
+      const householdsLeft = async () =>
+        (
+          await db
+            .select({ weddingId: families.weddingId })
+            .from(families)
+            .where(inArray(families.weddingId, jsonEachIn(ids)))
+        ).map((r) => r.weddingId);
+
+      await run(retentionService.sweepExpiredGuestData(now));
+      expect(await householdsLeft()).toEqual([ids[n - 1]]);
+
+      // The swept weddings keep their events but hold nothing left to delete,
+      // so they no longer fill the cap and the next run reaches the newest.
+      await run(retentionService.sweepExpiredGuestData(now));
+      expect(await householdsLeft()).toEqual([]);
     },
     MF_TIMEOUT_MS,
   );

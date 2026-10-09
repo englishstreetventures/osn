@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-903   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/vendor-inbox-pagination @ 2026-10-09 — this branch's comment fixes on top of main. No rule was disabled and nothing was suppressed.
+901   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/gift-summary-email @ 2026-10-09 — this branch's comment fixes on top of main. No rule was disabled and nothing was suppressed.
