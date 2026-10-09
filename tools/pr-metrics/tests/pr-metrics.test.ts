@@ -143,6 +143,15 @@ test("rateKeyFor prices Claude Opus 5.5", () => {
   );
 });
 
+test("rateKeyFor prices Claude Sonnet 5.5 and Claude Haiku 5.5", () => {
+  const tokens = { ...emptyTokens(), output: 1_000_000 };
+
+  expect(rateKeyFor("claude-sonnet-5-5")).toBe("claude-sonnet-5-5");
+  expect(rateKeyFor("claude-haiku-5-5")).toBe("claude-haiku-5-5");
+  expect(costOf(tokens, "claude-sonnet-5-5")).toBeCloseTo(10, 6);
+  expect(costOf(tokens, "claude-haiku-5-5")).toBeCloseTo(0.5, 6);
+});
+
 test("aggregateSpend names unpriced models so the gap is visible", () => {
   const spend = aggregateSpend([
     assistant({ message: { model: "claude-nextgen-9", usage: usage({ output_tokens: 10 }) } }),
