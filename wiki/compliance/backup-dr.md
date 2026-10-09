@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[soc2]]"
   - "[[breach-response]]"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-10
 ---
 
 # Backup + Disaster Recovery
@@ -31,7 +31,7 @@ drill and it worked.
 | Local-dev SQLite | Throwaway | Not in scope |
 | Production database (planned: Supabase Postgres) | Not deployed yet | Define backup config when migrating |
 | Redis (rate-limit, rotated-session store, future auth state) | Ephemeral by design (TTL'd state) | OK — no DR needed for ephemeral state; rate-limit fail-closed posture is the safety net |
-| Cire object storage — Cloudflare R2 `cire-sheets` (guest spreadsheets) and `cire-assets` (invite images) | Deployed, with no object versioning and no second copy. The daily cron's orphan reconcilers permanently delete any object no `cire-db` row names once R2 says it is 7 days old, unless `CIRE_R2_RECONCILE_DISABLED` stops them or a run is held because the rows naming keys fell by more than half since the last run | No backup. Restoring `cire-db` to an earlier point (below) puts objects at risk |
+| Cire object storage — Cloudflare R2 `cire-sheets` (guest spreadsheets) and `cire-assets` (invite images) | Deployed, with no object versioning and no second copy. The daily cron's orphan reconcilers permanently delete any object no `cire-db` row names once R2 says it is 7 days old, unless an operator has stopped them (below) or a run is held because the rows naming keys fell by more than half | No backup. Restoring `cire-db` to an earlier point (below) puts objects at risk |
 | Other object storage (planned: R2 for avatars, event covers, message media) | Not deployed yet | Mirror across two regions |
 | Grafana Cloud (logs / traces / metrics) | Vendor-managed | Out of our scope; vendor SLA |
 | Cloudflare Email | Vendor-managed | Same |
@@ -61,12 +61,39 @@ Quarterly. Documented under `wiki/compliance/dr-drills/<YYYY>-<Q>.md`.
 |---|---|
 | Database corruption | Daily snapshot restore + replay WAL to last good point |
 | Database accidental delete (DROP TABLE, etc.) | Same; 7-day soft-delete policy on user actions reduces blast radius |
-| Restoring `cire-db` (D1 Time Travel) to an earlier point | Rows written after the restore point are gone, so the R2 objects only they named look orphaned: the cire cron's reconcilers delete those already 7 days old at the next 04:00 UTC run, and the rest as they reach 7 days. **Before restoring**, set `CIRE_R2_RECONCILE_DISABLED = "true"` in that tier's vars block in `cire/api/wrangler.toml` and deploy it; the other cron jobs, retention included, keep running. For effect at once, also set it in the Worker's variables in the Cloudflare dashboard — the next deploy of that tier writes the file's value back, so the file change must land too. Never `wrangler secret put` that name. Copy what must be kept out of `cire-sheets` and `cire-assets`, then set it back to `"false"`. Without the flag, a run in which the rows naming keys fell by more than half since the previous run deletes nothing and logs `r2 reconcile held`, but only for that run, and a smaller loss is not held |
+| Restoring `cire-db` (D1 Time Travel) to an earlier point | Rows written after the restore point are gone, so the R2 objects only they named look orphaned: the cire cron's reconcilers delete those already 7 days old at the next 04:00 UTC run, and the rest as they reach 7 days. See the runbook below |
+| A cron run finds the rows naming a bucket's objects fell by more than half (a bad migration, a wrong bulk delete, a partial restore) | That reconciler deletes nothing, keeps the count from before the drop and emails `CIRE_OPS_EMAIL` every run it holds. The hold ends when the rows recover to half, when an operator deletes the bucket's position object (`reconcile/imports-position.json` in `cire-sheets`, `reconcile/assets-position.json` in `cire-assets`), or after 7 held runs, when deleting resumes and a last email says so. If the loss was a mistake, stop the reconcilers as the runbook below says |
 | Region outage | Multi-region replica (planned with Supabase config) |
 | Cloud provider outage | Document recovery into a second cloud (planned; long lead-time, accept 24+h RTO) |
 | Domain takeover | Registrar lock + WebAuthn + alert on DNS change |
 | Auth-key compromise (signing keys) | Rotate; revoke ARC kid; fail-closed cache eviction (already handled by S-H100 fix) |
 | Total OSN compromise | Backups are encrypted at rest; restore to clean infra; communicate per [[breach-response]] |
+
+## Runbook: stop the R2 reconcilers around a `cire-db` restore
+
+The daily cron's two R2 orphan reconcilers permanently delete `cire-sheets` and `cire-assets` objects no `cire-db` row names. Stop them before restoring `cire-db`, so the objects only the lost rows named survive. Every other cron job, retention included, keeps running.
+
+1. **Stop both**, in the tier being restored — production `cire-sheets` and `cire-assets`, dev `cire-sheets-dev` and `cire-assets-dev`:
+
+   ```bash
+   printf 'restore\n' | bunx wrangler r2 object put cire-sheets/reconcile/stop --pipe --remote
+   printf 'restore\n' | bunx wrangler r2 object put cire-assets/reconcile/stop --pipe --remote
+   ```
+
+   `--remote` is required: without it wrangler writes to local storage, reports success, and nothing stops. No deploy touches these objects, so the stop holds until you remove it.
+2. **Check** with `bunx wrangler r2 object get cire-sheets/reconcile/stop --remote --pipe` (and the same for `cire-assets`). The next 04:00 UTC run logs `r2 reconcile stopped` and, where `CIRE_OPS_EMAIL` is set, emails it with the stop's age in days.
+3. **Restore** `cire-db`.
+4. **Keep what must be kept.** Copy any object the restored rows no longer name and that must survive into a dedicated R2 bucket in the same Cloudflare account, bound to no Worker and with public access off, readable only through the operator's Cloudflare login; restore it into `cire-sheets` or `cire-assets` under rebuilt rows, then delete the copy and its bucket — once the rows are rebuilt, and within 30 days at most ([[retention]]).
+5. **Lift the stop** within **14 days**: orphaned guest data is not removed while it is in place. Delete both objects:
+
+   ```bash
+   bunx wrangler r2 object delete cire-sheets/reconcile/stop --remote
+   bunx wrangler r2 object delete cire-assets/reconcile/stop --remote
+   ```
+
+   Do not write a stop object again to extend it: its age, which the daily email reports, counts from the last write.
+
+The 14-day limit is this runbook's, not the code's: nothing lifts a stop by itself, and the daily email is the reminder. `CIRE_R2_RECONCILE_DISABLED` in `cire/api/wrangler.toml` turns both reconcilers off for a whole tier through a reviewed deploy; it is not the emergency route, and a dashboard edit of it is written back by the next deploy. Never `wrangler secret put` that name.
 
 ## Project changes required
 
