@@ -4,7 +4,6 @@ import { exportKeyToJwk, generateArcKeyPair } from "@shared/crypto/jwk";
 
 import {
   createArcOrganiserEmailLookup,
-  createArcOrganiserEmailResolver,
   createOrganiserEmailLookupFromEnv,
 } from "../../src/services/osn-bridge";
 import { mockFetch } from "../test-helpers";
@@ -84,18 +83,6 @@ describe("createArcOrganiserEmailLookup", () => {
       answered: true,
       emails: new Map(),
     });
-  });
-});
-
-describe("createArcOrganiserEmailResolver", () => {
-  it("still resolves to the addresses alone, empty when osn-api is down", async () => {
-    const resolve = createArcOrganiserEmailResolver(await config());
-    globalThis.fetch = mockFetch(async () =>
-      answer([{ profile_id: "usr_a", email: "a@example.test" }]),
-    );
-    expect([...(await resolve(["usr_a"]))]).toEqual([["usr_a", "a@example.test"]]);
-    globalThis.fetch = mockFetch(async () => answer([], 500));
-    expect((await resolve(["usr_a"])).size).toBe(0);
   });
 });
 

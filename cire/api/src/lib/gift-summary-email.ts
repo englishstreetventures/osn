@@ -13,73 +13,78 @@
  * one email and nothing else. There is no retry anywhere in this file, because
  * the caller is a cron sweep and a retry loop against a mailbox that is still
  * down would only mail the same couple again on the next run with no new data.
+ *
+ * Fail-soft is not silent. No later sweep resends a summary — the next run
+ * finds no gift rows left — so an osn-api that does not answer is logged and
+ * counted here, and a wedding that reached nobody is counted by why.
  */
 
 import { EmailService } from "@shared/email";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 
+import { metricGiftSummaryUnmailed } from "../metrics";
+import type { OrganiserEmailAnswer, OsnOrganiserEmailLookup } from "../services/osn-bridge";
 import type { GiftSummaryNotice } from "../services/retention";
-
-/** Resolves OSN profile ids to account addresses. Missing entry = no mail. */
-export type OrganiserEmailLookup = (
-  profileIds: readonly string[],
-) => Promise<ReadonlyMap<string, string>>;
+import { formatMinor } from "./money";
 
 /**
- * One formatter per currency, kept for the life of the module.
- * Constructing an `Intl.NumberFormat` is the expensive part, and a cohort is
- * usually one currency repeated, so building it per wedding is waste. Only
- * successful constructions are cached: a malformed code must keep throwing on
- * every call rather than caching a broken formatter.
+ * Log and count an osn-api that did not answer for every owner. Counts only:
+ * which owners went unanswered is a profile id, and an address is what the
+ * lookup was for.
  */
-const formatters = new Map<string, Intl.NumberFormat>();
-
-/**
- * Formats a minor-unit total in the wedding's own currency. `Intl` throws on a
- * malformed currency code, and a bad code in one row must not cost the whole
- * cohort its summaries, so the fallback prints the number and the code as-is.
- */
-function formatTotal(currency: string, amountMinor: number): string {
-  try {
-    let formatter = formatters.get(currency);
-    if (!formatter) {
-      formatter = new Intl.NumberFormat(undefined, { style: "currency", currency });
-      formatters.set(currency, formatter);
-    }
-    return formatter.format(amountMinor / 100);
-  } catch {
-    return `${(amountMinor / 100).toFixed(2)} ${currency}`;
-  }
-}
+const reportUnanswered = (unmailed: number, weddings: number): Effect.Effect<void> =>
+  Effect.logWarning("[gift-summary-email] osn-api did not answer for every owner").pipe(
+    Effect.annotateLogs({ unmailed, weddings }),
+    Effect.andThen(
+      Effect.sync(() => {
+        if (unmailed > 0) metricGiftSummaryUnmailed("lookup_failed", unmailed);
+      }),
+    ),
+  );
 
 export function sendGiftSummaryEmails(
   notices: readonly GiftSummaryNotice[],
-  lookup: OrganiserEmailLookup,
+  lookup: OsnOrganiserEmailLookup,
 ): Effect.Effect<void, never, EmailService> {
   return Effect.gen(function* () {
     if (notices.length === 0) return;
     const emailSvc = yield* EmailService;
 
     // One lookup for the whole cohort, not one per wedding: the addresses are
-    // all wanted at the same moment and osn-api takes a batch.
-    const addresses = yield* Effect.tryPromise({
-      try: () => lookup([...new Set(notices.flatMap((n) => n.ownerOsnProfileIds))]),
-      catch: (cause) => new Error("organiser email lookup failed", { cause }),
-    });
+    // all wanted at the same moment and osn-api takes a batch. The lookup never
+    // rejects by contract; if it does, that reads as osn-api not answering. A
+    // hung osn-api is cut by the sweep's timeout, and that interrupt is the
+    // likeliest shape of an outage, so it is reported here before it unwinds.
+    const answer: OrganiserEmailAnswer = yield* Effect.tryPromise(() =>
+      lookup([...new Set(notices.flatMap((n) => n.ownerOsnProfileIds))]),
+    ).pipe(
+      Effect.orElseSucceed(() => ({ answered: false, emails: new Map<string, string>() })),
+      Effect.onInterrupt(() => reportUnanswered(notices.length, notices.length)),
+    );
 
-    // One send per (wedding, address). An owner with no address is skipped
-    // with no error: osn-api omits ids it cannot answer for and does not say
-    // why, so there is nothing to report.
-    const sends = notices.flatMap((notice) => {
-      const recipients = new Set(
+    // One send per (wedding, address). Whatever addresses came back are used
+    // even when another call failed: there is no later chance to send.
+    const plans = notices.map((notice) => ({
+      notice,
+      recipients: new Set(
         notice.ownerOsnProfileIds.flatMap((id) => {
-          const to = addresses.get(id);
+          const to = answer.emails.get(id);
           return to ? [to] : [];
         }),
-      );
-      return [...recipients].map((to) => ({ notice, to }));
-    });
-    yield* Effect.annotateCurrentSpan({ recipients: sends.length });
+      ),
+    }));
+    const unmailed = plans.filter((p) => p.recipients.size === 0).length;
+    if (!answer.answered) {
+      yield* reportUnanswered(unmailed, notices.length);
+    } else if (unmailed > 0) {
+      // osn-api answered and had no address for any owner of these weddings.
+      // It does not say why, so there is nothing to log — only to count.
+      yield* Effect.sync(() => metricGiftSummaryUnmailed("no_address", unmailed));
+    }
+    const sends = plans.flatMap(({ notice, recipients }) =>
+      [...recipients].map((to) => ({ notice, to })),
+    );
+    yield* Effect.annotateCurrentSpan({ recipients: sends.length, unmailed });
 
     // `Effect.forEach` with bounded concurrency rather than a for/await loop:
     // the sends are independent, `no-await-in-loop` is on for exactly this
@@ -100,7 +105,7 @@ export function sendGiftSummaryEmails(
               finalEventOn: notice.finalEventOn,
               sweptOn: notice.summary.sweptOn,
               giftCount: notice.summary.contributions.count,
-              giftTotal: primary ? formatTotal(primary.currency, primary.amountMinor) : null,
+              giftTotal: primary ? formatMinor(primary.amountMinor, primary.currency) : null,
               listPurchased: notice.summary.claims.purchased,
               listReserved: notice.summary.claims.reserved,
             },
@@ -121,9 +126,11 @@ export function sendGiftSummaryEmails(
       { concurrency: 4, discard: true },
     );
   }).pipe(
-    Effect.catchCause(() =>
+    // The lookup and every send are already caught, so only an interrupt (the
+    // sweep's timeout) or a defect can reach here.
+    Effect.catchCause((cause) =>
       Effect.logWarning("[gift-summary-email] summary delivery failed — sweep unaffected").pipe(
-        Effect.annotateLogs({ reason: "lookup_or_transport_error" }),
+        Effect.annotateLogs({ reason: Cause.hasInterruptsOnly(cause) ? "interrupted" : "defect" }),
       ),
     ),
     Effect.withSpan("cire.retention.sendGiftSummaryEmails"),

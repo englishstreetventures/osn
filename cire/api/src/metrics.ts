@@ -58,6 +58,10 @@ export const CIRE_METRICS = {
   // Scheduled guest-data retention sweep (cron) — deletes guest PII 1 year
   // after a wedding's final event.
   guestDataSwept: "cire.guest_data.swept",
+  // The retention sweep's parting gift summary: weddings whose summary was
+  // written or not, and weddings whose written summary reached no owner.
+  giftSummaryWritten: "cire.gift_summary.written",
+  giftSummaryUnmailed: "cire.gift_summary.unmailed",
   // Scheduled expired vendor-claim-token sweep (cron).
   vendorClaimsSwept: "cire.vendor_claims.swept",
   // Vendor claims held for an operator: one per claim redeemed, per claim
@@ -401,6 +405,22 @@ export type OidcLoginOutcome =
   | "bad_request";
 type OidcLoginAttrs = { outcome: OidcLoginOutcome };
 type GuestDataSweptAttrs = { result: "ok" | "error" };
+/**
+ * What happened to a wedding's gift summary in one sweep. `ok` — written;
+ * `write_failed` — its commit failed; `read_failed` — the gifts of the cohort
+ * it was in could not be counted. A wedding not written is held back from that
+ * run's delete.
+ */
+export type GiftSummaryWrittenResult = "ok" | "write_failed" | "read_failed";
+type GiftSummaryWrittenAttrs = { result: GiftSummaryWrittenResult };
+/**
+ * Why a written summary reached no owner. `owners_unread` — the owner read
+ * failed after the write; `lookup_failed` — osn-api did not answer (failed,
+ * rejected, or hung until the sweep's timeout); `no_address` — osn-api answered
+ * with no address for any of the wedding's owners.
+ */
+export type GiftSummaryUnmailedReason = "owners_unread" | "lookup_failed" | "no_address";
+type GiftSummaryUnmailedAttrs = { reason: GiftSummaryUnmailedReason };
 /** Which cire R2 bucket the swept objects came from — bounded label, never a key. */
 export type R2BucketAttr = "sheets" | "assets";
 type R2ObjectsSweptAttrs = { bucket: R2BucketAttr; result: "ok" | "error" };
@@ -695,6 +715,20 @@ const guestDataSwept = createCounter<GuestDataSweptAttrs>({
   description:
     "Guest rows deleted by the scheduled retention sweep (1 year after a wedding's final event) — increment is the row count, so the sum tracks reclaimed guest records",
   unit: "{guest}",
+});
+
+const giftSummaryWritten = createCounter<GiftSummaryWrittenAttrs>({
+  name: CIRE_METRICS.giftSummaryWritten,
+  description:
+    "Weddings whose parting gift summary the retention sweep wrote, or failed to write (and so held back from that run's delete), by result",
+  unit: "{wedding}",
+});
+
+const giftSummaryUnmailed = createCounter<GiftSummaryUnmailedAttrs>({
+  name: CIRE_METRICS.giftSummaryUnmailed,
+  description:
+    "Weddings whose written gift summary reached no owner, by reason — sends that fail are counted by template in osn.email.send.attempts",
+  unit: "{wedding}",
 });
 
 const vendorClaimsSwept = createCounter<VendorClaimsSweptAttrs>({
@@ -1124,6 +1158,14 @@ export const metricOidcLogin = (outcome: OidcLoginOutcome): void => oidcLogin.in
  *  failed sweep records a single `error` increment. */
 export const metricGuestDataSwept = (result: "ok" | "error", count = 1): void =>
   guestDataSwept.add(count, { result });
+
+/** `count` weddings' gift summaries reached `result` in one sweep. */
+export const metricGiftSummaryWritten = (result: GiftSummaryWrittenResult, count = 1): void =>
+  giftSummaryWritten.add(count, { result });
+
+/** `count` weddings' written gift summaries reached no owner, for `reason`. */
+export const metricGiftSummaryUnmailed = (reason: GiftSummaryUnmailedReason, count = 1): void =>
+  giftSummaryUnmailed.add(count, { reason });
 
 export const metricVendorClaimReview = (event: VendorClaimReviewEvent, count = 1): void =>
   vendorClaimReview.add(count, { event });
