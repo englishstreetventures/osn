@@ -2,9 +2,9 @@
  * `ResendEmailLive` — production email transport (Resend HTTP API).
  *
  * Renders the template in-process and POSTs directly to Resend's REST API
- * (`https://api.resend.com/emails`). A single bearer-authed HTTPS call —
- * works on workerd (no SMTP, no paid Workers plan), unlike the Cloudflare
- * Email Service transport.
+ * (`https://api.resend.com/emails`, or a local emulator named by `apiUrl`). A
+ * single bearer-authed call — works on workerd (no SMTP, no paid Workers plan),
+ * unlike the Cloudflare Email Service transport.
  *
  * Behaviour (render path, instrumented fetch, timeout, metrics, and the
  * non-2xx → tagged-failure semantics) mirrors `cloudflare.ts` exactly so the
@@ -17,6 +17,13 @@
  * SECURITY: the Resend API key is a bearer secret. It is only ever placed in
  * the `Authorization` header — never in the URL, never in span/metric
  * attributes, never in an `EmailError.cause`. No code path logs or returns it.
+ *
+ * The destination comes from deployment config only, never from request input,
+ * so there is no SSRF surface. An `apiUrl` override can name only a loopback
+ * origin (see {@link resendApiUrlProblem}): a loopback literal, or a
+ * `*.localhost` name over https, where TLS refuses any host a resolver
+ * wrongly sends it to. So a misconfigured Worker cannot send the key or any
+ * mail to another host.
  */
 
 import { instrumentedFetch } from "@shared/observability/fetch";
@@ -32,11 +39,55 @@ import {
 import { EmailError, EmailService, type SendEmailInput } from "./service";
 import { renderTemplate } from "./templates";
 
-/** Hardcoded Resend endpoint. Not derived from any input — no SSRF surface. */
-const RESEND_API_URL = "https://api.resend.com/emails";
+/** Resend's API origin, used whenever `apiUrl` is unset or blank. */
+const DEFAULT_RESEND_API_URL = "https://api.resend.com";
 
-/** Hardcoded Resend batch endpoint; takes an array of the same payloads. */
-const RESEND_BATCH_URL = "https://api.resend.com/emails/batch";
+/** The loopback addresses, and `localhost`, which hosts files map to them. */
+const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * Why `raw` cannot be the Resend API origin, or `null` when it can. An override
+ * exists for local emulation only, so it must be a loopback origin with no
+ * credentials, path, query or fragment: `localhost`, `127.0.0.1` or `[::1]`
+ * over http or https, or a `*.localhost` name over https only. A resolver
+ * decides where a `*.localhost` name goes, and only a certificate check stops a
+ * wrong answer from receiving the key. The answer never repeats `raw`, which
+ * could carry credentials.
+ */
+export function resendApiUrlProblem(raw: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return "is not a URL";
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return "must be an http or https URL";
+  }
+  const named = url.hostname.endsWith(".localhost");
+  if (!LOOPBACK_HOSTS.has(url.hostname) && !named) {
+    return "must name a loopback host (localhost, 127.0.0.1, [::1], or a *.localhost name over https)";
+  }
+  if (named && url.protocol !== "https:") {
+    return "must use https for a *.localhost name, which a resolver could send elsewhere";
+  }
+  if (url.username !== "" || url.password !== "") {
+    return "must not carry credentials";
+  }
+  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") {
+    return "must be an origin, with no path, query or fragment";
+  }
+  return null;
+}
+
+/** The origin to send to: the default when `apiUrl` is unset or blank. */
+function resolveApiOrigin(apiUrl: string | undefined): string {
+  const raw = apiUrl?.trim();
+  if (!raw) return DEFAULT_RESEND_API_URL;
+  const problem = resendApiUrlProblem(raw);
+  if (problem !== null) throw new Error(`Resend apiUrl ${problem}`);
+  return new URL(raw).origin;
+}
 
 /** Resend accepts at most this many emails in one batch call. */
 export const RESEND_BATCH_LIMIT = 100;
@@ -50,6 +101,12 @@ export interface ResendEmailConfig {
    * — override in production with the verified domain address.
    */
   readonly fromAddress?: string;
+  /**
+   * API origin. Unset or blank ⇒ `https://api.resend.com`. Set only to point at
+   * a local emulator; anything but a loopback origin makes
+   * {@link makeResendEmailLive} throw.
+   */
+  readonly apiUrl?: string;
 }
 
 /** Resend `POST /emails` request payload. */
@@ -71,6 +128,7 @@ interface ResendEmailPayload {
  */
 const sendBatch = (
   config: ResendEmailConfig,
+  batchUrl: string,
   inputs: readonly SendEmailInput[],
 ): Effect.Effect<void, EmailError> =>
   Effect.gen(function* () {
@@ -117,7 +175,7 @@ const sendBatch = (
       const template = inputs[offset]!.template;
       const response = yield* Effect.tryPromise({
         try: () =>
-          instrumentedFetch(RESEND_BATCH_URL, {
+          instrumentedFetch(batchUrl, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -152,9 +210,17 @@ const sendBatch = (
     }
   }).pipe(Effect.withSpan("email.send_batch", { attributes: { size: inputs.length } }));
 
-export const makeResendEmailLive = (config: ResendEmailConfig): Layer.Layer<EmailService> =>
-  Layer.succeed(EmailService, {
-    sendBatch: (inputs) => sendBatch(config, inputs),
+/**
+ * The Resend transport. Throws when `config.apiUrl` is set to anything
+ * {@link resendApiUrlProblem} refuses, so a bad override fails at boot rather
+ * than on the first send.
+ */
+export const makeResendEmailLive = (config: ResendEmailConfig): Layer.Layer<EmailService> => {
+  const origin = resolveApiOrigin(config.apiUrl);
+  const sendUrl = `${origin}/emails`;
+  const batchUrl = `${origin}/emails/batch`;
+  return Layer.succeed(EmailService, {
+    sendBatch: (inputs) => sendBatch(config, batchUrl, inputs),
     send: (input) =>
       Effect.gen(function* () {
         const started = Date.now();
@@ -189,7 +255,7 @@ export const makeResendEmailLive = (config: ResendEmailConfig): Layer.Layer<Emai
 
         const response = yield* Effect.tryPromise({
           try: () =>
-            instrumentedFetch(RESEND_API_URL, {
+            instrumentedFetch(sendUrl, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -231,3 +297,4 @@ export const makeResendEmailLive = (config: ResendEmailConfig): Layer.Layer<Emai
         metricEmailSendDuration((Date.now() - started) / 1000, input.template, "sent");
       }).pipe(Effect.withSpan("email.send", { attributes: { template: input.template } })),
   });
+};

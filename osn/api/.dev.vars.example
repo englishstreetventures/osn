@@ -27,11 +27,22 @@
 # UPSTASH_REDIS_REST_URL   = "https://<db>.upstash.io"
 # UPSTASH_REDIS_REST_TOKEN = "<token>"
 
-# --- Email (Cloudflare Email Service REST API) ---
-# Absent locally ⇒ LogEmailLive (records sends in-memory, prints template name).
+# --- Email (Resend; Cloudflare Email Service as the legacy fallback) ---
+# Locally ⇒ LogEmailLive (records sends in-memory, prints template name), even
+# with a key set — unless RESEND_API_URL names a local Resend emulator.
+# RESEND_API_KEY             = "<key>"
 # CLOUDFLARE_ACCOUNT_ID      = "<account-id>"
 # CLOUDFLARE_EMAIL_API_TOKEN = "<token>"
 # OSN_EMAIL_FROM             = "noreply@osn.example"
+
+# --- Local Resend emulator (local only; refused when OSN_ENV != local) ---
+# Start it with `npx emulate@0.12.1 --service resend --port 4008` (Node 24+);
+# read mail at http://localhost:4008/inbox. Loopback origins only. The local
+# per-IP limiters see no client address under wrangler dev, so auth routes also
+# need TRUSTED_PROXY_COUNT = "1" (below) and an X-Forwarded-For header.
+# See wiki/shared/email.md, "Local emulation".
+# RESEND_API_KEY = "re_local"               # any non-empty value
+# RESEND_API_URL = "http://localhost:4008"
 
 # --- S2S + fan-out (optional) ---
 # INTERNAL_SERVICE_SECRET = "<shared-secret>"   # enables /graph/internal/register-service

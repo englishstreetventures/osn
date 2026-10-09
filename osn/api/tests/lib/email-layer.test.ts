@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { EmailService } from "@shared/email";
 import { Effect, Logger } from "effect";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -17,6 +19,10 @@ import { osnLoggerLayer } from "../../src/observability";
  *                                                 + a loud startup warning.
  *   - no real provider + non-local + opt-in UNSET → throw (the safe default).
  *   - no real provider + local                  → LogEmailLive recorder.
+ *   - RESEND_API_KEY + RESEND_API_URL + local   → ResendEmailLive at the local
+ *                                                 emulator (loopback only).
+ *   - RESEND_API_URL + non-local                → throw (deployed tiers send to
+ *                                                 Resend itself).
  */
 
 describe("isEmailOptionalOptIn", () => {
@@ -154,6 +160,139 @@ describe("selectEmailLayer", () => {
     });
   });
 
+  describe("RESEND_API_URL (local emulator override)", () => {
+    let dispatchedUrl: string | null;
+
+    beforeEach(() => {
+      dispatchedUrl = null;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request) => {
+          dispatchedUrl = typeof input === "string" ? input : input.toString();
+          return new Response(JSON.stringify({ id: "x" }), { status: 200 });
+        }),
+      );
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const sendOnce = (layer: ReturnType<typeof selectEmailLayer>) =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const email = yield* EmailService;
+          yield* email.send({
+            template: "otp-step-up",
+            to: "alice@example.com",
+            data: { code: "222222", ttlMinutes: 10 },
+          });
+        }).pipe(Effect.provide(layer)),
+      );
+
+    it("local + key + override → Resend at the emulator", async () => {
+      const layer = selectEmailLayer(
+        { OSN_ENV: "local", RESEND_API_KEY: "re_local", RESEND_API_URL: "http://localhost:4008" },
+        osnLoggerLayer,
+      );
+      await sendOnce(layer);
+      expect(dispatchedUrl).toBe("http://localhost:4008/emails");
+    });
+
+    it("OSN_ENV unset counts as local: key + override → Resend at the emulator", async () => {
+      const layer = selectEmailLayer(
+        { RESEND_API_KEY: "re_local", RESEND_API_URL: "http://127.0.0.1:4008" },
+        osnLoggerLayer,
+      );
+      await sendOnce(layer);
+      expect(dispatchedUrl).toBe("http://127.0.0.1:4008/emails");
+    });
+
+    it("local + override without a key → recorder (no call)", async () => {
+      const layer = selectEmailLayer(
+        { OSN_ENV: "local", RESEND_API_URL: "http://localhost:4008" },
+        osnLoggerLayer,
+      );
+      await sendOnce(layer);
+      expect(dispatchedUrl).toBeNull();
+    });
+
+    it("local + blank override → recorder, as with no override", async () => {
+      const layer = selectEmailLayer(
+        { OSN_ENV: "local", RESEND_API_KEY: "re_local", RESEND_API_URL: " " },
+        osnLoggerLayer,
+      );
+      await sendOnce(layer);
+      expect(dispatchedUrl).toBeNull();
+    });
+
+    it("local + key + a non-loopback override → throws at selection, without the value", () => {
+      let message = "";
+      try {
+        selectEmailLayer(
+          {
+            OSN_ENV: "local",
+            RESEND_API_KEY: "re_local",
+            RESEND_API_URL: "https://mail.example.com",
+          },
+          osnLoggerLayer,
+        );
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toContain("RESEND_API_URL");
+      expect(message).toMatch(/loopback/);
+      expect(message).not.toContain("mail.example.com");
+    });
+
+    it("local + a non-loopback override with no key → still throws naming the var", () => {
+      let message = "";
+      try {
+        selectEmailLayer(
+          { OSN_ENV: "local", RESEND_API_URL: "https://mail.example.com" },
+          osnLoggerLayer,
+        );
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toContain("RESEND_API_URL");
+      expect(message).toMatch(/loopback/);
+      expect(message).not.toContain("mail.example.com");
+    });
+
+    it("non-local + override with no Resend key (Cloudflare creds) → still throws naming the var", () => {
+      let message = "";
+      try {
+        selectEmailLayer(
+          nonLocal({
+            CLOUDFLARE_ACCOUNT_ID: "acct",
+            CLOUDFLARE_EMAIL_API_TOKEN: "tok",
+            RESEND_API_URL: "http://localhost:4008",
+          }),
+          osnLoggerLayer,
+        );
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toContain("RESEND_API_URL");
+      expect(message).not.toContain("localhost:4008");
+    });
+
+    it("non-local + any override → throws naming the var, even with a valid loopback value", () => {
+      let message = "";
+      try {
+        selectEmailLayer(
+          nonLocal({ RESEND_API_KEY: "re_live", RESEND_API_URL: "http://localhost:4008" }),
+          osnLoggerLayer,
+        );
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toContain("RESEND_API_URL");
+      expect(message).not.toContain("localhost:4008");
+    });
+  });
+
   it("creds present → returns CloudflareEmailLive even if opt-in is ALSO set (creds win)", async () => {
     // We can't easily assert the concrete layer identity, but we CAN assert it
     // did not throw and is NOT a no-op: the Cloudflare transport will attempt a
@@ -172,5 +311,17 @@ describe("selectEmailLayer", () => {
   it("local + creds absent → LogEmailLive recorder (no throw, no opt-in needed)", () => {
     const layer = selectEmailLayer({ OSN_ENV: "local" }, osnLoggerLayer);
     expect(layer).toBeDefined();
+  });
+});
+
+describe("wrangler.toml", () => {
+  // A deployed tier refuses RESEND_API_URL by failing closed (every route 503s),
+  // so no committed tier may set it. Comment lines may name it.
+  it("sets RESEND_API_URL in no tier", () => {
+    const assignments = readFileSync(new URL("../../wrangler.toml", import.meta.url), "utf8")
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("#"))
+      .filter((line) => /["']?RESEND_API_URL["']?\s*=/.test(line));
+    expect(assignments).toEqual([]);
   });
 });

@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1455,
+    "branch": "feat/email-base-url",
+    "base_sha": "61ce589bb4ab104146cf13285e78732e6dba6ec1",
+    "head_sha": "15bdd4eeaa8f7970513aa170af3261e52382290b",
+    "generated_at": "2026-10-08T13:30:38.569Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1182,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "complexity:3"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed"
+  },
+  "window": {
+    "sessions": 4,
+    "first_ts": "2026-10-08T07:54:45.222Z",
+    "last_ts": "2026-10-08T13:30:34.771Z",
+    "span_seconds": 20150,
+    "active_seconds": 3610,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 42.23724854999998,
+    "tokens": {
+      "input": 819,
+      "output": 14024,
+      "thinking": 27,
+      "cache_write_5m": 1617081,
+      "cache_write_1h": 0,
+      "cache_read": 84203599
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 27,
+          "output": 8665,
+          "thinking": 0,
+          "cache_write_5m": 55255,
+          "cache_write_1h": 0,
+          "cache_read": 742272
+        },
+        "usd_equivalent": 0.93323975,
+        "messages": 17
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 792,
+          "output": 5359,
+          "thinking": 27,
+          "cache_write_5m": 1561826,
+          "cache_write_1h": 0,
+          "cache_read": 83461327
+        },
+        "usd_equivalent": 41.304008799999984,
+        "messages": 393
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 27,
+          "output": 8665,
+          "thinking": 0,
+          "cache_write_5m": 55255,
+          "cache_write_1h": 0,
+          "cache_read": 742272
+        },
+        "usd_equivalent": 0.93323975,
+        "messages": 17
+      },
+      "subagent": {
+        "tokens": {
+          "input": 792,
+          "output": 5359,
+          "thinking": 27,
+          "cache_write_5m": 1561826,
+          "cache_write_1h": 0,
+          "cache_read": 83461327
+        },
+        "usd_equivalent": 41.304008799999984,
+        "messages": 394
+      }
+    },
+    "effort": {
+      "xhigh": 338,
+      "high": 55
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 7,
+      "docs": 4,
+      "config": 3,
+      "source": 12
+    },
+    "loc": {
+      "generated": {
+        "added": 16,
+        "deleted": 0
+      },
+      "test": {
+        "added": 501,
+        "deleted": 7
+      },
+      "docs": {
+        "added": 90,
+        "deleted": 11
+      },
+      "config": {
+        "added": 40,
+        "deleted": 1
+      },
+      "source": {
+        "added": 265,
+        "deleted": 62
+      }
+    },
+    "packages": [
+      "cire/api",
+      "osn/api",
+      "shared/email",
+      "shared/observability"
+    ],
+    "touches_migration": false,
+    "commits": 6
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 360,
+      "Read": 41,
+      "Edit": 23,
+      "Write": 7,
+      "Skill": 5,
+      "Agent": 4,
+      "SubagentHandback": 4,
+      "TaskStop": 4,
+      "ToolSearch": 2,
+      "StructuredOutput": 2,
+      "Grep": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 6
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "superpowers:test-driven-development": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "general-purpose": 3
+    }
+  }
+}

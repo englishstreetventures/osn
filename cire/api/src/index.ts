@@ -15,6 +15,7 @@ import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
 import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
 import { organiserOriginFrom } from "./lib/organiser-origin";
 import { registryOutboundLimiters } from "./lib/registry-limiters";
+import { resendEmailConfig } from "./lib/resend-email";
 import { webOriginProblem } from "./lib/web-origin";
 import { flushCireTelemetry, runCire } from "./observability";
 import { assetReconcileService } from "./services/asset-reconcile";
@@ -176,6 +177,10 @@ export interface Env {
   // falls back to LogEmailLive (emails captured in-memory / logged). Fail-soft:
   // never throws on boot, just degrades gracefully.
   RESEND_API_KEY?: string;
+  // Local emulation only: a loopback origin for a Resend emulator, so mail goes
+  // there instead of to Resend. A deployed tier refuses it, and a refused value
+  // turns mail off (logged) rather than failing the Worker. lib/resend-email.ts.
+  RESEND_API_URL?: string;
   // Where the daily "vendor claims are waiting" reminder goes. A secret, not a
   // var: the repo is public and the address is a person's. Unset, or with no
   // RESEND_API_KEY, no reminder is sent and the cron's log line is the only
@@ -365,12 +370,16 @@ const handler: ExportedHandler<Env> = {
       });
       // Email layer for vendor claim-invite emails. Uses Resend when the API key
       // is present (deployed tiers); falls back to LogEmailLive (no network) so
-      // the worker boots cleanly without the key (local dev + bun:sqlite tests).
-      const emailLayer = env.RESEND_API_KEY
-        ? makeResendEmailLive({
-            apiKey: env.RESEND_API_KEY,
-            fromAddress: "hello@cireweddings.com",
-          })
+      // the worker boots cleanly without the key (local dev + bun:sqlite tests),
+      // and when a RESEND_API_URL override is refused.
+      const resend = resendEmailConfig(env, isDeployedEnv(env));
+      if (resend.problem) {
+        await runCire(
+          Effect.logError("email disabled: Resend misconfigured", { detail: resend.problem }),
+        );
+      }
+      const emailLayer = resend.config
+        ? makeResendEmailLive(resend.config)
         : makeLogEmailLive().layer;
       // Vendor-enquiry c2b chat bridge (Vendors S4). Reuses cire-api's existing
       // ARC key (same signing key, new audience `zap-api` + scope `chat:c2b`).
@@ -483,7 +492,7 @@ const handler: ExportedHandler<Env> = {
         // Owner notices need both a way to find the owners' addresses and a
         // real transport; without Resend they would only reach the log
         // stand-in, so none are sent.
-        organiserEmailLookup: env.RESEND_API_KEY
+        organiserEmailLookup: resend.config
           ? ((await createOrganiserEmailLookupFromEnv({
               osnApiUrl: env.OSN_API_URL,
               arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
@@ -672,22 +681,20 @@ const handler: ExportedHandler<Env> = {
     // `makeLogEmailLive` is deliberately NOT used as a stand-in — logging a
     // summary nobody reads is not delivery, and would make the compliance
     // record claim the couple was told when they were not.
-    const resendApiKey = env.RESEND_API_KEY;
+    // The reason a refused RESEND_API_URL leaves no transport is logged after
+    // the last sweep below, so no sweep waits on the logger.
+    const resend = resendEmailConfig(env, isDeployedEnv(env));
+    const resendConfig = resend.config;
     const organiserEmails = await createOrganiserEmailResolverFromEnv({
       osnApiUrl: env.OSN_API_URL,
       arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
       arcKeyId: env.CIRE_API_ARC_KEY_ID,
     });
     const giftSummaryNotifier =
-      organiserEmails && resendApiKey
+      organiserEmails && resendConfig
         ? (notices: readonly GiftSummaryNotice[]) =>
             sendGiftSummaryEmails(notices, organiserEmails).pipe(
-              Effect.provide(
-                makeResendEmailLive({
-                  apiKey: resendApiKey,
-                  fromAddress: "hello@cireweddings.com",
-                }),
-              ),
+              Effect.provide(makeResendEmailLive(resendConfig)),
             )
         : undefined;
 
@@ -732,19 +739,14 @@ const handler: ExportedHandler<Env> = {
     // signal.
     const alertTarget = claimReviewAlertTarget({
       CIRE_OPS_EMAIL: env.CIRE_OPS_EMAIL,
-      RESEND_API_KEY: resendApiKey,
+      RESEND_API_KEY: resendConfig?.apiKey,
       tier: parseDeploymentEnvironment(env.OSN_ENV),
     });
     const alertOperator =
-      alertTarget && resendApiKey
+      alertTarget && resendConfig
         ? (summary: PendingClaimsSummary) =>
             sendClaimReviewAlert({ ...alertTarget, summary }).pipe(
-              Effect.provide(
-                makeResendEmailLive({
-                  apiKey: resendApiKey,
-                  fromAddress: "hello@cireweddings.com",
-                }),
-              ),
+              Effect.provide(makeResendEmailLive(resendConfig)),
             )
         : undefined;
     runSweep(() =>
@@ -824,7 +826,7 @@ const handler: ExportedHandler<Env> = {
       arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
       arcKeyId: env.CIRE_API_ARC_KEY_ID,
     });
-    if (organiserEmailLookup && resendApiKey && !digestOriginProblem) {
+    if (organiserEmailLookup && resendConfig && !digestOriginProblem) {
       const organiserOrigin = organiserOriginFrom(env.WEB_ORIGIN);
       // Each email's one-click stop link points at this Worker's own origin
       // and is signed with a key derived from the secret the stop route
@@ -844,12 +846,7 @@ const handler: ExportedHandler<Env> = {
                 Effect.logError("scheduled rsvp digest failed", { reason: err.reason }),
               ),
               Effect.provide(dbLayer),
-              Effect.provide(
-                makeResendEmailLive({
-                  apiKey: resendApiKey,
-                  fromAddress: "hello@cireweddings.com",
-                }),
-              ),
+              Effect.provide(makeResendEmailLive(resendConfig)),
             ),
         ),
       );
@@ -891,6 +888,12 @@ const handler: ExportedHandler<Env> = {
         ),
       ),
     );
+
+    if (resend.problem) {
+      await runCire(
+        Effect.logError("email disabled: Resend misconfigured", { detail: resend.problem }),
+      );
+    }
   },
 };
 

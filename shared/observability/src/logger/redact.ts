@@ -140,6 +140,16 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     // wedding to a paid tier, so it never appears in operator logs.
     "unlockCode",
 
+    // --- Email transport credentials ---
+    // The bearer secrets in `@shared/email`'s transport configs:
+    // `ResendEmailConfig.apiKey` (shared/email/src/resend.ts) and
+    // `CloudflareEmailConfig.apiToken` (shared/email/src/cloudflare.ts).
+    // cire-api's `ResendEmailSetup` (cire/api/src/lib/resend-email.ts) holds the
+    // config beside the reason it logs, so a call site that logs the whole
+    // object must still not write the key.
+    "apiKey",
+    "apiToken",
+
     // --- Step-up (sudo) tokens ---
     // Short-lived bearer tokens minted by /step-up/*/complete and required
     // by sensitive endpoints (/recovery/generate, /account/email/*). Same
