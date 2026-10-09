@@ -1,5 +1,12 @@
 # @pulse/landing
 
+## 0.1.23
+
+### Patch Changes
+
+- Updated dependencies [4aaec17]
+  - @shared/legal@0.0.4
+
 ## 0.1.22
 
 ### Patch Changes

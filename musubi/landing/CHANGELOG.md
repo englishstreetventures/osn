@@ -1,5 +1,12 @@
 # @osn/landing
 
+## 0.2.10
+
+### Patch Changes
+
+- Updated dependencies [4aaec17]
+  - @shared/legal@0.0.4
+
 ## 0.2.9
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @tools/lab
 
+## 0.3.10
+
+### Patch Changes
+
+- Updated dependencies [4aaec17]
+  - @shared/color@0.3.2
+  - @shared/design-tokens@0.3.4
+  - @shared/ui@0.4.1
+
 ## 0.3.9
 
 ### Patch Changes
