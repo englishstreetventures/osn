@@ -226,11 +226,12 @@ export const accountLinkService = {
               .run(),
           ),
         catch: (e) => {
-          const text = driverErrorText(e) || String(e);
-          const reason = conflictReason(text);
+          const reason = conflictReason(driverErrorText(e));
+          // The logged reason is the statement alone: the database's own text
+          // can quote a bound value (D1 names the value it could not bind).
           return reason
             ? new AccountLinkConflict({ reason })
-            : new AccountLinkWriteError({ op: "insert", reason: text });
+            : new AccountLinkWriteError({ op: "insert", reason: String(e) });
         },
       }).pipe(
         Effect.tapError((err) =>

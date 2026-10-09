@@ -500,14 +500,13 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
                 })
                 .run(),
             ),
-          catch: (e) => {
-            const text = driverErrorText(e) || String(e);
-            const reason = upgradeConflictReason(text);
+          catch: (e) =>
             // Lost the race to another press: somebody else's attempt is live.
-            return reason === "processing"
+            // The logged reason is the statement alone: the database's own
+            // text can quote a bound value (D1 names the value it could not bind).
+            upgradeConflictReason(driverErrorText(e)) === "processing"
               ? new UpgradeConflict({ reason: "processing" })
-              : new UpgradeWriteError({ op: "insert-purchase", reason: text });
-          },
+              : new UpgradeWriteError({ op: "insert-purchase", reason: String(e) }),
         }).pipe(
           Effect.tapError((err) =>
             err._tag === "UpgradeConflict" ? Effect.sync(() => started("processing")) : Effect.void,

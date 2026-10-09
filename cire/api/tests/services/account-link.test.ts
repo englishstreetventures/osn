@@ -207,6 +207,32 @@ describe("accountLinkService.link", () => {
     expect(err._tag).toBe("AccountLinkWriteError");
     expect((err as { op: string }).op).toBe("insert");
   });
+
+  it("logs a failed insert by its statement, never the database's text", async () => {
+    // Failed as D1 fails it. The database's text here stands in for one that
+    // quotes a bound value, as D1's own refusal to bind a value does.
+    const db = fixture();
+    failLikeD1(db);
+    db.$client.exec(
+      "CREATE TRIGGER gal_fail BEFORE INSERT ON guest_account_links BEGIN SELECT RAISE(ABORT, 'value Annabelle not supported'); END",
+    );
+    const err = await run(
+      db,
+      accountLinkService
+        .link({
+          familyId: "fam_a",
+          guestId: "gst_a1",
+          osnAccountId: "acc_1",
+          osnProfileId: "usr_1",
+        })
+        .pipe(Effect.flip),
+    );
+
+    expect(err._tag).toBe("AccountLinkWriteError");
+    const { reason } = err as { reason: string };
+    expect(reason).toContain('Failed query: insert into "guest_account_links"');
+    expect(reason).not.toContain("Annabelle");
+  });
 });
 
 // Pin the SQLite-message → reason mapping directly, independent of the
