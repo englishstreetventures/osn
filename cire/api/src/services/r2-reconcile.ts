@@ -36,6 +36,26 @@
  *     only keys the walk returned can be deleted: at most
  *     {@link RECONCILE_DELETE_CAP} a run, through {@link reapR2Objects}. A list
  *     failure part-way therefore deletes nothing.
+ *  5. HOLD ON A HALVING — the reference check also reports how many live rows
+ *     name a key under the prefix, from the same statement as the named set,
+ *     and a walk with a budget keeps that count with its position. A run whose
+ *     count is less than half of the stored one deletes nothing, keeps the
+ *     stored count, and alerts the operator. Later runs compare with that same
+ *     count, so the hold lasts until the rows recover to at least half of it,
+ *     an operator removes the position object, or
+ *     {@link RECONCILE_HOLD_RUNS} runs have held — after which the next such
+ *     run accepts the lower count, says so, and deletes. A run with no stored
+ *     count to compare with (the first, or after an unreadable position) is
+ *     not held, and stores one.
+ *  6. STOP OBJECT — before anything else a run looks for
+ *     {@link RECONCILE_STOP_KEY} in its bucket; while it is there the run
+ *     deletes nothing, touches no position and alerts the operator with its
+ *     age. Only an operator writes it, and no deploy touches it.
+ *
+ * Every delete batch logs a warning and records its size on
+ * `cire.r2.reconcile.batch.size`. `CIRE_R2_RECONCILE_DISABLED` (see
+ * {@link reconcileDisabled}) keeps both reconcilers out of `scheduled` in
+ * `index.ts` for a whole tier, without touching the other cron jobs.
  *
  * A walk with a {@link ListBudget} lists a bounded number of objects a run and
  * keeps its place between runs, so a bucket larger than the budget is covered
@@ -46,7 +66,7 @@
  */
 import { Data, Effect, Option, Schema } from "effect";
 
-import { metricR2ObjectsSwept } from "../metrics";
+import { metricR2ObjectsSwept, metricR2ReconcileBatch } from "../metrics";
 import { reapR2Objects } from "./r2-cleanup";
 import type { DeletableBucket, R2BucketLabel } from "./r2-cleanup";
 
@@ -66,6 +86,21 @@ export const RECONCILE_DELETE_CAP = 500;
  */
 export const LAP_WARNING_MS = 30 * 24 * 60 * 60 * 1000;
 
+/**
+ * While an object is at this key the bucket's reconciler deletes nothing. It
+ * lies outside every walked prefix (`imports/`, `assets/`), in the `reconcile/`
+ * area beside the position objects, and nothing in the Worker writes it.
+ */
+export const RECONCILE_STOP_KEY = "reconcile/stop";
+
+/**
+ * Most runs a hold on a halving lasts: 7, a week of daily runs. A stopped or
+ * disabled run does not count, so the operator's stop never uses it up.
+ */
+export const RECONCILE_HOLD_RUNS = 7;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /** Most objects one `list()` page may request — R2's documented ceiling. */
 const LIST_PAGE_SIZE = 1000;
 
@@ -75,7 +110,7 @@ const LIST_PAGE_SIZE = 1000;
  * bucket goes straight to {@link reapR2Objects}.
  */
 export interface ReconcilableBucket extends DeletableBucket {
-  head(key: string): Promise<{ key: string } | null>;
+  head(key: string): Promise<{ key: string; uploaded: Date } | null>;
   list(options?: {
     prefix?: string;
     cursor?: string;
@@ -103,7 +138,37 @@ export interface WalkState {
   readonly lapStartedAt: number;
 }
 
-/** Storage for a {@link WalkState}, as text. Either call failing fails the run. */
+/**
+ * What a budgeted walk keeps between runs: where the walk stands (absent
+ * between laps) and how many referencing rows the last run that read them
+ * counted (absent until one has).
+ */
+interface ReconcileState {
+  readonly walk: WalkState | undefined;
+  readonly referenced: number | undefined;
+  /** Runs held against `referenced` so far, 1 to {@link RECONCILE_HOLD_RUNS}; absent: not held. */
+  readonly heldRuns: number | undefined;
+}
+
+/** What a reconciler tells the operator, by email from the cron. */
+export type ReconcileAlert =
+  | {
+      readonly kind: "held";
+      readonly bucket: R2BucketLabel;
+      readonly referencingRows: number;
+      readonly previousRows: number;
+      readonly heldRuns: number;
+      readonly runsLeft: number;
+    }
+  | {
+      readonly kind: "released";
+      readonly bucket: R2BucketLabel;
+      readonly referencingRows: number;
+      readonly previousRows: number;
+    }
+  | { readonly kind: "stopped"; readonly bucket: R2BucketLabel; readonly stoppedDays: number };
+
+/** Storage for a {@link ReconcileState}, as text. Either call failing fails the run. */
 export interface PositionStore {
   /** The stored text, or undefined when nothing is stored. */
   readonly read: Effect.Effect<string | undefined, R2ReconcileError>;
@@ -127,6 +192,20 @@ export interface ListBudget extends ListLimits {
   readonly position: PositionStore;
 }
 
+/** What the reference check answers about the keys it was asked. */
+export interface NamedKeys {
+  /**
+   * Every one of the asked keys that a live row names, compared as exact
+   * strings, and none of them that no live row names; it may hold other keys.
+   */
+  readonly named: ReadonlySet<string>;
+  /**
+   * How many live rows name a key under the prefix, read in the same statement
+   * as {@link NamedKeys.named} so the two describe one moment.
+   */
+  readonly referencingRows: number;
+}
+
 export interface ReconcilePlan<R> {
   readonly label: R2BucketLabel;
   /** Only keys under this prefix are listed or deleted. */
@@ -137,13 +216,21 @@ export interface ReconcilePlan<R> {
    */
   readonly liveSample: Effect.Effect<string | undefined, never, R>;
   /**
-   * A set holding every one of `keys` that a live row names, compared as exact
-   * strings, and none of them that no live row names; it may hold other keys
-   * too. Called once per run, after the walk. A defect aborts the run.
+   * Which of `keys` live rows name, and how many live rows there are. Called
+   * once per run, after the walk. A defect aborts the run.
    */
-  readonly named: (keys: ReadonlyArray<string>) => Effect.Effect<ReadonlySet<string>, never, R>;
-  /** Absent: the whole prefix is walked every run. */
+  readonly named: (keys: ReadonlyArray<string>) => Effect.Effect<NamedKeys, never, R>;
+  /**
+   * Absent: the whole prefix is walked every run, and with nowhere to keep a
+   * count the hold on a halving compares nothing.
+   */
   readonly budget?: ListBudget;
+  /**
+   * Told when a run is stopped, held, or ends a hold, before anything is
+   * written. It should not fail; a failure or defect is logged and the run
+   * goes on.
+   */
+  readonly alertOperator?: (alert: ReconcileAlert) => Effect.Effect<void, never>;
 }
 
 export class R2ReconcileError extends Data.TaggedError("R2ReconcileError")<{
@@ -181,36 +268,78 @@ export function r2PositionStore(
   };
 }
 
-const StoredWalkState = Schema.Struct({
-  after: Schema.NullOr(Schema.String),
-  lapStartedAt: Schema.Number,
+const StoredState = Schema.Struct({
+  after: Schema.optional(Schema.NullOr(Schema.String)),
+  lapStartedAt: Schema.optional(Schema.Number),
+  referenced: Schema.optional(Schema.Number),
+  heldRuns: Schema.optional(Schema.Number),
 });
+
+/** A count of rows: a whole number from zero up that a double holds exactly. */
+const isCount = (n: number): boolean => Number.isSafeInteger(n) && n >= 0;
 
 /**
  * The stored state if it is one a walk of `prefix` could have written by
- * `now`; undefined otherwise.
+ * `now`; undefined otherwise. The walk's two fields come together or not at
+ * all, an object holds at least one of the walk and the count, and held runs
+ * come only with a count.
  */
-function parseWalkState(text: string, prefix: string, now: number): WalkState | undefined {
+function parseState(text: string, prefix: string, now: number): ReconcileState | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
     return undefined;
   }
-  return Option.match(Schema.decodeUnknownOption(StoredWalkState)(parsed), {
+  return Option.match(Schema.decodeUnknownOption(StoredState)(parsed), {
     onNone: () => undefined,
-    onSome: (state) =>
-      (state.after === null || state.after.startsWith(prefix)) &&
-      Number.isFinite(state.lapStartedAt) &&
-      state.lapStartedAt <= now
-        ? state
-        : undefined,
+    onSome: ({ after, lapStartedAt, referenced, heldRuns }): ReconcileState | undefined => {
+      if (referenced !== undefined && !isCount(referenced)) return undefined;
+      if (
+        heldRuns !== undefined &&
+        (referenced === undefined ||
+          !Number.isSafeInteger(heldRuns) ||
+          heldRuns < 1 ||
+          heldRuns > RECONCILE_HOLD_RUNS)
+      ) {
+        return undefined;
+      }
+      if (after === undefined && lapStartedAt === undefined) {
+        // Nothing to keep is written as no object, never as an empty one.
+        return referenced === undefined ? undefined : { walk: undefined, referenced, heldRuns };
+      }
+      if (after === undefined || lapStartedAt === undefined) return undefined;
+      const walkable =
+        (after === null || after.startsWith(prefix)) &&
+        Number.isFinite(lapStartedAt) &&
+        lapStartedAt <= now;
+      return walkable ? { walk: { after, lapStartedAt }, referenced, heldRuns } : undefined;
+    },
   });
 }
 
-const sameState = (a: WalkState | undefined, b: WalkState | undefined): boolean =>
-  a === b ||
-  (a !== undefined && b !== undefined && a.after === b.after && a.lapStartedAt === b.lapStartedAt);
+/** The stored text for `state`; undefined when there is nothing to keep. */
+function stateText(state: ReconcileState): string | undefined {
+  if (state.walk === undefined && state.referenced === undefined) return undefined;
+  return JSON.stringify({
+    ...state.walk,
+    referenced: state.referenced,
+    heldRuns: state.heldRuns,
+  });
+}
+
+/**
+ * Whether the cron should leave both reconcilers off, from the
+ * `CIRE_R2_RECONCILE_DISABLED` binding. Only an absent value, boolean `false`,
+ * or text that reads `false` once trimmed and lower-cased keeps them on; any
+ * other value, a typo included, turns them off, since the flag exists to stop
+ * deletion. The binding is not always a string: wrangler passes a TOML or
+ * dashboard value through with its own type.
+ */
+export function reconcileDisabled(value: unknown): boolean {
+  if (value === undefined || value === false) return false;
+  return typeof value !== "string" || value.trim().toLowerCase() !== "false";
+}
 
 /**
  * Delete the objects under `plan.prefix` that no live row names and that are
@@ -251,30 +380,65 @@ export function reconcileOrphanObjects<R>(
       "r2 reconcile aborted — referenced-key read failed",
     );
 
+  // An alert is a courtesy to the run, never a step it depends on.
+  const alert = (event: ReconcileAlert) =>
+    plan.alertOperator
+      ? plan.alertOperator(event).pipe(
+          Effect.catchCause(() =>
+            Effect.logWarning("r2 reconcile operator alert failed", {
+              bucket: label,
+              kind: event.kind,
+            }),
+          ),
+        )
+      : Effect.void;
+
   return Effect.gen(function* () {
     if (!bucket) {
       yield* Effect.logInfo("r2 reconcile skipped — bucket binding absent", { bucket: label });
       return 0;
     }
 
-    let state: WalkState | undefined;
+    // Guard 6: an operator's stop, before any other read.
+    const stop = yield* warnOnFailure(
+      Effect.tryPromise({
+        try: () => bucket.head(RECONCILE_STOP_KEY),
+        catch: (cause) =>
+          new R2ReconcileError({ bucket: label, reason: `stop check failed: ${String(cause)}` }),
+      }),
+      "r2 reconcile aborted — the stop object could not be checked",
+    );
+    if (stop !== null) {
+      const stoppedDays = Math.max(0, Math.floor((nowMs - stop.uploaded.getTime()) / DAY_MS));
+      yield* Effect.logWarning("r2 reconcile stopped — reconcile/stop is in the bucket", {
+        bucket: label,
+        stoppedDays,
+      });
+      yield* alert({ kind: "stopped", bucket: label, stoppedDays });
+      return 0;
+    }
+
+    let stored: ReconcileState | undefined;
     let unreadable = false;
     if (budget) {
-      const stored = yield* warnOnFailure(
+      const text = yield* warnOnFailure(
         budget.position.read,
         "r2 reconcile aborted — position read failed",
       );
-      state = stored === undefined ? undefined : parseWalkState(stored, prefix, nowMs);
-      unreadable = stored !== undefined && state === undefined;
+      stored = text === undefined ? undefined : parseState(text, prefix, nowMs);
+      unreadable = text !== undefined && stored === undefined;
       if (unreadable) {
         yield* Effect.logWarning("r2 reconcile position unreadable — starting a new lap", {
           bucket: label,
         });
       }
+    }
+    const state = stored?.walk;
+    if (budget) {
       if (state && nowMs - state.lapStartedAt > LAP_WARNING_MS) {
         yield* Effect.logWarning(
           "r2 reconcile lap has run past its warning window — the listing budget no longer covers the bucket often enough",
-          { bucket: label, lapDays: Math.floor((nowMs - state.lapStartedAt) / 86_400_000) },
+          { bucket: label, lapDays: Math.floor((nowMs - state.lapStartedAt) / DAY_MS) },
         );
       }
     }
@@ -338,6 +502,10 @@ export function reconcileOrphanObjects<R>(
     }
 
     let orphans: string[] = [];
+    let referencingRows: number | undefined;
+    let held = false;
+    // What the stored count and held runs become; undefined keeps what is stored.
+    let nextCount: { referenced: number; heldRuns: number | undefined } | undefined;
     if (candidates.length > 0) {
       // Guard 1: a live sample, or no deletes.
       const sample = yield* referenceRead(plan.liveSample);
@@ -366,14 +534,63 @@ export function reconcileOrphanObjects<R>(
       // its input loses the sample too. Left in place as a candidate as well, a
       // copy earlier in the list would survive the loss and hide it.
       const lookup = [...candidates.filter((key) => key !== sample), sample];
-      const named = yield* referenceRead(plan.named(lookup));
-      if (!named.has(sample)) {
+      const answer = yield* referenceRead(plan.named(lookup));
+      if (!answer.named.has(sample)) {
         return yield* fail(
           "the reference check did not name its live sample",
           "r2 reconcile aborted — the reference check failed its control",
         );
       }
-      orphans = candidates.filter((key) => !named.has(key));
+      if (!isCount(answer.referencingRows)) {
+        return yield* fail(
+          "referencing-row count is not a count",
+          "r2 reconcile aborted — the reference check returned no usable row count",
+        );
+      }
+      referencingRows = answer.referencingRows;
+      const unnamed = candidates.filter((key) => !answer.named.has(key));
+      // Guard 5: rows fell by more than half since the stored count.
+      const previous = stored?.referenced;
+      const heldRuns = (stored?.heldRuns ?? 0) + 1;
+      if (previous !== undefined && referencingRows * 2 < previous) {
+        if (heldRuns <= RECONCILE_HOLD_RUNS) {
+          held = true;
+          nextCount = { referenced: previous, heldRuns };
+          yield* Effect.logWarning(
+            "r2 reconcile held — referencing rows fell by more than half (delete-nothing safeguard)",
+            {
+              bucket: label,
+              referencingRows,
+              previousRows: previous,
+              heldRuns,
+              orphans: unnamed.length,
+            },
+          );
+          yield* alert({
+            kind: "held",
+            bucket: label,
+            referencingRows,
+            previousRows: previous,
+            heldRuns,
+            runsLeft: RECONCILE_HOLD_RUNS - heldRuns,
+          });
+        } else {
+          yield* Effect.logWarning(
+            "r2 reconcile hold ended — accepting the lower referencing-row count",
+            { bucket: label, referencingRows, previousRows: previous, heldRuns: heldRuns - 1 },
+          );
+          yield* alert({
+            kind: "released",
+            bucket: label,
+            referencingRows,
+            previousRows: previous,
+          });
+        }
+      }
+      if (!held) {
+        orphans = unnamed;
+        nextCount = { referenced: referencingRows, heldRuns: undefined };
+      }
     }
 
     const capped = orphans.length > RECONCILE_DELETE_CAP;
@@ -386,33 +603,55 @@ export function reconcileOrphanObjects<R>(
     }
 
     // Guard 4: the only delete. Best-effort; failures are logged and counted on
-    // `cire.r2.objects.swept` and never fail the run.
-    const reap =
-      orphans.length > 0 ? yield* reapR2Objects(bucket, label, orphans) : { reaped: 0, failed: 0 };
+    // `cire.r2.objects.swept` and never fail the run. Every batch is announced
+    // first, so the warning stands even if the run dies part-way.
+    let reap = { reaped: 0, failed: 0 };
+    if (orphans.length > 0) {
+      yield* Effect.logWarning("r2 reconcile deleting orphan objects", {
+        bucket: label,
+        objects: orphans.length,
+        capped,
+        referencingRows,
+      });
+      yield* Effect.sync(() => metricR2ReconcileBatch(label, orphans.length));
+      reap = yield* reapR2Objects(bucket, label, orphans);
+    }
 
     if (budget) {
       const lapStartedAt = state?.lapStartedAt ?? nowMs;
-      let next: WalkState | undefined;
-      if (capped || reap.failed > 0) {
+      let walk: WalkState | undefined;
+      if (held) {
+        // Nothing was deleted, so the next run walks this stretch again.
+        walk = state;
+      } else if (capped || reap.failed > 0) {
         // Walk this stretch again next run: that retries any delete that failed
         // and reaches whatever the cap left.
-        next = { after: state?.after ?? null, lapStartedAt };
+        walk = { after: state?.after ?? null, lapStartedAt };
       } else if (reachedEnd) {
-        next = undefined;
+        walk = undefined;
       } else if (largestKey !== undefined) {
-        next = { after: largestKey, lapStartedAt };
+        walk = { after: largestKey, lapStartedAt };
       } else {
         yield* Effect.logWarning(
           "r2 reconcile spent its listing budget without reaching an object — position unchanged",
           { bucket: label, listCalls },
         );
-        next = state ?? { after: null, lapStartedAt };
+        walk = state ?? { after: null, lapStartedAt };
       }
+      // A held run keeps the count from before the drop and adds a held run;
+      // any other run that read a count stores it; one that read none keeps
+      // what is stored.
+      const next = stateText({
+        walk,
+        referenced: nextCount ? nextCount.referenced : stored?.referenced,
+        heldRuns: nextCount ? nextCount.heldRuns : stored?.heldRuns,
+      });
+      const before = stored && stateText(stored);
       // An unreadable stored position is always replaced or removed, so its
       // warning does not repeat on every run.
-      if (unreadable || !sameState(state, next)) {
+      if (unreadable || next !== before) {
         yield* warnOnFailure(
-          budget.position.write(next && JSON.stringify(next)),
+          budget.position.write(next),
           "r2 reconcile failed to save its position",
         );
       }
@@ -423,6 +662,8 @@ export function reconcileOrphanObjects<R>(
       examined,
       listCalls,
       candidates: candidates.length,
+      referencingRows,
+      held,
       deleted: orphans.length,
       capped,
       lapComplete: reachedEnd,

@@ -11,10 +11,11 @@
  * survive); this reconciliation closes the gap.
  *
  * The walk and its guards — abort on a failed or empty reference read, the
- * grace window, prefix scoping, the per-run delete cap, the listing budget and
- * its position — are {@link reconcileOrphanObjects} in `r2-reconcile.ts`. The
- * live keys are read whole, in one statement, once a run: the sample and the
- * lookup both come from that one read.
+ * grace window, prefix scoping, the per-run delete cap, the hold when the rows
+ * naming images fall by more than half, the listing budget and its position —
+ * are {@link reconcileOrphanObjects} in `r2-reconcile.ts`. The live keys are
+ * read whole, in one statement, once a run: the sample, the lookup and the row
+ * count all come from that one read.
  */
 import { events, registryItems, weddingInviteCustomisations } from "@cire/db";
 import { sql } from "drizzle-orm";
@@ -27,6 +28,7 @@ import type {
   PositionBucket,
   R2ReconcileError,
   ReconcilableBucket,
+  ReconcilePlan,
 } from "./r2-reconcile";
 
 /** R2 key prefix that holds invite images. ONLY keys under this are touched. */
@@ -41,13 +43,20 @@ export const ASSET_LIST_LIMITS: ListLimits = { maxObjects: 1_000, maxListCalls: 
 
 /**
  * Where the walk keeps its place: one small JSON object in `cire-assets`,
- * outside `assets/`, so the walk never lists or deletes it. The image routes
- * serve only keys a row names, so it is never served.
+ * outside `assets/`, so the walk never lists or deletes it. It holds an object
+ * key, a timestamp, a row count and how many runs a hold has lasted. The image
+ * routes serve only keys a row names, so it is never served.
  */
 export const ASSET_POSITION_KEY = "reconcile/assets-position.json";
 
 /** The `ASSETS` binding as the reconciler uses it. `R2Bucket` satisfies it. */
 export type AssetsBucket = ReconcilableBucket & PositionBucket;
+
+/** Every live image key, and how many rows name at least one of them. */
+interface ReferencedKeys {
+  readonly keys: Set<string>;
+  readonly rows: number;
+}
 
 /**
  * Build the set of R2 keys that ANY live DB row references — across ALL
@@ -68,7 +77,7 @@ export type AssetsBucket = ReconcilableBucket & PositionBucket;
  *    hotlinked, so they are live objects like any other, and omitting them
  *    would make the sweep delete every registry image a week after it was saved.
  */
-function loadReferencedKeys(): Effect.Effect<Set<string>, never, DbService> {
+function loadReferencedKeys(): Effect.Effect<ReferencedKeys, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
     const rows = yield* dbQuery(() =>
@@ -85,13 +94,21 @@ function loadReferencedKeys(): Effect.Effect<Set<string>, never, DbService> {
         WHERE ${registryItems.imageKey} IS NOT NULL`),
     );
 
-    const referenced = new Set<string>();
+    const keys = new Set<string>();
+    // A customisation row with every slot empty names nothing, so it is not a
+    // referencing row; the other two arms return only rows with a key.
+    let referencing = 0;
     for (const row of rows) {
+      let names = false;
       for (const key of [row.a, row.b, row.c]) {
-        if (key) referenced.add(key);
+        if (key) {
+          keys.add(key);
+          names = true;
+        }
       }
+      if (names) referencing += 1;
     }
-    return referenced;
+    return { keys, rows: referencing };
   });
 }
 
@@ -101,12 +118,14 @@ export const assetReconcileService = {
    * than the grace window, walking at most {@link ASSET_LIST_LIMITS} a run from
    * where the last run stopped. Returns the number deleted; 0 on an abort.
    *
-   * @param bucket the `ASSETS` binding. Absent: no-op.
-   * @param now    the clock the grace window is measured against.
+   * @param bucket  the `ASSETS` binding. Absent: no-op.
+   * @param now     the clock the grace window is measured against.
+   * @param options `alertOperator`, told when the run is stopped or held.
    */
   reconcileOrphans(
     bucket: AssetsBucket | undefined,
     now: Date = new Date(),
+    options: Pick<ReconcilePlan<DbService>, "alertOperator"> = {},
   ): Effect.Effect<number, R2ReconcileError, DbService> {
     return Effect.gen(function* () {
       const live = yield* Effect.cached(loadReferencedKeys());
@@ -115,9 +134,11 @@ export const assetReconcileService = {
         {
           label: "assets",
           prefix: ASSETS_PREFIX,
-          liveSample: live.pipe(Effect.map((keys) => keys.values().next().value)),
+          liveSample: live.pipe(Effect.map(({ keys }) => keys.values().next().value)),
           // Every live key: it answers for each key the walk asks about.
-          named: () => live,
+          named: () =>
+            live.pipe(Effect.map(({ keys, rows }) => ({ named: keys, referencingRows: rows }))),
+          alertOperator: options.alertOperator,
           budget: bucket && {
             ...ASSET_LIST_LIMITS,
             position: r2PositionStore(bucket, ASSET_POSITION_KEY, "assets"),

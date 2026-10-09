@@ -75,6 +75,10 @@ export const CIRE_METRICS = {
   // stale-preview sweeps, the wedding purge, the before-image prune, registry
   // picture removal, and the two orphan reconcilers (`r2-reconcile.ts`).
   r2ObjectsSwept: "cire.r2.objects.swept",
+  // One record per delete batch an orphan reconciler sends (`r2-reconcile.ts`),
+  // valued at the batch's object count. The warning log line beside it is the
+  // signal a deployed tier keeps.
+  r2ReconcileBatchSize: "cire.r2.reconcile.batch.size",
   // Organiser host-code (invite preview) provisioning.
   hostCodeEnsured: "cire.host_code.ensured",
   // RSVP.
@@ -443,6 +447,7 @@ type GiftSummaryUnmailedAttrs = { reason: GiftSummaryUnmailedReason };
 /** Which cire R2 bucket the swept objects came from — bounded label, never a key. */
 export type R2BucketAttr = "sheets" | "assets";
 type R2ObjectsSweptAttrs = { bucket: R2BucketAttr; result: "ok" | "error" };
+type R2ReconcileBatchSizeAttrs = { bucket: R2BucketAttr };
 type HostCodeEnsuredAttrs = { result: "ok" | "error" };
 /** Who wrote the RSVP — bounded label, never a per-guest/organiser id.
  *  `guest` (written through the invite — a guest's own reply, or one the
@@ -780,6 +785,14 @@ const r2ObjectsSwept = createCounter<R2ObjectsSweptAttrs>({
   description:
     "R2 objects deleted once no D1 row names them — by the retention and stale-preview sweeps, the wedding purge and the before-image prune (cire-sheets), registry picture removal and the wedding purge (cire-assets), and the orphan reconcilers of both buckets. Increment is the object count, so the sum tracks reclaimed objects per bucket",
   unit: "{object}",
+});
+
+const r2ReconcileBatchSize = createHistogram<R2ReconcileBatchSizeAttrs>({
+  name: CIRE_METRICS.r2ReconcileBatchSize,
+  description:
+    "Objects in each delete batch an R2 orphan reconciler sends, by bucket — one record per batch, at most one a run, so the count is the runs that deleted and the sum the objects sent (the run cap is 500)",
+  unit: "{object}",
+  boundaries: [1, 10, 50, 100, 250, 500],
 });
 
 const hostCodeEnsured = createCounter<HostCodeEnsuredAttrs>({
@@ -1209,6 +1222,10 @@ export const metricR2ObjectsSwept = (
   result: "ok" | "error",
   count = 1,
 ): void => r2ObjectsSwept.add(count, { bucket, result });
+
+/** Record one orphan reconciler delete batch of `size` objects. */
+export const metricR2ReconcileBatch = (bucket: R2BucketAttr, size: number): void =>
+  r2ReconcileBatchSize.record(size, { bucket });
 
 export const metricHostCodeEnsured = (result: "ok" | "error"): void =>
   hostCodeEnsured.inc({ result });

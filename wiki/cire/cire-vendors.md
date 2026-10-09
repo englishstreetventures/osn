@@ -6,7 +6,7 @@ related:
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
   - "[[access-control]]"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-10
 ---
 # Vendors — directory, CRM, and email-verification claim
 
@@ -140,6 +140,8 @@ The claim page's preview (`GET /api/vendor/claims/:token`) returns 404 for a tok
 While a claim waits, the listing is `draft` with no owner. The claimant's portal shows it with an "awaiting confirmation" chip and a note, and no form: `GET /api/vendor/orgs/:orgId/listing` returns it with `awaitingConfirmation: true`, and `PUT` answers 409 `listing_awaiting_confirmation`, since a save always puts a listing live. `issueClaimForListing` mints no further token for it, so a couple's enquiry email carries no claim link.
 
 **How the operator learns of it.** The daily cron (04:00 UTC) counts the claims still waiting. When any are, it logs `vendor claims awaiting operator review` with the count (Workers Logs, kept 7 days) and, on a deployed tier whose Worker has both `CIRE_OPS_EMAIL` and `RESEND_API_KEY`, emails that address one reminder (`vendor-claim-review-pending` in `@shared/email`). The email holds the count, the age in days of the oldest claim and the `list` command for the tier; no listing, claimant or contact detail. One email a day at most, so the reminder costs at most 31 sends a month against the Resend free plan's 100 a day and 3,000 a month (resend.com/pricing), which every cire email shares. A per-claim email was rejected: its sends grow with claims, and it would add a mail call to the request path. Each claim also writes a `logWarning` when redeemed. The metric `cire.vendor_claim_review.events` counts claims, hand-offs and reminders (`operator_alerted`, `operator_alert_error`), but cire's metrics export nothing on workerd yet ([[cire-workerd]]).
+
+The same address receives the R2 orphan reconcilers' alerts (`r2-reconcile-alert`): at most three a day, and only while a reconciler is held or stopped or the tier has them disabled ([[backup-dr]]).
 
 `CIRE_OPS_EMAIL` is a secret, not a `[vars]` entry, because the repository is public and the address is a person's. Set it once per tier:
 

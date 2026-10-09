@@ -9,6 +9,7 @@ import { DDL } from "../src/db/setup";
 import handler from "../src/index";
 import { CIRE_METRICS } from "../src/metrics";
 import * as osnBridge from "../src/services/osn-bridge";
+import { RECONCILE_STOP_KEY } from "../src/services/r2-reconcile";
 import { jsonBody } from "./test-helpers";
 import { captureLogs } from "./test-helpers/capture-logs";
 import { counterValue } from "./test-helpers/metrics-harness";
@@ -676,7 +677,9 @@ describe("D1 session routing at the entry points", () => {
             truncated: false,
           }),
         delete: () => Promise.resolve(),
-        head: (key: string) => Promise.resolve({ key }),
+        // Every object but the operator's stop is there.
+        head: (key: string) =>
+          Promise.resolve(key === RECONCILE_STOP_KEY ? null : { key, uploaded }),
         get: () => Promise.resolve(null),
         put: () => Promise.resolve(),
       };
@@ -726,6 +729,98 @@ describe("D1 session routing at the entry points", () => {
     },
     30_000,
   );
+
+  it("hands neither R2 reconciler to the cron while CIRE_R2_RECONCILE_DISABLED is set, and says so", async () => {
+    let listed = 0;
+    const bucket = {
+      list: () => {
+        listed += 1;
+        return Promise.resolve({ objects: [], truncated: false });
+      },
+      delete: () => Promise.resolve(),
+      head: () => Promise.resolve(null),
+      get: () => Promise.resolve(null),
+      put: () => Promise.resolve(),
+    };
+    let off: Awaited<ReturnType<typeof runCron>> | undefined;
+    const logs = await captureLogs(async () => {
+      off = await runCron({ SHEETS: bucket, ASSETS: bucket, CIRE_R2_RECONCILE_DISABLED: "true" });
+    });
+    // Every other sweep still runs, each in a session of its own.
+    expect(off?.pending).toHaveLength(8);
+    expect(off?.probe.constraints).toEqual(Array.from({ length: 8 }, () => D1_SESSION_CONSTRAINT));
+    expect(listed).toBe(0);
+    expect(logs).toContain("r2 reconcile disabled by CIRE_R2_RECONCILE_DISABLED");
+
+    const on = await runCron({
+      SHEETS: bucket,
+      ASSETS: bucket,
+      CIRE_R2_RECONCILE_DISABLED: "false",
+    });
+    expect(on.pending).toHaveLength(10);
+    expect(listed).toBe(2);
+  }, 30_000);
+
+  /** Stubs Resend's API, recording every email and the order of `events`. */
+  const stubResend = (events: string[]) => {
+    const sent: Array<{ subject: string; to: string[] }> = [];
+    const spy = spyOn(globalThis, "fetch").mockImplementation(((
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.startsWith("https://api.resend.com/")) {
+        sent.push(JSON.parse(String(init?.body)) as { subject: string; to: string[] });
+        events.push("mail");
+        return Promise.resolve(Response.json({ id: "email_test" }));
+      }
+      return Promise.reject(new Error(`unexpected fetch ${url}`));
+    }) as typeof fetch);
+    return { sent, restore: () => spy.mockRestore() };
+  };
+  const opsMail = { CIRE_OPS_EMAIL: "ops@example.test", RESEND_API_KEY: "re_test" };
+
+  it("emails the operator once a run while CIRE_R2_RECONCILE_DISABLED is set, after every sweep is handed off", async () => {
+    const events: string[] = [];
+    const resend = stubResend(events);
+    try {
+      const { pending } = await runCron({ CIRE_R2_RECONCILE_DISABLED: "true", ...opsMail }, () =>
+        events.push("handoff"),
+      );
+      expect(pending).toHaveLength(8);
+      expect(resend.sent).toEqual([
+        expect.objectContaining({
+          to: ["ops@example.test"],
+          subject: "Cire: R2 orphan deletion disabled for this tier",
+        }),
+      ]);
+      expect(events.indexOf("mail")).toBeGreaterThan(events.lastIndexOf("handoff"));
+    } finally {
+      resend.restore();
+    }
+  }, 30_000);
+
+  it("emails the operator for each bucket whose reconcile/stop is in place", async () => {
+    const stoppedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000 - 60_000);
+    const bucket = {
+      list: () => Promise.reject(new Error("a stopped reconciler lists nothing")),
+      delete: () => Promise.reject(new Error("a stopped reconciler deletes nothing")),
+      head: (key: string) =>
+        Promise.resolve(key === RECONCILE_STOP_KEY ? { key, uploaded: stoppedAt } : null),
+      get: () => Promise.resolve(null),
+      put: () => Promise.resolve(),
+    };
+    const resend = stubResend([]);
+    try {
+      await runCron({ SHEETS: bucket, ASSETS: bucket, ...opsMail });
+      expect(resend.sent.map((m) => m.subject).toSorted()).toEqual([
+        "Cire: cire-assets orphan deletion stopped for 3 days",
+        "Cire: cire-sheets orphan deletion stopped for 3 days",
+      ]);
+    } finally {
+      resend.restore();
+    }
+  }, 30_000);
 
   it("adds the RSVP digest, in a session of its own, only when it has a transport and osn-api", async () => {
     const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);

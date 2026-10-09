@@ -3764,7 +3764,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           for (const key of [keys].flat()) stored.delete(key);
           return Promise.resolve();
         },
-        head: (key) => Promise.resolve(stored.has(key) ? { key } : null),
+        head: (key) => Promise.resolve(stored.has(key) ? { key, uploaded } : null),
         get: () => Promise.resolve(null),
         put: () => Promise.resolve(),
       };
