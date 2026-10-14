@@ -391,6 +391,54 @@ describe("money gifts", () => {
     // And the switch does not sit on, claiming something the server refused.
     expect((screen.getByTestId("cash-gifts") as HTMLInputElement).checked).toBe(false);
   });
+
+  /** Switch money gifts on against a 409 carrying `error`, as `canManage`. */
+  async function refusedWith(error: string, canManage = true) {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item()],
+        settings: { stripeConnected: true, stripeChargesEnabled: true } as never,
+      }),
+    );
+    authFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        String(url).includes("/registry/stripe/refresh")
+          ? json({ connected: true, chargesEnabled: true, payoutsEnabled: true })
+          : json({ error }, 409),
+      ),
+    );
+    const { container } = renderPanel({ canManage });
+    fireEvent.click(await screen.findByTestId("cash-gifts"));
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    return String(toastError.mock.calls[0]?.[0]);
+  }
+
+  it("says the account pays out in another currency when that is the refusal", async () => {
+    const message = await refusedWith("currency_mismatch");
+    expect(message).toMatch(/pays out in a different currency/);
+    expect(message).not.toMatch(/can’t take a payment/);
+    expect((screen.getByTestId("cash-gifts") as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("asks Stripe again for an owner when the payout currency is not known yet", async () => {
+    const message = await refusedWith("stripe_currency_unknown");
+    expect(message).toMatch(/hasn’t told us which currency/);
+    await waitFor(() => {
+      const urls = authFetch.mock.calls.map((c) => String(c[0]));
+      expect(urls.some((u) => u.includes("/registry/stripe/refresh"))).toBe(true);
+    });
+    expect((screen.getByTestId("cash-gifts") as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("tells an editor to ask an owner, since only an owner can ask Stripe again", async () => {
+    const message = await refusedWith("stripe_currency_unknown", false);
+    expect(message).toMatch(/hasn’t told us which currency/);
+    expect(message).toMatch(/owner/);
+    const urls = authFetch.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes("/registry/stripe/refresh"))).toBe(false);
+  });
 });
 
 describe("who may connect the account", () => {

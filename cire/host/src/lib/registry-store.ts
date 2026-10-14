@@ -101,15 +101,31 @@ export interface GiftNoteView {
   noteHidden: boolean;
 }
 
+/** One currency's cash gifts in the kept record. */
+export interface GiftSummaryTotal {
+  currency: string;
+  amountMinor: number;
+  /** How many gifts it adds; absent on a record kept before counts were. */
+  count?: number;
+}
+
+/** One cash gift in the kept record: what arrived, in what, and on which day. */
+export interface GiftSummaryGift {
+  /** ISO day the gift was given. */
+  on: string;
+  amountMinor: number;
+  currency: string;
+}
+
 /**
  * What cire kept when it deleted a wedding's gift detail.
  *
  * Present ONLY after the retention sweep: a year after the last event the guest
- * households are deleted, and every claim and contribution goes with them.
- * Aggregates only, by design — a summary carrying a name, a household or a note
- * would be the deletion undone in the field next door. Money is totalled PER
- * CURRENCY and never converted. Mirrors `GiftSummary` in
- * `cire/api/src/services/retention.ts`.
+ * households are deleted, and every claim and contribution goes with them. No
+ * name, no household, no note — a record carrying those would be the deletion
+ * undone in the field next door. It keeps the counts, a total per currency and
+ * each cash gift's amount, currency and day, never converted. Mirrors
+ * `GiftSummary` in `cire/api/src/services/retention.ts`.
  */
 export interface GiftSummary {
   /** The day the detail was deleted, ISO. */
@@ -118,7 +134,15 @@ export interface GiftSummary {
   firstGiftOn: string;
   lastGiftOn: string;
   claims: { reserved: number; purchased: number };
-  contributions: { count: number; totals: { currency: string; amountMinor: number }[] };
+  contributions: {
+    count: number;
+    totals: GiftSummaryTotal[];
+    /**
+     * Each cash gift, oldest first. Optional so an API that predates the list
+     * still renders; `count - gifts.length` gifts are not listed one by one.
+     */
+    gifts?: GiftSummaryGift[];
+  };
 }
 
 /** The whole registry as the organiser API returns it in one GET. */

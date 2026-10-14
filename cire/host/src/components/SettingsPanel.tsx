@@ -261,12 +261,19 @@ export default function SettingsPanel(props: SettingsPanelProps) {
         // role — a co-host whose access changed since the page loaded, or one
         // whose form reached past the RSVP-by date. Telling them to "check the
         // fields" would send them hunting for a validation error that isn't
-        // there, so permission failures say so.
+        // there, so permission failures say so. A 409
+        // `currency_locked_by_cash_gifts` is the same kind of answer: every
+        // gift is charged in the wedding's currency, so it cannot change while
+        // money gifts are on and Stripe pays out in another currency (or has
+        // not said which). This form re-sends the currency it was loaded with,
+        // so a stale tab after someone else changed it reaches the same answer.
         haptic("reject");
         toast.error(
           res.status === 403
             ? "You don't have permission to change these settings. Reload the page to see your current access."
-            : "Could not save the settings. Please check the fields and try again.",
+            : res.status === 409
+              ? "Money gifts are on, and Stripe pays this wedding out in another currency or hasn't said which, so the currency can't change. Turn money gifts off in Registry settings first. If someone else changed the currency, reload to see it."
+              : "Could not save the settings. Please check the fields and try again.",
         );
         return;
       }
