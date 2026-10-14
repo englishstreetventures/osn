@@ -100,6 +100,18 @@ describe("privacy.astro", () => {
   });
 
   /**
+   * The sweep leaves the couple a record of their gifts: no names, but the
+   * amount, currency and day of each money gift (`GiftSummary` in
+   * `cire/api/src/services/retention.ts`). It outlives the year, so the notice
+   * names it, and names gifts among what is collected.
+   */
+  it("names the gift record the hosts keep after the year, and gifts as collected", () => {
+    expect(body).toContain("Gifts, if you give one through the registry");
+    expect(body).toMatch(/your hosts keep a record of their gifts with no names in it/);
+    expect(body).toMatch(/the amount, currency and day of\s+each money gift/);
+  });
+
+  /**
    * `RSVP_CHANGE_RETENTION_MS` in `cire/api/src/services/rsvp-changes.ts` is
    * 90 days; the record of when a household's replies changed is guest data,
    * so the notice names it and its window.
