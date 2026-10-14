@@ -57,19 +57,22 @@ export interface RsvpExportRow {
    */
   dietary: string[];
   /** Writer provenance across this guest's replies (migration 0037):
-   *   - "guest"     — every reply's dietary answer came through the invite,
-   *     from the guest's own household. A host may have changed a reply's
-   *     status since without touching its dietary answer.
+   *   - "guest"     — every reply came through the invite, from the guest's
+   *     own household, and the household wrote each one last.
    *   - "household" — the guest is a plus-one and at least one reply was the
    *     household's (`consent_source='inviter_attested'`): answered on the
-   *     plus-one's behalf, on the household's word. A host may have changed
-   *     that reply's status since; its dietary answer is still the
-   *     household's, which is what this records.
+   *     plus-one's behalf, on the household's word. The household wrote each
+   *     reply last.
+   *   - "guest_host_status" / "household_host_status" — as "guest" /
+   *     "household", but an organiser set the status of at least one reply
+   *     since (`recorded_by_osn_profile_id` set on a reply whose dietary
+   *     answer is still the guest's or the household's).
    *   - "organiser" — at least one reply was organiser-recorded
    *     (`consent_source='organiser_attested'`), so the dietary/consent story is
    *     organiser-attested. Surfaced so a re-report distinguishes phone/paper
-   *     RSVPs. Outranks the other two.
-   *   "" when the guest has no RSVP at all. */
+   *     RSVPs. Outranks the rest.
+   *   "" when the guest has no RSVP at all. Which organiser never reaches the
+   *   export. */
   recordedBy: RecordedBy;
   /** The full name of the guest who brought this one, when this guest is a
    *  plus-one; "" for everyone else. */
@@ -77,7 +80,13 @@ export interface RsvpExportRow {
 }
 
 /** Who recorded a guest's replies — see {@link RsvpExportRow.recordedBy}. */
-export type RecordedBy = "" | "guest" | "household" | "organiser";
+export type RecordedBy =
+  | ""
+  | "guest"
+  | "household"
+  | "guest_host_status"
+  | "household_host_status"
+  | "organiser";
 
 /** A guest's name as one string, the way the portal prints it. */
 const fullName = (person: { firstName: string; lastName: string }) =>
@@ -495,6 +504,8 @@ export const rsvpExportService = {
                 dietary: rsvps.dietary,
                 dietaryPresets: rsvps.dietaryPresets,
                 consentSource: rsvps.consentSource,
+                // Whether an organiser wrote the reply last; never which one.
+                statusRecordedByHost: sql<number>`${rsvps.recordedByOsnProfileId} IS NOT NULL`,
               })
               .from(rsvps)
               .innerJoin(guests, eq(rsvps.guestId, guests.id))
@@ -537,7 +548,7 @@ export const rsvpExportService = {
         if (row.eventId !== null) acc.invited.add(row.eventId);
       }
 
-      // guestId → eventId → {status, dietary, consentSource}
+      // guestId → eventId → {status, dietary, consentSource, statusRecordedByHost}
       const rsvpByGuest = new Map<
         string,
         Map<
@@ -547,6 +558,7 @@ export const rsvpExportService = {
             dietary: string;
             dietaryPresets: string;
             consentSource: ConsentSource;
+            statusRecordedByHost: boolean;
           }
         >
       >();
@@ -561,6 +573,7 @@ export const rsvpExportService = {
           dietary: row.dietary,
           dietaryPresets: row.dietaryPresets,
           consentSource: row.consentSource,
+          statusRecordedByHost: Boolean(row.statusRecordedByHost),
         });
       }
 
@@ -608,18 +621,22 @@ export const rsvpExportService = {
         // Writer provenance across the guest's replies: "organiser" if ANY
         // reply was organiser-recorded (so the dietary/consent is attested),
         // else "household" if any was the household's for its plus-one, else
-        // "guest" if the guest has replies at all, "" if none.
+        // "guest" if the guest has replies at all, "" if none; either of the
+        // last two marked when an organiser set any reply's status since.
         const perGuest = rsvpByGuest.get(g.guestId);
         let recordedBy: RecordedBy = "";
         if (perGuest && perGuest.size > 0) {
-          recordedBy = "guest";
+          let organiser = false;
+          let household = false;
+          let hostStatus = false;
           for (const rsvp of perGuest.values()) {
-            if (rsvp.consentSource === "organiser_attested") {
-              recordedBy = "organiser";
-              break;
-            }
-            if (rsvp.consentSource === "inviter_attested") recordedBy = "household";
+            if (rsvp.consentSource === "organiser_attested") organiser = true;
+            else if (rsvp.statusRecordedByHost) hostStatus = true;
+            if (rsvp.consentSource === "inviter_attested") household = true;
           }
+          if (organiser) recordedBy = "organiser";
+          else if (household) recordedBy = hostStatus ? "household_host_status" : "household";
+          else recordedBy = hostStatus ? "guest_host_status" : "guest";
         }
 
         const inviter = g.plusOneOf === null ? undefined : byGuest.get(g.plusOneOf);
@@ -653,6 +670,8 @@ const RECORDED_BY_LABEL = {
   "": "",
   guest: "Guest",
   household: "Household",
+  guest_host_status: "Guest (status by organiser)",
+  household_host_status: "Household (status by organiser)",
   organiser: "Organiser",
 } satisfies Record<RecordedBy, string>;
 

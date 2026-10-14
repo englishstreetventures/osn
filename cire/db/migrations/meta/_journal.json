@@ -22,6 +22,13 @@
       "when": 1791466844800,
       "tag": "0083_enquiry_inbox_keyset",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "6",
+      "when": 1791558368062,
+      "tag": "0084_rsvp_change_organiser_actor",
+      "breakpoints": true
     }
   ]
 }

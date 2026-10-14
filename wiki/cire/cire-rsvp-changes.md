@@ -10,7 +10,7 @@ related:
   - "[[retention]]"
   - "[[free-tier-limits]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-15
 ---
 # RSVP changes
 
@@ -24,9 +24,11 @@ Organisers hear when guests change their RSVPs in three ways, all fed by one tab
 
 Read state and the email switch are **per organiser, per wedding**: one co-host opening the table never clears another's badges.
 
+The same table also keeps a record of each organiser's status-only save, naming the organiser ([§Organiser status saves](#organiser-status-saves)). None of the three surfaces reads those rows.
+
 ## What counts as a change
 
-Only guest-side writes. `POST /api/rsvp` compares each guest×event pair with its stored reply and writes one row per pair that is:
+Only the household's writes. `POST /api/rsvp` compares each guest×event pair with its stored reply and writes one row per pair that is:
 
 | Kind | Meaning |
 |---|---|
@@ -34,7 +36,7 @@ Only guest-side writes. `POST /api/rsvp` compares each guest×event pair with it
 | `reply_edited` | Its status, dietary text or dietary picks differ (picks compared in stored, canonical order) |
 | `plus_one_added`, `plus_one_renamed`, `plus_one_removed` | Written by the household's own plus-one writes, with no event — see below |
 
-An identical re-submit writes nothing, and a pair named twice in one body is judged once, from its last entry. `POST /api/rsvp` sits behind the same per-IP limiter as the other guest writes (20 a minute, `defaultRsvpLimiter` in `cire/api/src/app.ts`), since each submit can add up to 200 rows to the log. A reply an organiser records (`PUT …/guests/:guestId/rsvps/:eventId`) is never logged. The log stores ids, the kind and the time; dietary content is compared in the route and never stored.
+An identical re-submit writes nothing, and a pair named twice in one body is judged once, from its last entry. `POST /api/rsvp` sits behind the same per-IP limiter as the other guest writes (20 a minute, `defaultRsvpLimiter` in `cire/api/src/app.ts`), since each submit can add up to 200 rows to the log. A reply an organiser records (`PUT …/guests/:guestId/rsvps/:eventId`) is never a change: a full reply is not logged at all, and a status-only save writes only the audit row below. The log stores ids, the kind and the time; dietary content is compared in the route and never stored.
 
 The change row rides the reply's own batch, after the upserts and before the read-back (`rsvpService.submitRsvpsAndList`). Up to 49 pairs that is one atomic batch. Past that the upserts fill earlier batches of 50 and the change row rides the last, so a failure there loses the log entry but never invents one for a reply that did not land.
 
@@ -50,13 +52,31 @@ A plus-one is a `guests` row ([[cire-plus-ones]]). Their own replies go through 
 
 Each row rides the batch that makes the change, with its condition (`when`) tested inside that batch. A refused write (deadline, preview, permission, guest cap) never reaches the batch. The organiser's writes — the name correction and a permission switch that removes plus-ones — log nothing.
 
-## Storage — migration 0068
+## Organiser status saves
 
-`rsvp_changes`: `seq INTEGER PRIMARY KEY AUTOINCREMENT`, `wedding_id` and `family_id` (both cascade), `guest_id`, `event_id` (both plain text, no foreign key), `kind`, `created_at`.
+An organiser's **status-only save** — `PUT …/guests/:guestId/rsvps/:eventId` with no dietary field, which the portal sends whenever the dietary answer is left as it was — keeps the stored dietary answer and its `consent_source` ([[cire-plus-ones#The RSVP table]]), so that column cannot say who set the status. Every such save, on any reply, therefore writes one `rsvp_changes` row:
+
+| Column | Holds |
+|---|---|
+| `kind` | `host_status_set` |
+| `guest_id`, `event_id` | The reply's own guest and event — for a plus-one's reply, the plus-one, not the guest who brought them |
+| `family_id` | That guest's household |
+| `actor_osn_profile_id` | The organiser who saved it (migration 0084) |
+| `actor_guest_id` | Null: no household member wrote it |
+
+- The row rides the status write's own D1 batch, after the upsert (`rsvpService.recordStatus`), so the two commit together or not at all; a D1-tier test aborts the log insert and checks the status did not change. A refused save (another wedding's guest, an event the guest is not invited to) writes neither.
+- A full organiser reply, dietary answer included, logs nothing: its `consent_source = 'organiser_attested'` already says an organiser wrote it.
+- It is a record, not news. The overview card, the "New" badges and the digest read only household rows (`householdChanges` in `cire/api/src/services/rsvp-changes.ts`: `actor_osn_profile_id IS NULL` and a household kind), so an organiser is never told about their own or a co-host's status save.
+- `rsvps.recorded_by_osn_profile_id` names only the latest organiser writer, and a household's next write clears it. The change log keeps every status save for the 90 days below, so who set a status outlives the next write over the row.
+- No read endpoint returns `actor_osn_profile_id`; it identifies a co-host ([[dsar]]).
+
+## Storage — migrations 0068, 0075, 0084
+
+`rsvp_changes`: `seq INTEGER PRIMARY KEY AUTOINCREMENT`, `wedding_id` and `family_id` (both cascade), `guest_id`, `event_id` (both plain text, no foreign key), `kind`, `created_at`, `actor_guest_id` (the household member, migration 0075) and `actor_osn_profile_id` (the organiser, migration 0084) — opaque ids with no foreign key, at most one of them set.
 
 - `seq` is the cursor every reader keeps. It is **AUTOINCREMENT** so a number is never reused after the newest rows are cascaded away — a reused number would sit at or below a cursor and read as seen. The DDL lockstep test cannot see AUTOINCREMENT (it reads `PRAGMA table_info`), so `cire/api/tests/db/rsvp-changes-seq.test.ts` pins it on the migration and the test DDL.
 - `guest_id` has no foreign key on purpose: a removed guest's change stays under their household until the row ages out, and `plus_one_removed` names a row that is gone by design.
-- Indexes: `(wedding_id)` — every index entry ends in the rowid, so `wedding_id = ? AND seq > ?` is a range on it in either direction (both feed reads are pinned by an `EXPLAIN QUERY PLAN` test to touch `rsvp_changes` once, through this range); `(created_at)` for the digest look-back and the purge; `(family_id)` for the cascade.
+- Indexes: `rsvp_changes_household_idx`, `(wedding_id) WHERE actor_osn_profile_id IS NULL` — the household's rows only; every index entry ends in the rowid, so `wedding_id = ? AND seq > ?` is a range on it in either direction, and both feed reads are pinned by an `EXPLAIN QUERY PLAN` test to touch `rsvp_changes` once, through this range, without stepping over an organiser's row; `(wedding_id)` over every row, for the wedding cascade and the wedding's newest `seq`; `(created_at)` for the digest look-back and the purge; `(family_id)` for the cascade.
 - The whole change set is **one** `INSERT … SELECT … FROM json_each(?)` statement with one bound parameter, so a 200-pair RSVP stays under D1's 100-parameter cap ([[d1-limits]]).
 
 `host_rsvp_notices`: primary key `(wedding_id, osn_profile_id)`; `seen_seq` (the feed cursor), `digest_seq` (the last change mailed), `digest_enabled` (default on), `updated_at`. No row reads as "nothing seen, digest on". Removing a co-host deletes their row in the same batch as the seat.
@@ -76,13 +96,13 @@ Each row rides the batch that makes the change, with its condition (`when`) test
 
 The Overview card (`cire/host/src/components/RsvpChangesCard.tsx`) fetches the summary on its own and renders nothing when it cannot, so a failed read never holds up the Overview. Reading the card does not mark anything seen; **opening the RSVP table does**. `RsvpView` reads `…/rsvp-changes/rows` beside `/rsvps`, badges the rows, and once both have loaded posts `seen` with the `markSeq` that read returned. The badges stay for that visit. A change with no event (the plus-one kinds) badges every row of that guest.
 
-**Seen means shown.** Every unseen change at or below `markSeq` belongs to a pair the table badged. With more than 500 pairs unseen, the marker stops just below the first pair left out, and the next visit badges the rest, oldest first. Each read costs at most 5,001 rows however long the unseen range is, so one household submitting the same replies over and over cannot push another household's change off the table or have it marked seen unshown. Past 500 pairs the card and the table can disagree for a visit or two: the card names the households with the newest changes, while the table badges the oldest first, and the card goes on counting what is still unshown.
+**Seen means shown.** Every unseen change at or below `markSeq` belongs to a pair the table badged. With more than 500 pairs unseen, the marker stops just below the first pair left out, and the next visit badges the rest, oldest first. Each read costs at most 5,001 rows however long the unseen range is and however many organiser status saves sit in it, since the household index holds none of them, so one household submitting the same replies over and over cannot push another household's change off the table or have it marked seen unshown. Past 500 pairs the card and the table can disagree for a visit or two: the card names the households with the newest changes, while the table badges the oldest first, and the card goes on counting what is still unshown.
 
 ## The daily digest
 
 Runs in the 04:00 UTC cron (`scheduled` in `cire/api/src/index.ts`), only when osn-api can be asked for addresses (the ARC key) and Resend is configured — the same rule as the gift summary, because a log stand-in would move markers past changes nobody was told about. From `hello@cireweddings.com`, template `rsvp-change-digest` ([[email]]).
 
-1. Weddings with a change in the last 7 days, with each one's newest `seq` and time. The query groups on `+wedding_id` so SQLite ranges over `rsvp_changes_created_at_idx` instead of walking the whole 90-day log through the wedding index (pinned by an `EXPLAIN QUERY PLAN` test).
+1. Weddings with a household change in the last 7 days, with each one's newest `seq` and time. A wedding with only organiser status saves is no candidate, so none of its markers move. The query groups on `+wedding_id` so SQLite ranges over `rsvp_changes_created_at_idx` instead of walking the whole 90-day log through a wedding index (pinned by an `EXPLAIN QUERY PLAN` test); that range covers every row of the 7 days, organiser rows included, which are then filtered out.
 2. The seats on those weddings — owners hold seats like everyone else — and their notice rows. A recipient is anyone whose role has the `editor` capability, whose digest is on, and whose `digest_seq` is behind. Someone with no notice row yet is owed only what changed after their seat was created, so a seat removed and added again does not start over with the whole window.
 3. Up to 100 recipients are chosen **one wedding at a time, round the weddings** — weddings in order of their longest-waiting recipient, each wedding's recipients oldest marker first. No wedding can fill a run while another waits. The rest are `deferred` and go first next run.
 4. The changes past the chosen recipients' markers, grouped by household and kind.
@@ -111,7 +131,7 @@ The portal link is the tier's organiser origin (`organiserOriginFrom` in `cire/a
 
 ## Retention
 
-The guest privacy notice (`cire/invites/src/pages/privacy.astro`) names the record and its window. Change rows are deleted **90 days** after they are written (`rsvpChangeService.sweepExpired`, daily cron), and go with their household or wedding before that — so the 1-year guest-data sweep reaches them. Notice rows go with the seat or the wedding. An OSN account deletion does not reach `wedding_hosts`, so a deleted account's notice row lasts as long as its seat. See [[retention]] and [[data-map]].
+The guest privacy notice (`cire/invites/src/pages/privacy.astro`) names the record and its window. Change rows are deleted **90 days** after they are written (`rsvpChangeService.sweepExpired`, daily cron), and go with their household or wedding before that — so the 1-year guest-data sweep reaches them. Organiser status-save rows keep the same 90 days: the record of who set a status lasts 90 days, while `rsvps.recorded_by_osn_profile_id` keeps the latest organiser writer for as long as the reply. Notice rows go with the seat or the wedding. An OSN account deletion does not reach `wedding_hosts`, so a deleted account's notice row lasts as long as its seat. See [[retention]] and [[data-map]].
 
 ## Related
 

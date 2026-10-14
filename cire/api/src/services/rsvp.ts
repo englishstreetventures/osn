@@ -16,6 +16,7 @@ import type { Db, ReturningTail } from "../db";
 import {
   DbService,
   dbQuery,
+  commitBatchResults,
   commitGroupedBatches,
   commitGroupedBatchesReturning,
   driverErrorText,
@@ -24,7 +25,12 @@ import { metricRsvpUpserted } from "../metrics";
 import type { RsvpWriter } from "../metrics";
 import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";
 import type { RsvpRecord } from "../schemas/rsvp";
-import { buildRecordStatement, pairKey, type RsvpChangeInput } from "./rsvp-changes";
+import {
+  buildHostStatusStatement,
+  buildRecordStatement,
+  pairKey,
+  type RsvpChangeInput,
+} from "./rsvp-changes";
 
 /** RSVP consent provenance = who recorded the row AND on whose consent
  *  authority the dietary free-text is held (migration 0037). `guest` — the
@@ -293,7 +299,7 @@ function toRsvpRecord(row: RsvpRow): RsvpRecord {
  * knows the read-back shape — {@link rsvpService.getRsvpsForFamily} and
  * {@link rsvpService.submitRsvpsAndList} both call this instead of building
  * their own. Deliberately unexecuted (no `.all()`): it must ride either as a
- * `db.batch()` array element (S1: keyed only on `familyId`) or, directly
+ * `db.batch()` array element (keyed only on `familyId`) or, directly
  * awaited, resolve to the same rows on bun:sqlite.
  */
 function buildFamilyRsvpsQuery(db: Db, familyId: string) {
@@ -334,7 +340,7 @@ export const rsvpService = {
 
   /**
    * Upsert a batch of RSVPs (one per guest×event pair) in as few D1 round-trips
-   * as the ceiling allows (P-W1, chunked per P-W2). Caller MUST have validated
+   * as D1's per-batch statement ceiling allows. Caller MUST have validated
    * every `guestId` belongs to the claimed family AND every (guestId, eventId)
    * is a real invitation before invoking — this method does not re-check (the
    * route validates the whole batch up front).
@@ -342,9 +348,8 @@ export const rsvpService = {
    * Each pair becomes its own `INSERT … ON CONFLICT DO UPDATE`, passed to
    * {@link commitGroupedBatches} as a singleton group per statement — mirroring
    * `applyImport`'s write set and respecting the sync/async bridge:
-   *  - D1 (production): chunked into batches of at most `MAX_STATEMENTS_PER_BATCH`
-   *    (was N sequential round-trips pre-P-W1, then one over-ceiling batch that
-   *    could 500 above 50 statements pre-P-W2).
+   *  - D1 (production): chunked into batches of at most `MAX_STATEMENTS_PER_BATCH`,
+   *    since D1 refuses a larger batch outright.
    *  - bun:sqlite (tests/local, no `.batch()`): statements run sequentially
    *    in-process — same per-pair upserts, no network cost.
    * Either way the per-pair upsert semantics + dietary-consent stamping are
@@ -455,9 +460,15 @@ export const rsvpService = {
    * what it now holds. The dietary and consent columns are never written.
    * `recorded_by_osn_profile_id` always names this organiser; the attester of
    * a kept consent record stays, and a row holding no record names none.
+   *
+   * The same D1 batch writes a `host_status_set` change-log row naming this
+   * organiser, after the upsert, so the status and its record commit together
+   * or not at all. `familyId` must be the guest's household in `weddingId`.
    * Returns the row as stored.
    */
   recordStatus(input: {
+    weddingId: string;
+    familyId: string;
     guestId: string;
     eventId: string;
     status: RsvpInput["status"];
@@ -477,45 +488,63 @@ export const rsvpService = {
       // Whether the row holds a dietary answer or its consent record, which
       // this save keeps along with whoever gave it.
       const holdsDietary = sql`${rsvps.dietary} <> '' OR ${rsvps.dietaryPresets} <> '' OR ${rsvps.dietaryConsentVersion} IS NOT NULL`;
-      const rows = yield* dbQuery(() =>
-        db
-          .insert(rsvps)
-          .values({
-            id: crypto.randomUUID(),
-            guestId: input.guestId,
-            eventId: input.eventId,
+      const now = new Date();
+      const upsert = db
+        .insert(rsvps)
+        .values({
+          id: crypto.randomUUID(),
+          guestId: input.guestId,
+          eventId: input.eventId,
+          status: input.status,
+          dietary: "",
+          dietaryPresets: "",
+          dietaryConsentAt: null,
+          dietaryConsentVersion: null,
+          consentSource: "organiser_attested",
+          submittedByGuestId: null,
+          submittedViaLink: false,
+          recordedByOsnProfileId: input.recordedByOsnProfileId,
+          dietaryAttestedByOsnProfileId: null,
+          createdAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [rsvps.guestId, rsvps.eventId],
+          set: {
             status: input.status,
-            dietary: "",
-            dietaryPresets: "",
-            dietaryConsentAt: null,
-            dietaryConsentVersion: null,
-            consentSource: "organiser_attested",
+            // An organiser wrote the status, so no household member sent it.
             submittedByGuestId: null,
             submittedViaLink: false,
+            consentSource: sql`CASE WHEN ${holdsDietary} THEN ${rsvps.consentSource} ELSE 'organiser_attested' END`,
             recordedByOsnProfileId: input.recordedByOsnProfileId,
-            dietaryAttestedByOsnProfileId: null,
-            createdAt: new Date(),
-          })
-          .onConflictDoUpdate({
-            target: [rsvps.guestId, rsvps.eventId],
-            set: {
-              status: input.status,
-              // An organiser wrote the status, so no household member sent it.
-              submittedByGuestId: null,
-              submittedViaLink: false,
-              consentSource: sql`CASE WHEN ${holdsDietary} THEN ${rsvps.consentSource} ELSE 'organiser_attested' END`,
-              recordedByOsnProfileId: input.recordedByOsnProfileId,
-              dietaryAttestedByOsnProfileId: sql`CASE WHEN ${holdsDietary} THEN ${rsvps.dietaryAttestedByOsnProfileId} ELSE NULL END`,
-            },
-          })
-          .returning({
-            status: rsvps.status,
-            dietary: rsvps.dietary,
-            dietaryPresets: rsvps.dietaryPresets,
-            consentSource: rsvps.consentSource,
-          })
-          .all(),
+            dietaryAttestedByOsnProfileId: sql`CASE WHEN ${holdsDietary} THEN ${rsvps.dietaryAttestedByOsnProfileId} ELSE NULL END`,
+          },
+        })
+        .returning({
+          status: rsvps.status,
+          dietary: rsvps.dietary,
+          dietaryPresets: rsvps.dietaryPresets,
+          consentSource: rsvps.consentSource,
+        });
+      const record = buildHostStatusStatement(
+        db,
+        {
+          weddingId: input.weddingId,
+          familyId: input.familyId,
+          guestId: input.guestId,
+          eventId: input.eventId,
+          osnProfileId: input.recordedByOsnProfileId,
+        },
+        now,
       );
+      // The upsert runs first: on bun:sqlite, which runs the two one at a time
+      // with no transaction, a failed upsert never leaves a record behind.
+      const results = yield* dbQuery(() => commitBatchResults(db, [upsert, record]));
+      const rows = results[0] as readonly {
+        status: RsvpInput["status"];
+        dietary: string;
+        dietaryPresets: string;
+        consentSource: ConsentSource;
+      }[];
       const row = rows[0];
       if (!row) return yield* Effect.die(new Error("rsvp upsert returned no row"));
       // The organiser wrote it, whatever the row's consent basis stays.
@@ -540,13 +569,13 @@ export const rsvpService = {
   },
 
   /**
-   * {@link submitRsvps} and {@link getRsvpsForFamily} folded into one commit
-   * (P-W1): the read-back rides as the trailing statement in the same
+   * {@link submitRsvps} and {@link getRsvpsForFamily} folded into one commit:
+   * the read-back rides as the trailing statement in the same
    * `db.batch()` array as the upserts instead of a second round-trip after
    * it. Same ownership precondition as `submitRsvps` — the caller must have
    * already validated every `guestId` belongs to `familyId` and every
-   * (guestId, eventId) is a real invitation. S1: the read-back is keyed only
-   * on the authenticated `familyId` passed in, never on anything in `inputs`.
+   * (guestId, eventId) is a real invitation. The read-back is keyed only on
+   * the authenticated `familyId` passed in, never on anything in `inputs`.
    *
    * Same `now`/chunking/atomicity trade as `submitRsvps` — see its doc
    * comment. An empty `inputs` list still runs the read-back and returns

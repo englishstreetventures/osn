@@ -1786,6 +1786,68 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "an organiser's status-only save and its change-log row commit together over D1",
+    async () => {
+      await run(
+        rsvpService.submitRsvps([
+          {
+            guestId: GUEST_1,
+            eventId: EVENT_A,
+            status: "attending",
+            dietary: "No nuts",
+            dietaryPresets: [],
+            dietaryConsent: true,
+          },
+        ]),
+      );
+      const status = async () =>
+        (await db.select({ status: rsvps.status }).from(rsvps).where(eq(rsvps.guestId, GUEST_1)))[0]
+          ?.status;
+      const save = () =>
+        rsvpService.recordStatus({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          familyId: FAMILY_ID,
+          guestId: GUEST_1,
+          eventId: EVENT_A,
+          status: "declined",
+          recordedByOsnProfileId: "usr_test",
+        });
+
+      // The log row rides behind the status in one batch; failing it must take
+      // the status down with it.
+      await d1
+        .prepare(
+          "CREATE TRIGGER fail_change_log BEFORE INSERT ON rsvp_changes BEGIN SELECT RAISE(ABORT, 'boom'); END",
+        )
+        .run();
+      try {
+        const exit = await run(Effect.exit(save()));
+        expect(Exit.isFailure(exit)).toBe(true);
+        expect(await status()).toBe("attending");
+        expect(await db.select().from(rsvpChanges)).toEqual([]);
+      } finally {
+        // beforeEach clears rows, not triggers.
+        await d1.prepare("DROP TRIGGER IF EXISTS fail_change_log").run();
+      }
+
+      const stored = await run(save());
+      expect(stored.status).toBe("declined");
+      expect(stored.dietary).toBe("No nuts");
+      expect(await status()).toBe("declined");
+      expect(
+        await db
+          .select({
+            guestId: rsvpChanges.guestId,
+            kind: rsvpChanges.kind,
+            actor: rsvpChanges.actorOsnProfileId,
+          })
+          .from(rsvpChanges),
+      ).toEqual([{ guestId: GUEST_1, kind: "host_status_set", actor: "usr_test" }]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "two households naming plus-ones at once over D1 cannot pass the guest cap",
     async () => {
       // One place left under the cap. Each inviter is a different guest, so the

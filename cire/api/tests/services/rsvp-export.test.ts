@@ -1030,6 +1030,80 @@ describe("rsvpExportService.buildView — plus-ones in the tallies", () => {
     expect(line.at(-2)).toBe("Organiser");
   });
 
+  /** The CSV's Recorded By cell for `firstName`, which sits before Plus-one Of. */
+  const recordedByCell = (csv: string, firstName: string) =>
+    csv
+      .split("\r\n")
+      .find((l) => l.includes(`,${firstName},`))!
+      .split(",")
+      .at(-2);
+
+  it("files a household reply whose status an organiser set as 'Household (status by organiser)'", async () => {
+    const { db, run } = setUp();
+    const samId = seedPlusOne(db, guestNamed(db, "Bo").id, { firstName: "Sam" });
+    replyAs(db, samId, "attending");
+    db.update(rsvps)
+      .set({ status: "declined", recordedByOsnProfileId: "usr_cohost" })
+      .where(eq(rsvps.guestId, samId))
+      .run();
+    const data = await run(rsvpExportService.build(BOOTSTRAP_WEDDING_ID));
+    expect(data.rows.find((r) => r.firstName === "Sam")?.recordedBy).toBe("household_host_status");
+    const csv = toCsv(data);
+    expect(recordedByCell(csv, "Sam")).toBe("Household (status by organiser)");
+    // Never the organiser's id.
+    expect(csv).not.toContain("usr_cohost");
+  });
+
+  it("files a guest's own reply whose status an organiser set as 'Guest (status by organiser)'", async () => {
+    const { db, run } = setUp();
+    const bo = guestNamed(db, "Bo");
+    db.insert(rsvps)
+      .values({
+        id: "r_bo_hindu",
+        guestId: bo.id,
+        eventId: HINDU,
+        status: "declined",
+        dietary: "No nuts",
+        consentSource: "guest",
+        recordedByOsnProfileId: "usr_cohost",
+        createdAt: new Date(),
+      })
+      .run();
+    const data = await run(rsvpExportService.build(BOOTSTRAP_WEDDING_ID));
+    expect(data.rows.find((r) => r.firstName === "Bo")?.recordedBy).toBe("guest_host_status");
+    expect(recordedByCell(toCsv(data), "Bo")).toBe("Guest (status by organiser)");
+  });
+
+  it("keeps 'Organiser' over a status an organiser set on another reply", async () => {
+    const { db, run } = setUp();
+    const samId = seedPlusOne(db, guestNamed(db, "Bo").id, { firstName: "Sam" });
+    db.insert(rsvps)
+      .values([
+        {
+          id: "r_sam_hindu",
+          guestId: samId,
+          eventId: HINDU,
+          status: "declined",
+          consentSource: "inviter_attested",
+          recordedByOsnProfileId: "usr_cohost",
+          createdAt: new Date(),
+        },
+        {
+          id: "r_sam_reception",
+          guestId: samId,
+          eventId: eventsSeed.reception.id,
+          status: "attending",
+          consentSource: "organiser_attested",
+          recordedByOsnProfileId: "usr_cohost",
+          createdAt: new Date(),
+        },
+      ])
+      .run();
+    const data = await run(rsvpExportService.build(BOOTSTRAP_WEDDING_ID));
+    expect(data.rows.find((r) => r.firstName === "Sam")?.recordedBy).toBe("organiser");
+    expect(recordedByCell(toCsv(data), "Sam")).toBe("Organiser");
+  });
+
   it("names no inviter outside the plus-one's own household", async () => {
     // A plus-one always shares their inviter's household, and the join says so
     // itself rather than trusting every writer: a link pointing at a guest in

@@ -8,6 +8,7 @@ import {
   weddingHosts,
   weddings,
   type RsvpChangeKind,
+  type RsvpHostChangeKind,
 } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
 import { EmailError, EmailService, type SendEmailInput } from "@shared/email";
@@ -88,7 +89,7 @@ function fixture() {
 function change(
   db: TestDb,
   who: { id: string; familyId: string },
-  kind: RsvpChangeKind,
+  kind: RsvpChangeKind | RsvpHostChangeKind,
   at = new Date(NOW.getTime() - 60 * 60 * 1000),
   weddingId = BOOTSTRAP_WEDDING_ID,
 ) {
@@ -100,6 +101,8 @@ function change(
       eventId: kind.startsWith("plus_one") ? null : eventsData.hindu.id,
       kind,
       createdAt: at,
+      // An organiser's status save names them, as `recordStatus` writes it.
+      actorOsnProfileId: kind === "host_status_set" ? EDITOR : null,
     })
     .run();
 }
@@ -296,6 +299,33 @@ describe("rsvpDigestService.sendDailyDigests", () => {
     expect(sent).toEqual([]);
     expect(calls).toEqual([]);
     expect(result.sent).toBe(0);
+  });
+
+  it("mails nobody, and asks osn-api nothing, for a day of organiser status saves only", async () => {
+    const { db, ada, bo } = fixture();
+    change(db, ada, "host_status_set");
+    change(db, bo, "host_status_set");
+    const { sent, layer } = transport();
+    const { lookup, calls } = lookupOf(ADDRESSES);
+    const result = await run(db, layer, lookup);
+    expect(sent).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(result).toEqual({ sent: 0, failed: 0, noAddress: 0, lookupFailed: 0, deferred: 0 });
+  });
+
+  it("counts only the household's changes beside an organiser's status saves", async () => {
+    const { db, ada, bo } = fixture();
+    change(db, ada, "reply_new");
+    // Bo's household is touched only by an organiser, after Ada's change.
+    change(db, bo, "host_status_set", new Date(NOW.getTime() - 30 * 60 * 1000));
+    const { sent, layer } = transport();
+    await run(db, layer, lookupOf({ [OWNER]: ADDRESSES[OWNER]! }).lookup);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.data).toMatchObject({ households: 1, counts: { reply_new: 1 } });
+    // The marker stops at the household's change, so the status save is never mailed later.
+    const second = transport();
+    await run(db, second.layer, lookupOf(ADDRESSES).lookup);
+    expect(second.sent.filter((e) => e.to === ADDRESSES[OWNER])).toEqual([]);
   });
 
   it("does not mail the same changes twice", async () => {
