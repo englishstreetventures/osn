@@ -24,7 +24,7 @@ Organisers hear when guests change their RSVPs in three ways, all fed by one tab
 
 Read state and the email switch are **per organiser, per wedding**: one co-host opening the table never clears another's badges.
 
-The same table also keeps a record of each organiser's status-only save, naming the organiser ([§Organiser status saves](#organiser-status-saves)). None of the three surfaces reads those rows.
+The same table also keeps a record of each organiser's status-only save, naming the organiser (see Organiser status saves, below). None of the three surfaces reads those rows.
 
 ## What counts as a change
 
