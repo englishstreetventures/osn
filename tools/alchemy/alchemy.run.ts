@@ -2,6 +2,7 @@ import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as RemovalPolicy from "alchemy/RemovalPolicy";
 import { Stage } from "alchemy/Stage";
+import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 
 // This stack is an isolated probe. The routed Cire and OSN Workers keep their
@@ -43,6 +44,7 @@ export default Alchemy.Stack(
       },
       env: {
         PROBE_PRODUCT: "cire",
+        PROBE_TOKEN: Config.Redacted("ALCHEMY_PROBE_TOKEN"),
         DB: cireDb,
         SHEETS: cireSheets,
         ASSETS: cireAssets,
@@ -68,6 +70,7 @@ export default Alchemy.Stack(
       },
       env: {
         PROBE_PRODUCT: "osn",
+        PROBE_TOKEN: Config.Redacted("ALCHEMY_PROBE_TOKEN"),
         DB: osnDb,
         RL_AUTH_IP_5_60: Cloudflare.RateLimit("RL_AUTH_IP_5_60", {
           namespaceId: "2101",

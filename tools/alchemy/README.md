@@ -6,18 +6,18 @@ The stack accepts only `--stage dev`. It uses local Alchemy state, so run it fro
 
 ## Run the probe
 
-Authenticate Alchemy's Cloudflare profile with an account that can read the dev resources and manage Workers. From `tools/alchemy`:
+Authenticate Alchemy's Cloudflare profile with an account that can read the dev resources and manage Workers. Set `ALCHEMY_PROBE_TOKEN` in the deploy shell to a fresh, high-entropy secret of at least 32 bytes; keep it out of the repo and terminal history. The local Alchemy state may contain sensitive binding inputs. From `tools/alchemy`:
 
 ```bash
 bun alchemy profile edit --add Cloudflare
 bun run plan --no-input
 bun run deploy --yes --no-input
-curl -fsS https://cire-api-alchemy-probe-dev.chavaniket.workers.dev/health
-curl -fsS https://osn-api-alchemy-probe-dev.chavaniket.workers.dev/health
+curl -fsS -H "Authorization: Bearer $ALCHEMY_PROBE_TOKEN" https://cire-api-alchemy-probe-dev.chavaniket.workers.dev/health
+curl -fsS -H "Authorization: Bearer $ALCHEMY_PROBE_TOKEN" https://osn-api-alchemy-probe-dev.chavaniket.workers.dev/health
 bun run plan --no-input
 ```
 
-Both health responses should contain `"ok":true`. The postdeploy plan should show no changes. The probe reads D1 with `SELECT 1`, lists at most one object from each Cire R2 bucket, and checks the Images and rate limit bindings. It has no application routes or secrets.
+Both health responses should contain `"ok":true`. The postdeploy plan should show no changes. Unauthenticated requests return 401 before reading storage. The probe reads D1 with `SELECT 1`, lists at most one object from each Cire R2 bucket, and checks the Images and rate limit bindings. It has no application routes or secrets.
 
 ## Clean up
 

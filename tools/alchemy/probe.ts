@@ -4,6 +4,7 @@ type Database = {
 
 type ProbeEnv = {
   PROBE_PRODUCT: "cire" | "osn";
+  PROBE_TOKEN: string;
   DB: Database;
   SHEETS?: { list(options: { limit: number }): Promise<{ objects: readonly { key: string }[] }> };
   ASSETS?: { list(options: { limit: number }): Promise<{ objects: readonly { key: string }[] }> };
@@ -17,6 +18,10 @@ export default {
     const url = new URL(request.url);
     if (request.method !== "GET" || url.pathname !== "/health") {
       return new Response("Not found", { status: 404 });
+    }
+
+    if (!env.PROBE_TOKEN || request.headers.get("authorization") !== `Bearer ${env.PROBE_TOKEN}`) {
+      return new Response("Unauthorized", { status: 401 });
     }
 
     const row = await env.DB.prepare("SELECT 1 AS ok").first<{ ok: number }>();

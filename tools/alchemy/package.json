@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "check": "tsc --noEmit",
+    "test": "bun test tests/",
     "plan": "bun alchemy plan alchemy.run.ts --stage dev --adopt --detailed",
     "deploy": "bun alchemy deploy alchemy.run.ts --stage dev --adopt",
     "destroy": "bun alchemy destroy alchemy.run.ts --stage dev"
