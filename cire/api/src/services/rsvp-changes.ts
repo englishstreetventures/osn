@@ -26,7 +26,7 @@ import {
   type RsvpHostChangeKind,
 } from "@cire/db";
 import { serialisePresets, type DietaryPreset } from "@cire/dietary";
-import { jsonEachIn, rowsChanged } from "@shared/db-utils";
+import { rowsChanged } from "@shared/db-utils";
 import {
   and,
   asc,
@@ -260,11 +260,13 @@ export function buildHostStatusStatement(
 
 /**
  * The household's own rows: every reader that tells organisers about changes
- * — the card, the badges, the digest — reads only these. The `IS NULL` term is
- * what lets SQLite range over `rsvp_changes_household_idx`; the kind list
- * leaves out any kind not written by a household.
+ * — the card, the badges, the digest — reads only these. {@link
+ * buildRecordStatement} is the only writer of a null actor, and it writes only
+ * {@link RSVP_CHANGE_KINDS}; {@link buildHostStatusStatement} always names one.
+ * The term is also what lets SQLite range over the household's rows alone, in
+ * `rsvp_changes_wedding_actor_idx` and `rsvp_changes_household_created_at_idx`.
  */
-export const householdChanges: SQL = sql`(${isNull(rsvpChanges.actorOsnProfileId)} AND ${inArray(rsvpChanges.kind, jsonEachIn([...RSVP_CHANGE_KINDS]))})`;
+export const householdChanges: SQL = isNull(rsvpChanges.actorOsnProfileId);
 
 /**
  * The caller's read marker, as a scalar subquery, so a read needs no separate
@@ -277,10 +279,10 @@ const seenMarker = (weddingId: string, osnProfileId: string): SQL =>
  * The caller's unseen household rows in one wedding. Each feed read takes
  * `UNSEEN_SCAN_LIMIT + 1` of them from one end of the range, as a CTE named
  * `w` carrying only the columns that read uses (the card's is materialised and
- * scanned more than once). Served by `rsvp_changes_household_idx` with a rowid
- * range in either direction (pinned by a plan test), which holds no
- * organiser's row, so each read costs at most that many rows however long the
- * unseen range is and however many status saves sit in it.
+ * scanned more than once). Served by `rsvp_changes_wedding_actor_idx` with a
+ * rowid range in either direction inside the wedding's household entries
+ * (pinned by a plan test), so each read costs at most that many rows however
+ * long the unseen range is and however many status saves sit in it.
  */
 const unseenIn = (weddingId: string, osnProfileId: string): SQL | undefined =>
   and(
@@ -475,9 +477,12 @@ export function summarisePairs(pairs: readonly UnseenPairRow[], pairLimit: numbe
   return { markSeq, rows: shown.map(({ guestId, eventId }) => ({ guestId, eventId })) };
 }
 
-/** `(select coalesce(max(seq), 0) …)` for one wedding — the newest change's number. */
+/**
+ * `(select coalesce(max(seq), 0) …)` for one wedding — the newest household
+ * change's number, the newest any reader can show. One index probe.
+ */
 const newestSeq = (weddingId: string): SQL =>
-  sql`(SELECT coalesce(max(${rsvpChanges.seq}), 0) FROM ${rsvpChanges} WHERE ${rsvpChanges.weddingId} = ${weddingId})`;
+  sql`(SELECT coalesce(max(${rsvpChanges.seq}), 0) FROM ${rsvpChanges} WHERE ${rsvpChanges.weddingId} = ${weddingId} AND ${householdChanges})`;
 
 /** A feed read, failing as {@link RsvpChangeError} rather than as a defect. */
 const read = <A>(run: () => A | Promise<A>) =>

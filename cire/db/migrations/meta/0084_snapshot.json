@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ba081574-c2ad-4620-acf4-6ac1c455d641",
+  "id": "3189a182-e966-4ca3-b7b7-6fe0ed195cbc",
   "prevId": "a79425b5-cb3b-4a47-ab02-e2e9cfeb6db3",
   "tables": {
     "budget_items": {
@@ -2342,20 +2342,13 @@
         }
       },
       "indexes": {
-        "rsvp_changes_wedding_idx": {
-          "name": "rsvp_changes_wedding_idx",
+        "rsvp_changes_wedding_actor_idx": {
+          "name": "rsvp_changes_wedding_actor_idx",
           "columns": [
-            "wedding_id"
+            "wedding_id",
+            "actor_osn_profile_id"
           ],
           "isUnique": false
-        },
-        "rsvp_changes_household_idx": {
-          "name": "rsvp_changes_household_idx",
-          "columns": [
-            "wedding_id"
-          ],
-          "isUnique": false,
-          "where": "actor_osn_profile_id IS NULL"
         },
         "rsvp_changes_created_at_idx": {
           "name": "rsvp_changes_created_at_idx",
@@ -2363,6 +2356,14 @@
             "created_at"
           ],
           "isUnique": false
+        },
+        "rsvp_changes_household_created_at_idx": {
+          "name": "rsvp_changes_household_created_at_idx",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false,
+          "where": "actor_osn_profile_id IS NULL"
         },
         "rsvp_changes_family_idx": {
           "name": "rsvp_changes_family_idx",

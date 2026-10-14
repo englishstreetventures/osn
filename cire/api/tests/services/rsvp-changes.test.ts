@@ -446,12 +446,12 @@ describe("rsvpChangeService.feed", () => {
     ]);
   });
 
-  it("keeps a status save out once an organiser's erasure has nulled its actor", async () => {
+  it("keeps a status save out once an organiser's erasure has removed their id", async () => {
     const { db, ada } = fixture();
     await recordHostStatus(db, ada, HINDU);
     // The erasure step in wiki/compliance/dsar.md: the row stays, nameless.
     db.update(rsvpChanges)
-      .set({ actorOsnProfileId: null })
+      .set({ actorOsnProfileId: "" })
       .where(eq(rsvpChanges.actorOsnProfileId, RECORDER))
       .run();
     expect(db.select({ kind: rsvpChanges.kind }).from(rsvpChanges).all()).toEqual([
@@ -479,7 +479,7 @@ describe("rsvpChangeService.feed", () => {
         .filter((detail) => /\b(SEARCH|SCAN) rsvp_changes\b/.test(detail));
       expect(lines).toEqual([
         expect.stringMatching(
-          /^SEARCH rsvp_changes USING INDEX rsvp_changes_household_idx \(wedding_id=\? AND rowid>\?\)$/,
+          /^SEARCH rsvp_changes USING (COVERING )?INDEX rsvp_changes_wedding_actor_idx \(wedding_id=\? AND actor_osn_profile_id=\? AND rowid>\?\)$/,
         ),
       ]);
     }
@@ -489,6 +489,20 @@ describe("rsvpChangeService.feed", () => {
 });
 
 describe("rsvpChangeService.markSeen", () => {
+  it("clamps to the newest household change, past any later status save", async () => {
+    const { db, ada } = fixture();
+    await record(db, ada.familyId, [{ guestId: ada.id, eventId: HINDU, kind: "reply_new" }]);
+    await recordHostStatus(db, ada, RECEPTION);
+    const [household] = db
+      .select({ seq: rsvpChanges.seq })
+      .from(rsvpChanges)
+      .where(eq(rsvpChanges.kind, "reply_new"))
+      .all();
+    expect(await ok(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, 1_000_000))).toBe(
+      household!.seq,
+    );
+  });
+
   it("never moves the marker past the wedding's newest change", async () => {
     const { db, ada } = fixture();
     await record(db, ada.familyId, [{ guestId: ada.id, eventId: HINDU, kind: "reply_new" }]);

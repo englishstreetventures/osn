@@ -233,9 +233,11 @@ owners, each with an `owner` seat. Two consequences:
   organiser nulls them instead, in the same pass that removes the seat:
   `UPDATE rsvps SET recorded_by_osn_profile_id = NULL WHERE recorded_by_osn_profile_id = ?`,
   the same for `dietary_attested_by_osn_profile_id`, and
-  `UPDATE rsvp_changes SET actor_osn_profile_id = NULL WHERE actor_osn_profile_id = ?`.
-  The consent record itself stays, as evidence an organiser attested; a
-  nulled change-log row still says an organiser set the status, by its kind.
+  `UPDATE rsvp_changes SET actor_osn_profile_id = '' WHERE actor_osn_profile_id = ?`
+  — an empty string, not NULL, because a null actor is what marks a
+  household's own change, and the organisers' feed and digest would then show
+  the row. The consent record itself stays, as evidence an organiser attested;
+  an emptied change-log row still says an organiser set the status, by its kind.
   An organiser's access request finds these by profile id, not by seat, so a
   co-host whose seat was removed is answered too:
   `SELECT wedding_id, kind, created_at FROM rsvp_changes WHERE actor_osn_profile_id = ?`,
@@ -274,7 +276,7 @@ the orphan-tolerance framing is defensible on the merits:
   kept for the Art. 5(2) and 7(1) evidence in [[dpia/cire-guest-data]]. Once OSN
   deletes the account, the id is opaque and resolves to no one; the change-log
   column is gone within 90 days in any case, and the `rsvps` columns go with
-  the reply. The cire bridge below, when built, nulls all three on account
+  the reply. The cire bridge below, when built, clears all three on account
   deletion, as an organiser's erasure request does today.
 
 **Recorded decision.** Orphan-tolerance is the interim position. Its revisit

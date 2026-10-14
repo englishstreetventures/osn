@@ -1180,22 +1180,25 @@ export const rsvpChanges = sqliteTable(
     // none was chosen. An id only, with no foreign key, like `guest_id`.
     actorGuestId: text("actor_guest_id"),
     // The organiser (OSN profile id) whose write the row records (migration
-    // 0084); null on every household row. Opaque cross-database id, like
-    // `rsvps.recorded_by_osn_profile_id`: no foreign key, and no read endpoint
-    // returns it.
+    // 0084); null on every household row, and only there, so `IS NULL` is what
+    // tells a household's change from an organiser's. An organiser's erasure
+    // request sets it to '' rather than null for that reason. Opaque
+    // cross-database id, like `rsvps.recorded_by_osn_profile_id`: no foreign
+    // key, and no read endpoint returns it.
     actorOsnProfileId: text("actor_osn_profile_id"),
   },
   (t) => [
-    // The cascade probe, and the wedding's newest change over every row.
-    index("rsvp_changes_wedding_idx").on(t.weddingId),
-    // The household's rows only. Every index entry ends in the rowid, so this
-    // one serves `wedding_id = ? AND seq > ?` as a range — the feed's reads —
-    // without stepping over an organiser's rows (migration 0084).
-    index("rsvp_changes_household_idx")
-      .on(t.weddingId)
-      .where(sql`actor_osn_profile_id IS NULL`),
-    // The digest's look-back and the 90-day purge.
+    // Every index entry ends in the rowid, so `wedding_id = ? AND
+    // actor_osn_profile_id IS NULL AND seq > ?` is a range on this one in
+    // either direction — the feed's reads, over the household's rows only —
+    // and its prefix is the wedding cascade probe (migration 0084).
+    index("rsvp_changes_wedding_actor_idx").on(t.weddingId, t.actorOsnProfileId),
+    // The 90-day purge, over every row.
     index("rsvp_changes_created_at_idx").on(t.createdAt),
+    // The digest's look-back, over the household's rows only (migration 0084).
+    index("rsvp_changes_household_created_at_idx")
+      .on(t.createdAt)
+      .where(sql`actor_osn_profile_id IS NULL`),
     // The families cascade probe.
     index("rsvp_changes_family_idx").on(t.familyId),
   ],

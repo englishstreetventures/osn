@@ -316,7 +316,7 @@ describe("rsvpDigestService.sendDailyDigests", () => {
   it("mails nobody about a status save an organiser's erasure has left nameless", async () => {
     const { db, ada } = fixture();
     change(db, ada, "host_status_set");
-    db.update(rsvpChanges).set({ actorOsnProfileId: null }).run();
+    db.update(rsvpChanges).set({ actorOsnProfileId: "" }).run();
     const { sent, layer } = transport();
     const { lookup, calls } = lookupOf(ADDRESSES);
     await run(db, layer, lookup);
@@ -692,7 +692,7 @@ describe("rsvpDigestService.sendDailyDigests", () => {
     expect(owners).toEqual([LEGACY_HOST, OWNER].toSorted());
   });
 
-  it("reads its candidates through the created_at index, not the whole log", () => {
+  it("reads its candidates through the household created_at index, not the whole log", () => {
     const { db } = fixture();
     const { sql: text, params } = buildCandidateQuery(db, NOW).toSQL();
     const plan = db.$client
@@ -701,7 +701,7 @@ describe("rsvpDigestService.sendDailyDigests", () => {
       .map((r) => r.detail)
       .join("\n");
     expect(plan).toMatch(
-      /rsvp_changes USING (COVERING )?INDEX rsvp_changes_created_at_idx \(created_at>\?\)/,
+      /rsvp_changes USING (COVERING )?INDEX rsvp_changes_household_created_at_idx \(created_at>\?\)/,
     );
     expect(plan).not.toMatch(/SCAN rsvp_changes/);
   });

@@ -236,8 +236,8 @@ export function buildMarkStatement(db: Db, marks: readonly Mark[], now: Date) {
  * change to mail, so a wedding with only those is no candidate and its
  * markers stay. The `+` keeps SQLite from answering the `GROUP BY` by walking
  * a wedding index over the whole 90-day log; with it the read ranges over
- * `rsvp_changes_created_at_idx` (pinned by a plan test), every row of the
- * window, organisers' included.
+ * `rsvp_changes_household_created_at_idx` (pinned by a plan test), the
+ * household's rows of the window and no organiser's.
  */
 export function buildCandidateQuery(db: Db, since: Date) {
   return db
