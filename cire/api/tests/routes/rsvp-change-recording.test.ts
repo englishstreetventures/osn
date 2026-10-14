@@ -49,6 +49,7 @@ beforeEach(() => {
     osnTestKey: auth.key,
     claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
     rsvpLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+    organiserRsvpLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
   });
   const byName = (firstName: string) =>
     db

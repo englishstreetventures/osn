@@ -1074,15 +1074,57 @@ describe("organiserRsvpService.record — the change log", () => {
     expect(logged()).toEqual([]);
   });
 
-  it("logs nothing when the save is refused", async () => {
+  /** A status-only save refused by a tenancy or invitation check: its error tag. */
+  const refusedStatusSave = async (guestId: string, eventId: string) =>
+    (
+      await run(
+        organiserRsvpService
+          .record({
+            actorOsnProfileId: ORGANISER,
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            guestId,
+            eventId,
+            status: "declined",
+            dietary: null,
+            dietaryConsent: false,
+            dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+            dietaryAttestedName: "",
+          })
+          .pipe(Effect.flip),
+      )
+    )._tag;
+
+  it("logs nothing when the guest is not invited to the event", async () => {
     // Ada is not invited to the mehendi.
+    expect(await refusedStatusSave(adaId, eventBySlug("mehendi"))).toBe("GuestNotInvitedToEvent");
+    expect(logged()).toEqual([]);
+  });
+
+  it("logs nothing, and writes no reply, for another wedding's guest", async () => {
+    seedForeignWedding();
+    expect(await refusedStatusSave("guest_foreign", "evt_foreign")).toBe("GuestNotInWedding");
+    expect(logged()).toEqual([]);
+    expect(db.select().from(rsvps).where(eq(rsvps.guestId, "guest_foreign")).all()).toEqual([]);
+  });
+
+  it("logs nothing, and writes no reply, for another wedding's event", async () => {
+    seedForeignWedding();
+    expect(await refusedStatusSave(adaId, "evt_foreign")).toBe("EventNotInWedding");
+    expect(logged()).toEqual([]);
+    expect(db.select().from(rsvps).where(eq(rsvps.eventId, "evt_foreign")).all()).toEqual([]);
+  });
+
+  it("logs nothing when the status write itself fails", async () => {
+    db.$client.exec(
+      "CREATE TRIGGER fail_rsvp_insert BEFORE INSERT ON rsvps BEGIN SELECT RAISE(ABORT, 'boom'); END",
+    );
     const exit = await Effect.runPromiseExit(
       organiserRsvpService
         .record({
           actorOsnProfileId: ORGANISER,
           weddingId: BOOTSTRAP_WEDDING_ID,
           guestId: adaId,
-          eventId: eventBySlug("mehendi"),
+          eventId: eventBySlug("hindu"),
           status: "declined",
           dietary: null,
           dietaryConsent: false,

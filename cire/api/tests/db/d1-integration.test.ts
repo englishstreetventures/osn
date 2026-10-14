@@ -1830,6 +1830,22 @@ describe("cire/api over real D1 (Miniflare)", () => {
         await d1.prepare("DROP TRIGGER IF EXISTS fail_change_log").run();
       }
 
+      // And the other way round: a status write that fails takes its log row
+      // with it, whatever order the two ride in.
+      await d1
+        .prepare(
+          "CREATE TRIGGER fail_status_write BEFORE UPDATE ON rsvps BEGIN SELECT RAISE(ABORT, 'boom'); END",
+        )
+        .run();
+      try {
+        const exit = await run(Effect.exit(save()));
+        expect(Exit.isFailure(exit)).toBe(true);
+        expect(await status()).toBe("attending");
+        expect(await db.select().from(rsvpChanges)).toEqual([]);
+      } finally {
+        await d1.prepare("DROP TRIGGER IF EXISTS fail_status_write").run();
+      }
+
       const stored = await run(save());
       expect(stored.status).toBe("declined");
       expect(stored.dietary).toBe("No nuts");

@@ -66,6 +66,7 @@ An organiser's **status-only save** — `PUT …/guests/:guestId/rsvps/:eventId`
 
 - The row rides the status write's own D1 batch, after the upsert (`rsvpService.recordStatus`), so the two commit together or not at all; a D1-tier test aborts the log insert and checks the status did not change. A refused save (another wedding's guest, an event the guest is not invited to) writes neither.
 - A full organiser reply, dietary answer included, logs nothing: its `consent_source = 'organiser_attested'` already says an organiser wrote it.
+- The organiser's `PUT` sits behind a per-user limiter, 60 a minute (`defaultOrganiserRsvpLimiter` in `cire/api/src/app.ts`), so a script cannot fill the log faster than someone saving replies by hand. The portal sends one request per save.
 - It is a record, not news. The overview card, the "New" badges and the digest read only household rows (`householdChanges` in `cire/api/src/services/rsvp-changes.ts`: `actor_osn_profile_id IS NULL` and a household kind), so an organiser is never told about their own or a co-host's status save.
 - `rsvps.recorded_by_osn_profile_id` names only the latest organiser writer, and a household's next write clears it. The change log keeps every status save for the 90 days below, so who set a status outlives the next write over the row.
 - No read endpoint returns `actor_osn_profile_id`; it identifies a co-host ([[dsar]]).

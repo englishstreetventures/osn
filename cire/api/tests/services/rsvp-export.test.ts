@@ -1074,6 +1074,39 @@ describe("rsvpExportService.buildView — plus-ones in the tallies", () => {
     expect(recordedByCell(toCsv(data), "Bo")).toBe("Guest (status by organiser)");
   });
 
+  it("marks a guest when an organiser set any one of their replies, read first or last", async () => {
+    const { db, run } = setUp();
+    const bo = guestNamed(db, "Bo");
+    const samId = seedPlusOne(db, bo.id, { firstName: "Sam" });
+    const reply = (
+      id: string,
+      guestId: string,
+      eventId: string,
+      consentSource: "guest" | "inviter_attested",
+      recordedByOsnProfileId: string | null,
+    ) => ({
+      id,
+      guestId,
+      eventId,
+      status: "attending" as const,
+      consentSource,
+      recordedByOsnProfileId,
+      createdAt: new Date(),
+    });
+    // Bo: the organiser's reply goes in first; Sam: last.
+    db.insert(rsvps)
+      .values([
+        reply("r_bo_hindu", bo.id, HINDU, "guest", "usr_cohost"),
+        reply("r_bo_reception", bo.id, eventsSeed.reception.id, "guest", null),
+        reply("r_sam_hindu", samId, HINDU, "inviter_attested", null),
+        reply("r_sam_reception", samId, eventsSeed.reception.id, "inviter_attested", "usr_cohost"),
+      ])
+      .run();
+    const data = await run(rsvpExportService.build(BOOTSTRAP_WEDDING_ID));
+    expect(data.rows.find((r) => r.firstName === "Bo")?.recordedBy).toBe("guest_host_status");
+    expect(data.rows.find((r) => r.firstName === "Sam")?.recordedBy).toBe("household_host_status");
+  });
+
   it("keeps 'Organiser' over a status an organiser set on another reply", async () => {
     const { db, run } = setUp();
     const samId = seedPlusOne(db, guestNamed(db, "Bo").id, { firstName: "Sam" });

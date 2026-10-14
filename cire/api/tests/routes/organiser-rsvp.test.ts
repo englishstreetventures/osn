@@ -6,6 +6,7 @@ import {
   ORGANISER_PLUS_ONE_DIETARY_ATTESTATION,
   PLUS_ONE_DIETARY_ATTESTATION,
 } from "@cire/dietary";
+import { createRateLimiter } from "@shared/rate-limit";
 import { and, eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
@@ -52,7 +53,9 @@ function guestByName(db: TestDb, firstName: string): string {
   return row.id;
 }
 
-function buildApp() {
+function buildApp(
+  organiserRsvpLimiter = createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
+) {
   const db = createDb(":memory:");
   seedDb(db);
   const now = new Date();
@@ -85,7 +88,8 @@ function buildApp() {
     updatedAt: now,
     owners: ["usr_bob"],
   });
-  const app = createApp(db, { osnTestKey: auth.key });
+  // A fresh limiter per app: the module-level default is shared process-wide.
+  const app = createApp(db, { osnTestKey: auth.key, organiserRsvpLimiter });
   return { db, app };
 }
 
@@ -111,6 +115,22 @@ describe("PUT /api/organiser/weddings/:weddingId/guests/:guestId/rsvps/:eventId"
   it("returns 401 without a token (guest session / anonymous rejected)", async () => {
     const { db, app } = buildApp();
     expect((await put(app, rsvpPath(db), undefined, OK_BODY)).status).toBe(401);
+  });
+
+  it("returns 429 once an organiser passes the per-user limit, and no row is written", async () => {
+    const { db, app } = buildApp(createRateLimiter({ maxRequests: 1, windowMs: 60_000 }));
+    expect((await put(app, rsvpPath(db), OWNER, OK_BODY)).status).toBe(200);
+    const refused = await put(app, rsvpPath(db, "Ada", "reception"), OWNER, OK_BODY);
+    expect(refused.status).toBe(429);
+    expect(
+      db
+        .select({ id: rsvps.id })
+        .from(rsvps)
+        .where(eq(rsvps.eventId, eventBySlug(db, "reception")))
+        .all(),
+    ).toEqual([]);
+    // Per user: another organiser of the wedding still gets through.
+    expect((await put(app, rsvpPath(db, "Ada", "reception"), EDITOR, OK_BODY)).status).toBe(200);
   });
 
   it("returns 403 read_only_role for a viewer co-host", async () => {

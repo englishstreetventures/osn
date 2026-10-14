@@ -236,6 +236,14 @@ owners, each with an `owner` seat. Two consequences:
   `UPDATE rsvp_changes SET actor_osn_profile_id = NULL WHERE actor_osn_profile_id = ?`.
   The consent record itself stays, as evidence an organiser attested; a
   nulled change-log row still says an organiser set the status, by its kind.
+  An organiser's access request finds these by profile id, not by seat, so a
+  co-host whose seat was removed is answered too:
+  `SELECT wedding_id, kind, created_at FROM rsvp_changes WHERE actor_osn_profile_id = ?`,
+  and `SELECT … FROM rsvps WHERE recorded_by_osn_profile_id = ? OR dietary_attested_by_osn_profile_id = ?`.
+  The answer gives, per wedding, the time and kind of each save and which
+  replies they last wrote or attested; guest, household and event ids or names
+  go in only for a wedding where the requester still holds a seat, since
+  outside it they are other people's data (Art. 15(4)).
 - **Unlock-code redemptions.** `unlock_code_redemptions.redeemed_by_osn_profile_id`
   names the owner who redeemed a code for a wedding. It is the organiser's data
   in an organiser's access request. An erasure request from that organiser nulls
@@ -260,6 +268,14 @@ the orphan-tolerance framing is defensible on the merits:
 - Guest data is **organiser-controlled** (cire is processor); the controller
   obligation to erase it survives the organiser's OSN-account deletion and is
   discharged through the organiser, not by cascading from OSN identity.
+- The **organiser attribution ids** (`rsvps.recorded_by_osn_profile_id`,
+  `rsvps.dietary_attested_by_osn_profile_id`, `rsvp_changes.actor_osn_profile_id`)
+  are a record of what one person did to replies the couple and guests share,
+  kept for the Art. 5(2) and 7(1) evidence in [[dpia/cire-guest-data]]. Once OSN
+  deletes the account, the id is opaque and resolves to no one; the change-log
+  column is gone within 90 days in any case, and the `rsvps` columns go with
+  the reply. The cire bridge below, when built, nulls all three on account
+  deletion, as an organiser's erasure request does today.
 
 **Recorded decision.** Orphan-tolerance is the interim position. Its revisit
 trigger — `DELETE /account` landing (C-H2) — **has now fired**, so the choice is

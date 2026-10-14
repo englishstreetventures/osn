@@ -446,6 +446,28 @@ describe("rsvpChangeService.feed", () => {
     ]);
   });
 
+  it("keeps a status save out once an organiser's erasure has nulled its actor", async () => {
+    const { db, ada } = fixture();
+    await recordHostStatus(db, ada, HINDU);
+    // The erasure step in wiki/compliance/dsar.md: the row stays, nameless.
+    db.update(rsvpChanges)
+      .set({ actorOsnProfileId: null })
+      .where(eq(rsvpChanges.actorOsnProfileId, RECORDER))
+      .run();
+    expect(db.select({ kind: rsvpChanges.kind }).from(rsvpChanges).all()).toEqual([
+      { kind: "host_status_set" },
+    ]);
+    expect(await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER))).toEqual({
+      households: 0,
+      truncated: false,
+      items: [],
+    });
+    expect(await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER))).toEqual({
+      markSeq: 0,
+      rows: [],
+    });
+  });
+
   it("reads each window once, through the household index, ranging on seq", () => {
     const { db } = fixture();
     for (const build of [buildUnseenHouseholdsQuery, buildUnseenPairsQuery]) {
@@ -551,6 +573,20 @@ describe("rsvpChangeService.sweepExpired", () => {
       { eventId: RECEPTION },
     ]);
   });
+
+  it("deletes an organiser's status saves on the same 90 days", async () => {
+    const { db, ada } = fixture();
+    const now = new Date("2026-09-27T04:00:00Z");
+    const old = new Date(now.getTime() - RSVP_CHANGE_RETENTION_MS - 1000);
+    const fresh = new Date(now.getTime() - RSVP_CHANGE_RETENTION_MS + 60_000);
+    await recordHostStatus(db, ada, HINDU, old);
+    await recordHostStatus(db, ada, RECEPTION, fresh);
+    await record(db, ada.familyId, [{ guestId: ada.id, eventId: HINDU, kind: "reply_new" }], old);
+    expect(await ok(db, rsvpChangeService.sweepExpired(now))).toBe(2);
+    expect(
+      db.select({ eventId: rsvpChanges.eventId, kind: rsvpChanges.kind }).from(rsvpChanges).all(),
+    ).toEqual([{ eventId: RECEPTION, kind: "host_status_set" }]);
+  });
 });
 
 describe("rsvp_changes cascade", () => {
@@ -558,6 +594,8 @@ describe("rsvp_changes cascade", () => {
     const { db, ada, bo } = fixture();
     await record(db, ada.familyId, [{ guestId: ada.id, eventId: HINDU, kind: "reply_new" }]);
     await record(db, bo.familyId, [{ guestId: bo.id, eventId: HINDU, kind: "reply_new" }]);
+    // An organiser's status save under the household goes with it too.
+    await recordHostStatus(db, ada, RECEPTION);
     db.delete(families).where(eq(families.id, ada.familyId)).run();
     expect(db.select({ familyId: rsvpChanges.familyId }).from(rsvpChanges).all()).toEqual([
       { familyId: bo.familyId },

@@ -230,7 +230,8 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     ([[cire-rsvp-changes#Organiser status saves]]). The organisers' change
     notices (card, badges, digest) never read those rows. The
     dashboard badges a host's status change on a guest's or household's reply
-    as "Host-updated"; no read endpoint returns either profile id. The
+    as "Host-updated", and the RSVP CSV labels it "(status by organiser)"; no
+    read endpoint returns any of the three profile ids. The
     household's claim payload carries one yes or no derived from
     `consent_source` (`householdReplied`: whether any of its replies is its
     own), so the invite can greet a returning household. It is a household

@@ -313,6 +313,17 @@ describe("rsvpDigestService.sendDailyDigests", () => {
     expect(result).toEqual({ sent: 0, failed: 0, noAddress: 0, lookupFailed: 0, deferred: 0 });
   });
 
+  it("mails nobody about a status save an organiser's erasure has left nameless", async () => {
+    const { db, ada } = fixture();
+    change(db, ada, "host_status_set");
+    db.update(rsvpChanges).set({ actorOsnProfileId: null }).run();
+    const { sent, layer } = transport();
+    const { lookup, calls } = lookupOf(ADDRESSES);
+    await run(db, layer, lookup);
+    expect(sent).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
   it("counts only the household's changes beside an organiser's status saves", async () => {
     const { db, ada, bo } = fixture();
     change(db, ada, "reply_new");
@@ -323,6 +334,17 @@ describe("rsvpDigestService.sendDailyDigests", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]!.data).toMatchObject({ households: 1, counts: { reply_new: 1 } });
     // The marker stops at the household's change, so the status save is never mailed later.
+    const [ada1] = db
+      .select({ seq: rsvpChanges.seq })
+      .from(rsvpChanges)
+      .where(eq(rsvpChanges.kind, "reply_new"))
+      .all();
+    const [owner] = db
+      .select({ digestSeq: hostRsvpNotices.digestSeq })
+      .from(hostRsvpNotices)
+      .where(eq(hostRsvpNotices.osnProfileId, OWNER))
+      .all();
+    expect(owner?.digestSeq).toBe(ada1!.seq);
     const second = transport();
     await run(db, second.layer, lookupOf(ADDRESSES).lookup);
     expect(second.sent.filter((e) => e.to === ADDRESSES[OWNER])).toEqual([]);
