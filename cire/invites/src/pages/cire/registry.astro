@@ -1,0 +1,22 @@
+---
+import GiftRegistryDocument from '../../components/gift-registry/GiftRegistryDocument.astro'
+import NotFoundDocument from '../../components/NotFoundDocument.astro'
+import { API_URL, fetchInviteForTrace } from '../../lib/invite'
+
+const slug = Astro.url.searchParams.get('slug')
+const result = slug ? await fetchInviteForTrace(slug) : ({ kind: 'not-found' } as const)
+
+if (result.kind !== 'ok') {
+  Astro.response.status = result.kind === 'error' ? 503 : 404
+}
+
+const invite = result.kind === 'ok' ? result.invite : null
+---
+{result.kind === 'ok' ? (
+  <GiftRegistryDocument apiUrl={API_URL} slug={slug!} invite={invite} />
+) : (
+  <NotFoundDocument
+    heading={result.kind === 'error' ? 'Gift list unavailable' : 'Invitation not found'}
+    body={result.kind === 'error' ? 'Please try again shortly.' : 'Please check the link from your invite and try again.'}
+  />
+)}

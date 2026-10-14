@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS weddings (
   slug TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
   code_style TEXT NOT NULL DEFAULT 'secure',
+  invite_trace_eligible INTEGER NOT NULL DEFAULT 0,
   wedding_date TEXT,
   guest_count_estimate INTEGER,
   currency TEXT NOT NULL DEFAULT 'AUD',

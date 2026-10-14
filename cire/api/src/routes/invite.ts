@@ -2,7 +2,7 @@ import { DESIGNS } from "@cire/invite-designs";
 import type { DesignMeta } from "@cire/invite-designs";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Schema } from "effect";
-import { Elysia } from "elysia";
+import { Elysia, t } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
@@ -131,6 +131,30 @@ export const createInvitePublicRoutes = (
   images?: ImagesBindingLike,
 ) =>
   new Elysia({ prefix: "/api/invite" })
+    .post(
+      "/resolve",
+      ({ body, set }) => {
+        set.headers["cache-control"] = "no-store";
+        return runCire(
+          inviteService.getForSlug(body.slug).pipe(
+            Effect.provideService(DbService, db),
+            Effect.catchTag("WeddingNotFound", () =>
+              Effect.sync(() => {
+                set.status = 404;
+                return { error: "Not found" };
+              }),
+            ),
+            Effect.catchDefect(() =>
+              Effect.sync(() => {
+                set.status = 500;
+                return { error: "Internal error" };
+              }),
+            ),
+          ),
+        );
+      },
+      { body: t.Object({ slug: t.String({ minLength: 1, maxLength: 128 }) }) },
+    )
     .get("/:slug", ({ params, set }) => {
       // Personalised, edit-sensitive payload (hero image URL + theme + copy).
       // It must never be served stale, or organiser edits won't surface on the

@@ -6,7 +6,7 @@
 //
 // The `?code=<host code>` auto-claim deep-link rides on `/<slug>?code=...`:
 // LoginSection reads `code` client-side, so it survives untouched here.
-import { fetchInvite, API_URL } from '../lib/invite'
+import { fetchInvite, API_URL, tracedGuestUrl } from '../lib/invite'
 import NotFoundDocument from '../components/NotFoundDocument.astro'
 import { registry } from '../designs/registry'
 import { resolveDesignId } from '../designs/resolve'
@@ -17,6 +17,12 @@ const { slug } = Astro.params
 // A missing slug can't happen for `[slug]` (Astro wouldn't match), but guard so
 // the fetch never runs with `undefined`.
 const result = slug ? await fetchInvite(slug) : ({ kind: 'not-found' } as const)
+
+if (slug && result.kind === 'ok' && result.invite.inviteTraceEligible === true) {
+  const redirect = Astro.redirect(tracedGuestUrl(slug, 'invite', Astro.url).toString(), 302)
+  redirect.headers.set('cache-control', 'no-store')
+  return redirect
+}
 
 // Unknown slug → a real 404 with a tasteful not-found page. An API error (e.g.
 // cire-api briefly unreachable) is NOT a 404 — we still render the invite shell

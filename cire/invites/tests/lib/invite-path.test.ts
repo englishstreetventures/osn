@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { invitePath } from "../../src/lib/invite";
+import { invitePath, tracedGuestUrl } from "../../src/lib/invite";
 
 /**
  * The invitation is now linked TO, not only landed on: the gift list has its own
@@ -19,5 +19,19 @@ describe("invitePath", () => {
     expect(invitePath("a b")).toBe("/a%20b");
     expect(invitePath("../other")).toBe("/..%2Fother");
     expect(invitePath("a?b#c")).toBe("/a%3Fb%23c");
+  });
+});
+
+describe("tracedGuestUrl", () => {
+  it("preserves guest link parameters and puts the slug in the redacted query", () => {
+    const incoming = new URL(
+      "https://invite.cireweddings.com/old-wedding/registry?code=claim&gift=flowers&slug=wrong",
+    );
+    const target = tracedGuestUrl("next-wedding", "registry", incoming);
+    expect(target.pathname).toBe("/cire/registry");
+    expect(target.searchParams.get("slug")).toBe("next-wedding");
+    expect(target.searchParams.get("code")).toBe("claim");
+    expect(target.searchParams.get("gift")).toBe("flowers");
+    expect(target.searchParams.getAll("slug")).toEqual(["next-wedding"]);
   });
 });

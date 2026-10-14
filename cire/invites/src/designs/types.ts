@@ -23,6 +23,8 @@ export interface HeroDisplay {
 }
 
 export interface InviteCustomisation {
+  /** Existing weddings continue to use the untraced guest route. */
+  inviteTraceEligible?: boolean;
   hero: {
     title: string | null;
     subtitle: string | null;

@@ -5,7 +5,7 @@ related:
   - "[[shared/observability/overview]]"
   - "[[cire]]"
   - "[[decisions/deferred-decisions]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-10-14
 ---
 # Observability Overview
 
@@ -18,12 +18,12 @@ cire/api is an Elysia app on workerd; cire uses Effect.ts only in the service + 
 | Concern | What cire uses | Workerd-safe because |
 | --- | --- | --- |
 | **Logs** | `makeLoggerLayer` from `@shared/observability/logger` (`src/observability.ts` → `cireLoggerLayer`, provided via `runCire` / `runCireSync`) | pure `effect` code, zero OTel imports |
-| **Traces** | `Effect.withSpan("cire.<domain>.<op>")` on every service fn; `instrumentedFetch` (`@shared/observability/fetch`) on the one S2S call | span annotations are free without a tracer; `instrumentedFetch` imports only `@opentelemetry/api` (no-op without a provider) |
+| **Traces** | `Effect.withSpan("cire.<domain>.<op>")` on service functions; `makeOtlpTracing` from `@shared/observability/tracing` | the optional exporter uses Effect and `fetch`, without the Node OpenTelemetry SDK |
 | **Metrics** | `cire/api/src/metrics.ts` — typed counters/histograms via `createCounter`/`createHistogram` (`@shared/observability/metrics`) | factory imports only `@opentelemetry/api`; lazily resolves a no-op meter |
 
-### Deferred: metric/trace EXPORT
+### Application export
 
-There is no long-lived process on Workers to flush an OTLP exporter, so today the spans + `.inc()`/`.record()` calls are **no-ops**. They are defined, type-checked and correct at the call-site, but nothing ships them until a workerd reader (otel-cf-workers / Workers Analytics Engine) is wired. Tracked in `[[decisions/deferred-decisions]]`. Until then, Cloudflare's own dashboard (request traces, CPU time, error rates) plus the structured logs below are the live signal.
+`cire/api` exports application spans through a workerd-safe OTLP/HTTP exporter when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. The Worker flushes after each request through `ctx.waitUntil`; without the endpoint, the exporter is inert. Application metrics still need a workerd export path; see `[[decisions/deferred-decisions]]`. Cloudflare's native tracing is separate: local and dev tiers enable it without URL redaction. In production, existing guest links stay on the untraced `cire-invites` Custom Domain Worker. Newly created weddings redirect to `/cire/invite?slug=…` or `/cire/registry?slug=…` on the traced `cire-invites-traced` Route. The traced Worker resolves invitations through a fixed API URL with the slug in the request body. The production API Worker keeps native traces off while path-bearing URLs are reviewed. Production query strings are redacted in Cloudflare logs and native traces. See [[shared/observability/tracing]].
 
 ## Three Rules
 
@@ -55,9 +55,8 @@ The deny-list is the single shared list in `shared/observability/src/logger/reda
 
 ## Upgrade Path
 
-The remaining step is wiring a workerd metric/trace exporter so the already-instrumented spans + counters actually ship:
+The remaining step is wiring a workerd metric exporter so the counters ship:
 
-- **OpenTelemetry export** from Workers via `otel-cf-workers`, or
 - **Workers Analytics Engine** for metrics.
 
 Either one activates the existing call-sites with no code change. See `[[decisions/deferred-decisions]]`.

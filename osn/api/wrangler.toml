@@ -121,8 +121,13 @@ simple = { limit = 60, period = 60 }
 # interim observability while OTel export stays deferred on workerd (the
 # redacting osnLoggerLayer keeps structured logs; no logger/observability code
 # changes). head_sampling_rate = 1 captures every invocation at launch volume.
-# Named envs do NOT inherit this — mirrored into each [env.*] below.
+# Each tier states its trace and URL-redaction posture below.
 [observability]
+enabled = true
+head_sampling_rate = 1
+redact_query_string = false
+
+[observability.traces]
 enabled = true
 head_sampling_rate = 1
 
@@ -234,6 +239,11 @@ simple = { limit = 60, period = 60 }
 [env.dev.observability]
 enabled = true
 head_sampling_rate = 1
+redact_query_string = false
+
+[env.dev.observability.traces]
+enabled = true
+head_sampling_rate = 1
 
 [env.dev.triggers]
 crons = ["0 */6 * * *"]
@@ -295,6 +305,10 @@ simple = { limit = 60, period = 60 }
 [env.staging.observability]
 enabled = true
 head_sampling_rate = 1
+redact_query_string = true
+
+[env.staging.observability.traces]
+enabled = false
 
 [env.staging.triggers]
 crons = ["0 */6 * * *"]
@@ -402,6 +416,10 @@ simple = { limit = 60, period = 60 }
 [env.production.observability]
 enabled = true
 head_sampling_rate = 1
+redact_query_string = true
+
+[env.production.observability.traces]
+enabled = false
 
 [env.production.triggers]
 crons = ["0 */6 * * *"]

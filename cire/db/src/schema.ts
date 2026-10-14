@@ -33,6 +33,11 @@ export const weddings = sqliteTable(
     codeStyle: text("code_style", { enum: ["simple", "secure"] })
       .notNull()
       .default("secure"),
+    // Existing weddings stay on the untraced guest route. Wedding creation
+    // opts new rows into the traced invite route after this column is present.
+    inviteTraceEligible: integer("invite_trace_eligible", { mode: "boolean" })
+      .notNull()
+      .default(false),
     // ── Wedding profile (platform Phase 0, migration 0030) ──────────────────
     // Organiser-provided planning facts. Everything is nullable — engaged
     // couples often have none of this yet — and NOTHING here is guest-facing:

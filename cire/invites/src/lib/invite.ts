@@ -78,6 +78,24 @@ export async function fetchInvite(slug: string): Promise<InviteFetch> {
   }
 }
 
+/** Resolve a traced page through a fixed API path before any slug-bearing fetch. */
+export async function fetchInviteForTrace(slug: string): Promise<InviteFetch> {
+  try {
+    const res = await fetch(`${API_URL}/api/invite/resolve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ slug }),
+      cache: "no-store",
+    });
+    if (res.status === 404) return { kind: "not-found" };
+    if (!res.ok) return { kind: "error" };
+    const invite = (await res.json()) as InviteCustomisation;
+    return invite.inviteTraceEligible === true ? { kind: "ok", invite } : { kind: "not-found" };
+  } catch {
+    return { kind: "error" };
+  }
+}
+
 // NOTE: `fetchPrimaryWedding` used to live here, resolving the bare domain to
 // the most-recently-created wedding. It was removed along with the
 // `GET /api/primary-wedding` endpoint it called — the bare domain now redirects
@@ -93,4 +111,11 @@ export async function fetchInvite(slug: string): Promise<InviteFetch> {
  */
 export function invitePath(slug: string): string {
   return `/${encodeURIComponent(slug)}`;
+}
+
+export function tracedGuestUrl(slug: string, page: "invite" | "registry", incoming: URL): URL {
+  const target = new URL(`/cire/${page}`, incoming);
+  target.search = incoming.search;
+  target.searchParams.set("slug", slug);
+  return target;
 }

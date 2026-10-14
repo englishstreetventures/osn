@@ -20,7 +20,7 @@
 // missing list from a locked one without becoming an oracle for exactly what the
 // API's single 404 code exists to hide — a page that 404s for "no registry"
 // would answer, to anyone with a slug, a question the API refuses.
-import { fetchInvite, API_URL } from '../../lib/invite'
+import { fetchInvite, API_URL, tracedGuestUrl } from '../../lib/invite'
 import GiftRegistryDocument from '../../components/gift-registry/GiftRegistryDocument.astro'
 import NotFoundDocument from '../../components/NotFoundDocument.astro'
 
@@ -29,6 +29,12 @@ const { slug } = Astro.params
 // A missing slug can't happen for `[slug]/registry` (Astro wouldn't match), but
 // guard so the fetch never runs with `undefined`.
 const result = slug ? await fetchInvite(slug) : ({ kind: 'not-found' } as const)
+
+if (slug && result.kind === 'ok' && result.invite.inviteTraceEligible === true) {
+  const redirect = Astro.redirect(tracedGuestUrl(slug, 'registry', Astro.url).toString(), 302)
+  redirect.headers.set('cache-control', 'no-store')
+  return redirect
+}
 
 // Unknown slug → a real 404, the same as the invitation itself gives. An API
 // error is NOT a 404: the wedding may be perfectly real, so the page renders

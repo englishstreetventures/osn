@@ -8,7 +8,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[shared/observability/logging]]"
   - "[[shared/observability/tracing]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-14
 ---
 
 # Observability Setup Runbook
@@ -24,9 +24,9 @@ The OTLP pipeline described below runs on the **Bun** entries only. `@osn/api` a
 | Runtime | Services | Logging | Traces + metrics |
 |---|---|---|---|
 | **Bun** (`src/local.ts`) | local `@osn/api`, `@pulse/api`, `@zap/api` | redacting logger, through `initObservability()` | full OTLP export to Grafana Cloud |
-| **Workers** (`src/index.ts`) | deployed `@osn/api` (`id.musubi.social`), `@cire/api` (`api.cireweddings.com`) | redacting logger only — `osnLoggerLayer` / `cireLoggerLayer`, built from the `@shared/observability/logger` + `/config` subpaths so no `@opentelemetry/*` module enters the bundle | **export deferred** — the recording call sites are typed and correct but are no-ops until an exporter is attached |
+| **Workers** (`src/index.ts`) | deployed API Workers and the Cire invites Worker | redacting application logger; Cloudflare Workers Logs where enabled | native traces in local and dev; optional OTLP/HTTP application spans in OSN and Cire APIs |
 
-So for a deployed Worker, telemetry means **Cloudflare Workers Logs** (`[observability]` in each `wrangler.toml`, 7-day retention; cire sets `invocation_logs = false` so request URLs, which carry the wedding slug, are never stored) plus the resource Metrics tabs, not Grafana. See [[free-tier-limits]] → Monitoring. Steps 1–3 below apply to a Bun service; steps 4–6 apply to whichever surface actually exports.
+For a deployed Worker, Cloudflare Workers Logs currently retain three days on the Free plan. Cire keeps invocation logs off because existing request paths contain the current wedding's slug. Native traces are enabled in local and dev without URL redaction. Production redacts query strings; its traced Cire guest Route serves future weddings, while the legacy guest Worker and API Workers keep native traces off. See [[free-tier-limits]] → Monitoring and [[tracing]]. Steps 1–3 below apply to a Bun service; steps 4–6 apply to whichever surface actually exports.
 
 ### Grafana Cloud Free Tier Limits
 
@@ -78,17 +78,9 @@ The `initObservability()` call sets up:
 - OpenTelemetry NodeSdk with trace + metric exporters — or `NoopTracingLive` when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, so an unconfigured service never spams a failing localhost exporter
 - Resource attributes (`service.name`, `service.namespace`, `service.version`, `deployment.environment`)
 
-A **Workers** service builds the logger layer alone, because the NodeSdk cannot load on workerd:
+A **Workers** service builds a redacting logger and an optional workerd-safe OTLP span exporter, because the NodeSdk cannot load on workerd. See [osn/api/src/observability.ts](../../../osn/api/src/observability.ts) and [cire/api/src/observability.ts](../../../cire/api/src/observability.ts): each builds the layer lazily when a request first runs and flushes through `ctx.waitUntil` after a response.
 
-```typescript
-// osn/api/src/observability.ts (cire/api/src/observability.ts is the twin)
-import { loadConfig } from "@shared/observability/config";
-import { makeLoggerLayer } from "@shared/observability/logger";
-
-export const osnLoggerLayer = makeLoggerLayer(loadConfig({ serviceName: "osn-api" }));
-```
-
-Import the `/config` and `/logger` subpaths, never the package root — the root barrel pulls in `@effect/opentelemetry/NodeSdk` and the bundle then fails to load. The Workers entry also passes `includeObservabilityPlugin: false`, because the per-request Elysia plugin calls `process.hrtime.bigint()`, which workerd does not provide.
+Import the workerd-safe `/config`, `/logger`, and `/tracing` subpaths, never the package root — the root barrel pulls in `@effect/opentelemetry/NodeSdk` and the bundle then fails to load. The Workers entry also passes `includeObservabilityPlugin: false`, because the per-request Elysia plugin calls `process.hrtime.bigint()`, which workerd does not provide.
 
 ### 4. Verify with Health Endpoints
 
@@ -111,7 +103,7 @@ curl https://api.cireweddings.com/health
 
 ### 5. Verify Data in Grafana
 
-Applies to the exporting (Bun) services. For a deployed Worker, read the logs in the CF dashboard instead: **Workers & Pages → osn-api / cire-api → Observability**.
+Applies to Bun services and to Workers with `OTEL_EXPORTER_OTLP_ENDPOINT` configured. For native Worker logs and traces, use **Workers & Pages → osn-api / cire-api → Observability** in the Cloudflare dashboard.
 
 1. Open Grafana Cloud explore view
 2. Check **Logs** -- look for structured JSON log entries from your service

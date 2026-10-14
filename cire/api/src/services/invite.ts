@@ -226,6 +226,7 @@ export type PublicInviteCustomisation = Omit<
   "visibility" | "inviteMessage"
 > & {
   visibility: Omit<InviteCustomisation["visibility"], "footer" | "faq">;
+  inviteTraceEligible: boolean;
 };
 
 /**
@@ -541,7 +542,10 @@ function visibilityOf(
  * The closing section, the FAQ's switch and the organiser-only invite message
  * are left out entirely; the first two ride the claim payload.
  */
-function publicView(full: InviteCustomisation): PublicInviteCustomisation {
+function publicView(
+  full: InviteCustomisation,
+  inviteTraceEligible: boolean,
+): PublicInviteCustomisation {
   const { visibility, inviteMessage: _organiserOnly, ...rest } = full;
   return {
     ...rest,
@@ -549,6 +553,7 @@ function publicView(full: InviteCustomisation): PublicInviteCustomisation {
     story: visibility.story ? full.story : EMPTY.story,
     footer: EMPTY.footer,
     visibility: { hero: visibility.hero, story: visibility.story },
+    inviteTraceEligible,
   };
 }
 
@@ -682,7 +687,7 @@ export const inviteService = {
       const db = yield* DbService;
       const [wedding] = yield* dbQuery(() =>
         db
-          .select({ id: weddings.id })
+          .select({ id: weddings.id, inviteTraceEligible: weddings.inviteTraceEligible })
           .from(weddings)
           .where(and(eq(weddings.slug, slug), weddingIsLive))
           .all(),
@@ -690,7 +695,7 @@ export const inviteService = {
       // A soft-deleted wedding is answered as an unknown slug.
       if (!wedding) return yield* Effect.fail(new WeddingNotFound({ slug }));
       const full = yield* inviteService.getForWedding(wedding.id, slug);
-      return publicView(full);
+      return publicView(full, wedding.inviteTraceEligible);
     }).pipe(Effect.withSpan("cire.invite.getForSlug"));
   },
 

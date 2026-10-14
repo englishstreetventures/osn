@@ -6,12 +6,14 @@ import {
   weddingEntitlements,
   weddingHosts,
   weddingInviteCustomisations,
+  weddings,
 } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
 import { DESIGNS } from "@cire/invite-designs";
 import type { DesignMeta } from "@cire/invite-designs";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
+import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
@@ -184,6 +186,47 @@ describe("GET /api/invite/:slug (public)", () => {
     const res = await appRequest(app, `/api/invite/${SLUG}`);
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+});
+
+describe("POST /api/invite/resolve (traced guest lookup)", () => {
+  it("resolves a legacy wedding through a fixed URL and keeps it ineligible for tracing", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, "/api/invite/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug: SLUG }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(((await res.json()) as { inviteTraceEligible: boolean }).inviteTraceEligible).toBe(
+      false,
+    );
+  });
+
+  it("resolves a tracing eligible wedding through the same fixed URL", async () => {
+    const { app, db } = buildApp();
+    db.update(weddings)
+      .set({ inviteTraceEligible: true })
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .run();
+    const res = await appRequest(app, "/api/invite/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug: SLUG }),
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { inviteTraceEligible: boolean }).inviteTraceEligible).toBe(true);
+  });
+
+  it("404s for an unknown slug", async () => {
+    const { app } = buildApp();
+    const unknown = await appRequest(app, "/api/invite/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug: "no-such-wedding" }),
+    });
+    expect(unknown.status).toBe(404);
   });
 });
 

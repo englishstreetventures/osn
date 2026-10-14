@@ -48,6 +48,7 @@ describe("weddingsService.createForOwner", () => {
 
     const [row] = db.select().from(weddings).where(eq(weddings.id, summary.id)).all();
     expect(row!.codeStyle).toBe("secure");
+    expect(row!.inviteTraceEligible).toBe(true);
     // The wedding and its creator's owner seat land together.
     const seats = db
       .select()

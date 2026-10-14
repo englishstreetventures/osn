@@ -141,7 +141,7 @@ jobs:
           # cire-api owns the D1 migrations + the seed scripts, so a change to
           # either has to redeploy it (the dev job resets and re-seeds).
           emit cire_api     '^(cire/api/|cire/db/|cire/dietary/|cire/invite-designs/|cire/theme/|scripts/(cire-db-|cire-dev-db-guard|check-d1-database-id))'
-          emit cire_invites '^(cire/invites/|cire/build-tools/|cire/dietary/|cire/invite-designs/|cire/theme/|cire/ui/)'
+          emit cire_invites '^(cire/invites/|cire/build-tools/|cire/dietary/|cire/invite-designs/|cire/theme/|cire/ui/|scripts/cire-traced-invites-config\.ts$)'
           emit cire_host    '^(cire/host/|cire/build-tools/|cire/dietary/|cire/invite-designs/|cire/theme/|cire/ui/)'
           emit cire_vendor  '^(cire/vendor/|cire/build-tools/|cire/dietary/|cire/theme/|cire/ui/)'
           emit cire_landing '^(cire/landing/|cire/dietary/|cire/ui/)'
@@ -329,11 +329,19 @@ jobs:
   # future split of the two cannot silently retarget this step.
   #
   # `needs: deploy-cire-api-dev` is the promotion edge: prod ships only what dev
-  # already accepted, and the run parks here for the approval click.
+  # already accepted, and the run parks here for the approval click. When the
+  # guest Worker also changes, its traced route must exist before this API can
+  # create tracing-eligible weddings.
   deploy-cire-api:
     name: Deploy cire/api — production
-    needs: [build, changes, deploy-cire-api-dev]
-    if: needs.changes.outputs.cire_api == 'true'
+    needs: [build, changes, deploy-cire-api-dev, deploy-cire-invites]
+    if: >-
+      always() &&
+      needs.build.result == 'success' &&
+      needs.changes.result == 'success' &&
+      needs.deploy-cire-api-dev.result == 'success' &&
+      needs.changes.outputs.cire_api == 'true' &&
+      (needs.changes.outputs.cire_invites != 'true' || needs.deploy-cire-invites.result == 'success')
     runs-on: ubuntu-latest
     environment: production
     concurrency:
@@ -402,7 +410,7 @@ jobs:
   # ═══ cire invites (Astro SSR → Cloudflare Worker) ══════════════════════════
   # The guest site is Astro SSR on Cloudflare (output: "server", the
   # @astrojs/cloudflare adapter). It resolves which wedding to render FROM THE
-  # PATH per request — there is NO PUBLIC_WEDDING_SLUG any more. The adapter
+  # PATH or the redacted query per request — there is NO PUBLIC_WEDDING_SLUG. The adapter
   # emits a Cloudflare Worker with Static Assets: `dist/server/entry.mjs` (the
   # SSR Worker), `dist/client/` (prerendered legal pages + JS/CSS), and a
   # generated `dist/server/wrangler.json` that EXTENDS the committed
@@ -449,7 +457,7 @@ jobs:
             ${{ runner.os }}-turbo-build-
 
       - name: Install dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: Build cire/invites (dev)
         run: bun run build --filter=@cire/invites
@@ -493,6 +501,7 @@ jobs:
             delete c.legacy_env;
             c.name = 'cire-invites-dev';
             c.routes = [{ pattern: 'invite.dev.cireweddings.com', custom_domain: true }];
+            c.observability = { ...c.observability, redact_query_string: false, traces: { enabled: true, head_sampling_rate: 1 } };
             fs.writeFileSync(f, JSON.stringify(c));
           "
         working-directory: cire/invites
@@ -539,7 +548,7 @@ jobs:
             ${{ runner.os }}-turbo-build-
 
       - name: Install dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
       #   PUBLIC_GOOGLE_MAPS_EMBED_KEY is an optional referrer-restricted Embed
       #   key — wire it from a secret/var only if/when one exists.
@@ -581,10 +590,7 @@ jobs:
       # `@astrojs/cloudflare` writes a top-level `"legacy_env": true` into the
       # generated `dist/server/wrangler.json`. Wrangler 4.111+ REMOVED support for
       # that field and hard-errors on it ("legacy_env field is no longer
-      # supported") — and because cire/invites pins no wrangler, `bunx wrangler` below
-      # fetches the latest, so this broke the guest-site deploy the moment 4.111
-      # shipped (cire-api is unaffected: hand-written wrangler.toml, no legacy_env,
-      # wrangler pinned ^4.96). Removing the field is a no-op for behaviour —
+      # supported"). Removing the field is a no-op for behaviour —
       # `legacy_env: true` WAS the default (each env deploys as its own Worker),
       # so stripping it deploys identically. Version-proof: harmless if a future
       # adapter stops emitting it.
@@ -600,6 +606,13 @@ jobs:
       # this Worker (the apex now serves the cire-landing marketing site).
       - name: Deploy cire/invites (Worker)
         run: bunx wrangler deploy --config dist/server/wrangler.json
+        working-directory: cire/invites
+
+      - name: Prepare traced future-wedding Worker config
+        run: bun run scripts/cire-traced-invites-config.ts
+
+      - name: Deploy cire/invites (traced future-wedding routes)
+        run: bunx wrangler deploy --config dist/server/wrangler-traced.json
         working-directory: cire/invites
 
   # ═══ cire host (Astro → Cloudflare Pages) ══════════════════════════════════

@@ -9,9 +9,24 @@ related:
   - "[[metrics]]"
   - "[[arc-tokens]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-07-22
+last-reviewed: 2026-10-14
 ---
 # Tracing
+
+## Native Workers traces
+
+The deployed Worker projects configure Cloudflare's automatic traces in Wrangler.
+Local and dev tiers trace requests without URL redaction. Staging and production
+tiers remove query strings from request URLs in Cloudflare logs and native traces.
+The production Cire guest site has two Workers: the legacy Custom Domain Worker
+serves existing path links without native traces; a more specific `/cire/*` Route
+serves future weddings with native traces and the wedding slug in the redacted
+query. The production API Workers keep native traces disabled while path values
+and outbound URLs are reviewed. Cloudflare records URLs before application code
+runs, so the shared logger's `redact()` cannot change native span attributes.
+
+The workerd-safe application span calls below are separate from native Workers
+traces. They do not export until a compatible application exporter is installed.
 
 ## Span creation
 

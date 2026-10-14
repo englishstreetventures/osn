@@ -10,29 +10,29 @@ related:
   - "[[feature-checklist]]"
   - "[[observability-setup]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-14
 ---
 
 # Observability Overview
 
 OSN uses **OpenTelemetry end-to-end**, shipped to **Grafana Cloud** (free tier: 10k active series, 50 GB/mo logs, 50 GB/mo traces, 14-day rolling retention). Frontend observability via **Grafana Faro** (same OTLP endpoint, no Sentry). All plumbing lives in `@shared/observability` -- no other package should import `@opentelemetry/*` directly.
 
-> **Interim on Workers (2026-06).** The OTLP exporter path is **deferred on
-> workerd** — the Cloudflare Workers runtime doesn't yet support the
-> `@effect/opentelemetry` NodeSdk export the way the Bun hosts do, so OTel
-> traces/metrics from `osn-api` and `cire-api` are **not** flowing to Grafana
-> Cloud while they run as Workers (the app-level OTel code stays in place and
-> activates once an endpoint is wired + a workerd-compatible exporter lands).
-> The interim signal is **Cloudflare Workers Logs** (native `[observability]`
-> in each `wrangler.toml`, #151 cire-api / #153 osn-api — structured logs,
-> and invocation records on osn-api only; cire turns invocation records off
-> because they store the request URL, which carries the wedding slug.
-> ~7-day retention, viewable in the CF dashboard → Workers &
-> Pages → *worker* → Observability/Logs). Workers Logs cover the deployed-Worker
-> debugging story; Grafana Cloud remains the destination for the Bun-hosted dev
-> path and the future workerd OTLP export. See [[free-tier-limits]] (Monitoring)
-> and [[observability-setup]]. `S-L8 (osn)` notes `head_sampling_rate = 1` on
-> osn-api captures every invocation — revisit for cost as volume grows.
+> **Workers.** The Node OpenTelemetry SDK is unavailable on workerd. `osn-api`
+> and `cire-api` instead use an optional Effect-based OTLP/HTTP span exporter;
+> it sends spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is configured and is inert
+> otherwise. Application metrics still need a workerd export path.
+> Cloudflare Workers Logs are configured in each Worker's `[observability]`
+> block. Cire keeps invocation records off because existing request paths carry
+> the wedding slug. Free-plan logs currently retain three days and are visible
+> in the Cloudflare dashboard under Workers & Pages → *worker* → Observability.
+> Native Workers traces are enabled in
+> local and dev tiers without URL redaction. Staging and production native
+> traces are enabled for the separate Cire future-wedding guest route; the
+> legacy guest Worker and production API Workers keep traces disabled while
+> path-bearing URLs are reviewed. Query strings are redacted in production.
+> Grafana Cloud remains the destination for Bun-hosted telemetry and configured
+> workerd OTLP spans. See [[free-tier-limits]] (Monitoring)
+> and [[observability-setup]].
 
 ## Package layout
 
