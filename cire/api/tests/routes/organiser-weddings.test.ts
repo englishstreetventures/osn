@@ -51,15 +51,18 @@ function buildApp() {
   const db = createDb(":memory:");
   seedDb(db);
   seedOtherWedding(db);
-  // Generous create and export limiters: the defaults are built once per module
-  // and keyed on the caller, so every test in this file that signs in as the
-  // same owner would share one 10/min bucket and bleed into the next. The
-  // dedicated rate-limit tests below build their own apps with a 1-req limiter
-  // to assert 429.
+  // Generous limiters for every route here that has one: the defaults are
+  // built once per module and keyed on the caller or the test IP, so every
+  // test in this file — refused requests included, since the per-IP limiters
+  // answer before sign-in — would share one bucket and bleed into the next.
+  // The dedicated rate-limit tests below build their own apps with a 1-req
+  // limiter to assert 429.
   const app = createApp(db, {
     osnTestKey: auth.key,
     weddingCreateLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
     exportLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
+    previewLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
+    remintLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
   });
   return { db, app };
 }

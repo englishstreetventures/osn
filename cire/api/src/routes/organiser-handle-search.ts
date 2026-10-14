@@ -79,8 +79,10 @@ interface Suggestion {
  * which is what lets the portal open its dropdown on focus, before a keystroke.
  * Enumeration guardrails (min prefix length on the global search, ordering,
  * result caps) live in osn-api; this route adds a light per-IP rate limit so an
- * authenticated organiser can't drive unbounded ARC-sign + S2S amplification by
- * spamming keystrokes.
+ * organiser can't drive unbounded ARC-sign + S2S amplification by spamming
+ * keystrokes. The limiter is mounted ahead of `osnAuth()`, so a refused request
+ * costs no session lookup or token verify — and a caller who fails sign-in
+ * spends the same per-IP budget as one who passes.
  */
 export const createOrganiserHandleSearchRoutes = (
   osnAuthOptions: OsnAuthOptions,
@@ -89,10 +91,10 @@ export const createOrganiserHandleSearchRoutes = (
   resolveOsnConnectionSearch?: OsnConnectionSearchResolver,
 ) =>
   new Elysia({ prefix: PREFIX })
-    .use(osnAuth(osnAuthOptions))
     .use(rateLimitMiddleware(limiter))
+    .use(osnAuth(osnAuthOptions))
     .get("/handle-search", async ({ query, set, osnProfileId }) => {
-      // osnAuth derives osnProfileId on every request; guard so a future remount
+      // osnAuth resolves osnProfileId on every request; guard so a future remount
       // without the plugin can't serve this unauthenticated.
       if (!osnProfileId) {
         set.status = 401;

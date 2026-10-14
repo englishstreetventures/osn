@@ -1,14 +1,19 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, spyOn } from "bun:test";
 
+import { BOOTSTRAP_WEDDING_ID } from "@cire/db";
+import { DEV_OWNER_PROFILE_ID } from "@cire/db/seed";
 import { createRateLimiter } from "@shared/rate-limit";
 import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../src/app";
-import { createDb } from "../src/db/setup";
+import type { AppOptions } from "../src/app";
+import { createDb, seedDb } from "../src/db/setup";
 import type { StripeClient } from "../src/services/stripe";
-import { appRequest, jsonBody } from "./test-helpers";
+import { appRequest, jsonBody, recordStatements } from "./test-helpers";
 import { captureLogs } from "./test-helpers/capture-logs";
+import { seedOrganiserSession } from "./test-helpers/organiser-session";
+import { makeOsnTestAuth } from "./test-helpers/osn-token";
 
 // CORS + not-found behavior only — no DB rows needed.
 const db = createDb(":memory:");
@@ -255,5 +260,252 @@ describe("unhandled errors", () => {
     // "no such table: families" is exactly what would have leaked under the old
     // `message: error.message` log.
     expect(out).not.toContain("no such table");
+  });
+});
+
+// The owner's rule for every route with a per-IP limiter: the limiter answers
+// first, so a refused request costs no organiser session lookup, no OSN token
+// verify (and so no JWKS fetch), no role-gate query and no guest session
+// lookup. Each row builds the real app with only that route's limiter refusing
+// and sends the credential that would otherwise cost the most: a live
+// `cire_org_session` for the wedding's owner, whose lookup and gate query both
+// show as statements, or a bearer token checked against a JWKS URL of the
+// row's own, whose fetch the module's key cache cannot hide. The controls let
+// the same request through and see that work happen, so a refused row cannot
+// pass on a credential the route never read.
+describe("a refused request does no credential work", () => {
+  const refusing = { check: () => false };
+  const allowing = { check: () => true };
+  const W = BOOTSTRAP_WEDDING_ID;
+
+  type LimiterOption =
+    | "inviteLimiter"
+    | "vendorPortalLimiter"
+    | "handleSearchLimiter"
+    | "weddingCreateLimiter"
+    | "previewLimiter"
+    | "remintLimiter";
+
+  const routes: {
+    name: string;
+    method: string;
+    path: string;
+    limiter: LimiterOption;
+    /** Whether a role gate reads `wedding_hosts` once the caller is known. */
+    gated: boolean;
+    body?: unknown;
+  }[] = [
+    {
+      name: "GET …/invite",
+      method: "GET",
+      path: `/api/organiser/weddings/${W}/invite`,
+      limiter: "inviteLimiter",
+      gated: true,
+    },
+    {
+      name: "PUT …/invite/text",
+      method: "PUT",
+      path: `/api/organiser/weddings/${W}/invite/text`,
+      limiter: "inviteLimiter",
+      gated: true,
+      body: {},
+    },
+    {
+      name: "POST …/invite/faqs",
+      method: "POST",
+      path: `/api/organiser/weddings/${W}/invite/faqs`,
+      limiter: "inviteLimiter",
+      gated: true,
+      body: {},
+    },
+    {
+      name: "GET /api/vendor/orgs",
+      method: "GET",
+      path: "/api/vendor/orgs",
+      limiter: "vendorPortalLimiter",
+      gated: false,
+    },
+    {
+      name: "POST /api/vendor/claims/:token/consume",
+      method: "POST",
+      path: "/api/vendor/claims/no-such-claim/consume",
+      limiter: "vendorPortalLimiter",
+      gated: false,
+      body: { orgId: "org_probe" },
+    },
+    {
+      name: "GET /api/organiser/handle-search",
+      method: "GET",
+      path: "/api/organiser/handle-search?q=ab",
+      limiter: "handleSearchLimiter",
+      gated: false,
+    },
+    {
+      name: "POST /api/organiser/weddings",
+      method: "POST",
+      path: "/api/organiser/weddings",
+      limiter: "weddingCreateLimiter",
+      gated: false,
+      body: { displayName: "Probe" },
+    },
+    {
+      name: "POST …/preview-code",
+      method: "POST",
+      path: `/api/organiser/weddings/${W}/preview-code`,
+      limiter: "previewLimiter",
+      gated: true,
+    },
+    {
+      name: "POST …/remint",
+      method: "POST",
+      path: `/api/organiser/weddings/${W}/remint`,
+      limiter: "remintLimiter",
+      gated: true,
+      body: {},
+    },
+    {
+      name: "POST …/families/:familyId/mark-shared",
+      method: "POST",
+      path: `/api/organiser/weddings/${W}/families/fam_probe/mark-shared`,
+      limiter: "remintLimiter",
+      gated: true,
+    },
+  ];
+
+  /** The seeded app, its database, and a live session for the wedding's owner. */
+  async function organiserApp(limiter: LimiterOption, allowed: boolean, jwksUrl: string) {
+    const seeded = createDb(":memory:");
+    seedDb(seeded);
+    const session = await seedOrganiserSession(seeded, DEV_OWNER_PROFILE_ID);
+    // No `osnTestKey`: a bearer token is verified against `jwksUrl`.
+    const options: AppOptions = { osnJwksUrl: jwksUrl };
+    options[limiter] = allowed ? allowing : refusing;
+    return { routeApp: createApp(seeded, options), routeDb: seeded, session };
+  }
+
+  function send(
+    routeApp: ReturnType<typeof createApp>,
+    route: (typeof routes)[number],
+    headers: Record<string, string>,
+  ) {
+    return appRequest(routeApp, route.path, {
+      method: route.method,
+      headers:
+        route.body === undefined ? headers : { ...headers, "Content-Type": "application/json" },
+      body: route.body === undefined ? undefined : JSON.stringify(route.body),
+    });
+  }
+
+  /** Runs `body` with `fetch` answering every call 503, and hands it the spy. */
+  async function withFetchSpy(body: (fetches: ReturnType<typeof spyOn>) => Promise<void>) {
+    const fetches = spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ error: "unavailable" }, { status: 503 }),
+    );
+    try {
+      await body(fetches);
+    } finally {
+      fetches.mockRestore();
+    }
+  }
+
+  const freshJwksUrl = () => `http://osn.test/${crypto.randomUUID()}/jwks.json`;
+
+  for (const route of routes) {
+    describe(route.name, () => {
+      it("refuses an organiser session cookie before any query", async () => {
+        const { routeApp, routeDb, session } = await organiserApp(
+          route.limiter,
+          false,
+          freshJwksUrl(),
+        );
+        const statements = recordStatements(routeDb);
+        const res = await send(routeApp, route, { cookie: `cire_org_session=${session}` });
+        expect(res.status).toBe(429);
+        expect(statements).toEqual([]);
+      });
+
+      it("control: let through, the cookie costs the session lookup and the gate", async () => {
+        const { routeApp, routeDb, session } = await organiserApp(
+          route.limiter,
+          true,
+          freshJwksUrl(),
+        );
+        const statements = recordStatements(routeDb);
+        const res = await send(routeApp, route, { cookie: `cire_org_session=${session}` });
+        expect(res.status).not.toBe(429);
+        expect(statements[0]?.sql).toMatch(/from "organiser_sessions"/);
+        if (route.gated) {
+          expect(statements.slice(1).some((s) => /"wedding_hosts"/.test(s.sql))).toBe(true);
+        }
+      });
+
+      it("refuses a bearer token before its keys are fetched", async () => {
+        const auth = await makeOsnTestAuth();
+        await withFetchSpy(async (fetches) => {
+          const { routeApp, routeDb } = await organiserApp(route.limiter, false, freshJwksUrl());
+          const statements = recordStatements(routeDb);
+          const res = await send(routeApp, route, {
+            Authorization: `Bearer ${await auth.sign(DEV_OWNER_PROFILE_ID)}`,
+          });
+          expect(res.status).toBe(429);
+          expect(fetches).not.toHaveBeenCalled();
+          expect(statements).toEqual([]);
+        });
+      });
+
+      it("control: let through, the bearer token costs one fetch of its keys", async () => {
+        const auth = await makeOsnTestAuth();
+        await withFetchSpy(async (fetches) => {
+          const jwksUrl = freshJwksUrl();
+          const { routeApp } = await organiserApp(route.limiter, true, jwksUrl);
+          const res = await send(routeApp, route, {
+            Authorization: `Bearer ${await auth.sign(DEV_OWNER_PROFILE_ID)}`,
+          });
+          expect(res.status).toBe(401);
+          expect(fetches).toHaveBeenCalledTimes(1);
+          expect(String(fetches.mock.calls[0]?.[0])).toBe(jwksUrl);
+        });
+      });
+    });
+  }
+
+  describe("POST /api/invite/:slug/registry/contribute", () => {
+    async function contribute(allowed: boolean) {
+      const guestDb = createDb(":memory:");
+      seedDb(guestDb);
+      const guestApp = createApp(guestDb, {
+        stripe: unreachedStripe,
+        // Its own claim budget, so the cookie below never meets a limit
+        // another suite spent.
+        claimLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
+        registryContributeLimiter: allowed ? allowing : refusing,
+      });
+      const claim = await appRequest(guestApp, "/api/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ publicId: "TESTONE-IVY-AA11" }),
+      });
+      const token = /cire_session=([^;]+)/.exec(claim.headers.get("set-cookie") ?? "")?.[1];
+      expect(token).toBeTruthy();
+      const statements = recordStatements(guestDb);
+      const res = await appRequest(guestApp, "/api/invite/cire-wedding/registry/contribute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie: `cire_session=${token}` },
+        body: JSON.stringify({ amountMinor: 5000 }),
+      });
+      return { res, statements };
+    }
+
+    it("refuses a claimed guest's session cookie before any query", async () => {
+      const { res, statements } = await contribute(false);
+      expect(res.status).toBe(429);
+      expect(statements).toEqual([]);
+    });
+
+    it("control: let through, the cookie costs the session lookup", async () => {
+      const { res, statements } = await contribute(true);
+      expect(res.status).not.toBe(429);
+      expect(statements[0]?.sql).toMatch(/from "sessions"/);
+    });
   });
 });

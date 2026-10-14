@@ -20,7 +20,7 @@ const pass = (role: "admin" | "member") => ({
 
 /**
  * Authz gate for /api/vendor/orgs/:orgId/* — confirms the authenticated caller
- * (identified by osnProfileId set by upstream osnAuth()) is a member of the
+ * (identified by osnProfileId resolved by upstream osnAuth()) is a member of the
  * org. Calls the org membership resolver (osn-bridge's `OsnOrgMembershipResolver`
  * or a test stub). A `null` result — whether the profile is genuinely not a
  * member OR osn-api is unreachable — maps to 403 `not_org_member` (fail-closed
@@ -29,7 +29,7 @@ const pass = (role: "admin" | "member") => ({
  */
 export function vendorOrgMember(orgId: string, orgMembership: OsnOrgMembershipResolver) {
   return new Elysia()
-    .derive({ as: "scoped" }, async (ctx) => {
+    .resolve({ as: "scoped" }, async (ctx) => {
       const osnProfileId = readOsnProfileId(ctx);
 
       if (!osnProfileId) return fail(401, "unauthorised");

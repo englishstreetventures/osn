@@ -13,7 +13,7 @@ import {
   metricAccountLinkUnlink,
 } from "../metrics";
 import { sessionAuth } from "../middleware/auth";
-import { osnAuthResolve } from "../middleware/osn-auth";
+import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { runCire } from "../observability";
@@ -106,12 +106,13 @@ export const createAccountLinkRoutes = (
  *
  * The one deliberate dual-credential route: the guest session cookie (gives
  * `familyId`) proves the household; the OSN sign-in (gives `osnProfileId`)
- * proves the OSN identity. Both `sessionAuth` and `osnAuthResolve`
- * gate this instance, so the OSN gate applies to POST only — DELETE lives in
- * the sibling instance above. A seat in the organiser's host-preview family is
- * never linkable (403, like a seat from another household). The profile is resolved to its account id S2S
- * over ARC so account-level linking lets any of the user's OSN profiles later
- * see the invitation in Pulse; the account id is never returned to the client.
+ * proves the OSN identity. Both `sessionAuth` and `osnAuth` gate this
+ * instance, so the OSN gate applies to POST only — DELETE lives in the sibling
+ * instance above. A seat in the organiser's host-preview family is never
+ * linkable (403, like a seat from another household). The profile is resolved
+ * to its account id S2S over ARC so account-level linking lets any of the
+ * user's OSN profiles later see the invitation in Pulse; the account id is
+ * never returned to the client.
  */
 export const createAccountLinkPostRoute = (
   db: Db,
@@ -128,7 +129,7 @@ export const createAccountLinkPostRoute = (
     // no token verify, no ARC-sign + S2S call and no family-membership answer.
     .use(rateLimitMiddleware(limiter))
     .use(sessionAuth(db))
-    .use(osnAuthResolve(osnAuthOptions))
+    .use(osnAuth(osnAuthOptions))
     .post(
       "/",
       async ({ request, familyId, memberGuestId, osnProfileId, set }) => {

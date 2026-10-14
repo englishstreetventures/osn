@@ -138,22 +138,26 @@ const defaultAccountLinkLimiter = createRateLimiter({ maxRequests: 20, windowMs:
  */
 const defaultInviteLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 /**
- * Default per-IP limiter for the host preview-code endpoint (S-M2). Member-gated
- * — `weddingMember`, so ANY wedding role including a read-only `viewer`, not
- * owner-only; previewing the invite is part of the read experience (see
- * `createOrganiserPreviewRoutes`). This caps the find-or-create + event-relink
- * write amplifier; 30/min is generous for clicking "Preview invite".
+ * Default per-IP limiter for the host preview-code endpoint. The route is
+ * member-gated — `weddingMember`, so ANY wedding role including a read-only
+ * `viewer`, not owner-only; previewing the invite is part of the read
+ * experience (see `createOrganiserPreviewRoutes`). The limiter is mounted ahead
+ * of osnAuth and that gate, so every request spends it, signed in or not. It
+ * caps the find-or-create + event-relink write amplifier; 30/min is generous
+ * for clicking "Preview invite".
  */
 const defaultPreviewLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 /**
- * Default per-IP limiter for the organiser wedding-create endpoint (S-L1).
- * Owner-gated already, so this just caps the unbounded-insert amplifier; 10/min
- * is generous for hand-creating weddings in the portal.
+ * Default per-IP limiter for the organiser wedding-create endpoint, mounted
+ * ahead of osnAuth, so every request spends it, signed in or not. It caps the
+ * unbounded-insert amplifier; 10/min is generous for hand-creating weddings in
+ * the portal.
  */
 const defaultWeddingCreateLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
 /**
- * Default per-IP limiter for the organiser remint + mark-shared endpoints (C3).
- * Owner-gated already, so this just caps the destructive bulk-write amplifier
+ * Default per-IP limiter for the organiser remint + mark-shared endpoints,
+ * mounted ahead of osnAuth and their owner and editor gates, so every request
+ * spends it, signed in or not. It caps the destructive bulk-write amplifier
  * (remint rotates every family code + revokes sessions) and the high-frequency
  * mark-shared writes; 30/min is generous for hand-driving the dashboard.
  */
@@ -167,9 +171,9 @@ const defaultRemintLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_0
  */
 const defaultExportLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
 /**
- * Default per-IP limiter for the co-host add/remove endpoints (S-L1). Owner-gated
- * already, so this just caps the ARC-sign + S2S handle-resolve amplifier on add
- * (and the management churn / handle-probe oracle); 20/min is generous for
+ * Default per-USER limiter for the co-host add/remove endpoints, behind the
+ * owner gate. It caps the ARC-sign + S2S handle-resolve amplifier on add (and
+ * the management churn / handle-probe oracle); 20/min is generous for
  * hand-managing a wedding's hosts.
  */
 const defaultHostLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
@@ -189,9 +193,10 @@ const defaultOrganiserRsvpLimiter = createRateLimiter({ maxRequests: 60, windowM
 const defaultWeddingLifecycleLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60_000 });
 
 /**
- * Default per-IP limiter for the co-host autocomplete (S-L1). osnAuth-gated
- * already, so this just caps the per-keystroke ARC-sign + S2S amplifier (the
- * route debounces client-side, but a scripted caller wouldn't).
+ * Default per-IP limiter for the co-host autocomplete, mounted ahead of
+ * osnAuth, so every request spends it, signed in or not. It caps the
+ * per-keystroke ARC-sign + S2S amplifier (the route debounces client-side, but
+ * a scripted caller wouldn't).
  *
  * **30/min, halved from 60 when the route gained its second source.** The 60
  * was set against a route that made ONE ARC signature + ONE subrequest per
@@ -314,8 +319,8 @@ const defaultUnlockCodeLimiter = createRateLimiter({ maxRequests: 5, windowMs: 6
 // a NAT'd venue or hotel wifi is ONE address for a whole reception, and the
 // budget has to cover the room rather than a household. Five would have
 // the sixth guest of an evening meet a 429 on their way to paying, which is the
-// highest-value action in the product. `sessionAuth` runs first, so only
-// claimed guests ever reach this at all.
+// highest-value action in the product. It answers before `sessionAuth`, so a
+// caller with no claimed session spends the same budget as a guest.
 const defaultRegistryContributeLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
 /**
  * Default per-IP limiter for the pre-auth OIDC redirect legs (`/oidc/start`,

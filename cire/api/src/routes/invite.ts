@@ -445,8 +445,8 @@ export const createInviteOrganiserRoutes = (
   designs: readonly DesignMeta[] = DESIGNS,
 ) =>
   new Elysia({ prefix: "/api/organiser" })
-    // Per-IP cap on invite writes (IB-S-L1) — runs before auth so it also blunts
-    // unauthenticated hammering of the surface.
+    // Per-IP cap on the invite builder, mounted first: a refused request costs
+    // no session lookup, token verify or role-gate query.
     .use(rateLimitMiddleware(limiter))
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>

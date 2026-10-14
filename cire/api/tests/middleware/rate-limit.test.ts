@@ -68,10 +68,10 @@ describe("rateLimitMiddleware", () => {
 });
 
 describe("rateLimitMiddlewareByUser with a limiter that throws", () => {
-  // Stands in for `osnAuth`, which derives `osnProfileId` before the limiter.
+  // Stands in for `osnAuth`, which resolves `osnProfileId` before the limiter.
   function appWith(check: () => Promise<boolean>) {
     return new Elysia({ aot: false })
-      .derive({ as: "scoped" }, () => ({ osnProfileId: "usr_a" }))
+      .resolve({ as: "scoped" }, () => ({ osnProfileId: "usr_a" }))
       .use(rateLimitMiddlewareByUser({ check }))
       .post("/test", () => ({ ok: true }));
   }
