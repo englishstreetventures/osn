@@ -6,7 +6,7 @@ related:
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
   - "[[access-control]]"
-last-reviewed: 2026-10-10
+last-reviewed: 2026-10-15
 ---
 # Vendors — directory, CRM, and email-verification claim
 
@@ -210,7 +210,7 @@ The claim and listing routes, `createVendorPortalRoutes` in [`vendor-portal.ts`]
 | `GET` | `/api/vendor/orgs/:orgId/listing` | `osnAuth`, then org membership | Read the org's listing |
 | `PUT` | `/api/vendor/orgs/:orgId/listing` | `osnAuth`, then org membership | Create or update the org's listing; 409 while a claim is held |
 
-**Every route here shares one per-IP limiter**, 20 requests a minute (`defaultVendorPortalLimiter` in [`app.ts`](../../cire/api/src/app.ts)), which answers 429 with `Retry-After: 60` before the org check and the handler run. A limited claim consume therefore spends no claim statement and makes no ARC call. A browser's request still pays its session read first: `osnAuth` reads the `cire_org_session` cookie in its `derive`, a phase Elysia runs before every request gate. `tests/routes/vendor-portal.test.ts` pins both paths: none of the work runs on a limited bearer request, and only the session read runs on a limited cookie request.
+**Every route here shares one per-IP limiter**, 20 requests a minute (`defaultVendorPortalLimiter` in [`app.ts`](../../cire/api/src/app.ts)), which answers 429 with `Retry-After: 60` before `osnAuth`, the org check and the handler run. A limited claim consume therefore spends no claim statement, makes no ARC call, and does not even read the `cire_org_session` cookie's session row or verify a bearer token. `tests/routes/vendor-portal.test.ts` pins both paths: none of the work runs on a limited bearer request or a limited cookie request.
 
 ---
 

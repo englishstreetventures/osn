@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-10
+last-reviewed: 2026-10-15
 ---
 
 # Cire development guide
@@ -85,12 +85,20 @@ The platform shape is in [[backend-patterns]]. Cire's departures:
 
 ### Middleware
 
-Elysia plugins in `cire/api/src/middleware/`, all scoped `derive` + `onBeforeHandle`:
+Elysia plugins in `cire/api/src/middleware/`. The credential checks and role
+gates are each a scoped `resolve` + `onBeforeHandle`, so every one runs in the
+before-handle phase in `.use` order. **Mount a per-IP `rateLimitMiddleware`
+first**, before `sessionAuth`, `osnAuth` and any role gate, so a refused
+request costs no session lookup, token verify or gate query. Mount a per-user
+`rateLimitMiddlewareByUser` after the role gate: it keys on `osnProfileId`, and
+there only a caller the gate admits spends it.
+`cire/api/tests/app.test.ts` holds a table of every per-IP limited route that
+checks a credential; add a row for a new one.
 
 | File | Gate |
 |---|---|
 | `auth.ts` | `sessionAuth` — the guest claim-code cookie |
-| `osn-auth.ts` | `osnAuth` — organiser JWT, via the shared Elysia adapter |
+| `osn-auth.ts` | `osnAuth` — the organiser session cookie, else an OSN access token |
 | `wedding-owner.ts` | any owner (the `manage` capability) — codes, settings, billing, the payout account, the CSV exports, adding, changing or removing any seat, delete. `weddingOwnerIncludingDeleted()` is the same check for the restore route alone, the only organiser route that reaches a soft-deleted wedding |
 | `wedding-editor.ts` | owner or `editor` — module writes, the RSVP-by date, marking a household's code sent |
 | `wedding-member.ts` | reads + invite preview — every role carrying the `member` capability (`editor`, `viewer`; **not** `helper`) |
