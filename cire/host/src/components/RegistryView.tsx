@@ -489,9 +489,9 @@ export default function RegistryView(props: RegistryViewProps) {
     // couple's own currency gets the headline total; each other currency is
     // named as outside it, with the gifts it adds where the record knows.
     const couple = (snapshot()?.currency ?? "").toUpperCase();
-    const ours = (currency: string) => currency.toUpperCase() === couple;
+    const ours = (code: string) => code.toUpperCase() === couple;
     const { count, totals } = summary.contributions;
-    const gifts = summary.contributions.gifts ?? [];
+    const listed = summary.contributions.gifts ?? [];
     return {
       summary,
       couple,
@@ -501,12 +501,12 @@ export default function RegistryView(props: RegistryViewProps) {
       claimsTotal: summary.claims.reserved + summary.claims.purchased,
       oursTotal: totals.find((t) => ours(t.currency)) ?? null,
       otherTotals: totals.filter((t) => !ours(t.currency)),
-      gifts: gifts.map((g) => ({
+      gifts: listed.map((g) => ({
         on: summaryDate(g.on),
         amount: formatMinor(g.amountMinor, g.currency),
         otherCurrency: ours(g.currency) ? null : g.currency,
       })),
-      unlisted: Math.max(0, count - gifts.length),
+      unlisted: Math.max(0, count - listed.length),
     };
   });
 

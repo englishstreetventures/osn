@@ -401,12 +401,10 @@ describe("money gifts", () => {
         settings: { stripeConnected: true, stripeChargesEnabled: true } as never,
       }),
     );
-    authFetch.mockImplementation((url: string) =>
-      Promise.resolve(
-        String(url).includes("/registry/stripe/refresh")
-          ? json({ connected: true, chargesEnabled: true, payoutsEnabled: true })
-          : json({ error }, 409),
-      ),
+    authFetch.mockImplementation(async (url: string) =>
+      String(url).includes("/registry/stripe/refresh")
+        ? json({ connected: true, chargesEnabled: true, payoutsEnabled: true })
+        : json({ error }, 409),
     );
     const { container } = renderPanel({ canManage });
     fireEvent.click(await screen.findByTestId("cash-gifts"));

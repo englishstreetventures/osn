@@ -1032,12 +1032,12 @@ describe("the parting gift summary", () => {
         // Each money gift, as given and on its day — and the unsettled one is
         // not among them. Two arrived on the same day, so compared as a set.
         expect(summary.contributions.gifts).toHaveLength(3);
-        for (const gift of [
+        for (const listed of [
           { on: "2025-05-11", amountMinor: 12_500, currency: "AUD" },
           { on: "2025-05-11", amountMinor: 5_000, currency: "AUD" },
           { on: "2025-05-20", amountMinor: 3_000, currency: "JPY" },
         ]) {
-          expect(summary.contributions.gifts).toContainEqual(gift);
+          expect(summary.contributions.gifts).toContainEqual(listed);
         }
         expect(summary.contributions.gifts.at(-1)?.on).toBe("2025-05-20");
         // NO NAMES. Who gave and what they wrote are what the sweep deletes,
