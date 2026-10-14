@@ -25,6 +25,7 @@ import {
   RegistryItemLimitReached,
   RegistryItemNotInWedding,
   SettingsChanged,
+  SettlementCurrencyUnknown,
   StripeNotReady,
   toEpochSeconds,
 } from "../../src/services/registry";
@@ -1463,10 +1464,11 @@ describe("registry ownership + range guards", () => {
     const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
     expect(snap.settings.cashGiftsEnabled).toBe(false);
 
-    // Once Stripe reports charges enabled, the same patch goes through.
+    // Once Stripe reports charges enabled, in the wedding's own currency, the
+    // same patch goes through.
     await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
     db.update(registrySettings)
-      .set({ stripeChargesEnabled: true })
+      .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
       .run();
     const enabled = await ok(
@@ -1509,7 +1511,10 @@ describe("registry ownership + range guards", () => {
     expect(enabled.cashGiftsEnabled).toBe(true);
   });
 
-  it("treats a settlement currency Stripe has not named as unknown, not as a mismatch", async () => {
+  it("refuses cash gifts while Stripe has not said which currency it settles in", async () => {
+    // Guests are charged in the wedding's currency. An account whose settlement
+    // currency is unknown may convert every gift on Stripe's terms, so the
+    // switch waits until Stripe names it.
     const db = db0();
     await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
     db.update(registrySettings)
@@ -1517,11 +1522,56 @@ describe("registry ownership + range guards", () => {
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
       .run();
 
-    const enabled = await ok(
+    const blocked = await run(
       db,
       registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
     );
-    expect(enabled.cashGiftsEnabled).toBe(true);
+    expect(Exit.isFailure(blocked)).toBe(true);
+    if (Exit.isFailure(blocked)) {
+      expect(blocked.cause.toString()).toContain(new SettlementCurrencyUnknown()._tag);
+    }
+    const refused = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(refused.settings.cashGiftsEnabled).toBe(false);
+  });
+
+  it("refuses cash gifts when the wedding's currency changes between the check and the write", async () => {
+    // The check reads the two currencies, then the upsert writes. A currency
+    // change landing between them must not leave cash gifts on against an
+    // account that settles in the old currency, so the write re-checks.
+    const db = db0();
+    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
+    db.update(registrySettings)
+      .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (sql.startsWith('insert into "registry_settings"')) {
+          prepare("UPDATE weddings SET currency = 'USD' WHERE id = ?").run(BOOTSTRAP_WEDDING_ID);
+        }
+        return prepare(sql);
+      },
+    });
+
+    const blocked = await run(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+    );
+    Reflect.deleteProperty(client, "prepare");
+    expect(Exit.isFailure(blocked)).toBe(true);
+    if (Exit.isFailure(blocked)) {
+      // The true reason, not "someone else saved these settings".
+      expect(blocked.cause.toString()).toContain(new CurrencyMismatch()._tag);
+    }
+    const row = db
+      .select({ on: registrySettings.cashGiftsEnabled })
+      .from(registrySettings)
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .get();
+    expect(row?.on).toBe(false);
   });
 
   it("stops a wedding adding items past the ceiling", async () => {

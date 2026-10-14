@@ -68,6 +68,11 @@ export class StripeNotReady extends Data.TaggedError("StripeNotReady") {}
  */
 export class CurrencyMismatch extends Data.TaggedError("CurrencyMismatch") {}
 /**
+ * Cash gifts asked for while Stripe has not said which currency the connected
+ * account settles in. 409-class: it clears once Stripe names one.
+ */
+export class SettlementCurrencyUnknown extends Data.TaggedError("SettlementCurrencyUnknown") {}
+/**
  * A settings write whose `expected` values no longer match the row: someone
  * else saved one of the same fields since this caller read it. 409-class.
  * Carries the row as it stands, so the caller can show what changed.
@@ -176,6 +181,8 @@ export interface RegistrySettingsRecord {
   stripeAccountId: string | null;
   stripeChargesEnabled: boolean;
   stripePayoutsEnabled: boolean;
+  /** The currency Stripe settles the account in, upper case, or null while unknown. */
+  stripeDefaultCurrency: string | null;
   updatedAt: number | null;
 }
 
@@ -375,6 +382,7 @@ interface SettingsRow {
   stripeAccountId: string | null;
   stripeChargesEnabled: boolean;
   stripePayoutsEnabled: boolean;
+  stripeDefaultCurrency: string | null;
   stripeAccountUpdatedAt: Date | null;
   /** Written by the retention sweep, never from the portal. Both or neither. */
   giftSummaryJson: string | null;
@@ -423,6 +431,7 @@ const defaultSettings = (weddingId: string): RegistrySettingsRecord => ({
   stripeAccountId: null,
   stripeChargesEnabled: false,
   stripePayoutsEnabled: false,
+  stripeDefaultCurrency: null,
   updatedAt: null,
 });
 
@@ -437,6 +446,7 @@ const toSettingsRecord = (r: SettingsRow): RegistrySettingsRecord => ({
   stripeAccountId: r.stripeAccountId,
   stripeChargesEnabled: r.stripeChargesEnabled,
   stripePayoutsEnabled: r.stripePayoutsEnabled,
+  stripeDefaultCurrency: r.stripeDefaultCurrency,
   updatedAt: r.updatedAt.getTime(),
 });
 
@@ -453,6 +463,22 @@ const toSettingsDto = (s: RegistrySettingsRecord): RegistrySettingsDto => ({
   stripeChargesEnabled: s.stripeChargesEnabled,
   updatedAt: s.updatedAt,
 });
+
+/**
+ * Whether guests may give money today: the couple said yes, Stripe can take a
+ * charge, and the account settles in the currency every gift is charged in.
+ *
+ * The currency half is checked HERE, where money moves, and not only when the
+ * couple switch gifts on: an account can be revoked and another connected, or
+ * Stripe can change where it pays out, while the switch stays on. An account
+ * that settles in another currency — or has not said which — would convert
+ * each gift on Stripe's terms, so the form stays hidden until the two agree.
+ */
+const takesMoney = (settings: RegistrySettingsRecord, currency: string): boolean =>
+  settings.cashGiftsEnabled &&
+  settings.stripeChargesEnabled &&
+  settings.stripeDefaultCurrency !== null &&
+  settings.stripeDefaultCurrency.toUpperCase() === currency.toUpperCase();
 
 /** One per-currency line of a stored summary, checked rather than trusted. */
 const isCurrencyTotal = (value: unknown): value is { currency: string; amountMinor: number } =>
@@ -1126,7 +1152,14 @@ export const registryService = {
    * connected account, so Stripe settles them in THAT account's currency, and a
    * session priced in anything else is converted on Stripe's terms or refused
    * outright. Turning cash gifts on while the two disagree would look fine in
-   * the portal and then fail at Checkout, in front of a guest.
+   * the portal and then fail at Checkout, in front of a guest — and so would
+   * turning them on before Stripe has said which currency it settles in
+   * (`SettlementCurrencyUnknown`). The currency check is repeated inside the
+   * upsert's own `WHERE`, so a currency change landing between the read and the
+   * write cannot leave the switch on against the old currency; the wedding
+   * settings write refuses the change from its side (`CurrencyLockedByCashGifts`
+   * in `./wedding-settings`). The guest gate checks the same rule where the money
+   * moves (`takesMoney`).
    *
    * Two organisers can have the settings open at once. `patch.expected` is how
    * a write says what it was looking at: each field named there must still hold
@@ -1146,7 +1179,7 @@ export const registryService = {
     patch: UpdateRegistrySettingsPatch,
   ): Effect.Effect<
     RegistrySettingsDto,
-    StripeNotReady | CurrencyMismatch | SettingsChanged,
+    StripeNotReady | CurrencyMismatch | SettlementCurrencyUnknown | SettingsChanged,
     DbService
   > {
     return Effect.gen(function* () {
@@ -1172,14 +1205,15 @@ export const registryService = {
         if (!stripe?.chargesEnabled) {
           return yield* Effect.fail(new StripeNotReady());
         }
-        // A null settlement currency means Stripe has not said yet, not that it
-        // disagrees — an account can take charges before Stripe settles on one.
-        // Only two known, different currencies are a refusal.
-        if (stripe.defaultCurrency) {
-          const wedding = yield* primaryCurrency(weddingId);
-          if (stripe.defaultCurrency.toUpperCase() !== wedding.toUpperCase()) {
-            return yield* Effect.fail(new CurrencyMismatch());
-          }
+        // An account can take charges before Stripe names the currency it
+        // settles in. Until it does, a gift could be converted on Stripe's
+        // terms, so the switch waits.
+        if (!stripe.defaultCurrency) {
+          return yield* Effect.fail(new SettlementCurrencyUnknown());
+        }
+        const wedding = yield* primaryCurrency(weddingId);
+        if (stripe.defaultCurrency.toUpperCase() !== wedding.toUpperCase()) {
+          return yield* Effect.fail(new CurrencyMismatch());
         }
       }
 
@@ -1210,6 +1244,15 @@ export const registryService = {
       // matches a NULL column. Each value is bound through its column, which is
       // what turns a boolean into the 0/1 the column stores.
       const unchanged: SQL[] = [];
+      if (patch.cashGiftsEnabled === true) {
+        // The check above, again, inside the write: the row's settlement
+        // currency must still be the wedding's. `outerColumn` because this
+        // correlates to the conflicting row, and drizzle would write the
+        // inner columns bare.
+        unchanged.push(
+          sql`exists (select 1 from ${weddings} where ${weddings.id} = ${outerColumn(registrySettings.weddingId)} and upper(${weddings.currency}) = upper(${outerColumn(registrySettings.stripeDefaultCurrency)}))`,
+        );
+      }
       for (const field of SETTINGS_FIELDS) {
         const seen = patch.expected?.[field];
         if (seen === undefined) continue;
@@ -1250,6 +1293,17 @@ export const registryService = {
       // returns its row.
       if (!row) {
         const current = yield* registryService.settingsOnly(weddingId);
+        // A refusal on the currency re-check is not "someone else saved these
+        // settings": say what is actually wrong.
+        if (patch.cashGiftsEnabled === true) {
+          if (!current.stripeDefaultCurrency) {
+            return yield* Effect.fail(new SettlementCurrencyUnknown());
+          }
+          const wedding = yield* primaryCurrency(weddingId);
+          if (current.stripeDefaultCurrency.toUpperCase() !== wedding.toUpperCase()) {
+            return yield* Effect.fail(new CurrencyMismatch());
+          }
+        }
         return yield* Effect.fail(new SettingsChanged({ current: toSettingsDto(current) }));
       }
       return toSettingsDto(toSettingsRecord(row as SettingsRow));
@@ -1518,7 +1572,7 @@ export const registryService = {
         input.slug,
         { familyId: input.familyId, itemId: input.itemId || undefined },
       );
-      if (!settings.cashGiftsEnabled || !settings.stripeChargesEnabled) {
+      if (!takesMoney(settings, currency)) {
         return yield* Effect.fail(new CashGiftsUnavailable());
       }
       const stripeAccountId = settings.stripeAccountId;
@@ -2890,6 +2944,7 @@ function resolveVisibleRegistry(
           stripeAccountId: registrySettings.stripeAccountId,
           stripeChargesEnabled: registrySettings.stripeChargesEnabled,
           stripePayoutsEnabled: registrySettings.stripePayoutsEnabled,
+          stripeDefaultCurrency: registrySettings.stripeDefaultCurrency,
           updatedAt: registrySettings.updatedAt,
         })
         .from(weddings)
@@ -2940,6 +2995,7 @@ interface GateRow {
   stripeAccountId: string | null;
   stripeChargesEnabled: boolean | null;
   stripePayoutsEnabled: boolean | null;
+  stripeDefaultCurrency: string | null;
   updatedAt: Date | null;
 }
 
@@ -2955,6 +3011,7 @@ const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
   stripeAccountId: r.stripeAccountId,
   stripeChargesEnabled: r.stripeChargesEnabled === true,
   stripePayoutsEnabled: r.stripePayoutsEnabled === true,
+  stripeDefaultCurrency: r.stripeDefaultCurrency,
   updatedAt: r.updatedAt ? r.updatedAt.getTime() : null,
 });
 
@@ -3039,8 +3096,8 @@ export const registryGuestService = {
       return {
         headline: settings.headline,
         message: settings.message,
-        // Intent AND capability. See the DTO.
-        cashGiftsEnabled: settings.cashGiftsEnabled && settings.stripeChargesEnabled,
+        // Intent AND capability AND one currency. See the DTO and `takesMoney`.
+        cashGiftsEnabled: takesMoney(settings, currency),
         currency,
         items: (itemRows as ItemRow[]).map((r) =>
           toPublicItemDto(weddingId, r, claimed.get(r.id) ?? 0),

@@ -419,6 +419,32 @@ describe("registry routes (Gold)", () => {
     expect(snap.settings.cashGiftsEnabled).toBe(false);
   });
 
+  it("refuses to switch cash gifts on before Stripe names the currency it settles in", async () => {
+    const app = buildApp({
+      tier: "gold",
+      seed: (db) => {
+        const now = new Date();
+        db.insert(registrySettings)
+          .values({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            stripeAccountId: "acct_live",
+            stripeChargesEnabled: true,
+            stripeDefaultCurrency: null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+      },
+    });
+
+    const cash = await req(app, "PUT", `${base}/settings`, EDITOR, { cashGiftsEnabled: true });
+    expect(cash.status).toBe(409);
+    expect(((await cash.json()) as { error: string }).error).toBe("stripe_currency_unknown");
+
+    const snap = (await (await req(app, "GET", base, OWNER)).json()) as RegistrySnapshot;
+    expect(snap.settings.cashGiftsEnabled).toBe(false);
+  });
+
   it("lets a stale tab change what it touched and nothing else, and refuses a field that moved", async () => {
     const app = buildApp({ tier: "gold" });
     // Both organisers open the settings on a published list with an address.

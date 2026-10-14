@@ -99,12 +99,15 @@ function buildApp({
   cashGiftsEnabled = true,
   chargesEnabled = true,
   accountId = ACCOUNT as string | null,
+  settlementCurrency = "AUD" as string | null,
   published = true,
   stripe,
 }: {
   cashGiftsEnabled?: boolean;
   chargesEnabled?: boolean;
   accountId?: string | null;
+  /** The currency Stripe settles the account in; the wedding prices in AUD. */
+  settlementCurrency?: string | null;
   published?: boolean;
   stripe?: StripeClient | null;
 } = {}) {
@@ -142,6 +145,7 @@ function buildApp({
       stripeAccountId: accountId,
       stripeChargesEnabled: chargesEnabled,
       stripePayoutsEnabled: chargesEnabled,
+      stripeDefaultCurrency: settlementCurrency,
       createdAt: now,
       updatedAt: now,
     })
@@ -247,6 +251,11 @@ describe("the couple must be taking money", () => {
     ["they never turned cash gifts on", { cashGiftsEnabled: false }],
     ["Stripe cannot take a charge today", { chargesEnabled: false }],
     ["there is no connected account", { accountId: null }],
+    // Every gift is charged in the wedding's currency. An account that settles
+    // in another one — or has not said which — would convert each gift on
+    // Stripe's terms, so the guest is turned away until the two agree.
+    ["the account settles in another currency", { settlementCurrency: "USD" }],
+    ["Stripe has not said which currency the account settles in", { settlementCurrency: null }],
   ];
 
   for (const [label, options] of cases) {
@@ -305,8 +314,9 @@ describe("what reaches Stripe, and what does not", () => {
   it("prices the gift in the wedding's own currency, read by the registry gate", async () => {
     // AUD is both the seeded default and the fallback for a missing value, so
     // only a different currency shows the gate actually read the column.
+    // The account settles in the same currency, as the gate requires.
     const stripe = stripeStub();
-    const { app, db } = buildApp({ stripe: stripe.client });
+    const { app, db } = buildApp({ stripe: stripe.client, settlementCurrency: "NZD" });
     db.update(weddings).set({ currency: "NZD" }).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID)).run();
     const cookie = await guestCookie(app);
 

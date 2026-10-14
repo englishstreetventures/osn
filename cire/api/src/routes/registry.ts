@@ -274,6 +274,9 @@ export const createRegistryWriteRoutes = (
                 Effect.catchTag("SchemaError", () => badRequest(set)),
                 Effect.catchTag("StripeNotReady", () => conflict(set, "stripe_not_ready")),
                 Effect.catchTag("CurrencyMismatch", () => conflict(set, "currency_mismatch")),
+                Effect.catchTag("SettlementCurrencyUnknown", () =>
+                  conflict(set, "stripe_currency_unknown"),
+                ),
                 Effect.catchTag("SettingsChanged", (e) => settingsChanged(set, e.current)),
                 Effect.tapDefect(logDefect(weddingId)),
                 Effect.catchDefect(() => internal(set)),
