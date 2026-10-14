@@ -19,7 +19,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
  * ## Tracing
  *
  * `makeOtlpTracing` sets the `Tracer.Tracer` reference to an OTLP/HTTP exporter
- * built on `effect/unstable/observability` + `globalThis.fetch` — no
+ * built on `effect/observability` + `globalThis.fetch` — no
  * `@effect/opentelemetry` `NodeSdk`, no `@opentelemetry/sdk-*`, so it runs on
  * workerd. Until this existed, every `Effect.withSpan` in the deployed identity
  * Worker recorded into Effect's in-memory default tracer and was dropped.
@@ -98,16 +98,9 @@ export const osnLoggerLayer: Layer.Layer<never> = Layer.suspend(() => {
 });
 
 /**
- * Module-scope runtime for `osnLoggerLayer`, mirroring cire/api's. `runOsn` and
- * `runOsnSync` used to be `Effect.runPromise(Effect.provide(effect, layer))`,
- * which rebuilds the whole layer graph per call. That was merely wasteful for a
- * logger; with trace export attached it is not, because `Effect.provide` opens
- * AND CLOSES the layer's scope around each run — so every call would construct
- * and immediately tear down an OTLP exporter.
- *
- * Safe with the `Layer.suspend` above left intact: `ManagedRuntime.make` only
- * runs `scopeMake` at construction (pure, no env access) — it does not force
- * the layer, so `loadConfig` still never runs during module evaluation.
+ * Shared runtime for `osnLoggerLayer`. The OTLP exporter stays alive across
+ * calls to `runOsn` and `runOsnSync`. `Layer.suspend` keeps `loadConfig` lazy:
+ * constructing this runtime does not read environment configuration.
  */
 const osnRuntime = ManagedRuntime.make(osnLoggerLayer);
 

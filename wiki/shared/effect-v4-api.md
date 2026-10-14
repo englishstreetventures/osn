@@ -18,7 +18,7 @@ packages:
   - "@pulse/api"
   - "@zap/api"
   - "@cire/api"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-15
 ---
 
 # Effect v4 API Shapes
@@ -50,6 +50,7 @@ vocabulary — all needed zero edits.
 | `Either` module | `Result` — tags are `"Success"`/`"Failure"` |
 | `Cause.failureOption` | `Cause.findErrorOption` |
 | `Context.Tag(id)<Self, Shape>()` | `Context.Service<Self, Shape>()(id)` — argument order flips; `Context.Tag<I, S>` in **type** position is `Context.Key<I, S>` |
+| `effect/unstable/http` and `effect/unstable/observability` | `effect/http` and `effect/observability` in the stable release |
 
 Service **identifier strings** are runtime lookup keys. Preserve them exactly
 through any such rewrite — a typo is a service-not-found at request time, not a
@@ -78,6 +79,11 @@ Option.getOrUndefined(Cause.findErrorOption(exit.cause)) instanceof NotFound
 `Schema.decodeUnknown` is `decodeUnknownEffect`, and its failure is tagged
 **`SchemaError`**, not `ParseError` — that is what `catchTag` takes. Constraint
 combinators are *checks*, applied with a schema's `.check(…)`:
+
+Pass strict excess-property handling to the decoder, including at HTTP
+boundaries: `Schema.decodeUnknownEffect(MySchema)(input, { onExcessProperty:
+"error" })`. A schema's `.annotate({ parseOptions: … })` does not enforce this
+option in the stable release.
 
 ```ts
 Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64))

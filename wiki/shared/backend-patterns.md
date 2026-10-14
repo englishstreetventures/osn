@@ -22,7 +22,7 @@ packages:
   - "@osn/api"
   - "@zap/api"
   - "@cire/api"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-15
 ---
 
 # Backend Code Patterns
@@ -34,12 +34,10 @@ OSN's backend uses a layered architecture. **Routes** handle HTTP concerns: vali
 Routes use Elysia's built-in TypeBox (`t`) for request/response validation. This validates raw HTTP types and drives Eden client type inference.
 
 ```typescript
-export const createEventsRoutes = (dbLayer = DbLive) =>
+export const createEventsRoutes = (runtime: ManagedRuntime.ManagedRuntime<Db, never>) =>
   new Elysia({ prefix: "/events" })
     .post("/", async ({ body, set }) => {
-      const result = await Effect.runPromise(
-        createEvent(body).pipe(Effect.provide(dbLayer))
-      );
+      const result = await runtime.runPromise(createEvent(body));
       set.status = 201;
       return { event: result };
     }, {
@@ -51,10 +49,10 @@ export const createEventsRoutes = (dbLayer = DbLive) =>
 ```
 
 Key points:
-- Routes accept an optional `dbLayer` parameter for dependency injection (default is `DbLive`)
+- Route handlers use a `ManagedRuntime` constructed outside the request path; route factories may accept a layer for tests and construct that runtime once
 - TypeBox stays structural -- strings stay strings (no transforms)
 - Handlers set `set.status` explicitly for non-200 responses
-- Routes run Effect pipelines via `Effect.runPromise` at the boundary
+- Routes run Effect pipelines through the long-lived runtime at the boundary
 
 ### Build the layer graph ONCE — never re-provide expensive layers per request
 

@@ -7,7 +7,7 @@ related:
   - "[[review-findings]]"
   - "[[stacked-prs]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-15
 ---
 
 # Contributing
@@ -16,7 +16,7 @@ last-reviewed: 2026-10-09
 
 ### Technology Choices
 
-- **Effect.ts** is the backend, settled: every API, the shared packages and `@osn/client` are built on it. `effect` and `@effect/vitest` are pinned exactly, not with a caret, because the release is pre-GA. The frontends do not use it — see [[frontend-patterns]]
+- **Effect.ts** is the backend, settled: every API, the shared packages and `@osn/client` are built on it. Keep `effect` and the `@effect/*` packages on the same exact version so a dependency refresh cannot resolve mixed Effect releases. The frontends do not use it — see [[frontend-patterns]]
 - **E2E encryption everywhere**: encrypt all user-to-user communication end-to-end
 - **Personalisation data**: show it to the user, and let the user reset it
 

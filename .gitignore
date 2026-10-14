@@ -211,11 +211,11 @@ wiki/.obsidian/
 # Private business/legal planning notes — never committed
 wiki/business/
 
-# Vitest browser-mode artifacts (transient, per-run). Vitest writes a screenshot
-# and an attachment for every FAILING browser test, next to the test file. They
-# are debugging aids for the run that produced them — regenerated on the next
-# failure and meaningless once the test is fixed. See
+# Vitest browser-mode artifacts (transient, per-run). Vitest 5 writes failure
+# screenshots and attachments under .vitest/; older runs wrote them beside the
+# test file. See
 # [[wiki/conventions/browser-tests]].
+.vitest/
 **/__screenshots__/
 **/.vitest-attachments/
 

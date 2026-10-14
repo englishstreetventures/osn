@@ -10,7 +10,7 @@
  * every `Effect.withSpan` in them recorded into the default in-memory tracer
  * and was dropped.
  *
- * Effect v4 ships its own OTLP client under `effect/unstable/observability`,
+ * Effect v4 ships its own OTLP client under `effect/observability`,
  * built on `HttpClient` rather than the OTel JS SDK. Paired with
  * `FetchHttpClient` (which is just `globalThis.fetch`) it has no Node
  * dependency at all, so it runs on workerd. Nothing here imports
@@ -49,9 +49,9 @@
  * several fiber roots regardless. Bridging the two registries is a separate
  * piece of work; do not assume a joined trace when reading this data.
  */
-import { Duration, Effect, Layer, Tracer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
-import { OtlpExporter, OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
+import { Duration, Effect, Layer, Option, Tracer } from "effect";
+import { FetchHttpClient } from "effect/http";
+import { OtlpExporter, OtlpSerialization, OtlpTracer } from "effect/observability";
 
 import type { ObservabilityConfig } from "../config";
 import { NoopTracingLive } from "./noop";
@@ -126,7 +126,9 @@ export interface OtlpTracing {
  *
  * Matches what the Bun path gets from
  * `ParentBasedSampler({ root: TraceIdRatioBasedSampler })`, except the draw is
- * `Math.random()` rather than a hash of the trace id. That only matters for a
+ * `Math.random()` rather than a hash of the trace id. A span without a parent
+ * is a root even when the caller did not explicitly set `root: true`.
+ * That only matters for a
  * trace split across services, and these spans are per-call roots anyway (see
  * the module docstring).
  */
@@ -137,7 +139,7 @@ const withRatioSampler = (ratio: number, tracer: Tracer.Tracer): Tracer.Tracer =
         ...tracer,
         span: (options) =>
           tracer.span(
-            options.root && options.sampled && Math.random() >= ratio
+            Option.isNone(options.parent) && options.sampled && Math.random() >= ratio
               ? { ...options, sampled: false }
               : options,
           ),

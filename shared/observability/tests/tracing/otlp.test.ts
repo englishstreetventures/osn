@@ -1,5 +1,5 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ObservabilityConfig } from "../../src/config";
 import { makeOtlpTracing } from "../../src/tracing/otlp";
@@ -165,6 +165,35 @@ describe("makeOtlpTracing — exporting path", () => {
       await runtime.dispose();
     }
     expect(posts).toHaveLength(0);
+  });
+
+  it("uses the root's fractional sampling decision for its child", async () => {
+    const tracing = makeOtlpTracing({ ...baseConfig, traceSampleRatio: 0.5 });
+    const runtime = ManagedRuntime.make(tracing.layer);
+    const draw = vi.spyOn(Math, "random");
+    const trace = Effect.void.pipe(Effect.withSpan("probe.child"), Effect.withSpan("probe.root"));
+    try {
+      // The root consumes the first draw. Later draws make span IDs; if the
+      // child sampled again, its 0.75 draw would incorrectly drop it.
+      draw.mockReturnValueOnce(0.25).mockReturnValue(0.75);
+      await runtime.runPromise(trace);
+      await runtime.runPromise(tracing.flush);
+      const acceptedNames = posts.flatMap((post) =>
+        post.body.resourceSpans.flatMap((resource) =>
+          resource.scopeSpans.flatMap((scope) => scope.spans.map((span) => span.name)),
+        ),
+      );
+      expect(acceptedNames).toEqual(expect.arrayContaining(["probe.root", "probe.child"]));
+
+      posts = [];
+      draw.mockClear().mockReturnValueOnce(0.75).mockReturnValue(0.25);
+      await runtime.runPromise(trace);
+      await runtime.runPromise(tracing.flush);
+      expect(posts).toHaveLength(0);
+    } finally {
+      draw.mockRestore();
+      await runtime.dispose();
+    }
   });
 });
 

@@ -20,11 +20,11 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
     "@shared/typescript-config": "workspace:*",
-    "vitest": "^4.1.11"
+    "vitest": "5.0.0"
   }
 }

@@ -6,43 +6,29 @@
  * metacharacter "match itself", the `QUERY_SEPARATOR` exemption means `%`, `_`
  * and `\` "stay inside the token and reach `escapeLike`". `search.test.ts`
  * checks those claims against examples someone thought of; these check them
- * against generated input, which is the only way a claim with the word
- * *exactly* in it can be held to its word.
- *
- * Written with bare `FastCheck` from `effect/testing` rather than
- * `@effect/vitest`'s `it.prop`, because `@shared/db-utils` does not depend on
- * `@effect/vitest` and none of this needs an Effect runtime — the functions
- * under test are deliberately dependency-free string math.
- *
- * The domains are pinned tightly on purpose. An over-broad arbitrary is worse
- * than no test: it either fails on input the function never promised to handle,
- * or it wanders so far from the real input space that the interesting branch is
- * never reached. Every generator below either derives from the handle charset
- * the source constrains itself to, or draws from an explicit alphabet chosen so
- * the LIKE metacharacters actually show up.
+ * against exhaustive short strings from the relevant alphabets, plus boundary
+ * cases. The functions under test are dependency-free string math, and the
+ * test inputs need no property-testing package or Effect runtime.
  */
 
-import { Schema } from "effect";
-import { FastCheck } from "effect/testing";
 import { describe, expect, it } from "vitest";
 
 import { escapeLike, handlePrefixRange, tokeniseQuery } from "../src/search";
 
-/** More runs than fast-check's default 100 — these are microseconds each. */
-const RUNS = { numRuns: 1000 } as const;
+/** Every short string over the supplied alphabet, including the empty string. */
+function* stringsUpTo(alphabet: readonly string[], maxLength: number): Generator<string> {
+  let values = [""];
+  yield "";
+  for (let length = 1; length <= maxLength; length++) {
+    values = values.flatMap((prefix) => alphabet.map((char) => prefix + char));
+    yield* values;
+  }
+}
 
-/**
- * The handle charset, as the source constrains it: `^[a-z0-9_]+$`.
- *
- * Derived through `Schema.toArbitrary` from the same pattern rather than
- * hand-built from `fc.constantFrom`, so the generator is a restatement of the
- * constraint instead of a second copy of it that can drift from it.
- */
-const HandleLike = Schema.String.check(Schema.isPattern(/^[a-z0-9_]{1,10}$/));
-const handleArb = Schema.toArbitrary(HandleLike)(FastCheck);
-
-/** A single handle character, for building near-miss siblings of a query. */
-const handleCharArb = FastCheck.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789_".split(""));
+const handleChars = [..."abcdefghijklmnopqrstuvwxyz0123456789_"];
+const handleQueries = [...stringsUpTo(handleChars, 2), "a_b", "abc123", "zzzzzzzzzz", "0_"].filter(
+  Boolean,
+);
 
 describe("handlePrefixRange — range membership is exactly prefix matching", () => {
   /**
@@ -70,82 +56,66 @@ describe("handlePrefixRange — range membership is exactly prefix matching", ()
   const successorOf = (value: string) =>
     value.slice(0, -1) + String.fromCharCode(value.charCodeAt(value.length - 1) + 1);
 
-  const pairArb = FastCheck.tuple(handleArb, handleArb, handleCharArb).chain(([q, tail, c]) =>
-    FastCheck.constantFrom(
-      q,
-      q + tail,
-      tail,
-      q.slice(0, -1) + c + tail,
-      q.slice(0, -1),
-      // Not always a legal handle — `"z"` succeeds to `"{"` — but the property
-      // is about string ordering, and `startsWith` answers for any string.
-      successorOf(q),
-      successorOf(q) + tail,
-    ).map((h) => [q, h] as const),
-  );
-
   it("h is in the returned range iff h starts with q", () => {
-    FastCheck.assert(
-      FastCheck.property(pairArb, ([query, handle]) => {
-        const range = handlePrefixRange(query);
-        // Every query here is drawn from the handle charset, so a range is
-        // always returned; a null would itself be the bug.
-        expect(range).not.toBeNull();
-        if (range === null) return;
-        const inRange = handle >= range.lower && handle < range.upper;
-        // `startsWith` is the honest oracle for `handle LIKE 'q%'` here:
-        // handles are stored lowercase and `normaliseHandleQuery` lowercases
-        // the query, so SQLite's case-insensitive LIKE has no case to differ
-        // on, and there are no wildcards left in a charset-constrained query.
-        expect(inRange).toBe(handle.startsWith(query));
-      }),
-      RUNS,
-    );
+    for (const query of handleQueries) {
+      const range = handlePrefixRange(query);
+      expect(range).not.toBeNull();
+      if (range === null) continue;
+      const upper = successorOf(query);
+      for (const tail of ["a", "0", "_"]) {
+        for (const handle of [
+          query,
+          query + tail,
+          tail,
+          query.slice(0, -1) + tail + "a",
+          query.slice(0, -1),
+          // The upper bound can be outside the handle alphabet, but still
+          // determines whether the range is half-open.
+          upper,
+          upper + tail,
+        ]) {
+          const inRange = handle >= range.lower && handle < range.upper;
+          expect(inRange, `query=${query}, handle=${handle}`).toBe(handle.startsWith(query));
+        }
+      }
+    }
   });
 
   it("returns a range for exactly the queries that can prefix a handle", () => {
-    FastCheck.assert(
-      FastCheck.property(FastCheck.string({ maxLength: 12 }), (query) => {
-        const canPrefixAHandle = /^[a-z0-9_]+$/.test(query);
-        expect(handlePrefixRange(query) !== null).toBe(canPrefixAHandle);
-      }),
-      RUNS,
-    );
+    const alphabet = ["a", "z", "0", "9", "_", "A", "%", "\\", " ", "é", "日"];
+    for (const query of [...stringsUpTo(alphabet, 3), "@alice", "a-b", "a\nb"]) {
+      const canPrefixAHandle = /^[a-z0-9_]+$/.test(query);
+      expect(handlePrefixRange(query) !== null, `query=${query}`).toBe(canPrefixAHandle);
+    }
   });
 });
 
 /**
  * Strings dense in LIKE metacharacters.
  *
- * `fc.string()` over the full unicode range produces a `%` about never, so the
- * escape properties would pass without ever escaping anything. This alphabet
- * makes the metacharacters roughly a third of every generated string.
+ * Exhaustive short strings keep LIKE metacharacters in the test set.
  */
-const metaHeavyArb = FastCheck.string({
-  unit: FastCheck.constantFrom("a", "B", "1", "%", "_", "\\", " ", "-"),
-  maxLength: 24,
-});
+const metaHeavyInputs = [
+  ...stringsUpTo(["a", "B", "1", "%", "_", "\\", " ", "-"], 3),
+  "a%_\\ B-1",
+  "é%日_\\",
+  "a".repeat(40),
+];
 
 /** The inverse of `escapeLike`: drop the backslash from every escaped pair. */
 const unescapeLike = (value: string) => value.replace(/\\([\s\S])/g, "$1");
 
 describe("escapeLike — escaping is lossless and total", () => {
   it("round-trips: unescaping an escaped string returns the original", () => {
-    FastCheck.assert(
-      FastCheck.property(metaHeavyArb, (value) => {
-        expect(unescapeLike(escapeLike(value))).toBe(value);
-      }),
-      RUNS,
-    );
+    for (const value of metaHeavyInputs) {
+      expect(unescapeLike(escapeLike(value)), `value=${value}`).toBe(value);
+    }
   });
 
-  it("round-trips over arbitrary text too, not just the metacharacter alphabet", () => {
-    FastCheck.assert(
-      FastCheck.property(FastCheck.string({ maxLength: 40 }), (value) => {
-        expect(unescapeLike(escapeLike(value))).toBe(value);
-      }),
-      RUNS,
-    );
+  it("round-trips across scripts and control characters", () => {
+    for (const value of ["日本語", "café", "👋🏽", "a\n%b", "\0_\\", "foo\r\nbar"]) {
+      expect(unescapeLike(escapeLike(value))).toBe(value);
+    }
   });
 
   it("leaves no unescaped metacharacter behind", () => {
@@ -154,13 +124,10 @@ describe("escapeLike — escaping is lossless and total", () => {
     // what remains — the characters SQLite reads literally — must contain no
     // `%`, `_` or `\`, because each of those is what the escape exists to
     // neutralise.
-    FastCheck.assert(
-      FastCheck.property(metaHeavyArb, (value) => {
-        const literalRemainder = escapeLike(value).replace(/\\[\s\S]/g, "");
-        expect(literalRemainder).not.toMatch(/[\\%_]/);
-      }),
-      RUNS,
-    );
+    for (const value of metaHeavyInputs) {
+      const literalRemainder = escapeLike(value).replace(/\\[\s\S]/g, "");
+      expect(literalRemainder, `value=${value}`).not.toMatch(/[\\%_]/);
+    }
   });
 });
 
@@ -170,27 +137,14 @@ describe("tokeniseQuery — the LIKE metacharacters survive tokenisation", () =>
    * digits, the three metacharacters, and the punctuation and whitespace that
    * `QUERY_SEPARATOR` is meant to split on.
    */
-  const queryArb = FastCheck.string({
-    unit: FastCheck.constantFrom(
-      "a",
-      "B",
-      "1",
-      "%",
-      "_",
-      "\\",
-      " ",
-      "\t",
-      ",",
-      ".",
-      "-",
-      "@",
-      "'",
-      "/",
-      "é",
-      "日",
+  const queryInputs = [
+    ...stringsUpTo(
+      ["a", "B", "1", "%", "_", "\\", " ", "\t", ",", ".", "-", "@", "'", "/", "é", "日"],
+      3,
     ),
-    maxLength: 24,
-  });
+    "Smith, John",
+    "é% 日_\\foo",
+  ];
 
   const countOf = (haystack: string, needle: string) => haystack.split(needle).length - 1;
 
@@ -201,30 +155,24 @@ describe("tokeniseQuery — the LIKE metacharacters survive tokenisation", () =>
     // be silently gone — turning an exact-match pattern back into a wildcard
     // one, which is the failure mode nobody notices because it returns *more*
     // rows, not fewer.
-    FastCheck.assert(
-      FastCheck.property(queryArb, (query) => {
-        const joined = tokeniseQuery(query).join("");
-        for (const meta of ["%", "_", "\\"] as const) {
-          expect(countOf(joined, meta)).toBe(countOf(query, meta));
-        }
-      }),
-      RUNS,
-    );
+    for (const query of queryInputs) {
+      const joined = tokeniseQuery(query).join("");
+      for (const meta of ["%", "_", "\\"] as const) {
+        expect(countOf(joined, meta), `query=${query}, meta=${meta}`).toBe(countOf(query, meta));
+      }
+    }
   });
 
   it("only ever drops separator characters — tokens are a subsequence of the query", () => {
-    FastCheck.assert(
-      FastCheck.property(queryArb, (query) => {
-        // Every token must appear in the query, in order, without overlap.
-        let cursor = 0;
-        for (const token of tokeniseQuery(query)) {
-          expect(token.length).toBeGreaterThan(0);
-          const at = query.indexOf(token, cursor);
-          expect(at).toBeGreaterThanOrEqual(0);
-          cursor = at + token.length;
-        }
-      }),
-      RUNS,
-    );
+    for (const query of queryInputs) {
+      // Every token must appear in the query, in order, without overlap.
+      let cursor = 0;
+      for (const token of tokeniseQuery(query)) {
+        expect(token.length).toBeGreaterThan(0);
+        const at = query.indexOf(token, cursor);
+        expect(at, `query=${query}, token=${token}`).toBeGreaterThanOrEqual(0);
+        cursor = at + token.length;
+      }
+    }
   });
 });
