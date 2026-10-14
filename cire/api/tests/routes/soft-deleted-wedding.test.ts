@@ -312,6 +312,11 @@ const REQUESTS: Record<string, Row> = {
     live: status(200),
     deleted: status(404),
   },
+  "POST /api/invite/resolve": {
+    request: (f) => send(f, "POST", "/api/invite/resolve", { body: { slug: SLUG } }),
+    live: status(200),
+    deleted: status(404),
+  },
   "GET /api/invite/:slug/image/:slot": {
     request: (f) => send(f, "GET", `/api/invite/${SLUG}/image/hero`),
     live: status(200),
