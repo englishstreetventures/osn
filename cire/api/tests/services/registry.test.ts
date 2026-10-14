@@ -156,10 +156,24 @@ describe("the parting gift summary", () => {
     contributions: {
       count: 3,
       totals: [
-        { currency: "AUD", amountMinor: 17_500 },
-        { currency: "JPY", amountMinor: 3_000 },
+        { currency: "AUD", amountMinor: 17_500, count: 2 },
+        { currency: "JPY", amountMinor: 3_000, count: 1 },
+      ],
+      gifts: [
+        { on: "2025-05-11", amountMinor: 12_500, currency: "AUD" },
+        { on: "2025-05-11", amountMinor: 5_000, currency: "AUD" },
+        { on: "2025-05-20", amountMinor: 3_000, currency: "JPY" },
       ],
     },
+  };
+
+  /** A summary written before gifts were listed or totals carried a count. */
+  const KEPT_BEFORE_LISTS = {
+    sweptOn: "2026-06-17",
+    firstGiftOn: "2025-05-11",
+    lastGiftOn: "2025-05-20",
+    claims: { reserved: 1, purchased: 2 },
+    contributions: { count: 3, totals: [{ currency: "AUD", amountMinor: 17_500 }] },
   };
 
   it("reads as absent for a wedding that was never swept", async () => {
@@ -173,6 +187,43 @@ describe("the parting gift summary", () => {
     writeSummary(db, JSON.stringify(KEPT));
     const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
     expect(snap.giftSummary).toEqual(KEPT);
+  });
+
+  it("reads a summary kept before gifts were listed as an empty list, totals uncounted", async () => {
+    // The count still says how many gifts there were; the portal says how many
+    // it cannot list one by one.
+    const db = db0();
+    writeSummary(db, JSON.stringify(KEPT_BEFORE_LISTS));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(snap.giftSummary).toEqual({
+      ...KEPT_BEFORE_LISTS,
+      contributions: { ...KEPT_BEFORE_LISTS.contributions, gifts: [] },
+    });
+  });
+
+  it("drops a malformed listed gift and keeps the rest", async () => {
+    const db = db0();
+    const damaged = {
+      ...KEPT,
+      contributions: {
+        ...KEPT.contributions,
+        gifts: [
+          KEPT.contributions.gifts[0],
+          { on: "2025-05-11", amountMinor: "lots", currency: "AUD" },
+          { on: "2025-05-12", amountMinor: 1_000, currency: "AUD", familyName: "Ashworth" },
+          KEPT.contributions.gifts[2],
+        ],
+      },
+    };
+    writeSummary(db, JSON.stringify(damaged));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(snap.giftSummary?.contributions.gifts).toEqual([
+      KEPT.contributions.gifts[0],
+      { on: "2025-05-12", amountMinor: 1_000, currency: "AUD" },
+      KEPT.contributions.gifts[2],
+    ]);
+    // Copied field by field: a stray key on an entry never reaches the portal.
+    expect(JSON.stringify(snap.giftSummary)).not.toContain("Ashworth");
   });
 
   it("drops keys the summary never had rather than passing them through", async () => {

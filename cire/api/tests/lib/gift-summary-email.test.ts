@@ -14,6 +14,7 @@
 import { describe, it, expect } from "bun:test";
 
 import { EmailError, EmailService, type SendEmailInput } from "@shared/email";
+import type { RegistryGiftSummaryData } from "@shared/email/templates";
 import { Effect, Exit, Layer } from "effect";
 
 import { sendGiftSummaryEmails } from "../../src/lib/gift-summary-email";
@@ -56,11 +57,18 @@ function notice(overrides: Partial<GiftSummaryNotice> = {}): GiftSummaryNotice {
       firstGiftOn: "2025-06-01",
       lastGiftOn: "2025-08-19",
       claims: { reserved: 7, purchased: 5 },
+      // Two gifts in the wedding's currency, and one given in New Zealand
+      // dollars before the couple changed it.
       contributions: {
         count: 3,
         totals: [
-          { currency: "AUD", amountMinor: 45_000 },
-          { currency: "NZD", amountMinor: 1_000 },
+          { currency: "AUD", amountMinor: 45_000, count: 2 },
+          { currency: "NZD", amountMinor: 1_000, count: 1 },
+        ],
+        gifts: [
+          { on: "2025-06-01", amountMinor: 1_000, currency: "NZD" },
+          { on: "2025-07-04", amountMinor: 40_000, currency: "AUD" },
+          { on: "2025-08-19", amountMinor: 5_000, currency: "AUD" },
         ],
       },
     },
@@ -75,7 +83,11 @@ function inOneCurrency(currency: string, amountMinor: number): GiftSummaryNotice
     currency,
     summary: {
       ...base.summary,
-      contributions: { count: 2, totals: [{ currency, amountMinor }] },
+      contributions: {
+        count: 1,
+        totals: [{ currency, amountMinor, count: 1 }],
+        gifts: [{ on: "2025-06-01", amountMinor, currency }],
+      },
     },
   });
 }
@@ -99,15 +111,21 @@ const unansweredWith =
 const unmailed = (reason: GiftSummaryUnmailedReason) =>
   counterValue(CIRE_METRICS.giftSummaryUnmailed, { reason });
 
-/** The money line's total for one notice, as the email is handed it. */
-async function totalFor(n: GiftSummaryNotice): Promise<unknown> {
+/** The template data one notice is handed to the email as. */
+async function dataFor(n: GiftSummaryNotice): Promise<RegistryGiftSummaryData> {
   const { layer, calls } = makeRecordingStub();
   await Effect.runPromise(
     sendGiftSummaryEmails([n], lookupOf({ usr_owner1: "couple@example.com" })).pipe(
       Effect.provide(layer),
     ),
   );
-  return (calls[0]?.data as Record<string, unknown> | undefined)?.giftTotal;
+  return calls[0]?.data as RegistryGiftSummaryData;
+}
+
+/** The couple-currency total for a one-currency notice, and its one gift's line. */
+async function totalFor(n: GiftSummaryNotice): Promise<{ total: string; line: string }> {
+  const data = await dataFor(n);
+  return { total: data.giftTotals[0]?.total ?? "", line: data.gifts[0]?.amount ?? "" };
 }
 
 describe("sendGiftSummaryEmails", () => {
@@ -124,29 +142,79 @@ describe("sendGiftSummaryEmails", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.to).toBe("couple@example.com");
     expect(calls[0]?.template).toBe("registry-gift-summary");
-    const data = calls[0]?.data as Record<string, unknown>;
+    const data = calls[0]?.data as RegistryGiftSummaryData;
     expect(data.weddingName).toBe("Ada and Bo");
     expect(data.giftCount).toBe(3);
     expect(data.listPurchased).toBe(5);
-    // AUD is the wedding's own currency, so it wins over the NZD row that
-    // happens to sit first-equal in the totals.
-    expect(data.giftTotal).toBe(intl(450, "AUD"));
+    expect(data.giftCurrency).toBe("AUD");
   });
 
-  it("prints a yen total without dividing it", async () => {
+  it("totals each currency with the gifts it adds, the couple's own first", async () => {
+    // The count of every gift never sits beside a total that adds fewer: each
+    // total carries its own count, and the wedding's currency leads.
+    const data = await dataFor(notice());
+    expect(data.giftTotals).toEqual([
+      { currency: "AUD", total: intl(450, "AUD"), count: 2 },
+      { currency: "NZD", total: intl(10, "NZD"), count: 1 },
+    ]);
+  });
+
+  it("lists every gift as given, and marks one in another currency", async () => {
+    const data = await dataFor(notice());
+    expect(data.gifts).toEqual([
+      { on: "2025-06-01", amount: intl(10, "NZD"), otherCurrency: "NZD" },
+      { on: "2025-07-04", amount: intl(400, "AUD"), otherCurrency: null },
+      { on: "2025-08-19", amount: intl(50, "AUD"), otherCurrency: null },
+    ]);
+    expect(data.giftsUnlisted).toBe(0);
+  });
+
+  it("counts the gifts a summary holds but does not list", async () => {
+    // A summary kept before gifts were listed: a count, totals without counts,
+    // and no list.
+    const base = notice();
+    const data = await dataFor(
+      notice({
+        summary: {
+          ...base.summary,
+          contributions: {
+            count: 3,
+            totals: [
+              { currency: "NZD", amountMinor: 1_000 },
+              { currency: "AUD", amountMinor: 45_000 },
+            ],
+            gifts: [],
+          },
+        },
+      }),
+    );
+    expect(data.gifts).toEqual([]);
+    expect(data.giftsUnlisted).toBe(3);
+    expect(data.giftTotals).toEqual([
+      { currency: "AUD", total: intl(450, "AUD"), count: null },
+      { currency: "NZD", total: intl(10, "NZD"), count: null },
+    ]);
+  });
+
+  it("prints a yen total and gift without dividing them", async () => {
     // A fixed `/ 100` told a JPY wedding its gifts came to ¥10.
-    expect(await totalFor(inOneCurrency("JPY", 1000))).toBe(intl(1000, "JPY"));
+    const { total, line } = await totalFor(inOneCurrency("JPY", 1000));
+    expect(total).toBe(intl(1000, "JPY"));
+    expect(line).toBe(intl(1000, "JPY"));
   });
 
-  it("prints a dinar total to the thousandth", async () => {
+  it("prints a dinar total and gift to the thousandth", async () => {
     // A fixed `/ 100` told a KWD wedding its gifts came to ten times 1.500 dinar.
-    const total = await totalFor(inOneCurrency("KWD", 1500));
+    const { total, line } = await totalFor(inOneCurrency("KWD", 1500));
     expect(total).toBe(intl(1.5, "KWD"));
-    expect(String(total)).toContain("1.500");
+    expect(total).toContain("1.500");
+    expect(line).toBe(intl(1.5, "KWD"));
   });
 
-  it("prints a euro total from its cents", async () => {
-    expect(await totalFor(inOneCurrency("EUR", 1999))).toBe(intl(19.99, "EUR"));
+  it("prints a euro total and gift from their cents", async () => {
+    const { total, line } = await totalFor(inOneCurrency("EUR", 1999));
+    expect(total).toBe(intl(19.99, "EUR"));
+    expect(line).toBe(intl(19.99, "EUR"));
   });
 
   it("skips a wedding osn-api has no address for, and counts it", async () => {

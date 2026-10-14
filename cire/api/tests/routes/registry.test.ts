@@ -258,7 +258,15 @@ describe("registry routes (Gold)", () => {
       firstGiftOn: "2025-05-11",
       lastGiftOn: "2025-05-20",
       claims: { reserved: 1, purchased: 2 },
-      contributions: { count: 3, totals: [{ currency: "AUD", amountMinor: 17_500 }] },
+      contributions: {
+        count: 3,
+        totals: [{ currency: "AUD", amountMinor: 17_500, count: 3 }],
+        gifts: [
+          { on: "2025-05-11", amountMinor: 10_000, currency: "AUD" },
+          { on: "2025-05-11", amountMinor: 5_000, currency: "AUD" },
+          { on: "2025-05-20", amountMinor: 2_500, currency: "AUD" },
+        ],
+      },
     };
     const app = buildApp({
       tier: "gold",

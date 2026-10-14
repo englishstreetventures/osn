@@ -2,7 +2,8 @@
  * Delivery of the retention sweep's parting gift summary.
  *
  * The sweep deletes a wedding's guest data a year after its last event, and
- * leaves the couple an aggregate on `registry_settings`. This is the half that
+ * leaves the couple a record on `registry_settings`: counts, totals and each
+ * money gift's amount and day, with no names. This is the half that
  * actually reaches them: it asks osn-api for every owner's address (cire stores
  * none of its own) and sends the wedding's summary to each of them — one email
  * per distinct address, so two owners who share an inbox get it once.
@@ -20,6 +21,7 @@
  */
 
 import { EmailService, type SendEmailInput } from "@shared/email";
+import type { RegistryGiftSummaryData } from "@shared/email/templates";
 import { Effect } from "effect";
 
 import { metricGiftSummaryUnmailed } from "../metrics";
@@ -43,19 +45,39 @@ const reportUnanswered = (unmailed: number, weddings: number): Effect.Effect<voi
   );
 
 /**
- * The `registry-gift-summary` template's data for one notice. The total is in
- * the wedding's own currency, or the first currency a gift came in when none
- * came in its own, printed with that currency's minor unit.
+ * The `registry-gift-summary` template's data for one notice, every amount
+ * printed with its own currency's minor unit (`formatMinor`).
+ *
+ * Nothing is converted: every gift is charged in the wedding's currency, so a
+ * gift in another one was given before the couple changed it, and it stays in
+ * its own. Each currency gets its own total with the gifts it adds — the
+ * couple's first — and each listed gift names its currency when it is not the
+ * couple's, so the email can say it sits outside their total.
  */
-function summaryEmailData(notice: GiftSummaryNotice) {
-  const totals = notice.summary.contributions.totals;
-  const primary = totals.find((t) => t.currency === notice.currency) ?? totals[0] ?? null;
+function summaryEmailData(notice: GiftSummaryNotice): RegistryGiftSummaryData {
+  const couple = notice.currency.toUpperCase();
+  const { count, totals, gifts } = notice.summary.contributions;
+  const ours = (currency: string) => currency.toUpperCase() === couple;
   return {
     weddingName: notice.weddingName,
     finalEventOn: notice.finalEventOn,
     sweptOn: notice.summary.sweptOn,
-    giftCount: notice.summary.contributions.count,
-    giftTotal: primary ? formatMinor(primary.amountMinor, primary.currency) : null,
+    giftCount: count,
+    giftCurrency: couple,
+    giftTotals: [
+      ...totals.filter((t) => ours(t.currency)),
+      ...totals.filter((t) => !ours(t.currency)),
+    ].map((t) => ({
+      currency: t.currency,
+      total: formatMinor(t.amountMinor, t.currency),
+      count: t.count ?? null,
+    })),
+    gifts: gifts.map((g) => ({
+      on: g.on,
+      amount: formatMinor(g.amountMinor, g.currency),
+      otherCurrency: ours(g.currency) ? null : g.currency,
+    })),
+    giftsUnlisted: Math.max(0, count - gifts.length),
     listPurchased: notice.summary.claims.purchased,
     listReserved: notice.summary.claims.reserved,
   };
@@ -100,16 +122,16 @@ export function sendGiftSummaryEmails(
       // It does not say why, so there is nothing to log — only to count.
       yield* Effect.sync(() => metricGiftSummaryUnmailed("no_address", unmailed));
     }
-    const sends = plans.flatMap(({ notice, recipients }) =>
-      [...recipients].map((to) => ({
+    // The data is built once per wedding and shared by its recipients: every
+    // listed gift is formatted here, and the cron's CPU is shared by every job.
+    const sends = plans.flatMap(({ notice, recipients }) => {
+      if (recipients.size === 0) return [];
+      const data = summaryEmailData(notice);
+      return [...recipients].map((to) => ({
         weddingId: notice.weddingId,
-        input: {
-          template: "registry-gift-summary",
-          to,
-          data: summaryEmailData(notice),
-        } satisfies SendEmailInput,
-      })),
-    );
+        input: { template: "registry-gift-summary", to, data } satisfies SendEmailInput,
+      }));
+    });
     yield* Effect.annotateCurrentSpan({ recipients: sends.length, unmailed });
     if (sends.length === 0) return;
 

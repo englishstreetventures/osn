@@ -576,7 +576,7 @@ describe("the wedding's currency while money gifts are on", () => {
     cashGiftsOn(db, "AUD");
     const res = await req(app, "PUT", SETTINGS_PATH, OWNER, { currency: "USD" });
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "currency_locked_by_cash_gifts" });
+    expect((await res.json()) as unknown).toEqual({ error: "currency_locked_by_cash_gifts" });
     expect(getWedding(db).currency).toBe("AUD");
   });
 

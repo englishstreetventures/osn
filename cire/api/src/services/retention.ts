@@ -12,7 +12,7 @@ import {
   weddings,
 } from "@cire/db";
 import { jsonEachIn, rowsChanged } from "@shared/db-utils";
-import { and, asc, eq, inArray, lt, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, lte, ne, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Cause, Data, Effect } from "effect";
 
@@ -94,6 +94,38 @@ export const GIFT_SUMMARY_HOLD_BACK_MS = 30 * 24 * 60 * 60 * 1000;
  * it.
  */
 export const MAX_WEDDINGS_PER_SWEEP = 250;
+
+/**
+ * Most money gifts one wedding's kept record lists one by one. Past it the
+ * count and the totals still cover every gift, and the record says how many
+ * were not listed. 200 keeps the parting email well under the size at which
+ * Gmail clips a message (about 102 KB of HTML), which a test pins.
+ */
+export const GIFT_SUMMARY_MAX_LISTED = 200;
+
+/**
+ * Most listed gifts one sweep run will write, summed over its weddings — each
+ * wedding's stored list plus its new gifts, capped at
+ * {@link GIFT_SUMMARY_MAX_LISTED}. Every listed gift is read, folded, encoded
+ * into the stored summary and rendered once per owner into the email, all
+ * inside the one cron invocation every job shares on Workers Free (10 ms of
+ * CPU, wiki/shared/free-tier-limits.md). At 1,000 that work measured about
+ * 1.3 ms with three owners a wedding, inside the 2 ms this part of the sweep
+ * may spend; 1,500 measured at that line (`wiki/cire/cire-registry.md`
+ * §What the couple keeps has the figures). A wedding that would pass it waits
+ * for the next run, unless it is past the hold-back ceiling
+ * ({@link GIFT_SUMMARY_HOLD_BACK_MS}): the privacy notice's year outranks the
+ * budget. A wedding with no money gift never waits.
+ */
+export const MAX_LISTED_GIFTS_PER_SWEEP = 1_000;
+
+/**
+ * Longest JSON payload one summary-store statement binds, in characters (the
+ * payload is ASCII, so also bytes). D1's documented ceiling for a string value
+ * is 2 MB (developers.cloudflare.com/d1/platform/limits); a run's summaries are
+ * packed into as few statements as stay under this, all in the delete's batch.
+ */
+export const GIFT_SUMMARY_STORE_CHUNK_CHARS = 60_000;
 
 /**
  * `events.end_at` is an ISO-8601 string that begins with a zero-padded
@@ -231,21 +263,32 @@ export const retentionService = {
         return 0;
       }
 
+      // The hold-back has a ceiling. A wedding more than
+      // GIFT_SUMMARY_HOLD_BACK_MS past its retention date has been held back on
+      // every run since it fell due, so it is deleted without its record rather
+      // than kept indefinitely: the privacy notice's year outranks the
+      // keepsake. Measured from the final event, the only date the sweep has;
+      // with the cron running daily, that is the run count since it fell due.
+      const ceiling = cutoffDateString(new Date(now.getTime() - GIFT_SUMMARY_HOLD_BACK_MS));
+      // Read before the count, which never defers a wedding past it.
+      const pastCeiling = weddingIds.filter((id) => (finalEventAtById.get(id) ?? "") < ceiling);
+
       // ── COUNT THE COUPLE'S RECORD, BEFORE TAKING THE DETAIL AWAY ──────────
       // Gifts are guest data: claims and contributions both hang off
       // `families`, so the delete below cascades them away and the couple's
       // record of what arrived goes with it. That window is deliberate (cire
       // holds no funds and has no record-keeping duty of its own), but a
-      // record vanishing unannounced is not. A parting summary — counts and
-      // totals, no household, no name, no note — lands on `registry_settings`,
-      // which this sweep keeps. `wiki/compliance/retention.md` §Contributions.
+      // record vanishing unannounced is not. A parting summary — counts,
+      // totals and each money gift's amount and day, no household, no name, no
+      // note — lands on `registry_settings`, which this sweep keeps.
+      // `wiki/compliance/retention.md` §Contributions.
       //
       // Counted first. If the gifts cannot be counted, nothing is deleted this
       // run except the weddings past the hold-back ceiling: one read covers
       // the cohort, so a failed one cannot say which weddings had gifts, and
       // deleting any of them could take gifts with no record left. The rest
       // keep their households, so the next run counts them again.
-      const counted = yield* countGiftSummaries(weddingIds, now).pipe(
+      const counted = yield* countGiftSummaries(weddingIds, now, new Set(pastCeiling)).pipe(
         // Cause-level: `dbQuery` surfaces a failed query as a defect.
         Effect.catchCause((cause) =>
           Effect.logError("gift summaries not written — held back from the delete").pipe(
@@ -274,15 +317,14 @@ export const retentionService = {
           Effect.annotateLogs({ weddings: rowless }),
         );
       }
-
-      // The hold-back has a ceiling. A wedding more than
-      // GIFT_SUMMARY_HOLD_BACK_MS past its retention date has been held back on
-      // every run since it fell due, so it is deleted without its record rather
-      // than kept indefinitely: the privacy notice's year outranks the
-      // keepsake. Measured from the final event, the only date the sweep has;
-      // with the cron running daily, that is the run count since it fell due.
-      const ceiling = cutoffDateString(new Date(now.getTime() - GIFT_SUMMARY_HOLD_BACK_MS));
-      const pastCeiling = weddingIds.filter((id) => (finalEventAtById.get(id) ?? "") < ceiling);
+      // Not an error: these lead the next run's cohort. Logged so a backlog
+      // that keeps waiting is visible rather than silent.
+      const deferred = counted?.deferred.size ?? 0;
+      if (deferred > 0) {
+        yield* Effect.logInfo("gift summaries deferred to the next run — listed-gift budget").pipe(
+          Effect.annotateLogs({ weddings: deferred, budget: MAX_LISTED_GIFTS_PER_SWEEP }),
+        );
+      }
 
       /**
        * Delete `ids`' guest data, and store `toStore` in the same batch.
@@ -390,7 +432,7 @@ export const retentionService = {
               return commitBatchResults(db, [
                 ...stmts,
                 db.delete(imports).where(inArray(imports.weddingId, jsonEachIn(ids))),
-                ...(toStore.size > 0 ? [storeGiftSummaries(db, toStore, now)] : []),
+                ...(toStore.size > 0 ? storeGiftSummaries(db, toStore, now) : []),
               ]);
             },
             catch: (e) => new RetentionWriteError({ op: "sweep", reason: String(e) }),
@@ -426,7 +468,8 @@ export const retentionService = {
       // batch with the summaries fails, the weddings past the ceiling get one
       // more attempt without theirs, and the rest wait for the next run.
       const none = new Map<string, GiftSummary>();
-      const firstIds = counted === null ? pastCeiling : weddingIds;
+      const firstIds =
+        counted === null ? pastCeiling : weddingIds.filter((id) => !counted.deferred.has(id));
       const outcome =
         firstIds.length === 0
           ? { guestsDeleted: 0, sheetKeys: [], weddings: 0, stored: none, lost: 0 }
@@ -530,14 +573,38 @@ export const retentionService = {
   },
 };
 
+/** One currency's money gifts in a kept summary. */
+export interface GiftSummaryTotal {
+  /** Upper-case ISO code, as given. */
+  currency: string;
+  amountMinor: number;
+  /**
+   * How many gifts make up `amountMinor`. Absent on a total written before the
+   * count was kept, and on any total merged with one of those — a count nobody
+   * can know is left out rather than guessed.
+   */
+  count?: number;
+}
+
+/** One money gift in a kept summary: what arrived, in what, and on which day. */
+export interface GiftSummaryGift {
+  /** ISO day the gift was given. */
+  on: string;
+  /** As given, in minor units of `currency`. */
+  amountMinor: number;
+  currency: string;
+}
+
 /**
  * The shape written into `registry_settings.gift_summary_json`.
  *
- * Aggregates only, and that is the whole design: the sweep exists to delete the
- * per-guest detail, so a summary carrying a household, a name or a note would be
- * the deletion undone in the row next door. Money is summed PER CURRENCY rather
- * than converted — a total that re-values itself is not a record of anything,
- * and the FX columns are null for the common same-currency case anyway.
+ * No household, no name, no note: the sweep exists to delete who gave what and
+ * what they wrote, so a summary carrying any of those would be the deletion
+ * undone in the row next door. It keeps the counts, the per-currency totals and
+ * — so the couple can still see each gift they were given — the amount,
+ * currency and day of each money gift. Money is never converted: every gift is
+ * charged in the wedding's currency, and one given before the couple changed
+ * that currency stays in its own.
  */
 export interface GiftSummary {
   /** When the detail was deleted, ISO date. */
@@ -557,8 +624,13 @@ export interface GiftSummary {
   lastGiftOn: string;
   /** Gifts reserved from the list, and how many of them were marked purchased. */
   claims: { reserved: number; purchased: number };
-  /** Money gifts that actually settled, per currency, in minor units. */
-  contributions: { count: number; totals: { currency: string; amountMinor: number }[] };
+  /**
+   * Money gifts that actually settled: how many, the total per currency, and
+   * each one oldest first — at most {@link GIFT_SUMMARY_MAX_LISTED}. `count`
+   * covers every gift; `count - gifts.length` were not listed one by one (past
+   * the cap, or kept in a summary written before gifts were listed).
+   */
+  contributions: { count: number; totals: GiftSummaryTotal[]; gifts: GiftSummaryGift[] };
 }
 
 /**
@@ -571,7 +643,7 @@ export interface GiftSummary {
  */
 interface SummaryDraft {
   claims: { reserved: number; purchased: number };
-  contributions: { count: number; totals: { currency: string; amountMinor: number }[] };
+  contributions: { count: number; totals: GiftSummaryTotal[]; gifts: GiftSummaryGift[] };
   firstAt: number | null;
   lastAt: number | null;
 }
@@ -624,9 +696,19 @@ export type GiftSummaryNotifier = (
  * record has to cover every gift ever deleted, not only the latest rows.
  */
 function mergeGiftSummaries(stored: GiftSummary, fresh: GiftSummary): GiftSummary {
-  const totals = new Map<string, number>();
+  // Per currency: amounts add; counts add only while both sides know theirs.
+  const totals = new Map<string, { amountMinor: number; count: number | undefined }>();
   for (const total of [...stored.contributions.totals, ...fresh.contributions.totals]) {
-    totals.set(total.currency, (totals.get(total.currency) ?? 0) + total.amountMinor);
+    const seen = totals.get(total.currency);
+    totals.set(total.currency, {
+      amountMinor: (seen?.amountMinor ?? 0) + total.amountMinor,
+      count:
+        seen === undefined
+          ? total.count
+          : seen.count === undefined || total.count === undefined
+            ? undefined
+            : seen.count + total.count,
+    });
   }
   return {
     sweptOn: fresh.sweptOn,
@@ -639,26 +721,43 @@ function mergeGiftSummaries(stored: GiftSummary, fresh: GiftSummary): GiftSummar
     contributions: {
       count: stored.contributions.count + fresh.contributions.count,
       // Code order, as the read below sorts them.
-      totals: [...totals.keys()]
-        .toSorted()
-        .map((currency) => ({ currency, amountMinor: totals.get(currency) ?? 0 })),
+      totals: [...totals.keys()].toSorted().map((currency) => {
+        const total = totals.get(currency) ?? { amountMinor: 0, count: undefined };
+        return total.count === undefined
+          ? { currency, amountMinor: total.amountMinor }
+          : { currency, amountMinor: total.amountMinor, count: total.count };
+      }),
+      // Oldest first, and the oldest are the ones kept past the cap: a list
+      // that dropped the earliest gifts would no longer start where the
+      // record's `firstGiftOn` says it does.
+      gifts: [...stored.contributions.gifts, ...fresh.contributions.gifts]
+        .toSorted((a, b) => (a.on < b.on ? -1 : a.on > b.on ? 1 : 0))
+        .slice(0, GIFT_SUMMARY_MAX_LISTED),
     },
   };
 }
 
 /**
  * Count each expiring wedding's gifts into the summary it will keep: the
- * claims and contributions aggregates, folded per wedding, merged into any
- * summary an earlier sweep stored. A wedding with no gifts has no entry in
- * `summaries`; `withRow` is the weddings with a `registry_settings` row for a
- * summary to land on. Fails as a whole — the reads span the cohort, so a
- * failed one cannot say which weddings had gifts.
+ * claims and contributions aggregates, folded per wedding, the money gifts
+ * listed one by one, merged into any summary an earlier sweep stored. A
+ * wedding with no gifts has no entry in `summaries`; `withRow` is the weddings
+ * with a `registry_settings` row for a summary to land on; `deferred` is the
+ * weddings this run leaves for the next one because their listed gifts would
+ * pass {@link MAX_LISTED_GIFTS_PER_SWEEP} — never one in `forced`, the weddings
+ * past the hold-back ceiling. Fails as a whole — the reads span the cohort, so
+ * a failed one cannot say which weddings had gifts.
  */
 function countGiftSummaries(
   weddingIds: readonly string[],
   now: Date,
+  forced: ReadonlySet<string>,
 ): Effect.Effect<
-  { summaries: Map<string, GiftSummary>; withRow: ReadonlySet<string> },
+  {
+    summaries: Map<string, GiftSummary>;
+    withRow: ReadonlySet<string>;
+    deferred: ReadonlySet<string>;
+  },
   never,
   DbService
 > {
@@ -747,11 +846,85 @@ function countGiftSummaries(
       { concurrency: "unbounded" },
     );
 
+    const stored = new Map(
+      storedRows.flatMap((row) => {
+        const summary = decodeGiftSummary(row.json, row.at);
+        return summary ? [[row.weddingId, summary] as const] : [];
+      }),
+    );
+
+    // ── THE LISTED-GIFT BUDGET ───────────────────────────────────────────
+    // Each wedding lists its stored gifts plus its new ones, capped. Walked in
+    // cohort order — longest overdue first — taking a wedding past the
+    // ceiling always, one that lists nothing always, and any other only while
+    // it fits; the rest wait for the next run, where they lead the cohort.
+    const freshCount = new Map<string, number>();
+    for (const row of giftRows as Array<{ weddingId: string; count: number }>) {
+      freshCount.set(row.weddingId, (freshCount.get(row.weddingId) ?? 0) + row.count);
+    }
+    const deferred = new Set<string>();
+    let listed = 0;
+    for (const weddingId of ids) {
+      const wants = Math.min(
+        (stored.get(weddingId)?.contributions.gifts.length ?? 0) + (freshCount.get(weddingId) ?? 0),
+        GIFT_SUMMARY_MAX_LISTED,
+      );
+      if (forced.has(weddingId) || wants === 0 || listed + wants <= MAX_LISTED_GIFTS_PER_SWEEP) {
+        listed += wants;
+      } else {
+        deferred.add(weddingId);
+      }
+    }
+
+    // ── EACH MONEY GIFT, ONE BY ONE ──────────────────────────────────────
+    // Only for the weddings this run takes that have new gifts, numbered per
+    // wedding oldest first and cut in SQLite at the cap. Every succeeded row of
+    // those weddings is walked to number it — rows the grouped read above has
+    // already walked once — but only the listed ones cross the D1 wire.
+    const listIds = ids.filter((id) => !deferred.has(id) && (freshCount.get(id) ?? 0) > 0);
+    const numbered = db
+      .select({
+        weddingId: registryContributions.weddingId,
+        // Clamped as the totals are, so the list and the totals agree.
+        amountMinor: sql<number>`max(${registryContributions.amountMinor}, 0)`.as("listed_minor"),
+        currency: registryContributions.currency,
+        // Epoch SECONDS: an expression, so drizzle's timestamp mapping does not
+        // run on it.
+        createdAt: sql<number>`${registryContributions.createdAt}`.as("listed_at"),
+        n: sql<number>`row_number() over (partition by ${registryContributions.weddingId} order by ${registryContributions.createdAt}, ${registryContributions.id})`.as(
+          "listed_n",
+        ),
+      })
+      .from(registryContributions)
+      .where(
+        and(
+          inArray(registryContributions.weddingId, jsonEachIn(listIds)),
+          eq(registryContributions.status, "succeeded"),
+        ),
+      )
+      .as("numbered");
+    const listRows =
+      listIds.length === 0
+        ? []
+        : yield* dbQuery(() =>
+            db
+              .select({
+                weddingId: numbered.weddingId,
+                amountMinor: numbered.amountMinor,
+                currency: numbered.currency,
+                createdAt: numbered.createdAt,
+              })
+              .from(numbered)
+              .where(lte(numbered.n, GIFT_SUMMARY_MAX_LISTED))
+              .orderBy(numbered.weddingId, sql`${numbered.n}`)
+              .all(),
+          );
+
     const summaries = new Map<string, SummaryDraft>();
     const sweptOn = now.toISOString().slice(0, 10);
     const blank = (): SummaryDraft => ({
       claims: { reserved: 0, purchased: 0 },
-      contributions: { count: 0, totals: [] },
+      contributions: { count: 0, totals: [], gifts: [] },
       firstAt: null,
       lastAt: null,
     });
@@ -778,6 +951,7 @@ function countGiftSummaries(
       firstAt: number | null;
       lastAt: number | null;
     }>) {
+      if (deferred.has(row.weddingId)) continue;
       const summary = summaries.get(row.weddingId) ?? blank();
       const quantity = row.quantity ?? 0;
       if (row.status === "purchased") summary.claims.purchased += quantity;
@@ -794,22 +968,31 @@ function countGiftSummaries(
       firstAt: number | null;
       lastAt: number | null;
     }>) {
+      if (deferred.has(row.weddingId)) continue;
       const summary = summaries.get(row.weddingId) ?? blank();
       summary.contributions.count += row.count;
       summary.contributions.totals.push({
         currency: row.currency,
         amountMinor: row.amountMinor ?? 0,
+        count: row.count,
       });
       widen(summary, row.firstAt, row.lastAt);
       summaries.set(row.weddingId, summary);
     }
 
-    const stored = new Map(
-      storedRows.flatMap((row) => {
-        const summary = decodeGiftSummary(row.json, row.at);
-        return summary ? [[row.weddingId, summary] as const] : [];
-      }),
-    );
+    // Ordered by wedding, then oldest first, so each list is already in order.
+    for (const row of listRows as Array<{
+      weddingId: string;
+      amountMinor: number;
+      currency: string;
+      createdAt: number;
+    }>) {
+      summaries.get(row.weddingId)?.contributions.gifts.push({
+        on: isoDay(row.createdAt),
+        amountMinor: row.amountMinor ?? 0,
+        currency: row.currency,
+      });
+    }
 
     // The span falls back to the sweep date rather than going absent. Every
     // row that produced a count also carried a `created_at`, so a null here
@@ -829,36 +1012,68 @@ function countGiftSummaries(
         return [weddingId, earlier ? mergeGiftSummaries(earlier, fresh) : fresh];
       }),
     );
-    return { summaries: merged, withRow: new Set(storedRows.map((row) => row.weddingId)) };
+    return {
+      summaries: merged,
+      withRow: new Set(storedRows.map((row) => row.weddingId)),
+      deferred,
+    };
   });
 }
 
 /**
- * One statement that stores every summary on its wedding's `registry_settings`
- * row, for the sweep's delete batch. Every summary rides in ONE bound JSON
- * parameter, unpacked with `json_each`, so the statement binds four
- * parameters whatever the cohort size (D1 allows 100) and the batch stays one
- * statement longer however many weddings it records.
+ * Pack a run's summaries into JSON payloads of at most `budget` characters
+ * each, one per store statement. A summary is never split; one that is longer
+ * than the budget on its own rides alone. At the listed-gift budget this is a
+ * handful of payloads, against the 50 statements a D1 batch takes
+ * (`MAX_STATEMENTS_PER_BATCH`).
+ */
+export function packGiftSummaries(
+  summaries: ReadonlyMap<string, GiftSummary>,
+  budget: number = GIFT_SUMMARY_STORE_CHUNK_CHARS,
+): { weddingIds: string[]; payload: string }[] {
+  const packs: { weddingIds: string[]; entries: string[]; length: number }[] = [];
+  for (const [weddingId, summary] of summaries) {
+    const entry = JSON.stringify({ weddingId, summary: JSON.stringify(summary) });
+    const last = packs.at(-1);
+    // `[` + entries joined by `,` + `]`.
+    if (last && last.length + 1 + entry.length + 1 <= budget) {
+      last.weddingIds.push(weddingId);
+      last.entries.push(entry);
+      last.length += 1 + entry.length;
+    } else {
+      packs.push({ weddingIds: [weddingId], entries: [entry], length: 1 + entry.length });
+    }
+  }
+  return packs.map((pack) => ({
+    weddingIds: pack.weddingIds,
+    payload: `[${pack.entries.join(",")}]`,
+  }));
+}
+
+/**
+ * The statements that store every summary on its wedding's `registry_settings`
+ * row, for the sweep's delete batch — one per pack from
+ * {@link packGiftSummaries}. Each pack's summaries ride in ONE bound JSON
+ * parameter, unpacked with `json_each`, so a statement binds four parameters
+ * whatever the pack holds (D1 allows 100). On D1 the batch commits or fails as
+ * one, so every pack lands with the delete or none does; bun:sqlite, which runs
+ * only locally and in tests, runs the statements one by one.
  */
 function storeGiftSummaries(
   db: Db,
   summaries: ReadonlyMap<string, GiftSummary>,
   now: Date,
-): BatchItem<"sqlite"> {
-  const payload = JSON.stringify(
-    [...summaries].map(([weddingId, summary]) => ({
-      weddingId,
-      summary: JSON.stringify(summary),
-    })),
+): BatchItem<"sqlite">[] {
+  return packGiftSummaries(summaries).map(({ weddingIds, payload }) =>
+    db
+      .update(registrySettings)
+      .set({
+        giftSummaryJson: sql`(select json_extract(value, '$.summary') from json_each(${payload}) where json_extract(value, '$.weddingId') = ${outerColumn(registrySettings.weddingId)})`,
+        giftSummaryAt: now,
+        updatedAt: now,
+      })
+      .where(inArray(registrySettings.weddingId, jsonEachIn(weddingIds))),
   );
-  return db
-    .update(registrySettings)
-    .set({
-      giftSummaryJson: sql`(select json_extract(value, '$.summary') from json_each(${payload}) where json_extract(value, '$.weddingId') = ${outerColumn(registrySettings.weddingId)})`,
-      giftSummaryAt: now,
-      updatedAt: now,
-    })
-    .where(inArray(registrySettings.weddingId, jsonEachIn([...summaries.keys()])));
 }
 
 /**

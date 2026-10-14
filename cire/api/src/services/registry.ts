@@ -47,7 +47,7 @@ import { weddingIsLive } from "../db/live-wedding";
 import { REGISTRY_IMAGE_NAME } from "./invite-assets";
 // Type only — `./retention` owns the shape, this module only reads it back.
 // Nothing at runtime crosses between them, so no import cycle.
-import type { GiftSummary } from "./retention";
+import type { GiftSummary, GiftSummaryGift, GiftSummaryTotal } from "./retention";
 import { normaliseTier, tierAtLeast } from "./tiers";
 
 /** No item with this id under this wedding (missing or another wedding's). 404-class. */
@@ -288,7 +288,8 @@ export interface RegistrySnapshot {
   /** Whether another page of gift-log rows sits past `gifts`. */
   giftsHasMore: boolean;
   /**
-   * The aggregates the retention sweep left behind, or null.
+   * The record the retention sweep left behind — counts, totals and each money
+   * gift's amount and day, no names — or null.
    *
    * Non-null means the sweep has run and the per-guest detail is DELETED — so
    * `gifts` above is empty not because nothing arrived but because we erased
@@ -481,14 +482,28 @@ const takesMoney = (settings: RegistrySettingsRecord, currency: string): boolean
   settings.stripeDefaultCurrency.toUpperCase() === currency.toUpperCase();
 
 /** One per-currency line of a stored summary, checked rather than trusted. */
-const isCurrencyTotal = (value: unknown): value is { currency: string; amountMinor: number } =>
+const isCurrencyTotal = (value: unknown): value is GiftSummaryTotal =>
   typeof value === "object" &&
   value !== null &&
   "currency" in value &&
   typeof value.currency === "string" &&
   "amountMinor" in value &&
   typeof value.amountMinor === "number" &&
-  Number.isFinite(value.amountMinor);
+  Number.isFinite(value.amountMinor) &&
+  // Absent on a total kept before counts were; present, it must be a count.
+  (!("count" in value) || (typeof value.count === "number" && Number.isFinite(value.count)));
+
+/** One listed money gift of a stored summary, checked rather than trusted. */
+const isListedGift = (value: unknown): value is GiftSummaryGift =>
+  typeof value === "object" &&
+  value !== null &&
+  "on" in value &&
+  typeof value.on === "string" &&
+  "amountMinor" in value &&
+  typeof value.amountMinor === "number" &&
+  Number.isFinite(value.amountMinor) &&
+  "currency" in value &&
+  typeof value.currency === "string";
 
 /** Both halves of a stored summary's claim counts, present and finite. */
 const isClaimCounts = (value: unknown): value is { reserved: number; purchased: number } =>
@@ -503,7 +518,7 @@ const isClaimCounts = (value: unknown): value is { reserved: number; purchased: 
 
 const isContributionTotals = (
   value: unknown,
-): value is { count: number; totals: { currency: string; amountMinor: number }[] } =>
+): value is { count: number; totals: GiftSummaryTotal[]; gifts?: unknown } =>
   typeof value === "object" &&
   value !== null &&
   "count" in value &&
@@ -528,9 +543,9 @@ const isGiftSummary = (value: unknown): value is GiftSummary =>
   isContributionTotals(value.contributions);
 
 /**
- * Decode `registry_settings.gift_summary_json` — the aggregates the retention
- * sweep leaves behind a year after the last event, in the same pass that deletes
- * the households every claim and contribution hangs off (`GiftSummary` in
+ * Decode `registry_settings.gift_summary_json` — the record the retention sweep
+ * leaves behind a year after the last event, in the same pass that deletes the
+ * households every claim and contribution hangs off (`GiftSummary` in
  * `./retention`).
  *
  * Both columns or neither. `gift_summary_at` is set by the same UPDATE, so JSON
@@ -545,6 +560,10 @@ const isGiftSummary = (value: unknown): value is GiftSummary =>
  * page, where a throw costs them the whole registry screen. The retention sweep
  * reads a stored summary through this too, before adding a returning wedding's
  * new gifts to it.
+ *
+ * The list of money gifts is read entry by entry: a summary kept before gifts
+ * were listed has none, and reads as an empty list (its `count` then says how
+ * many were not listed); a malformed entry is dropped and the rest kept.
  */
 export function decodeGiftSummary(raw: string | null, at: Date | null): GiftSummary | null {
   if (raw === null || at === null) return null;
@@ -562,10 +581,14 @@ export function decodeGiftSummary(raw: string | null, at: Date | null): GiftSumm
     claims: { reserved: parsed.claims.reserved, purchased: parsed.claims.purchased },
     contributions: {
       count: parsed.contributions.count,
-      totals: parsed.contributions.totals.map((total) => ({
-        currency: total.currency,
-        amountMinor: total.amountMinor,
-      })),
+      totals: parsed.contributions.totals.map((total) =>
+        total.count === undefined
+          ? { currency: total.currency, amountMinor: total.amountMinor }
+          : { currency: total.currency, amountMinor: total.amountMinor, count: total.count },
+      ),
+      gifts: (Array.isArray(parsed.contributions.gifts) ? parsed.contributions.gifts : [])
+        .filter(isListedGift)
+        .map((gift) => ({ on: gift.on, amountMinor: gift.amountMinor, currency: gift.currency })),
     },
   };
 }
@@ -1142,7 +1165,7 @@ export const registryService = {
   /**
    * Upsert the settings row. Creates it on first write (absent row = defaults).
    *
-   * Owns the cash-gifts invariant (S-M3): the switch that shows guests a
+   * Owns the cash-gifts invariant: the switch that shows guests a
    * contribute button cannot be turned on unless Stripe can actually take a
    * charge. Enforcing it here rather than in the route means every caller gets
    * it — a guest paying into an account that cannot receive money is a refund
@@ -1605,11 +1628,10 @@ export const registryService = {
    * the row is not written and the caller is told, rather than a gift being
    * recorded against a household that never gave one.
    *
-   * FX IS LEFT NULL, deliberately. The primary-currency equivalent comes from
-   * the balance transaction's `exchange_rate`, which is not on this event; the
-   * schema's four FX columns are all-or-nothing and null is the honest state
-   * until that read lands. A gift in the wedding's own currency — the common
-   * case — never needs them at all.
+   * FX IS LEFT NULL. Every gift is charged in the wedding's currency, and
+   * money gifts are only taken while the account settles in that same currency
+   * (`takesMoney`), so Stripe applies no rate and there is no other-currency
+   * figure to record.
    */
   /**
    * The gift this guest already has a payment page open for, if there is one.
@@ -1872,9 +1894,10 @@ export const registryService = {
    *  - the row's wedding owns the connected account the event arrived on (so
    *    an account cannot settle another couple's gift).
    *
-   * FX IS LEFT NULL, deliberately: the primary-currency equivalent comes from
-   * the balance transaction, which is not on this event, and the schema's four
-   * FX columns are all-or-nothing.
+   * FX IS LEFT NULL. Every gift is charged in the wedding's currency, and
+   * money gifts are only taken while the account settles in that same currency
+   * (`takesMoney`), so Stripe applies no rate and there is no other-currency
+   * figure to record.
    */
   settleContribution(input: {
     contributionId: string;
@@ -2082,10 +2105,8 @@ export const registryService = {
     paymentIntentId: string;
     stripeAccountId: string;
     /**
-     * Stripe's `charge.amount_refunded`, in the charge's own currency — the one
-     * `coalesce(primary_currency, currency)` names, since a refund is always
-     * denominated in what the account settled. `null` where the event carried
-     * no usable number.
+     * Stripe's `charge.amount_refunded`, in the charge's own currency — the
+     * row's `currency`. `null` where the event carried no usable number.
      */
     refundedAmountMinor: number | null;
     /** Stripe's `charge.refunded`: the whole charge went back, not part of it. */
