@@ -115,7 +115,8 @@ export const GIFT_SUMMARY_MAX_LISTED = 200;
  * §What the couple keeps has the figures). A wedding that would pass it waits
  * for the next run, unless it is past the hold-back ceiling
  * ({@link GIFT_SUMMARY_HOLD_BACK_MS}): the privacy notice's year outranks the
- * budget. A wedding with no money gift never waits.
+ * budget. A wedding that lists nothing this run — no money gift, or a returning
+ * wedding with nothing new, whose stored record is left as it is — never waits.
  */
 export const MAX_LISTED_GIFTS_PER_SWEEP = 1_000;
 
