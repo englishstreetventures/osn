@@ -98,4 +98,47 @@ describe("WebAuthn browser ceremony", () => {
       publicKey: { allowCredentials: [] },
     });
   });
+
+  // SignIn's explicit passkey path (src/SignIn.tsx) checks
+  // `err instanceof Error && err.name === "NotAllowedError"` to send the user to
+  // recovery codes, so the library must surface the platform's error name.
+  it("keeps the NotAllowedError name when the platform refuses an authentication", async () => {
+    const get = vi.fn(async (_options: CredentialRequestOptions): Promise<never> => {
+      throw new DOMException("", "NotAllowedError");
+    });
+    vi.stubGlobal("PublicKeyCredential", function PublicKeyCredential() {});
+    vi.stubGlobal("navigator", { credentials: { get } });
+
+    const error: unknown = await startAuthentication({
+      optionsJSON: {
+        challenge: "BAUG",
+        allowCredentials: [{ id: "AQID", type: "public-key" }],
+      },
+    }).catch((err: unknown) => err);
+
+    expect(get).toHaveBeenCalledOnce();
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).name).toBe("NotAllowedError");
+  });
+
+  it("keeps the NotAllowedError name when the platform refuses a registration", async () => {
+    const create = vi.fn(async (_options: CredentialCreationOptions): Promise<never> => {
+      throw new DOMException("", "NotAllowedError");
+    });
+    vi.stubGlobal("PublicKeyCredential", function PublicKeyCredential() {});
+    vi.stubGlobal("navigator", { credentials: { create } });
+
+    const error: unknown = await startRegistration({
+      optionsJSON: {
+        challenge: "AQID",
+        rp: { name: "OSN", id: "example.com" },
+        user: { id: "BAUG", name: "alice", displayName: "Alice" },
+        pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+      },
+    }).catch((err: unknown) => err);
+
+    expect(create).toHaveBeenCalledOnce();
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).name).toBe("NotAllowedError");
+  });
 });
