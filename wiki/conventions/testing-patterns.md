@@ -379,11 +379,11 @@ the package (git-ignored).
 
 ### What to do with a survivor
 
-Each survivor prints as the file, the line, and the change that survived:
+Each survivor prints as the file (from the repo root), the line, and the change that survived:
 
 ```text
 [Survived] EqualityOperator
-src/index.ts:224:7
+cire/dietary/src/index.ts:224:7
 -     if (labels.length < chosen.size) {
 +     if (labels.length <= chosen.size) {
 ```
@@ -431,7 +431,11 @@ What the configs depend on, and what breaks without it:
   to nothing. [`scripts/stryker-cire.ts`](../../scripts/stryker-cire.ts), which
   every `test:mutation` script calls, runs Stryker from the root with the
   package's config and rewrites `--mutate` paths from package-relative to
-  root-relative. Do not switch a config to `inPlace`: it writes
+  root-relative. The options every config shares — what to mutate, what the
+  sandbox leaves out, where the report goes — are in
+  [`scripts/stryker-cire-options.mjs`](../../scripts/stryker-cire-options.mjs).
+  Stryker does not read `.gitignore`, so that file's `ignorePatterns` keeps
+  local secret files (`.env*`, `.dev.vars*`, keys) out of the copy. Do not switch a config to `inPlace`: it writes
   `// @ts-nocheck` into every source and test file for the length of the run,
   and leaves the mutated source behind if the run is killed.
 - **Each vitest package runs `stryker.vitest.config.ts`**, which is its
