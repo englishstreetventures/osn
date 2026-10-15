@@ -30,6 +30,13 @@ compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 OSN_JWKS_URL = "http://localhost:4000/.well-known/jwks.json"
 OSN_ISSUER_URL = "http://localhost:4000"
 
+[env.dev.observability]
+redact_query_string = false
+
+[env.dev.observability.traces]
+enabled = true
+head_sampling_rate = 1
+
 [[env.dev.d1_databases]]
 binding = "DB"
 database_name = "zap-db"
@@ -45,6 +52,12 @@ migrations_dir = "../db/drizzle"
 ZAP_ENV = "staging"
 OSN_JWKS_URL = "https://api.staging.osn.example/.well-known/jwks.json"
 OSN_ISSUER_URL = "https://api.staging.osn.example"
+
+[env.staging.observability]
+redact_query_string = true
+
+[env.staging.observability.traces]
+enabled = false
 
 [[env.staging.d1_databases]]
 binding = "DB"
@@ -83,6 +96,12 @@ OSN_ISSUER_URL = "https://id.musubi.social"
 # zapGraphBridge validates OSN_API_URL is https at module load in production
 # (it sends ARC tokens to osn-api's graph). osn-api serves on id.musubi.social.
 OSN_API_URL = "https://id.musubi.social"
+
+[env.production.observability]
+redact_query_string = true
+
+[env.production.observability.traces]
+enabled = false
 
 # OSN_JWT_SECRET is sensitive — set it per environment as a Worker secret, not a
 # plaintext var:

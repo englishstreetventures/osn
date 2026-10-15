@@ -89,6 +89,8 @@ already enforces some of them; the rest need a sweeper job.
 | Grafana Cloud metrics | 30 days (free tier) | Vendor-enforced | OK | Platform |
 | Frontend Faro events | 14 days | Vendor-enforced | OK | Platform |
 | Cloudflare Email delivery logs | Per Cloudflare DPA | Vendor-enforced | Confirm in DPA | Platform |
+| Cloudflare Workers Logs (application logs; invocation records on osn-api only) | 3 days on the Workers Free plan; 7 days from 2026-12-01 | Vendor-enforced | OK | Platform |
+| Cloudflare native Workers traces (production `cire-invites`, every dev tier) | 7 days | Vendor-enforced | OK — contents in [[data-map]] | Platform / Cire |
 | DSAR request log | 24 months (CCPA requirement) | DSAR runbook | **TODO** — runbook | Identity |
 | DSA notice-and-action log (Art. 16 reports) | 6 months (Art. 20 internal complaint window) | App code: `moderation_actions` table | **TODO** — DSA C-H6/C-H7 | Pulse + Zap |
 

@@ -6,7 +6,7 @@
  * deployed as `cire-invites`. Cloudflare Workers Static Assets DOES honour a
  * `_headers` file — but ONLY for responses served by the **static-asset layer**
  * (the prerendered `/privacy` + `/terms` pages and the `/_astro/*` bundles).
- * The dynamic invite routes (`/<slug>` and the bare-domain `/` redirect) are
+ * The dynamic guest routes (including `/<slug>` and `/cire/invite`) are
  * produced by the **Worker script** (`dist/server/entry.mjs`), which the asset
  * `_headers` layer never touches. So before this module the security headers
  * were MISSING on exactly the most sensitive pages — the guest invites. The
@@ -207,8 +207,8 @@ export function reportingEndpointsHeader(apiOrigin: string = API_ORIGIN): string
  * above).
  *
  * `X-Robots-Tag` is the exception: SSR-only, and deliberately absent from
- * `public/_headers`. The SSR routes are the invite (`/<slug>`), the gift page
- * (`/<slug>/registry`) and the bare-domain redirect; the first two carry a
+ * `public/_headers`. The SSR routes include path and query variants of the
+ * invite and gift page, plus the bare-domain redirect. Guest pages carry a
  * couple's names and photo and are meant for invited guests, so they stay out
  * of search indexes. It is a header rather than a `robots.txt` disallow because
  * a crawler that obeys a disallow never fetches the page to see a `noindex`,

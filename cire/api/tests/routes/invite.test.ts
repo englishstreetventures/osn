@@ -187,6 +187,82 @@ describe("GET /api/invite/:slug (public)", () => {
   });
 });
 
+describe("POST /api/invite/resolve (fixed-path guest lookup)", () => {
+  function resolve(app: ReturnType<typeof buildApp>["app"], body: string) {
+    return appRequest(app, "/api/invite/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+  }
+
+  it("answers the same payload as GET /api/invite/:slug", async () => {
+    const { app } = buildApp();
+    const res = await resolve(app, JSON.stringify({ slug: SLUG }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const viaGet = await appRequest(app, `/api/invite/${SLUG}`);
+    expect(await jsonBody(res)).toEqual(await jsonBody(viaGet));
+  });
+
+  // The guest site's server render calls this route from a Worker, which sends
+  // no `Origin`. `appRequest` always adds one, so this goes through `app.fetch`
+  // directly; `createApp`'s default allowlist is not empty, so the CSRF origin
+  // guard is live here exactly as it is in a deployed tier.
+  it("answers the guest site's server-side call, which carries no Origin", async () => {
+    const { app } = buildApp();
+    const res = await app.fetch(
+      new Request("http://localhost/api/invite/resolve", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.7" },
+        body: JSON.stringify({ slug: SLUG }),
+      }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("404s for an unknown slug, no-store", async () => {
+    const { app } = buildApp();
+    const unknown = await resolve(app, JSON.stringify({ slug: "no-such-wedding" }));
+    expect(unknown.status).toBe(404);
+    expect(unknown.headers.get("cache-control")).toBe("no-store");
+    expect(await jsonBody(unknown)).toEqual({ error: "Not found" });
+  });
+
+  // A body that cannot name a wedding is answered as an unknown slug: the guest
+  // site then renders its 404, and no request can write an error log line.
+  it.each([
+    ["an empty slug", JSON.stringify({ slug: "" })],
+    ["a slug longer than 128 characters", JSON.stringify({ slug: "x".repeat(129) })],
+    ["no slug", JSON.stringify({})],
+    ["a slug that is not a string", JSON.stringify({ slug: 1 })],
+    ["a body that is not JSON", "slug=cire-wedding"],
+  ])("404s %s without logging an error", async (_label, body) => {
+    const { app } = buildApp();
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await resolve(app, body);
+    });
+    expect(res?.status).toBe(404);
+    expect(await jsonBody(res as Response)).toEqual({ error: "Not found" });
+    expect(logs).not.toContain("unhandled request error");
+  });
+
+  it("looks up a 128-character slug, the longest it accepts", async () => {
+    const { app } = buildApp();
+    const res = await resolve(app, JSON.stringify({ slug: "x".repeat(128) }));
+    expect(res.status).toBe(404);
+  });
+
+  it("answers a database failure with a generic 500", async () => {
+    const { app, db } = buildApp();
+    db.$client.exec("DROP TABLE wedding_invite_customisations");
+    const res = await resolve(app, JSON.stringify({ slug: SLUG }));
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+  });
+});
+
 describe("PUT /invite/text (organiser)", () => {
   const payload = {
     heroTitle: "Anita & Ben",

@@ -347,8 +347,12 @@ describe("what reaches Stripe, and what does not", () => {
     // Generic on purpose: it is what the guest sees on their statement, and a
     // gift's line item is not the place to publish what a couple asked for.
     expect(session?.productName).toBe("Wedding gift");
-    expect(session?.successUrl).toBe("https://invite.test/cire-wedding/registry?gift=thanks");
-    expect(session?.cancelUrl).toBe("https://invite.test/cire-wedding/registry?gift=cancelled");
+    expect(session?.successUrl).toBe(
+      "https://invite.test/cire/registry?slug=cire-wedding&gift=thanks",
+    );
+    expect(session?.cancelUrl).toBe(
+      "https://invite.test/cire/registry?slug=cire-wedding&gift=cancelled",
+    );
   });
 
   /**

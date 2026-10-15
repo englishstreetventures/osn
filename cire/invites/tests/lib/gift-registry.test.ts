@@ -392,15 +392,14 @@ describe("giftRegistryImageBase", () => {
  */
 describe("giftRegistryPath", () => {
   it("points at the wedding's own gift page", () => {
-    expect(giftRegistryPath("anita-and-ben")).toBe("/anita-and-ben/registry");
+    expect(giftRegistryPath("anita-and-ben")).toBe("/cire/registry?slug=anita-and-ben");
   });
 
   it("encodes a slug that would otherwise change the URL's shape", () => {
-    // A slug is organiser input. Unencoded, `../` climbs out of the wedding and
-    // `?`/`#` truncate the path — a link that silently goes somewhere else.
-    expect(giftRegistryPath("a b")).toBe("/a%20b/registry");
-    expect(giftRegistryPath("../other")).toBe("/..%2Fother/registry");
-    expect(giftRegistryPath("a?b#c")).toBe("/a%3Fb%23c/registry");
+    // Query encoding preserves slugs that include URL punctuation.
+    expect(giftRegistryPath("a b")).toBe("/cire/registry?slug=a%20b");
+    expect(giftRegistryPath("../other")).toBe("/cire/registry?slug=..%2Fother");
+    expect(giftRegistryPath("a?b#c")).toBe("/cire/registry?slug=a%3Fb%23c");
   });
 });
 

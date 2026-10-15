@@ -3,6 +3,7 @@ import type { DesignMeta } from "@cire/invite-designs";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
+import type { Context } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
@@ -16,6 +17,7 @@ import { runCire } from "../observability";
 import {
   ImageCropBody,
   InviteDesignBody,
+  InviteResolveBody,
   InviteTextBody,
   InviteThemeBody,
   InviteVisibilityBody,
@@ -112,6 +114,69 @@ function serveSlotImage(args: {
 }
 
 /**
+ * The public invite payload for one slug, as both public reads answer it. It is
+ * personalised and edit-sensitive (hero image URL, theme, copy), so it is never
+ * served stale: organiser edits surface on the guest invite's next load. The
+ * image *bytes* stay immutable (their URL is version-busted), but this JSON that
+ * hands out those URLs is `no-store`. An unknown slug is 404 `Not found`; a
+ * database failure is a generic 500. One function, so the path read and the
+ * body read cannot drift apart.
+ */
+function publicInvite(db: Db, slug: string, set: Context["set"]) {
+  set.headers["cache-control"] = "no-store";
+  return inviteService.getForSlug(slug).pipe(
+    Effect.provideService(DbService, db),
+    Effect.catchTag("WeddingNotFound", () =>
+      Effect.sync(() => {
+        set.status = 404;
+        return { error: "Not found" };
+      }),
+    ),
+    Effect.catchDefect(() =>
+      Effect.sync(() => {
+        set.status = 500;
+        return { error: "Internal error" };
+      }),
+    ),
+  );
+}
+
+/**
+ * `POST /api/invite/resolve` — the public invite payload for a slug sent in the
+ * request body. The guest site's fixed-path pages (`/cire/invite?slug=…`,
+ * `/cire/registry?slug=…`) call it from their server render, so the outbound
+ * URL a native trace records names no wedding.
+ *
+ * A Worker's server-side fetch sends no `Origin`, so `createApp` mounts this
+ * before the CSRF origin guard. The guard protects nothing here: the route takes
+ * no cookie, changes nothing, and answers the same public data
+ * `GET /api/invite/:slug` serves to anyone.
+ *
+ * A body that is not JSON, or fails `InviteResolveBody`, cannot name a wedding,
+ * so it gets the unknown-slug answer — never a 500 or an error log line.
+ */
+export const createInviteResolveRoutes = (db: Db) =>
+  new Elysia({ prefix: "/api/invite" }).post(
+    "/resolve",
+    async ({ request, set }) => {
+      const raw: unknown = await request.json().catch(() => null);
+      return runCire(
+        Schema.decodeUnknownEffect(InviteResolveBody)(raw).pipe(
+          Effect.flatMap(({ slug }) => publicInvite(db, slug, set)),
+          Effect.catchTag("SchemaError", () =>
+            Effect.sync(() => {
+              set.headers["cache-control"] = "no-store";
+              set.status = 404;
+              return { error: "Not found" };
+            }),
+          ),
+        ),
+      );
+    },
+    manualParse,
+  );
+
+/**
  * Public invite routes (no auth), mounted under /api/invite. Kept in a sibling
  * instance with no `osnAuth` so a guest with no OSN token can render the invite
  * — same split as /api/rsvp and the account-link reads.
@@ -131,31 +196,7 @@ export const createInvitePublicRoutes = (
   images?: ImagesBindingLike,
 ) =>
   new Elysia({ prefix: "/api/invite" })
-    .get("/:slug", ({ params, set }) => {
-      // Personalised, edit-sensitive payload (hero image URL + theme + copy).
-      // It must never be served stale, or organiser edits won't surface on the
-      // guest invite's next load. The image *bytes* stay immutable
-      // (their URL is version-busted via updatedAt), but this JSON that hands
-      // out those URLs is no-store.
-      set.headers["cache-control"] = "no-store";
-      return runCire(
-        inviteService.getForSlug(params.slug).pipe(
-          Effect.provideService(DbService, db),
-          Effect.catchTag("WeddingNotFound", () =>
-            Effect.sync(() => {
-              set.status = 404;
-              return { error: "Not found" };
-            }),
-          ),
-          Effect.catchDefect(() =>
-            Effect.sync(() => {
-              set.status = 500;
-              return { error: "Internal error" };
-            }),
-          ),
-        ),
-      );
-    })
+    .get("/:slug", ({ params, set }) => runCire(publicInvite(db, params.slug, set)))
     .get("/:slug/image/:slot", ({ params, query, request, set }) => {
       if (!isInviteImageSlot(params.slot)) {
         set.status = 404;

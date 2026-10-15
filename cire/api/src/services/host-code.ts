@@ -41,9 +41,8 @@ export const hostCodeService = {
   /**
    * Idempotently provision the host preview code for a wedding and return its
    * claim code PLUS the wedding's slug. The organiser dashboard opens the guest
-   * invite at `${CIRE_WEB_URL}/<slug>?code=<publicId>` — the slug lives in the
-   * PATH (the guest site is SSR + path-routed), so the preview opens the CORRECT
-   * wedding regardless of which one the organiser is managing. Find-or-creates
+   * invite at `${CIRE_WEB_URL}/cire/invite?slug=<slug>&code=<publicId>`.
+   * The query identifies the wedding being previewed. Find-or-creates
    * the single host family + its one synthetic guest, then (re-)links that guest
    * to **every** event in the wedding so the preview always reflects the current
    * event list — including events added by a later spreadsheet import (which
