@@ -206,10 +206,10 @@ git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <pr
 
 Dispatch **one** subagent that owns the task. Give it the task, the Step 1 pointers and premises, the worktree path and branch, and these instructions.
 
-**Which one: apply the `pick-agent` skill to every hand-off and every re-dispatch of it**, and write its answer on the task's `agent:` line before sending. Load it once per run, and again after a compaction; its text does not change between dispatches. Its §The rubric table and its complexity table decide — `implementer` for anything that designs something, `mechanic` for work whose answer is fixed before it starts — and it says why a `complexity:unconfirmed` rating counts for nothing. Three cases decide most hand-offs:
+**Which one: apply the `pick-agent` skill to every hand-off and every re-dispatch of it**, and write its answer on the task's `agent:` line before sending. Load it once per run, and again after a compaction; its text does not change between dispatches. Its §The rubric table and its complexity table decide — `implementer` for anything that designs something, `designer` for work that changes how a screen looks, `mechanic` for work whose answer is fixed before it starts — and it says why a `complexity:unconfirmed` rating counts for nothing. Three cases decide most hand-offs:
 
 - A skill-text, docs or test-only task whose issue already states the change — the wording, the test — goes to `mechanic`, once Step 1's third check has passed: a `mechanic` applies the issue's words exactly, so they must be the owner's.
-- Reviewing and fixing an open pull request is whole-task work and goes to `implementer`. A review that fixes nothing goes to `reviewer`, a plan attack to `attacker`; neither ever goes to `implementer` or `general-purpose`.
+- Reviewing and fixing an open pull request is whole-task work and goes to `implementer`, or to `designer` when the pull request is UI work. A review that fixes nothing goes to `reviewer`, a plan attack to `attacker`; neither ever goes to `implementer` or `general-purpose`.
 - Anything the rubric does not settle goes to `implementer`: defaulting up is recoverable, and defaulting down produces a subagent that does a worse job and reports success. Unsure means the rubric did not settle it, not that it was not run.
 
 **The dispatch is a contract, not a description.** A subagent inherits no
@@ -252,7 +252,7 @@ gets followed to the letter. Every dispatch carries:
 `test -e` every path a dispatch names before sending it. A whole task has been
 lost to a directory that did not exist, and that was the orchestrator's fault.
 
-Then the instructions themselves, for an `implementer` hand-off:
+Then the instructions themselves, for an `implementer` or `designer` hand-off:
 
 - Invoke the `new-feat` skill and follow it — it routes to the right sub-skills. Plan the implementation itself; do not wait for a plan from you.
 - Match repo conventions (`AGENTS.md`, the product's `wiki/<product>/<product>-development.md`), add the changeset, follow the observability rules, write tests — TDD where there is logic.
@@ -302,7 +302,7 @@ Two rules for anything you dispatch into a worktree:
   worktree, as `prep-pr` Step 6 runs two: their tool grant has no `Edit` and
   their definition tells them never to change the checkout.
 
-Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. This skill's contract is stronger: **after the reviews, dispatch fix subagents to add the missing tests and fix every security and performance finding** — Critical, High and Medium at minimum, Low and Info when cheap — then re-verify. Choose each fix subagent with `pick-agent`, as Step 3 does: a missing test whose cases the review already spells out is `mechanic` work, and a fix that needs a design is `implementer` work. Record each on the task's `running:` line until it reports. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. A Medium deliberately deferred is carried into the PR body as a tracked follow-up. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the five-section PR body with the `write-pr` skill, push, and open the PR. Once it is open, move the issue's card to In Review (`next-batch` §Claim, step 4).
+Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. This skill's contract is stronger: **after the reviews, dispatch fix subagents to add the missing tests and fix every security and performance finding** — Critical, High and Medium at minimum, Low and Info when cheap — then re-verify. Choose each fix subagent with `pick-agent`, as Step 3 does: a missing test whose cases the review already spells out is `mechanic` work, and a fix that needs a design is `implementer` work. Record each on the task's `running:` line until it reports. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. A Medium deliberately deferred is carried into the PR body as a tracked follow-up. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the PR body with the `write-pr` skill, push, and open the PR. Once it is open, move the issue's card to In Review (`next-batch` §Claim, step 4).
 
 ### Step 5 — Retro, then watch, merge, tear down
 

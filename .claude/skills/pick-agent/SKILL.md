@@ -27,8 +27,9 @@ than assuming either, and name both in your sentence.
 | Definition | Give it |
 |---|---|
 | `implementer` | Anything that designs something. New behaviour, a schema change, a major version bump, auth or session work, a bug whose cause is unknown. The default. |
+| `designer` | UI work that changes how a screen looks: a new page or component, a layout, a redesign. It reads the surface's `DESIGN.md` and knows which design skill fits. UI logic with no visual change stays with `implementer`. |
 | `mechanic` | Work whose answer is fixed before it starts: patch and minor dependency sweeps, renames, changesets, a known pattern applied across files, and skill-text, docs or test-only edits whose issue already states the change. |
-| `reviewer` | Reviewing a branch or a pull request through one lens — `review-tests`, `review-security`, `review-performance`, `review-docs`, or a whole branch against its plan. Reports findings; fixes nothing. Reviewing *and fixing* an open pull request is whole-task work: `implementer`. |
+| `reviewer` | Reviewing a branch or a pull request through one lens — `review-tests`, `review-security`, `review-performance`, `review-docs`, or a whole branch against its plan. Reports findings; fixes nothing. Reviewing *and fixing* an open pull request is whole-task work: `implementer`, or `designer` when the pull request is UI work. A design audit is a review: name `web-design-guidelines` and the surface's `DESIGN.md` in the brief. |
 | `explorer` | Read-only orientation. Returns `file:line`, proposes nothing. |
 | `shepherd` | Reading a pull request's red CI and returning the decisive line, or polling it to a terminal state. |
 | `attacker` | Attacking a plan, cold, in a fresh context. |
@@ -41,6 +42,10 @@ before work started, which is exactly why it is worth something:
 | 1–2 | `mechanic`, unless the cause is unknown or a version bump crosses a major |
 | 3 | `implementer` |
 | 5–8 | `implementer`, and consider splitting the task before dispatching at all |
+
+A task that changes how a screen looks goes to `designer` at any rating: a
+one-line colour change on a locked design system is a design decision, not a
+mechanical one.
 
 **Ignore a rating carrying `complexity:unconfirmed`.** That label means an agent
 rated the issue and no human signed off. The session-metrics
@@ -71,6 +76,14 @@ to `implementer`, and its final whole-branch review to `reviewer`, none with a
 `model`. Its per-task reviews and re-reviews are the one exception: they keep
 the plugin's own `general-purpose` dispatch and model choice, because routing
 each of them to `reviewer` would run every small review at `xhigh`.
+
+## A session older than the definition
+
+The Agent tool reads `.claude/agents/` when a session starts. A session started
+before a definition existed rejects its name. Dispatch `implementer` instead,
+with the body of the chosen definition pasted into the brief — for `designer`,
+everything below its frontmatter. It carries the rules but runs at the
+implementer's settings; say so in your sentence.
 
 ## Pass no `model` and no `effort`
 

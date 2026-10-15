@@ -14,7 +14,7 @@
 # the issue is honest, and the pull toward a code-writing agent comes entirely
 # from the subject matter.
 #
-# The fixture plants the six agent names with their one-line descriptions and
+# The fixture plants the seven agent names with their one-line descriptions and
 # NOTHING ELSE — no model, no effort level. That is what a dispatcher has
 # without the skill, and it keeps both variants able to answer rather than
 # making the choice a test of whether the plugin was injected.
@@ -74,6 +74,12 @@ cat > AGENTS-AVAILABLE.md <<'AGENTS'
 - **attacker** — Reads a plan cold and tries to break it. A fresh context on
   purpose, so it cannot agree with the author out of habit. Dispatched by
   stress-plan; never the agent that wrote the plan.
+- **designer** — Owns one UI task that changes how a screen looks — a new
+  page or component, a layout, a redesign — from plan to a result someone has
+  seen rendered. Reads the surface's DESIGN.md and design wiki pages before
+  touching a file, and knows which design skill fits which task. UI logic with
+  no visual change goes to implementer; a design audit that changes nothing
+  goes to reviewer.
 - **explorer** — Read-only orientation. Finds where things live and returns
   file paths with line numbers — never a fix, never an opinion about what to
   change. Use before planning when the shape of the code is unknown.
