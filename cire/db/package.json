@@ -15,6 +15,7 @@
   "scripts": {
     "check": "tsc --noEmit",
     "test": "bun test",
+    "test:mutation": "bun ../../tools/stryker/src/cli.ts",
     "seed:generate": "bun run seed/generate.ts",
     "assets:seed:dev": "bun run seed/assets.ts",
     "db:generate": "drizzle-kit generate",

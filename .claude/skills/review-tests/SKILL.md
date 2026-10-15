@@ -160,10 +160,67 @@ A test asserting only that a function returns without throwing is not coverage. 
 
 To test a suspect, ask: if I broke the line this test names, would it go red? When the answer is no, that is `T-U` for the export it claims to cover — the export is untested. Name the real behaviour to assert in the `Solution`, and in the `Why` name the change that would pass unnoticed.
 
+For changed cire source, Step 5 runs this check mechanically. Reading still
+comes first: a mutant survives only on a line that runs, so a test that never
+reaches the code shows as `NoCoverage`, not as a tautology.
+
 **A comment is a claim, not a test.** A `// covered by the integration suite`, a
 describe block named after a case it never asserts, or a doc comment listing
 error modes is not evidence any of it runs. Grep for the assertion. Coverage is
 what an assertion would go red over, nothing else.
+
+## Step 5 — Mutation-test the changed cire source
+
+Every `cire/*` package with tests has a `test:mutation` script that runs
+Stryker: it breaks one line at a time and reports each break no test noticed.
+Other products have none yet; for them this step is `not applicable`, not
+`NOT RUN`.
+
+**Only when the brief says you are alone in the worktree.** Stryker mutates a
+copy in `.stryker-tmp-cire-<pkg>/` at the repo root and leaves tracked files
+alone, but it is a build-sized load, and two runs in one checkout share that
+directory. Not alone: record each run you would have made under `## Not run`.
+
+For each affected cire package, run it on the **lines the branch changed** —
+`--base "$DIFF_BASE"` (which implies `--changed`) mutates only the added and changed lines under the
+package's `src/`, so every mutant it reports is the branch's. Never the whole
+package, which takes hours. Run it in the background (the shell's foreground
+limit is ten minutes) and keep auditing while it runs:
+
+```bash
+bun run --cwd cire/<pkg> test:mutation --base "$DIFF_BASE" > <scratch>/mutation-<pkg>.log 2>&1
+```
+
+It prints `no changed source lines` and exits 0 when the branch changes no
+source there — record that and move on. `@cire/api` will not start without
+`STRYKER_TESTS`, the test files that cover the mutated code — the paired files
+from Step 3, never `tests/db/`:
+
+```bash
+STRYKER_TESTS='tests/lib/money.test.ts' bun run --cwd cire/api test:mutation --base "$DIFF_BASE"
+```
+
+A run that stops with `No tests were executed` means no test imports a mutated
+file: report each such file as `T-M` (no test file reaches it), not as a run
+that failed.
+
+First check the log's `Ran N tests per mutant on average` line. `0.00` means
+the runner ran no tests at all and every survivor is false — record the run
+under `## Not run` with that line quoted, and report no gaps from it.
+
+Read the `[Survived]` and `[NoCoverage]` entries from the log. Each prints the
+file, the line and the change. Each one is a gap:
+
+- a survivor or `NoCoverage` in an error path, a gate or a denial is `T-E`;
+- any other is `T-U` for the export the line belongs to.
+
+Group survivors that share one missing test into one gap. Quote the mutation in
+the `Issue` (`cire/api/src/lib/money.ts:42 — \`<\` → \`<=\` survived`), and in the
+`Solution` name the input that tells the two versions apart. A mutant that
+cannot change behaviour (an overwritten default, log wording) is not a gap:
+list it under the file's line in `## Files audited` as `equivalent mutant` with
+the reason. Put each package's mutation score and survivor count in
+`## Tests`.
 
 ## Finding format
 

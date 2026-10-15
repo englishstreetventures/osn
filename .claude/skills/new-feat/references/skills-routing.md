@@ -15,6 +15,7 @@ Invoke these rather than reinventing what a skill already encodes. If none appli
 | Turnstile / CAPTCHA / bot protection on a form | `turnstile-spin` |
 | Building an AI agent — tools, structured output, streaming | `claude-api` for the Anthropic SDK and model or pricing questions |
 | Implementing any feature or bugfix logic | `superpowers:test-driven-development` — the failing test first |
+| Finishing the tests for changed cire source | `bun run --cwd cire/<pkg> test:mutation --changed` — kill or explain every survivor (`wiki/conventions/testing-patterns.md` §Mutation testing) |
 | A bug, a test failure, unexpected behaviour | `superpowers:systematic-debugging` |
 | The feature is ambiguous or needs product direction | `superpowers:brainstorming` **with the user first**, before implementing |
 | Importing from or pushing to Figma designs | the `figma-*` skills |

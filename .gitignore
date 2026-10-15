@@ -279,3 +279,8 @@ DEPS-REVIEW.md
 # A one-off evaluation a workflow wrote for the owner to decide from. Same kind
 # of thing: what survives the decision goes to the wiki, not to the root.
 TSDOC-EVALUATION.md
+
+# Stryker mutation testing: reports, sandboxes, and the vitest runner's setup file
+**/reports/mutation/
+.stryker-tmp*/
+stryker-setup-*.js
