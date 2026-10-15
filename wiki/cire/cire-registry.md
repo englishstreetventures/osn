@@ -11,7 +11,7 @@ related:
   - "[[drag-and-drop]]"
   - "[[cire-development]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-15
 ---
 
 # Gift registry
@@ -126,7 +126,7 @@ Creating that endpoint in the Stripe dashboard — its scope, the nine events, t
 
 | Route                                                                                                                                         | Gate                                                                |
 | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `POST /api/invite/:slug/registry/contribute`                                                                                                  | `sessionAuth` + family-in-wedding + its own per-IP limiter (20/min) |
+| `POST /api/invite/:slug/registry/contribute`                                                                                                  | its own per-IP limiter (20/min), then `sessionAuth` + family-in-wedding |
 | `POST /api/stripe/webhook` → `checkout.session.completed`, `.async_payment_succeeded`, `.async_payment_failed`, `.expired`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed` | Stripe signature                                                    |
 
 **The gates run before Stripe does.** `contributionContext` resolves the visible registry, checks the household belongs to THIS wedding, and requires `cash_gifts_enabled` AND `stripe_charges_enabled` AND an account id. A guest is turned away before their card is, or not at all. The cash-specific refusal is its own 409 `cash_gifts_unavailable`, because it is the one a guest looking at the panel can understand; everything else is the same 404 as always.

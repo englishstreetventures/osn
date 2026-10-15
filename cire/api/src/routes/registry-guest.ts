@@ -294,7 +294,7 @@ export interface RegistryContributeDeps {
 /**
  * GIVING MONEY:
  *
- *   POST /api/invite/:slug/registry/contribute  (sessionAuth + limiter)
+ *   POST /api/invite/:slug/registry/contribute  (limiter + sessionAuth)
  *
  * Answers with a hosted Stripe Checkout URL for the guest to be sent to. The
  * charge is DIRECT on the couple's connected account: the money is theirs from
@@ -302,7 +302,9 @@ export interface RegistryContributeDeps {
  *
  * **Its own limiter, and a tight one.** Every call here is an outbound Stripe
  * request — the same "amplifier" shape the link-preview route is limited for,
- * and the one guest route that can cost money to be wrong about.
+ * and the one guest route that can cost money to be wrong about. It answers
+ * before `sessionAuth`, so a refused request costs no session lookup, and a
+ * caller with no claimed session spends the same per-IP budget as a guest.
  *
  * **The gates that matter run before Stripe does** (`contributionContext`): the
  * registry must be visible, the household must belong to THIS wedding, the
@@ -315,8 +317,8 @@ export interface RegistryContributeDeps {
  */
 export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeDeps) =>
   new Elysia({ prefix: "/api/invite" })
-    .use(sessionAuth(db))
     .use(rateLimitMiddleware(deps.limiter))
+    .use(sessionAuth(db))
     .post(
       "/:slug/registry/contribute",
       async ({ params, familyId, request, set }) => {

@@ -352,10 +352,10 @@ describe("vendor portal routes", () => {
       expect(listing?.reviewOrgId).toBeNull();
     });
 
-    // A browser signs in with the session cookie, which `osnAuth` reads in its
-    // derive, a phase that runs before every request gate. So a limited
-    // request still costs that one session read, and nothing more.
-    it("limits a cookie-signed consume after the session read and before anything else", async () => {
+    // A browser signs in with the session cookie. `osnAuth` reads it in the
+    // before-handle phase, after the limiter mounted ahead of it, so a limited
+    // request costs not even the session read.
+    it("limits a cookie-signed consume before the session read and anything else", async () => {
       const db2 = createDb(":memory:");
       seedDb(db2);
       const first = await seedClaimable(db2);
@@ -384,8 +384,7 @@ describe("vendor portal routes", () => {
       const limited = await consume(second.token);
       expect(limited.status).toBe(429);
       expect(orgChecks).toBe(1);
-      expect(statements).toHaveLength(1);
-      expect(statements[0]!.sql).toContain('"organiser_sessions"');
+      expect(statements).toHaveLength(0);
     });
   });
 

@@ -26,6 +26,11 @@ export class RateLimiterUnbound extends Error {
  * on a shared fallback bucket. Bucketing unresolved requests together is both a
  * DoS amplifier (one caller drains everyone's budget) and a spoofing bypass, so
  * "deny" is the only safe posture on a pre-auth credential surface.
+ *
+ * Mount it first in a route's chain — before `sessionAuth()`, `osnAuth()` and
+ * any role gate, all of which run in the same before-handle phase in `.use`
+ * order — so a refused request costs no session lookup, token verify or gate
+ * query.
  */
 export function rateLimitMiddleware(limiter: RateLimiterBackend) {
   return new Elysia().onBeforeHandle({ as: "scoped" }, async ({ request, set }) => {
@@ -49,18 +54,16 @@ export function rateLimitMiddleware(limiter: RateLimiterBackend) {
 
 /**
  * Elysia plugin enforcing per-USER rate limiting via @shared/rate-limit.
- * Keys on `osnProfileId` derived by upstream `osnAuth()` rather than on the
+ * Keys on the `osnProfileId` that `osnAuth()` resolved rather than on the
  * client IP, so each authenticated organiser has their own independent bucket.
- * Returns 429 with Retry-After when the limit is exceeded.
+ * Mounted after `osnAuth()` and the route's role gate, so only a caller they
+ * admit spends it. Returns 429 with Retry-After when the limit is exceeded.
  *
- * Fail-closed (CSV-S-L1): if `osnProfileId` is absent (no upstream auth, or
- * the plugin runs before `osnAuth()`), the request is denied with 429 rather
- * than bucketed under a shared key. This should never fire in practice because
- * the export routes are already gated by `osnAuth()` + `weddingMember()`, but
- * failing closed is the only safe posture (matches `rateLimitMiddleware`'s
- * unresolved-IP behaviour and the wider fail-closed convention in this file).
- * A limiter that throws {@link RateLimiterUnbound} gets 503
- * `rate_limiter_unavailable`.
+ * Fail-closed: if `osnProfileId` is absent (no upstream auth, or the plugin
+ * runs before `osnAuth()`), the request is refused 401 rather than bucketed
+ * under a shared key (matches `rateLimitMiddleware`'s unresolved-IP behaviour
+ * and the wider fail-closed convention in this file). A limiter that throws
+ * {@link RateLimiterUnbound} gets 503 `rate_limiter_unavailable`.
  */
 export function rateLimitMiddlewareByUser(limiter: RateLimiterBackend) {
   return new Elysia().onBeforeHandle({ as: "scoped" }, async (ctx) => {

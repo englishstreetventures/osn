@@ -35,24 +35,25 @@ const pass = (weddingId: string, slug: string, tier: Tier) => ({
  * Authz gate for /api/organiser/weddings/:weddingId/* — admits any OWNER of the
  * wedding, which is a caller whose seat carries the `manage` capability
  * (`policyFor()` in `wedding-role.ts`). A wedding may have several owners and
- * each passes alike. Requires osnAuth() upstream (osnProfileId derived). 404
+ * each passes alike. Requires osnAuth() upstream (osnProfileId resolved). 404
  * for unknown or soft-deleted weddings, 403 `forbidden` for everyone else —
  * always `forbidden`, never a role's own refusal string: a viewer's
  * `read_only_role` tells the portal to ask for editor access, which would not
- * open an owner-only route. Derives `weddingId` on success, and `weddingSlug`
+ * open an owner-only route. Provides `weddingId` on success, and `weddingSlug`
  * and `weddingTier` from the same query, so neither the exports' filenames nor
  * a `weddingTier(db, min)` mounted directly after this gate costs a query of
  * its own.
  *
- * The derive runs before osnAuth's onBeforeHandle fires, so it must tolerate
- * an unauthenticated request: it records the gate failure and the earliest
- * registered onBeforeHandle (osnAuth's 401) wins.
+ * Runs as a `resolve`, in `.use` order after `osnAuth()`: osnAuth's 401
+ * answers before this reads anything, and a per-IP limiter mounted ahead of
+ * both refuses a request before either runs. With no profile on the context
+ * (no `osnAuth()` upstream) it refuses 401 without a query.
  */
 export function weddingOwner(db: Db) {
   return new Elysia()
-    .derive({ as: "scoped" }, async (ctx) => {
+    .resolve({ as: "scoped" }, async (ctx) => {
       // params come from the enclosing /weddings/:weddingId group; osnProfileId
-      // from the upstream osnAuth() derive, which this standalone plugin
+      // from the upstream osnAuth() resolve, which this standalone plugin
       // instance can't see the type of — see `upstream-context.ts`.
       const { params } = ctx;
       const osnProfileId = readOsnProfileId(ctx);
@@ -88,7 +89,7 @@ export function weddingOwner(db: Db) {
  */
 export function weddingOwnerIncludingDeleted(db: Db) {
   return new Elysia()
-    .derive({ as: "scoped" }, async (ctx) => {
+    .resolve({ as: "scoped" }, async (ctx) => {
       const { params } = ctx;
       const osnProfileId = readOsnProfileId(ctx);
 

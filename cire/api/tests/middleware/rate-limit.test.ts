@@ -68,10 +68,10 @@ describe("rateLimitMiddleware", () => {
 });
 
 describe("rateLimitMiddlewareByUser with a limiter that throws", () => {
-  // Stands in for `osnAuth`, which derives `osnProfileId` before the limiter.
+  // Stands in for `osnAuth`, which resolves `osnProfileId` before the limiter.
   function appWith(check: () => Promise<boolean>) {
     return new Elysia({ aot: false })
-      .derive({ as: "scoped" }, () => ({ osnProfileId: "usr_a" }))
+      .resolve({ as: "scoped" }, () => ({ osnProfileId: "usr_a" }))
       .use(rateLimitMiddlewareByUser({ check }))
       .post("/test", () => ({ ok: true }));
   }
@@ -89,5 +89,28 @@ describe("rateLimitMiddlewareByUser with a limiter that throws", () => {
     const app = appWith(() => Promise.reject(new Error("boom")));
     const res = await appRequest(app, "/test", { method: "POST" });
     expect(res.status).toBe(500);
+  });
+});
+
+describe("rateLimitMiddlewareByUser with no profile on the context", () => {
+  // Mounted with no `osnAuth` ahead of it — or ahead of `osnAuth`, which runs
+  // in the same before-handle phase in `.use` order — it finds no profile. It
+  // refuses rather than count the request under a shared key.
+  it("refuses 401 without consulting the limiter", async () => {
+    const keys: string[] = [];
+    const app = new Elysia({ aot: false })
+      .use(
+        rateLimitMiddlewareByUser({
+          check: (key) => {
+            keys.push(key);
+            return true;
+          },
+        }),
+      )
+      .post("/test", () => ({ ok: true }));
+    const res = await appRequest(app, "/test", { method: "POST" });
+    expect(res.status).toBe(401);
+    expect(await jsonBody(res)).toEqual({ error: "unauthorised" });
+    expect(keys).toEqual([]);
   });
 });

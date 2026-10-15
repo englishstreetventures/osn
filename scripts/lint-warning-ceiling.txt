@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-891   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/organiser-status-log @ 2026-10-15 — seven warnings fewer after this branch (seven finding tags dropped from rsvp.ts comments it rewrites). No warning-level rule was disabled or suppressed.
+885   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/limiter-first @ 2026-10-15 — six warnings fewer after this branch (six finding tags dropped from comments it rewrites). No warning-level rule was disabled or suppressed.

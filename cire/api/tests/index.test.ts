@@ -464,7 +464,11 @@ describe("D1 session routing at the entry points", () => {
   // `cire_session` cookie that would otherwise cost one `sessions` lookup. The
   // account-link POST also checks an OSN credential, so it is sent once more
   // with an unknown `cire_org_session` cookie, which would otherwise cost one
-  // `organiser_sessions` lookup.
+  // `organiser_sessions` lookup. The invite builder's organiser routes read the
+  // same binding, so they are sent the organiser cookie alone. An unknown
+  // cookie names no profile, so these cases pin `osnAuth`'s place behind the
+  // limiter, not the role gates'; `tests/app.test.ts` covers those with a live
+  // session.
   describe("a refused guest request never reaches the session lookup", () => {
     const refusingLimiter = { limit: async () => ({ success: false }) };
     const GUEST_COOKIE = "cire_session=no-such-session";
@@ -512,6 +516,27 @@ describe("D1 session routing at the entry points", () => {
         method: "DELETE",
         path: "/api/invite/no-such-slug/registry/items/itm_probe/claim",
         binding: "REGISTRY_GUEST_RATE_LIMITER",
+      },
+      {
+        name: "GET /api/organiser/weddings/:weddingId/invite",
+        method: "GET",
+        path: "/api/organiser/weddings/wed_probe/invite",
+        binding: "CLAIM_RATE_LIMITER",
+        cookie: ORGANISER_COOKIE,
+      },
+      {
+        name: "PUT /api/organiser/weddings/:weddingId/invite/text",
+        method: "PUT",
+        path: "/api/organiser/weddings/wed_probe/invite/text",
+        binding: "CLAIM_RATE_LIMITER",
+        cookie: ORGANISER_COOKIE,
+      },
+      {
+        name: "POST /api/organiser/weddings/:weddingId/invite/faqs",
+        method: "POST",
+        path: "/api/organiser/weddings/wed_probe/invite/faqs",
+        binding: "CLAIM_RATE_LIMITER",
+        cookie: ORGANISER_COOKIE,
       },
     ];
 

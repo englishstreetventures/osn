@@ -7,13 +7,15 @@ import {
   PLUS_ONE_DIETARY_ATTESTATION,
 } from "@cire/dietary";
 import { createRateLimiter } from "@shared/rate-limit";
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import { and, eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { DIETARY_CONSENT_VERSION } from "../../src/schemas/rsvp";
-import { appRequest } from "../test-helpers";
+import { appRequest, recordStatements } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { seedPlusOne } from "../test-helpers/plus-one";
@@ -54,7 +56,10 @@ function guestByName(db: TestDb, firstName: string): string {
 }
 
 function buildApp(
-  organiserRsvpLimiter = createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
+  organiserRsvpLimiter: RateLimiterBackend = createRateLimiter({
+    maxRequests: 1000,
+    windowMs: 60_000,
+  }),
 ) {
   const db = createDb(":memory:");
   seedDb(db);
@@ -131,6 +136,35 @@ describe("PUT /api/organiser/weddings/:weddingId/guests/:guestId/rsvps/:eventId"
     ).toEqual([]);
     // Per user: another organiser of the wedding still gets through.
     expect((await put(app, rsvpPath(db, "Ada", "reception"), EDITOR, OK_BODY)).status).toBe(200);
+  });
+
+  // The per-organiser limiter keys on the profile `osnAuth` resolves, so it
+  // mounts straight after `osnAuth` and before the editor gate: a refused
+  // request costs the session lookup it needs and nothing more.
+  it("refuses a limited organiser before the editor gate's query", async () => {
+    const send = async (allowed: boolean) => {
+      const { db, app } = buildApp({ check: () => allowed });
+      const session = await seedOrganiserSession(db, OWNER);
+      const path = rsvpPath(db);
+      const statements = recordStatements(db);
+      const res = await appRequest(app, path, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", cookie: `cire_org_session=${session}` },
+        body: JSON.stringify(OK_BODY),
+      });
+      return { res, sql: statements.map((s) => s.sql) };
+    };
+
+    const refused = await send(false);
+    expect(refused.res.status).toBe(429);
+    expect(refused.sql).toHaveLength(1);
+    expect(refused.sql[0]).toMatch(/from "organiser_sessions"/);
+
+    // Control: let through, the editor gate reads the caller's seat next.
+    const allowed = await send(true);
+    expect(allowed.res.status).toBe(200);
+    expect(allowed.sql[0]).toMatch(/from "organiser_sessions"/);
+    expect(allowed.sql.slice(1).some((sql) => /"wedding_hosts"/.test(sql))).toBe(true);
   });
 
   it("returns 403 read_only_role for a viewer co-host", async () => {
