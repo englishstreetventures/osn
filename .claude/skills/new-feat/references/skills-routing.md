@@ -4,7 +4,7 @@ Invoke these rather than reinventing what a skill already encodes. If none appli
 
 | Part of the task | Skill |
 |---|---|
-| Any new UI — components, pages, layouts, visual or UX work | Read the surface's `DESIGN.md` first. Then `frontend-design:frontend-design`, and `web-design-guidelines` to review the result for accessibility. `.claude/agents/designer.md` maps every surface to its design document and names which design skill fits a redesign, a landing page or a surface with no system yet |
+| Any new UI — components, pages, layouts, visual or UX work | `design-system` first: it maps each surface to its `DESIGN.md`, ranks that above any design skill, and names which design skill fits — `frontend-design:frontend-design` for a new screen, `web-design-guidelines` to review the result |
 | Page-load / Core Web Vitals profiling | `web-perf` |
 | Anything Cloudflare — Workers, Pages, KV, D1, R2, Images, AI, caching, bindings, config | `cloudflare`; writing or reviewing Worker code → `workers-best-practices`; running `wrangler` → `wrangler` |
 | A deployed Worker misbehaving, a failed first deploy, setting or rotating a Worker secret | `debug-workers` |
@@ -26,4 +26,4 @@ Invoke these rather than reinventing what a skill already encodes. If none appli
 | A page-shaped set of records in the wiki that a table can no longer hold | `obsidian:obsidian-bases` for a `.base` view — **beside the prose, never instead of it**; it renders in Obsidian only |
 | A phase, dependency or task graph worth seeing spatially | `obsidian:json-canvas` for a `.canvas` — same Obsidian-only caveat; keep the mermaid in the page for everyone else |
 
-`write-wiki`, `write-issue`, `write-pr` and `debug-workers` are this repository's own, in `.claude/skills/`. Other skill names outside the `superpowers:`, `obsidian:`, `resend:` and `frontend-design:` prefixes are the user-level skills on the maintainer's machine; a remote session may not have them, in which case the repo conventions apply.
+`write-wiki`, `write-issue`, `write-pr`, `design-system` and `debug-workers` are this repository's own, in `.claude/skills/`. Other skill names outside the `superpowers:`, `obsidian:`, `resend:` and `frontend-design:` prefixes are the user-level skills on the maintainer's machine; a remote session may not have them, in which case the repo conventions apply.
