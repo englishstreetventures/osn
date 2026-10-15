@@ -11,9 +11,10 @@
     "destroy": "bun alchemy destroy alchemy.run.ts --stage dev"
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.0",
-    "@effect/platform-node": "4.0.0",
+    "@distilled.cloud/cloudflare": "1.0.0-rc.13",
+    "@effect/platform-bun": "4.0.3",
+    "@effect/platform-node": "4.0.3",
     "alchemy": "2.0.0-beta.80",
-    "effect": "4.0.0"
+    "effect": "4.0.3"
   }
 }
