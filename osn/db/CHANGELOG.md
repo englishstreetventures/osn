@@ -1,5 +1,11 @@
 # @osn/db
 
+## 0.24.6
+
+### Patch Changes
+
+- 7dc62af: Update Wrangler across Worker and D1 workspaces. Enable unredacted native traces in local and dev Worker tiers, and configure query-string redaction while production and staging trace rollout is gated on live URL checks.
+
 ## 0.24.5
 
 ### Patch Changes
