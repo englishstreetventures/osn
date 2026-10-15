@@ -24,7 +24,7 @@ The OTLP pipeline described below runs on the **Bun** entries only. `@osn/api` a
 | Runtime | Services | Logging | Traces + metrics |
 |---|---|---|---|
 | **Bun** (`src/local.ts`) | local `@osn/api`, `@pulse/api`, `@zap/api` | redacting logger, through `initObservability()` | full OTLP export to Grafana Cloud |
-| **Workers** (`src/index.ts`) | deployed API Workers and the Cire invites Worker | redacting application logger; Cloudflare Workers Logs where enabled | native traces in local and dev; optional OTLP/HTTP application spans in OSN and Cire APIs |
+| **Workers** (`src/index.ts`) | deployed API Workers and the Cire invites Worker | redacting application logger; Cloudflare Workers Logs where enabled | native traces in local and dev, and in production on the Cire invites Worker; optional OTLP/HTTP application spans in OSN and Cire APIs |
 
 For a deployed Worker, Cloudflare Workers Logs currently retain three days on the Free plan. Cire keeps invocation logs off because existing request paths contain the current wedding's slug. Native traces are enabled in local and dev without URL redaction. Production redacts query strings and traces the Cire guest Worker; existing path slugs and outbound API URLs appear in those traces. Production API Workers keep native traces off. See [[free-tier-limits]] → Monitoring and [[tracing]]. Steps 1–3 below apply to a Bun service; steps 4–6 apply to whichever surface actually exports.
 

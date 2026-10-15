@@ -225,7 +225,7 @@ applies to every wedding alike, and no organiser can override:
 |---|---|---|
 | Retention of guest data | `RETENTION_AFTER_FINAL_EVENT_MS` (365 d) in `cire/api/src/services/retention.ts` | Choosing how long personal data is kept is a purposes-and-means decision. An organiser cannot extend or shorten it. |
 | Security posture of the service | CSP, session hashing, Turnstile, rate limits | Ordinarily an Art. 28(3)(c) processor obligation — recorded here because the published notices describe it in the same breath. **Do not rest the controllership argument on this leg alone.** |
-| Technical telemetry | `@shared/observability` → Grafana Cloud, per §Observability | Collected for cire's own purposes (running and improving the platform), not on the organiser's instruction. |
+| Technical telemetry | `@shared/observability` → Grafana Cloud, and Cloudflare Workers Logs and native traces set in each Worker's Wrangler config, per §Observability | Collected for cire's own purposes (running and improving the platform), not on the organiser's instruction. |
 
 This is what `cire/invites/src/pages/privacy.astro` and
 `cire/landing/src/pages/privacy.astro` publish. If this table changes, those two
@@ -264,7 +264,8 @@ no gate of its own until then. Light-touch by design.
 |---|---|---|---|---|---|
 | Trace span attributes (route, method, status, profile_id) | Debugging + perf monitoring | Art. 6(1)(f) | 14 d (Grafana free tier) | Grafana Labs (US — needs SCC + DPA) | [[shared/observability/overview]] |
 | Log entries (Effect.log*) — redacted | Debugging + audit | Art. 6(1)(f) | 50 GB rolling (~30 d typical) | Grafana Labs | [[shared/observability/overview]] |
-| Cloudflare Workers Logs — cire-api and cire-invites (application logs only; `invocation_logs = false`, so no request URL is stored) | Debugging deployed Workers | Art. 6(1)(f) | ~7 d | Cloudflare | [[shared/observability/logging]] |
+| Cloudflare Workers Logs — cire-api and cire-invites (application logs only; `invocation_logs = false`, so no invocation record stores a request URL) | Debugging deployed Workers | Art. 6(1)(f) | 3 d on the Workers Free plan; 7 d from 2026-12-01 | Cloudflare | [[shared/observability/logging]] |
+| Cloudflare native Workers traces — production `cire-invites` (every guest request) and every Worker's dev tier. Per request: the URL and path, the user agent and its parsed browser, OS and device type, country, city and timezone derived from the visitor's IP, their network (ASN), `Accept-Language`; per outbound fetch: the URL and the response status. No body, cookie or client IP. Production redacts query strings, so a path slug is the only wedding detail kept — an existing `/<slug>` link names the couple; `/cire/invite?slug=…` links keep it in the redacted query. Dev keeps query strings: dev holds synthetic cire data ([[dev-environment]]), but testers' own dev accounts mean dev traces can hold OIDC codes, digest stop tokens and claim codes | Debugging and performance of deployed Workers | Art. 6(1)(f) | 7 d (Cloudflare) | Cloudflare | [[shared/observability/tracing]] |
 | Metric samples (low cardinality) | Dashboards | Art. 6(1)(f) | 30 d (Grafana free tier metrics retention) | Grafana Labs | [[shared/observability/overview]] |
 | Frontend Faro events | UX + error monitoring | Art. 6(1)(f) — must remain non-PII; otherwise consent required | 14 d | Grafana Labs | [[shared/observability/overview]] |
 

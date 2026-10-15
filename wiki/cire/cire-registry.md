@@ -569,7 +569,7 @@ A guest's note (a claim's `note`, a contribution's `message`) is the one text in
 
 ## Guest surface (`@cire/invites`)
 
-**The list has its own page: `/<slug>/registry`.** It is the one part of an invitation a guest comes _back_ to — to see what is left, to change what they reserved, to open it in a shop — and none of that should mean scrolling the invitation again. It is also a link a couple can send on its own.
+**The list has its own page: `/cire/registry?slug=<slug>`** (`src/pages/cire/registry.astro`), the address every link the guest site builds and both Stripe return URLs use; links already sent as `/<slug>/registry` keep working (`src/pages/[slug]/registry.astro`). It is the one part of an invitation a guest comes _back_ to — to see what is left, to change what they reserved, to open it in a shop — and none of that should mean scrolling the invitation again. It is also a link a couple can send on its own.
 
 `src/lib/gift-registry.ts` is the client; `src/components/gift-registry/` is the UI:
 

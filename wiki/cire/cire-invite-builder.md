@@ -787,13 +787,19 @@ not).
 Service: `cire/api/src/services/invite.ts` (`inviteService`, Effect). Binary R2
 access: `cire/api/src/services/invite-assets.ts` (`AssetsR2Service` Tag — the
 CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
-`cire/api/src/routes/invite.ts`, three sibling Elysia instances:
+`cire/api/src/routes/invite.ts`, four sibling Elysia instances (the resolve lookup has its own, listed under Public):
 
 - **Public (no auth)** — under `/api/invite`:
   - `GET /api/invite/:slug` → text + image URL paths for the guest site, plus the
     hero and story switches; a switched-off section's own words are left out,
     and so is the organiser-only `inviteMessage` (`publicView` in
     `cire/api/src/services/invite.ts`).
+  - `POST /api/invite/resolve` with `{ "slug": "…" }` → the same payload, for the
+    guest site's fixed-path pages, so the outbound URL names no wedding. Its own
+    instance (`createInviteResolveRoutes`), mounted before the CSRF origin guard
+    because a Worker's server-side fetch sends no `Origin` ([[cire-auth]]). A
+    body that is not JSON or fails `InviteResolveBody` (a 1–128 character slug)
+    gets the unknown-slug 404, never a 500.
   - `GET /api/invite/:slug/image/:slot` → image bytes from R2 (`Cache-Control:
     immutable` for the hero and story, an hour for the gated closing image; the
     URL is cache-busted by `?v=`, a digest of the slot's R2 key —
@@ -923,11 +929,12 @@ there is no build-time `PUBLIC_WEDDING_SLUG`:
   the invitation route for newly generated links. It resolves the invite through
   `POST /api/invite/resolve`, keeping the slug in the request body. The query
   string is redacted from production native traces. The `code` and `design`
-  query parameters remain available for guest claims and organiser previews.
-- **`/cire/registry?slug=<slug>`** — the gift page for newly generated links;
-  it uses the same fixed API lookup. Existing `/<slug>/registry` links continue
-  to render.
-
+  query parameters work as on `/<slug>`, and it answers as `/<slug>` does: no
+  slug or an unknown one is a 404, and an API error still renders the shell.
+- **`/cire/registry?slug=<slug>`** (`cire/invites/src/pages/cire/registry.astro`)
+  — the gift page for newly generated links and both Stripe return URLs; it
+  uses the same fixed API lookup and keeps the rules of `/<slug>/registry`
+  ([[cire-registry]]). Existing `/<slug>/registry` links continue to render.
 - **`/<slug>`** (`cire/invites/src/pages/[slug].astro`) — an existing per-wedding invite link. The
   route reads `slug` from the path, fetches `GET ${PUBLIC_API_URL}/api/invite/<slug>`
   **server-side per request** (`cache: "no-store"`), and renders the resolved

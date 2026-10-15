@@ -26,8 +26,23 @@ Production API Workers keep native traces disabled while path values and
 outbound URLs are reviewed. Cloudflare records URLs before application code
 runs, so the shared logger's `redact()` cannot change native span attributes.
 
-The workerd-safe application span calls below are separate from native Workers
-traces. They do not export until a compatible application exporter is installed.
+[`scripts/check-trace-redaction.ts`](../../../scripts/check-trace-redaction.ts)
+holds that line. CI runs it on the committed configs: every staging and
+production tier must set `redact_query_string = true`, and no API Worker may
+trace there. The production guest deploy runs it again on the adapter's
+generated `dist/server/wrangler.json` before `wrangler deploy`.
+
+A fetch handler span records the full URL and path, the user agent, the
+visitor's country, city and timezone, their network (ASN) and
+`Accept-Language`; an outbound fetch span records the URL, its query and the
+response status. Neither records a body, a cookie or the client IP
+([spans and attributes](https://developers.cloudflare.com/workers/observability/traces/spans-and-attributes/),
+read 2026-10-15). Cloudflare keeps traces for seven days.
+
+The workerd-safe application spans below are separate from native Workers
+traces. `osn-api` and `cire-api` export them through an OTLP/HTTP exporter when
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set ([[cire-workerd]]); without it they are
+inert.
 
 ## Span creation
 
