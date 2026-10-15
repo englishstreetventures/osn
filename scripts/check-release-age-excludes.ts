@@ -153,8 +153,8 @@ export function checkReleaseAgeExcludes(toml: string, now: Date = new Date()): r
 /**
  * The repo has exactly one `bunfig.toml`, at the root, and the CLI below reads
  * that one file — `new URL("../bunfig.toml", import.meta.url)`. Bun does not.
- * It reads `bunfig.toml` relative to the working directory, and `deploy.yml`
- * and several package scripts run with `--cwd`, so a second file further down
+ * It reads `bunfig.toml` relative to the working directory, and the deploy
+ * workflows and several package scripts run with `--cwd`, so a second file further down
  * the tree would set the install policy for those runs while this guard went
  * on passing against the root one. Rather than glob for every copy and merge
  * the results, refuse the second file outright: the repo has never wanted one,

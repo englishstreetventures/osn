@@ -16,8 +16,9 @@
 #     arithmetic stays checkable without a rebuild.
 #
 # Re-baselining after an intentional bundle change: build (clean, alone),
-# read the printed total, and edit ONLY this line — package.json, ci.yml and
-# deploy.yml all read through this file, so there is nowhere else to update.
+# read the printed total, and edit ONLY this line — package.json, ci.yml,
+# deploy.yml and production-release.yml all read through this file, so there
+# is nowhere else to update.
 # Set the new threshold to the new measured total plus headroom smaller than
 # a motion-class dependency (~21.3 KB gzip minified — see
 # guard-bundle-size.sh's comment for the full reasoning); ~11.7 KB is the

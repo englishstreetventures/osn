@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-16
 ---
 
 # Guards that gate on a number
@@ -41,7 +41,7 @@ by getting them wrong first.
 **The number lives in one committed file the guard reads.** Never as an
 argument at each call site. `scripts/bundle-size-budgets.txt` is the worked
 example, and what it replaced was the same threshold typed into six
-`package.json` build scripts, one `ci.yml` step and eight `deploy.yml` steps —
+`package.json` build scripts, one `ci.yml` step and eight deploy-job steps —
 fifteen copies, and a re-baseline that missed one left a guard enforcing a
 number nobody meant. One file also means the guard can refuse to run for a
 package with no row, rather than passing silently.
@@ -78,7 +78,7 @@ for a human reading the wiki. If the two ever disagree, the `.txt` file is
 right and this page is stale; re-read it rather than trusting the table below.
 That split used to not exist: the threshold was a third command-line argument,
 copied by hand into six `package.json` build scripts, one `ci.yml` step and
-eight `deploy.yml` steps — fifteen copies of the same number, silently
+eight deploy-job steps — fifteen copies of the same number, silently
 divergeable by missing one on a re-baseline. There is now exactly one place to
 edit.
 
@@ -140,10 +140,10 @@ touching a threshold. In short:
 Every app's own `build` script chains the guard on with `&&` (`astro build &&
 … guard-bundle-size.sh .`) — that is what runs it on a local build and the
 by-hand cire/invites deploy. It ALSO runs as its own step in `ci.yml`'s
-`build-test` job (one `--all` step covering every app) and in both
-`deploy.yml` jobs (dev and production) that build a guarded app (one
-`guard-bundle-size.sh <app>` step each — `deploy.yml` builds one app per job,
-so there is no `--all` there). That is not a redundant belt-and-suspenders: a
+`build-test` job (one `--all` step covering every app) and in every deploy
+job — dev in `deploy.yml`, production in `production-release.yml` — that builds a
+guarded app (one `guard-bundle-size.sh <app>` step each — each deploy job builds
+one app, so there is no `--all` there). That is not a redundant belt-and-suspenders: a
 Turborepo cache replay of `build` replays its logged output without executing
 the script, so the chained invocation never runs on a cache hit — the explicit
 workflow step is what still checks the artifact that IS on disk in that case.

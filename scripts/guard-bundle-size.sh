@@ -29,7 +29,7 @@
 # that file, not this script, not a workflow, not a package.json, is the
 # single source of truth. A threshold living in one place is the whole point:
 # it used to be a `<package-dir> <mode> <threshold>` argument, copied by hand
-# into six package.json build scripts, a ci.yml step and eight deploy.yml
+# into six package.json build scripts, a ci.yml step and eight deploy-job
 # steps — fifteen copies of the same number, silently divergeable by
 # missing one on a re-baseline. There is deliberately no way to pass a
 # threshold on the command line any more.
@@ -38,7 +38,7 @@
 #   guard-bundle-size.sh <package-dir>   — look up <package-dir>'s own record
 #                                           in bundle-size-budgets.txt and run
 #                                           it. What every package.json build
-#                                           script and every deploy.yml step
+#                                           script and every deploy-job step
 #                                           calls.
 #   guard-bundle-size.sh --all           — run every record in the budgets
 #                                           file. What ci.yml's single step

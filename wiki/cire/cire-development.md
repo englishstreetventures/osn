@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-16
 ---
 
 # Cire development guide
@@ -360,8 +360,9 @@ step that has to run before the drop goes at the top of the same file.
 shape of its test: seed rows before the migration, then prove nothing cascaded.
 
 **A field the guest site reads is optional there.** `deploy-cire-invites` has no
-`needs:` edge on `deploy-cire-api` in `deploy.yml`, so the site can reach
-production before the API that serves a new field. `isValidClaimResponse`
+`needs:` edge on `deploy-cire-api` in `production-release.yml`, and a release can
+ship one without the other (a `surfaces` dispatch, or the dev check holding one
+back), so the site can reach production before the API that serves a new field. `isValidClaimResponse`
 (`cire/invites/src/components/utils.ts`) is read as "no session" by both its
 callers when it returns `false`, so a field it requires sends every signed-in
 household back to the code form for that window. Give the field `?` in the type
@@ -373,7 +374,9 @@ entered in that window is not stored.
 
 ### Deploying by hand
 
-CI does this on merge ([[production-deploy]]). By hand:
+CI does this in a production release ([[production-deploy]] §5.5). A hand-run
+deploy leaves no record the release planner reads, so after a hand-run rollback
+dispatch a `force` release of `cire_api` to bring production back to main. By hand:
 
 ```bash
 cd cire/api && bunx wrangler deploy --env production
@@ -384,7 +387,7 @@ cd cire/api && bunx wrangler deploy --env production
 The **guest site is a Worker, not Pages.** The adapter emits `dist/server` +
 `dist/client` and a generated `dist/server/wrangler.json` extending
 `cire/invites/wrangler.jsonc`; CI strips the unsupported `legacy_env` field first
-(see `deploy.yml`).
+(see `production-release.yml`, and `deploy.yml` for dev).
 
 ```bash
 bun run --cwd cire/invites build
@@ -420,7 +423,7 @@ nothing else. After `astro build`, an Astro integration rewrites the copy in
 
 | Build | The policy in `dist/_headers` names |
 |---|---|
-| Production (`deploy.yml` sets `https://api.cireweddings.com`) | The committed file, byte for byte |
+| Production (`production-release.yml` sets `https://api.cireweddings.com`) | The committed file, byte for byte |
 | Dev (`deploy.yml` sets `https://api.dev.cireweddings.com`) | The dev API and the dev API's CSP report collector |
 | Local, env unset | `http://localhost:8787`, for `wrangler pages dev dist` |
 
@@ -572,7 +575,7 @@ publicly as Static Assets — see the source-map warning below.
 `cire/invites/package.json`'s `build` script chains it on
 (`… && ../../scripts/guard-bundle-size.sh .`), so it fires wherever the build
 actually executes: the by-hand deploy above, and any local build. `ci.yml` and
-both `deploy.yml` jobs also invoke it as their own step ([[bundle-size-guards]]
+both deploy jobs (dev in `deploy.yml`, production in `production-release.yml`) also invoke it as their own step ([[bundle-size-guards]]
 has the reason — a Turborepo cache replay of `build` never runs the chained
 script). The mode and threshold are no longer arguments anywhere — every
 caller looks its app up by name in `scripts/bundle-size-budgets.txt`, the one
@@ -619,7 +622,8 @@ Three tracker follow-ups (#618, #616, #617) to the original size audit
   `minify`, plus `upload_source_maps: true` in `cire/invites/wrangler.jsonc` —
   the adapter never sets that key itself, so it has to come from the checked-in
   config the generated `dist/server/wrangler.json` extends. Both CI rewrite
-  steps that touch that generated file (`deploy.yml`, dev and prod) only delete
+  steps that touch that generated file (dev in `deploy.yml`, production in
+  `production-release.yml`) only delete
   `legacy_env` and set `name`/`routes`, so the key survives into the deployed
   config untouched.
 

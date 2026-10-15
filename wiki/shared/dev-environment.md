@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-16
 ---
 
 # Dev environment (cire + OSN identity)
@@ -19,12 +19,15 @@ deployed straight to production, unattended — a bad merge landed on a real
 couple's invite site with no stop between the two.
 
 Now every merge deploys a **dev tier** automatically, and production waits for a
-human to click approve in the same run.
+**release**: a separate workflow, run once a day and by hand, that ships whatever
+production is behind on after one approval.
 
 ```
-changes ──┐
-          ├──> deploy-<surface>-dev ──> deploy-<surface> (production)
-build ────┘        automatic               waits for approval
+deploy.yml (every push)              production-release.yml (daily, or by hand)
+
+changes ──┐                          plan ──> build ──> deploy-<surface>
+          ├──> deploy-<surface>-dev                     waits for one approval
+build ────┘        automatic
 ```
 
 The dev tier is **fully isolated**: its own Workers, D1, R2, rate-limit
@@ -106,27 +109,29 @@ See [[musubi-identity-migration]] for why RP IDs behave this way.
 
 `.github/workflows/deploy.yml`, on push to `main` or `workflow_dispatch`.
 
-1. **`changes`** — one boolean per deployable surface from
+1. **`changes`** — one boolean per dev surface, from
+   [`scripts/deploy-surfaces.ts`](../../scripts/deploy-surfaces.ts) run against
    `git diff --name-only "$BEFORE_SHA" HEAD`. A landing-page tweak deploys the
    landing page and nothing else. Two escalations to "deploy everything": a
    trigger with no diff base (`workflow_dispatch`), and a diff that fails to
-   compute (first push, force-push — `git diff` exits 128). Any change under
-   `shared/`, `bun.lock`, root `package.json`/`turbo.json`/`tsconfig.json`,
-   `.browserslistrc`, or `deploy.yml` itself also deploys everything, rather
-   than maintaining a shared-package→consumer map that rots on the first new
-   import. The cire packages are the exception: each cire surface's filter
-   lists every `@cire/*` package it bundles (`cire/ui`, `cire/dietary`,
+   compute (first push, force-push). Any change under `shared/` or `patches/`,
+   to `bun.lock`, root `package.json`/`turbo.json`/`tsconfig.json`,
+   `.browserslistrc`, `deploy.yml` itself or the surface map also deploys
+   everything, rather than maintaining a shared-package→consumer map that rots on
+   the first new import. The cire packages are the exception: each cire surface's
+   paths list every `@cire/*` package it bundles (`cire/ui`, `cire/dietary`,
    `cire/theme`, …), and
    [`scripts/tests/deploy-surface-map.test.ts`](../../scripts/tests/deploy-surface-map.test.ts)
    fails when a surface's `package.json` gains a `@cire/*` dependency its
-   filter does not name.
+   paths do not name. The production release reads the same map, so the two
+   tiers agree on what a change touches.
 2. **`build`** — install, `bun run build`, `bun run test`, `bun run test:d1`.
    Everything below `needs:` it, so nothing ships from a broken tree.
 3. **`deploy-<surface>-dev`** — `environment: dev`, no reviewers, runs unattended.
-4. **`deploy-<surface>`** — `needs:` its dev counterpart, `environment: production`.
-   **The run parks here** until an approver clicks.
 
-`deploy-zap-api` is production-only — zap has no dev tier (out of scope).
+Production is not in this workflow. `production-release.yml` ships it in releases
+([[production-deploy]] §5.5),
+and `deploy-zap-api` lives there only — zap has no dev tier.
 
 ### Two Environments, two tokens
 
@@ -253,11 +258,11 @@ second zone, second D1 set and second Upstash, and the cost maths changes.
 
 ### Concurrency is per job, not per workflow
 
-A workflow-level `concurrency` group would make the whole run the unit of
-exclusion — and since prod jobs park waiting for a human, the *next* merge's dev
-deploy would queue behind that click. Each job takes a group named for its own
-surface **and** tier (`deploy-dev-cire-api`, `deploy-production-cire-api`), so two
-runs never deploy the same thing at once while unrelated surfaces stay parallel.
+Each dev job takes a group named for its own surface and tier
+(`deploy-dev-cire-api`), so two runs never deploy the same thing at once while
+unrelated surfaces stay parallel. Production jobs live in `production-release.yml`
+under `deploy-production-<surface>` groups, and that workflow also holds one release
+at a time, so a release waiting for approval never holds up a dev deploy.
 
 The dev cire job also sets **`cancel-in-progress: true`**. A burst of merges
 otherwise queues one dev deploy per merge, and each one only brings dev to the
@@ -352,19 +357,24 @@ manual check. Migrations still apply forward.
 
 ## 3. Promoting to production
 
-1. Merge the PR. The run starts; dev deploys within a few minutes.
+1. Merge the PR. The `Deploy` run starts; dev deploys within a few minutes.
 2. Check dev (§6 below, or just the surface you changed).
-3. Open the run in Actions. Each prod job shows **Review deployments**.
-4. Approve. Prod jobs run in the same run, and GitHub records who approved on the
-   run itself.
+3. Wait for the daily **Production release** run, or dispatch one from
+   **Actions → Production release**. Its `plan` summary lists what ships.
+4. Approve once. Every production job in the release runs, and GitHub records who
+   approved on the run itself.
 
 Rejecting leaves dev ahead of prod. That is a valid resting state — the next
-merge's dev deploy is unaffected. To ship later, re-run the prod jobs from the
-same run, or merge the next change and approve that run.
+merge's dev deploy is unaffected, and the next release offers the same surfaces
+again. The full procedure, the dispatch inputs and the first-release cutover are in
+[[production-deploy]] §5.5.
 
-**A prod job never runs without its dev counterpart having succeeded**
-(`needs: deploy-<surface>-dev`). Promotion is an edge in the graph, not a
-convention.
+**A surface reaches production only after dev deployed the same content.** The
+release planner reads dev's Deployment records: a changed surface with no recent
+successful dev deploy built from the same content is held back until dev has it.
+Dev redeploys a surface only on a push that touches it, so after a failed dev deploy,
+re-run the failed job or dispatch **Deploy**. Promotion is a check in the planner, not
+a convention.
 
 ---
 
@@ -814,9 +824,11 @@ production, and nothing here should ever grow one.
 
 ## 8. Known gaps
 
-- **Zap and Pulse have no dev tier.** `deploy-zap-api` is production-only.
+- **Zap and Pulse have no dev tier.** `deploy-zap-api` is production-only, in
+  `production-release.yml`.
 - **No staging.** `osn-db-staging` exists and stays unused; the dev tier is the
   single pre-production step by design.
-- **No automated rollback.** Reverting means merging a revert and approving it.
+- **No automated rollback.** Reverting means merging a revert and approving the
+  release that ships it.
 - **Free-tier caps are account-wide.** Dev traffic draws on the same 100K Workers
   requests/day and the same D1 row budget as production. [[free-tier-limits]]

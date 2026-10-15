@@ -11,7 +11,7 @@ related:
   - "[[production-deploy]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-16
 ---
 
 # Cire Landing
@@ -185,11 +185,12 @@ allow-lists `images.unsplash.com` for `img-src`.
 `cireweddings.com` → this landing site; `invite.cireweddings.com` → guest site
 (`cire/invites`); `host.cireweddings.com` → organiser portal (`cire/host`, moved
 off `app.cireweddings.com`). CI job `deploy-cire-landing` in
-`.github/workflows/deploy.yml` mirrors `deploy-cire-host` (the `cire-landing`
-Pages project must exist in the account before first run). Since 2026-08-13 there
-is a `deploy-cire-landing-dev` job as well, serving `dev.cireweddings.com` from
-the `cire-landing-dev` Pages project; the apex job now waits on it **and** on a
-human approving the `production` GitHub Environment. See [[dev-environment]].
+`.github/workflows/production-release.yml` mirrors `deploy-cire-host` (the `cire-landing`
+Pages project must exist in the account before first run). A `deploy-cire-landing-dev`
+job in `deploy.yml` serves `dev.cireweddings.com` from the `cire-landing-dev` Pages
+project; the apex job ships only in a production release, once dev has deployed the
+same content and a human has approved the `production` GitHub Environment. See
+[[dev-environment]] and [[production-deploy]].
 
 **Passkey safety:** prod `OSN_RP_ID = cireweddings.com` (the registrable apex), so
 WebAuthn credentials are scoped to the whole domain — moving the organiser portal
@@ -211,8 +212,8 @@ Remaining **manual** steps (Cloudflare dashboard + one deploy), sequenced in
    *move* it off the `cire-invites` Worker — confirm).
 3. Confirm `invite.cireweddings.com` auto-provisioned on the `cire-invites` Worker
    (custom_domain on deploy).
-4. ~~Redeploy osn-api manually~~ — osn-api is now CI-deployed (`deploy-osn-api`
-   in `deploy.yml`, added 2026-07-16); `OSN_ORIGIN` picks up on the next merge.
+4. ~~Redeploy osn-api manually~~ — osn-api is CI-deployed (`deploy-osn-api`
+   in `production-release.yml`); `OSN_ORIGIN` picks up with the next release.
 5. Cleanup PR — **DONE 2026-07-16**: pruned the transitional apex + `app.` from
    cire-api `WEB_ORIGIN` and `app.` from osn-api `OSN_ORIGIN`/`OSN_CORS_ORIGIN`
    (`cire/invites`'s Worker route was already `invite.`-only, no apex route to drop).

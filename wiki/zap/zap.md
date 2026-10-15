@@ -10,7 +10,7 @@ related:
   - "[[social-graph]]"
   - "[[arc-tokens]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-09-07
+last-reviewed: 2026-10-16
 ---
 
 # Zap
@@ -97,7 +97,7 @@ This split is by design: c2b body content is server-visible, user-attributed dat
 
 ### CI pipeline
 
-`deploy-zap-api` in `.github/workflows/deploy.yml` is **live**. It was written to stay dormant until the production D1 existed, and that condition is met: `[[env.production.d1_databases]]` in `zap/api/wrangler.toml` carries a real `database_id`, so the job's `zapcheck` step sets `provisioned=true` and deploys instead of skipping. Only dev and staging still hold `placeholder-replace-after-d1-create`, which the check ignores on purpose. It runs on a merge to `main` that touches `zap/api`, and like every production job it waits on a human approving the `production` GitHub Environment — see [[production-deploy]].
+`deploy-zap-api` in `.github/workflows/production-release.yml` is **live**. It was written to stay dormant until the production D1 existed, and that condition is met: `[[env.production.d1_databases]]` in `zap/api/wrangler.toml` carries a real `database_id`, so the job's `zapcheck` step sets `provisioned=true` and deploys instead of skipping. Only dev and staging still hold `placeholder-replace-after-d1-create`, which the check ignores on purpose. It runs in a production release that finds `zap/` changed since zap-api last deployed, and waits on that release's one approval of the `production` GitHub Environment — see [[production-deploy]] §5.5. Zap has no dev tier, so the release's dev check does not apply to it.
 
 ## Authentication & authorization
 

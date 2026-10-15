@@ -23,7 +23,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-16
 ---
 
 # Cire
@@ -141,12 +141,13 @@ is only legal on an origin same-site with the RP ID — so no cireweddings.com
 host can run one any more. **That is why cire signs in over the OIDC redirect**
 (shipped 2026-07-27): cire is a registered client, the ceremony and consent run on
 `musubi.social/authorize`, and cire-api exchanges the code server-side. No
-cireweddings.com origin runs a WebAuthn ceremony. Deploys run via the **GitHub Actions
-workflow** (`.github/workflows/deploy.yml`): gated on a build/test job, it
-applies the remote cire D1 migrations (incl. `0014` theming + `0015`
+cireweddings.com origin runs a WebAuthn ceremony. Production deploys run via the **GitHub Actions
+workflow** `.github/workflows/production-release.yml`: gated on a build/test job and one
+approval, it applies the remote cire D1 migrations (incl. `0014` theming + `0015`
 drop-bootstrap) and deploys the **cire-api Worker** + the **cire-web / organiser
-Pages** projects on merge to main (repo secrets `CLOUDFLARE_API_TOKEN` /
-`_ACCOUNT_ID` set). Prod wrangler config redeclares the D1 + R2 bindings under
+Pages** projects in each daily or hand-run release; the dev tier deploys from
+`deploy.yml` on every merge. The Cloudflare API tokens sit on the `production`
+and `dev` GitHub Environments. Prod wrangler config redeclares the D1 + R2 bindings under
 `[env.production]` (named envs don't inherit top-level bindings); cire-api no
 longer needs a bootstrap owner (#156). The full secret/var checklist, the
 one-time Turnstile widget step, and post-deploy smoke checks live in the

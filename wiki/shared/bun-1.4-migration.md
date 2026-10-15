@@ -9,7 +9,7 @@ related:
   - "[[dev-environment]]"
   - "[[devloop-urls]]"
   - "[[commands]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-10-16
 ---
 
 # Bun 1.4 migration
@@ -118,8 +118,8 @@ catches two shapes the greps could not:
   database *name* pasted into the wrong field satisfied all three greps.
 
 The bash version advertised "grep only, no bun". That is traded away for the
-real parse, and it costs nothing: both callers in `deploy.yml` run `bun install`
-first.
+real parse, and it costs nothing: both callers — the cire-api jobs in
+`deploy.yml` and `production-release.yml` — run `bun install` first.
 
 ### Two CI bugs found on the way
 

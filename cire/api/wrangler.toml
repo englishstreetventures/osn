@@ -310,8 +310,8 @@ binding = "IMAGES"
 # id = "<paste-namespace-id>"
 
 # ═══ dev tier ════════════════════════════════════════════════════════════════
-# Deployed automatically on every merge to main (.github/workflows/deploy.yml),
-# ahead of the approval-gated production jobs. Fully isolated from production:
+# Deployed automatically on every merge to main (.github/workflows/deploy.yml);
+# production ships later, in approved releases (production-release.yml). Fully isolated from production:
 # its own D1, its own R2 buckets, its own rate-limit namespaces, and its own OSN
 # identity origin (id.dev.musubi.social) — nothing here reads or writes a byte of
 # live-wedding data. Its D1 is wiped and re-seeded every night by
