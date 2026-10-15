@@ -10,7 +10,7 @@
  * every `Effect.withSpan` in them recorded into the default in-memory tracer
  * and was dropped.
  *
- * Effect v4 ships its own OTLP client under `effect/unstable/observability`,
+ * Effect v4 ships its own OTLP client under `effect/observability`,
  * built on `HttpClient` rather than the OTel JS SDK. Paired with
  * `FetchHttpClient` (which is just `globalThis.fetch`) it has no Node
  * dependency at all, so it runs on workerd. Nothing here imports
@@ -49,9 +49,9 @@
  * several fiber roots regardless. Bridging the two registries is a separate
  * piece of work; do not assume a joined trace when reading this data.
  */
-import { Duration, Effect, Layer, Tracer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
-import { OtlpExporter, OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
+import { Duration, Effect, Layer, Option, Tracer } from "effect";
+import { FetchHttpClient } from "effect/http";
+import { OtlpExporter, OtlpSerialization, OtlpTracer } from "effect/observability";
 
 import type { ObservabilityConfig } from "../config";
 import { NoopTracingLive } from "./noop";
@@ -121,8 +121,10 @@ export interface OtlpTracing {
  * trace LEVEL, not ratio — so without this a Worker would export 100% of spans
  * while `OSN_TRACE_SAMPLE_RATIO` (0.1 by default in production) said otherwise,
  * which is both a lie and a free-tier cost. The decision is taken on ROOT spans
- * only; Effect's span constructor already forces a child to `sampled: false`
- * when its parent is unsampled, so one decision per trace propagates down.
+ * only — any span without a parent, whether or not the caller set
+ * `root: true`. Effect's span constructor already forces a child to
+ * `sampled: false` when its parent is unsampled, so one decision per trace
+ * propagates down.
  *
  * Matches what the Bun path gets from
  * `ParentBasedSampler({ root: TraceIdRatioBasedSampler })`, except the draw is
@@ -137,7 +139,7 @@ const withRatioSampler = (ratio: number, tracer: Tracer.Tracer): Tracer.Tracer =
         ...tracer,
         span: (options) =>
           tracer.span(
-            options.root && options.sampled && Math.random() >= ratio
+            Option.isNone(options.parent) && options.sampled && Math.random() >= ratio
               ? { ...options, sampled: false }
               : options,
           ),

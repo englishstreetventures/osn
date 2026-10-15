@@ -22,7 +22,7 @@ packages:
   - "@osn/api"
   - "@zap/api"
   - "@cire/api"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-15
 ---
 
 # Backend Code Patterns
@@ -34,12 +34,11 @@ OSN's backend uses a layered architecture. **Routes** handle HTTP concerns: vali
 Routes use Elysia's built-in TypeBox (`t`) for request/response validation. This validates raw HTTP types and drives Eden client type inference.
 
 ```typescript
-export const createEventsRoutes = (dbLayer = DbLive) =>
-  new Elysia({ prefix: "/events" })
+export const createEventsRoutes = (dbLayer: Layer.Layer<Db> = DbLive) => {
+  const runtime = ManagedRuntime.make(dbLayer); // once per factory, not per request
+  return new Elysia({ prefix: "/events" })
     .post("/", async ({ body, set }) => {
-      const result = await Effect.runPromise(
-        createEvent(body).pipe(Effect.provide(dbLayer))
-      );
+      const result = await runtime.runPromise(createEvent(body));
       set.status = 201;
       return { event: result };
     }, {
@@ -48,13 +47,14 @@ export const createEventsRoutes = (dbLayer = DbLive) =>
         startTime: t.String({ format: "date-time" }), // string at HTTP layer
       }),
     });
+};
 ```
 
 Key points:
-- Routes accept an optional `dbLayer` parameter for dependency injection (default is `DbLive`)
+- Route factories accept an optional `dbLayer` (default `DbLive`) so tests can inject one, and build one `ManagedRuntime` from it when the factory runs — see `createEventsRoutes` in `pulse/api/src/routes/events.ts`
 - TypeBox stays structural -- strings stay strings (no transforms)
 - Handlers set `set.status` explicitly for non-200 responses
-- Routes run Effect pipelines via `Effect.runPromise` at the boundary
+- Handlers run Effect pipelines with `runtime.runPromise` at the boundary
 
 ### Build the layer graph ONCE — never re-provide expensive layers per request
 
@@ -70,14 +70,19 @@ Build the graph once into a long-lived `ManagedRuntime` at boot and run every re
 >
 > v4 shares the `MemoMap` across `Effect.provide` calls **within one run** —
 > but not across separate `runPromise` roots, and a per-request provide is a
-> new root every time. Measured against `effect@4.0.0-rc.112`: five
-> `Effect.provide` calls of a scoped layer produce **five acquires and five
-> releases**, where a `ManagedRuntime` produces one acquire and zero releases
-> until it is disposed.
+> new root every time. Five `Effect.provide` calls of a scoped layer produce
+> **five acquires and five releases**, where a `ManagedRuntime` produces one
+> acquire and zero releases until it is disposed.
+>
+> *Measured 2026-10-15 on `effect@4.0.3` — a `bun` script, not committed: a
+> `Layer.effect` whose service is built with `Effect.acquireRelease` and counts
+> each acquire and release; five separate
+> `Effect.runPromise(eff.pipe(Effect.provide(layer)))` calls, then five
+> `runtime.runPromise(eff)` calls on one `ManagedRuntime.make(layer)` (one
+> release after `runtime.dispose()`).*
 >
 > So the rebuild-cost argument is **not** weakened where it actually applies.
-> Both reasons stand. This correction replaces an earlier note here that said
-> the opposite.
+> Both reasons stand.
 
 ```typescript
 // index.ts — build once
@@ -117,20 +122,10 @@ Before v4 this whole area bit the graph/organisation routes for weeks: every bus
 Services use Effect Schema to validate AND transform data into domain types. This is where strings become `Date` objects, enums are narrowed, and invariants are enforced.
 
 ```typescript
-// Schema.DateFromString allows Invalid Date — use a validated transform instead
-const ValidDateString = Schema.String.pipe(
-  Schema.filter((s) => !isNaN(new Date(s).getTime()))
-);
-
-const DateFromISOString = Schema.transform(ValidDateString, Schema.DateFromSelf, {
-  strict: true,
-  decode: (s) => new Date(s),
-  encode: (d) => d.toISOString(),
-});
-
 const InsertEventSchema = Schema.Struct({
   title: Schema.NonEmptyString,
-  startTime: DateFromISOString,                 // string → Date (validated)
+  // string → Date; a string that parses to an Invalid Date fails the decode
+  startTime: Schema.DateFromString,
   status: Schema.optional(
     Schema.Literals(["upcoming", "ongoing", "finished", "cancelled"])
   ),
