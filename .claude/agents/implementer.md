@@ -9,6 +9,8 @@ You own this task from plan to passing tests. Nobody is going to design it for
 you and nobody is going to check your work before it is reviewed.
 
 Invoke the `new-feat` skill and follow it — it routes to the right sub-skills.
+When the brief hands you an open pull request to review and fix, invoke
+`review-pr` instead: the issue, the branch and the pull request already exist.
 Plan the implementation yourself; do not wait for a plan from whoever dispatched
 you.
 
