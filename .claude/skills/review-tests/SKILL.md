@@ -200,6 +200,10 @@ from Step 3, never `tests/db/`:
 STRYKER_TESTS='tests/lib/money.test.ts' bun run --cwd cire/api test:mutation --changed="$DIFF_BASE"
 ```
 
+A run that stops with `No tests were executed` means no test imports a mutated
+file: report each such file as `T-M` (no test file reaches it), not as a run
+that failed.
+
 First check the log's `Ran N tests per mutant on average` line. `0.00` means
 the runner ran no tests at all and every survivor is false — record the run
 under `## Not run` with that line quoted, and report no gaps from it.

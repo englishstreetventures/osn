@@ -1,19 +1,20 @@
 /**
- * The Stryker options every cire package's `stryker.config.mjs` shares. Each config
+ * The Stryker options every cire package's `stryker/config.mjs` shares. Each config
  * spreads `options` and adds its own runner.
  *
- * `scripts/stryker-cire.ts` runs Stryker from the repo root, so the sandbox is
+ * `scripts/stryker/cli.ts` runs Stryker from the repo root, so the sandbox is
  * a copy of the whole repository and every path here is root-relative.
  * `ignorePatterns` is the only control over what that copy holds: Stryker does
  * not read `.gitignore`, so local secret files are listed here, and nothing a
  * cire test reads may be.
  */
 
-import { basename, relative } from "node:path";
+import { basename, dirname, relative } from "node:path";
 
-/** @param {string} configDir the package directory, `import.meta.dirname` of its config */
+/** @param {string} configDir the package's `stryker/` directory, `import.meta.dirname` of its config */
 export function cireStryker(configDir) {
-  const pkg = relative(process.cwd(), configDir);
+  const pkgDir = dirname(configDir);
+  const pkg = relative(process.cwd(), pkgDir);
   return {
     pkg,
     options: {
@@ -23,7 +24,7 @@ export function cireStryker(configDir) {
         `!${pkg}/src/**/*.d.ts`,
         `!${pkg}/src/**/*.{test,spec}.{ts,tsx}`,
       ],
-      tempDirName: `.stryker-tmp-cire-${basename(configDir)}`,
+      tempDirName: `.stryker-tmp-cire-${basename(pkgDir)}`,
       cleanTempDir: "always",
       ignorePatterns: [
         ".claude",

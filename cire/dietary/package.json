@@ -14,7 +14,7 @@
   "scripts": {
     "check": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
     "test": "bun test",
-    "test:mutation": "bun ../../scripts/stryker-cire.ts",
+    "test:mutation": "bun ../../scripts/stryker/cli.ts",
     "test:run": "bun test"
   },
   "devDependencies": {

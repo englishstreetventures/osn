@@ -351,7 +351,8 @@ tests that cover that line, and reports the change as **killed** (a test went
 red) or **survived** (every test stayed green). A survivor is a behaviour no
 assertion pins, found without anyone having to spot it.
 
-Every `cire/*` package with tests has a `stryker.config.mjs` and a
+Every `cire/*` package with tests has a `stryker/` directory holding its
+Stryker config (`stryker/config.mjs`) and a
 `test:mutation` script. Other products do not have it yet.
 
 ### When to run it
@@ -403,6 +404,10 @@ cire/dietary/src/index.ts:224:7
    say why in the pull request; do not write a test that asserts a string only
    to kill a mutant.
 3. **`NoCoverage` is worse than a survivor.** No test even ran the line.
+   In a vitest package, a run that stops with `No tests were executed` is the
+   same verdict for a whole file: Stryker runs only the tests that import the
+   mutated file, and none does (`cire/landing/src/lib/site.ts`, used only by
+   `.astro` pages, is one).
 
 A score is not a target. Chasing 100% buys tests that assert log wording and
 class strings; what matters is that no survivor sits on a line your branch
@@ -441,17 +446,17 @@ What the configs depend on, and what breaks without it:
   would hold that package alone, and every path a test reaches outside it with
   — `../../shared/test-config/no-jest-dom.ts`, a contract test reading
   `../../../api/src`, a seed test running `../../../../scripts` — would resolve
-  to nothing. [`scripts/stryker-cire.ts`](../../scripts/stryker-cire.ts), which
+  to nothing. [`scripts/stryker/cli.ts`](../../scripts/stryker/cli.ts), which
   every `test:mutation` script calls, runs Stryker from the root with the
   package's config and rewrites `--mutate` paths from package-relative to
   root-relative. The options every config shares — what to mutate, what the
   sandbox leaves out, where the report goes — are in
-  [`scripts/stryker-cire-options.mjs`](../../scripts/stryker-cire-options.mjs).
+  [`scripts/stryker/options.mjs`](../../scripts/stryker/options.mjs).
   Stryker does not read `.gitignore`, so that file's `ignorePatterns` keeps
   local secret files (`.env*`, `.dev.vars*`, keys) out of the copy. Do not switch a config to `inPlace`: it writes
   `// @ts-nocheck` into every source and test file for the length of the run,
   and leaves the mutated source behind if the run is killed.
-- **Each vitest package runs `stryker.vitest.config.ts`**, which is its
+- **Each vitest package runs `stryker/vitest.config.ts`**, which is its
   `vitest.config.ts` with `root` pinned back to the package — Vitest otherwise
   takes the root from Stryker's working directory.
 - **`@cire/host`'s and `@cire/invites`' configs also drop the `browser`

@@ -1,4 +1,4 @@
-// `scripts/stryker-cire.ts` runs Stryker from the repo root, so the package-
+// `scripts/stryker/cli.ts` runs Stryker from the repo root, so the package-
 // relative `--mutate` paths a person types from `cire/<pkg>` must be rewritten
 // to root-relative ones. A path Stryker cannot match mutates nothing and exits
 // 0, which reads as a clean run, so every malformed shape is pinned here.
@@ -12,7 +12,7 @@ import {
   rewriteMutate,
   strykerCommand,
   takeChangedFlag,
-} from "../stryker-cire";
+} from "../../stryker/cli";
 
 const ROOT = "/repo";
 
@@ -74,7 +74,7 @@ test("strykerCommand runs the package's config from the repo root with rewritten
       cmd: [
         "/repo/node_modules/.bin/stryker",
         "run",
-        "cire/host/stryker.config.mjs",
+        "cire/host/stryker/config.mjs",
         "--mutate",
         "cire/host/src/a.ts",
         "--dryRunOnly",
@@ -86,7 +86,7 @@ test("strykerCommand runs the package's config from the repo root with rewritten
 
 test("refusal accepts a cire package that has a config", () => {
   expect(
-    refusal("/repo/cire/host", ROOT, (p) => p === "/repo/cire/host/stryker.config.mjs"),
+    refusal("/repo/cire/host", ROOT, (p) => p === "/repo/cire/host/stryker/config.mjs"),
   ).toBeUndefined();
 });
 
@@ -99,11 +99,14 @@ test("refusal rejects a cire package with no config", () => {
 });
 
 test("the CLI exits 2 outside a cire package", async () => {
-  const proc = Bun.spawn(["bun", "run", new URL("../stryker-cire.ts", import.meta.url).pathname], {
-    cwd: new URL("..", import.meta.url).pathname,
-    stderr: "pipe",
-    stdout: "pipe",
-  });
+  const proc = Bun.spawn(
+    ["bun", "run", new URL("../../stryker/cli.ts", import.meta.url).pathname],
+    {
+      cwd: new URL("../..", import.meta.url).pathname,
+      stderr: "pipe",
+      stdout: "pipe",
+    },
+  );
   expect(await proc.exited).toBe(2);
   expect(await new Response(proc.stderr).text()).toContain("run from a cire package");
 });

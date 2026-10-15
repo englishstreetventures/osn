@@ -8,7 +8,7 @@
  * test or config reaches outside it with — `../../shared/test-config`, a
  * contract test reading `../../../api/src`, a seed test running
  * `../../../../scripts` — resolves to nothing. So this runs Stryker from the
- * repo root with the package's own `stryker.config.mjs`: the sandbox is a copy
+ * repo root with the package's own `stryker/config.mjs`: the sandbox is a copy
  * of the repository, and every relative path lands where it does here.
  *
  * `--mutate` paths are written relative to the package, as anyone running the
@@ -19,7 +19,7 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
-const REPO_ROOT = resolve(import.meta.dir, "..");
+const REPO_ROOT = resolve(import.meta.dir, "../..");
 
 /**
  * Rewrites each comma-separated `--mutate` entry to a repo-root path, keeping a
@@ -116,8 +116,11 @@ export function refusal(
   configExists: (path: string) => boolean,
 ): string | undefined {
   const pkgDir = relative(repoRoot, cwd);
-  if (!pkgDir.startsWith("cire/") || !configExists(join(repoRoot, pkgDir, "stryker.config.mjs"))) {
-    return `stryker-cire: run from a cire package with a stryker.config.mjs (cwd: ${cwd})`;
+  if (
+    !pkgDir.startsWith("cire/") ||
+    !configExists(join(repoRoot, pkgDir, "stryker", "config.mjs"))
+  ) {
+    return `test:mutation: run from a cire package with a stryker/config.mjs (cwd: ${cwd})`;
   }
   return undefined;
 }
@@ -129,7 +132,7 @@ export function strykerCommand(cwd: string, argv: readonly string[], repoRoot: s
     cmd: [
       join(repoRoot, "node_modules/.bin/stryker"),
       "run",
-      join(pkgDir, "stryker.config.mjs"),
+      join(pkgDir, "stryker", "config.mjs"),
       ...rewriteArgs(argv, pkgDir, repoRoot),
     ],
     cwd: repoRoot,
@@ -157,7 +160,9 @@ if (import.meta.main) {
       git("ls-files", "--others", "--exclude-standard", "--", pkgSrc).split("\n").filter(Boolean),
     );
     if (mutate.length === 0) {
-      process.stdout.write(`stryker-cire: no changed source lines under ${pkgSrc} since ${base}\n`);
+      process.stdout.write(
+        `test:mutation: no changed source lines under ${pkgSrc} since ${base}\n`,
+      );
       process.exit(0);
     }
     argv = [...rest, "--mutate", mutate.map((entry) => join(REPO_ROOT, entry)).join(",")];
