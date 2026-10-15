@@ -61,7 +61,10 @@ describe("the story registry", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("renders every story that claims to work headless", () => {
+  // One test renders every story, so the 5 s default is too tight on a loaded
+  // CI runner: the whole file took 26 s there against 1 s locally, with no
+  // single story over 25 ms. The limit leaves room above that CI figure.
+  it("renders every story that claims to work headless", { timeout: 30_000 }, () => {
     const headless = registry.entries.filter((e) => e.headless);
     expect(headless.length).toBeGreaterThan(0);
 
