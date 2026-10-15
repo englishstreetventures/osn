@@ -143,10 +143,10 @@ host can run one any more. **That is why cire signs in over the OIDC redirect**
 `musubi.social/authorize`, and cire-api exchanges the code server-side. No
 cireweddings.com origin runs a WebAuthn ceremony. Production deploys run via the **GitHub Actions
 workflow** `.github/workflows/production-release.yml`: gated on a build/test job and one
-approval, it applies the remote cire D1 migrations (incl. `0014` theming + `0015`
-drop-bootstrap) and deploys the **cire-api Worker** + the **cire-web / organiser
-Pages** projects in each daily or hand-run release; the dev tier deploys from
-`deploy.yml` on every merge. The Cloudflare API tokens sit on the `production`
+approval, it applies the remote cire D1 migrations and deploys the **cire-api Worker**,
+the **cire-invites guest Worker** and the **organiser, vendor and landing Pages**
+projects in each daily or hand-run release; the dev tier deploys from `deploy.yml` on
+every merge. The Cloudflare API tokens sit on the `production`
 and `dev` GitHub Environments. Prod wrangler config redeclares the D1 + R2 bindings under
 `[env.production]` (named envs don't inherit top-level bindings); cire-api no
 longer needs a bootstrap owner (#156). The full secret/var checklist, the

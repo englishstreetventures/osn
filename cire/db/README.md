@@ -124,9 +124,10 @@ up after two minutes, so a stalled call fails the deploy instead of holding it.
 A bare `wrangler d1 migrations apply` makes no such check. A refused database
 is brought level with the code that matches it, never by applying archived
 files by hand: they can change schema the Worker serving that database still
-reads. Production: approve the deploy run of a commit from before the files
-were archived and let it finish — it applies them and deploys the matching
-Worker — then re-run the refused job. Dev: run `cire-dev-db-rebuild.yml`.
+reads. Production: re-run only the production cire-api job of an earlier run
+whose commit is from before the files were archived and let it finish — it
+applies them and deploys the matching Worker — then dispatch a release
+(`wiki/shared/production-deploy.md` §4.1). Dev: run `cire-dev-db-rebuild.yml`.
 Local: `db:reset`.
 
 The archive lives outside `migrations_dir`, so nothing applies it. The tests

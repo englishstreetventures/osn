@@ -272,7 +272,7 @@ running at once in one checkout interleave their chunks and the guard then
 reads a number that is not real), read the printed total, and edit **only**
 `scripts/bundle-size-budgets.txt`'s row for that app, to that total plus
 ~11.7 KB. Nothing else names a threshold — not the app's `package.json`, not
-`ci.yml`, not `deploy.yml` — so there is nowhere else to update. Mirror the new
+`ci.yml`, `deploy.yml` or `production-release.yml` — so there is nowhere else to update. Mirror the new
 number into the table above so this page stays honest.
 
 ## `scripts/check-astro-test-routes.ts` — the `src/pages` check

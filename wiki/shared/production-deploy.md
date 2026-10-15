@@ -103,7 +103,7 @@ marked **TBD** blocks the deploy.
 | musubi/social `VITE_OSN_ISSUER_URL` (build-time) | musubi/social Pages (`osn-social`) | **DONE — `https://id.musubi.social`** (set in `production-release.yml`, job `deploy-osn-social`) |
 | musubi/social `VITE_TURNSTILE_SITEKEY` (build-time) | musubi/social Pages (`osn-social`) | **DONE — `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}`** in `deploy-osn-social`. **Not optional**: osn-api holds `TURNSTILE_SECRET_KEY`, and musubi.social is now the only origin running the OSN ceremonies, so a blank sitekey means `400 turnstile_failed` on every sign-in and registration (this is exactly what broke on 2026-07-27). [[turnstile]] |
 | `OSN_AUTHORIZE_UI_URL` (OIDC consent screen) | osn-api wrangler.toml | **DONE — `https://musubi.social/authorize`**. Needs the apex attached to the `osn-social` Pages project (§5.4) to resolve |
-| **musubi.social zone: apex → `osn-social` Pages, `id.` → osn-api Worker** | Cloudflare dashboard | **Apex attached 2026-07-27.** The Worker side auto-provisions on first deploy (`custom_domain = true`, zone in-account) — verify `https://id.musubi.social/health` returns 200 after the merge deploy. §5.4. |
+| **musubi.social zone: apex → `osn-social` Pages, `id.` → osn-api Worker** | Cloudflare dashboard | **Apex attached 2026-07-27.** The Worker side auto-provisions on first deploy (`custom_domain = true`, zone in-account) — verify `https://id.musubi.social/health` returns 200 after the release that deploys it. §5.4. |
 | **musubi.social on the Turnstile widget** | Cloudflare dashboard | **DONE 2026-07-27.** `id.musubi.social` is not needed — only form-rendering hostnames are. [[turnstile]] |
 
 ---
@@ -490,7 +490,7 @@ build outside CI, export these before `bun run --cwd <site> build`.
 | `PUBLIC_OSN_ACCOUNT_URL` | cire/host **and** cire/vendor | Recommended | `https://musubi.social` | Where "Manage your account" links point — passkeys, recovery codes and connected apps all live on musubi's own origin now. **Replaced `PUBLIC_OSN_ISSUER_URL` on 2026-07-27**: the frontends no longer talk to the issuer at all. Sign-in is a top-level redirect to cire-api (`/api/auth/oidc/start`), which runs the code exchange server-side. [[cire-auth]], [[oidc-provider]] |
 | `PUBLIC_CIRE_WEB_URL` | cire/host | Recommended | `https://invite.cireweddings.com` | Guest site URL used in organiser preview links (`osn.ts`). |
 | `VITE_OSN_ISSUER_URL` | musubi/social | **Yes** | `https://id.musubi.social` | osn-api prod origin for the identity app **and** the `/authorize` consent screen (`musubi/social/src/lib/auth.ts`, dev default `http://localhost:4000`). A Vite SPA, so this bakes into the bundle: unset, the deployed app dials the visitor's own localhost. Set in `production-release.yml` (`deploy-osn-social`). A second job, `deploy-osn-social-dev` in `deploy.yml`, builds the same app with `https://id.dev.musubi.social` for `dev.musubi.social` — change one and change the other, or dev silently dials prod identity. [[dev-environment]] |
-| `PUBLIC_TURNSTILE_SITEKEY` | cire/invites **and** cire/host **and** cire/vendor | Optional (key-optional) | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Cloudflare Turnstile **sitekey** (public — safe to embed in client HTML). When set, the guest claim form (cire/invites) renders the Turnstile challenge and gates submit on it; when unset/blank no widget renders and no token is sent. Wired in the `deploy-cire-invites` / `deploy-cire-host` / `deploy-cire-vendor` build steps, and the repo **Variable** is set (#160). Genuinely optional **here**, because the matching `TURNSTILE_SECRET_KEY` is **unset on cire-api** today (§3.2). Since the 2026-07-27 OIDC swap the organiser/vendor builds no longer render an OSN ceremony form, so their copy of this var is now inert. |
+| `PUBLIC_TURNSTILE_SITEKEY` | cire/invites | Optional (key-optional) | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Cloudflare Turnstile **sitekey** (public — safe to embed in client HTML). When set, the guest claim form (cire/invites) renders the Turnstile challenge and gates submit on it; when unset/blank no widget renders and no token is sent. Wired in the `deploy-cire-invites` build step (and `deploy-cire-invites-dev`), and the repo **Variable** is set (#160). Genuinely optional **here**, because the matching `TURNSTILE_SECRET_KEY` is **unset on cire-api** today (§3.2). The organiser and vendor builds do not read it: since the 2026-07-27 OIDC swap they render no OSN ceremony form. |
 | `VITE_TURNSTILE_SITEKEY` | musubi/social | **Yes — see note** | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Same widget, same repo Variable; the name differs only because Vite exposes `VITE_*` where Astro exposes `PUBLIC_*`. Feeds `turnstileSiteKey` into `SignIn` + `Register` (`@shared/ui`) at all three call sites — the sidebar dialogs and the `/authorize` sign-in island — via `musubi/social/src/lib/auth.ts`, which normalises blank to `undefined`. **Key-optional in code but required in production:** osn-api's `TURNSTILE_SECRET_KEY` is set, so a blank sitekey fails every gated call closed with `400 turnstile_failed`. Set in `production-release.yml` (`deploy-osn-social`), and again in `deploy.yml` (`deploy-osn-social-dev`) — so `dev.musubi.social` needs its own widget **Domains** entry alongside `musubi.social`, or dev sign-in fails closed the same way. [[turnstile]] [[dev-environment]] |
 
 ### 3.4 Create the Cloudflare Turnstile widget (one-time, gates Turnstile on) 🔑
@@ -521,12 +521,15 @@ create it in the dashboard (or with a custom API token that has the scope).
      A widget whose domains miss a gated origin rejects every request from it.
    - **Widget mode:** **Managed** (no pre-clearance — siteverify is the gate).
 2. Copy the **Sitekey** (public, `0x…`) and the **Secret key** (private).
-3. **Sitekey** → set as the repo **Variable** `PUBLIC_TURNSTILE_SITEKEY`. The
-   `deploy-cire-invites`, `deploy-cire-host` and `deploy-cire-vendor` (and their `-dev` twins) build steps
-   already read it. Astro bakes the sitekey in at build time, so **rebuild and redeploy**
-   the three sites to activate the widget — a Variable change matches no path, so dispatch
-   a release with `force` (§5.5). (Done — the Variable is set; the frontends
-   render a widget today.)
+3. **Sitekey** → set as the repo **Variable** `PUBLIC_TURNSTILE_SITEKEY`. Two build
+   steps read it, and their `-dev` twins: `deploy-cire-invites` (as
+   `PUBLIC_TURNSTILE_SITEKEY`) and `deploy-osn-social` (as `VITE_TURNSTILE_SITEKEY`). Both
+   bake the sitekey in at build time, so **rebuild and redeploy both** to activate a new
+   widget. A Variable change matches no path, so dispatch a release with
+   `surfaces: cire_invites osn_social` and `force` (§5.5) — leave `osn_social` out and
+   musubi.social keeps the old sitekey, and every sign-in fails with `400 turnstile_failed`
+   once step 4 sets the new secret on osn-api. (Done — the Variable is set; the guest site
+   and musubi.social render a widget today.)
 4. **Secret key** → set on **both** Workers (never commit it):
    ```bash
    # from osn/api (gates /register/begin + /login/passkey/begin)
@@ -672,11 +675,12 @@ minutes, so a stalled call fails the job instead of holding the production
 concurrency group.
 
 > [!warning] Bring production level with a deploy run, never by hand
-> Re-run the "Deploy cire/api — production" job of an earlier run whose commit
-> is from before those files were archived — a `Production release` run, or a
-> `Deploy` run from before production moved to `production-release.yml`; GitHub
-> re-runs a run for 30 days — and let it finish: it applies them and deploys the
-> Worker that matches. Then dispatch a release: production now runs the older
+> Re-run only the "Deploy cire/api — production" job (**Re-run this job**, never
+> **Re-run all jobs**) of an earlier run whose commit is from before those files were
+> archived — a `Production release` run, or a `Deploy` run from before production moved
+> to `production-release.yml`; GitHub re-runs a run for 30 days — and let it finish: it
+> applies them and deploys the Worker that matches. This is the one deliberate re-run of
+> an old run; the cutover note in §5.5 forbids re-running one in full. Then dispatch a release: production now runs the older
 > commit, so the planner ships cire-api from main again. Do not run
 > `db:migrate:prod` from an old checkout instead — that applies the migrations
 > under the Worker already serving, and a migration such as `0076` drops a
@@ -727,8 +731,10 @@ osn-api's migrations live in `osn/db/drizzle/` (`0000_optimal_thunderbolt.sql` a
 > `production-release.yml` applies them (`bun run --cwd osn/db db:migrate:prod`)
 > before it deploys the Worker, so `0001_exotic_lady_vermin.sql` (the `users_handle_idx`
 > B-tree index on `users.handle` behind co-host handle prefix search) and everything after
-> it land with the next release that ships osn-api. The commands below stay the manual reference and the only route for
-> **dev and staging**, which no CI job touches.
+> it land with the next release that ships osn-api. Dev migrations are automatic too:
+> `deploy-osn-api-dev` in `deploy.yml` runs `db:migrate:dev` before it deploys. The
+> commands below stay the manual reference, and the only route for **staging**, which no
+> CI job touches.
 
 ```bash
 # from osn/api (wrangler.toml + the migrations_dir live relative to it)
@@ -766,12 +772,16 @@ The local equivalent (`bun run --cwd osn/db db:migrate:local`, miniflare) applie
 A **Production release** run starts with `plan`, whose summary on the run page lists
 every surface: the commit production runs, whether this release ships it, and why. Read
 it first. What production runs is the newest successful Deployment record for the
-surface's production job — the record the planner reads — not the last green run.
+surface's production job — the record the planner reads — not the last green run. A
+record counts only when the job it links succeeded on the record's commit, in a run of
+`production-release.yml` or `deploy.yml` on `main` in this repository; anyone with write
+access can create a record, so the planner checks each one against its run.
 
 1. **A failed, cancelled or rejected production job strands nothing.** The planner
    compares each surface with what production runs, not with what the last run tried to
    ship, so the next release offers the surface again. To ship it now, dispatch a
-   release, or re-run the failed job in the same run.
+   release, or — in the newest release only — re-run its failed job (see **Re-running**
+   in §5.5).
 2. **`unchanged` is not a failure.** Nothing the surface builds from differs from the
    commit production runs. Confirm with `git diff --name-only <production-sha> <sha>`
    against the surface's paths in `scripts/deploy-surfaces.ts` — a cire surface also
@@ -793,8 +803,9 @@ surface's production job — the record the planner reads — not the last green
    here. (Seen 2026-08-06, taking out four jobs across two consecutive runs.)
 
 A red **Deploy** run concerns dev only ([[dev-environment]] §2). Nothing alerts on a
-failed release, but nothing stays stale for good either: every release retries every
-surface production is behind on.
+failed release. Every release retries every surface production is behind on, except one
+the dev gate holds back (item 3): that one stays out of every release, with no alert,
+until dev deploys it. Read the plan summary for `held back` rows.
 
 Which job owns which surface:
 
@@ -807,7 +818,7 @@ Which job owns which surface:
 | `cire_api` | `Deploy cire/api — production` | `— dev` | `api.cireweddings.com` |
 | `osn_api` | `Deploy osn/api — production` | `— dev` | `id.musubi.social` |
 | `osn_social` | `Deploy musubi/social — production` | `— dev` | `musubi.social` |
-| `zap_api` | `Deploy zap/api — production` | **none** | (no public route yet) |
+| `zap_api` | `Deploy zap/api — production` | **none** | `zap.cireweddings.com` |
 
 The job names are how the planner ties a Deployment record to a surface; rename a job
 only together with its entry in `scripts/deploy-surfaces.ts`. `zap/api` has no dev
@@ -1013,7 +1024,7 @@ same surfaces again with whatever merged since.
 | Input | Effect |
 |---|---|
 | `surfaces` | Limit the release to these surface keys (the table in §5.0), comma or space separated. Empty means every surface. The rest stay where they are until a later release. |
-| `force` | Ship those surfaces even if production already runs this commit's content, and skip the dev check. For a change no path shows: a repo Variable baked into a build (`PUBLIC_TURNSTILE_SITEKEY`, `PUBLIC_GOOGLE_MAPS_EMBED_KEY`), a `.bun-version` or `bunfig.toml` change, or a hand-run `wrangler deploy`, `wrangler rollback` or Pages dashboard rollback — none of which leaves a Deployment record. |
+| `force` | Ship those surfaces even if production already runs this commit's content, and skip the dev check. With `surfaces` empty it forces every surface, and rolls back any that runs a newer commit. For a change no path shows: a repo Variable baked into a build (`PUBLIC_TURNSTILE_SITEKEY`, `PUBLIC_GOOGLE_MAPS_EMBED_KEY`), a `.bun-version` or `bunfig.toml` change, or a hand-run `wrangler deploy`, `wrangler rollback` or Pages dashboard rollback — none of which leaves a Deployment record. |
 
 Approve or reject the waiting release **before** you dispatch one with inputs. A
 dispatch made while another release is in progress queues behind it, and the next
@@ -1024,16 +1035,21 @@ reuses the run's original plan, so in an older release it would ship that run's 
 over a newer one. To retry an older release, dispatch a new one instead.
 
 **The first release on this workflow.** `Deploy` runs started before production moved
-out of `deploy.yml` still carry production jobs, under the same
-`deploy-production-<surface>` groups. Before the first release, let every such run
-finish, cancelling any production job in it that is pending or waiting. Otherwise one
-holds its group, the release's job for that surface queues behind it and needs an
-approval of its own, and if approved it ships an older commit. For 30 days after the
-move — the window in which GitHub re-runs a run — never re-run one of those runs: a
+out of `deploy.yml` — any run whose job list has a `— production` job — still carry
+production jobs, under the same `deploy-production-<surface>` groups. Before the first
+release, let every such run finish, cancelling any production job in it that is pending
+or waiting. Otherwise one holds its group, the release's job for that surface queues
+behind it and needs an approval of its own, and if approved it ships an older commit. Do
+this before 20:17 UTC on the day of the merge: the schedule starts a release then whether
+or not anyone has dispatched one. For 30 days after the merge that added
+`production-release.yml` — the window in which GitHub re-runs a run;
+`git log --diff-filter=A --format=%cs -- .github/workflows/production-release.yml`
+prints its date — never re-run one of those runs in full or re-run its failed jobs: a
 re-run uses the old workflow file, production jobs included; dispatch **Deploy** for dev
-instead. The first release ships every surface — the new workflow file and the surface
-map are paths every surface deploys on — so dispatch it by hand and read the plan before
-approving.
+instead. The single-job re-run in §4.1 is the one exception. After those 30 days this
+paragraph describes nothing GitHub can still do. The first release ships every surface —
+the new workflow file and the surface map are paths every surface deploys on — so
+dispatch it by hand, or open the scheduled one, and read the plan before approving.
 
 > [!warning] A green dev tier does not prove production has the secrets
 > Secrets are per-Worker and per-GitHub-Environment: dev and production share a
@@ -1063,7 +1079,9 @@ case that exists — ship them in **two releases, host first**:
    held back, reject it — the plan summary flags that case. The dev gate can hold host
    and ship api alone, which is the pairing below that breaks.
 3. Dispatch a release with `surfaces: cire_host`, approve it, and wait for it to
-   finish.
+   finish. If its plan shows `cire_host` as `held back`, the release ships nothing and
+   asks for no approval: get dev to deploy the portal first (§5.0 item 3), then
+   dispatch again.
 4. Dispatch a release with `surfaces: cire_api` and approve it. It applies the D1
    migrations, then deploys the Worker.
 
@@ -1161,9 +1179,9 @@ OSN account. It is **additive and opt-in**; skip this section for the minimal la
 > ⚠ **Deploy order for the `graph:resolve-account` rollout (S-L2).** There is no
 > order that avoids a brief account-linking outage without the manual step: new
 > cire-api mints `graph:resolve-account` (old osn-api's registry rejects it), and new
-> osn-api rejects old cire-api's `graph:read` on `/profile-account`. CI deploys both
-> Workers from the same merge, and the `register-service` re-run is manual, so
-> `POST /api/account/link` **401s from merge time until step 2 below is done**:
+> osn-api rejects old cire-api's `graph:read` on `/profile-account`. One release ships
+> both Workers under one approval, and the `register-service` re-run is manual, so
+> `POST /api/account/link` **401s from that release until step 2 below is done**:
 > 1. Deploy the osn-api Worker first (its widened `PERMITTED_SCOPES` is
 >    backwards-compatible for every route except `/profile-account`).
 > 2. Re-run §6.2 with `allowedScopes: "graph:read,graph:resolve-account"` (upsert).
@@ -1338,7 +1356,7 @@ In the Cloudflare dashboard (or via Wrangler if supported):
 
 ### 8.3 Confirm CORS allowlist changes are live
 
-After the PR B merge deploy completes, check that both Workers now allow the new origin. The allowlist entries add `https://vendor.cireweddings.com` to `cire/api/wrangler.toml` `WEB_ORIGIN` and to `osn/api/wrangler.toml` `OSN_ORIGIN` / `OSN_CORS_ORIGIN`. They ship with the PR B merge through the normal CI deploy jobs — you need no separate `wrangler deploy`.
+After the release that ships PR B to production completes, check that both Workers now allow the new origin. The allowlist entries add `https://vendor.cireweddings.com` to `cire/api/wrangler.toml` `WEB_ORIGIN` and to `osn/api/wrangler.toml` `OSN_ORIGIN` / `OSN_CORS_ORIGIN`. They ship through the normal release jobs (§5.5) — you need no separate `wrangler deploy`.
 
 Quick smoke check (replace `<token>` with a real short-lived claim token from a test seed):
 
@@ -1374,7 +1392,7 @@ The vendor portal uses `vendorOrgMember()` middleware, which needs the `org:read
 To roll the vendor portal back:
 
 1. Remove the `https://vendor.cireweddings.com` entries from `cire/api/wrangler.toml` `WEB_ORIGIN` and `osn/api/wrangler.toml` `OSN_ORIGIN` / `OSN_CORS_ORIGIN`.
-2. Merge the revert PR — CI redeploys both Workers with the narrowed allowlists.
+2. Merge the revert PR — the merge redeploys both dev Workers. Then dispatch a release with `surfaces: cire_api osn_api` and approve it (§5.5), which ships the narrowed allowlists to production.
 3. Optionally disable the `cire-vendor` Pages project custom domain in the Cloudflare dashboard.
 
 You need not delete the Pages project — leave it idle.

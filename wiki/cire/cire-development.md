@@ -548,11 +548,13 @@ Cloudflare Web Analytics beacon (`script-src`, `static.cloudflareinsights.com`)
 if the dev Pages project injects one, and `script-src-elem` reports for
 same-origin chunks once the Access session expires.
 
-Hold production until the walk passes. A merge deploys the dev tier at once,
-and each portal's production job waits for approval in one concurrency group,
-where a later run replaces a pending one. So hold every production run that
-deploys the portal, whatever pull request it names, and revert on a failed
-walk.
+Hold production until the walk passes. A merge deploys the dev tier at once;
+production waits for a release ([[production-deploy]] §5.5). Do not approve a
+release that ships the portal (`cire_host` or `cire_vendor` in its plan) until the
+walk passes. On a failed walk, reject that release — or dispatch one with
+`surfaces` set to leave the portal out, if the other surfaces must ship — and
+revert. Leaving the release waiting instead holds every surface in it, not only
+the portal, and holds back the next release behind it.
 
 ## Guest-site SSR bundle size
 
@@ -621,11 +623,12 @@ Three tracker follow-ups (#618, #616, #617) to the original size audit
   with `sourcemap: true` set **through the same `astro:build:setup` hook** as
   `minify`, plus `upload_source_maps: true` in `cire/invites/wrangler.jsonc` —
   the adapter never sets that key itself, so it has to come from the checked-in
-  config the generated `dist/server/wrangler.json` extends. Both CI rewrite
-  steps that touch that generated file (dev in `deploy.yml`, production in
-  `production-release.yml`) only delete
-  `legacy_env` and set `name`/`routes`, so the key survives into the deployed
-  config untouched.
+  config the generated `dist/server/wrangler.json` extends. Neither CI rewrite
+  step that touches that generated file removes it: production's (in
+  `production-release.yml`) only deletes `legacy_env`, and dev's (in
+  `deploy.yml`) also sets `name`, `routes` and the `observability` block, which
+  leaves top-level keys alone. So the key survives into the deployed config
+  untouched.
 
   > [!warning] Never set `sourcemap` as a plain `vite.build` value here.
   > Unlike `minify`, it is not overridden — it reaches the top level *and* the

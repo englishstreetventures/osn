@@ -237,9 +237,9 @@ whole point of the swap.
 
 Before adding a workflow that touches Cloudflare, check what scope it resolves
 at rather than trusting this page: `grep -l CLOUDFLARE .github/workflows/*.yml`,
-then read each hit for an `environment:` line. As of 2026-09-13 the other four
-(`deploy.yml`, `cire-dev-db-rebuild.yml`, `deploy-osn-pulse-landing.yml`,
-`set-osn-api-secret.yml`) all declare one. A workflow that declares none and
+then read each hit for an `environment:` line. As of 2026-10-16 the other five
+(`deploy.yml`, `production-release.yml`, `cire-dev-db-rebuild.yml`,
+`deploy-osn-pulse-landing.yml`, `set-osn-api-secret.yml`) all declare one. A workflow that declares none and
 needs to write has no credential to read — that is the design. Give it an
 Environment, or a job that can be approved; do not answer it by putting a
 writing token back at repository scope.
@@ -256,7 +256,7 @@ The only hard boundary is a **separate Cloudflare account** for dev; that is
 tracked as an open item rather than done here, because a second account means a
 second zone, second D1 set and second Upstash, and the cost maths changes.
 
-### Concurrency is per job, not per workflow
+### Dev concurrency is per job, not per workflow
 
 Each dev job takes a group named for its own surface and tier
 (`deploy-dev-cire-api`), so two runs never deploy the same thing at once while
