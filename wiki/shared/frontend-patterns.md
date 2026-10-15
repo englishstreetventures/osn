@@ -22,7 +22,7 @@ related:
 packages:
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-10
+last-reviewed: 2026-10-15
 ---
 
 # Frontend Patterns
@@ -371,7 +371,7 @@ hydration: Astro wraps every hydrated island in a `Suspense`, so a resource goin
 back to loading swaps the whole island for an empty fallback. Better still, pass
 data the page's route already fetched down as props and fetch nothing.
 `cire/invites/src/components/invite-retry.ts` is the worked example
-([[cire-invite-builder#Guest rendering (SSR, path-routed)]]).
+([[cire-invite-builder#Guest rendering (SSR)]]).
 
 The unit tier cannot see any of this: it resolves `solid-js` to the browser build.
 `@cire/invites` has an `ssr` Vitest project for it (`*.ssr.test.tsx`, see

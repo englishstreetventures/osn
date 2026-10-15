@@ -1,6 +1,6 @@
 {
   "name": "@shared/feature-flags",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -23,6 +23,6 @@
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
-    "vitest": "^4.1.11"
+    "vitest": "5.0.3"
   }
 }

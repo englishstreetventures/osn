@@ -173,7 +173,7 @@ export const createRegistryGuestImageRoutes = (
           return yield* serveTransformedImage({
             request,
             key,
-            // Server-derived version, NEVER the client's `?v=` (S-M1). Every
+            // Server-derived version, NEVER the client's `?v=`. Every
             // save mints a fresh uuid, so the key IS the content version; keying
             // on `?v=` would let anyone loop ?v=1,2,3… on a public slug to mint
             // unbounded per-call-billed transforms.
@@ -373,7 +373,7 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
               if (existing) return { url: existing.url };
             }
 
-            const giftUrl = `${deps.guestOrigin.replace(/\/+$/, "")}/${encodeURIComponent(params.slug)}/registry`;
+            const giftUrl = `${deps.guestOrigin.replace(/\/+$/, "")}/cire/registry?slug=${encodeURIComponent(params.slug)}`;
             // Minted here so the row and the session name the same gift. It is
             // the ONLY thing about this gift that reaches Stripe.
             const contributionId = `rct_${crypto.randomUUID()}`;
@@ -407,8 +407,8 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
                 // page and on their statement, and a gift's line item is not the
                 // place to publish what a couple asked for.
                 productName: "Wedding gift",
-                successUrl: `${giftUrl}?gift=thanks`,
-                cancelUrl: `${giftUrl}?gift=cancelled`,
+                successUrl: `${giftUrl}&gift=thanks`,
+                cancelUrl: `${giftUrl}&gift=cancelled`,
                 // One opaque id, and nothing else. The guest's note and
                 // the name they chose stay in D1 under a basis we have declared;
                 // Stripe needs neither to take a payment.

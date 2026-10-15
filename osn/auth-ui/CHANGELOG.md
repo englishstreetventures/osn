@@ -1,5 +1,17 @@
 # @osn/ui
 
+## 3.0.10
+
+### Patch Changes
+
+- 6b5f538: Refresh the eligible Effect libraries to 4.0.3 and align the Vitest family at
+  5.0.3. Update the affected schema, tracing, and test integrations for the stable
+  Effect API; refresh the eligible WebAuthn, Three.js, and Nitro consumers.
+- Updated dependencies [6b5f538]
+  - @osn/client@2.18.4
+  - @shared/toast@0.3.4
+  - @shared/ui@0.4.2
+
 ## 3.0.9
 
 ### Patch Changes

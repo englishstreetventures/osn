@@ -1,5 +1,21 @@
 # @osn/db
 
+## 0.24.6
+
+### Patch Changes
+
+- 7dc62af: Update Wrangler across Worker and D1 workspaces. Enable unredacted native traces in local and dev Worker tiers, and configure query-string redaction while production and staging trace rollout is gated on live URL checks.
+
+## 0.24.5
+
+### Patch Changes
+
+- 6b5f538: Refresh the eligible Effect libraries to 4.0.3 and align the Vitest family at
+  5.0.3. Update the affected schema, tracing, and test integrations for the stable
+  Effect API; refresh the eligible WebAuthn, Three.js, and Nitro consumers.
+- Updated dependencies [6b5f538]
+  - @shared/db-utils@0.7.4
+
 ## 0.24.4
 
 ### Patch Changes

@@ -13,7 +13,7 @@ A block at the end of the orchestrate blackboard, `/Users/ac/.work/osn.git/main/
 
 ```markdown
 ## next-batch — 2026-10-08 (board: 72 items read)
-In Review:   osn#1417 CI red, flaky recovery test → rerun · osn#1418 DIRTY on scripts/lint-warning-ceiling.txt
+In Review:   osn#1417 CI red, flaky recovery test → rerun · osn#1418 DIRTY on cire/api/src/routes/organiser-rsvp.ts
 In Progress: osn#1291 live (task above) · osn-tracker#427 looks stale, no PR or worktree → Q2
 Batch:       1. osn#1301 (cire/api/src/services/tiers.ts) · 2. osn-tracker#755 (.github/workflows/deploy.yml)
 Queue:       osn#1395 after osn#1301 (same file) · osn#1389
@@ -60,7 +60,7 @@ gh api repos/englishstreetventures/osn/commits/<sha>/check-runs \
   --jq '.check_runs[] | select(.conclusion=="failure") | .name'
 ```
 
-Record CI red (the job and its decisive line), `dirty` or `behind` (sibling PRs collide on `scripts/lint-warning-ceiling.txt`), an owner question left in the comments, or no PR at all (the card is wrong: a question). `orchestrate` Step 5 does the fixing.
+Record CI red (the job and its decisive line), `dirty` or `behind` (a sibling PR that merged first changed the same lines), an owner question left in the comments, or no PR at all (the card is wrong: a question). `orchestrate` Step 5 does the fixing. A pull request this pipeline did not write — another tool's, or one that never went through `prep-pr` — is adopted with `review-pr` instead (`orchestrate` §Adopting an open pull request).
 
 ## Step 3 — In Progress: hands off
 

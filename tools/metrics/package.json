@@ -1,6 +1,6 @@
 {
   "name": "@tools/metrics",
-  "version": "0.2.23",
+  "version": "0.2.24",
   "private": true,
   "description": "Session-metrics dashboard — charts over the pull-request cards in .claude/metrics, local only",
   "type": "module",
@@ -36,6 +36,6 @@
     "typescript": "^6.0.3",
     "vite": "^8.2.2",
     "vite-plugin-solid": "^2.11.14",
-    "vitest": "^4.1.11"
+    "vitest": "5.0.3"
   }
 }

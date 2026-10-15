@@ -1,6 +1,6 @@
 {
   "name": "@osn/client",
-  "version": "2.18.3",
+  "version": "2.18.4",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -20,16 +20,16 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.3"
   },
   "peerDependencies": {
     "solid-js": ">=1.0.0"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.0-rc.112",
+    "@effect/vitest": "4.0.3",
     "@shared/typescript-config": "workspace:*",
     "solid-js": "^1.9.15",
     "vite-plugin-solid": "^2.11.14",
-    "vitest": "^4.1.11"
+    "vitest": "5.0.3"
   }
 }

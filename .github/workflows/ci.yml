@@ -22,8 +22,16 @@ jobs:
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest
+    # Bounded because the lint-warning guard installs a second dependency tree
+    # on pull requests, which can wait on the registry.
+    timeout-minutes: 10
     steps:
+      # Depth 2 so a pull request's merge commit arrives with both parents:
+      # the lint-warning guard below compares it with HEAD^1, the base it
+      # was merged against.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       # This is the job that runs `bun run lint` below, which executes the
       # vendored anti-slop plugin (oxlintrc.json's jsPlugins). `script-tests`
@@ -59,21 +67,41 @@ jobs:
       # read as two different failures rather than one step failing for
       # either reason. scripts/lint-warning-ceiling.txt is the single source
       # of truth for the number; see that file and
-      # scripts/guard-lint-warnings.sh's own comment for the ratchet this
-      # enforces in both directions.
+      # scripts/guard-lint-warnings.sh's own comment.
+      #
+      # On a pull request it also holds the merge to the warning count of
+      # its first parent, HEAD^1 (measured with that commit's own toolchain),
+      # so a branch fails when it adds warnings even while the ceiling on
+      # main has not yet been lowered. A count below the ceiling passes;
+      # release.yml lowers the ceiling on main after the merge.
       - name: Guard the lint-warning ceiling
-        run: bash scripts/guard-lint-warnings.sh
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            bash scripts/guard-lint-warnings.sh --base HEAD^1
+          else
+            bash scripts/guard-lint-warnings.sh
+          fi
 
-      # The guard's own test, run against a small fixture project with a
-      # fixture ceiling file (LINT_WARNING_ROOT / LINT_WARNING_CEILING_FILE)
-      # rather than this repo's real tree, so it neither depends on nor
-      # perturbs the real warning count. It still runs the REAL oxlint
-      # binary from this checkout's own node_modules (LINT_WARNING_OXLINT_BIN),
-      # which is why it lives here — after Install dependencies — rather
-      # than in the script-tests job, which does no `bun install` on
-      # purpose.
+      # The guard's own test, run against small fixture projects and git
+      # repositories with fixture ceiling files (LINT_WARNING_ROOT /
+      # LINT_WARNING_CEILING_FILE) rather than this repo's real tree, so it
+      # neither depends on nor perturbs the real warning count. It still runs
+      # the REAL oxlint binary from this checkout's own node_modules
+      # (LINT_WARNING_OXLINT_BIN), and two cases install oxlint into a
+      # fixture, which is why it lives here — after Install dependencies —
+      # rather than in the script-tests job, which does no `bun install` on
+      # purpose. Those installs can reach the registry, so on a pull request
+      # it runs only when something it exercises changed; it runs on every
+      # push to main.
       - name: Test the lint-warning ceiling guard
-        run: bash scripts/tests/guard-lint-warnings.test.sh
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && git diff --quiet HEAD^1 HEAD -- \
+            scripts/guard-lint-warnings.sh scripts/lint-warning-count.ts \
+            scripts/tests/guard-lint-warnings.test.sh package.json bun.lock .bun-version; then
+            echo "Nothing the guard's test exercises changed in this pull request; skipped."
+            exit 0
+          fi
+          bash scripts/tests/guard-lint-warnings.test.sh
 
       - name: Format check
         run: bun run fmt:check
@@ -379,6 +407,12 @@ jobs:
       - name: Test the vendored anti-slop guard
         run: bash scripts/tests/verify-vendored-anti-slop.test.sh
 
+      # release.yml's commit step runs only on main, after a merge, so this is
+      # the one place its staging and message choice are seen to work before
+      # then. Throwaway repositories with a bare remote; git only.
+      - name: Test the release commit script
+        run: bash scripts/tests/release-commit.test.sh
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
@@ -461,6 +495,15 @@ jobs:
       # versioned package would name.
       - name: Guard the D1 cost of the migration chains
         run: bun run scripts/guard-d1-migration-cost.ts --all
+
+      # The trace-redaction guard's tests run in "Test the scripts"; this runs
+      # it against the committed Worker configs. Every staging and production
+      # tier must redact query strings in Cloudflare logs and native traces, and
+      # no API Worker may trace there, because its paths carry ids and slugs. The
+      # API deploy jobs have no step of their own, so this is the check that
+      # covers them. No install: the script reads files with Bun built-ins.
+      - name: Check Worker configs redact query strings
+        run: bun run scripts/check-trace-redaction.ts
 
   openapi-freshness:
     name: OpenAPI Freshness

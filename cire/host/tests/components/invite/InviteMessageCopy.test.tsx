@@ -152,7 +152,7 @@ describe("InviteMessageCopy", () => {
 
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     expect(writeText.mock.calls[0]![0]).toBe(
-      "Come to Goa!\nhttps://guests.test/nadia-sam\nYour invitation code: [household code]",
+      "Come to Goa!\nhttps://guests.test/cire/invite?slug=nadia-sam\nYour invitation code: [household code]",
     );
     await waitFor(() =>
       expect(toastSuccess).toHaveBeenCalledWith(
@@ -170,7 +170,7 @@ describe("InviteMessageCopy", () => {
     expect(copyButton().textContent).toBe("Copy message");
     expect(preview()).toBe(
       "You're invited to Nadia & Sam! View your invitation and RSVP below.\n" +
-        "https://guests.test/nadia-sam\n" +
+        "https://guests.test/cire/invite?slug=nadia-sam\n" +
         "Your invitation code: SHARMA-KITE-77Q2",
     );
 

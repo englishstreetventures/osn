@@ -35,21 +35,25 @@ workers_dev = false
 crons = ["0 4 * * *"]
 
 # Cloudflare Workers Logs / invocations. `enabled = true` persists the Worker's
-# logs (and invocation records) for 7 days, viewable in the dashboard under
+# logs (and invocation records) in the dashboard under
 # Workers & Pages → cire-api → Observability / Logs. Free + low-overhead.
 # `head_sampling_rate = 1` logs 100% of requests — correct at our current low
 # volume; drop it (e.g. 0.1) only if we ever approach the Workers Logs daily
 # ingest cap. See [[wiki/shared/free-tier-limits]] (Monitoring section).
-# Named environments do NOT inherit this top-level block — it is redeclared
-# under [env.production.observability] below.
+# Named tiers state their own trace and URL-redaction posture below.
 [observability]
+enabled = true
+head_sampling_rate = 1
+redact_query_string = false
+
+[observability.traces]
 enabled = true
 head_sampling_rate = 1
 
 # Invocation records are OFF: each one stores the request URL, and the public
 # image and invite routes carry the wedding slug (the couple's names) in the path.
-# Application logs stay on and never name the slug. Every named env redeclares
-# this, since none inherit it.
+# Application logs stay on and never name the slug. Each named tier states this
+# explicitly.
 [observability.logs]
 invocation_logs = false
 
@@ -449,6 +453,11 @@ binding = "IMAGES"
 [env.dev.observability]
 enabled = true
 head_sampling_rate = 1
+redact_query_string = false
+
+[env.dev.observability.traces]
+enabled = true
+head_sampling_rate = 1
 
 [env.dev.observability.logs]
 invocation_logs = false
@@ -598,11 +607,14 @@ binding = "IMAGES"
 # binding = "KV_GB_PAYLOAD"
 # id = "<paste-namespace-id>"
 
-# Mirror of the top-level [observability] block — named environments do NOT
-# inherit it, so without this the production Worker ships with logs disabled.
+# Production logs stay on while native traces await URL review.
 [env.production.observability]
 enabled = true
 head_sampling_rate = 1
+redact_query_string = true
+
+[env.production.observability.traces]
+enabled = false
 
 [env.production.observability.logs]
 invocation_logs = false

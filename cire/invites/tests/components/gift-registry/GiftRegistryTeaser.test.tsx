@@ -213,14 +213,14 @@ describe("the link to the list", () => {
     stubFetch(json(registry()));
     renderTeaser();
     const link = await screen.findByRole("link", { name: "See the gift list" });
-    expect(link.getAttribute("href")).toBe(`/${SLUG}/registry`);
+    expect(link.getAttribute("href")).toBe(`/cire/registry?slug=${SLUG}`);
   });
 
   it("encodes a slug that needs it", async () => {
     stubFetch(json(registry()));
     renderTeaser({ slug: "anita & ben" });
     const link = await screen.findByRole("link", { name: "See the gift list" });
-    expect(link.getAttribute("href")).toBe("/anita%20%26%20ben/registry");
+    expect(link.getAttribute("href")).toBe("/cire/registry?slug=anita%20%26%20ben");
   });
 });
 

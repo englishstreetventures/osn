@@ -7,6 +7,7 @@ import {
   PLUS_ONE_REMOVALS_MAX,
   PlusOneNameBody,
   PlusOnePermissionBody,
+  PlusOnePermissionParseOptions,
 } from "../../src/schemas/plus-one";
 
 const dec = <A>(s: Schema.Codec<A>, v: unknown) => Schema.decodeUnknownResult(s)(v);
@@ -98,7 +99,8 @@ describe("PlusOneNameBody", () => {
 });
 
 describe("PlusOnePermissionBody", () => {
-  const permission = (v: unknown) => dec(PlusOnePermissionBody, v);
+  const permission = (v: unknown) =>
+    Schema.decodeUnknownResult(PlusOnePermissionBody, PlusOnePermissionParseOptions)(v);
   const sam = { guestId: "g_sam", firstName: "Sam", lastName: "Lee" };
 
   it("defaults the confirmed removals to none", () => {

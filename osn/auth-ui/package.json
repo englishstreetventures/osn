@@ -1,6 +1,6 @@
 {
   "name": "@osn/auth-ui",
-  "version": "3.0.9",
+  "version": "3.0.10",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -33,7 +33,7 @@
     "@osn/client": "workspace:*",
     "@shared/toast": "workspace:*",
     "@shared/ui": "workspace:*",
-    "@simplewebauthn/browser": "^13.3.0"
+    "@simplewebauthn/browser": "^14.0.0"
   },
   "devDependencies": {
     "@shared/design-tokens": "workspace:*",
@@ -43,7 +43,7 @@
     "solid-js": "^1.9.15",
     "vite": "^8.2.2",
     "vite-plugin-solid": "^2.11.14",
-    "vitest": "^4.1.11"
+    "vitest": "5.0.3"
   },
   "peerDependencies": {
     "solid-js": ">=1.9"

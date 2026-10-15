@@ -1,5 +1,23 @@
 # @tools/lab
 
+## 0.3.12
+
+### Patch Changes
+
+- bed407f: Give the lab's headless story render test a 30 s limit, so a loaded CI runner no longer fails it at the 5 s default.
+
+## 0.3.11
+
+### Patch Changes
+
+- 6b5f538: Refresh the eligible Effect libraries to 4.0.3 and align the Vitest family at
+  5.0.3. Update the affected schema, tracing, and test integrations for the stable
+  Effect API; refresh the eligible WebAuthn, Three.js, and Nitro consumers.
+- Updated dependencies [6b5f538]
+  - @shared/color@0.3.3
+  - @shared/design-tokens@0.3.5
+  - @shared/ui@0.4.2
+
 ## 0.3.10
 
 ### Patch Changes

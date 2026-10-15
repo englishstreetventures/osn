@@ -223,7 +223,7 @@ describe("InviteBuilder Message section", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     const [line, link, code] = writeText.mock.calls[0]![0].split("\n");
     expect(line).toBe("Come to Goa!");
-    expect(link).toMatch(/\/anita-ben$/);
+    expect(link).toBe("http://localhost:4321/cire/invite?slug=anita-ben");
     expect(code).toBe("Your invitation code: SHARMA-KITE-77Q2");
   });
 

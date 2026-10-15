@@ -23,7 +23,7 @@ Which name a new package takes is in `wiki/shared/osn-and-musubi.md`; the full t
 
 ## How work runs
 
-- **Feature and fix work starts with `/new-feat`**: it takes or opens the issue, cuts the branch, writes `NEW-FEAT.md` and runs `/stress-plan` on the plan before any code exists. Skip it only for a one-line change on a branch that already exists. Resuming a branch, read `NEW-FEAT.md` first.
+- **Feature and fix work starts with `/new-feat`**: it takes or opens the issue, cuts the branch, writes `NEW-FEAT.md` and runs `/stress-plan` on the plan before any code exists. Skip it only for a one-line change on a branch that already exists. Resuming a branch, read `NEW-FEAT.md` first. Reviewing and fixing an open pull request someone else wrote starts with `/review-pr` instead.
 - **It ends with `/prep-pr`, then `/retro`** (`/retro-v2` when the session is short of budget). `/retro` writes the session-metrics card; nothing else does.
 - **Never commit to `main`.** Every change goes through a pull request. Several pull requests for one goal are stacked: `wiki/conventions/stacked-prs.md`.
 - **Start sessions inside a worktree** (`~/.work/osn.git/<dir>`), never in the bare parent, which has no working tree and none of this configuration.

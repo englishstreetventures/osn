@@ -347,7 +347,7 @@ bun run changeset
 
 Pick the packages, pick the bump type, write a summary. The CI "Changeset Check" job fails without one. It enforces two rules. Package names must match the workspace `name` exactly — `"@pulse/web"`, not `"pulse"`. One changeset must not mix version-less packages (`@cire/*`) with versioned ones.
 
-On merge, CI runs `changeset version` to bump versions and update changelogs, commits that to `main`, and deploys the live surfaces.
+On merge, CI runs `changeset version` to bump versions and update changelogs, lowers the lint-warning ceiling in `scripts/lint-warning-ceiling.txt` to the measured count, commits both to `main` in one commit, and deploys the live surfaces.
 
 Read next:
 

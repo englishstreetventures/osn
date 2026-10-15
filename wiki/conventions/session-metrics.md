@@ -14,7 +14,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-15
 ---
 
 # Session Metrics
@@ -227,9 +227,9 @@ almost none of its own cost.
 904 transcript files, and the depth-2 counts below come from it too. One
 machine, one day, no script kept.*
 
-So `orchestrate`, `stress-plan`, `prep-pr` and `new-feat`'s `Plan`-subagent
-dispatch each put a marker on its own line at the top of every dispatch
-prompt:
+So `orchestrate`, `stress-plan`, `prep-pr`, `review-pr` and `new-feat`'s
+`Plan`-subagent dispatch each put a marker on its own line at the top of every
+dispatch prompt:
 
 ```
 TASK-BRANCH: feat/example

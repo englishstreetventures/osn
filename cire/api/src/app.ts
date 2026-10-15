@@ -34,6 +34,7 @@ import {
   createInviteImageServeRoutes,
   createInviteOrganiserRoutes,
   createInvitePublicRoutes,
+  createInviteResolveRoutes,
 } from "./routes/invite";
 import { createInviteFaqRoutes } from "./routes/invite-faq";
 import { createOrganiserChangeRoutes } from "./routes/organiser-changes";
@@ -913,6 +914,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
           limiter: digestStopLimiter,
         }),
       )
+      // The guest site's fixed-path lookup. Mounted BEFORE the origin guard: its
+      // caller is the guest Worker's server render, whose fetch has no Origin.
+      // It reads public invite data only — no cookie, no write.
+      .use(createInviteResolveRoutes(db))
       // C5 / S-L3: CSRF origin guard on every state-changing method, using the
       // same allowlist CORS echoes. Mounted before the route factories so it
       // gates the whole app. Empty allowlist (dev) disables it.

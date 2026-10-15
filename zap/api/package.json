@@ -1,6 +1,6 @@
 {
   "name": "@zap/api",
-  "version": "0.9.22",
+  "version": "0.9.24",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -41,17 +41,17 @@
     "@shared/rate-limit": "workspace:*",
     "@zap/db": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "effect": "4.0.0-rc.112",
+    "effect": "4.0.3",
     "elysia": "^1.4.30"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
-    "@effect/vitest": "4.0.0-rc.112",
+    "@effect/vitest": "4.0.3",
     "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "jose": "^6.2.12",
     "miniflare": "^4.20260730.0",
-    "vitest": "^4.1.11",
-    "wrangler": "^4.127.1"
+    "vitest": "5.0.3",
+    "wrangler": "4.149.0"
   }
 }
