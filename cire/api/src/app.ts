@@ -179,7 +179,8 @@ const defaultExportLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_0
 const defaultHostLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
 /**
  * Default per-USER limiter for an organiser's recorded RSVPs
- * (`PUT …/guests/:guestId/rsvps/:eventId`). Editor-gated already; each
+ * (`PUT …/guests/:guestId/rsvps/:eventId`), mounted after osnAuth and before
+ * the editor gate, so a refused request costs the session lookup alone. Each
  * status-only save also adds an RSVP change-log row kept 90 days, so this caps
  * a scripted loop at what a person saving replies by hand could send. The
  * portal sends one request per save.
@@ -1033,8 +1034,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // phone/paper RSVP on a guest's behalf into the SAME `rsvps` table the
       // invite writes to (upsert, last-writer-wins); stamped
       // `consent_source='organiser_attested'` unless the save is status-only,
-      // which keeps the stored dietary answer's source. weddingEditor()-gated,
-      // then a per-user limiter.
+      // which keeps the stored dietary answer's source. osnAuth, then a
+      // per-user limiter, then weddingEditor().
       .use(createOrganiserRsvpRoutes(db, osnAuthOptions, organiserRsvpLimiter))
       // Guest-side RSVP changes since each organiser last looked, their read
       // marker, and their daily digest switch. Feed + marker admit every role

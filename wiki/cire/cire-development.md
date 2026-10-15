@@ -89,9 +89,12 @@ Elysia plugins in `cire/api/src/middleware/`. The credential checks and role
 gates are each a scoped `resolve` + `onBeforeHandle`, so every one runs in the
 before-handle phase in `.use` order. **Mount a per-IP `rateLimitMiddleware`
 first**, before `sessionAuth`, `osnAuth` and any role gate, so a refused
-request costs no session lookup, token verify or gate query. Mount a per-user
-`rateLimitMiddlewareByUser` after the role gate: it keys on `osnProfileId`, and
-there only a caller the gate admits spends it.
+request costs no session lookup, token verify or gate query. A per-user
+`rateLimitMiddlewareByUser` keys on `osnProfileId`, so it mounts after
+`osnAuth`. Most routes mount it after the role gate, and after a tier gate
+where there is one, so a wedding below the tier is answered 402 first. The
+organiser RSVP write mounts it before its role gate, so a refused request
+costs no gate query; the budget is the caller's own either way.
 `cire/api/tests/app.test.ts` holds a table of every per-IP limited route that
 checks a credential; add a row for a new one.
 
