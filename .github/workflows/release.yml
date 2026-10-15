@@ -10,8 +10,65 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Counts the lint warnings on the commit this run was triggered by, so the
+  # release job can lower scripts/lint-warning-ceiling.txt to it in the same
+  # commit as the version bumps. A job of its own because counting runs oxlint
+  # and its jsPlugins (the vendored anti-slop tree, tools/oxlint/house and the
+  # npm package @shadcn/lint), and the release job holds RELEASE_TOKEN, which
+  # can push to main: this job has a read-only token, keeps no credentials in
+  # its checkout, runs no install scripts and only restores the dependency
+  # cache, never saves one. It hands the release job a number and nothing else.
+  #
+  # Skipped for the bot's own commits (the version bumps and the lockfile
+  # refresh that follows them), which never change the count.
+  lint-count:
+    name: Count lint warnings
+    if: github.event.head_commit.author.email != 'github-actions[bot]@users.noreply.github.com'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      count: ${{ steps.count.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # oxlint runs the vendored anti-slop plugin; verify it first, as ci.yml's
+      # lint job does.
+      - name: Verify vendored anti-slop matches its checksums
+        run: bash scripts/verify-vendored-anti-slop.sh
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Restore bun dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      # The assignment fails the step when the guard does, so a failed lint
+      # run never reaches the release job as a count.
+      - name: Count
+        id: count
+        run: |
+          count="$(bash scripts/guard-lint-warnings.sh --count)"
+          echo "Lint warnings on ${GITHUB_SHA}: ${count}"
+          echo "count=${count}" >> "$GITHUB_OUTPUT"
+
   release:
     name: Release
+    needs: lint-count
+    # Versioning never waits on a successful count: when the count fails or
+    # is skipped, this job still runs and only the ceiling stays as it was.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -39,16 +96,41 @@ jobs:
       - name: Version packages
         run: bun run version
 
+      # Lowers the ceiling to the count lint-count measured on this same
+      # commit; never raises it, and leaves the file untouched when the count
+      # already matches, so a re-run makes no empty commit. A failure here
+      # costs only this lowering — the next run on main measures again — so
+      # it does not stop the version bumps from being committed.
+      - name: Lower the lint-warning ceiling
+        if: needs.lint-count.result == 'success'
+        continue-on-error: true
+        env:
+          COUNT: ${{ needs.lint-count.outputs.count }}
+        run: |
+          echo "Lint warnings measured by lint-count: ${COUNT}"
+          bash scripts/guard-lint-warnings.sh --lower-to "$COUNT"
+
       - name: Commit and push if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add '**/package.json' '**/CHANGELOG.md' .changeset/ bun.lock scripts/lint-warning-ceiling.txt
+          if git diff --staged --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          if git diff --staged --quiet -- scripts/lint-warning-ceiling.txt; then
+            message="chore: version packages"
+          elif git diff --staged --quiet -- ':(exclude)scripts/lint-warning-ceiling.txt'; then
+            message="chore: lower the lint-warning ceiling"
+          else
+            message="chore: version packages, lower the lint-warning ceiling"
+          fi
           # --no-verify on both: the lefthook pre-commit/pre-push hooks run
           # `bun audit` (+ typecheck), which fails on pre-existing transitive
           # advisories and aborted this auto-version push on every merge. CI
           # (Type Check / Build & Test) is the real gate; this is a bot commit
-          # of generated package.json/CHANGELOG bumps only.
-          git diff --quiet && git diff --staged --quiet || \
-            (git add '**/package.json' '**/CHANGELOG.md' .changeset/ bun.lock \
-              && git commit --no-verify -m "chore: version packages" \
-              && git push --no-verify)
+          # of generated package.json/CHANGELOG bumps and the ceiling's value
+          # line only.
+          git commit --no-verify -m "$message"
+          git push --no-verify
