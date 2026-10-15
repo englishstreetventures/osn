@@ -18,6 +18,7 @@
 "@shared/rate-limit": patch
 "@shared/redis": patch
 "@shared/ui": patch
+"@tools/pr-metrics": patch
 "@zap/api": patch
 "@zap/db": patch
 ---

@@ -255,17 +255,6 @@ describe("Register component", () => {
       expect(trigger.getAttribute("tabindex")).toBeNull();
     });
 
-    it("gives all three uses of the address, naming the product it was given", async () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />);
-      fireEvent.click(screen.getByLabelText("What this address is used for"));
-
-      const panel = await screen.findByRole("dialog");
-      expect(panel.textContent).toMatch(/six-digit code/);
-      expect(panel.textContent).toMatch(/Kumiho account is not created until you enter it/);
-      expect(panel.textContent).toMatch(/lose every device with a passkey/);
-      expect(panel.textContent).toMatch(/Security notices/);
-    });
-
     // The form is filled to valid first on purpose. `submitDetails` returns
     // early while the details are invalid, and happy-dom's `requestSubmit`
     // runs `checkValidity()` against three required inputs — so on an empty

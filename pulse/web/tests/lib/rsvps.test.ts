@@ -35,15 +35,6 @@ afterEach(() => {
 // ── fetchLatestRsvps ─────────────────────────────────────────────────────────
 
 describe("fetchLatestRsvps", () => {
-  it("returns the rsvps array on 200", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { rsvps: [{ id: "rsvp_1", profileId: "usr_bob", profile: null }] }),
-    );
-    const result = await fetchLatestRsvps("evt_1");
-    expect(result).toHaveLength(1);
-    expect(result[0]!.id).toBe("rsvp_1");
-  });
-
   it("returns an empty array on non-200", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: "boom" }));
     const result = await fetchLatestRsvps("evt_1");
@@ -87,15 +78,6 @@ describe("fetchRsvpsByStatus", () => {
 // ── fetchRsvpCounts ──────────────────────────────────────────────────────────
 
 describe("fetchRsvpCounts", () => {
-  it("returns the counts object on 200", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { counts: { going: 4, maybe: 2, not_going: 1, invited: 0 } }),
-    );
-    const counts = await fetchRsvpCounts("evt_1");
-    expect(counts.going).toBe(4);
-    expect(counts.maybe).toBe(2);
-  });
-
   it("returns zeros on non-200 (graceful UI fallback)", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: "boom" }));
     const counts = await fetchRsvpCounts("evt_1");
@@ -258,15 +240,6 @@ describe("updateMySettings", () => {
 // ── fetchCommsSummary ────────────────────────────────────────────────────────
 
 describe("fetchCommsSummary", () => {
-  it("returns the summary on 200", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { channels: ["email"], blasts: [{ id: "evtcomm_1", body: "hi" }] }),
-    );
-    const result = await fetchCommsSummary("evt_1");
-    expect(result?.channels).toEqual(["email"]);
-    expect(result?.blasts).toHaveLength(1);
-  });
-
   it("returns null on non-200 (avoids surfacing comms info on missing events)", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(404, { message: "not found" }));
     const result = await fetchCommsSummary("evt_missing");

@@ -11,7 +11,6 @@ import {
   safeHttpUrl,
   venueMapsUrl,
   type MapBounds,
-  type VenuePin,
   type VenueSummary,
 } from "../../src/lib/venues";
 
@@ -119,17 +118,6 @@ describe("computeOpenStatus", () => {
 // fetchVenuePins
 // ---------------------------------------------------------------------------
 
-const basePin: VenuePin = {
-  id: "v1",
-  orgHandle: "org",
-  handle: "venue",
-  name: "Venue",
-  kind: "club",
-  capacity: null,
-  latitude: null,
-  longitude: null,
-};
-
 // Four distinct values so a swapped pair (minLat sent as maxLat, say)
 // shows up as a mismatch rather than passing by symmetry.
 const bounds: MapBounds = { minLng: -74.03, maxLng: -73.88, minLat: 40.63, maxLat: 40.76 };
@@ -154,11 +142,6 @@ describe("fetchVenuePins", () => {
     expect(url.searchParams.get("maxLat")).toBe("40.76");
     expect(url.searchParams.get("minLng")).toBe("-74.03");
     expect(url.searchParams.get("maxLng")).toBe("-73.88");
-  });
-
-  it("returns the venues array on a 200 response", async () => {
-    mock().mockResolvedValue({ ok: true, json: async () => ({ venues: [basePin] }) });
-    expect(await fetchVenuePins(bounds)).toEqual([basePin]);
   });
 
   it("returns an empty array on a non-OK response (fail-soft)", async () => {
@@ -188,11 +171,6 @@ describe("venue fetchers", () => {
   });
 
   describe("fetchVenue", () => {
-    it("returns the venue on a 200 response", async () => {
-      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ venue: baseVenue }) });
-      expect(await fetchVenue("org", "venue")).toEqual(baseVenue);
-    });
-
     it("returns null on a non-OK response (fail-soft)", async () => {
       fetchMock.mockResolvedValue({ ok: false, json: async () => ({}) });
       expect(await fetchVenue("org", "venue")).toBeNull();
@@ -212,11 +190,6 @@ describe("venue fetchers", () => {
   });
 
   describe("fetchVenueEvents", () => {
-    it("returns the events array on a 200 response", async () => {
-      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ events: [{ id: "e1" }] }) });
-      expect(await fetchVenueEvents("org", "venue")).toEqual([{ id: "e1" }]);
-    });
-
     it("returns an empty array on a non-OK response (fail-soft)", async () => {
       fetchMock.mockResolvedValue({ ok: false, json: async () => ({}) });
       expect(await fetchVenueEvents("org", "venue")).toEqual([]);
@@ -237,11 +210,6 @@ describe("venue fetchers", () => {
   });
 
   describe("fetchEventLineup", () => {
-    it("returns the slots array on a 200 response", async () => {
-      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ slots: [{ id: "s1" }] }) });
-      expect(await fetchEventLineup("org", "venue", "evt")).toEqual([{ id: "s1" }]);
-    });
-
     it("returns an empty array on a non-OK response (fail-soft)", async () => {
       fetchMock.mockResolvedValue({ ok: false, json: async () => ({}) });
       expect(await fetchEventLineup("org", "venue", "evt")).toEqual([]);

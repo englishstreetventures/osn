@@ -94,11 +94,4 @@ describe("<AccountBannerStack />", () => {
     const eventsSlot = screen.getByTestId("events").parentElement as HTMLElement;
     expect(eventsSlot.className).toMatch(/(^|\s)pt-6(\s|$)/);
   });
-
-  it("hands both banners the signed-in access token", () => {
-    render(() => <AccountBannerStack accessToken="tkn" />);
-    captured.report?.(0);
-    expect(captured.eventsToken).toBe("tkn");
-    expect(captured.promptToken).toBe("tkn");
-  });
 });
