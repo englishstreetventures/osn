@@ -414,8 +414,10 @@ What the configs depend on, and what breaks without it:
   vitest packages' tests run under Node during a mutation run, not under
   `bunx --bun`. None of them use a `bun:` module today; one that does cannot be
   mutation-tested through the vitest runner.
-- **Stryker 9.6.1, not 10.** Stryker 10 needs `@babel/core` 8, and the root
-  `package.json` overrides `@babel/core` to 7.29, so 10 crashes while
+- **Stryker's instrumenter runs on Babel 8, the Solid toolchain on Babel 7.**
+  Both resolve side by side because every Babel range in the lockfile is a
+  strict `^7` or `^8`. A root `overrides` entry for `@babel/core` forces one
+  version on both and breaks one of them: under `^7` Stryker crashes while
   instrumenting.
 - **Every vitest config names `@stryker-mutator/vitest-runner` in `plugins`.**
   Bun's isolated install hides the runner from Stryker's plugin discovery, which
