@@ -45,7 +45,7 @@ Work is tracked in GitHub Issues, never the wiki.
 
 - **Changesets.** A pull request that touches any workspace package needs one (`bun run changeset`), named by the workspace's exact `name` — version-less `@cire/*` packages included. Never mix version-less packages (`@cire/*`) with versioned ones in one changeset. Check whether one is needed with `git diff --name-only origin/main...HEAD | bash scripts/changeset-required.sh` — always pipe the diff in. CI versions on merge; never run `bun run version`. Details: `wiki/conventions/contributing.md`.
 - **Installs.** Never a bare `bun install`: it drops lockfile entries for other platforms. Use `bun install --frozen-lockfile`, and `bun add <pkg> --cwd <dir>` (not `--filter`) to add a dependency. A lockfile diff bigger than the dependency you changed is wrong. Run tooling as `bunx --bun`.
-- **Tests** live in `tests/` at the package root, mirroring `src/` — never beside the source, and no test helpers in `src/`. The one exception is the Miniflare D1 tier (`tests/d1/`, cire's `tests/db/`), which only `bun run test:d1` runs. Patterns: `wiki/conventions/testing-patterns.md`.
+- **Tests** live in `tests/` at the package root, mirroring `src/` — never beside the source, and no test helpers in `src/`. The one exception is the Miniflare D1 tier (`tests/d1/`, cire's `tests/db/`), which only `bun run test:d1` runs. Patterns: `wiki/conventions/testing-patterns.md`. Cire tests are also mutation-tested: run `test:mutation --changed` in the package before calling them done (§Mutation testing there).
 - **Effect.** Build the layer graph once, as a `ManagedRuntime` at boot; never `Effect.provide` a database or observability layer inside a per-request `runPromise`. The v3 forms that no longer compile are in `wiki/shared/effect-v4-api.md`. TypeBox validates at the HTTP boundary and Effect Schema in services; never mix them. Frontends do not use Effect.
 - **Observability.** No `console.*`, no raw OpenTelemetry constructors, no unbounded metric attributes. See `wiki/shared/observability/overview.md`.
 - **Cross-origin cookies.** The identity API is on a different origin from every app, so any browser `fetch` that sets or reads the session cookie must pass `credentials: "include"`. Without it the browser drops `Set-Cookie` silently. Check this first when a sign-in "succeeds" but the user stays signed out.
@@ -65,6 +65,7 @@ bun run test                 # all packages
 bun run test:d1              # Miniflare D1 tier
 bun run test:browser         # real-Chromium tier
 bun run test:scripts         # bun tests under scripts/
+bun run --cwd cire/<pkg> test:mutation --changed  # Stryker on changed lines, cire only
 bun run --cwd <pkg> test:run # one Vitest package, once
 bun run --cwd <pkg> test     # @cire/api, @cire/db, @tools/oxlint-house use bun test
 ```

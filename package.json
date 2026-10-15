@@ -19,6 +19,7 @@
     "tools/lab",
     "tools/oxlint/house",
     "tools/pr-metrics",
+    "tools/stryker",
     "tools/metrics"
   ],
   "scripts": {
@@ -45,8 +46,8 @@
     "check:jest-dom-markers": "bash scripts/check-jest-dom-markers.sh",
     "clean": "git clean -fdX",
     "db:reset": "bun run --cwd osn/db db:reset && bun run --cwd pulse/db db:reset && bun run --cwd zap/db db:reset && bun run --cwd cire/db db:reset",
-    "fmt": "bunx --bun oxfmt musubi osn pulse zap shared cire tools/lab tools/metrics tools/oxlint/house tools/pr-metrics '!**/*.{json,jsonc,md,yml,yaml,css,html,astro}'",
-    "fmt:check": "bunx --bun oxfmt musubi osn pulse zap shared cire tools/lab tools/metrics tools/oxlint/house tools/pr-metrics '!**/*.{json,jsonc,md,yml,yaml,css,html,astro}' --check",
+    "fmt": "bunx --bun oxfmt musubi osn pulse zap shared cire tools/lab tools/metrics tools/oxlint/house tools/pr-metrics tools/stryker '!**/*.{json,jsonc,md,yml,yaml,css,html,astro}'",
+    "fmt:check": "bunx --bun oxfmt musubi osn pulse zap shared cire tools/lab tools/metrics tools/oxlint/house tools/pr-metrics tools/stryker '!**/*.{json,jsonc,md,yml,yaml,css,html,astro}' --check",
     "reset": "bun run clean && bun i",
     "changeset": "changeset",
     "version": "changeset version",
@@ -57,6 +58,8 @@
     "@changesets/cli": "^3.0.2",
     "@oxlint/plugins": "1.80.0",
     "@shadcn/lint": "0.1.0",
+    "@stryker-mutator/core": "10.0.0",
+    "@stryker-mutator/vitest-runner": "10.0.0",
     "bun-types": "^1.4.2",
     "lefthook": "^2.1.12",
     "oxfmt": "^0.65.0",
@@ -67,7 +70,6 @@
     "wrangler": "4.149.0"
   },
   "overrides": {
-    "@babel/core": "^7.29.7",
     "@cloudflare/vite-plugin": "^1.63.1",
     "@opentelemetry/core": "^2.10.0",
     "brace-expansion": "^5.0.11",
@@ -79,6 +81,7 @@
     "nanoid": "^3.3.18",
     "picomatch": "^4.0.7",
     "postcss": "^8.5.26",
+    "qs": "^6.16.0",
     "seroval": "^1.6.8",
     "sharp": "^0.35.5",
     "shell-quote": "^1.11.0",
@@ -92,6 +95,7 @@
     "yaml": "^2.9.0"
   },
   "patchedDependencies": {
-    "drizzle-orm@0.45.2": "patches/drizzle-orm@0.45.2.patch"
+    "drizzle-orm@0.45.2": "patches/drizzle-orm@0.45.2.patch",
+    "@stryker-mutator/vitest-runner@10.0.0": "patches/@stryker-mutator%2Fvitest-runner@10.0.0.patch"
   }
 }

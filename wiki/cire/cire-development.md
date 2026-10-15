@@ -277,6 +277,10 @@ What this does and does not catch:
   `undici-types`' declarations, which brings in `Float16Array` and the disposable
   built-ins; ES2022's `Intl.Segmenter` arrived in Firefox 125, above the floor's
   114; and the DOM library has no versions at all.
+- **Mutation testing runs on every cire package with tests**, scoped to the
+  lines a branch changes: `bun run --cwd cire/<pkg> test:mutation --changed`. `@cire/api` also needs `STRYKER_TESTS` naming the covering tests.
+  Runners, gotchas and what to do with a survivor:
+  [[testing-patterns#Mutation testing]].
 - In the editor, `cire/api/src/local.ts` and `src/db/setup.ts` belong to neither
   package config and fall back to the repo-root `tsconfig.json`. `check` is still
   right for them.
@@ -298,6 +302,7 @@ bun run --cwd cire/api test
 bun run --cwd cire/invites test:browser   # real-Chromium tier
 bun run --cwd cire/host test:browser
 bun run test:browser                      # every package with a browser tier (turbo)
+bun run --cwd cire/host test:mutation --changed   # Stryker, on the lines this branch changed
 
 # Database — wrangler.toml lives in cire/api
 bun run --cwd cire/db db:migrate:local    # checks the ledger, then applies
