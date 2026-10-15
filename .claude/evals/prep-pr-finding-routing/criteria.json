@@ -13,8 +13,8 @@
       "max_score": 4
     },
     {
-      "name": "pr_body_five_sections",
-      "description": "`PR-BODY.md` contains exactly five second-level sections, in this order: `## Summary`, `## Workspaces affected`, `## Issues`, `## Decisions`, `## Test plan`. All five are present, and a section with nothing to say says so rather than being omitted. Score 3 if all five are present and correctly ordered; 1 if all five are present but out of order or one is silently dropped; 0 if the body is free-form.",
+      "name": "pr_body_sections",
+      "description": "`PR-BODY.md` contains exactly six second-level sections, in this order: `## Impact`, `## Summary`, `## Workspaces affected`, `## Issues`, `## Decisions`, `## Test plan`. All six are present, and a section with nothing to say says so rather than being omitted. Score 3 if all six are present and correctly ordered; 1 if all six are present but out of order or one is silently dropped; 0 if the body is free-form.",
       "max_score": 3
     },
     {

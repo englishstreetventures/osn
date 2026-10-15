@@ -64,11 +64,15 @@ Closes englishstventures/osn-tracker#<n>
 The same branch under `write-pr`. Title: `Cire API: organisers resend invites to households yet to reply`.
 
 ```markdown
+## Impact
+
+Organisers can chase only the households that have not replied: one click per household from the guest list, where today they re-send the whole batch and every household that already answered gets the invite again. A resend counts against the same 20-per-hour invite limit as a first send, so no household can be mailed more often than before. Guest sessions now last 14 days.
+
 **At deploy** — set `INVITE_RESEND_KEY` on the `cire-api` Worker before approving the production deploy: `bunx wrangler secret put INVITE_RESEND_KEY --env production`. Until it is set, every resend returns 500.
 
 ## Summary
 
-Organisers can resend an invite to a household that has not replied. The resend link is signed with a new secret and runs under the limiter every other invite route uses. Guest sessions now last 14 days after a claim.
+A new resend route sends a fresh invite to one household that has not replied. Its link is signed with a new secret and the route runs under the limiter every other invite route uses. The guest session lifetime set at claim is now 14 days.
 
 ## Workspaces affected
 
@@ -118,8 +122,10 @@ Unverified: nobody has sent a resend on the dev tier. Once this merges, resend a
 
 What changed:
 
-- **The secret moved above `## Summary`.** It was a bullet under the prose, where the owner reads it after deciding the pull request looks fine.
-- **The tracker finding is a bare reference everywhere.** No `S-M2` or `S-M1`, no decision headed by a finding ID, and the Summary says what the code now does ("Guest sessions now last 14 days") without saying what was wrong with 30.
+- **The body opens with its impact.** The old Summary described the change; the new `## Impact` says who is better off — organisers who no longer re-send to households that already answered — and gives the limit as a number. The Summary then says what changed, without repeating why.
+- **The tracker fix appears in the impact as its present effect only**: "Guest sessions now last 14 days." No 30, and no word on why 30 was wrong.
+- **The secret moved to the end of `## Impact`.** It was a bullet under the prose, where the owner reads it after deciding the pull request looks fine.
+- **The tracker finding is a bare reference everywhere.** No `S-M2` or `S-M1`, no decision headed by a finding ID, and the body says what the code now does ("Guest sessions now last 14 days") without saying what was wrong with 30.
 - **The dismissed concern left the body.** Naming a cross-wedding claim the review thought of, even to say it is safe, tells a reader where to look. `prep-pr` Step 7 files it in the tracker and closes it as not planned.
 - **Each close appears once**, under the right organisation name, with the epic as `Part of` so the merge leaves it open.
 - **The issue raised against this branch is listed once**, not under Opened and again under Out of scope.

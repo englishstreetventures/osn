@@ -3,8 +3,8 @@
   "type": "weighted_checklist",
   "checklist": [
     {
-      "name": "pr_body_five_sections",
-      "description": "PR-BODY.md contains exactly five second-level sections, in this order: '## Summary', '## Workspaces affected', '## Issues', '## Decisions', '## Test plan'. All five are present, and a section with nothing to say contains 'None' rather than being omitted. Score 3 if all five are present, correctly ordered, and none is silently dropped; 1 if all five are present but the order is wrong or an empty one was dropped; 0 if any section is absent or extra top-level sections were added.",
+      "name": "pr_body_sections",
+      "description": "PR-BODY.md contains exactly six second-level sections, in this order: `## Impact`, `## Summary`, `## Workspaces affected`, `## Issues`, `## Decisions`, `## Test plan`. All six are present, and a section with nothing to say contains 'None' rather than being omitted. Score 3 if all six are present, correctly ordered, and none is silently dropped; 1 if all six are present but the order is wrong or an empty one was dropped; 0 if any section is absent or extra top-level sections were added.",
       "max_score": 3
     },
     {

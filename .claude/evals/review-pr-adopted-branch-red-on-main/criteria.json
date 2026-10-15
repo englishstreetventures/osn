@@ -24,7 +24,7 @@
     },
     {
       "name": "body_shape_and_closes",
-      "description": "`REVIEW-PR-BODY.md` has exactly five second-level sections, in this order: `## Summary`, `## Workspaces affected`, `## Issues`, `## Decisions`, `## Test plan`, and a closing line for #1630 (`Closes #1630`) on a line of its own, outside any table or code span. Score 1 only if both hold.",
+      "description": "`REVIEW-PR-BODY.md` has `## Summary`, `## Workspaces affected`, `## Issues`, `## Decisions` and `## Test plan` in that order, with no other second-level section except an optional `## Impact` before `## Summary` (the fixture's pinned skills predate it), and a closing line for #1630 (`Closes #1630`) on a line of its own, outside any table or code span. Score 1 only if both hold.",
       "max_score": 1
     },
     {

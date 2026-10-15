@@ -1,6 +1,6 @@
 ---
 name: prep-pr
-description: Use when preparing the current branch for a pull request — resolving the base branch, checking changesets, running builds and reviews, filing findings as issues, and opening the PR with the mandatory five-section body that the write-pr skill writes.
+description: Use when preparing the current branch for a pull request — resolving the base branch, checking changesets, running builds and reviews, filing findings as issues, and opening the PR with the mandatory six-section body, impact first, that the write-pr skill writes.
 ---
 
 Prepare the current branch for a pull request.
@@ -9,7 +9,7 @@ Prepare the current branch for a pull request.
 
 Two files, always, whatever else fails:
 
-1. A **PR body** with exactly five `##` sections, filled in at Step 8 with the
+1. A **PR body** with exactly six `##` sections, filled in at Step 8 with the
    `write-pr` skill.
 2. A **report** of what was checked, what would fail in CI (named exactly, with
    its fix), and whether the branch is ready.
@@ -25,6 +25,10 @@ spent its turns elsewhere. Copy this verbatim:
 
 ```bash
 cat > PR-BODY.md <<'EOF'
+## Impact
+
+None
+
 ## Summary
 
 None
@@ -47,15 +51,15 @@ None
 EOF
 ```
 
-Those five `##` headings are the whole permitted set, and that is their order.
+Those six `##` headings are the whole permitted set, and that is their order.
 Replace a `None` as the run establishes what belongs there; leave it where the
-answer really is nothing. Never add a sixth `##` — notes about gates that could
+answer really is nothing. Never add a seventh `##` — notes about gates that could
 not run go in the report file, and a change-specific title goes in the PR title
 and in `## Summary`, never as a heading of its own.
 
 **From here on this file is only ever edited, never rewritten.** Every later
 step replaces a `None`, or inserts text under a heading that already exists —
-the one exception is an owner action, which `write-pr` puts above `## Summary`.
+the one exception is an owner action, which `write-pr` puts at the end of `## Impact`.
 Do not compose the body in your head and write it out whole at Step 8 — a
 single write to `PR-BODY.md` discards the shape this step just established, and
 that is the one way this run fails outright however good the preparation was.
@@ -409,7 +413,7 @@ both.
 
 **Do this even when you cannot push.** The body is the deliverable; opening the pull request is only how it is delivered. Write it to the file whichever way the run ends — no network, no `gh`, failing gates, nothing committed.
 
-Invoke the **`write-pr`** skill and follow it. It owns the title and the body: what each of the five sections holds, the `Closes` and `Part of` lines, owner actions, the test plan, and the checks to run before sending. Derive both from the branch's commit history (`git log "$DIFF_BASE"..HEAD --oneline`) and everything this run established.
+Invoke the **`write-pr`** skill and follow it. It owns the title and the body: what each of the six sections holds, the impact that leads the body, the `Closes` and `Part of` lines, owner actions, the test plan, and the checks to run before sending. Derive both from the branch's commit history (`git log "$DIFF_BASE"..HEAD --oneline`) and everything this run established.
 
 The skeleton is already on disk from the top of this file. Fill it in — do not write a second body beside it.
 
@@ -427,11 +431,11 @@ request or issue on it is the one thing that makes `retro`'s job harder.
 ### Check the body before you finish
 
 ```bash
-grep -c '^## \(Summary\|Workspaces affected\|Issues\|Decisions\|Test plan\)$' <body-file>
+grep -c '^## \(Impact\|Summary\|Workspaces affected\|Issues\|Decisions\|Test plan\)$' <body-file>
 grep -c '^## ' <body-file>
 ```
 
-Both must print `5`. A first count under 5 means a section is missing, renamed, or demoted to `###`. A second count above 5 means you added a top-level section of your own — the most common one is a place to park notes about gates that could not run, and those belong in the report file instead. Custom top-level headings are not allowed: a change-specific title goes in the PR title and in `## Summary`, never as a `##` of its own.
+Both must print `6`. A first count under 6 means a section is missing, renamed, or demoted to `###`. A second count above 6 means you added a top-level section of your own — the most common one is a place to park notes about gates that could not run, and those belong in the report file instead. Custom top-level headings are not allowed: a change-specific title goes in the PR title and in `## Summary`, never as a `##` of its own.
 
 ---
 
