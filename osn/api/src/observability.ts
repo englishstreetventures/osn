@@ -99,8 +99,12 @@ export const osnLoggerLayer: Layer.Layer<never> = Layer.suspend(() => {
 
 /**
  * Shared runtime for `osnLoggerLayer`. The OTLP exporter stays alive across
- * calls to `runOsn` and `runOsnSync`. `Layer.suspend` keeps `loadConfig` lazy:
- * constructing this runtime does not read environment configuration.
+ * calls to `runOsn` and `runOsnSync`. Do not replace it with a per-call
+ * `Effect.provide`: that opens and closes the layer's scope around each run,
+ * so every call would build and tear down a whole OTLP exporter.
+ *
+ * `Layer.suspend` keeps `loadConfig` lazy: constructing this runtime does not
+ * read environment configuration.
  */
 const osnRuntime = ManagedRuntime.make(osnLoggerLayer);
 

@@ -18,7 +18,8 @@ packages:
   - "@pulse/api"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-09-23
+  - "@cire/api"
+last-reviewed: 2026-10-15
 ---
 
 # Schema Layers
@@ -37,8 +38,8 @@ OSN uses two schema tools at two distinct layers. Never mix them -- each has a s
 ### Effect Schema (`Schema` from `effect`) -- service/domain layer only
 
 - Validates AND transforms (e.g. ISO string to `Date`, enum narrowing)
-- Returns `Effect<A, ParseError>` -- integrates naturally with Effect pipelines
-- Runs via `Schema.decodeUnknown(MySchema)(data)` inside service functions
+- Returns `Effect<A, SchemaError>` -- integrates naturally with Effect pipelines
+- Runs via `Schema.decodeUnknownEffect(MySchema)(data)` inside service functions
 - Example: `Schema.DateFromString` decodes `"2030-06-01T..."` to a `Date` object
 
 ## Data Flow Diagram
@@ -151,7 +152,7 @@ Four things about that table are worth knowing before you rely on them:
 
 ## Rules
 
-- **Never use Effect Schema in route definitions.** TypeBox is the HTTP boundary schema.
+- **Never use Effect Schema in route definitions.** TypeBox is the HTTP boundary schema. Cire's API is the one departure: its JSON-body routes pass a sentinel `parse` hook and decode `request.json()` with Effect Schema, so malformed JSON gets the schema's own 400 ([[cire-development]]).
 - **Never use TypeBox in service functions.** Effect Schema is the domain boundary schema.
 - **Never transform in the route layer.** Strings stay strings at the HTTP boundary.
 - **Always map `SchemaError` to a domain error.** Callers should catch `ValidationError`, not `SchemaError`.

@@ -88,8 +88,10 @@ export type ConfirmedPlusOne = Schema.Schema.Type<typeof ConfirmedPlusOne>;
  *
  * Unknown keys are refused rather than dropped: a misspelled confirmation would
  * otherwise decode as "confirms nobody" and be refused as `plus_one_named` again
- * and again, with nothing to say why. Decode this schema with
- * `PlusOnePermissionParseOptions` at each HTTP boundary.
+ * and again, with nothing to say why. That refusal holds only where the
+ * decoder is given `PlusOnePermissionParseOptions`: Effect ignores parse
+ * options set as an annotation on the schema, so every decode of this body
+ * passes them.
  */
 export const PlusOnePermissionBody = Schema.Struct({
   allowed: Schema.Boolean,

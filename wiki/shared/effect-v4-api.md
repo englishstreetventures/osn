@@ -50,7 +50,7 @@ vocabulary — all needed zero edits.
 | `Either` module | `Result` — tags are `"Success"`/`"Failure"` |
 | `Cause.failureOption` | `Cause.findErrorOption` |
 | `Context.Tag(id)<Self, Shape>()` | `Context.Service<Self, Shape>()(id)` — argument order flips; `Context.Tag<I, S>` in **type** position is `Context.Key<I, S>` |
-| `effect/unstable/http` and `effect/unstable/observability` | `effect/http` and `effect/observability` in the stable release |
+| `effect/unstable/<x>` (a 4.0 release-candidate path) | `effect/<x>` in stable 4.x, for every top-level module — `effect/unstable/http` is `effect/http`, `effect/unstable/observability` is `effect/observability`. One renamed: `effect/unstable/httpapi` is `effect/http-api` |
 
 Service **identifier strings** are runtime lookup keys. Preserve them exactly
 through any such rewrite — a typo is a service-not-found at request time, not a
@@ -80,11 +80,6 @@ Option.getOrUndefined(Cause.findErrorOption(exit.cause)) instanceof NotFound
 **`SchemaError`**, not `ParseError` — that is what `catchTag` takes. Constraint
 combinators are *checks*, applied with a schema's `.check(…)`:
 
-Pass strict excess-property handling to the decoder, including at HTTP
-boundaries: `Schema.decodeUnknownEffect(MySchema)(input, { onExcessProperty:
-"error" })`. A schema's `.annotate({ parseOptions: … })` does not enforce this
-option in the stable release.
-
 ```ts
 Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64))
 Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 99 }))
@@ -98,7 +93,7 @@ failure message**; a check's `message` annotation is a plain string, not a
 thunk. `.check(a, b)` short-circuits on the first failure, so ordering a cheap
 bound before an expensive lookup still works.
 
-Four more, and the first two fail quietly:
+Five more, and the first three fail quietly:
 
 - **`Schema.Literal` takes one literal, `Schema.Union` takes one array.** Pass
   the v3 variadic shape and the extra members are dropped rather than rejected;
@@ -108,6 +103,15 @@ Four more, and the first two fail quietly:
 - **Decode messages no longer echo the input.** v4 renders a reason line plus
   an `at ["path"]` line where v3 wrote `Expected number, actual "x"`. A test
   pinned to the old text passes vacuously if it only checks something threw.
+- **Stable 4.x ignores parse options set as a schema annotation.**
+  `.annotate({ parseOptions: { onExcessProperty: "error" } })` still compiles,
+  and unknown keys still decode. Pass the option to the decoder instead:
+  `Schema.decodeUnknownEffect(MySchema, { onExcessProperty: "error" })`. Most
+  backends never decode a request body with Effect Schema, because TypeBox
+  validates it ([[schema-layers]]). Cire's JSON-body routes are the exception:
+  they read `request.json()` and decode it with Effect Schema
+  ([[cire-development]]). `cire/api/src/schemas/plus-one.ts` exports the
+  options its two permission routes pass.
 - `Schema.optionalWith(S, { default: () => v })` →
   `S.pipe(Schema.withDecodingDefaultType(Effect.succeed(v)))`.
 - `Schema.transform(from, to, {decode, encode})` →
@@ -139,4 +143,10 @@ every request** — measured, 5 provides → 5 acquires and 5 releases, against 
 `ManagedRuntime`'s 1 acquire and 0 releases. So the v3 rebuild-cost argument
 for a shared runtime is not weakened at all where it matters. The pattern
 itself is in [[backend-patterns]].
+
+*Measured 2026-10-15 on `effect@4.0.3` — a `bun` script, not committed: a
+`Layer.effect` whose service is built with `Effect.acquireRelease` and counts
+each acquire and release; five separate `Effect.runPromise(eff.pipe(Effect.provide(layer)))`
+calls, then five `runtime.runPromise(eff)` calls on one
+`ManagedRuntime.make(layer)` (one release after `runtime.dispose()`).*
 
