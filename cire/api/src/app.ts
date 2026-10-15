@@ -174,6 +174,14 @@ const defaultExportLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_0
  */
 const defaultHostLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
 /**
+ * Default per-USER limiter for an organiser's recorded RSVPs
+ * (`PUT …/guests/:guestId/rsvps/:eventId`). Editor-gated already; each
+ * status-only save also adds an RSVP change-log row kept 90 days, so this caps
+ * a scripted loop at what a person saving replies by hand could send. The
+ * portal sends one request per save.
+ */
+const defaultOrganiserRsvpLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
+/**
  * Default per-USER limiter shared by an owner's wedding delete and restore.
  * Owner-gated already, so this only caps a scripted toggle; 5/min is more than
  * anyone deletes or restores weddings by hand.
@@ -386,6 +394,8 @@ export interface AppOptions {
   hostLimiter?: RateLimiterBackend;
   /** Override the wedding delete + restore rate limiter (useful for testing). */
   weddingLifecycleLimiter?: RateLimiterBackend;
+  /** Override the organiser recorded-RSVP rate limiter (useful for testing). */
+  organiserRsvpLimiter?: RateLimiterBackend;
   /** Override the co-host handle-search rate limiter (useful for testing). */
   handleSearchLimiter?: RateLimiterBackend;
   /** Override the public CSP-report collector rate limiter (useful for testing). */
@@ -657,6 +667,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     remintLimiter = defaultRemintLimiter,
     hostLimiter = defaultHostLimiter,
     weddingLifecycleLimiter = defaultWeddingLifecycleLimiter,
+    organiserRsvpLimiter = defaultOrganiserRsvpLimiter,
     handleSearchLimiter = defaultHandleSearchLimiter,
     cspReportLimiter = defaultCspReportLimiter,
     vendorPortalLimiter = defaultVendorPortalLimiter,
@@ -1017,8 +1028,9 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // phone/paper RSVP on a guest's behalf into the SAME `rsvps` table the
       // invite writes to (upsert, last-writer-wins); stamped
       // `consent_source='organiser_attested'` unless the save is status-only,
-      // which keeps the stored dietary answer's source. weddingEditor()-gated.
-      .use(createOrganiserRsvpRoutes(db, osnAuthOptions))
+      // which keeps the stored dietary answer's source. weddingEditor()-gated,
+      // then a per-user limiter.
+      .use(createOrganiserRsvpRoutes(db, osnAuthOptions, organiserRsvpLimiter))
       // Guest-side RSVP changes since each organiser last looked, their read
       // marker, and their daily digest switch. Feed + marker admit every role
       // that reads RSVPs (weddingMember); the switch is editor or owner

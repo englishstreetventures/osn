@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-15
 ---
 
 # DSAR Runbook
@@ -208,27 +208,44 @@ owners, each with an `owner` seat. Two consequences:
 - **RSVP change log and organiser read state (migration 0068).** A household's
   `rsvp_changes` rows (which guest changed which reply, and when — no content)
   are part of that household's data: an access request returns them, and
-  deleting the `families` row cascades them. An organiser's
+  deleting the `families` row cascades them. That includes the
+  `host_status_set` rows an organiser's status-only save writes under the
+  household; an access answer returns them without `actor_osn_profile_id`
+  (see the organiser attribution entry below). An organiser's
   `host_rsvp_notices` rows (their read marker and digest switch, per wedding)
   are part of the organiser's cire data; removing their seat deletes the row,
   but an OSN account deletion does not reach it, the same orphan as
   `wedding_hosts` below. See [[cire-rsvp-changes]].
-- **Organiser attribution on RSVPs (migration 0080).** `rsvps.recorded_by_osn_profile_id`
+- **Organiser attribution on RSVPs (migrations 0080, 0084).** `rsvps.recorded_by_osn_profile_id`
   and `rsvps.dietary_attested_by_osn_profile_id` name the co-host who last
-  wrote a guest's reply and who attested its dietary consent. An access
-  request from the household leaves both out, as it leaves out
+  wrote a guest's reply and who attested its dietary consent, and
+  `rsvp_changes.actor_osn_profile_id` names the co-host on each status-only
+  save's change-log row. An access request from the household leaves all
+  three out, as it leaves out
   `note_hidden_by_osn_profile_id`: they identify a co-host (Art. 15(4)), and
   the household sees only that a host wrote. They are the organiser's data in
   an organiser's access request. Erasing the household deletes the rows; an
   OSN account deletion does not reach the ids, the same orphan as
-  `wedding_hosts` below. Removing a co-host's seat keeps both ids: they are
+  `wedding_hosts` below. Removing a co-host's seat keeps the ids: they are
   the record of who changed a guest's reply and who attested its consent
-  (Art. 5(2), 7(1)), held as long as the reply they describe and swept with
-  it. An erasure request from that organiser nulls them instead, in the same
-  pass that removes the seat:
+  (Art. 5(2), 7(1)), held as long as the row they sit on — the reply, or the
+  change-log row's 90 days — and swept with it. An erasure request from that
+  organiser nulls them instead, in the same pass that removes the seat:
   `UPDATE rsvps SET recorded_by_osn_profile_id = NULL WHERE recorded_by_osn_profile_id = ?`,
-  and the same for `dietary_attested_by_osn_profile_id`. The consent record
-  itself stays, as evidence an organiser attested.
+  the same for `dietary_attested_by_osn_profile_id`, and
+  `UPDATE rsvp_changes SET actor_osn_profile_id = '' WHERE actor_osn_profile_id = ?`
+  — an empty string, not NULL, because a null actor is what marks a
+  household's own change, and the organisers' feed and digest would then show
+  the row. The consent record itself stays, as evidence an organiser attested;
+  an emptied change-log row still says an organiser set the status, by its kind.
+  An organiser's access request finds these by profile id, not by seat, so a
+  co-host whose seat was removed is answered too:
+  `SELECT wedding_id, kind, created_at FROM rsvp_changes WHERE actor_osn_profile_id = ?`,
+  and `SELECT … FROM rsvps WHERE recorded_by_osn_profile_id = ? OR dietary_attested_by_osn_profile_id = ?`.
+  The answer gives, per wedding, the time and kind of each save and which
+  replies they last wrote or attested; guest, household and event ids or names
+  go in only for a wedding where the requester still holds a seat, since
+  outside it they are other people's data (Art. 15(4)).
 - **Unlock-code redemptions.** `unlock_code_redemptions.redeemed_by_osn_profile_id`
   names the owner who redeemed a code for a wedding. It is the organiser's data
   in an organiser's access request. An erasure request from that organiser nulls
@@ -253,6 +270,14 @@ the orphan-tolerance framing is defensible on the merits:
 - Guest data is **organiser-controlled** (cire is processor); the controller
   obligation to erase it survives the organiser's OSN-account deletion and is
   discharged through the organiser, not by cascading from OSN identity.
+- The **organiser attribution ids** (`rsvps.recorded_by_osn_profile_id`,
+  `rsvps.dietary_attested_by_osn_profile_id`, `rsvp_changes.actor_osn_profile_id`)
+  are a record of what one person did to replies the couple and guests share,
+  kept for the Art. 5(2) and 7(1) evidence in [[dpia/cire-guest-data]]. Once OSN
+  deletes the account, the id is opaque and resolves to no one; the change-log
+  column is gone within 90 days in any case, and the `rsvps` columns go with
+  the reply. The cire bridge below, when built, clears all three on account
+  deletion, as an organiser's erasure request does today.
 
 **Recorded decision.** Orphan-tolerance is the interim position. Its revisit
 trigger — `DELETE /account` landing (C-H2) — **has now fired**, so the choice is

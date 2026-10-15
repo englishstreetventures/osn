@@ -18,9 +18,10 @@ import { counterValue } from "../test-helpers/metrics-harness";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
-// Which guest-side RSVP writes land in the change log. The log itself is
-// tested in tests/services/rsvp-changes.test.ts; this file pins the wiring in
-// `POST /api/rsvp` and that the organiser's own recording path stays out.
+// Which RSVP writes land in the change log. The log itself is tested in
+// tests/services/rsvp-changes.test.ts; this file pins the wiring in
+// `POST /api/rsvp`, and on the organiser's recording path that a status-only
+// save is logged under the organiser while a full reply is not.
 
 const HINDU = eventsData.hindu.id;
 const RECEPTION = eventsData.reception.id;
@@ -48,6 +49,7 @@ beforeEach(() => {
     osnTestKey: auth.key,
     claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
     rsvpLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+    organiserRsvpLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
   });
   const byName = (firstName: string) =>
     db
@@ -249,7 +251,7 @@ describe("POST /api/rsvp → change log", () => {
     expect(logged().map((r) => r.kind)).toEqual(["reply_new"]);
   });
 
-  it("never logs a reply an organiser records", async () => {
+  it("never logs a full reply an organiser records", async () => {
     const res = await appRequest(
       app,
       `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests/${ADA}/rsvps/${HINDU}`,
@@ -269,5 +271,35 @@ describe("POST /api/rsvp → change log", () => {
     );
     expect(res.status).toBe(200);
     expect(logged()).toEqual([]);
+  });
+
+  it("logs an organiser's status-only save under the organiser who sent it", async () => {
+    const res = await appRequest(
+      app,
+      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests/${ADA}/rsvps/${HINDU}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${await auth.sign(OWNER)}`,
+        },
+        body: JSON.stringify({ status: "declined" }),
+      },
+    );
+    expect(res.status).toBe(200);
+    expect(logged()).toEqual([
+      {
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        familyId: TESTONE_FAMILY,
+        guestId: ADA,
+        eventId: HINDU,
+        kind: "host_status_set",
+      },
+    ]);
+    const [row] = db
+      .select({ actor: rsvpChanges.actorOsnProfileId, member: rsvpChanges.actorGuestId })
+      .from(rsvpChanges)
+      .all();
+    expect(row).toEqual({ actor: OWNER, member: null });
   });
 });

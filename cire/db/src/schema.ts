@@ -1115,10 +1115,11 @@ export const rsvps = sqliteTable(
 );
 
 /**
- * What a guest-side RSVP change was. `reply_new` — the pair had no reply;
+ * What a household's RSVP change was. `reply_new` — the pair had no reply;
  * `reply_edited` — its status, dietary text or dietary picks changed. The
  * `plus_one_*` kinds are written by the writes that name, rename or remove a
- * plus-one, with no event. Organiser-recorded replies are never logged.
+ * plus-one, with no event. These are the only kinds the overview card, the
+ * "New" badges and the daily digest read.
  */
 export const RSVP_CHANGE_KINDS = [
   "reply_new",
@@ -1130,8 +1131,21 @@ export const RSVP_CHANGE_KINDS = [
 
 export type RsvpChangeKind = (typeof RSVP_CHANGE_KINDS)[number];
 
-// The RSVP change log (migration 0068): one row per guest-side change, read by
-// the organiser portal's unseen-changes feed and by the daily digest email.
+/**
+ * What an organiser's logged write was. `host_status_set` — a status-only save
+ * (`PUT …/guests/:guestId/rsvps/:eventId` with no dietary field) set a reply's
+ * status. A record of who wrote, kept apart from what organisers are told: no
+ * reader of the household's changes reads these kinds. An organiser's full
+ * reply, dietary answer included, is not logged.
+ */
+export const RSVP_HOST_CHANGE_KINDS = ["host_status_set"] as const;
+
+export type RsvpHostChangeKind = (typeof RSVP_HOST_CHANGE_KINDS)[number];
+
+// The RSVP change log (migration 0068): one row per household change, read by
+// the organiser portal's unseen-changes feed and by the daily digest email,
+// and one row per organiser status-only save, naming that organiser
+// (migration 0084), which those readers leave out.
 //
 // `seq` is the cursor both readers keep (`host_rsvp_notices`). It is an
 // AUTOINCREMENT rowid, so a number is never handed out twice even after the
@@ -1160,18 +1174,31 @@ export const rsvpChanges = sqliteTable(
     guestId: text("guest_id").notNull(),
     // NULL for the plus-one kinds, which concern no single event.
     eventId: text("event_id"),
-    kind: text("kind", { enum: RSVP_CHANGE_KINDS }).notNull(),
+    kind: text("kind", { enum: [...RSVP_CHANGE_KINDS, ...RSVP_HOST_CHANGE_KINDS] }).notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     // The household member who made the change (migration 0075); null when
     // none was chosen. An id only, with no foreign key, like `guest_id`.
     actorGuestId: text("actor_guest_id"),
+    // The organiser (OSN profile id) whose write the row records (migration
+    // 0084); null on every household row, and only there, so `IS NULL` is what
+    // tells a household's change from an organiser's. An organiser's erasure
+    // request sets it to '' rather than null for that reason. Opaque
+    // cross-database id, like `rsvps.recorded_by_osn_profile_id`: no foreign
+    // key, and no read endpoint returns it.
+    actorOsnProfileId: text("actor_osn_profile_id"),
   },
   (t) => [
-    // Every index entry ends in the rowid, so this one also serves
-    // `wedding_id = ? AND seq > ?` as a range — the feed's read.
-    index("rsvp_changes_wedding_idx").on(t.weddingId),
-    // The digest's look-back and the 90-day purge.
+    // Every index entry ends in the rowid, so `wedding_id = ? AND
+    // actor_osn_profile_id IS NULL AND seq > ?` is a range on this one in
+    // either direction — the feed's reads, over the household's rows only —
+    // and its prefix is the wedding cascade probe (migration 0084).
+    index("rsvp_changes_wedding_actor_idx").on(t.weddingId, t.actorOsnProfileId),
+    // The 90-day purge, over every row.
     index("rsvp_changes_created_at_idx").on(t.createdAt),
+    // The digest's look-back, over the household's rows only (migration 0084).
+    index("rsvp_changes_household_created_at_idx")
+      .on(t.createdAt)
+      .where(sql`actor_osn_profile_id IS NULL`),
     // The families cascade probe.
     index("rsvp_changes_family_idx").on(t.familyId),
   ],

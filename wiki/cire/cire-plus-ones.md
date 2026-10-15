@@ -11,7 +11,7 @@ related:
   - "[[component-library]]"
   - "[[cire-invite-designs]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-15
 ---
 # Plus-ones
 
@@ -152,7 +152,7 @@ The portal sends a save that leaves the dietary fields alone as `{ status }`. **
 | The household's, with neither | Status changed; `consent_source = 'organiser_attested'` |
 | None | A new row, `organiser_attested`, no dietary data |
 
-So the row keeps the household's attestation, and the household's box on the invite still opens ticked for it. On such a row `consent_source` names the dietary data's basis, not who wrote the status: the badge stays **Household-entered** beside a **Host-updated**, and the CSV's **Recorded By** says **Household**. `rsvps.recorded_by_osn_profile_id` records which organiser changed it (every organiser save sets it; a household's write clears it), though organiser writes stay out of the change log ([[cire-rsvp-changes]]). An organiser's own dietary answer also names its attester, in `dietary_attested_by_osn_profile_id`, which a status-only save keeps. See [[dpia/cire-guest-data]].
+So the row keeps the household's attestation, and the household's box on the invite still opens ticked for it. On such a row `consent_source` names the dietary data's basis, not who wrote the status: the badge stays **Household-entered** beside a **Host-updated**, and the CSV's **Recorded By** says **Household (status by organiser)**. `rsvps.recorded_by_osn_profile_id` records which organiser changed it last (every organiser save sets it; a household's write clears it), and every status-only save, on any reply, also writes a `host_status_set` row to the change log naming the organiser, in the same batch, which lasts 90 days whatever is written over the reply after. The overview card, the "New" badges and the digest leave those rows out ([[cire-rsvp-changes#Organiser status saves]]). An organiser's own dietary answer also names its attester, in `dietary_attested_by_osn_profile_id`, which a status-only save keeps. See [[dpia/cire-guest-data]].
 
 A body naming either dietary field is a dietary edit and replaces the whole reply, stamped `organiser_attested` with the organiser's plus-one version when it carries dietary data. On a plus-one the attested name is tested inside the write itself (`rsvpService.submitRsvpIfNamed`, one `INSERT … SELECT … WHERE EXISTS … ON CONFLICT` statement), so a household rename committed after the portal loaded refuses the save with `409 plus_one_changed` rather than storing the answer under the new name. An empty one clears the household's answer. The household's box on the invite then opens unticked over the organiser's answer, so a household re-submitting must tick its own attestation for it or clear it.
 
@@ -169,7 +169,7 @@ The table lists replies before the guests who have not answered, so a plus-one a
 | Claim payload `members[]` (`claim.ts`) | `plusOneAllowed`, `plusOneOf`; a plus-one is listed straight after the member who brought them, placed by the link rather than by `sort_order` |
 | `GET …/guests` (`OrganiserGuestRow`) | `plusOneAllowed`, `plusOneOf` |
 | `GET …/rsvps` (per-event view) | `plusOneOf` and `plusOneOfName` (the inviter's full name) on responded and unresponded entries; within each list a plus-one sits straight after their inviter. The name is joined from the inviter's own row, held to the plus-one's household, so a reply kept after the household was dropped from the event still names them and a link outside the household names no one |
-| `GET …/rsvps.csv` | One row per guest, a plus-one's straight after their inviter's. **Plus-one Of** (the inviter's full name, blank otherwise) is the last column, after **Recorded By**, which says **Household** when any of the plus-one's replies is the household's (**Organiser** still outranks it) |
+| `GET …/rsvps.csv` | One row per guest, a plus-one's straight after their inviter's. **Plus-one Of** (the inviter's full name, blank otherwise) is the last column, after **Recorded By**, which says **Household** when any of the plus-one's replies is the household's, or **Household (status by organiser)** once an organiser has set the status of one of those since (**Organiser** still outranks both) |
 | `GET …/guests.csv` (the roster report, not the round-trip export) | A plus-one's row straight after their inviter's, with **Plus-one Of** appended after **Code Status** |
 
 ### Counting

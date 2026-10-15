@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests, rsvps } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  events,
+  families,
+  guestEvents,
+  guests,
+  rsvpChanges,
+  rsvps,
+} from "@cire/db";
 import {
   ORGANISER_DIETARY_ATTESTATION,
   ORGANISER_PLUS_ONE_DIETARY_ATTESTATION,
@@ -960,6 +968,173 @@ describe("organiserRsvpService.record — which organiser wrote, and who atteste
     expect(raw.submitted_via_link).toBe(0);
     expect(raw.recorded_by_osn_profile_id).toBe(ORGANISER);
     expect(raw.dietary_attested_by_osn_profile_id).toBe(ORGANISER);
+  });
+});
+
+describe("organiserRsvpService.record — the change log", () => {
+  /** Every change-log row, as the audit trail reads it. */
+  function logged() {
+    return db
+      .select({
+        weddingId: rsvpChanges.weddingId,
+        familyId: rsvpChanges.familyId,
+        guestId: rsvpChanges.guestId,
+        eventId: rsvpChanges.eventId,
+        kind: rsvpChanges.kind,
+        actorGuestId: rsvpChanges.actorGuestId,
+        actorOsnProfileId: rsvpChanges.actorOsnProfileId,
+      })
+      .from(rsvpChanges)
+      .all();
+  }
+
+  const familyOf = (guestId: string) =>
+    db.select({ familyId: guests.familyId }).from(guests).where(eq(guests.id, guestId)).get()!
+      .familyId;
+
+  const save = (
+    guestId: string,
+    eventId: string,
+    dietary: { text: string; presets: [] } | null,
+    actor = ORGANISER,
+  ) =>
+    run(
+      organiserRsvpService.record({
+        actorOsnProfileId: actor,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        guestId,
+        eventId,
+        status: "declined",
+        dietary,
+        dietaryConsent: false,
+        dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+        dietaryAttestedName: "",
+      }),
+    );
+
+  it("logs a status-only save on a plus-one's household reply, naming the organiser", async () => {
+    const samId = seedPlusOne(db, adaId, { firstName: "Sam" });
+    const hindu = eventBySlug("hindu");
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: samId,
+        eventId: hindu,
+        status: "attending",
+        dietary: "No sesame",
+        dietaryPresets: "",
+        dietaryConsentAt: new Date("2026-09-20T10:00:00Z"),
+        dietaryConsentVersion: PLUS_ONE_DIETARY_ATTESTATION.version,
+        consentSource: "inviter_attested",
+        createdAt: new Date("2026-09-20T10:00:00Z"),
+      })
+      .run();
+
+    await save(samId, hindu, null);
+
+    // Keyed on the plus-one whose reply it is, under the household.
+    expect(logged()).toEqual([
+      {
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        familyId: familyOf(samId),
+        guestId: samId,
+        eventId: hindu,
+        kind: "host_status_set",
+        actorGuestId: null,
+        actorOsnProfileId: ORGANISER,
+      },
+    ]);
+  });
+
+  it("logs every status-only save, on a member's reply or none, one row each", async () => {
+    const hindu = eventBySlug("hindu");
+    const reception = eventBySlug("reception");
+    await run(
+      rsvpService.submitRsvp({
+        guestId: adaId,
+        eventId: hindu,
+        status: "attending",
+        dietary: "No nuts",
+        dietaryPresets: [],
+        dietaryConsent: true,
+      }),
+    );
+    await save(adaId, hindu, null);
+    await save(adaId, hindu, null, "usr_second_organiser");
+    await save(adaId, reception, null);
+    expect(logged().map((r) => [r.eventId, r.kind, r.actorOsnProfileId])).toEqual([
+      [hindu, "host_status_set", ORGANISER],
+      [hindu, "host_status_set", "usr_second_organiser"],
+      [reception, "host_status_set", ORGANISER],
+    ]);
+  });
+
+  it("logs nothing for a full reply, dietary answer included", async () => {
+    await save(adaId, eventBySlug("hindu"), { text: "", presets: [] });
+    expect(logged()).toEqual([]);
+  });
+
+  /** A status-only save refused by a tenancy or invitation check: its error tag. */
+  const refusedStatusSave = async (guestId: string, eventId: string) =>
+    (
+      await run(
+        organiserRsvpService
+          .record({
+            actorOsnProfileId: ORGANISER,
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            guestId,
+            eventId,
+            status: "declined",
+            dietary: null,
+            dietaryConsent: false,
+            dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+            dietaryAttestedName: "",
+          })
+          .pipe(Effect.flip),
+      )
+    )._tag;
+
+  it("logs nothing when the guest is not invited to the event", async () => {
+    // Ada is not invited to the mehendi.
+    expect(await refusedStatusSave(adaId, eventBySlug("mehendi"))).toBe("GuestNotInvitedToEvent");
+    expect(logged()).toEqual([]);
+  });
+
+  it("logs nothing, and writes no reply, for another wedding's guest", async () => {
+    seedForeignWedding();
+    expect(await refusedStatusSave("guest_foreign", "evt_foreign")).toBe("GuestNotInWedding");
+    expect(logged()).toEqual([]);
+    expect(db.select().from(rsvps).where(eq(rsvps.guestId, "guest_foreign")).all()).toEqual([]);
+  });
+
+  it("logs nothing, and writes no reply, for another wedding's event", async () => {
+    seedForeignWedding();
+    expect(await refusedStatusSave(adaId, "evt_foreign")).toBe("EventNotInWedding");
+    expect(logged()).toEqual([]);
+    expect(db.select().from(rsvps).where(eq(rsvps.eventId, "evt_foreign")).all()).toEqual([]);
+  });
+
+  it("logs nothing when the status write itself fails", async () => {
+    db.$client.exec(
+      "CREATE TRIGGER fail_rsvp_insert BEFORE INSERT ON rsvps BEGIN SELECT RAISE(ABORT, 'boom'); END",
+    );
+    const exit = await Effect.runPromiseExit(
+      organiserRsvpService
+        .record({
+          actorOsnProfileId: ORGANISER,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          guestId: adaId,
+          eventId: eventBySlug("hindu"),
+          status: "declined",
+          dietary: null,
+          dietaryConsent: false,
+          dietaryAttestation: ORGANISER_DIETARY_ATTESTATION.version,
+          dietaryAttestedName: "",
+        })
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    expect(exit._tag).toBe("Failure");
+    expect(logged()).toEqual([]);
   });
 });
 

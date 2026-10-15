@@ -10,7 +10,10 @@
  *
  * One exception: a status-only recording (no dietary answer sent) sets the
  * status and keeps the stored dietary answer, with its consent record and its
- * `consent_source`, whoever gave it (`rsvpService.recordStatus`).
+ * `consent_source`, whoever gave it (`rsvpService.recordStatus`). Each such
+ * save also writes a `host_status_set` row to the RSVP change log naming the
+ * organiser, in the same batch, so who set a status outlives the next write
+ * over the row. A full recording is not logged.
  *
  * Every write names the organiser who made it (`recorded_by_osn_profile_id`),
  * and an organiser's consent record names the organiser who attested it
@@ -147,6 +150,7 @@ export const organiserRsvpService = {
       const [guestRow] = yield* dbQuery(() =>
         db
           .select({
+            familyId: guests.familyId,
             plusOneOf: guests.plusOneOfGuestId,
             eventInWedding: sql<number>`EXISTS (SELECT 1 FROM ${events} WHERE ${events.id} = ${eventId} AND ${events.weddingId} = ${weddingId})`,
             invited: sql<number>`EXISTS (SELECT 1 FROM ${guestEvents} WHERE ${guestEvents.guestId} = ${guestId} AND ${guestEvents.eventId} = ${eventId})`,
@@ -190,6 +194,8 @@ export const organiserRsvpService = {
       // stays, with its consent record and source.
       if (input.dietary === null) {
         const stored = yield* rsvpService.recordStatus({
+          weddingId,
+          familyId: guestRow.familyId,
           guestId,
           eventId,
           status,
