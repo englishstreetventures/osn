@@ -4,7 +4,7 @@
   "checklist": [
     {
       "name": "chose_explorer",
-      "description": "`DISPATCH.md` names `explorer` as the subagent to dispatch, and names exactly one subagent. Score 4 if `explorer` is the single named choice; 0 if it names `implementer`, `mechanic`, `reviewer`, `attacker` or `shepherd` instead, and 0 if it declines to choose or hands back two names for the caller to pick between.",
+      "description": "`DISPATCH.md` names `explorer` as the subagent to dispatch, and names exactly one subagent. Score 4 if `explorer` is the single named choice; 0 if it names `implementer`, `designer`, `mechanic`, `reviewer`, `attacker` or `shepherd` instead, and 0 if it declines to choose or hands back two names for the caller to pick between.",
       "max_score": 4
     },
     {
