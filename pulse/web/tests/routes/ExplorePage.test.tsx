@@ -203,6 +203,43 @@ describe("ExplorePage", () => {
     expect(lastArgs.query?.category).toBe("art");
   });
 
+  it("search filters events by title", async () => {
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
+    const { findByText, container } = render(() => <ExplorePage />);
+    await findByText("Jazz Night");
+    const input = container.querySelector("input[type='text']") as HTMLInputElement;
+    fireEvent.input(input, { target: { value: "ceramics" } });
+    // Ceramics should still be visible, others filtered
+    expect(container.textContent).toContain("Ceramics Open Studio");
+  });
+
+  it("search filters events by venue", async () => {
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
+    const { findByText, container } = render(() => <ExplorePage />);
+    await findByText("Jazz Night");
+    const input = container.querySelector("input[type='text']") as HTMLInputElement;
+    fireEvent.input(input, { target: { value: "prospect" } });
+    expect(container.textContent).toContain("Run Club");
+  });
+
+  it("search filters events by host name", async () => {
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
+    const { findByText, container } = render(() => <ExplorePage />);
+    await findByText("Jazz Night");
+    const input = container.querySelector("input[type='text']") as HTMLInputElement;
+    fireEvent.input(input, { target: { value: "sana" } });
+    expect(container.textContent).toContain("Ceramics Open Studio");
+  });
+
   it("shows empty state when search matches nothing", async () => {
     mockGet.mockResolvedValue({
       data: { events: sampleEvents, nextCursor: null, series: {} },
