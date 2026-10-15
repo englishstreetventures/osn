@@ -15,24 +15,21 @@ describe("buildInviteMessage", () => {
     );
     expect(message).toBe(
       "You're invited to Nadia & Sam! View your invitation and RSVP below.\n" +
-        "https://guests.test/nadia-sam-abc123\n" +
+        "https://guests.test/cire/invite?slug=nadia-sam-abc123\n" +
         "Your invitation code: SHARMA-WIDGET-AB3K9-X7QPM",
     );
     // Exactly three lines.
     expect(message.split("\n")).toHaveLength(3);
   });
 
-  it("links to the wedding's PATH on the SSR'd guest site (slug in the path)", () => {
+  it("links to the wedding through the fixed guest route", () => {
     const message = buildInviteMessage(
       "Nadia & Sam",
       "SHARMA-WIDGET-AB3K9-X7QPM",
       "nadia-sam-abc123",
     );
     const lines = message.split("\n");
-    // Line 2 is the link, carrying the slug in the PATH — the guest site is
-    // path-routed, so a bare-origin link would open the primary wedding, not this
-    // one.
-    expect(lines[1]).toBe("https://guests.test/nadia-sam-abc123");
+    expect(lines[1]).toBe("https://guests.test/cire/invite?slug=nadia-sam-abc123");
     // Line 3 is the family's claim code, labelled in the words the guest site's
     // own field uses — the message has to tell a first-time guest what the
     // string is for.
@@ -48,7 +45,7 @@ describe("buildInviteMessage", () => {
     );
     const lines = message.split("\n");
     expect(lines[0]).toBe("Come celebrate with us in Goa!");
-    expect(lines[1]).toBe("https://guests.test/nadia-sam-abc123");
+    expect(lines[1]).toBe("https://guests.test/cire/invite?slug=nadia-sam-abc123");
     // The label is composed, not part of the default prose, so a host's own
     // line 1 still ships a labelled code.
     expect(lines[2]).toBe("Your invitation code: SHARMA-WIDGET-AB3K9-X7QPM");
@@ -69,6 +66,6 @@ describe("buildInviteMessage", () => {
 
   it("URL-encodes a slug with unusual characters", () => {
     const message = buildInviteMessage("X", "CODE-1", "a b/c");
-    expect(message.split("\n")[1]).toBe("https://guests.test/a%20b%2Fc");
+    expect(message.split("\n")[1]).toBe("https://guests.test/cire/invite?slug=a%20b%2Fc");
   });
 });

@@ -4,10 +4,10 @@ import { isDesignId } from '@cire/invite-designs'
 import NotFoundDocument from '../../components/NotFoundDocument.astro'
 import { registry } from '../../designs/registry'
 import { resolveDesignId } from '../../designs/resolve'
-import { API_URL, fetchInviteForTrace } from '../../lib/invite'
+import { API_URL, fetchInviteForQueryRoute } from '../../lib/invite'
 
 const slug = Astro.url.searchParams.get('slug')
-const result = slug ? await fetchInviteForTrace(slug) : ({ kind: 'not-found' } as const)
+const result = slug ? await fetchInviteForQueryRoute(slug) : ({ kind: 'not-found' } as const)
 
 if (result.kind !== 'ok') {
   Astro.response.status = result.kind === 'error' ? 503 : 404

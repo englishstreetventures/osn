@@ -201,7 +201,6 @@ export const weddingsService = {
               slug,
               displayName: trimmed,
               codeStyle,
-              inviteTraceEligible: true,
               createdAt: now,
               updatedAt: now,
             }),

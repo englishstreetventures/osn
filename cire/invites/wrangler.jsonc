@@ -13,15 +13,14 @@
   // Workers Logs are sampled at 100% (low guest-site volume). Mirrors
   // cire-api's logging posture. Invocation records are off: each stores the
   // request URL, and `/<slug>` carries the wedding slug (the couple's names).
-  // Application logs stay on. This legacy Worker keeps production traces off
-  // because existing guest links carry the wedding slug in the path. The
-  // separately deployed /cire/* Worker traces future weddings. Dev overrides
-  // this block and traces both routes without query redaction.
+  // Application logs stay on. Native traces cover existing path links as well
+  // as the fixed query routes generated for new guest links. Dev overrides this
+  // block to trace without query redaction.
   "observability": {
     "enabled": true,
     "redact_query_string": true,
     "logs": { "invocation_logs": false },
-    "traces": { "enabled": false },
+    "traces": { "enabled": true, "head_sampling_rate": 1 },
   },
   // The SSR build is minified (astro.config.mjs); upload source maps so a
   // production exception still symbolicates to a real source line. The

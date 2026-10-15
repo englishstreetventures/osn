@@ -52,11 +52,9 @@ export default function PreviewInviteButton(props: { weddingId: string }) {
         return;
       }
       const body = (await res.json()) as { publicId: string; slug: string };
-      // Path-routed guest site: the wedding lives at `/<slug>`, so the preview
-      // opens the CORRECT wedding (not whatever the bare domain resolves to). The
-      // `?code=<host preview code>` rides on the path and auto-claims so the host
-      // lands straight on the events view.
-      const guestUrl = `${CIRE_WEB_URL}/${encodeURIComponent(body.slug)}?code=${encodeURIComponent(body.publicId)}`;
+      // The fixed guest route uses a slug query parameter. The host preview code
+      // auto-claims so the host lands straight on the events view.
+      const guestUrl = `${CIRE_WEB_URL}/cire/invite?slug=${encodeURIComponent(body.slug)}&code=${encodeURIComponent(body.publicId)}`;
       if (win) {
         win.location.href = guestUrl;
       } else {

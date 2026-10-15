@@ -373,7 +373,7 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
               if (existing) return { url: existing.url };
             }
 
-            const giftUrl = `${deps.guestOrigin.replace(/\/+$/, "")}/${encodeURIComponent(params.slug)}/registry`;
+            const giftUrl = `${deps.guestOrigin.replace(/\/+$/, "")}/cire/registry?slug=${encodeURIComponent(params.slug)}`;
             // Minted here so the row and the session name the same gift. It is
             // the ONLY thing about this gift that reaches Stripe.
             const contributionId = `rct_${crypto.randomUUID()}`;

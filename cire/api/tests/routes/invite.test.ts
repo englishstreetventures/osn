@@ -189,8 +189,8 @@ describe("GET /api/invite/:slug (public)", () => {
   });
 });
 
-describe("POST /api/invite/resolve (traced guest lookup)", () => {
-  it("resolves a legacy wedding through a fixed URL and keeps it ineligible for tracing", async () => {
+describe("POST /api/invite/resolve (fixed-path guest lookup)", () => {
+  it("resolves a wedding through a fixed URL", async () => {
     const { app } = buildApp();
     const res = await appRequest(app, "/api/invite/resolve", {
       method: "POST",
@@ -199,24 +199,7 @@ describe("POST /api/invite/resolve (traced guest lookup)", () => {
     });
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
-    expect(((await res.json()) as { inviteTraceEligible: boolean }).inviteTraceEligible).toBe(
-      false,
-    );
-  });
-
-  it("resolves a tracing eligible wedding through the same fixed URL", async () => {
-    const { app, db } = buildApp();
-    db.update(weddings)
-      .set({ inviteTraceEligible: true })
-      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
-      .run();
-    const res = await appRequest(app, "/api/invite/resolve", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slug: SLUG }),
-    });
-    expect(res.status).toBe(200);
-    expect(((await res.json()) as { inviteTraceEligible: boolean }).inviteTraceEligible).toBe(true);
+    expect(((await res.json()) as { designId: string }).designId).toBeDefined();
   });
 
   it("404s for an unknown slug", async () => {

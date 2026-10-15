@@ -1,17 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchInviteForTrace } from "../../src/lib/invite";
+import { fetchInviteForQueryRoute } from "../../src/lib/invite";
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("fetchInviteForTrace", () => {
-  it("keeps the slug out of the traced outbound URL", async () => {
+describe("fetchInviteForQueryRoute", () => {
+  it("keeps the slug out of the outbound URL", async () => {
     const fetchMock = vi.fn(async (_url: string, _init: RequestInit) =>
-      Response.json({ inviteTraceEligible: true, designId: "classic" }),
+      Response.json({ designId: "classic" }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await fetchInviteForTrace("couple-name");
+    const result = await fetchInviteForQueryRoute("couple-name");
     expect(result.kind).toBe("ok");
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchMock.mock.calls[0]!;
@@ -21,11 +21,14 @@ describe("fetchInviteForTrace", () => {
     expect(init.body).toBe(JSON.stringify({ slug: "couple-name" }));
   });
 
-  it("does not render weddings without the tracing flag", async () => {
+  it("renders an existing wedding", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ inviteTraceEligible: false })),
+      vi.fn(async () => Response.json({ designId: "classic" })),
     );
-    expect(await fetchInviteForTrace("existing-wedding")).toEqual({ kind: "not-found" });
+    expect(await fetchInviteForQueryRoute("existing-wedding")).toEqual({
+      kind: "ok",
+      invite: { designId: "classic" },
+    });
   });
 });

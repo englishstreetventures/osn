@@ -738,11 +738,9 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     }
   };
 
-  // The wedding's public guest-invite URL — same path-routed pattern used by
-  // PreviewInviteButton / buildInviteMessage (the guest site is SSR +
-  // path-routed, so the slug must be in the PATH; the bare origin would
-  // resolve to whatever wedding is primary, not necessarily this one).
-  const guestBaseUrl = () => `${CIRE_WEB_URL}/${encodeURIComponent(props.weddingSlug)}`;
+  // The wedding's public guest-invite URL, shared with generated messages.
+  const guestBaseUrl = () =>
+    `${CIRE_WEB_URL}/cire/invite?slug=${encodeURIComponent(props.weddingSlug)}`;
 
   /** The "Preview live" link target for a design card — the guest invite URL
    *  with `?design=<id>` appended (`&` if a query is already present). */

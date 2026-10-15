@@ -78,8 +78,8 @@ export async function fetchInvite(slug: string): Promise<InviteFetch> {
   }
 }
 
-/** Resolve a traced page through a fixed API path before any slug-bearing fetch. */
-export async function fetchInviteForTrace(slug: string): Promise<InviteFetch> {
+/** Resolve a query-routed page through a fixed API path. */
+export async function fetchInviteForQueryRoute(slug: string): Promise<InviteFetch> {
   try {
     const res = await fetch(`${API_URL}/api/invite/resolve`, {
       method: "POST",
@@ -89,8 +89,7 @@ export async function fetchInviteForTrace(slug: string): Promise<InviteFetch> {
     });
     if (res.status === 404) return { kind: "not-found" };
     if (!res.ok) return { kind: "error" };
-    const invite = (await res.json()) as InviteCustomisation;
-    return invite.inviteTraceEligible === true ? { kind: "ok", invite } : { kind: "not-found" };
+    return { kind: "ok", invite: (await res.json()) as InviteCustomisation };
   } catch {
     return { kind: "error" };
   }
@@ -102,20 +101,12 @@ export async function fetchInviteForTrace(slug: string): Promise<InviteFetch> {
 // to the marketing site (see `MARKETING_URL` above and `pages/index.astro`).
 
 /**
- * A wedding's invitation page — the route `[slug].astro` serves.
+ * A wedding's invitation page for newly generated links.
  *
  * Exists because the invite is now linked TO, not only landed on: the gift list
  * lives at its own route (`giftRegistryPath`) and its way home has to be the
- * same string the couple hand out. Encoded for the same reason the API encodes
- * a slug it puts in a URL.
+ * same string the couple hand out. Encode the slug as a query value.
  */
 export function invitePath(slug: string): string {
-  return `/${encodeURIComponent(slug)}`;
-}
-
-export function tracedGuestUrl(slug: string, page: "invite" | "registry", incoming: URL): URL {
-  const target = new URL(`/cire/${page}`, incoming);
-  target.search = incoming.search;
-  target.searchParams.set("slug", slug);
-  return target;
+  return `/cire/invite?slug=${encodeURIComponent(slug)}`;
 }

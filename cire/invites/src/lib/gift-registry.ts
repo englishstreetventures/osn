@@ -546,7 +546,7 @@ export function formatGiftPrice(priceMinor: number | null, currency: string): st
  * The gift list's own page
  *
  * The registry used to be the last section of the invite. It is now its own
- * route, `/<slug>/registry`, because it is the one part of an invitation a
+ * route, `/cire/registry?slug=…`, because it is the one part of an invitation a
  * guest comes BACK to — to see what is still free, to change what they
  * reserved, to open it in a shop on a phone. As a section at the bottom of a
  * long invite every one of those is a scroll past the whole story; as a page it
@@ -558,7 +558,7 @@ export function formatGiftPrice(priceMinor: number | null, currency: string): st
 
 /** The wedding's gift-list page. Encoded like every other slug in a URL here. */
 export function giftRegistryPath(slug: string): string {
-  return `/${encodeURIComponent(slug)}/registry`;
+  return `/cire/registry?slug=${encodeURIComponent(slug)}`;
 }
 
 /** Built-in copy when the organiser set none. */
