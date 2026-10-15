@@ -58,7 +58,7 @@ Each line of the body comes from a command or a file, not from memory.
 | Fact | Where it comes from |
 |---|---|
 | The base branch | `prep-pr` Step 0's `$BASE`: `main`, or the parent branch of a stacked one |
-| The impact, in numbers | the issue's **Why**, and a command that measures the change: a test count, a bundle size, a query count, a timing, a row count, how many users, weddings or files it reaches. Before and after, from the same command on the base and the head |
+| The impact, in numbers | the public issue's **Why** — never a tracker issue's, whose text stays private — and a command that measures the change: a test count, a bundle size, a query count, a timing, a row count, how many users, weddings or files it reaches, counted from the repository, a test or the dev tier — never from a production database or anyone's real data. Before and after where the run already has both: a review report's measurements, `git show "$DIFF_BASE":<file>` for a count in a file, CI on the base. Never build or test the base just for this section |
 | What changed | `git log "$DIFF_BASE"..HEAD --oneline`, `git diff --stat "$DIFF_BASE"...HEAD` |
 | The issues it fixes, wholly or in part | the issue `new-feat` took or opened (`NEW-FEAT.md`), and every tracker issue for a finding the branch fixed (`prep-pr` Step 7) |
 | The issues raised against it | each `write-issue` call this session, and the findings its review filed |
@@ -84,10 +84,10 @@ The title becomes the squash commit's subject on `main`, so it is read in `git l
 The first thing anyone reads, and the reason the pull request exists. One to three sentences, in plain English, that answer: **who is better off after this merges, and by how much?**
 
 - **Lead with the effect, not the change.** "Organisers can chase the 40 households that never replied without re-sending to the 160 who did" is an impact. "Adds a resend endpoint" is a summary, and belongs one section down.
-- **Use a number whenever the change has one**, and write it out: `3 database round trips per page load, down from 11`, `bundle 212 kB → 148 kB`, `5 flaky tests made deterministic`, `every pull request CI runs`. Before and after where both exist. Each number comes from a command or a file, as Step 2 says, and the test plan or a decision shows where.
+- **Use a number whenever the change has one**, and write it out: `3 database round trips per page load, down from 11`, `bundle 212 kB → 148 kB`, `5 flaky tests made deterministic`, `every pull request CI runs`. Before and after where the run already has both — never build the base just to get the before. Each number comes from a command or a file, as Step 2 says, and the test plan or a decision shows where.
 - **No number to give is fine; an invented one is not.** Say plainly what gets better and for whom: "A reviewer no longer has to open the diff to learn which issues the merge closes." Never "improves performance", "better developer experience" or "cleaner code" — name the person and the thing they can now do, or stop doing.
 - **Tooling, skills and docs have readers too.** The effect is on the agents and people who use them: what they now get right that they got wrong, or how much less they spend.
-- **A tracker fix states only the present effect.** "Guest sessions now last 14 days." No before value, no "who was exposed", nothing about the old behaviour — the same rule as the Summary below, and it overrides the before-and-after rule above.
+- **A tracker fix states only the present effect, and it overrides every rule above.** "Guest sessions now last 14 days." No before value, no "down from", "no longer" or "previously", no "who was exposed" or who is better off for it, nothing about the old behaviour — the same rule as the Summary below. That one sentence is a complete Impact for a branch that only fixes tracker issues; it is not `None`. The same holds when the change is to a skill or a tool: say what it now does, never what it used to get wrong.
 
 ### Owner actions, at the end of Impact
 
@@ -105,7 +105,7 @@ Use `**Do not merge until**`, `**At deploy**` or `**After merging**`, and name t
 
 What changed, now that Impact has said why it matters: two or three sentences, then bullets for what the prose cannot carry. Do not repeat the impact. Describe the change, not the session: "I explored", "after three attempts", "Phase 2 complete" and a list of every file touched belong in your report to whoever dispatched you. The commits carry the steps; the diff carries the files.
 
-**Deep dive, only when the change needs one.** A `### Deep dive` at the end of `## Summary` explains how it works — the mechanism, the data flow, a diagram, the trade-off a reviewer must understand to judge the diff. A rename, a bump or a copy change has none; leave the heading out rather than writing `None`.
+**Deep dive, only when the change needs one.** A `### Deep dive` at the end of `## Summary` explains how it works — the mechanism, the data flow, a diagram, the trade-off a reviewer must understand to judge the diff. A rename, a bump or a copy change has none; leave the heading out rather than writing `None`. A tracker fix never has one: how the fix works points at what it fixed.
 
 **For a tracker fix, say what the code now does and stop**, as the diff and the changeset already do: "Guest sessions now last 14 days." Never what was wrong with the old behaviour, how it could be abused, or which finding the change answers. Those stay in the tracker issue.
 
@@ -209,7 +209,13 @@ Each of these has shipped in this repository's pull requests.
 Check before sending:
 
 - [ ] `grep -c '^## \(Impact\|Summary\|Workspaces affected\|Issues\|Decisions\|Test plan\)$' PR-BODY.md` and `grep -c '^## ' PR-BODY.md` both print `6`.
-- [ ] `## Impact` is not `None`, says who is better off, and carries a number wherever the change has one.
+- [ ] `## Impact` is not `None`, says who is better off, and carries a number wherever the change has one — unless the body closes a tracker issue, where it says only what the code now does. Then this prints nothing:
+
+  ```bash
+  grep -niE 'down from|no longer|previously|used to|→|->|was exposed' PR-BODY.md
+  ```
+
+- [ ] No count in the body comes from production data.
 - [ ] Owner actions, if any, at the end of `## Impact`.
 - [ ] One plain `Closes` line per fixed issue, in `## Issues`, tracker lines last and bare; `Part of` for a partial fix; no closing keyword in prose before an issue the branch does not close.
 - [ ] No finding ID in the title, the branch name, a commit message or the body — these four print nothing:
