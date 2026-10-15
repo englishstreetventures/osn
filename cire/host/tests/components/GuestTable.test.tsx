@@ -150,7 +150,7 @@ describe("GuestTable", () => {
     expect(copied).toContain("Nadia & Sam");
     // Path-routed: the link carries the wedding slug in the PATH, not the bare
     // origin — so the message opens THIS wedding on the SSR'd guest site.
-    expect(copied).toContain("https://guests.test/nadia-sam-abc123");
+    expect(copied).toContain("https://guests.test/cire/invite?slug=nadia-sam-abc123");
     expect(copied).toContain("SHARMA-WIDGET-AB3K9-X7QPM");
 
     // Fires the mark-shared POST for that family.
@@ -339,7 +339,7 @@ describe("GuestTable", () => {
     // still appended on their own lines beneath it (3-line shape).
     expect(copied).toBe(
       "Come celebrate with us in Goa!\n" +
-        "https://guests.test/nadia-sam-abc123\n" +
+        "https://guests.test/cire/invite?slug=nadia-sam-abc123\n" +
         "Your invitation code: SHARMA-WIDGET-AB3K9-X7QPM",
     );
   });
