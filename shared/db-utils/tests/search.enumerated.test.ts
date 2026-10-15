@@ -41,7 +41,7 @@ describe("handlePrefixRange — range membership is exactly prefix matching", ()
       const char = String.fromCharCode(unit);
       if (handlePrefixRange(char) !== null) accepted.push(char);
     }
-    expect(accepted.sort()).toEqual([...handleChars].sort());
+    expect(accepted.toSorted()).toEqual(handleChars.toSorted());
   });
 
   /**
