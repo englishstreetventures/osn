@@ -11,7 +11,7 @@ packages:
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-15
 ---
 
 # Browser Tests
@@ -245,6 +245,12 @@ _Verified 2026-09-18 — `VITEST_BROWSER_EXECUTABLE_PATH=/opt/pw-browsers/chromi
 The variable is declared in `turbo.json` under `passThroughEnv`, not `env` — it
 says _where_ Chromium is, never _what_ the tests assert, so it must not enter
 the cache key.
+
+A failing test leaves a screenshot of the page as it failed, at
+`<package>/.vitest/attachments/failure-screenshots/<test file>/<full test name>.png`,
+with every non-word character in the name turned into `-`.
+Look there before re-running a failure that only Chromium shows. `.vitest/` is
+gitignored.
 
 ## CI
 
