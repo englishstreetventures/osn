@@ -279,6 +279,7 @@ DEPS-REVIEW.md
 # of thing: what survives the decision goes to the wiki, not to the root.
 TSDOC-EVALUATION.md
 
-# Stryker mutation testing: reports and the in-place backup directory
-reports/mutation/
-.stryker-tmp/
+# Stryker mutation testing: reports, sandboxes, and the vitest runner's setup file
+**/reports/mutation/
+.stryker-tmp*/
+stryker-setup-*.js

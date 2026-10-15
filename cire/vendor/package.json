@@ -15,7 +15,7 @@
     "preview": "astro preview",
     "check": "bunx --bun astro check",
     "test": "bunx --bun vitest",
-    "test:mutation": "stryker run",
+    "test:mutation": "bun ../../scripts/stryker-cire.ts",
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {

@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[testing-patterns]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-10-15
 ---
 
 # CLI Commands Reference
@@ -45,7 +45,7 @@ bun run --cwd shared/ui test:browser      # Modal, form and data primitives unde
 `test` and `test:run` there cover the unit project alone and `test:browser` is a
 separate script. `@osn/auth-ui` has a single config and no `test:browser`.
 
-Always use `bunx --bun vitest` instead of plain `vitest`. The `--bun` flag is required for `bun:sqlite` module access. The `test:run` scripts in each `package.json` already include this flag.
+Always use `bunx --bun vitest` instead of plain `vitest`. The `--bun` flag is required for `bun:sqlite` module access. The `test:run` scripts in each `package.json` already include this flag. The one exception is a mutation run (`test:mutation`, cire only): Stryker starts Vitest under Node itself — [[testing-patterns#Mutation testing]].
 
 ## Code Quality
 

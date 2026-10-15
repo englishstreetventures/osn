@@ -7,7 +7,7 @@ related:
   - "[[schema-layers]]"
   - "[[commands]]"
   - "[[bundle-size-guards]]"
-last-reviewed: 2026-10-10
+last-reviewed: 2026-10-15
 ---
 
 # Testing Patterns
@@ -197,7 +197,7 @@ A tautological test passes whatever the code under test does, because it checks 
 - an assertion that cannot be false: `expect(true)`, `toBeDefined()` on a value just built, a snapshot of a mock;
 - asserting only that a mock was called, not what the call did.
 
-The check is the same as for the entries below: break the line the test names, and it must go red.
+The check is the same as for the entries below: break the line the test names, and it must go red. For cire code, [[#Mutation testing]] does the breaking for you.
 
 ### `created_at` is unix seconds, so rows written together tie
 
@@ -340,6 +340,112 @@ element itself — `expect(document.activeElement).toBe(target)` — or at least
 that it is not `document.body` before any `contains` check.
 `cire/host/tests/components/HostsPanel.test.tsx` ("moves focus to the offer…")
 shows the form.
+
+## Mutation testing
+
+Every check in [[#Assertions that cannot fail]] comes down to one question: if
+the line this test names were broken, would the test go red? [Stryker](https://stryker-mutator.io/)
+answers it mechanically. It makes one small change to the source at a time —
+`<` to `<=`, a condition to `true`, a string to `""`, a block emptied — runs the
+tests that cover that line, and reports the change as **killed** (a test went
+red) or **survived** (every test stayed green). A survivor is a behaviour no
+assertion pins, found without anyone having to spot it.
+
+Every `cire/*` package with tests has a `stryker.config.mjs` and a
+`test:mutation` script. Other products do not have it yet.
+
+### When to run it
+
+When you write or change tests for cire source, run it on the source files you
+changed, before calling the tests done. A full-package run is for a baseline,
+not for a branch: one `@cire/host` file is several hundred mutants and about ten
+minutes, and the whole package is hours.
+
+```bash
+# A vitest package: scope with --mutate
+bun run --cwd cire/host test:mutation --mutate src/lib/guest-event-draft.ts
+
+# Several files, or a line range
+bun run --cwd cire/vendor test:mutation --mutate 'src/lib/enquiry-inbox.ts,src/lib/theme.ts:20-48'
+
+# @cire/api: also name the tests that cover the file — it will not start without them
+STRYKER_TESTS=tests/lib/money.test.ts bun run --cwd cire/api test:mutation --mutate src/lib/money.ts
+```
+
+Run a long one in the background: the agent shell's foreground limit is ten
+minutes, and an interrupted run only wastes the time already spent. The report
+is printed as it finishes and written to `reports/mutation/mutation.html` in
+the package (git-ignored).
+
+### What to do with a survivor
+
+Each survivor prints as the file, the line, and the change that survived:
+
+```text
+[Survived] EqualityOperator
+src/index.ts:224:7
+-     if (labels.length < chosen.size) {
++     if (labels.length <= chosen.size) {
+```
+
+1. **Kill it.** Write the test that tells the two versions apart — here, the
+   case where `labels.length` equals `chosen.size` — and run again. The new test
+   must assert what a caller sees, never the mutated expression itself.
+2. **Or name it equivalent.** Some mutants cannot change behaviour (a default
+   that is overwritten on every path, a log message's wording). Leave it, and
+   say why in the pull request; do not write a test that asserts a string only
+   to kill a mutant.
+3. **`NoCoverage` is worse than a survivor.** No test even ran the line.
+
+A score is not a target. Chasing 100% buys tests that assert log wording and
+class strings; what matters is that no survivor sits on a line your branch
+changed without one of the two answers above.
+
+### How the runners differ
+
+| Packages | Runner | What it runs per mutant |
+|---|---|---|
+| `@cire/host`, `@cire/invites`, `@cire/vendor`, `@cire/ui`, `@cire/landing`, `@cire/build-tools`, `@cire/invite-designs` | `@stryker-mutator/vitest-runner` | only the tests that cover the mutated line |
+| `@cire/api`, `@cire/db`, `@cire/dietary`, `@cire/theme` | Stryker's `command` runner | the whole command — `bun test`, or `@cire/api`'s `STRYKER_TESTS` |
+
+What the configs depend on, and what breaks without it:
+
+- **Stryker runs on Node, not Bun.** Its binary is `#!/usr/bin/env node`, so the
+  vitest packages' tests run under Node during a mutation run, not under
+  `bunx --bun`. None of them use a `bun:` module today; one that does cannot be
+  mutation-tested through the vitest runner.
+- **Stryker 9.6.1, not 10.** Stryker 10 needs `@babel/core` 8, and the root
+  `package.json` overrides `@babel/core` to 7.29, so 10 crashes while
+  instrumenting.
+- **Every vitest config names `@stryker-mutator/vitest-runner` in `plugins`.**
+  Bun's isolated install hides the runner from Stryker's plugin discovery, which
+  fails with "Cannot find TestRunner plugin".
+- **Stryker runs from the repo root, not the package.** It copies its working
+  directory into a sandbox (`.stryker-tmp-cire-<pkg>/` at the root) and mutates
+  the copy, so the working tree is never touched. Run from the package, the copy
+  would hold that package alone, and every path a test reaches outside it with
+  — `../../shared/test-config/no-jest-dom.ts`, a contract test reading
+  `../../../api/src`, a seed test running `../../../../scripts` — would resolve
+  to nothing. [`scripts/stryker-cire.ts`](../../scripts/stryker-cire.ts), which
+  every `test:mutation` script calls, runs Stryker from the root with the
+  package's config and rewrites `--mutate` paths from package-relative to
+  root-relative. Do not switch a config to `inPlace`: it writes
+  `// @ts-nocheck` into every source and test file for the length of the run,
+  and leaves the mutated source behind if the run is killed.
+- **Each vitest package runs `stryker.vitest.config.ts`**, which is its
+  `vitest.config.ts` with `root` pinned back to the package — Vitest otherwise
+  takes the root from Stryker's working directory.
+- **`@cire/host`'s and `@cire/invites`' configs also drop the `browser`
+  project**, because the vitest runner starts every project and a Chromium per
+  mutant is not affordable. A
+  mutant only the browser tier can kill reports as a survivor.
+- **`@cire/host`'s script sets `TZ=Australia/Sydney`.** The vitest runner forces
+  the `threads` pool, where a project's `env: { TZ }` cannot take effect, and the
+  zone-dependent tests then fail the dry run.
+- **`@cire/api` needs `STRYKER_TESTS`.** The full suite takes over a minute and
+  boots workerd; the command runner would run it once per mutant, several at a
+  time. Keep `tests/db/` out of it: a Miniflare test that times out is counted as
+  a kill.
 
 ## Kobalte overlays and the tests after them
 
@@ -651,6 +757,9 @@ bun run --cwd pulse/api test
 
 # The browser tier, per package
 bun run --cwd shared/ui test:browser
+
+# Mutation testing, cire only, scoped to the files you changed
+bun run --cwd cire/host test:mutation --mutate src/lib/guest-event-draft.ts
 ```
 
 `@shared/ui` runs the two-project split — `unit` and `browser` — that

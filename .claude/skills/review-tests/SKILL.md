@@ -160,10 +160,59 @@ A test asserting only that a function returns without throwing is not coverage. 
 
 To test a suspect, ask: if I broke the line this test names, would it go red? When the answer is no, that is `T-U` for the export it claims to cover — the export is untested. Name the real behaviour to assert in the `Solution`, and in the `Why` name the change that would pass unnoticed.
 
+For changed cire source, Step 5 runs this check mechanically. Reading still
+comes first: a mutant survives only on a line that runs, so a test that never
+reaches the code shows as `NoCoverage`, not as a tautology.
+
 **A comment is a claim, not a test.** A `// covered by the integration suite`, a
 describe block named after a case it never asserts, or a doc comment listing
 error modes is not evidence any of it runs. Grep for the assertion. Coverage is
 what an assertion would go red over, nothing else.
+
+## Step 5 — Mutation-test the changed cire source
+
+Every `cire/*` package with tests has a `test:mutation` script that runs
+Stryker: it breaks one line at a time and reports each break no test noticed.
+Other products have none yet; for them this step is `not applicable`, not
+`NOT RUN`.
+
+**Only when the brief says you are alone in the worktree.** Stryker mutates a
+copy in `.stryker-tmp-cire-<pkg>/` at the repo root and leaves tracked files
+alone, but it is a build-sized load, and two runs in one checkout share that
+directory. Not alone: record each run you would have made under `## Not run`.
+
+For each affected cire package, run it on the **changed source files only** —
+never the whole package, which takes hours. Run it in the background (the
+shell's foreground limit is ten minutes; one `@cire/host` file is about ten)
+and keep auditing while it runs:
+
+```bash
+bun run --cwd cire/<pkg> test:mutation --mutate '<src/a.ts>,<src/b.tsx>' > <scratch>/mutation-<pkg>.log 2>&1
+```
+
+`@cire/api` will not start without `STRYKER_TESTS`, the test files that cover
+the mutated code — the paired files from Step 3, never `tests/db/`:
+
+```bash
+STRYKER_TESTS='tests/lib/money.test.ts' bun run --cwd cire/api test:mutation --mutate src/lib/money.ts
+```
+
+Read the `[Survived]` and `[NoCoverage]` entries from the log. Each prints the
+file, the line and the change. **Report only those on lines the branch
+changed** — `git diff -U0 "$DIFF_BASE"...HEAD -- <file>` gives the ranges;
+survivors on untouched lines predate the branch and are not its gaps. Each one
+reported is a gap:
+
+- a survivor or `NoCoverage` in an error path, a gate or a denial is `T-E`;
+- any other is `T-U` for the export the line belongs to.
+
+Group survivors that share one missing test into one gap. Quote the mutation in
+the `Issue` (`src/lib/money.ts:42 — \`<\` → \`<=\` survived`), and in the
+`Solution` name the input that tells the two versions apart. A mutant that
+cannot change behaviour (an overwritten default, log wording) is not a gap:
+list it under the file's line in `## Files audited` as `equivalent mutant` with
+the reason. Put each package's mutation score and survivor count in
+`## Tests`.
 
 ## Finding format
 
