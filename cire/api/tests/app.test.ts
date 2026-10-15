@@ -469,43 +469,98 @@ describe("a refused request does no credential work", () => {
     });
   }
 
-  describe("POST /api/invite/:slug/registry/contribute", () => {
-    async function contribute(allowed: boolean) {
-      const guestDb = createDb(":memory:");
-      seedDb(guestDb);
-      const guestApp = createApp(guestDb, {
-        stripe: unreachedStripe,
-        // Its own claim budget, so the cookie below never meets a limit
-        // another suite spent.
-        claimLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
-        registryContributeLimiter: allowed ? allowing : refusing,
-      });
-      const claim = await appRequest(guestApp, "/api/claim", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ publicId: "TESTONE-IVY-AA11" }),
-      });
-      const token = /cire_session=([^;]+)/.exec(claim.headers.get("set-cookie") ?? "")?.[1];
-      expect(token).toBeTruthy();
-      const statements = recordStatements(guestDb);
-      const res = await appRequest(guestApp, "/api/invite/cire-wedding/registry/contribute", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", cookie: `cire_session=${token}` },
-        body: JSON.stringify({ amountMinor: 5000 }),
-      });
-      return { res, statements };
-    }
+  type GuestLimiterOption =
+    | "rsvpLimiter"
+    | "claimSessionLimiter"
+    | "plusOneLimiter"
+    | "registryContributeLimiter";
 
-    it("refuses a claimed guest's session cookie before any query", async () => {
-      const { res, statements } = await contribute(false);
-      expect(res.status).toBe(429);
-      expect(statements).toEqual([]);
-    });
+  const guestRoutes: {
+    name: string;
+    method: string;
+    path: string;
+    limiter: GuestLimiterOption;
+    body?: unknown;
+  }[] = [
+    { name: "POST /api/rsvp", method: "POST", path: "/api/rsvp", limiter: "rsvpLimiter", body: {} },
+    {
+      name: "POST /api/claim/member",
+      method: "POST",
+      path: "/api/claim/member",
+      limiter: "claimSessionLimiter",
+      body: { guestId: "gst_probe" },
+    },
+    {
+      name: "DELETE /api/claim/member",
+      method: "DELETE",
+      path: "/api/claim/member",
+      limiter: "claimSessionLimiter",
+    },
+    {
+      name: "PUT /api/plus-one/:guestId",
+      method: "PUT",
+      path: "/api/plus-one/gst_probe",
+      limiter: "plusOneLimiter",
+      body: {},
+    },
+    {
+      name: "DELETE /api/plus-one/:guestId",
+      method: "DELETE",
+      path: "/api/plus-one/gst_probe",
+      limiter: "plusOneLimiter",
+    },
+    {
+      name: "POST /api/invite/:slug/registry/contribute",
+      method: "POST",
+      path: "/api/invite/cire-wedding/registry/contribute",
+      limiter: "registryContributeLimiter",
+      body: { amountMinor: 5000 },
+    },
+  ];
 
-    it("control: let through, the cookie costs the session lookup", async () => {
-      const { res, statements } = await contribute(true);
-      expect(res.status).not.toBe(429);
-      expect(statements[0]?.sql).toMatch(/from "sessions"/);
+  /** A claimed guest's request to `route`, with only that route's limiter set. */
+  async function guestRequest(route: (typeof guestRoutes)[number], allowed: boolean) {
+    const guestDb = createDb(":memory:");
+    seedDb(guestDb);
+    const options: AppOptions = {
+      stripe: unreachedStripe,
+      // Its own claim budget, so the cookie below never meets a limit another
+      // suite spent.
+      claimLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
+    };
+    options[route.limiter] = allowed ? allowing : refusing;
+    const guestApp = createApp(guestDb, options);
+    const claim = await appRequest(guestApp, "/api/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ publicId: "TESTONE-IVY-AA11" }),
     });
-  });
+    const token = /cire_session=([^;]+)/.exec(claim.headers.get("set-cookie") ?? "")?.[1];
+    expect(token).toBeTruthy();
+    const statements = recordStatements(guestDb);
+    const cookie = `cire_session=${token}`;
+    const res = await appRequest(guestApp, route.path, {
+      method: route.method,
+      headers:
+        route.body === undefined ? { cookie } : { cookie, "Content-Type": "application/json" },
+      body: route.body === undefined ? undefined : JSON.stringify(route.body),
+    });
+    return { res, statements };
+  }
+
+  for (const route of guestRoutes) {
+    describe(route.name, () => {
+      it("refuses a claimed guest's session cookie before any query", async () => {
+        const { res, statements } = await guestRequest(route, false);
+        expect(res.status).toBe(429);
+        expect(statements).toEqual([]);
+      });
+
+      it("control: let through, the cookie costs the session lookup", async () => {
+        const { res, statements } = await guestRequest(route, true);
+        expect(res.status).not.toBe(429);
+        expect(statements[0]?.sql).toMatch(/from "sessions"/);
+      });
+    });
+  }
 });

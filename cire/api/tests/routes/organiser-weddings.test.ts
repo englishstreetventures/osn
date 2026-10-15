@@ -1066,6 +1066,48 @@ describe("POST /api/organiser/weddings/:weddingId/families/:familyId/mark-shared
   });
 });
 
+// The preview, remint and mark-shared routes put their per-IP limiter ahead of
+// sign-in, so a request that fails sign-in spends the budget like any other,
+// and remint and mark-shared spend one budget between them.
+describe("per-IP budgets on preview-code, remint and mark-shared", () => {
+  const base = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}`;
+
+  function appWith(limiters: {
+    previewLimiter?: ReturnType<typeof createRateLimiter>;
+    remintLimiter?: ReturnType<typeof createRateLimiter>;
+  }) {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const app = createApp(db, { osnTestKey: auth.key, ...limiters });
+    const family = db
+      .select({ id: families.id })
+      .from(families)
+      .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+      .all()[0];
+    if (!family) throw new Error("no bootstrap family seeded");
+    return { app, familyId: family.id };
+  }
+
+  it("remint and mark-shared share one budget, and a failed sign-in spends it", async () => {
+    const { app, familyId } = appWith({
+      remintLimiter: createRateLimiter({ maxRequests: 2, windowMs: 60_000 }),
+    });
+    expect((await post(app, `${base}/remint`)).status).toBe(401);
+    expect(
+      (await post(app, `${base}/families/${familyId}/mark-shared`, BOOTSTRAP_OWNER)).status,
+    ).toBe(200);
+    expect((await post(app, `${base}/remint`, BOOTSTRAP_OWNER)).status).toBe(429);
+  });
+
+  it("preview-code: a failed sign-in spends the budget", async () => {
+    const { app } = appWith({
+      previewLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    });
+    expect((await post(app, `${base}/preview-code`)).status).toBe(401);
+    expect((await post(app, `${base}/preview-code`, BOOTSTRAP_OWNER)).status).toBe(429);
+  });
+});
+
 describe("POST /api/organiser/weddings/:weddingId/families/:familyId/deactivate + reactivate", () => {
   const COHOST = "usr_cohost_deact";
 

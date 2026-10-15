@@ -132,6 +132,31 @@ describe("osnAuth", () => {
     }
   });
 
+  it("falls back to the bearer token when the organiser cookie is dead", async () => {
+    const db = createDb(":memory:");
+    const res = await appRequest(buildApp(db), "/probe", {
+      headers: {
+        cookie: "cire_org_session=not-a-live-session-token",
+        Authorization: `Bearer ${await mint("osn-access", "usr_bearer1")}`,
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ profileId: "usr_bearer1" });
+  });
+
+  it("takes the organiser cookie's profile over a bearer token's", async () => {
+    const db = createDb(":memory:");
+    const token = await seedOrganiserSession(db, "usr_cookie4");
+    const res = await appRequest(buildApp(db), "/probe", {
+      headers: {
+        cookie: `cire_org_session=${token}`,
+        Authorization: `Bearer ${await mint("osn-access", "usr_bearer2")}`,
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ profileId: "usr_cookie4" });
+  });
+
   it("refuses a dead organiser cookie", async () => {
     const db = createDb(":memory:");
     const res = await appRequest(buildApp(db), "/probe", {

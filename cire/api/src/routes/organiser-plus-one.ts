@@ -75,7 +75,7 @@ export const createOrganiserPlusOneRoutes = (db: Db, osnAuthOptions: OsnAuthOpti
         .put(
           "/guests/:guestId/plus-one",
           async ({ weddingId, params, request, set }) => {
-            // weddingEditor() always derives this; the guard keeps a future
+            // weddingEditor() always resolves this; the guard keeps a future
             // remount without the plugin from compiling into an unscoped write.
             if (!weddingId) {
               set.status = 500;

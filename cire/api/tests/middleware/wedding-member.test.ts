@@ -36,11 +36,11 @@ function buildDb(): Db {
   return db;
 }
 
-/** Stands in for the upstream osnAuth() plugin by deriving a fixed profile. */
+/** Stands in for the upstream osnAuth() plugin by resolving a fixed profile. */
 function buildApp(profileId?: string) {
   const db = buildDb();
   return new Elysia({ aot: false })
-    .derive(() => ({ osnProfileId: profileId }))
+    .resolve(() => ({ osnProfileId: profileId }))
     .group("/weddings/:weddingId", (group) =>
       group
         .use(weddingMember(db))
@@ -76,7 +76,7 @@ describe("weddingMember", () => {
       })
       .run();
     const app = new Elysia({ aot: false })
-      .derive(() => ({ osnProfileId: "usr_viewer" }))
+      .resolve(() => ({ osnProfileId: "usr_viewer" }))
       .group("/weddings/:weddingId", (group) =>
         group.use(weddingMember(db)).get("/probe", ({ weddingRole }) => ({ weddingRole })),
       );
@@ -101,7 +101,7 @@ describe("weddingMember", () => {
       })
       .run();
     const app = new Elysia({ aot: false })
-      .derive(() => ({ osnProfileId: "usr_helper" }))
+      .resolve(() => ({ osnProfileId: "usr_helper" }))
       .group("/weddings/:weddingId", (group) =>
         group.use(weddingMember(db)).get("/probe", ({ weddingRole }) => ({ weddingRole })),
       );
@@ -145,7 +145,7 @@ describe("weddingMember", () => {
       })
       .run();
     const app = new Elysia({ aot: false })
-      .derive(() => ({ osnProfileId: "usr_coowner" }))
+      .resolve(() => ({ osnProfileId: "usr_coowner" }))
       .group("/weddings/:weddingId", (group) =>
         group
           .use(weddingMember(db))
@@ -162,7 +162,7 @@ describe("weddingMember", () => {
     const db = buildDb();
     const slugApp = (profileId: string) =>
       new Elysia({ aot: false })
-        .derive(() => ({ osnProfileId: profileId }))
+        .resolve(() => ({ osnProfileId: profileId }))
         .group("/weddings/:weddingId", (group) =>
           group.use(weddingMember(db)).get("/probe", ({ weddingSlug }) => ({ weddingSlug })),
         );

@@ -70,7 +70,7 @@ export const createOrganiserRsvpRoutes = (
         .put(
           "/guests/:guestId/rsvps/:eventId",
           async ({ weddingId, osnProfileId, params, request, set }) => {
-            // weddingEditor() always derives the wedding, and refuses a request
+            // weddingEditor() always resolves the wedding, and refuses a request
             // without a profile; the guard keeps a future remount without either
             // plugin from compiling into an unscoped or unattributed write.
             if (!weddingId || !osnProfileId) {

@@ -75,7 +75,7 @@ function gated(db: Db, caller: string, gate: RoleGate, min: PaidTier) {
           ? weddingOwner(db)
           : weddingRunSheet(db);
   return new Elysia({ aot: false })
-    .derive(() => ({ osnProfileId: caller }))
+    .resolve(() => ({ osnProfileId: caller }))
     .group("/w/:weddingId", (g) =>
       g
         .use(role)
@@ -95,7 +95,7 @@ function ungated(db: Db, caller: string, gate: RoleGate) {
           ? weddingOwner(db)
           : weddingRunSheet(db);
   return new Elysia({ aot: false })
-    .derive(() => ({ osnProfileId: caller }))
+    .resolve(() => ({ osnProfileId: caller }))
     .group("/w/:weddingId", (g) => g.use(role).get("/thing", () => ({ ok: true })));
 }
 
@@ -221,7 +221,7 @@ describe("weddingTier fails closed on what it cannot trust", () => {
     // take it as one: it reads the wedding's tier itself, and Ivory is refused.
     const { db, selectCount } = countingDb(buildDb("ivory"));
     const app = new Elysia({ aot: false })
-      .derive(() => ({ weddingTier: "platinum" }))
+      .resolve(() => ({ weddingTier: "platinum" }))
       .group("/w/:weddingId", (g) =>
         g.use(weddingTier(db, "gold")).get("/thing", () => ({ ok: true })),
       );

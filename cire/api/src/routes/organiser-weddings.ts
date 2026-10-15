@@ -89,7 +89,7 @@ const noStore = (set: { headers: HTTPHeaders }) => {
 
 /**
  * Wedding-scoped organiser routes, mounted under /api/organiser. osnAuth()
- * gates every route in this instance (osnProfileId derived on every request).
+ * gates every route in this instance (osnProfileId resolved on every request).
  *
  * The per-wedding subtree splits by authorisation level (roles matrix,
  * platform-plan §3.5):
@@ -145,7 +145,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
       group
         .use(weddingMember(db))
         .get("/guests", ({ weddingId, set }) => {
-          // weddingMember() always derives this; the guard keeps a future
+          // weddingMember() always resolves this; the guard keeps a future
           // remount without the plugin from compiling into an unscoped query.
           if (!weddingId) {
             set.status = 500;
