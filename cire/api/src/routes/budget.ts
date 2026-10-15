@@ -309,6 +309,8 @@ export const createBudgetWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) 
                 // Unreachable: this patch never names the deadline. Handled so
                 // the union stays total rather than falling to the defect arm.
                 Effect.catchTag("RsvpDeadlineInPast", () => internal(set)),
+                // Unreachable too: this patch never names the currency.
+                Effect.catchTag("CurrencyLockedByCashGifts", () => internal(set)),
                 Effect.catchDefect(() => internal(set)),
               ),
             );

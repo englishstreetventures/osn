@@ -133,6 +133,12 @@ export interface CreateCheckoutSessionInput {
    * means — here, one guest's one press.
    */
   idempotencyKey: string;
+  /**
+   * Unix seconds at which Stripe closes the page. A page stays payable until
+   * then whatever changes here meanwhile, so the caller keeps it short; Stripe
+   * refuses less than 30 minutes ahead.
+   */
+  expiresAt: number;
 }
 
 /** A hosted Checkout page, waiting for a card. */
@@ -457,6 +463,7 @@ export function createStripeClient(config: StripeConfig): StripeClient {
             },
           },
           client_reference_id: input.clientReferenceId,
+          expires_at: input.expiresAt,
           metadata: input.metadata,
           // The same metadata on the PaymentIntent, so a couple looking at the
           // charge in their own Stripe dashboard can see which wedding and

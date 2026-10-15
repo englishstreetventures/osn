@@ -48,6 +48,17 @@ describe("legal pages", () => {
     });
   }
 
+  /**
+   * The guest-data sweep leaves the couple an unnamed record of their gifts
+   * (`GiftSummary` in `cire/api/src/services/retention.ts`) that outlives the
+   * year, so the couples' notice says what it holds and how long it stays.
+   */
+  it("privacy names the gift record the couple keep after the guest data goes", () => {
+    expect(privacy).toMatch(/the couple keep a record of their gifts with no guest names in it/);
+    expect(privacy).toMatch(/the amount, currency and day of each money gift/);
+    expect(privacy).toMatch(/up to 30 days later/);
+  });
+
   it("footer links every legal page", () => {
     for (const name of Object.keys(legalPages)) {
       expect(footer).toContain(`href="/${name}"`);

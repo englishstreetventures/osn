@@ -305,12 +305,26 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
         return;
       }
       if (res.status === 409) {
-        // The API's own `stripe_not_ready`. The switch below is disabled until
-        // Stripe can charge, so reaching this means the account's state changed
-        // under the page — say the true thing rather than "check the fields".
+        // One of the API's money-gift refusals. Each says what is true rather
+        // than "check the fields": nothing in the form is wrong.
+        //  - `stripe_not_ready`: the switch below is disabled until Stripe can
+        //    charge, so reaching this means the account changed under the page.
+        //  - `currency_mismatch`: every gift is charged in the wedding's
+        //    currency, and this account would pay it out in another.
+        //  - `stripe_currency_unknown`: Stripe has not yet said which currency
+        //    the account pays out in. Only an owner may ask it again.
         haptic("reject");
         setCashGifts(false);
-        toast.error("Stripe can’t take a payment for this wedding yet, so money gifts stay off.");
+        const code = refusal?.error;
+        toast.error(
+          code === "currency_mismatch"
+            ? "Your Stripe account pays out in a different currency from this wedding, so money gifts stay off."
+            : code === "stripe_currency_unknown"
+              ? props.canManage
+                ? "Stripe hasn’t told us which currency your account pays out in yet, so money gifts stay off. We’ve asked again — try in a few minutes."
+                : "Stripe hasn’t told us which currency your account pays out in yet, so money gifts stay off. Ask an owner to check the Stripe connection, then try again."
+              : "Stripe can’t take a payment for this wedding yet, so money gifts stay off.",
+        );
         // Re-read the two Stripe columns that went stale — NOT
         // `invalidateRegistry`. Nothing on this tab re-fetches after a load, so
         // dropping the snapshot would leave the form rendering off `null`: no

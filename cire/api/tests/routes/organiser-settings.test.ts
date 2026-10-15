@@ -1,12 +1,13 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, events, weddingHosts, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, registrySettings, weddingHosts, weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { appRequest } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { insertWedding } from "../test-helpers/wedding";
@@ -545,6 +546,69 @@ describe("PUT /api/organiser/weddings/:weddingId/settings", () => {
     const row = getWedding(db);
     expect(row.rsvpDeadline).toBe("2027-02-20");
     expect(row.rsvpDeadlineTimezone).toBe("Australia/Sydney");
+  });
+});
+
+describe("the wedding's currency while money gifts are on", () => {
+  /**
+   * Guests are charged in the wedding's currency, and money gifts can only be
+   * on while the couple's Stripe account settles in that same currency. A
+   * currency change would break that behind the couple's back, so the API
+   * refuses it with a code the portal can explain.
+   */
+  function cashGiftsOn(db: TestDb, settles: string | null) {
+    const now = new Date();
+    db.insert(registrySettings)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        published: true,
+        cashGiftsEnabled: true,
+        stripeAccountId: "acct_couple",
+        stripeChargesEnabled: true,
+        stripeDefaultCurrency: settles,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  it("answers 409 currency_locked_by_cash_gifts and leaves the currency alone", async () => {
+    const { app, db } = buildApp();
+    cashGiftsOn(db, "AUD");
+    const res = await req(app, "PUT", SETTINGS_PATH, OWNER, { currency: "USD" });
+    expect(res.status).toBe(409);
+    expect((await res.json()) as unknown).toEqual({ error: "currency_locked_by_cash_gifts" });
+    expect(getWedding(db).currency).toBe("AUD");
+  });
+
+  it("refuses the same through an organiser session cookie, and 401s a dead one", async () => {
+    // The portal saves with the organiser session cookie, not a bearer token.
+    const { app, db } = buildApp();
+    cashGiftsOn(db, "AUD");
+    const token = await seedOrganiserSession(db, OWNER);
+    const put = (cookie: string) =>
+      appRequest(app, SETTINGS_PATH, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", cookie },
+        body: JSON.stringify({ currency: "USD" }),
+      });
+
+    const live = await put(`cire_org_session=${token}`);
+    expect(live.status).toBe(409);
+    expect((await live.json()) as unknown).toEqual({ error: "currency_locked_by_cash_gifts" });
+    expect((await put("cire_org_session=not-a-live-session-token")).status).toBe(401);
+    expect(getWedding(db).currency).toBe("AUD");
+  });
+
+  it("still saves the rest of a whole-profile form that re-sends the same currency", async () => {
+    const { app, db } = buildApp();
+    cashGiftsOn(db, "AUD");
+    const res = await req(app, "PUT", SETTINGS_PATH, OWNER, {
+      displayName: "Renamed",
+      currency: "AUD",
+    });
+    expect(res.status).toBe(200);
+    expect(getWedding(db).displayName).toBe("Renamed");
   });
 });
 

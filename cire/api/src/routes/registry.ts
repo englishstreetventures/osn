@@ -264,9 +264,9 @@ export const createRegistryWriteRoutes = (
             return runCire(
               Effect.gen(function* () {
                 const body = yield* Schema.decodeUnknownEffect(UpdateRegistrySettingsBody)(raw);
-                // The cash-gifts/Stripe invariant lives in the service (S-M3),
-                // not here: this route used to load the WHOLE snapshot — items,
-                // gift log, currency — to read one boolean off it (P-C2).
+                // The cash-gifts and currency invariants live in the service,
+                // not here: reading them through the whole snapshot — items,
+                // gift log, currency — would load all of it to check one row.
                 const settings = yield* registryService.updateSettings(weddingId, body);
                 return { settings };
               }).pipe(
@@ -274,6 +274,9 @@ export const createRegistryWriteRoutes = (
                 Effect.catchTag("SchemaError", () => badRequest(set)),
                 Effect.catchTag("StripeNotReady", () => conflict(set, "stripe_not_ready")),
                 Effect.catchTag("CurrencyMismatch", () => conflict(set, "currency_mismatch")),
+                Effect.catchTag("SettlementCurrencyUnknown", () =>
+                  conflict(set, "stripe_currency_unknown"),
+                ),
                 Effect.catchTag("SettingsChanged", (e) => settingsChanged(set, e.current)),
                 Effect.tapDefect(logDefect(weddingId)),
                 Effect.catchDefect(() => internal(set)),

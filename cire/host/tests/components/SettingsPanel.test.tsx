@@ -390,6 +390,25 @@ describe("SettingsPanel", () => {
     expect(toastSuccess).not.toHaveBeenCalled();
   });
 
+  it("says money gifts hold the currency, not the fields, when that is the refusal", async () => {
+    // Every gift is charged in the wedding's currency, so the API refuses a
+    // currency change while money gifts are on and Stripe pays out in another
+    // currency or has not said which.
+    authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
+    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+    await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
+
+    authFetchMock.mockResolvedValueOnce(json({ error: "currency_locked_by_cash_gifts" }, 409));
+    fireEvent.click(screen.getByText("Save settings"));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    const message = String(toastError.mock.calls[0]?.[0]);
+    expect(message).toMatch(/Turn money gifts off in Registry settings/);
+    expect(message).toMatch(/reload/i);
+    expect(message).not.toMatch(/check the fields/i);
+    expect(toastSuccess).not.toHaveBeenCalled();
+  });
+
   describe("the danger zone", () => {
     it("is offered to an owner", async () => {
       authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));

@@ -219,6 +219,7 @@ describe("createCheckoutSession", () => {
     // it before it reads any metadata.
     clientReferenceId: "rct_1",
     idempotencyKey: "cire-gift-abc",
+    expiresAt: 1_900_000_000,
   };
 
   /**
@@ -259,6 +260,8 @@ describe("createCheckoutSession", () => {
     expect(body).toContain("line_items%5B0%5D%5Bprice_data%5D%5Bunit_amount%5D=12500");
     expect(body).toContain("line_items%5B0%5D%5Bprice_data%5D%5Bcurrency%5D=aud");
     expect(body).toContain("metadata%5BcontributionId%5D=rct_1");
+    // The page closes when the caller says, not after Stripe's default day.
+    expect(body).toContain("expires_at=1900000000");
   });
 
   it("refuses a 200 that is not a session it can send anyone to", async () => {

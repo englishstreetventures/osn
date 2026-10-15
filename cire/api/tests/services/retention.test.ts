@@ -27,8 +27,13 @@ import {
 } from "../../src/metrics";
 import type { DeletableBucket } from "../../src/services/r2-cleanup";
 import {
+  type GiftSummary,
   type GiftSummaryNotice,
+  GIFT_SUMMARY_MAX_LISTED,
+  GIFT_SUMMARY_STORE_CHUNK_CHARS,
+  MAX_LISTED_GIFTS_PER_SWEEP,
   MAX_WEDDINGS_PER_SWEEP,
+  packGiftSummaries,
   retentionService,
   RETENTION_AFTER_FINAL_EVENT_MS,
   GIFT_SUMMARY_HOLD_BACK_MS,
@@ -1006,7 +1011,7 @@ describe("the parting gift summary", () => {
           firstGiftOn: string;
           lastGiftOn: string;
           claims: { reserved: number; purchased: number };
-          contributions: { count: number; totals: { currency: string; amountMinor: number }[] };
+          contributions: GiftSummary["contributions"];
         };
         expect(summary.sweptOn).toBe("2026-06-17");
         // The span the counted gifts actually arrived over — epoch seconds out
@@ -1021,11 +1026,22 @@ describe("the parting gift summary", () => {
         // Only money that actually moved, summed per currency — never converted.
         expect(summary.contributions.count).toBe(3);
         expect(summary.contributions.totals).toEqual([
-          { currency: "AUD", amountMinor: 17_500 },
-          { currency: "JPY", amountMinor: 3_000 },
+          { currency: "AUD", amountMinor: 17_500, count: 2 },
+          { currency: "JPY", amountMinor: 3_000, count: 1 },
         ]);
-        // AGGREGATES ONLY. The detail is gone, and the summary must not be the
-        // deletion undone in the row next door.
+        // Each money gift, as given and on its day — and the unsettled one is
+        // not among them. Two arrived on the same day, so compared as a set.
+        expect(summary.contributions.gifts).toHaveLength(3);
+        for (const listed of [
+          { on: "2025-05-11", amountMinor: 12_500, currency: "AUD" },
+          { on: "2025-05-11", amountMinor: 5_000, currency: "AUD" },
+          { on: "2025-05-20", amountMinor: 3_000, currency: "JPY" },
+        ]) {
+          expect(summary.contributions.gifts).toContainEqual(listed);
+        }
+        expect(summary.contributions.gifts.at(-1)?.on).toBe("2025-05-20");
+        // NO NAMES. Who gave and what they wrote are what the sweep deletes,
+        // and the summary must not be that deletion undone in the row next door.
         const raw = row?.giftSummaryJson ?? "";
         expect(raw).not.toContain("Ashworth");
         expect(raw).not.toContain("Enjoy Japan");
@@ -1417,7 +1433,8 @@ describe("the parting gift summary", () => {
     const summary = JSON.parse(storedSummary(db, wedding.weddingId) ?? "{}");
     expect(summary.contributions).toEqual({
       count: 1,
-      totals: [{ currency: "AUD", amountMinor: 5_000 }],
+      totals: [{ currency: "AUD", amountMinor: 5_000, count: 1 }],
+      gifts: [{ on: "2025-05-11", amountMinor: 5_000, currency: "AUD" }],
     });
     expect(contributionCount(db, wedding.weddingId)).toBe(0);
     expect(importsLeft(db, wedding.weddingId)).toBe(0);
@@ -1496,7 +1513,11 @@ describe("the parting gift summary", () => {
     await runOn(db, addGift(wedding.weddingId, familyId, { amountMinor: 5_000, at: later }));
     await runOn(
       db,
-      addGift(wedding.weddingId, familyId, { amountMinor: 3_000, currency: "JPY", at: later }),
+      addGift(wedding.weddingId, familyId, {
+        amountMinor: 3_000,
+        currency: "JPY",
+        at: new Date("2026-06-18T01:00:00.000Z"),
+      }),
     );
     const itemId = `reg_${crypto.randomUUID()}`;
     db.insert(registryItems)
@@ -1544,8 +1565,14 @@ describe("the parting gift summary", () => {
       contributions: {
         count: 3,
         totals: [
-          { currency: "AUD", amountMinor: 17_500 },
-          { currency: "JPY", amountMinor: 3_000 },
+          { currency: "AUD", amountMinor: 17_500, count: 2 },
+          { currency: "JPY", amountMinor: 3_000, count: 1 },
+        ],
+        // The earlier sweep's gift first, then the new ones, oldest first.
+        gifts: [
+          { on: "2025-05-11", amountMinor: 12_500, currency: "AUD" },
+          { on: "2026-06-18", amountMinor: 5_000, currency: "AUD" },
+          { on: "2026-06-18", amountMinor: 3_000, currency: "JPY" },
         ],
       },
     });
@@ -1611,6 +1638,389 @@ describe("the parting gift summary", () => {
     expect(logs).toContain("no registry row to land on");
     expect(seen).toEqual([]);
     expect(await written("ok")).toBe(okBefore);
+  });
+});
+
+describe("each money gift, listed in the kept summary", () => {
+  /** `n` settled gifts on `weddingId`, one a minute from `start`, in chunks. */
+  function addGifts(db: TestDb, weddingId: string, familyId: string, n: number, start: Date) {
+    const rows = Array.from({ length: n }, (_, i) => {
+      const at = new Date(start.getTime() + i * 60_000);
+      return {
+        id: `rct_${crypto.randomUUID()}`,
+        weddingId,
+        itemId: null,
+        familyId,
+        status: "succeeded" as const,
+        amountMinor: 1_000 + i,
+        currency: "AUD",
+        stripeCheckoutSessionId: `cs_${crypto.randomUUID()}`,
+        createdAt: at,
+        updatedAt: at,
+      };
+    });
+    // bun:sqlite binds at most 999 parameters a statement; 50 rows is 500.
+    for (let i = 0; i < rows.length; i += 50) {
+      db.insert(registryContributions)
+        .values(rows.slice(i, i + 50))
+        .run();
+    }
+  }
+
+  /** A wedding with a published registry and `n` gifts, its last event on `eventDate`. */
+  async function weddingWithGifts(db: TestDb, eventDate: string, n: number) {
+    const wedding = await runOn(db, makeWedding({ eventDates: [eventDate] }));
+    db.insert(registrySettings)
+      .values({
+        weddingId: wedding.weddingId,
+        published: true,
+        createdAt: GIFT_STAMP,
+        updatedAt: GIFT_STAMP,
+      })
+      .run();
+    addGifts(db, wedding.weddingId, wedding.familyId, n, GIFT_STAMP);
+    return wedding;
+  }
+
+  const kept = (db: TestDb, weddingId: string): GiftSummary | null => {
+    const raw = storedSummary(db, weddingId);
+    return raw === null ? null : (JSON.parse(raw) as GiftSummary);
+  };
+
+  it("lists the oldest gifts up to the cap, and counts and totals every one", async () => {
+    const db = freshDb();
+    const n = GIFT_SUMMARY_MAX_LISTED + 5;
+    const wedding = await weddingWithGifts(db, "2025-06-01", n);
+
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+
+    const summary = kept(db, wedding.weddingId);
+    expect(summary?.contributions.count).toBe(n);
+    // 1,000 + 1,001 + … + 1,204.
+    const total = n * 1_000 + (n * (n - 1)) / 2;
+    expect(summary?.contributions.totals).toEqual([
+      { currency: "AUD", amountMinor: total, count: n },
+    ]);
+    expect(summary?.contributions.gifts).toHaveLength(GIFT_SUMMARY_MAX_LISTED);
+    // Oldest first, and the oldest are the ones kept.
+    expect(summary?.contributions.gifts[0]).toEqual({
+      on: "2025-05-11",
+      amountMinor: 1_000,
+      currency: "AUD",
+    });
+    expect(summary?.contributions.gifts.at(-1)?.amountMinor).toBe(
+      1_000 + GIFT_SUMMARY_MAX_LISTED - 1,
+    );
+  });
+
+  it("leaves a wedding past the run's budget for the next run, and takes the giftless ones behind it", async () => {
+    // Enough full lists to fill the budget, then one more, then a wedding
+    // with no money gift. All a year past their last event and inside the
+    // hold-back (swept 2026-06-17: due after 2025-05-18, before 2025-06-17),
+    // oldest first.
+    const db = freshDb();
+    const full = MAX_LISTED_GIFTS_PER_SWEEP / GIFT_SUMMARY_MAX_LISTED;
+    const fitting = [];
+    for (let i = 0; i < full; i++) {
+      fitting.push(
+        await weddingWithGifts(db, `2025-05-${String(20 + i)}`, GIFT_SUMMARY_MAX_LISTED),
+      );
+    }
+    const over = await weddingWithGifts(db, "2025-06-01", GIFT_SUMMARY_MAX_LISTED);
+    const giftless = await runOn(db, makeWedding({ eventDates: ["2025-06-02"] }));
+
+    const logs = await captureLogs(() =>
+      runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT)),
+    );
+
+    for (const wedding of fitting) {
+      expect(guestCount(db, wedding.guestId)).toBe(0);
+      expect(kept(db, wedding.weddingId)?.contributions.gifts).toHaveLength(
+        GIFT_SUMMARY_MAX_LISTED,
+      );
+    }
+    // Waiting, untouched: its households and gifts are still there to count.
+    expect(guestCount(db, over.guestId)).toBe(1);
+    expect(storedSummary(db, over.weddingId)).toBeNull();
+    expect(contributionCount(db, over.weddingId)).toBe(GIFT_SUMMARY_MAX_LISTED);
+    expect(logs).toContain("deferred to the next run");
+    expect(logs).not.toContain(over.weddingId);
+    // A wedding with nothing to list never waits behind one that has a lot.
+    expect(guestCount(db, giftless.guestId)).toBe(0);
+
+    // The next run, it leads the cohort and is taken.
+    await runOn(db, retentionService.sweepExpiredGuestData(new Date("2026-06-18T04:00:00.000Z")));
+    expect(guestCount(db, over.guestId)).toBe(0);
+    expect(kept(db, over.weddingId)?.contributions.count).toBe(GIFT_SUMMARY_MAX_LISTED);
+  });
+
+  it("never makes a wedding past the hold-back ceiling wait, and lists only what the budget has room for", async () => {
+    // Every one of these is more than 30 days past its retention date, so the
+    // privacy notice's year outranks the budget: all are taken, with records.
+    // But the list is cut to what the budget can afford, so a backlog of
+    // overdue weddings cannot take the cron past its CPU or its batch.
+    const db = freshDb();
+    const full = MAX_LISTED_GIFTS_PER_SWEEP / GIFT_SUMMARY_MAX_LISTED;
+    const fitting = [];
+    for (let i = 0; i < full - 1; i++) {
+      fitting.push(
+        await weddingWithGifts(
+          db,
+          `2025-04-${String(i + 1).padStart(2, "0")}`,
+          GIFT_SUMMARY_MAX_LISTED,
+        ),
+      );
+    }
+    // Leaves room for 50 more: the next overdue wedding lists 50 of its 200.
+    const nearlyFull = await weddingWithGifts(db, "2025-04-10", GIFT_SUMMARY_MAX_LISTED - 50);
+    const partial = await weddingWithGifts(db, "2025-04-11", GIFT_SUMMARY_MAX_LISTED);
+    const none = await weddingWithGifts(db, "2025-04-12", GIFT_SUMMARY_MAX_LISTED);
+    // Inside the hold-back, behind a run that has spent its budget: with
+    // nothing to list it still has no reason to wait.
+    const giftless = await runOn(db, makeWedding({ eventDates: ["2025-06-02"] }));
+
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+
+    for (const wedding of [...fitting, nearlyFull, partial, none, giftless]) {
+      expect(guestCount(db, wedding.guestId)).toBe(0);
+    }
+    for (const wedding of fitting) {
+      expect(kept(db, wedding.weddingId)?.contributions.gifts).toHaveLength(
+        GIFT_SUMMARY_MAX_LISTED,
+      );
+    }
+    // The oldest 50 listed; every gift still counted and totalled.
+    const cut = kept(db, partial.weddingId);
+    expect(cut?.contributions.count).toBe(GIFT_SUMMARY_MAX_LISTED);
+    expect(cut?.contributions.gifts).toHaveLength(50);
+    expect(cut?.contributions.gifts[0]?.amountMinor).toBe(1_000);
+    expect(cut?.contributions.gifts.at(-1)?.amountMinor).toBe(1_049);
+    const unlisted = kept(db, none.weddingId);
+    expect(unlisted?.contributions.count).toBe(GIFT_SUMMARY_MAX_LISTED);
+    expect(unlisted?.contributions.gifts).toEqual([]);
+    expect(unlisted?.contributions.totals[0]?.count).toBe(GIFT_SUMMARY_MAX_LISTED);
+  });
+
+  /** A household that arrives after the sweep, bringing the wedding back. */
+  function returningHousehold(db: TestDb, weddingId: string, at: Date): string {
+    const familyId = crypto.randomUUID();
+    db.insert(families)
+      .values({
+        id: familyId,
+        weddingId,
+        publicId: `PUB-late-${familyId}`,
+        familyName: "Late",
+        createdAt: at,
+        updatedAt: at,
+      })
+      .run();
+    return familyId;
+  }
+
+  /** Put `summary` on a wedding's settings row, as an earlier sweep would. */
+  function keep(db: TestDb, weddingId: string, summary: unknown) {
+    db.update(registrySettings)
+      .set({ giftSummaryJson: JSON.stringify(summary), giftSummaryAt: GIFT_STAMP })
+      .where(eq(registrySettings.weddingId, weddingId))
+      .run();
+  }
+
+  /** A stored summary listing `n` gifts of 1,000 + i, all on 2025-05-11. */
+  const storedList = (n: number): GiftSummary => ({
+    sweptOn: "2026-06-01",
+    firstGiftOn: "2025-05-11",
+    lastGiftOn: "2025-05-11",
+    claims: { reserved: 0, purchased: 0 },
+    contributions: {
+      count: n,
+      totals: [{ currency: "AUD", amountMinor: n * 1_000 + (n * (n - 1)) / 2, count: n }],
+      gifts: Array.from({ length: n }, (_, i) => ({
+        on: "2025-05-11",
+        amountMinor: 1_000 + i,
+        currency: "AUD",
+      })),
+    },
+  });
+
+  it("adds new gifts to a summary kept before gifts were listed, and leaves its counts unknown", async () => {
+    // A summary stored before this record listed gifts has totals with no
+    // count. A count added to one would sit beside a total of more gifts than
+    // it says, so the merged total keeps no count; a new currency keeps its own.
+    const db = freshDb();
+    const wedding = await weddingWithGifts(db, "2025-06-01", 3);
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+    keep(db, wedding.weddingId, {
+      sweptOn: "2026-06-17",
+      firstGiftOn: "2025-05-11",
+      lastGiftOn: "2025-05-11",
+      claims: { reserved: 0, purchased: 0 },
+      contributions: { count: 3, totals: [{ currency: "AUD", amountMinor: 3_003 }] },
+    });
+    const later = new Date("2026-06-18T00:00:00.000Z");
+    const familyId = returningHousehold(db, wedding.weddingId, later);
+    await runOn(db, addGift(wedding.weddingId, familyId, { amountMinor: 100, at: later }));
+    await runOn(
+      db,
+      addGift(wedding.weddingId, familyId, {
+        amountMinor: 300,
+        currency: "JPY",
+        at: new Date("2026-06-18T01:00:00.000Z"),
+      }),
+    );
+
+    await runOn(db, retentionService.sweepExpiredGuestData(new Date("2026-06-20T04:00:00.000Z")));
+
+    const summary = kept(db, wedding.weddingId);
+    expect(summary?.contributions.count).toBe(5);
+    expect(summary?.contributions.totals).toEqual([
+      { currency: "AUD", amountMinor: 3_103 },
+      { currency: "JPY", amountMinor: 300, count: 1 },
+    ]);
+    // Only the new gifts can be listed; the three before are counted, unlisted.
+    expect(summary?.contributions.gifts).toEqual([
+      { on: "2026-06-18", amountMinor: 100, currency: "AUD" },
+      { on: "2026-06-18", amountMinor: 300, currency: "JPY" },
+    ]);
+  });
+
+  it("keeps the oldest gifts when a returning wedding's list passes the cap", async () => {
+    const db = freshDb();
+    const wedding = await weddingWithGifts(db, "2025-06-01", 150);
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+    const later = new Date("2026-06-18T00:00:00.000Z");
+    const familyId = returningHousehold(db, wedding.weddingId, later);
+    addGifts(db, wedding.weddingId, familyId, 100, later);
+
+    await runOn(db, retentionService.sweepExpiredGuestData(new Date("2026-06-20T04:00:00.000Z")));
+
+    const summary = kept(db, wedding.weddingId);
+    expect(summary?.contributions.count).toBe(250);
+    expect(summary?.contributions.gifts).toHaveLength(GIFT_SUMMARY_MAX_LISTED);
+    expect(summary?.contributions.gifts[0]).toEqual({
+      on: "2025-05-11",
+      amountMinor: 1_000,
+      currency: "AUD",
+    });
+    expect(summary?.contributions.gifts[149]?.on).toBe("2025-05-11");
+    expect(summary?.contributions.gifts[150]?.on).toBe("2026-06-18");
+  });
+
+  it("counts a returning wedding's stored list against the run's budget", async () => {
+    // Its record is rewritten — stored list and new gift together — so the
+    // stored gifts are encoded and mailed this run, and they count.
+    const db = freshDb();
+    const room = MAX_LISTED_GIFTS_PER_SWEEP - 100;
+    for (let i = 0; i < room / GIFT_SUMMARY_MAX_LISTED; i++) {
+      await weddingWithGifts(db, `2025-05-${String(20 + i)}`, GIFT_SUMMARY_MAX_LISTED);
+    }
+    await weddingWithGifts(db, "2025-05-30", room % GIFT_SUMMARY_MAX_LISTED);
+    const returning = await weddingWithGifts(db, "2025-06-01", 1);
+    keep(db, returning.weddingId, storedList(150));
+
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+
+    // 151 listed would pass the budget with the rest already in: it waits.
+    expect(guestCount(db, returning.guestId)).toBe(1);
+    expect(kept(db, returning.weddingId)?.contributions.gifts).toHaveLength(150);
+  });
+
+  it("spends none of the budget on a returning wedding with nothing new", async () => {
+    // Nothing new means no summary rewritten and nothing mailed, so its stored
+    // list costs this run nothing and holds nobody back.
+    const db = freshDb();
+    const idle = await weddingWithGifts(db, "2025-05-19", 0);
+    keep(db, idle.weddingId, storedList(GIFT_SUMMARY_MAX_LISTED));
+    const full = MAX_LISTED_GIFTS_PER_SWEEP / GIFT_SUMMARY_MAX_LISTED;
+    const others = [];
+    for (let i = 0; i < full; i++) {
+      others.push(await weddingWithGifts(db, `2025-05-${String(20 + i)}`, GIFT_SUMMARY_MAX_LISTED));
+    }
+
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+
+    for (const wedding of others) expect(guestCount(db, wedding.guestId)).toBe(0);
+    // Swept, and its record left exactly as it was.
+    expect(guestCount(db, idle.guestId)).toBe(0);
+    expect(kept(db, idle.weddingId)).toEqual(storedList(GIFT_SUMMARY_MAX_LISTED));
+  });
+
+  it("lists a negative amount as nothing, and totals what it lists", async () => {
+    // The amount column has no CHECK; a negative row must not subtract from
+    // what the couple were given, in the list or in the total.
+    const db = freshDb();
+    const wedding = await weddingWithGifts(db, "2025-06-01", 1);
+    await runOn(
+      db,
+      addGift(wedding.weddingId, wedding.familyId, {
+        amountMinor: -500,
+        at: new Date("2025-05-12T00:00:00.000Z"),
+      }),
+    );
+
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+
+    const summary = kept(db, wedding.weddingId);
+    expect(summary?.contributions.gifts).toEqual([
+      { on: "2025-05-11", amountMinor: 1_000, currency: "AUD" },
+      { on: "2025-05-12", amountMinor: 0, currency: "AUD" },
+    ]);
+    const listedSum = (summary?.contributions.gifts ?? []).reduce((n, g) => n + g.amountMinor, 0);
+    expect(summary?.contributions.totals[0]?.amountMinor).toBe(listedSum);
+  });
+});
+
+describe("packGiftSummaries", () => {
+  const summary = (gifts: number): GiftSummary => ({
+    sweptOn: "2026-06-17",
+    firstGiftOn: "2025-05-11",
+    lastGiftOn: "2025-06-11",
+    claims: { reserved: 99, purchased: 99 },
+    contributions: {
+      count: gifts,
+      totals: [{ currency: "AUD", amountMinor: 999_999_999, count: gifts }],
+      gifts: Array.from({ length: gifts }, () => ({
+        on: "2025-05-11",
+        amountMinor: 999_999_999,
+        currency: "AUD",
+      })),
+    },
+  });
+
+  it("keeps a run at the budget to a handful of statements, each under the chunk size", () => {
+    // The worst run the budget allows: every listed gift a nine-digit amount,
+    // packed into full lists, and the rest of the wedding cap with records but
+    // no gifts listed.
+    const summaries = new Map<string, GiftSummary>();
+    const full = MAX_LISTED_GIFTS_PER_SWEEP / GIFT_SUMMARY_MAX_LISTED;
+    for (let i = 0; i < MAX_WEDDINGS_PER_SWEEP; i++) {
+      summaries.set(crypto.randomUUID(), summary(i < full ? GIFT_SUMMARY_MAX_LISTED : 0));
+    }
+    const packs = packGiftSummaries(summaries);
+    // Far under the 50 statements a D1 batch takes, with the deletes beside it.
+    expect(packs.length).toBeLessThanOrEqual(6);
+    for (const pack of packs) {
+      expect(pack.payload.length).toBeLessThanOrEqual(GIFT_SUMMARY_STORE_CHUNK_CHARS);
+    }
+    // Every wedding exactly once, and each payload says which.
+    const ids = packs.flatMap((pack) => pack.weddingIds);
+    expect(ids.toSorted()).toEqual([...summaries.keys()].toSorted());
+    for (const pack of packs) {
+      const entries = JSON.parse(pack.payload) as { weddingId: string; summary: string }[];
+      expect(entries.map((entry) => entry.weddingId)).toEqual(pack.weddingIds);
+      for (const entry of entries) {
+        expect(JSON.parse(entry.summary)).toEqual(summaries.get(entry.weddingId));
+      }
+    }
+  });
+
+  it("sends a summary longer than the budget alone rather than splitting it", () => {
+    const summaries = new Map([
+      ["wed_a", summary(1)],
+      ["wed_big", summary(GIFT_SUMMARY_MAX_LISTED)],
+      ["wed_c", summary(1)],
+    ]);
+    const packs = packGiftSummaries(summaries, 2_000);
+    expect(packs.map((pack) => pack.weddingIds)).toEqual([["wed_a"], ["wed_big"], ["wed_c"]]);
   });
 });
 

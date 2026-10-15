@@ -121,6 +121,14 @@ export const createOrganiserSettingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
                     set.status = 400;
                     return { error: "rsvp_deadline_in_past" };
                   }),
+                // Money gifts are on and the couple's Stripe account settles in
+                // another currency (or has not said which). The portal tells the
+                // couple to turn money gifts off first.
+                CurrencyLockedByCashGifts: () =>
+                  Effect.sync(() => {
+                    set.status = 409;
+                    return { error: "currency_locked_by_cash_gifts" };
+                  }),
                 SettingsWriteError: () =>
                   Effect.sync(() => {
                     set.status = 500;

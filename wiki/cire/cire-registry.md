@@ -47,7 +47,7 @@ One row per wedding, keyed by `wedding_id` (PK + FK cascade). **An absent row re
 | `shipping_address`, `shipping_visible_from`                                                          | Shown to claimed guests only; the date is the "don't ship until we're back" pattern                                                                                                                 |
 | `stripe_account_id`, `stripe_charges_enabled`, `stripe_payouts_enabled`, `stripe_account_updated_at` | Connect state, cached from the `account.updated` webhook so the portal needs no live Stripe call per page load                                                                                      |
 | `stripe_deauthorized_at`, `stripe_deauthorized_account_id` | What a revocation leaves behind. `account.application.deauthorized` NULLs `stripe_account_id` — that is what disarms the guest gate and what lets the couple reconnect, since the attach path only ever fills a NULL — so these two are the only record of which account the wedding's earlier gifts settled into. Nothing in the product reads them |
-| `gift_summary_json`, `gift_summary_at` (migration 0058)                                              | What the couple keeps after the 1-year sweep takes the detail: counts and per-currency totals, no household, no name, no note. Written by the sweep itself, immediately before the delete           |
+| `gift_summary_json`, `gift_summary_at` (migration 0058)                                              | What the couple keeps after the 1-year sweep takes the detail: counts, per-currency totals and each money gift's amount, currency and day — no household, no name, no note. Written by the sweep itself, in the delete's batch |
 
 ### `registry_items`
 
@@ -90,13 +90,11 @@ The guest's words are in `message`, and `note_hidden_at` / `note_hidden_by_osn_p
 **The wedding has one primary currency** — `weddings.currency`, already shared with [[cire-budget]]. The registry reuses it and introduces no second source of truth.
 
 - **Everything the organiser authors is in the primary currency.** `registry_items.price_minor` has no currency column of its own. A gift list quoted in four currencies is unreadable, and a per-item currency is the change that makes it one.
-- **Only received money can be foreign.** A contribution stores `amount_minor` + `currency` **as given**, plus `primary_amount_minor` + `primary_currency` + `fx_rate` + `fx_rate_at` — the primary-currency equivalent. All four are NULL when the gift arrived in the primary currency, which is the common case, and the UI then shows a single figure.
-- **The host reads the as-given amount as the primary visual, with the primary-currency line underneath.** Never a silently converted single figure.
-- **Rates are snapshotted per gift and never recomputed.** A gift log that re-values itself whenever rates move is not a record of anything.
+- **Every gift is charged in the primary currency, and nothing is converted.** The contribute route prices the Checkout Session in `weddings.currency`, and money gifts are only taken while the couple's Stripe account settles in that same currency (see [One currency, held three ways](#one-currency-held-three-ways)), so Stripe applies no exchange rate. A contribution stores `amount_minor` + `currency` **as given**. A gift in another currency exists only if it was given before the couple changed the wedding's currency.
+- **The four FX columns stay NULL.** `primary_amount_minor`, `primary_currency`, `fx_rate` and `fx_rate_at` are shaped for a gift a guest pays in their own currency, which the checkout does not offer. Should it ever, the rate is Stripe's balance-transaction `exchange_rate` (whose `amount` is gross, before Stripe's fee), snapshotted once per gift: a gift log that re-values itself whenever rates move is not a record of anything.
+- **The host reads the as-given amount as the primary visual**, with a primary-currency line underneath only where a row carries one. Never a silently converted single figure.
 
-The rate comes from **Stripe's balance transaction** (`exchange_rate`), not a third-party FX feed: it is authoritative, free, arrives with a webhook already being handled, and matches what actually reached the couple's bank. No new subprocessor and no scheduled rate fetch. When no balance transaction is available yet the FX columns stay NULL and the figure renders alone — the degraded state is the common state, which is the right way round.
-
-**Totals** sum `primary_amount_minor` only (falling back to `amount_minor` where the currencies already match) and must be labelled approximate: each row was converted at its own snapshotted rate, so the sum is of historical conversions, not a live valuation.
+**Totals** are exact and per currency. `contributionsPrimaryMinor` sums the primary-currency gifts; a gift in another currency is counted beside the total, never added into it, because two currencies summed is not an amount of anything.
 
 Rendering goes through `formatMinorPair` in `cire/host/src/lib/money.ts`. That module also knows each currency's **real minor-unit exponent** — JPY has none (1000 minor units is ¥1000, not ¥10) and KWD/BHD/JOD use three. A fixed `/ 100` looks right while every wedding is in AUD and is wrong by 100× the moment a gift arrives in yen.
 
@@ -117,6 +115,18 @@ Creating that endpoint in the Stripe dashboard — its scope, the nine events, t
 **Create-or-resume, never create-again.** Onboarding is a form people abandon and come back to. The route reads the settings row first and reuses any account on it; `stripe_account_id` is written through a `coalesce` so a second create can only fill a null, never repoint a couple's payouts. Stripe's idempotency key (`cire-account-<weddingId>`) is the second belt against a double-tapped button.
 
 **Intent and capability are different columns.** `cash_gifts_enabled` is the couple's decision; `stripe_charges_enabled` is Stripe's. The webhook never touches the first — clearing intent because a capability lapsed would quietly turn the feature off for good, and restoring it later would be us deciding something they never did. `PUT /registry/settings` still refuses to enable cash gifts while Stripe cannot take a charge (`stripe_not_ready`).
+
+#### One currency, held three ways
+
+A gift is charged in the wedding's currency, so the couple's Stripe account must settle in that same currency or Stripe converts every gift on its own terms. `registry_settings.stripe_default_currency` caches what Stripe says (from the account at connect time, `account.updated` and the refresh route), and three places hold the rule:
+
+| Where | What it refuses |
+| --- | --- |
+| `PUT /registry/settings` turning money gifts on (`registryService.updateSettings`) | **409 `currency_mismatch`** when the account settles in another currency; **409 `stripe_currency_unknown`** while Stripe has not said which. The check is repeated inside the upsert's own `WHERE`, so a currency change landing between the read and the write cannot leave the switch on |
+| `PUT /api/organiser/weddings/:weddingId/settings` changing the currency (`weddingSettingsService.update`) | **409 `currency_locked_by_cash_gifts`** while money gifts are on and a connected account settles in anything but the new currency, or has not said. Judged on a change, not on the value the whole-profile form re-sends, and checked inside the `UPDATE`. A disconnected account locks nothing |
+| The guest gate (`takesMoney` in `services/registry.ts`) | The money form and `POST …/registry/contribute` (409 `cash_gifts_unavailable`) unless the settlement currency is known and equals the wedding's |
+
+The guest gate is the one that cannot be skipped, because it runs where money moves. It covers what the two writes cannot see: a couple who revoke cire and connect a different account while the switch stays on, or whose payout currency changes at Stripe. The writes are there to tell the couple early, with a reason.
 
 **Both halves are key-optional, independently.** No `STRIPE_SECRET_KEY` ⇒ the onboarding routes are not mounted, so a deployment without a Stripe account has no payment surface rather than a broken one. No `STRIPE_WEBHOOK_SECRET` ⇒ the webhook route does not exist: nothing else authenticates it, so an endpoint that writes from unverified bodies would be an unauthenticated write API.
 
@@ -145,9 +155,11 @@ Creating that endpoint in the Stripe dashboard — its scope, the nine events, t
 
 **What the couple see of an unhappy ending.** A `failed` gift is not in the gift log at all: money that never moved is not a gift, and a guest who abandoned a checkout page never meant to tell them anything. A `refunded` one stays visible and out of the totals — a refund is a thing that happened to their record, not an erasure of it. The retention summary counts neither.
 
-**The idempotency key is a hash of the whole request** — household, slug, amount, item, message, name — plus a five-minute bucket, so a double-tap is one attempt and everything else is its own. A key that folds the note down to its length has both failure modes a key exists to avoid: two different gifts of the same amount from one household collide and the second silently never charges, and a retry with different words hits Stripe's `idempotency_error` permanently, because the key never changes.
+**The idempotency key is a hash of the whole request** — household, slug, amount, currency, item, message, name — plus a five-minute bucket, so a double-tap is one attempt and everything else is its own.
 
-**FX stays NULL for now.** The primary-currency equivalent comes from the balance transaction's `exchange_rate`, which is not on the checkout event; the four FX columns are all-or-nothing, and a gift in the wedding's own currency — the common case — never needs them.
+**A page handed back is in today's currency, and no page lives long.** The reuse lookup (`findReusableContribution`) matches the currency the gate approved on this request as well as the amount and the words, so a page opened before a currency change is never handed back. Every gift page closes an hour after it is created (`GIFT_CHECKOUT_LIFETIME_SECONDS`, sent as `expires_at`; Stripe's floor is 30 minutes), so one already in a guest's hands is payable at most that long whatever changes here. A key that folds the note down to its length has both failure modes a key exists to avoid: two different gifts of the same amount from one household collide and the second silently never charges, and a retry with different words hits Stripe's `idempotency_error` permanently, because the key never changes.
+
+**FX stays NULL.** Every gift is charged in the wedding's currency into an account that settles in it, so Stripe applies no rate and there is no other-currency figure to record. See [Money](#money).
 
 **The guest surface** (`GiftMoneyPanel`) sits above the shelves and OUTSIDE the items-exist branch, on purpose: a guest who finds every gift taken has not stopped wanting to give something, and an option that appears only once the list runs dry reads as a consolation prize. It takes no card details — the button hands off to Stripe's hosted page — and it says so before the guest presses, along with who reads the name and note they typed (the couple; never the other guests). Amounts are typed in MAJOR units and converted once through the currency's real exponent (`parseGiftAmountMinor`): JPY has none and KWD has three, so a fixed ×100 is wrong by 100× on a payment screen. Coming back, `?gift=thanks` says the gift is _on its way_ rather than that it landed — the row is the webhook's to write, and it may be a second behind the guest.
 
@@ -165,24 +177,48 @@ So the sweep counts before it deletes. `sweepExpiredGuestData` counts each weddi
   "firstGiftOn": "2025-03-02",
   "lastGiftOn": "2025-06-14",
   "claims": { "reserved": 1, "purchased": 2 },
-  "contributions": { "count": 3, "totals": [{ "currency": "AUD", "amountMinor": 17500 }] }
+  "contributions": {
+    "count": 3,
+    "totals": [
+      { "currency": "AUD", "amountMinor": 17500, "count": 2 },
+      { "currency": "USD", "amountMinor": 5000, "count": 1 }
+    ],
+    "gifts": [
+      { "on": "2025-03-02", "amountMinor": 5000, "currency": "USD" },
+      { "on": "2025-05-11", "amountMinor": 12500, "currency": "AUD" },
+      { "on": "2025-06-14", "amountMinor": 5000, "currency": "AUD" }
+    ]
+  }
 }
 ```
 
-Four rules it keeps:
+The rules it keeps:
 
 - **Only what arrived counts.** Released claims are excluded — a household that changed its mind never bought anything — and only `succeeded` contributions are counted, so a `pending` row that never settled is not money.
-- **Totals are per currency, never converted.** A rate from the day of the sweep would make the number a guess; two lines that each say what they are is the honest shape.
+- **Each money gift, but nobody's name.** `gifts` holds the amount, currency and day of each money gift, oldest first, so the couple can still see what they were given. It never holds a household, a name or a note: those are what the sweep deletes.
+- **Totals are per currency, never converted, and each says how many gifts it adds.** Every gift is charged in the wedding's currency (see [Money](#money)); one in another currency was given before the couple changed it, and two currencies summed is not an amount of anything. A total kept before counts were recorded has no `count`, and the decoder leaves it out rather than guessing.
+- **Bounded per wedding and per run.** A wedding lists at most 200 gifts (`GIFT_SUMMARY_MAX_LISTED`); past that `count` and `totals` still cover every gift, and `count - gifts.length` say how many are not listed. A summary kept before gifts were listed reads as an empty list. One run lists at most 1,000 gifts across its weddings (`MAX_LISTED_GIFTS_PER_SWEEP`), counting each wedding's stored list as well as its new gifts. Walking the cohort oldest first, a wedding that would pass that waits for the next run, where it leads the cohort. A wedding past the hold-back ceiling below never waits: it is taken, but lists only as many new gifts as the budget still has room for, and counts the rest as not listed — so a backlog of overdue weddings cannot take the cron past its CPU or its batch. A wedding that lists nothing this run — no money gift, or a returning wedding with nothing new, whose stored record is left as it is — never waits either. The list is one windowed read (`row_number()` per wedding, cut in SQLite at each wedding's own share, carried in one bound JSON parameter); a returning wedding reads only as many new gifts as can join its stored list.
+- **Stored in as few statements as fit.** Summaries are packed into statements whose bound JSON stays under 60,000 characters (`packGiftSummaries`, `GIFT_SUMMARY_STORE_CHUNK_CHARS`) — a handful at the run budget, against the 50 statements a D1 batch takes — all in the delete's batch.
 - **No gift is deleted without its record.** The summaries go in the same D1 batch as the delete, so the record and the deletion of what it counts commit together or not at all. If the gifts cannot be counted (one read covers the cohort) or that batch does not commit, nothing is deleted that run; the weddings still hold their households, the next run tries again, and every run that holds them back logs `gift summaries not written — held back from the delete` at error level. The hold-back has a ceiling of 30 days past a wedding's retention date (`GIFT_SUMMARY_HOLD_BACK_MS`): past it, the wedding is deleted without its record — on a failed count, or on a retry of the delete without the summaries when the batch carrying them fails — and the run logs `gift summaries not written — deleted past the 30-day hold-back` with the number of weddings, never their ids. A gift with no `registry_settings` row to land on is deleted on time with no summary and no email, and logged.
 - **A returning wedding adds to its record.** A wedding that gains a household after it was swept — a re-import, or the host's own preview household — comes back into the cohort. Any new gift is added to the stored summary (counts summed, totals summed per currency, span widened), never written over it. Because a summary is only ever stored with the deletion of the rows it counts, adding to it can never count a gift twice.
 
 `firstGiftOn` and `lastGiftOn` give the span the counted gifts arrived over, taken from the same rows as the counts.
 
+The run budget is set by CPU, not by how many gifts a wedding plausibly gets. Every listed gift is read, folded, encoded into the stored summary and rendered once per owner into the email, inside the one cron invocation every job shares on Workers Free (10 ms of CPU, [[free-tier-limits]]). This part may spend 2 ms of it. The email's data is built once per wedding and shared by its recipients.
+
+| Listed gifts in the run | Owners a wedding | Minimum | Median |
+| --- | --- | --- | --- |
+| 2,000 | 3 | 2.44 ms | 2.74 ms |
+| 1,500 | 3 | 1.93 ms | 2.03 ms |
+| 1,000 | 3 | 1.20 ms | 1.33 ms |
+
+*Measured 2026-10-15 — a bun script over full 200-gift lists (fold, `packGiftSummaries`, `formatMinor` per gift and `renderTemplate` per owner), 40 runs after 20 warm-ups, bun 1.4.2 (JavaScriptCore) on an Apple M2 Pro. Not workerd: compare the ratios, not the figures, with the 10 ms limit.*
+
 **The couple are emailed it, after the deletes.** Once the delete batch has committed and the import sheets are gone from R2, the sweep hands its notices to a notifier, and [`lib/gift-summary-email.ts`](../../cire/api/src/lib/gift-summary-email.ts) mails each wedding's summary to its owners. The order matters: the email says the detail is gone, so it must not go out while the detail is still there.
 
 - **Who gets it.** The seats with the `owner` role on a live wedding that received at least one gift. Editors are not mailed, and neither is a soft-deleted wedding, whose summary is written but not sent. Each wedding sends one email per distinct address, so two owners who share an inbox get one copy. The whole cohort goes to Resend's batch endpoint in as few calls as it allows (100 emails a call), because each call is an external subrequest and the cron's one invocation shares 50 of them across every sweep.
 - **Where the address comes from.** cire stores none. It asks osn-api's `POST /internal/accounts/emails` over ARC with the `account:email-read` scope: one lookup for the whole cohort, split into requests of 100 profile ids with at most four in flight ([`services/osn-bridge.ts`](../../cire/api/src/services/osn-bridge.ts)). An owner osn-api returns no address for is skipped.
-- **What it says.** Template `registry-gift-summary`, from `hello@cireweddings.com`: the wedding's name, the date of its last event, the sweep date, the number of money gifts with one total, and how many list gifts were bought and reserved. The total is in the wedding's own currency, or in the first currency a gift came in when none came in its own, printed with that currency's own minor unit (`formatMinor` in [`lib/money.ts`](../../cire/api/src/lib/money.ts): none for yen, three decimals for the dinars); the per-currency totals stay only on `registry_settings`. One known fault remains, tracked in englishstventures/osn#1435: the count covers every currency while the total covers one.
+- **What it says.** Template `registry-gift-summary`, from `hello@cireweddings.com`: the wedding's name, the date of its last event, the sweep date, the money gifts and how many list gifts were bought and reserved. The money line totals the wedding's own currency — `Money gifts: 3, totalling A$175.00` — and where gifts came in more than one currency it puts each count beside its own total, the couple's first: `Money gifts: 5 — 4 in AUD, totalling A$1,134.50; 1 in USD, totalling US$50.00`, so a count never sits beside a total that adds fewer gifts. Then a plain list of each money gift by its day; one given in another currency has a smaller line beneath, `Given in USD — outside the AUD total`, and gifts counted but not listed get a line of their own. Every amount is printed with its currency's own minor unit (`formatMinor` in [`lib/money.ts`](../../cire/api/src/lib/money.ts): none for yen, three decimals for the dinars); the template does no money maths. The copy says the amount and day of each gift were kept and that who gave and what they wrote are gone. A full 200-gift list stays under the 102 KB at which Gmail clips a message, pinned by a test. The Resend transport renders a wedding's email once and sends each owner a copy, since the data is the same object for every recipient.
 - **One attempt, best-effort.** The whole cohort gets one try, bounded at 30 seconds in total, with no retry and no resend: the next day's sweep finds no gift rows left and writes no notice. Delivery never fails the sweep. A send that fails is logged and the rest go on. An osn-api that does not answer every call — a failure, a rejection, or a hang the 30-second bound cuts off — logs `[gift-summary-email] osn-api did not answer for every owner` with counts only, and the addresses that did come back are still mailed. A summary written but not mailed because the owners could not be read logs `gift summaries written, owners not read — none mailed`.
 - **Counted.** `cire.gift_summary.written` counts weddings by `ok`, `write_failed`, `read_failed` or `abandoned` (deleted past the ceiling without a summary); `cire.gift_summary.unmailed` counts weddings whose stored summary reached nobody, by `owners_unread`, `lookup_failed` or `no_address`. Sends are counted by template in `osn.email.send.attempts`. cire's metrics are a no-op meter on workerd until an exporter is attached ([[cire-workerd]]), so in production the log lines above are the signal.
 - **Only where it can be delivered.** The notifier exists only when the Worker has `OSN_API_URL`, a `CIRE_API_ARC_PRIVATE_KEY` that imports, `CIRE_API_ARC_KEY_ID` and `RESEND_API_KEY` (`scheduled` in [`cire/api/src/index.ts`](../../cire/api/src/index.ts)). Without them the sweep still deletes on time and sends nothing. It never falls back to logging the email, because a summary in a log is not a summary the couple received.
@@ -290,7 +326,7 @@ A Worker-cache hit goes to the browser with **no `Age` and a `Date` of now**. Th
 - **Totals are computed in SQL, not from the page.** `contributionsPrimaryMinor` is a `sum()` over every `succeeded` contribution. Summing the page instead would under-report the couple's money the moment the log passed 50 entries — silently, and in the direction that looks like a missing gift.
 - **500 items a wedding** (`MAX_ITEMS_PER_WEDDING`) — `POST /registry/items` answers **409 `registry_item_limit_reached`** past it. The ceiling is per wedding, not per account.
 
-`PUT /registry/settings` refuses `cashGiftsEnabled: true` with **409 `stripe_not_ready`** unless the wedding's Connect account can actually take charges. Offering a contribute button that 503s is worse than offering none, because the guest believes they paid.
+`PUT /registry/settings` refuses `cashGiftsEnabled: true` with **409 `stripe_not_ready`** unless the wedding's Connect account can actually take charges, and with **409 `currency_mismatch`** or **`stripe_currency_unknown`** unless it settles in the wedding's currency ([One currency, held three ways](#one-currency-held-three-ways)). Offering a contribute button that 503s is worse than offering none, because the guest believes they paid.
 
 ### Taking the log away (`gifts.csv`)
 
@@ -482,7 +518,7 @@ The module lives at `cire/host/src/components/RegistryView.tsx`, wired into the 
 
 **Reorder is drag and keyboard.** Each row has a grip to drag or to move with the arrow keys, and move-up and move-down buttons for screen readers, from `@shared/sortable` through `ReorderControls.tsx` (see [[drag-and-drop]]). A move is optimistic, then `PATCH .../items/reorder` with the full `orderedIds`; focus stays on the moved row's grip, the new position is announced, and a failed save withdraws the announcement before reloading. Rows are keyed by id and an order-only change keeps the row (`sameButOrder`, see [[drag-and-drop]]), so a move after a delete's gap in the stored order moves up to 500 rows instead of rebuilding them, and an open inline editor keeps its caret.
 
-**Money in the UI.** Prices are authored in `weddings.currency` and parsed by `parseMinor` (`lib/money.ts`), which rounds half-way amounts up to the currency's own exponent and refuses a positive price that rounds to zero (the field names the smallest unit, "Amounts between 0 and ¥1 are not allowed."), while a typed 0 stays allowed; `minorToInput` is its inverse for seeding the edit form. Both price inputs use `step="any"` deliberately — `step="0.01"` makes a valid three-decimal KWD price a constraint violation the browser refuses before any handler runs. A foreign-currency gift renders **as given** as the headline with the snapshotted primary equivalent underneath, and `contributionsPrimaryMinor` is labelled approximate on screen, because it is a sum of per-day rates and reading it as an exact balance is the mistake worth pre-empting.
+**Money in the UI.** Prices are authored in `weddings.currency` and parsed by `parseMinor` (`lib/money.ts`), which rounds half-way amounts up to the currency's own exponent and refuses a positive price that rounds to zero (the field names the smallest unit, "Amounts between 0 and ¥1 are not allowed."), while a typed 0 stays allowed; `minorToInput` is its inverse for seeding the edit form. Both price inputs use `step="any"` deliberately — `step="0.01"` makes a valid three-decimal KWD price a constraint violation the browser refuses before any handler runs. A gift in another currency renders **as given**; a primary-currency line would sit underneath only for a row carrying one, and none does (see [Money](#money)). `contributionsPrimaryMinor` is exact, and the gifts it leaves out are counted beside it.
 
 **The gift log renders three guest-authored fields as text.** `note`, `displayName` and the household's `familyName` all come from people we do not control, and all three go through Solid's `{expr}` interpolation and nothing else: no `innerHTML`, no markdown renderer, no rich text anywhere on this path. If a future PR wants formatted notes, it needs a sanitiser and a review, not a renderer. Pinned by the `renders a script-shaped note, display name and family name as literal text` test in `RegistryView.test.tsx`, which asserts the payload appears as text _and_ that no `script`, `img` or `b` element exists in the container.
 
@@ -523,7 +559,9 @@ A guest's note (a claim's `note`, a contribution's `message`) is the one text in
 
 **Publishing is blocked while the list is empty**, and the notice says why: guests reach the list _and the money-gift option with it_ only once it is published, so an empty published list is a page with nothing on it. An already-published list keeps the toggle live, or deleting the last gift would freeze a couple on "Published" with no way back.
 
-**Intent and capability are two controls.** "Let guests give money" is disabled until `stripe_charges_enabled`; the API refuses the write anyway (`stripe_not_ready` → 409), and the panel answers that 409 by saying Stripe cannot take a payment yet rather than "check the fields".
+**Intent and capability are two controls.** "Let guests give money" is disabled until `stripe_charges_enabled`; the API refuses the write anyway (`stripe_not_ready` → 409), and the panel answers each 409 with its true reason rather than "check the fields": Stripe cannot take a payment yet; the account pays out in a different currency (`currency_mismatch`); or Stripe has not said which currency it pays out in (`stripe_currency_unknown`) — for an owner the panel asks Stripe again at once, and an editor, who cannot, is told to ask an owner. The wedding Settings panel answers `currency_locked_by_cash_gifts` by saying to turn money gifts off first, or to reload if someone else changed the currency.
+
+**The record band** (the gifts tab, after the sweep) shows the couple's-currency total with the gifts it adds, names each other currency as outside it, and lists each cash gift as given, by its day, with a smaller line under one given in another currency. The live cash-gift panel above the gift log shows its total as exact: nothing is converted.
 
 **One live Stripe read, for one state.** On mount, a wedding that has an account but cannot yet charge calls `…/stripe/refresh` once — they have just come back from onboarding and `account.updated` can be seconds behind them. A couple with no account, or one already ready, costs nothing. "Check again" is the same call, pressed by hand, and it reports "still not ready" too.
 
@@ -626,4 +664,4 @@ Every handler runs `Effect.tapDefect` before its catch-all, so a defect is **log
 
 ## Still to land
 
-- **The FX capture**: `checkout.session.completed` carries no balance transaction, so the four FX columns are still NULL. The `exchange_rate` read described under [Money](#money) needs its own event or a follow-up call. Tracked in englishstventures/osn#482.
+- **A guest paying in their own currency** is not offered; until it is, the four FX columns stay NULL and there is no rate to capture (see [Money](#money)). Part of englishstventures/osn#482.

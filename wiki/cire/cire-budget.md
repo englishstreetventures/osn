@@ -10,7 +10,7 @@ related:
   - "[[cire-host-portal-layout]]"
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-15
 ---
 # Budget
 
@@ -168,6 +168,7 @@ Every amount is an integer in minor units of `weddings.currency`, and a minor un
 - **`step="any"`** on every money input, as on the gift list's price inputs ([[cire-registry]]): a hundredths step makes a valid three-decimal amount invalid, and the browser then refuses to submit the add-item and payment forms. A JPY amount typed with decimals is rounded to whole yen.
 - **Display** — the Budget tab, the Overview's budget card and the agenda's payment rows format through `formatMinor`.
 - **Changing currency rescales nothing.** A settings change writes the new code and leaves every stored amount as it was, so the same integers are read in the new unit.
+- **Changing currency waits for money gifts.** While money gifts are on and the couple's Stripe account pays out in anything but the new currency, the change answers 409 `currency_locked_by_cash_gifts`: every gift is charged in the wedding's currency. See [[cire-registry#One currency, held three ways]].
 
 ## Reordering items
 

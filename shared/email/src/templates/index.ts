@@ -19,7 +19,12 @@ import {
   type EnquiryReplyData,
   type EnquiryQuoteData,
 } from "./enquiry";
-import { renderRegistryGiftSummary, type RegistryGiftSummaryData } from "./gift-summary";
+import {
+  renderRegistryGiftSummary,
+  type RegistryGiftSummaryData,
+  type RegistryGiftSummaryGift,
+  type RegistryGiftSummaryTotal,
+} from "./gift-summary";
 import {
   renderEmailChangeOtp,
   renderRecoveryOtp,
@@ -216,6 +221,8 @@ export type {
   EnquiryQuoteData,
   R2ReconcileAlertData,
   RegistryGiftSummaryData,
+  RegistryGiftSummaryGift,
+  RegistryGiftSummaryTotal,
   RsvpChangeDigestData,
   RsvpDigestChangeKind,
   VendorClaimInviteData,
