@@ -545,12 +545,8 @@ export function formatGiftPrice(priceMinor: number | null, currency: string): st
 /* ------------------------------------------------------------------------- *
  * The gift list's own page
  *
- * The registry used to be the last section of the invite. It is now its own
- * route, `/cire/registry?slug=…`, because it is the one part of an invitation a
- * guest comes BACK to — to see what is still free, to change what they
- * reserved, to open it in a shop on a phone. As a section at the bottom of a
- * long invite every one of those is a scroll past the whole story; as a page it
- * is a link, and a link is something a couple can send on its own.
+ * The gift list has its own route, `/cire/registry?slug=…`, because guests
+ * return to it to review and change reservations or open gifts in a shop.
  *
  * The helpers below are the parts of that page that must hold without a DOM:
  * where it lives, what it is called, and how the list is read out.
