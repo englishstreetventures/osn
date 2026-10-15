@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-882   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/gift-fx-per-gift @ 2026-10-15 — this branch's comment fixes on top of main. No rule was disabled and nothing was suppressed.
+881   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), chore/refresh-ready-dependencies-and-effect-v4 @ 2026-10-15 on main a8444ef4e — one warning fewer: osn/api/src/observability.ts's runtime comment no longer narrates history. No rule was disabled and nothing was suppressed.
