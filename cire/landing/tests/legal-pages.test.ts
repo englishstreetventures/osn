@@ -56,6 +56,7 @@ describe("legal pages", () => {
   it("privacy names the gift record the couple keep after the guest data goes", () => {
     expect(privacy).toMatch(/the couple keep a record of their gifts with no guest names in it/);
     expect(privacy).toMatch(/the amount, currency and day of each money gift/);
+    expect(privacy).toMatch(/up to 30 days later/);
   });
 
   it("footer links every legal page", () => {

@@ -37,7 +37,7 @@ import {
   metricEmailSendDuration,
 } from "./metrics";
 import { EmailError, EmailService, type SendEmailInput } from "./service";
-import { renderTemplate } from "./templates";
+import { type RenderedEmail, renderTemplate } from "./templates";
 
 /** Resend's API origin, used whenever `apiUrl` is unset or blank. */
 const DEFAULT_RESEND_API_URL = "https://api.resend.com";
@@ -137,22 +137,31 @@ const sendBatch = (
     const from = config.fromAddress ?? "noreply@osn.local";
 
     const payloads: ResendEmailPayload[] = [];
+    // One render per distinct data object. The output depends only on the
+    // template and the data, and a caller mailing one record to several
+    // recipients (cire's gift summary, to each owner) passes the same object.
+    const renderedOnce = new Map<unknown, { template: string; rendered: RenderedEmail }>();
     for (const input of inputs) {
-      const rendered = yield* Effect.try({
-        try: () => renderTemplate(input.template, input.data),
-        catch: (cause) => new EmailError({ reason: "render_failed", cause }),
-      }).pipe(
-        Effect.tap(() =>
-          Effect.sync(() =>
-            metricEmailRenderDuration((Date.now() - started) / 1000, input.template, "ok"),
-          ),
-        ),
-        Effect.tapError(() =>
-          Effect.sync(() =>
-            metricEmailRenderDuration((Date.now() - started) / 1000, input.template, "error"),
-          ),
-        ),
-      );
+      const hit = renderedOnce.get(input.data);
+      const rendered =
+        hit && hit.template === input.template
+          ? hit.rendered
+          : yield* Effect.try({
+              try: () => renderTemplate(input.template, input.data),
+              catch: (cause) => new EmailError({ reason: "render_failed", cause }),
+            }).pipe(
+              Effect.tap(() =>
+                Effect.sync(() =>
+                  metricEmailRenderDuration((Date.now() - started) / 1000, input.template, "ok"),
+                ),
+              ),
+              Effect.tapError(() =>
+                Effect.sync(() =>
+                  metricEmailRenderDuration((Date.now() - started) / 1000, input.template, "error"),
+                ),
+              ),
+            );
+      renderedOnce.set(input.data, { template: input.template, rendered });
       payloads.push({
         from,
         to: [input.to],

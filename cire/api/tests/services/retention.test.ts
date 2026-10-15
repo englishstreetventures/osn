@@ -1754,14 +1754,16 @@ describe("each money gift, listed in the kept summary", () => {
     expect(kept(db, over.weddingId)?.contributions.count).toBe(GIFT_SUMMARY_MAX_LISTED);
   });
 
-  it("never makes a wedding past the hold-back ceiling wait, whatever the budget", async () => {
+  it("never makes a wedding past the hold-back ceiling wait, and lists only what the budget has room for", async () => {
     // Every one of these is more than 30 days past its retention date, so the
     // privacy notice's year outranks the budget: all are taken, with records.
+    // But the list is cut to what the budget can afford, so a backlog of
+    // overdue weddings cannot take the cron past its CPU or its batch.
     const db = freshDb();
     const full = MAX_LISTED_GIFTS_PER_SWEEP / GIFT_SUMMARY_MAX_LISTED;
-    const overdue = [];
-    for (let i = 0; i <= full; i++) {
-      overdue.push(
+    const fitting = [];
+    for (let i = 0; i < full - 1; i++) {
+      fitting.push(
         await weddingWithGifts(
           db,
           `2025-04-${String(i + 1).padStart(2, "0")}`,
@@ -1769,17 +1771,34 @@ describe("each money gift, listed in the kept summary", () => {
         ),
       );
     }
-    // Inside the hold-back, behind a run that is already over its budget:
-    // with nothing to list it still has no reason to wait.
+    // Leaves room for 50 more: the next overdue wedding lists 50 of its 200.
+    const nearlyFull = await weddingWithGifts(db, "2025-04-10", GIFT_SUMMARY_MAX_LISTED - 50);
+    const partial = await weddingWithGifts(db, "2025-04-11", GIFT_SUMMARY_MAX_LISTED);
+    const none = await weddingWithGifts(db, "2025-04-12", GIFT_SUMMARY_MAX_LISTED);
+    // Inside the hold-back, behind a run that has spent its budget: with
+    // nothing to list it still has no reason to wait.
     const giftless = await runOn(db, makeWedding({ eventDates: ["2025-06-02"] }));
 
     await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
 
-    for (const wedding of overdue) {
+    for (const wedding of [...fitting, nearlyFull, partial, none, giftless]) {
       expect(guestCount(db, wedding.guestId)).toBe(0);
-      expect(kept(db, wedding.weddingId)?.contributions.count).toBe(GIFT_SUMMARY_MAX_LISTED);
     }
-    expect(guestCount(db, giftless.guestId)).toBe(0);
+    for (const wedding of fitting) {
+      expect(kept(db, wedding.weddingId)?.contributions.gifts).toHaveLength(
+        GIFT_SUMMARY_MAX_LISTED,
+      );
+    }
+    // The oldest 50 listed; every gift still counted and totalled.
+    const cut = kept(db, partial.weddingId);
+    expect(cut?.contributions.count).toBe(GIFT_SUMMARY_MAX_LISTED);
+    expect(cut?.contributions.gifts).toHaveLength(50);
+    expect(cut?.contributions.gifts[0]?.amountMinor).toBe(1_000);
+    expect(cut?.contributions.gifts.at(-1)?.amountMinor).toBe(1_049);
+    const unlisted = kept(db, none.weddingId);
+    expect(unlisted?.contributions.count).toBe(GIFT_SUMMARY_MAX_LISTED);
+    expect(unlisted?.contributions.gifts).toEqual([]);
+    expect(unlisted?.contributions.totals[0]?.count).toBe(GIFT_SUMMARY_MAX_LISTED);
   });
 
   /** A household that arrives after the sweep, bringing the wedding back. */

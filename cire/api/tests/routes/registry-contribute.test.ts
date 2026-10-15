@@ -570,6 +570,43 @@ describe("what reaches Stripe, and what does not", () => {
     expect(rows[0]?.stripeCheckoutSessionId).toBe("cs_1");
   });
 
+  it("never hands back a page priced in a currency the gate no longer approves", async () => {
+    // The first page was opened in AUD. Stripe then pays the account out in
+    // NZD and the couple move the wedding to NZD. The same press again must
+    // get an NZD page, not the AUD one still open at Stripe.
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    const cookie = await guestCookie(app);
+    const first = await contribute(app, cookie, { amountMinor: 5000, message: "aaa" });
+    expect(first.status).toBe(200);
+
+    db.update(registrySettings)
+      .set({ stripeDefaultCurrency: "NZD" })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+    db.update(weddings).set({ currency: "NZD" }).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID)).run();
+    const second = await contribute(app, cookie, { amountMinor: 5000, message: "aaa" });
+
+    expect(second.status).toBe(200);
+    expect(stripe.retrieved).toEqual([]);
+    expect(stripe.sessions.map((session) => session.currency)).toEqual(["AUD", "NZD"]);
+    expect(await second.json()).not.toEqual(await first.json());
+  });
+
+  it("closes every payment page within the hour", async () => {
+    // A page stays payable at Stripe until it expires, whatever changes here
+    // meanwhile, so it is never left open for Stripe's default day.
+    const stripe = stripeStub();
+    const { app } = buildApp({ stripe: stripe.client });
+    const before = Math.floor(Date.now() / 1000);
+    await contribute(app, await guestCookie(app), { amountMinor: 5000 });
+    const expiresAt = stripe.sessions[0]?.expiresAt ?? 0;
+    expect(expiresAt).toBeGreaterThan(before);
+    expect(expiresAt).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 60 * 60);
+    // Stripe refuses a page that closes in under 30 minutes.
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 30 * 60);
+  });
+
   /**
    * A row with a NULL session is an attempt the Worker never
    * finished — it was evicted between writing the gift and hearing back from

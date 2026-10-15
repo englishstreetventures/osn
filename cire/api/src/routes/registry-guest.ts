@@ -247,6 +247,15 @@ export const createRegistryGuestMineRoutes = (db: Db) =>
 const GIFT_ATTEMPT_WINDOW_MS = 5 * 60 * 1000;
 
 /**
+ * How long a gift's payment page stays payable at Stripe. A page created
+ * before a change here — the wedding's currency, or where Stripe pays the
+ * couple out — can still be paid until it closes, so it closes within the hour
+ * rather than after Stripe's default day. Stripe's floor is 30 minutes; the
+ * reuse window above is far inside either.
+ */
+const GIFT_CHECKOUT_LIFETIME_SECONDS = 60 * 60;
+
+/**
  * An idempotency key over the whole request, bucketed in time.
  *
  * Hashed rather than concatenated because the parts include free text: a note
@@ -257,6 +266,7 @@ function giftIdempotencyKey(input: {
   familyId: string;
   slug: string;
   amountMinor: number;
+  currency: string;
   itemId: string | null;
   message: string | null;
   displayName: string | null;
@@ -267,6 +277,7 @@ function giftIdempotencyKey(input: {
       input.familyId,
       input.slug,
       input.amountMinor,
+      input.currency,
       input.itemId,
       input.message,
       input.displayName,
@@ -345,6 +356,9 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
               familyId,
               itemId,
               amountMinor: body.amountMinor,
+              // Only a page in the currency the gate approved just now: one
+              // opened before a currency change would charge in the old one.
+              currency: context.currency,
               message: body.message,
               displayName: body.displayName,
               since: new Date(Date.now() - GIFT_ATTEMPT_WINDOW_MS),
@@ -403,6 +417,7 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
                 // rewrite. Stripe echoes it on every event for this session, so
                 // the settle path can read it before it reads any metadata.
                 clientReferenceId: contributionId,
+                expiresAt: Math.floor(Date.now() / 1000) + GIFT_CHECKOUT_LIFETIME_SECONDS,
                 // Keyed on WHAT is being given and WHEN, to the nearest few
                 // minutes. SECOND belt now, behind the reuse read above:
                 // it covers the simultaneous double-tap, where neither request
@@ -419,6 +434,7 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
                   familyId,
                   slug: params.slug,
                   amountMinor: body.amountMinor,
+                  currency: context.currency,
                   itemId,
                   message: body.message,
                   displayName: body.displayName,

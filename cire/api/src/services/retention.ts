@@ -12,7 +12,7 @@ import {
   weddings,
 } from "@cire/db";
 import { jsonEachIn, rowsChanged } from "@shared/db-utils";
-import { and, asc, eq, inArray, lt, lte, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, ne, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Cause, Data, Effect } from "effect";
 
@@ -115,8 +115,10 @@ export const GIFT_SUMMARY_MAX_LISTED = 200;
  * §What the couple keeps has the figures). A wedding that would pass it waits
  * for the next run, unless it is past the hold-back ceiling
  * ({@link GIFT_SUMMARY_HOLD_BACK_MS}): the privacy notice's year outranks the
- * budget. A wedding that lists nothing this run — no money gift, or a returning
- * wedding with nothing new, whose stored record is left as it is — never waits.
+ * budget, so that wedding is taken, but lists only as many new gifts as the
+ * budget still has room for and counts the rest as not listed. A wedding that
+ * lists nothing this run — no money gift, or a returning wedding with nothing
+ * new, whose stored record is left as it is — never waits.
  */
 export const MAX_LISTED_GIFTS_PER_SWEEP = 1_000;
 
@@ -858,9 +860,17 @@ function countGiftSummaries(
     // A wedding with a new gift of either kind writes a summary — its stored
     // list plus its new gifts, capped — and mails it; one with none writes and
     // mails nothing, so lists nothing this run. Walked in cohort order —
-    // longest overdue first — taking a wedding past the ceiling always, one
-    // that lists nothing always, and any other only while it fits; the rest
-    // wait for the next run, where they lead the cohort.
+    // longest overdue first. A wedding that lists nothing is always taken. A
+    // wedding past the ceiling is always taken, but lists only as many new
+    // gifts as the budget still has room for, the rest counted as not listed:
+    // the privacy notice's year outranks the list, and the list may not take
+    // the run past its CPU. Any other wedding is taken only while it fits;
+    // the rest wait for the next run, where they lead the cohort.
+    //
+    // A stored list is re-encoded whatever the budget says, so it is always
+    // charged. That is the one part not cut: only a wedding swept before that
+    // came back with something new has one, and it holds at most
+    // GIFT_SUMMARY_MAX_LISTED.
     const freshCount = new Map<string, number>();
     for (const row of giftRows as Array<{ weddingId: string; count: number }>) {
       freshCount.set(row.weddingId, (freshCount.get(row.weddingId) ?? 0) + row.count);
@@ -869,29 +879,41 @@ function countGiftSummaries(
       (claimRows as Array<{ weddingId: string }>).map((r) => r.weddingId),
     );
     const deferred = new Set<string>();
+    /** How many NEW gifts each taken wedding lists — the rows to read. */
+    const newListed = new Map<string, number>();
     let listed = 0;
     for (const weddingId of ids) {
       const fresh = freshCount.get(weddingId) ?? 0;
-      const writes = fresh > 0 || freshClaims.has(weddingId);
-      const wants = writes
-        ? Math.min(
-            (stored.get(weddingId)?.contributions.gifts.length ?? 0) + fresh,
-            GIFT_SUMMARY_MAX_LISTED,
-          )
-        : 0;
-      if (forced.has(weddingId) || wants === 0 || listed + wants <= MAX_LISTED_GIFTS_PER_SWEEP) {
-        listed += wants;
+      if (fresh === 0 && !freshClaims.has(weddingId)) continue;
+      const kept = Math.min(
+        stored.get(weddingId)?.contributions.gifts.length ?? 0,
+        GIFT_SUMMARY_MAX_LISTED,
+      );
+      // New gifts all postdate the stored ones (that sweep deleted every gift
+      // row it counted), so the merge keeps the stored list first and only
+      // this many new ones can survive it.
+      const room = Math.min(fresh, GIFT_SUMMARY_MAX_LISTED - kept);
+      if (forced.has(weddingId)) {
+        listed += kept;
+        const take = Math.max(0, Math.min(room, MAX_LISTED_GIFTS_PER_SWEEP - listed));
+        listed += take;
+        if (take > 0) newListed.set(weddingId, take);
+      } else if (listed + kept + room <= MAX_LISTED_GIFTS_PER_SWEEP) {
+        listed += kept + room;
+        if (room > 0) newListed.set(weddingId, room);
       } else {
         deferred.add(weddingId);
       }
     }
 
     // ── EACH MONEY GIFT, ONE BY ONE ──────────────────────────────────────
-    // Only for the weddings this run takes that have new gifts, numbered per
-    // wedding oldest first and cut in SQLite at the cap. Every succeeded row of
-    // those weddings is walked to number it — rows the grouped read above has
-    // already walked once — but only the listed ones cross the D1 wire.
-    const listIds = ids.filter((id) => !deferred.has(id) && (freshCount.get(id) ?? 0) > 0);
+    // Only for the weddings this run lists new gifts for, numbered per wedding
+    // oldest first and cut in SQLite at each wedding's own share. Every
+    // succeeded row of those weddings is walked to number it — rows the
+    // grouped read above has already walked once — but only the listed ones
+    // cross the D1 wire, and those are bounded by the budget.
+    const listIds = [...newListed.keys()];
+    const shares = JSON.stringify([...newListed].map(([w, n]) => ({ w, n })));
     const numbered = db
       .select({
         weddingId: registryContributions.weddingId,
@@ -925,7 +947,10 @@ function countGiftSummaries(
                 createdAt: numbered.createdAt,
               })
               .from(numbered)
-              .where(lte(numbered.n, GIFT_SUMMARY_MAX_LISTED))
+              // Each wedding's share rides in one bound JSON parameter.
+              .where(
+                sql`${numbered.n} <= (select json_extract(value, '$.n') from json_each(${shares}) where json_extract(value, '$.w') = ${numbered.weddingId})`,
+              )
               .orderBy(numbered.weddingId, sql`${numbered.n}`)
               .all(),
           );

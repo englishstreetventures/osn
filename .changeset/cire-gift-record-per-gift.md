@@ -23,6 +23,13 @@ Gift record and currency guard:
   409 `currency_locked_by_cash_gifts`; the guest gate hides the money form
   unless the account settles in the wedding's currency. The portal explains
   each refusal.
+- A wedding past the 30-day hold-back is never deferred, but lists only as
+  many new gifts as the run's budget has room for; a returning wedding with
+  nothing new spends none of it.
+- A guest's reused payment page must be in the currency the gate approved on
+  that request, and every gift payment page expires an hour after it opens.
+- Switching money gifts on reads the account and the wedding's currency in one
+  statement.
 - The live cash-gift total is no longer labelled approximate.
 - The guest and couple privacy notices name the gift record kept after the
   year.

@@ -205,6 +205,33 @@ owners, each with an `owner` seat. Two consequences:
   pair in place; with no text they say nothing about the guest.
   The registry comes with the Gold plan tier, which is sold self-serve, so
   production can hold these rows. Tracked under C-M1 alongside the rest of the missing cire ARC bridge.
+- **The gift record kept after the sweep.** A year after the last event the
+  sweep deletes the gift rows but keeps, on
+  `registry_settings.gift_summary_json`, each money gift's amount, currency
+  and day, with no name ([[data-map]], [[retention]]). cire cannot tell who
+  gave a line (Art. 11(1)), so a guest's access, objection or erasure request
+  is answered under Art. 11(2): ask for the wedding, the amount and the day
+  they gave, and find the line.
+
+  ```bash
+  cd cire/api
+  bunx wrangler d1 execute cire-db --env production --remote --command \
+    "SELECT g.key AS idx, json_extract(g.value, '$.on') AS day, json_extract(g.value, '$.amountMinor') AS amount, json_extract(g.value, '$.currency') AS currency FROM registry_settings, json_each(registry_settings.gift_summary_json, '$.contributions.gifts') AS g WHERE registry_settings.wedding_id = '<wedding id>'"
+  ```
+
+  An **access** request is answered with the matching line. An **objection**
+  (Art. 21) or **erasure** (Art. 17) that identifies a line removes it, and
+  takes its amount and one gift off the record's totals with it — a total
+  left holding the amount would keep the guest's figure inside it. Read the
+  JSON out with the query `SELECT gift_summary_json FROM registry_settings
+  WHERE wedding_id = '<wedding id>'`, edit it by hand: delete the entry from
+  `contributions.gifts`, subtract its `amountMinor` from its currency's
+  `totals` entry and 1 from that entry's `count` (where it has one) and from
+  `contributions.count`. Write it back with `UPDATE registry_settings SET
+  gift_summary_json = '<edited JSON>' WHERE wedding_id = '<wedding id>'`.
+  Leave `gift_summary_at` alone. Where two lines match the same wedding,
+  amount and day, ask the guest for nothing more — remove one; they are the
+  same fact.
 - **RSVP change log and organiser read state (migration 0068).** A household's
   `rsvp_changes` rows (which guest changed which reply, and when — no content)
   are part of that household's data: an access request returns them, and

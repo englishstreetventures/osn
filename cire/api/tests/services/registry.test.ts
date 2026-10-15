@@ -2403,9 +2403,20 @@ describe("findReusableContribution", () => {
     familyId: twoFamilies(db)[0],
     itemId: null,
     amountMinor: 10_000,
+    currency: "AUD",
     message: null,
     displayName: null,
     since: new Date(Date.now() - 60_000),
+  });
+
+  it("hands back no page opened in another currency", async () => {
+    // The gate approves this request's currency; a page priced before a
+    // currency change would charge in the old one.
+    const db = db0();
+    seedContribution(db, { status: "pending", sessionId: "cs_1" });
+    expect(
+      await ok(db, registryService.findReusableContribution({ ...reuse(db), currency: "NZD" })),
+    ).toBeNull();
   });
 
   it("hands back the page an identical attempt already got", async () => {

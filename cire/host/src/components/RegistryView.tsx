@@ -132,6 +132,17 @@ function giftStatus(gift: GiftLogEntry) {
 }
 
 /**
+ * One formatter for every date in the record band: up to 200 listed gifts each
+ * print a day. Pinned to UTC on both ends — see `summaryDate`.
+ */
+const SUMMARY_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  timeZone: "UTC",
+});
+
+/**
  * The gift registry — the couple's list, and the log of gifts against it.
  *
  * Guest-authored text (`note`, `displayName`, and the household's `familyName`)
@@ -140,6 +151,7 @@ function giftStatus(gift: GiftLogEntry) {
  * couple reads it in an authenticated portal, so any HTML path here is stored
  * XSS against the account that owns the wedding.
  */
+
 export default function RegistryView(props: RegistryViewProps) {
   const { authFetch } = useAuth();
   const snapshot = registryAccessor(props.weddingId);
@@ -469,12 +481,12 @@ export default function RegistryView(props: RegistryViewProps) {
    * differ from the date in the record.
    */
   const summaryDate = (iso: string): string =>
-    new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      timeZone: "UTC",
-    });
+    SUMMARY_DATE_FORMAT.format(new Date(`${iso}T00:00:00Z`));
+
+  /** The couple's currency. Its own memo, so a write elsewhere in the snapshot
+   *  — a thank-you, a hidden note, another page of the log — does not re-derive
+   *  every listed gift below: a string memo notifies only when it changes. */
+  const coupleCurrency = createMemo(() => (snapshot()?.currency ?? "").toUpperCase());
 
   /**
    * Everything the summary band derives, worked out once per summary. Below
@@ -488,7 +500,7 @@ export default function RegistryView(props: RegistryViewProps) {
     // so one in another currency was given before the couple changed it. The
     // couple's own currency gets the headline total; each other currency is
     // named as outside it, with the gifts it adds where the record knows.
-    const couple = (snapshot()?.currency ?? "").toUpperCase();
+    const couple = coupleCurrency();
     const ours = (code: string) => code.toUpperCase() === couple;
     const { count, totals } = summary.contributions;
     const listed = summary.contributions.gifts ?? [];

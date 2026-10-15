@@ -653,6 +653,56 @@ function claimedByItem(weddingId: string): Effect.Effect<Map<string, number>, ne
   });
 }
 
+/** What switching money gifts on has to know, read in one statement. */
+interface MoneyGiftsState {
+  chargesEnabled: boolean | null;
+  /** The currency Stripe settles the account in, or null while it has not said. */
+  defaultCurrency: string | null;
+  /** The wedding's own currency — what every gift is charged in. */
+  weddingCurrency: string;
+}
+
+/**
+ * The settings row's Stripe state and the wedding's currency, joined on the
+ * wedding: both keys are the wedding id, so one statement answers what two
+ * primary-key reads would. `undefined` when the wedding row is gone; null
+ * Stripe fields when the registry was never opened.
+ */
+function moneyGiftsState(
+  weddingId: string,
+): Effect.Effect<MoneyGiftsState | undefined, never, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const [row] = yield* dbQuery(() =>
+      db
+        .select({
+          chargesEnabled: registrySettings.stripeChargesEnabled,
+          defaultCurrency: registrySettings.stripeDefaultCurrency,
+          weddingCurrency: weddings.currency,
+        })
+        .from(weddings)
+        .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
+        .where(eq(weddings.id, weddingId))
+        .all(),
+    );
+    return row as MoneyGiftsState | undefined;
+  });
+}
+
+/**
+ * Why money gifts may not be on, as far as currency goes, or null. An account
+ * can take charges before Stripe names the currency it settles in; until it
+ * does, a gift could be converted on Stripe's terms, so the switch waits.
+ */
+function currencyRefusal(
+  state: MoneyGiftsState,
+): SettlementCurrencyUnknown | CurrencyMismatch | null {
+  if (!state.defaultCurrency) return new SettlementCurrencyUnknown();
+  return state.defaultCurrency.toUpperCase() === state.weddingCurrency.toUpperCase()
+    ? null
+    : new CurrencyMismatch();
+}
+
 /** One currency's worth of settled gift money. */
 interface CurrencyTotal {
   /** Upper-case ISO code, as `RegistrySnapshot.currency` is. */
@@ -1210,34 +1260,14 @@ export const registryService = {
       const now = new Date();
 
       if (patch.cashGiftsEnabled === true) {
-        // One PK-indexed read, and only on the write that asks for it. An absent
-        // row means the registry was never opened, so certainly no Stripe.
-        const [existing] = yield* dbQuery(() =>
-          db
-            .select({
-              chargesEnabled: registrySettings.stripeChargesEnabled,
-              defaultCurrency: registrySettings.stripeDefaultCurrency,
-            })
-            .from(registrySettings)
-            .where(eq(registrySettings.weddingId, weddingId))
-            .all(),
-        );
-        const stripe = existing as
-          | { chargesEnabled: boolean; defaultCurrency: string | null }
-          | undefined;
+        // Only on the write that asks for it. An absent settings row means the
+        // registry was never opened, so certainly no Stripe.
+        const stripe = yield* moneyGiftsState(weddingId);
         if (!stripe?.chargesEnabled) {
           return yield* Effect.fail(new StripeNotReady());
         }
-        // An account can take charges before Stripe names the currency it
-        // settles in. Until it does, a gift could be converted on Stripe's
-        // terms, so the switch waits.
-        if (!stripe.defaultCurrency) {
-          return yield* Effect.fail(new SettlementCurrencyUnknown());
-        }
-        const wedding = yield* primaryCurrency(weddingId);
-        if (stripe.defaultCurrency.toUpperCase() !== wedding.toUpperCase()) {
-          return yield* Effect.fail(new CurrencyMismatch());
-        }
+        const refused = currencyRefusal(stripe);
+        if (refused) return yield* Effect.fail(refused);
       }
 
       // The columns the conflict branch writes, typed off the table itself — a
@@ -1315,18 +1345,14 @@ export const registryService = {
       // exists and a field moved under the caller. The insert arm always
       // returns its row.
       if (!row) {
-        const current = yield* registryService.settingsOnly(weddingId);
         // A refusal on the currency re-check is not "someone else saved these
         // settings": say what is actually wrong.
         if (patch.cashGiftsEnabled === true) {
-          if (!current.stripeDefaultCurrency) {
-            return yield* Effect.fail(new SettlementCurrencyUnknown());
-          }
-          const wedding = yield* primaryCurrency(weddingId);
-          if (current.stripeDefaultCurrency.toUpperCase() !== wedding.toUpperCase()) {
-            return yield* Effect.fail(new CurrencyMismatch());
-          }
+          const stripe = yield* moneyGiftsState(weddingId);
+          const refused = stripe ? currencyRefusal(stripe) : null;
+          if (refused) return yield* Effect.fail(refused);
         }
+        const current = yield* registryService.settingsOnly(weddingId);
         return yield* Effect.fail(new SettingsChanged({ current: toSettingsDto(current) }));
       }
       return toSettingsDto(toSettingsRecord(row as SettingsRow));
@@ -1655,6 +1681,8 @@ export const registryService = {
     familyId: string;
     itemId: string | null;
     amountMinor: number;
+    /** The currency the gate approved on this request. */
+    currency: string;
     message: string | null;
     displayName: string | null;
     since: Date;
@@ -1671,6 +1699,7 @@ export const registryService = {
               eq(registryContributions.familyId, input.familyId),
               eq(registryContributions.status, "pending"),
               eq(registryContributions.amountMinor, input.amountMinor),
+              eq(registryContributions.currency, input.currency),
               input.itemId
                 ? eq(registryContributions.itemId, input.itemId)
                 : isNull(registryContributions.itemId),

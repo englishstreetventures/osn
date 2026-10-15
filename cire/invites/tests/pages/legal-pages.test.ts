@@ -97,6 +97,9 @@ describe("privacy.astro", () => {
    */
   it("states the retention window the sweep actually enforces", () => {
     expect(body).toContain("1 year after the final wedding event");
+    // The sweep can hold a wedding back up to 30 days past that, on purpose
+    // as well as on failure (`GIFT_SUMMARY_HOLD_BACK_MS`), and says so.
+    expect(body).toMatch(/up to 30 days later/);
   });
 
   /**
@@ -115,7 +118,8 @@ describe("privacy.astro", () => {
     expect(body).toMatch(
       /the payment is taken by <strong>Stripe<\/strong>\s+on your hosts’ own Stripe account/,
     );
-    expect(body).toMatch(/Stripe sees your card details; we never do/);
+    expect(body).toMatch(/Stripe collects your card details and the name and\s+email you give it/);
+    expect(body).toMatch(/we never see your card/);
   });
 
   /**
