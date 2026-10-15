@@ -1,22 +1,36 @@
 ---
+// Server-rendered, per-request gift-list route for generated links:
+// `/cire/registry?slug=<slug>`. Every gift-list link the guest site builds and
+// both Stripe return URLs (`&gift=thanks`, `&gift=cancelled`) land here. The
+// slug rides in the query, which production traces redact, and the invite is
+// read through a fixed API path. Existing `/<slug>/registry` links keep working
+// through `[slug]/registry.astro`, and this route keeps every rule that one
+// states: one server-side read (the invite, never the list — the list needs a
+// household, and the session cookie never reaches this Worker), and the only
+// 404 is an unknown wedding.
 import GiftRegistryDocument from '../../components/gift-registry/GiftRegistryDocument.astro'
 import NotFoundDocument from '../../components/NotFoundDocument.astro'
 import { API_URL, fetchInviteForQueryRoute } from '../../lib/invite'
 
 const slug = Astro.url.searchParams.get('slug')
+
+// No slug (or an empty one) names no wedding: the not-found page, no lookup.
 const result = slug ? await fetchInviteForQueryRoute(slug) : ({ kind: 'not-found' } as const)
 
-if (result.kind !== 'ok') {
-  Astro.response.status = result.kind === 'error' ? 503 : 404
+// Unknown slug → a real 404. An API error is NOT a 404: the wedding may be
+// real, so the page renders with built-in theme and copy and the island reports
+// whatever its own read finds — a guest back from paying still sees the list.
+if (result.kind === 'not-found') {
+  Astro.response.status = 404
 }
 
 const invite = result.kind === 'ok' ? result.invite : null
 ---
-{result.kind === 'ok' ? (
-  <GiftRegistryDocument apiUrl={API_URL} slug={slug!} invite={invite} />
-) : (
+{result.kind === 'not-found' ? (
   <NotFoundDocument
-    heading={result.kind === 'error' ? 'Gift list unavailable' : 'Invitation not found'}
-    body={result.kind === 'error' ? 'Please try again shortly.' : 'Please check the link from your invite and try again.'}
+    heading="Invitation not found"
+    body="We couldn't find an invitation at this link. Please check the link from your invite and try again."
   />
+) : (
+  <GiftRegistryDocument apiUrl={API_URL} slug={slug!} invite={invite} />
 )}

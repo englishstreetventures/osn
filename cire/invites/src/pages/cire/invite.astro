@@ -1,4 +1,13 @@
 ---
+// Server-rendered, per-request invitation route for generated links:
+// `/cire/invite?slug=<slug>`. The slug rides in the query, which production
+// traces redact, and the server-side lookup sends it in a POST body to a fixed
+// API path, so neither the request path nor the outbound URL names the wedding.
+// Existing `/<slug>` links keep working through `[slug].astro`; this route
+// answers exactly as that one does.
+//
+// The `?code=<host code>` auto-claim deep-link rides alongside `slug`:
+// LoginSection reads it client-side and strips only `code` from the address bar.
 import { isDesignId } from '@cire/invite-designs'
 
 import NotFoundDocument from '../../components/NotFoundDocument.astro'
@@ -7,23 +16,27 @@ import { resolveDesignId } from '../../designs/resolve'
 import { API_URL, fetchInviteForQueryRoute } from '../../lib/invite'
 
 const slug = Astro.url.searchParams.get('slug')
+
+// No slug (or an empty one) names no wedding: the not-found page, no lookup.
 const result = slug ? await fetchInviteForQueryRoute(slug) : ({ kind: 'not-found' } as const)
 
-if (result.kind !== 'ok') {
-  Astro.response.status = result.kind === 'error' ? 503 : 404
+// Unknown slug → a real 404. An API error is NOT a 404: the shell renders with
+// built-in defaults and the islands retry the read from the browser, so a
+// transient blip never loses a guest's invitation.
+if (result.kind === 'not-found') {
+  Astro.response.status = 404
 }
 
-const invite = result.kind === 'ok' ? result.invite : null
+const siteUrl = import.meta.env.PUBLIC_SITE_URL
+
+// `?design=<id>` is the organiser's preview override, as on `[slug].astro`.
 const designOverride = Astro.url.searchParams.get('design')
+const invite = result.kind === 'ok' ? result.invite : null
 const designId = isDesignId(designOverride) ? designOverride : resolveDesignId(invite?.designId)
 const { Document } = registry[designId]
-const siteUrl = import.meta.env.PUBLIC_SITE_URL
 ---
-{result.kind === 'ok' ? (
-  <Document apiUrl={API_URL} slug={slug!} initialInvite={invite} siteUrl={siteUrl} />
+{result.kind === 'not-found' ? (
+  <NotFoundDocument />
 ) : (
-  <NotFoundDocument
-    heading={result.kind === 'error' ? 'Invitation unavailable' : 'Invitation not found'}
-    body={result.kind === 'error' ? 'Please try again shortly.' : 'Please check the link from your invite and try again.'}
-  />
+  <Document apiUrl={API_URL} slug={slug!} initialInvite={invite} siteUrl={siteUrl} />
 )}

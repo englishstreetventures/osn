@@ -140,7 +140,7 @@ describe("PreviewInviteButton", () => {
     await waitFor(() => expect(win.location.href).toContain("&code=HOST-ABCDEF0123456789ABCDEF01"));
   });
 
-  it("points the opened tab at the guest invite with ?code= on success", async () => {
+  it("points the opened tab at the guest invite with the slug and code in the query on success", async () => {
     authFetchMock.mockResolvedValue(
       new Response(
         JSON.stringify({

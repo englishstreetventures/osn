@@ -148,8 +148,8 @@ describe("GuestTable", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     const copied = writeText.mock.calls[0]![0];
     expect(copied).toContain("Nadia & Sam");
-    // Path-routed: the link carries the wedding slug in the PATH, not the bare
-    // origin — so the message opens THIS wedding on the SSR'd guest site.
+    // The link carries the wedding slug in the fixed invitation route's query,
+    // not the bare origin — so the message opens THIS wedding on the guest site.
     expect(copied).toContain("https://guests.test/cire/invite?slug=nadia-sam-abc123");
     expect(copied).toContain("SHARMA-WIDGET-AB3K9-X7QPM");
 

@@ -72,7 +72,8 @@ describe("pages/[slug]/registry.astro (the gift list's route)", () => {
 
   it("still renders the page when only the invite read failed", () => {
     // `invite` degrades to null (built-in theme and copy); the island reports
-    // whatever the list read finds.
+    // whatever the list read finds. Only `not-found` picks the not-found page.
     expect(code).toContain("result.kind === 'ok' ? result.invite : null");
+    expect(code).toContain("{result.kind === 'not-found' ? (");
   });
 });

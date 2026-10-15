@@ -145,6 +145,29 @@ describe("createClaimCode", () => {
     dispose();
   });
 
+  it("keeps the fixed-path route's slug when it strips the code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(claimResult()), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    // The organiser's preview link: the slug and the code share the query, so
+    // dropping the whole query would lose the wedding on a reload.
+    window.history.replaceState(null, "", "/cire/invite?slug=anita-ben&code=HOST-ABCDEF01");
+    const onClaimed = vi.fn();
+
+    const { dispose } = mount({ apiUrl: "http://x", result: () => null, onClaimed });
+
+    expect(window.location.pathname).toBe("/cire/invite");
+    expect(window.location.search).toBe("?slug=anita-ben");
+    await vi.waitFor(() => expect(onClaimed).toHaveBeenCalledTimes(1));
+    dispose();
+  });
+
   it("does not auto-claim a ?code= deep-link when a result already exists", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
