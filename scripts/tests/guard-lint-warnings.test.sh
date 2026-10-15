@@ -26,10 +26,12 @@
 #   --count     prints the count alone; prints nothing and fails on any error
 #   --lower-to  lowers the value line only; never raises; refuses bad input
 #   --base      holds a tree to its base commit: the two-branch merge in
-#               either order, an added warning, a raise, the lagging-ceiling
-#               case the absolute check alone lets through, the first parent
-#               of a real merge, a base with its own toolchain, and each way
-#               the base cannot be measured
+#               either order, an added warning, a raise and its edges, the
+#               lagging-ceiling case the absolute check alone lets through,
+#               the first parent of a real merge, a rule turned on, a base
+#               over its own ceiling, a nested root, a base installed from its
+#               own lockfile and linted with its own oxlint, and each way the
+#               base cannot be measured
 #
 # Run: bash scripts/tests/guard-lint-warnings.test.sh
 set -uo pipefail
@@ -248,6 +250,20 @@ assert_lacks "the oxlint-error case does not also claim a count mismatch" "$out"
 out="$(run_guard "$ceiling1" "$fx1" --frobnicate 2>&1)"
 assert "an unknown argument refuses to run" "$?" 1 "$out" "unknown argument"
 
+# An argument after the mode refuses to run.
+out="$(run_guard "$ceiling1" "$fx1" --count extra 2>&1)"
+assert "an extra argument refuses to run" "$?" 1 "$out" "unexpected argument"
+
+# oxlint exiting 0 with output that is not a report: no count, no pass.
+fake_oxlint="$tmp/fake-oxlint"
+printf '#!/usr/bin/env bash\necho "not a report"\n' >"$fake_oxlint"
+chmod +x "$fake_oxlint"
+out="$(LINT_WARNING_CEILING_FILE="$ceiling1" LINT_WARNING_ROOT="$fx1" LINT_WARNING_OXLINT_BIN="$fake_oxlint" bash "$guard" 2>&1)"
+assert "an unreadable oxlint report refuses to run" "$?" 1 "$out" "could not determine a warning count"
+out="$(LINT_WARNING_CEILING_FILE="$ceiling1" LINT_WARNING_ROOT="$fx1" LINT_WARNING_OXLINT_BIN="$fake_oxlint" bash "$guard" --count 2>/dev/null)"
+assert "--count fails on an unreadable oxlint report" "$?" 1 "$out" ""
+assert_eq "--count prints nothing on stdout for an unreadable report" "$out" ""
+
 # --- --count ---------------------------------------------------------------
 
 out="$(run_guard "$tmp/no-ceiling-needed.txt" "$fx1" --count 2>/dev/null)"
@@ -298,6 +314,31 @@ assert "--lower-to with no ceiling file refuses" "$?" 1 "$out" "ceiling file not
 out="$(run_guard "$ceiling5" "$fx1" --lower-to 3 2>&1)"
 assert "--lower-to with an unparseable ceiling file refuses" "$?" 1 "$out" "does not hold a single non-negative integer"
 assert_same_file "--lower-to on bad input leaves the file unchanged" "$lower_file" "$tmp/ceiling-lower.before"
+
+# Value-line edge cases, run with no oxlint at all: --lower-to never lints.
+lower_only() {
+  LINT_WARNING_CEILING_FILE="$1" LINT_WARNING_ROOT="$fx1" LINT_WARNING_OXLINT_BIN="$tmp/no-such-oxlint" \
+    bash "$guard" --lower-to "$2"
+}
+edge="$tmp/ceiling-edge.txt"
+printf '08\n' >"$edge"
+out="$(lower_only "$edge" 3 2>&1)"
+assert "--lower-to reads a leading zero as decimal and needs no oxlint" "$?" 0 "$out" "from 8 to 3"
+printf '5' >"$edge"
+out="$(lower_only "$edge" 2 2>&1)"
+assert "--lower-to handles a value line with no trailing newline" "$?" 0 "$out" "from 5 to 2"
+assert_eq "--lower-to writes the value when the file had no trailing newline" "$(ceiling_value "$edge")" "2"
+printf '# only\n# comments\n' >"$edge"
+out="$(lower_only "$edge" 2 2>&1)"
+assert "--lower-to refuses a file of comments only" "$?" 1 "$out" "does not hold a single non-negative integer"
+printf '3 4\n' >"$edge"
+out="$(lower_only "$edge" 2 2>&1)"
+assert "--lower-to refuses two numbers on the value line" "$?" 1 "$out" "does not hold a single non-negative integer"
+printf '# c\n9   # note\n' >"$edge"
+chmod 640 "$edge"
+mode_before="$(ls -l "$edge" | cut -c1-10)"
+lower_only "$edge" 4 >/dev/null 2>&1
+assert_eq "--lower-to keeps the file's mode" "$(ls -l "$edge" | cut -c1-10)" "$mode_before"
 
 # --- --base: the check pull-request CI runs --------------------------------
 
@@ -368,18 +409,20 @@ commit_all "raise for four"
 out="$(run_base --base main 2>&1)"
 assert "--base: the same branch passes once it raises the ceiling" "$?" 0 "$out" ""
 
-# Merge the two removals in either order: no conflict, and the ceiling
-# lowered to the merged count afterwards.
+# Merge the two removals in either order. The second to land is checked the
+# way CI checks it: the merge commit against its first parent, which already
+# holds the first removal while the ceiling still says 3.
 g checkout -q main
 g merge -q --no-edit remove-one >/dev/null 2>&1
-assert "--base: merging the first removal succeeds" "$?" 0 "" ""
 after_one="$(g rev-parse HEAD)"
 g merge -q --no-edit remove-two >/dev/null 2>&1
-assert "--base: merging the second removal succeeds with no conflict" "$?" 0 "" ""
+out="$(run_base --base HEAD^1 2>&1)"
+assert "--base: the second removal to land passes against a base that holds the first" "$?" 0 "$out" "below the ceiling of 3"
 g checkout -q -b other-order start
 g merge -q --no-edit remove-two >/dev/null 2>&1
 g merge -q --no-edit remove-one >/dev/null 2>&1
-assert "--base: merging them in the other order also succeeds" "$?" 0 "" ""
+out="$(run_base --base HEAD^1 2>&1)"
+assert "--base: the same holds with the removals landing in the other order" "$?" 0 "$out" "below the ceiling of 3"
 g checkout -q main
 merged_count="$(run_base --count 2>/dev/null)"
 assert_eq "--base: the merged tree holds one warning" "$merged_count" "1"
@@ -453,6 +496,109 @@ assert "--base: a base whose lint run fails refuses with its own message" "$?" 1
 out="$(LINT_WARNING_CEILING_FILE="$ceiling1" LINT_WARNING_ROOT="$repo" LINT_WARNING_OXLINT_BIN="$oxlint_bin" bash "$guard" --base start 2>&1)"
 assert "--base: a ceiling file outside the linted root refuses" "$?" 1 "$out" "inside"
 
+# Raise arithmetic at its edges. From the start (3 warnings, ceiling 3): a
+# branch that adds 2 but raises by 1 still fails and names the full number;
+# a branch that removes one and lowers the ceiling to match passes.
+g checkout -q -b short-raise start
+put_warnings four.ts 2
+set_ceiling 4 "short-raise @ fixture"
+commit_all "add two, raise by one"
+out="$(run_base --base start 2>&1)"
+got=$?
+assert "--base: a raise one short of what the branch adds fails" "$got" 1 "$out" "adds 2 warnings"
+assert_contains "--base: it names the full raise" "$out" "set it to 5"
+g checkout -q -b hand-lowered start
+put_warnings one.ts 0
+set_ceiling 2 "hand-lowered @ fixture"
+commit_all "remove one and lower by hand"
+out="$(run_base --base start 2>&1)"
+assert "--base: a branch that lowers the ceiling to its own count passes" "$?" 0 "$out" "matches the ceiling"
+
+# The rules that rose are listed even when the base has no warnings at all.
+g checkout -q -b zero-base start
+put_warnings one.ts 0
+put_warnings two.ts 0
+put_warnings three.ts 0
+commit_all "no warnings"
+g checkout -q -b zero-add zero-base
+put_warnings four.ts 1
+commit_all "add one to an empty base"
+out="$(run_base --base zero-base 2>&1)"
+got=$?
+assert "--base: adding one to a base with none fails" "$got" 1 "$out" "adds 1 warning"
+assert_contains "--base: the rule that rose is listed when the base has none" "$out" "eslint(no-console) +1"
+g checkout -q main
+
+# A fresh repository for the cases that need their own config or layout.
+new_repo() {
+  repo="$tmp/$1"
+  git -c init.defaultBranch=main init -q "$repo"
+  mkdir -p "$repo/src"
+}
+
+# The base is linted with its own oxlintrc.json: a branch that turns a rule
+# from off to warn adds every warning that rule finds.
+new_repo config-repo
+printf '{ "categories": { "correctness": "error" }, "rules": { "no-console": "off" } }\n' >"$repo/oxlintrc.json"
+put_warnings one.ts 3
+set_ceiling 3 "config fixture"
+commit_all "no-console off"
+printf '{ "categories": { "correctness": "error" }, "rules": { "no-console": "warn" } }\n' >"$repo/oxlintrc.json"
+commit_all "no-console warn"
+out="$(run_base --base HEAD^1 2>&1)"
+assert "--base: a branch that turns a rule on is measured against the base's own config" "$?" 1 "$out" "adds 3 warnings"
+
+# Only the rules that rose are listed.
+new_repo rules-repo
+printf '{ "categories": { "correctness": "error" }, "rules": { "no-console": "warn", "no-debugger": "warn" } }\n' >"$repo/oxlintrc.json"
+put_warnings one.ts 1
+set_ceiling 1 "rules fixture"
+commit_all "one console"
+echo "debugger;" >"$repo/src/dbg.ts"
+commit_all "add a debugger statement"
+out="$(run_base --base HEAD^1 2>&1)"
+got=$?
+assert "--base: a branch that adds a different rule's warning fails" "$got" 1 "$out" "eslint(no-debugger) +1"
+assert_lacks "--base: a rule that did not rise is not listed" "$out" "eslint(no-console)"
+
+# A base already over its own ceiling: the branch adds nothing, so the
+# failure points at the base and names a ceiling that passes.
+new_repo red-base-repo
+cp "$fx1/oxlintrc.json" "$repo/oxlintrc.json"
+put_warnings one.ts 3
+set_ceiling 2 "red base fixture"
+commit_all "base over its ceiling"
+echo "export const unrelated = 1;" >"$repo/src/unrelated.ts"
+commit_all "an unrelated change"
+out="$(run_base --base HEAD^1 2>&1)"
+got=$?
+assert "--base: a branch on a base over its ceiling fails on the ceiling" "$got" 1 "$out" "Fix the base first"
+assert_contains "--base: it names a ceiling that passes, not the one that failed" "$out" "set it to 3"
+
+# A base whose own dependencies cannot be installed fails with its own message.
+new_repo bad-install-repo
+cp "$fx1/oxlintrc.json" "$repo/oxlintrc.json"
+printf '{ not json\n' >"$repo/package.json"
+put_warnings one.ts 1
+set_ceiling 1 "bad install fixture"
+commit_all "a package.json bun cannot read"
+rm "$repo/package.json"
+commit_all "drop it"
+out="$(run_base --base HEAD^1 2>&1)"
+assert "--base: a base whose dependencies cannot be installed refuses" "$?" 1 "$out" "could not install the base"
+
+# A linted root below the repository's top level.
+new_repo nested-repo
+mkdir -p "$repo/sub/src"
+cp "$fx1/oxlintrc.json" "$repo/sub/oxlintrc.json"
+echo "console.log(1);" >"$repo/sub/src/one.ts"
+printf '1   # nested fixture\n' >"$repo/sub/ceiling.txt"
+commit_all "nested start"
+echo "console.log(2);" >"$repo/sub/src/two.ts"
+commit_all "nested adds one"
+out="$(LINT_WARNING_CEILING_FILE="$repo/sub/ceiling.txt" LINT_WARNING_ROOT="$repo/sub" LINT_WARNING_OXLINT_BIN="$oxlint_bin" bash "$guard" --base HEAD^1 2>&1)"
+assert "--base: a linted root below the top level is compared with the same directory in the base" "$?" 1 "$out" "adds 1 warning"
+
 # A base with its own package.json is installed and linted with its own
 # oxlint, not this tree's: the wrapper below logs every call made through
 # LINT_WARNING_OXLINT_BIN, and only the working tree may use it.
@@ -475,6 +621,18 @@ if (cd "$repo" && bun install >"$tmp/toolchain-install.log" 2>&1); then
   out="$(LINT_WARNING_CEILING_FILE="$repo/ceiling.txt" LINT_WARNING_ROOT="$repo" LINT_WARNING_OXLINT_BIN="$wrapper" bash "$guard" --base HEAD 2>&1)"
   assert "--base: a base with its own package.json is measured" "$?" 0 "$out" "base has 2"
   assert_eq "--base: the base is linted with its own installed oxlint" "$(wc -l <"$calls" | tr -d ' ')" "1"
+
+  # The base installs exactly what its lockfile pins. A base whose
+  # package.json names a dependency its bun.lock does not hold refuses, where
+  # a fresh resolution would quietly install it from the cache.
+  plugins_version="$(sed -n 's/.*"@oxlint\/plugins": "\([^"]*\)".*/\1/p' "$repo_root/package.json")"
+  printf '{\n  "name": "guard-fixture",\n  "private": true,\n  "devDependencies": { "oxlint": "%s", "@oxlint/plugins": "%s" }\n}\n' \
+    "$oxlint_version" "$plugins_version" >"$repo/package.json"
+  commit_all "a dependency the lockfile does not hold"
+  echo "export const unrelated = 1;" >"$repo/src/unrelated.ts"
+  commit_all "an unrelated change"
+  out="$(run_base --base HEAD^1 2>&1)"
+  assert "--base: a base whose lockfile is out of step with its package.json refuses" "$?" 1 "$out" "could not install the base"
 else
   echo "FAIL - setup: bun install in the toolchain fixture failed"
   sed 's/^/  /' "$tmp/toolchain-install.log"

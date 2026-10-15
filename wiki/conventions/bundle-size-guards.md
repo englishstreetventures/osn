@@ -497,8 +497,9 @@ warm local bun cache: 879 against 879 in 15.6 s, where the plain
 - **Down, on `main` only.** On each merge, `release.yml`'s `lint-count` job
   counts the warnings (`--count`) with a read-only token, no stored
   credentials and no install scripts. The `release` job, which holds
-  `RELEASE_TOKEN`, then runs `--lower-to <count>` and commits the new value
-  line in the same commit as the version bumps — `chore: version packages,
+  `RELEASE_TOKEN`, then runs `--lower-to <count>`, and
+  `scripts/release-commit.sh` commits the new value line in the same commit
+  as the version bumps — `chore: version packages,
   lower the lint-warning ceiling`, or `chore: lower the lint-warning ceiling`
   when the merge carried no changeset. `--lower-to` never raises the number
   and leaves the file untouched when it already matches, so a re-run makes no
@@ -565,7 +566,7 @@ checks out with `fetch-depth: 2`: the merge commit arrives with both parents.
 On a push to `main` it runs the absolute check alone. `release.yml` runs
 `--count` and `--lower-to` as above.
 
-Two test files, for the two things that can go wrong independently:
+Three test files, for the three things that can go wrong independently:
 
 - `scripts/tests/lint-warning-count.test.ts` (+ `.cli.test.ts`) — pure
   counting logic, run in `script-tests` like everything else under
@@ -577,11 +578,19 @@ Two test files, for the two things that can go wrong independently:
   `node_modules` (`LINT_WARNING_OXLINT_BIN`). It covers every mode: two
   branches that each remove a warning merging in either order, a branch that
   adds one, the lagging-ceiling case the absolute check alone lets through,
-  the first parent of a real merge commit, and a base installed and linted
-  with its own oxlint. That real binary, and the one case that installs
-  oxlint into a fixture from the bun cache, are why it runs as its own step
-  in the `lint` job, after `bun install` — `script-tests` does none, on
-  purpose (see that job's own comment in `ci.yml`).
+  the first parent of a real merge commit, a branch that turns a rule on, and
+  a base installed from its own lockfile and linted with its own oxlint. That
+  real binary, and the cases that install oxlint into a fixture from the bun
+  cache, are why it runs as its own step in the `lint` job, after
+  `bun install` — `script-tests` does none, on purpose (see that job's own
+  comment in `ci.yml`).
+- `scripts/tests/release-commit.test.sh` — the release job's commit step,
+  `scripts/release-commit.sh`, in throwaway repositories with a bare remote:
+  what it stages, which message it picks, that it commits nothing when
+  nothing it owns changed, and that a push behind the remote fails. It needs
+  only git, so it runs in `script-tests`. The job wiring around it —
+  `lint-count`'s skip, `needs` and the count it hands over — runs only on
+  `main`.
 
 > [!warning] What the two checks do not catch
 > - **Branches that interact.** Each branch is measured against its own

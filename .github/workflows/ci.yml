@@ -395,6 +395,12 @@ jobs:
       - name: Test the vendored anti-slop guard
         run: bash scripts/tests/verify-vendored-anti-slop.test.sh
 
+      # release.yml's commit step runs only on main, after a merge, so this is
+      # the one place its staging and message choice are seen to work before
+      # then. Throwaway repositories with a bare remote; git only.
+      - name: Test the release commit script
+        run: bash scripts/tests/release-commit.test.sh
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version

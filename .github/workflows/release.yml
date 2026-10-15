@@ -110,27 +110,11 @@ jobs:
           echo "Lint warnings measured by lint-count: ${COUNT}"
           bash scripts/guard-lint-warnings.sh --lower-to "$COUNT"
 
+      # Stages only the version bumps and the ceiling, picks the message, and
+      # pushes with --no-verify; scripts/release-commit.sh says why, and
+      # scripts/tests/release-commit.test.sh covers each case.
       - name: Commit and push if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add '**/package.json' '**/CHANGELOG.md' .changeset/ bun.lock scripts/lint-warning-ceiling.txt
-          if git diff --staged --quiet; then
-            echo "Nothing to commit."
-            exit 0
-          fi
-          if git diff --staged --quiet -- scripts/lint-warning-ceiling.txt; then
-            message="chore: version packages"
-          elif git diff --staged --quiet -- ':(exclude)scripts/lint-warning-ceiling.txt'; then
-            message="chore: lower the lint-warning ceiling"
-          else
-            message="chore: version packages, lower the lint-warning ceiling"
-          fi
-          # --no-verify on both: the lefthook pre-commit/pre-push hooks run
-          # `bun audit` (+ typecheck), which fails on pre-existing transitive
-          # advisories and aborted this auto-version push on every merge. CI
-          # (Type Check / Build & Test) is the real gate; this is a bot commit
-          # of generated package.json/CHANGELOG bumps and the ceiling's value
-          # line only.
-          git commit --no-verify -m "$message"
-          git push --no-verify
+          bash scripts/release-commit.sh

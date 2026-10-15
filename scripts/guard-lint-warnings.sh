@@ -306,9 +306,10 @@ if [ "$mode" = "base" ]; then
   if [ "$count" -gt "$allowed" ]; then
     echo "::error::guard-lint-warnings.sh: this tree has ${count} lint warnings and the base has ${base_count} (${base_rev}), so this branch adds $(plural "$added"), more than the raise of ${raise} it makes to the ceiling in ${CEILING_FILE}." >&2
     # Each rule's line is "<rule> <count>"; the count is the last field, and
-    # a rule name may hold a space ("(unknown rule)").
+    # a rule name may hold a space ("(unknown rule)"). The base's file is told
+    # apart by name, not by line number, so an empty one still works.
     echo "Rules that rose against the base:" >&2
-    awk '{ n = $NF; $NF = ""; sub(/ $/, ""); if (FNR == NR) { base[$0] = n; next } if (n - base[$0] > 0) printf "  %s +%d\n", $0, n - base[$0] }' \
+    awk '{ n = $NF; $NF = ""; sub(/ $/, ""); if (FILENAME == ARGV[1]) { base[$0] = n; next } if (n - base[$0] > 0) printf "  %s +%d\n", $0, n - base[$0] }' \
       "$WORK_DIR/base.rules" "$WORK_DIR/tree.rules" >&2
     echo "Run \`bun run lint\` locally to see file:line locations for the rules above." >&2
     raise_advice "$needed"
