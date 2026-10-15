@@ -182,13 +182,13 @@ alone, but it is a build-sized load, and two runs in one checkout share that
 directory. Not alone: record each run you would have made under `## Not run`.
 
 For each affected cire package, run it on the **lines the branch changed** —
-`--changed=$DIFF_BASE` mutates only the added and changed lines under the
+`--base "$DIFF_BASE"` (which implies `--changed`) mutates only the added and changed lines under the
 package's `src/`, so every mutant it reports is the branch's. Never the whole
 package, which takes hours. Run it in the background (the shell's foreground
 limit is ten minutes) and keep auditing while it runs:
 
 ```bash
-bun run --cwd cire/<pkg> test:mutation --changed="$DIFF_BASE" > <scratch>/mutation-<pkg>.log 2>&1
+bun run --cwd cire/<pkg> test:mutation --base "$DIFF_BASE" > <scratch>/mutation-<pkg>.log 2>&1
 ```
 
 It prints `no changed source lines` and exits 0 when the branch changes no
@@ -197,7 +197,7 @@ source there — record that and move on. `@cire/api` will not start without
 from Step 3, never `tests/db/`:
 
 ```bash
-STRYKER_TESTS='tests/lib/money.test.ts' bun run --cwd cire/api test:mutation --changed="$DIFF_BASE"
+STRYKER_TESTS='tests/lib/money.test.ts' bun run --cwd cire/api test:mutation --base "$DIFF_BASE"
 ```
 
 A run that stops with `No tests were executed` means no test imports a mutated

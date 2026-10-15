@@ -15,7 +15,7 @@
     "preview": "astro preview --port 4323",
     "check": "bunx --bun astro check",
     "test": "vitest run",
-    "test:mutation": "bun ../../scripts/stryker/cli.ts",
+    "test:mutation": "bun ../../tools/stryker/src/cli.ts",
     "test:run": "vitest run"
   },
   "dependencies": {

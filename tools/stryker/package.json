@@ -1,0 +1,23 @@
+{
+  "name": "@tools/stryker",
+  "private": true,
+  "description": "Runs Stryker mutation testing for a cire package from the repo root",
+  "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@shared/typescript-config": "workspace:*",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@stricli/core": "1.3.0"
+  }
+}

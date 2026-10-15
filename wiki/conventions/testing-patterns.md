@@ -365,7 +365,7 @@ whole file is several hundred mutants (one `@cire/host` file is about ten
 minutes); a whole package is hours and is for a baseline, not a branch.
 
 ```bash
-# The lines this branch changed, against origin/main (or --changed=<base> on a stacked branch)
+# The lines this branch changed, against origin/main (on a stacked branch: --base <parent>)
 bun run --cwd cire/host test:mutation --changed
 
 # A file, several files, or a line range
@@ -375,6 +375,10 @@ bun run --cwd cire/vendor test:mutation --mutate 'src/lib/enquiry-inbox.ts,src/l
 # @cire/api: also name the tests that cover the code — it will not start without them
 STRYKER_TESTS=tests/lib/money.test.ts bun run --cwd cire/api test:mutation --changed
 ```
+
+`test:mutation --help` lists the flags: `--changed`, `--base`, `--mutate`,
+`--incremental`, `--dry-run` and `--concurrency`. Any other Stryker option goes
+after `--` (`test:mutation --changed -- --logLevel debug`).
 
 After adding a test, `--incremental` re-tests only the mutants whose code or
 covering tests changed. Use it in the vitest packages only: the command-runner
@@ -446,12 +450,12 @@ What the configs depend on, and what breaks without it:
   would hold that package alone, and every path a test reaches outside it with
   — `../../shared/test-config/no-jest-dom.ts`, a contract test reading
   `../../../api/src`, a seed test running `../../../../scripts` — would resolve
-  to nothing. [`scripts/stryker/cli.ts`](../../scripts/stryker/cli.ts), which
+  to nothing. [`tools/stryker`](../../tools/stryker/src/app.ts), which
   every `test:mutation` script calls, runs Stryker from the root with the
   package's config and rewrites `--mutate` paths from package-relative to
   root-relative. The options every config shares — what to mutate, what the
   sandbox leaves out, where the report goes — are in
-  [`scripts/stryker/options.mjs`](../../scripts/stryker/options.mjs).
+  [`tools/stryker/src/options.mjs`](../../tools/stryker/src/options.mjs).
   Stryker does not read `.gitignore`, so that file's `ignorePatterns` keeps
   local secret files (`.env*`, `.dev.vars*`, keys) out of the copy. Do not switch a config to `inPlace`: it writes
   `// @ts-nocheck` into every source and test file for the length of the run,

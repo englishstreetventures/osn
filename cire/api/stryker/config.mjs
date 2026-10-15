@@ -10,7 +10,7 @@
  *   STRYKER_TESTS=tests/lib/money.test.ts bun run test:mutation --mutate src/lib/money.ts
  */
 
-import { cireStryker } from "../../../scripts/stryker/options.mjs";
+import { cireStryker } from "../../../tools/stryker/src/options.mjs";
 
 const { pkg, options } = cireStryker(import.meta.dirname);
 

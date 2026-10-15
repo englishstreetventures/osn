@@ -2,7 +2,7 @@
  * The Stryker options every cire package's `stryker/config.mjs` shares. Each config
  * spreads `options` and adds its own runner.
  *
- * `scripts/stryker/cli.ts` runs Stryker from the repo root, so the sandbox is
+ * `tools/stryker` runs Stryker from the repo root, so the sandbox is
  * a copy of the whole repository and every path here is root-relative.
  * `ignorePatterns` is the only control over what that copy holds: Stryker does
  * not read `.gitignore`, so local secret files are listed here, and nothing a

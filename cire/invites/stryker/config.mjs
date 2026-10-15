@@ -3,7 +3,7 @@
  * `--changed`. See wiki/conventions/testing-patterns.md §Mutation testing.
  */
 
-import { cireStryker } from "../../../scripts/stryker/options.mjs";
+import { cireStryker } from "../../../tools/stryker/src/options.mjs";
 
 const { pkg, options } = cireStryker(import.meta.dirname);
 
