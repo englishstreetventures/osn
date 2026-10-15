@@ -496,15 +496,19 @@ warm local bun cache: 879 against 879 in 15.6 s, where the plain
 
 - **Down, on `main` only.** On each merge, `release.yml`'s `lint-count` job
   counts the warnings (`--count`) with a read-only token, no stored
-  credentials and no install scripts. The `release` job, which holds
-  `RELEASE_TOKEN`, then runs `--lower-to <count>`, and
-  `scripts/release-commit.sh` commits the new value line in the same commit
-  as the version bumps — `chore: version packages,
-  lower the lint-warning ceiling`, or `chore: lower the lint-warning ceiling`
-  when the merge carried no changeset. `--lower-to` never raises the number
-  and leaves the file untouched when it already matches, so a re-run makes no
-  empty commit. `lint-count` skips the bot's own commits, which never change
-  the count.
+  credentials and no install scripts, so oxlint and its plugins never run
+  inside the `release` job, which holds `RELEASE_TOKEN`. That job checks the
+  count is a plain number of at most nine digits, runs `--lower-to <count>`,
+  and `scripts/release-commit.sh` commits the new value line in the same
+  commit as the version bumps — `chore: version packages, lower the
+  lint-warning ceiling`, or `chore: lower the lint-warning ceiling` when the
+  merge carried no changeset. `--lower-to` never raises the number and leaves
+  the file untouched when it already matches, so a re-run makes no empty
+  commit. `lint-count` skips the bot's own commits, which never change the
+  count. The split does not stop code in `lint-count` reaching `main`'s
+  dependency cache — on a hosted runner any step can reach the runner's own
+  token — so the `release` job restores no cache and installs from the
+  registry against `bun.lock`.
 - **Up, in a pull request, on purpose.** When a branch adds warnings it means
   to keep, the failing guard names one number: set the value line to it and
   put the branch and date in the line's trailing comment. Two raises open at
@@ -580,10 +584,13 @@ Three test files, for the three things that can go wrong independently:
   adds one, the lagging-ceiling case the absolute check alone lets through,
   the first parent of a real merge commit, a branch that turns a rule on, and
   a base installed from its own lockfile and linted with its own oxlint. That
-  real binary, and the cases that install oxlint into a fixture from the bun
-  cache, are why it runs as its own step in the `lint` job, after
-  `bun install` — `script-tests` does none, on purpose (see that job's own
-  comment in `ci.yml`).
+  real binary, and the cases that install oxlint into a fixture, are why it
+  runs as its own step in the `lint` job, after `bun install` —
+  `script-tests` does none, on purpose (see that job's own comment in
+  `ci.yml`). Those installs can reach the registry, so on a pull request the
+  step runs the suite only when the guard, the counter, the test,
+  `package.json`, `bun.lock` or `.bun-version` changed; it runs on every push
+  to `main`.
 - `scripts/tests/release-commit.test.sh` — the release job's commit step,
   `scripts/release-commit.sh`, in throwaway repositories with a bare remote:
   what it stages, which message it picks, that it commits nothing when

@@ -22,6 +22,9 @@ jobs:
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest
+    # Bounded because the lint-warning guard installs a second dependency tree
+    # on pull requests, which can wait on the registry.
+    timeout-minutes: 10
     steps:
       # Depth 2 so a pull request's merge commit arrives with both parents:
       # the lint-warning guard below compares it with HEAD^1, the base it
@@ -84,12 +87,21 @@ jobs:
       # LINT_WARNING_CEILING_FILE) rather than this repo's real tree, so it
       # neither depends on nor perturbs the real warning count. It still runs
       # the REAL oxlint binary from this checkout's own node_modules
-      # (LINT_WARNING_OXLINT_BIN), and one case installs oxlint into a
-      # fixture from the bun cache, which is why it lives here — after
-      # Install dependencies — rather than in the script-tests job, which
-      # does no `bun install` on purpose.
+      # (LINT_WARNING_OXLINT_BIN), and two cases install oxlint into a
+      # fixture, which is why it lives here — after Install dependencies —
+      # rather than in the script-tests job, which does no `bun install` on
+      # purpose. Those installs can reach the registry, so on a pull request
+      # it runs only when something it exercises changed; it runs on every
+      # push to main.
       - name: Test the lint-warning ceiling guard
-        run: bash scripts/tests/guard-lint-warnings.test.sh
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && git diff --quiet HEAD^1 HEAD -- \
+            scripts/guard-lint-warnings.sh scripts/lint-warning-count.ts \
+            scripts/tests/guard-lint-warnings.test.sh package.json bun.lock .bun-version; then
+            echo "Nothing the guard's test exercises changed in this pull request; skipped."
+            exit 0
+          fi
+          bash scripts/tests/guard-lint-warnings.test.sh
 
       - name: Format check
         run: bun run fmt:check

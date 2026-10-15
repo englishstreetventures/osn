@@ -115,11 +115,12 @@ plural() {
   if [ "$1" -eq 1 ]; then printf '%s warning' "$1"; else printf '%s warnings' "$1"; fi
 }
 
-# One non-negative integer, alone on the first non-blank, non-comment line
-# (the same `#`-comment convention as bundle-size-budgets.txt). Sets
-# parsed_value and parsed_line. Returns 1 when the file is missing and 2 when
-# that line is anything but an integer — a malformed file stops the guard
-# rather than silently parsing to 0 or to the wrong token.
+# One non-negative integer of at most nine digits, alone on the first
+# non-blank, non-comment line (the same `#`-comment convention as
+# bundle-size-budgets.txt). Sets parsed_value and parsed_line. Returns 1 when
+# the file is missing and 2 when that line is anything else — a malformed
+# file stops the guard rather than silently parsing to 0, to the wrong token,
+# or to a number shell arithmetic wraps.
 parse_ceiling() {
   local file="$1" line stripped n=0
   parsed_value=""
@@ -134,7 +135,7 @@ parse_ceiling() {
     parsed_line=$n
     break
   done <"$file"
-  { [ -n "$parsed_value" ] && [[ "$parsed_value" =~ ^[0-9]+$ ]]; } || return 2
+  { [ -n "$parsed_value" ] && [[ "$parsed_value" =~ ^[0-9]{1,9}$ ]]; } || return 2
   parsed_value=$((10#$parsed_value))
 }
 
@@ -159,9 +160,13 @@ load_ceiling() {
 
 # --lower-to needs no oxlint: it only compares two numbers and rewrites one
 # line, so release.yml can run it in the job that holds the push token
-# without running the linter there.
+# without running the linter there. Its number comes from another job, so a
+# refused value is never echoed back into the log, and nothing longer than a
+# warning count can be (nine digits) reaches shell arithmetic, where it would
+# wrap to a negative ceiling.
 if [ "$mode" = "lower" ]; then
-  [[ "$lower_to" =~ ^[0-9]+$ ]] || usage "--lower-to takes a non-negative integer, got '${lower_to}'."
+  [[ "$lower_to" =~ ^[0-9]+$ ]] || usage "--lower-to takes a non-negative integer."
+  [ "${#lower_to}" -le 9 ] || usage "--lower-to takes a warning count of at most nine digits."
   load_ceiling
   target=$((10#$lower_to))
   if [ "$target" -eq "$ceiling" ]; then
@@ -177,10 +182,10 @@ if [ "$mode" = "lower" ]; then
   # file's mode.
   new_line="${target}   # lowered by scripts/guard-lint-warnings.sh --lower-to, $(date -u +%Y-%m-%d)"
   rewritten="$(mktemp)"
+  trap 'rm -f "$rewritten"' EXIT
   awk -v target_line="$ceiling_line" -v replacement="$new_line" \
     'NR == target_line { print replacement; next } { print }' "$CEILING_FILE" >"$rewritten"
   cat "$rewritten" >"$CEILING_FILE"
-  rm -f "$rewritten"
   echo "guard-lint-warnings.sh: lowered the ceiling in ${CEILING_FILE} from ${ceiling} to ${target}."
   exit 0
 fi

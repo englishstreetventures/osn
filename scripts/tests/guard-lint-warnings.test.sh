@@ -304,6 +304,20 @@ out="$(run_guard "$lower_file" "$fx1" --lower-to 7 2>&1)"
 assert "--lower-to above the ceiling exits 0" "$?" 0 "$out" "never raises"
 assert_same_file "--lower-to above the ceiling leaves the file unchanged" "$lower_file" "$tmp/ceiling-lower.before"
 
+# The count reaches --lower-to from another job. A number too long to be a
+# warning count (one that would wrap in shell arithmetic) is refused, and a
+# value that is not a number is refused without being echoed back.
+out="$(run_guard "$lower_file" "$fx1" --lower-to 18446744073709551615 2>&1)"
+assert "--lower-to refuses a number of more than nine digits" "$?" 1 "$out" "at most nine digits"
+assert_same_file "--lower-to on a too-long number leaves the file unchanged" "$lower_file" "$tmp/ceiling-lower.before"
+out="$(run_guard "$lower_file" "$fx1" --lower-to "$(printf '3\n::error::forged')" 2>&1)"
+assert "--lower-to refuses a value with a line break" "$?" 1 "$out" "non-negative integer"
+assert_lacks "--lower-to does not echo a refused value" "$out" "forged"
+long_ceiling="$tmp/ceiling-long.txt"
+printf '1234567890\n' >"$long_ceiling"
+out="$(run_guard "$long_ceiling" "$fx1" 2>&1)"
+assert "a ceiling of more than nine digits refuses to run" "$?" 1 "$out" "does not hold a single non-negative integer"
+
 # Bad input.
 out="$(run_guard "$lower_file" "$fx1" --lower-to abc 2>&1)"
 assert "--lower-to with a non-integer refuses" "$?" 1 "$out" "non-negative integer"
