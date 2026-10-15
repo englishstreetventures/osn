@@ -21,11 +21,11 @@
   },
   "dependencies": {
     "@shared/observability": "workspace:*",
-    "effect": "4.0.2"
+    "effect": "4.0.3"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.2",
+    "@effect/vitest": "4.0.3",
     "@shared/typescript-config": "workspace:*",
-    "vitest": "5.0.0"
+    "vitest": "5.0.3"
   }
 }

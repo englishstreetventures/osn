@@ -24,7 +24,7 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "@effect/opentelemetry": "4.0.2",
+    "@effect/opentelemetry": "4.0.3",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-logs-otlp-http": "^0.221.0",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.221.0",
@@ -35,12 +35,12 @@
     "@opentelemetry/sdk-trace-base": "^2.10.0",
     "@opentelemetry/sdk-trace-node": "^2.10.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
-    "effect": "4.0.2",
+    "effect": "4.0.3",
     "elysia": "^1.4.30"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.2",
+    "@effect/vitest": "4.0.3",
     "@shared/typescript-config": "workspace:*",
-    "vitest": "5.0.0"
+    "vitest": "5.0.3"
   }
 }

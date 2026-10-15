@@ -39,7 +39,7 @@
     "@shared/rate-limit": "workspace:*",
     "@shared/turnstile": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "effect": "4.0.2",
+    "effect": "4.0.3",
     "elysia": "^1.4.30"
   },
   "devDependencies": {

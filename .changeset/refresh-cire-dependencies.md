@@ -10,5 +10,5 @@
 "@cire/vendor": patch
 ---
 
-Refresh the eligible Effect, Vitest, and Three.js versions used by Cire.
+Refresh the eligible Effect 4.0.3, Vitest 5.0.3, and Three.js versions used by Cire.
 Enforce strict plus-one request decoding with the stable Effect Schema API.
