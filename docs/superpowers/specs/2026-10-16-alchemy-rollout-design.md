@@ -12,7 +12,8 @@ We do it now because few customers depend on the services yet. Guests of live we
 
 | Topic | Decision |
 |---|---|
-| Who uploads Workers | Alchemy. Wrangler stays only for D1 migrations and local `wrangler dev`. |
+| Who uploads Workers | Alchemy. Wrangler stays only for local `wrangler dev`. |
+| D1 migrations | Alchemy applies them for every D1 database (cire, osn, zap) through the D1 resource's `migrations` prop, replacing `scripts/cire-db-migrate.ts` and the `db:migrate:*` package scripts. Anything a database needs beyond that is handled in its own stack. |
 | Secret source | GitHub Environment secrets (`dev`, `production`), passed to Alchemy at deploy time as ordinary Worker secrets. The owner holds every current value. A value that turns out missing is rotated now. |
 | Cutover | Adopt in place under existing names; no route or domain moves for APIs. Dev first, then production, riskiest last. |
 | State | Alchemy's Cloudflare state store (`Cloudflare.state()`). Both CI tokens gain Secrets Store access (owner action). One deploy per stack and stage at a time. |
@@ -27,7 +28,9 @@ We do it now because few customers depend on the services yet. Guests of live we
 - After adoption, Alchemy converges each resource to its declared props, and the plan does not reliably show it. Every adopted D1 database and R2 bucket is declared exactly as it is live (lifecycle rules, CORS, storage class, public access, read replication), checked by a test against values read with Wrangler.
 - Every Alchemy command runs with `DO_NOT_TRACK=1`, in package scripts and in CI.
 - `alchemy drift` reports an update on adopted D1 databases whose id, name and read replication match. Never run `drift --repair`; treat that report as known until a pinned version clears it.
-- `scripts/cire-db-migrate.ts` stays the only migrator of the cire database, and osn's `db:migrate:*` scripts the only migrator of osn's. Alchemy's D1 `migrations` prop is never set.
+- One migrator per database at any moment. A database moves to Alchemy's migrations in one change that also removes its Wrangler migration step; never both in one deploy.
+- Moving a database to Alchemy's migrations converts its existing `d1_migrations` ledger into Alchemy's. That is one-way. Cire's ledger lists the archived chain (`cire/db/migrations-archive/`) behind the `0001_initial.sql` baseline, so the conversion must be shown, on a copy of each database, to accept that ledger and apply nothing already applied. The partial-chain refusal `cire-db-migrate.ts` makes today is kept as a check in cire's stack until the conversion is proved, then dropped if Alchemy's own ledger check covers it.
+- Before a production database changes migrator, record a D1 Time Travel bookmark so it can be restored.
 - Invocation logs stay off on cire-api and cire-invites; request paths carry wedding slugs and names.
 - Rotating the identity pairwise salt changes the pairwise subject identifiers that cire stores for linked accounts; if it must rotate, the same change rewrites those stored identifiers.
 - `bun install --frozen-lockfile` in every job.
@@ -49,7 +52,7 @@ We do it now because few customers depend on the services yet. Guests of live we
 One pull request per phase (P3 is one per step).
 
 - **P0 — foundation.** `@shared/infra`; the state store bootstrapped on purpose; the secret inventory (every Worker, every tier) with GitHub Environment secrets filled by the owner; telemetry off; owner restores the dev lifecycle rule (englishstreetventures/osn#1512) so dev storage matches production.
-- **P1 — dev adoption.** All dev Workers, D1 databases, R2 buckets, routes and domains adopted and deployed by Alchemy from `deploy.yml`. The dev Pages sites rebuilt as static-assets Workers on dev hosts. A second deploy plans no change; smoke checks pass.
+- **P1 — dev adoption.** All dev Workers, D1 databases, R2 buckets, routes and domains adopted and deployed by Alchemy from `deploy.yml`. Each dev D1 database moves to Alchemy's migrations after a conversion rehearsal on a local copy of its live ledger; the Wrangler migration scripts go when the last database has moved. The dev Pages sites rebuilt as static-assets Workers on dev hosts. A second deploy plans no change; smoke checks pass.
 - **P2 — cire-invites build.** cire-invites built and deployed through Alchemy's Astro path on dev. Every route of the invite site checked against the current build before production.
 - **P3 — production, riskiest last.** Each step after the previous one has run clean:
   1. Site Workers for cire host (`cire-host`), cire vendor (`cire-vendor`), cire landing (`cire-landing`), musubi social (`osn-social`) from `deploy.yml`, and musubi landing (`osn-landing`) and pulse landing (`osn-pulse-landing`) from `deploy-osn-pulse-landing.yml` — one domain moved at a time from its Pages project.
@@ -65,16 +68,15 @@ One pull request per phase (P3 is one per step).
 **Dev, on every push to `main`** (`deploy.yml`), one job per product stack, serialised per stack:
 
 1. `bun install --frozen-lockfile`, build.
-2. D1 migrations through the existing scripts, before any upload.
-3. `alchemy deploy --stage dev --yes` with `DO_NOT_TRACK=1`, secrets from the `dev` Environment.
-4. Smoke check (#1513); on failure, roll back and mark the GitHub Deployment `failure`.
+2. `alchemy deploy --stage dev --yes` with `DO_NOT_TRACK=1`, secrets from the `dev` Environment. It applies D1 migrations before uploading the Workers that use them.
+3. Smoke check (#1513); on failure, roll back and mark the GitHub Deployment `failure`.
 
 **Production** (the release workflow from #1449):
 
 1. A plan job runs `alchemy plan --stage production` and writes the plan to the run summary.
 2. A guard fails the release if the plan replaces or deletes any D1 database, R2 bucket, route or domain.
 3. One approval of the `production` Environment.
-4. Migrations, `alchemy deploy --stage production --yes`, smoke check and rollback, as on dev.
+4. A D1 Time Travel bookmark for each database the plan migrates, then `alchemy deploy --stage production --yes`, smoke check and rollback, as on dev. Worker rollback does not undo a migration, so migrations stay compatible with the Worker version before them (add a column, use it in a later release).
 
 The first deploy of each resource uses `--adopt`, reviewed through that plan; later deploys do not.
 
@@ -83,6 +85,7 @@ The first deploy of each resource uses `--adopt`, reviewed through that plan; la
 - **Stack tests** per product: the stack built in memory for `dev` and `production` matches today's names, bindings, routes, domains, cron schedules, compatibility date and flags, observability and invocation-log settings, read from the committed Wrangler configs before they shrink. Storage is retained on destroy; production Workers have preview URLs off.
 - **Storage parity test**: each adopted bucket's and database's declared settings equal values captured with Wrangler (fixtures refreshed by a script).
 - **Secrets test**: the declared secret names equal the inventory; an empty value fails `requireSecrets()`.
+- **Migration conversion test**: for each database, a local D1 built from its captured live ledger converts to Alchemy's ledger and plans no migration already applied; cire's partial-chain case is refused.
 - **Plan guard test**: a fixture plan with a replacement or deletion of each protected kind fails the guard.
 - **Site parity check**: for each site, `_headers` and `_redirects` give the same responses from the dev Worker as from the Pages project, by curl, before its domain moves.
 
@@ -96,7 +99,7 @@ The first deploy of each resource uses `--adopt`, reviewed through that plan; la
 
 ## Out of scope
 
-Investigation stacks (future milestone). Moving D1 migration ownership to Alchemy. `pulse/api`. Production of anything before #1449 and #1513 merge.
+Investigation stacks (future milestone). `pulse/api`. Production of anything before #1449 and #1513 merge.
 
 ## Owner actions
 
