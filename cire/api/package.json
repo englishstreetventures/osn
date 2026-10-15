@@ -14,6 +14,7 @@
     "dev:wrangler": "wrangler dev",
     "build": "wrangler deploy --dry-run --outdir dist",
     "test": "bun test --preload ./tests/test-helpers/metrics-harness.ts",
+    "test:mutation": "stryker run",
     "deploy": "wrangler deploy --env production",
     "types": "wrangler types",
     "test:d1": "CIRE_D1_TIER=1 bun test tests/db/d1-integration.test.ts tests/db/migrate-wrapper.test.ts",

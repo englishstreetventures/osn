@@ -14,6 +14,7 @@
     "build": "astro build && bun run ../../scripts/check-astro-fonts.ts dist && ../../scripts/guard-bundle-size.sh .",
     "preview": "astro preview",
     "test": "bunx --bun vitest --project unit",
+    "test:mutation": "TZ=Australia/Sydney stryker run",
     "test:run": "bunx --bun vitest run --project unit",
     "test:browser": "bunx --bun vitest run --project browser",
     "check": "bunx --bun astro check"

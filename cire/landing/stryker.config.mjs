@@ -1,0 +1,16 @@
+/**
+ * Mutation testing — `bun run test:mutation`. See
+ * wiki/conventions/testing-patterns.md §Mutation testing.
+ *
+ * @type {import("@stryker-mutator/api/core").PartialStrykerOptions}
+ */
+// @ts-nocheck
+
+export default {
+  plugins: ["@stryker-mutator/vitest-runner"],
+  testRunner: "vitest",
+  vitest: { related: false },
+  inPlace: true,
+  mutate: ["src/**/*.{ts,tsx}", "!src/**/*.d.ts"],
+  reporters: ["clear-text", "progress", "html"],
+};

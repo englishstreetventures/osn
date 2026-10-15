@@ -15,6 +15,7 @@
     "preview": "astro preview --port 4323",
     "check": "bunx --bun astro check",
     "test": "vitest run",
+    "test:mutation": "stryker run",
     "test:run": "vitest run"
   },
   "dependencies": {
