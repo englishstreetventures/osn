@@ -79,6 +79,7 @@ import { organiserSessionService } from "../../src/services/organiser-session";
 import { plusOneService } from "../../src/services/plus-one";
 import { RECONCILE_GRACE_MS } from "../../src/services/r2-reconcile";
 import {
+  CurrencyMismatch,
   registryGuestService,
   registryService,
   SettingsChanged,
@@ -108,6 +109,10 @@ import { createUpgradeCatalogue } from "../../src/services/upgrade-catalogue";
 import { createUpgradeService } from "../../src/services/upgrades";
 import { vendorsService } from "../../src/services/vendors";
 import { weddingLifecycleService } from "../../src/services/wedding-lifecycle";
+import {
+  CurrencyLockedByCashGifts,
+  weddingSettingsService,
+} from "../../src/services/wedding-settings";
 import {
   fullWeddingKeys,
   fullWeddingStatements,
@@ -1586,6 +1591,71 @@ describe("cire/api over real D1 (Miniflare)", () => {
         gifts: [{ on: "2025-06-02", amountMinor: 5_000, currency: "AUD" }],
       });
       expect(await db.select().from(guests).where(eq(guests.familyId, FAMILY_ID))).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the currency guards hold inside their own statements on D1",
+    async () => {
+      // Both rules ride in the write itself — a NOT EXISTS on the weddings
+      // UPDATE, an EXISTS in the settings upsert's conflict WHERE — so the
+      // engine that evaluates them is the one to test them on.
+      const stamp = new Date("2026-01-01T00:00:00.000Z");
+      await db.insert(registrySettings).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        published: true,
+        cashGiftsEnabled: true,
+        stripeAccountId: "acct_d1_currency",
+        stripeChargesEnabled: true,
+        stripeDefaultCurrency: "AUD",
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+      const currency = async () =>
+        (
+          await db
+            .select({ currency: weddings.currency })
+            .from(weddings)
+            .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+        )[0]?.currency;
+
+      // Money gifts on, account settles in AUD: the change is refused.
+      const locked = await run(
+        Effect.exit(
+          weddingSettingsService.update(BOOTSTRAP_WEDDING_ID, { currency: "USD" }, "usr_d1"),
+        ),
+      );
+      expect(Exit.isFailure(locked)).toBe(true);
+      if (Exit.isFailure(locked)) {
+        expect(locked.cause.toString()).toContain(new CurrencyLockedByCashGifts()._tag);
+      }
+      expect(await currency()).toBe("AUD");
+
+      // Off, it goes through; switching back on against an AUD account is then
+      // refused, from the upsert's own check as much as the read before it.
+      await db
+        .update(registrySettings)
+        .set({ cashGiftsEnabled: false })
+        .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID));
+      await run(weddingSettingsService.update(BOOTSTRAP_WEDDING_ID, { currency: "USD" }, "usr_d1"));
+      expect(await currency()).toBe("USD");
+      const mismatched = await run(
+        Effect.exit(
+          registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+        ),
+      );
+      expect(Exit.isFailure(mismatched)).toBe(true);
+      if (Exit.isFailure(mismatched)) {
+        expect(mismatched.cause.toString()).toContain(new CurrencyMismatch()._tag);
+      }
+
+      // Once the two agree, the upsert's EXISTS lets the switch on.
+      await run(weddingSettingsService.update(BOOTSTRAP_WEDDING_ID, { currency: "AUD" }, "usr_d1"));
+      const enabled = await run(
+        registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+      );
+      expect(enabled.cashGiftsEnabled).toBe(true);
     },
     MF_TIMEOUT_MS,
   );

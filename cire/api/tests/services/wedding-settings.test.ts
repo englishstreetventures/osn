@@ -8,6 +8,7 @@ import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import {
   CurrencyLockedByCashGifts,
+  WeddingNotFound,
   weddingSettingsService,
 } from "../../src/services/wedding-settings";
 
@@ -148,5 +149,30 @@ describe("changing the wedding's currency while money gifts are on", () => {
     Reflect.deleteProperty(client, "prepare");
     expectLocked(exit);
     expect(currencyOf(db)).toBe("AUD");
+  });
+
+  it("still answers not found for a save that leaves the currency alone, when the wedding goes mid-save", async () => {
+    // With no currency change there is no lock in the WHERE, so a write that
+    // matches nothing means the wedding went between the read and the write —
+    // never "turn money gifts off first" to a couple who may have none.
+    const db = db0();
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (sql.startsWith('update "weddings"')) {
+          prepare("DELETE FROM weddings WHERE id = ?").run(BOOTSTRAP_WEDDING_ID);
+        }
+        return prepare(sql);
+      },
+    });
+    const exit = await save(db, { displayName: "Renamed" });
+    Reflect.deleteProperty(client, "prepare");
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(exit.cause.toString()).toContain(new WeddingNotFound({ weddingId: "x" })._tag);
+      expect(exit.cause.toString()).not.toContain(new CurrencyLockedByCashGifts()._tag);
+    }
   });
 });

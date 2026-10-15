@@ -14,13 +14,13 @@
 import { describe, it, expect } from "bun:test";
 
 import { EmailError, EmailService, type SendEmailInput } from "@shared/email";
-import type { RegistryGiftSummaryData } from "@shared/email/templates";
+import { renderTemplate, type RegistryGiftSummaryData } from "@shared/email/templates";
 import { Effect, Exit, Layer } from "effect";
 
 import { sendGiftSummaryEmails } from "../../src/lib/gift-summary-email";
 import { CIRE_METRICS, type GiftSummaryUnmailedReason } from "../../src/metrics";
 import type { OsnOrganiserEmailLookup } from "../../src/services/osn-bridge";
-import type { GiftSummaryNotice } from "../../src/services/retention";
+import { GIFT_SUMMARY_MAX_LISTED, type GiftSummaryNotice } from "../../src/services/retention";
 import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 
@@ -194,6 +194,34 @@ describe("sendGiftSummaryEmails", () => {
       { currency: "AUD", total: intl(450, "AUD"), count: null },
       { currency: "NZD", total: intl(10, "NZD"), count: null },
     ]);
+  });
+
+  it("renders a full list under the size at which Gmail clips a message", async () => {
+    // The widest list the record can hold: every gift at the cap, nine-digit
+    // amounts, each in another currency so each carries its smaller line.
+    const base = notice();
+    const gifts = Array.from({ length: GIFT_SUMMARY_MAX_LISTED }, () => ({
+      on: "2025-06-01",
+      amountMinor: 999_999_999,
+      currency: "KWD",
+    }));
+    const data = await dataFor(
+      notice({
+        weddingName: "W".repeat(200),
+        summary: {
+          ...base.summary,
+          contributions: {
+            count: GIFT_SUMMARY_MAX_LISTED,
+            totals: [
+              { currency: "KWD", amountMinor: 999_999_999 * 200, count: GIFT_SUMMARY_MAX_LISTED },
+            ],
+            gifts,
+          },
+        },
+      }),
+    );
+    const { html } = renderTemplate("registry-gift-summary", data);
+    expect(new TextEncoder().encode(html).length).toBeLessThan(102_000);
   });
 
   it("prints a yen total and gift without dividing them", async () => {

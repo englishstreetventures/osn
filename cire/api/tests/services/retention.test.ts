@@ -1781,6 +1781,173 @@ describe("each money gift, listed in the kept summary", () => {
     }
     expect(guestCount(db, giftless.guestId)).toBe(0);
   });
+
+  /** A household that arrives after the sweep, bringing the wedding back. */
+  function returningHousehold(db: TestDb, weddingId: string, at: Date): string {
+    const familyId = crypto.randomUUID();
+    db.insert(families)
+      .values({
+        id: familyId,
+        weddingId,
+        publicId: `PUB-late-${familyId}`,
+        familyName: "Late",
+        createdAt: at,
+        updatedAt: at,
+      })
+      .run();
+    return familyId;
+  }
+
+  /** Put `summary` on a wedding's settings row, as an earlier sweep would. */
+  function keep(db: TestDb, weddingId: string, summary: unknown) {
+    db.update(registrySettings)
+      .set({ giftSummaryJson: JSON.stringify(summary), giftSummaryAt: GIFT_STAMP })
+      .where(eq(registrySettings.weddingId, weddingId))
+      .run();
+  }
+
+  /** A stored summary listing `n` gifts of 1,000 + i, all on 2025-05-11. */
+  const storedList = (n: number): GiftSummary => ({
+    sweptOn: "2026-06-01",
+    firstGiftOn: "2025-05-11",
+    lastGiftOn: "2025-05-11",
+    claims: { reserved: 0, purchased: 0 },
+    contributions: {
+      count: n,
+      totals: [{ currency: "AUD", amountMinor: n * 1_000 + (n * (n - 1)) / 2, count: n }],
+      gifts: Array.from({ length: n }, (_, i) => ({
+        on: "2025-05-11",
+        amountMinor: 1_000 + i,
+        currency: "AUD",
+      })),
+    },
+  });
+
+  it("adds new gifts to a summary kept before gifts were listed, and leaves its counts unknown", async () => {
+    // A summary stored before this record listed gifts has totals with no
+    // count. A count added to one would sit beside a total of more gifts than
+    // it says, so the merged total keeps no count; a new currency keeps its own.
+    const db = freshDb();
+    const wedding = await weddingWithGifts(db, "2025-06-01", 3);
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+    keep(db, wedding.weddingId, {
+      sweptOn: "2026-06-17",
+      firstGiftOn: "2025-05-11",
+      lastGiftOn: "2025-05-11",
+      claims: { reserved: 0, purchased: 0 },
+      contributions: { count: 3, totals: [{ currency: "AUD", amountMinor: 3_003 }] },
+    });
+    const later = new Date("2026-06-18T00:00:00.000Z");
+    const familyId = returningHousehold(db, wedding.weddingId, later);
+    await runOn(db, addGift(wedding.weddingId, familyId, { amountMinor: 100, at: later }));
+    await runOn(
+      db,
+      addGift(wedding.weddingId, familyId, {
+        amountMinor: 300,
+        currency: "JPY",
+        at: new Date("2026-06-18T01:00:00.000Z"),
+      }),
+    );
+
+    await runOn(db, retentionService.sweepExpiredGuestData(new Date("2026-06-20T04:00:00.000Z")));
+
+    const summary = kept(db, wedding.weddingId);
+    expect(summary?.contributions.count).toBe(5);
+    expect(summary?.contributions.totals).toEqual([
+      { currency: "AUD", amountMinor: 3_103 },
+      { currency: "JPY", amountMinor: 300, count: 1 },
+    ]);
+    // Only the new gifts can be listed; the three before are counted, unlisted.
+    expect(summary?.contributions.gifts).toEqual([
+      { on: "2026-06-18", amountMinor: 100, currency: "AUD" },
+      { on: "2026-06-18", amountMinor: 300, currency: "JPY" },
+    ]);
+  });
+
+  it("keeps the oldest gifts when a returning wedding's list passes the cap", async () => {
+    const db = freshDb();
+    const wedding = await weddingWithGifts(db, "2025-06-01", 150);
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+    const later = new Date("2026-06-18T00:00:00.000Z");
+    const familyId = returningHousehold(db, wedding.weddingId, later);
+    addGifts(db, wedding.weddingId, familyId, 100, later);
+
+    await runOn(db, retentionService.sweepExpiredGuestData(new Date("2026-06-20T04:00:00.000Z")));
+
+    const summary = kept(db, wedding.weddingId);
+    expect(summary?.contributions.count).toBe(250);
+    expect(summary?.contributions.gifts).toHaveLength(GIFT_SUMMARY_MAX_LISTED);
+    expect(summary?.contributions.gifts[0]).toEqual({
+      on: "2025-05-11",
+      amountMinor: 1_000,
+      currency: "AUD",
+    });
+    expect(summary?.contributions.gifts[149]?.on).toBe("2025-05-11");
+    expect(summary?.contributions.gifts[150]?.on).toBe("2026-06-18");
+  });
+
+  it("counts a returning wedding's stored list against the run's budget", async () => {
+    // Its record is rewritten — stored list and new gift together — so the
+    // stored gifts are encoded and mailed this run, and they count.
+    const db = freshDb();
+    const room = MAX_LISTED_GIFTS_PER_SWEEP - 100;
+    for (let i = 0; i < room / GIFT_SUMMARY_MAX_LISTED; i++) {
+      await weddingWithGifts(db, `2025-05-${String(20 + i)}`, GIFT_SUMMARY_MAX_LISTED);
+    }
+    await weddingWithGifts(db, "2025-05-30", room % GIFT_SUMMARY_MAX_LISTED);
+    const returning = await weddingWithGifts(db, "2025-06-01", 1);
+    keep(db, returning.weddingId, storedList(150));
+
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+
+    // 151 listed would pass the budget with the rest already in: it waits.
+    expect(guestCount(db, returning.guestId)).toBe(1);
+    expect(kept(db, returning.weddingId)?.contributions.gifts).toHaveLength(150);
+  });
+
+  it("spends none of the budget on a returning wedding with nothing new", async () => {
+    // Nothing new means no summary rewritten and nothing mailed, so its stored
+    // list costs this run nothing and holds nobody back.
+    const db = freshDb();
+    const idle = await weddingWithGifts(db, "2025-05-19", 0);
+    keep(db, idle.weddingId, storedList(GIFT_SUMMARY_MAX_LISTED));
+    const full = MAX_LISTED_GIFTS_PER_SWEEP / GIFT_SUMMARY_MAX_LISTED;
+    const others = [];
+    for (let i = 0; i < full; i++) {
+      others.push(await weddingWithGifts(db, `2025-05-${String(20 + i)}`, GIFT_SUMMARY_MAX_LISTED));
+    }
+
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+
+    for (const wedding of others) expect(guestCount(db, wedding.guestId)).toBe(0);
+    // Swept, and its record left exactly as it was.
+    expect(guestCount(db, idle.guestId)).toBe(0);
+    expect(kept(db, idle.weddingId)).toEqual(storedList(GIFT_SUMMARY_MAX_LISTED));
+  });
+
+  it("lists a negative amount as nothing, and totals what it lists", async () => {
+    // The amount column has no CHECK; a negative row must not subtract from
+    // what the couple were given, in the list or in the total.
+    const db = freshDb();
+    const wedding = await weddingWithGifts(db, "2025-06-01", 1);
+    await runOn(
+      db,
+      addGift(wedding.weddingId, wedding.familyId, {
+        amountMinor: -500,
+        at: new Date("2025-05-12T00:00:00.000Z"),
+      }),
+    );
+
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+
+    const summary = kept(db, wedding.weddingId);
+    expect(summary?.contributions.gifts).toEqual([
+      { on: "2025-05-11", amountMinor: 1_000, currency: "AUD" },
+      { on: "2025-05-12", amountMinor: 0, currency: "AUD" },
+    ]);
+    const listedSum = (summary?.contributions.gifts ?? []).reduce((n, g) => n + g.amountMinor, 0);
+    expect(summary?.contributions.totals[0]?.amountMinor).toBe(listedSum);
+  });
 });
 
 describe("packGiftSummaries", () => {

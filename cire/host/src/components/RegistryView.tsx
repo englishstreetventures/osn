@@ -1065,10 +1065,12 @@ export default function RegistryView(props: RegistryViewProps) {
                       )}
                     </For>
                     <Show when={band().unlisted > 0}>
+                      {/* "More" only under a list; a record kept before gifts
+                          were listed has nothing for them to be more than. */}
                       <li class="text-text-muted text-ui-sm">
-                        {band().unlisted === 1
-                          ? "One more cash gift is counted above but not listed one by one."
-                          : `${band().unlisted} more cash gifts are counted above but not listed one by one.`}
+                        {`${band().unlisted} ${band().gifts.length > 0 ? "more " : ""}${
+                          band().unlisted === 1 ? "cash gift is" : "cash gifts are"
+                        } counted above but not listed one by one.`}
                       </li>
                     </Show>
                   </ul>

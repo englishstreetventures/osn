@@ -201,6 +201,19 @@ describe("the parting gift summary", () => {
     });
   });
 
+  it("reads a gift list that is not a list as empty, and keeps the rest", async () => {
+    const db = db0();
+    writeSummary(
+      db,
+      JSON.stringify({ ...KEPT, contributions: { ...KEPT.contributions, gifts: "x" } }),
+    );
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(snap.giftSummary).toEqual({
+      ...KEPT,
+      contributions: { ...KEPT.contributions, gifts: [] },
+    });
+  });
+
   it("drops a malformed listed gift and keeps the rest", async () => {
     const db = db0();
     const damaged = {
@@ -246,6 +259,17 @@ describe("the parting gift summary", () => {
       [JSON.stringify({ ...KEPT, claims: { reserved: "lots" } }), new Date()],
       [
         JSON.stringify({ ...KEPT, contributions: { count: 1, totals: [{ currency: "AUD" }] } }),
+        new Date(),
+      ],
+      // A per-currency count that is not a number is a damaged total.
+      [
+        JSON.stringify({
+          ...KEPT,
+          contributions: {
+            ...KEPT.contributions,
+            totals: [{ currency: "AUD", amountMinor: 17_500, count: "two" }],
+          },
+        }),
         new Date(),
       ],
       // JSON with no `gift_summary_at` is a half-written row, not a record.
@@ -1623,6 +1647,69 @@ describe("registry ownership + range guards", () => {
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
       .get();
     expect(row?.on).toBe(false);
+  });
+
+  it("refuses cash gifts when Stripe stops naming the currency between the check and the write", async () => {
+    // The refresh route writes whatever Stripe says, and Stripe can send no
+    // settlement currency at all. The re-check inside the write names that.
+    const db = db0();
+    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
+    db.update(registrySettings)
+      .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (sql.startsWith('insert into "registry_settings"')) {
+          prepare(
+            "UPDATE registry_settings SET stripe_default_currency = NULL WHERE wedding_id = ?",
+          ).run(BOOTSTRAP_WEDDING_ID);
+        }
+        return prepare(sql);
+      },
+    });
+
+    const blocked = await run(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+    );
+    Reflect.deleteProperty(client, "prepare");
+    expect(Exit.isFailure(blocked)).toBe(true);
+    if (Exit.isFailure(blocked)) {
+      expect(blocked.cause.toString()).toContain(new SettlementCurrencyUnknown()._tag);
+    }
+  });
+
+  it("still tells a stale tab that turned cash gifts on that someone else saved", async () => {
+    // The currencies agree, so the refusal is the field that moved, and the
+    // caller gets the row as it stands rather than a Stripe message.
+    const db = db0();
+    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { headline: "Theirs" }));
+    db.update(registrySettings)
+      .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+
+    const stale = await run(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
+        cashGiftsEnabled: true,
+        headline: "Ours",
+        expected: { cashGiftsEnabled: false, headline: "What we saw" },
+      }),
+    );
+    expect(Exit.isFailure(stale)).toBe(true);
+    if (Exit.isFailure(stale)) {
+      const failure = Cause.findErrorOption(stale.cause);
+      expect(Option.isSome(failure)).toBe(true);
+      const error = Option.getOrThrow(failure);
+      expect(error).toBeInstanceOf(SettingsChanged);
+      expect((error as SettingsChanged).current.headline).toBe("Theirs");
+      expect((error as SettingsChanged).current.cashGiftsEnabled).toBe(false);
+    }
   });
 
   it("stops a wedding adding items past the ceiling", async () => {

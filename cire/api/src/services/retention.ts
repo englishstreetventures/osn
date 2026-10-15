@@ -854,21 +854,30 @@ function countGiftSummaries(
     );
 
     // ── THE LISTED-GIFT BUDGET ───────────────────────────────────────────
-    // Each wedding lists its stored gifts plus its new ones, capped. Walked in
-    // cohort order — longest overdue first — taking a wedding past the
-    // ceiling always, one that lists nothing always, and any other only while
-    // it fits; the rest wait for the next run, where they lead the cohort.
+    // A wedding with a new gift of either kind writes a summary — its stored
+    // list plus its new gifts, capped — and mails it; one with none writes and
+    // mails nothing, so lists nothing this run. Walked in cohort order —
+    // longest overdue first — taking a wedding past the ceiling always, one
+    // that lists nothing always, and any other only while it fits; the rest
+    // wait for the next run, where they lead the cohort.
     const freshCount = new Map<string, number>();
     for (const row of giftRows as Array<{ weddingId: string; count: number }>) {
       freshCount.set(row.weddingId, (freshCount.get(row.weddingId) ?? 0) + row.count);
     }
+    const freshClaims = new Set(
+      (claimRows as Array<{ weddingId: string }>).map((r) => r.weddingId),
+    );
     const deferred = new Set<string>();
     let listed = 0;
     for (const weddingId of ids) {
-      const wants = Math.min(
-        (stored.get(weddingId)?.contributions.gifts.length ?? 0) + (freshCount.get(weddingId) ?? 0),
-        GIFT_SUMMARY_MAX_LISTED,
-      );
+      const fresh = freshCount.get(weddingId) ?? 0;
+      const writes = fresh > 0 || freshClaims.has(weddingId);
+      const wants = writes
+        ? Math.min(
+            (stored.get(weddingId)?.contributions.gifts.length ?? 0) + fresh,
+            GIFT_SUMMARY_MAX_LISTED,
+          )
+        : 0;
       if (forced.has(weddingId) || wants === 0 || listed + wants <= MAX_LISTED_GIFTS_PER_SWEEP) {
         listed += wants;
       } else {

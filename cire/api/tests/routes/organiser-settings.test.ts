@@ -7,6 +7,7 @@ import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { appRequest } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { insertWedding } from "../test-helpers/wedding";
@@ -577,6 +578,25 @@ describe("the wedding's currency while money gifts are on", () => {
     const res = await req(app, "PUT", SETTINGS_PATH, OWNER, { currency: "USD" });
     expect(res.status).toBe(409);
     expect((await res.json()) as unknown).toEqual({ error: "currency_locked_by_cash_gifts" });
+    expect(getWedding(db).currency).toBe("AUD");
+  });
+
+  it("refuses the same through an organiser session cookie, and 401s a dead one", async () => {
+    // The portal saves with the organiser session cookie, not a bearer token.
+    const { app, db } = buildApp();
+    cashGiftsOn(db, "AUD");
+    const token = await seedOrganiserSession(db, OWNER);
+    const put = (cookie: string) =>
+      appRequest(app, SETTINGS_PATH, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", cookie },
+        body: JSON.stringify({ currency: "USD" }),
+      });
+
+    const live = await put(`cire_org_session=${token}`);
+    expect(live.status).toBe(409);
+    expect((await live.json()) as unknown).toEqual({ error: "currency_locked_by_cash_gifts" });
+    expect((await put("cire_org_session=not-a-live-session-token")).status).toBe(401);
     expect(getWedding(db).currency).toBe("AUD");
   });
 

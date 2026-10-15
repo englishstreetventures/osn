@@ -111,6 +111,13 @@ describe("privacy.astro", () => {
     expect(body).toMatch(/the amount, currency and day of\s+each money gift/);
   });
 
+  it("says Stripe takes a money gift on the hosts' account and sees the card, not cire", () => {
+    expect(body).toMatch(
+      /the payment is taken by <strong>Stripe<\/strong>\s+on your hosts’ own Stripe account/,
+    );
+    expect(body).toMatch(/Stripe sees your card details; we never do/);
+  });
+
   /**
    * `RSVP_CHANGE_RETENTION_MS` in `cire/api/src/services/rsvp-changes.ts` is
    * 90 days; the record of when a household's replies changed is guest data,

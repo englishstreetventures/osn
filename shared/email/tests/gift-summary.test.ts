@@ -128,6 +128,23 @@ describe("registry-gift-summary", () => {
     expect(renderTemplate("registry-gift-summary", base).text).not.toContain("not listed");
   });
 
+  it("says the gifts are counted but not listed, with no empty list, when none is listed", () => {
+    // A record kept before gifts were listed: a count and totals, no list.
+    const out = renderTemplate("registry-gift-summary", { ...mixed, gifts: [], giftsUnlisted: 5 });
+    for (const body of [out.text, out.html]) {
+      expect(body).toContain("5 money gifts are counted above but not listed one by one.");
+      expect(body).not.toContain("Each money gift");
+      expect(body).not.toContain("And 5 more");
+    }
+    const one = renderTemplate("registry-gift-summary", {
+      ...base,
+      giftCount: 1,
+      gifts: [],
+      giftsUnlisted: 1,
+    });
+    expect(one.text).toContain("1 money gift is counted above but not listed one by one.");
+  });
+
   it("says 'none' when no money gift settled", () => {
     const out = renderTemplate("registry-gift-summary", {
       ...base,

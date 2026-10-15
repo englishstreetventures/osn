@@ -427,6 +427,70 @@ describe("registry routes (Gold)", () => {
     expect(snap.settings.cashGiftsEnabled).toBe(false);
   });
 
+  // The portal reaches the settings write with the organiser session cookie,
+  // not a bearer token, so the refusal has to come back through that path too.
+  it("refuses the same through an organiser session cookie, and 401s a dead one", async () => {
+    let token: Promise<string> = Promise.resolve("");
+    const app = buildApp({
+      tier: "gold",
+      seed: (db) => {
+        const now = new Date();
+        db.insert(registrySettings)
+          .values({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            stripeAccountId: "acct_live",
+            stripeChargesEnabled: true,
+            stripeDefaultCurrency: null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        token = seedOrganiserSession(db, EDITOR);
+      },
+    });
+    const put = (cookie: string) =>
+      appRequest(app, `${base}/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", cookie },
+        body: JSON.stringify({ cashGiftsEnabled: true }),
+      });
+
+    const live = await put(`cire_org_session=${await token}`);
+    expect(live.status).toBe(409);
+    expect(((await live.json()) as { error: string }).error).toBe("stripe_currency_unknown");
+    expect((await put("cire_org_session=not-a-live-session-token")).status).toBe(401);
+  });
+
+  it("answers a stale tab turning cash gifts on with settings_changed, not a Stripe code", async () => {
+    const app = buildApp({
+      tier: "gold",
+      seed: (db) => {
+        const now = new Date();
+        db.insert(registrySettings)
+          .values({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            headline: "Theirs",
+            stripeAccountId: "acct_live",
+            stripeChargesEnabled: true,
+            stripeDefaultCurrency: "AUD",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+      },
+    });
+
+    const cash = await req(app, "PUT", `${base}/settings`, EDITOR, {
+      cashGiftsEnabled: true,
+      headline: "Ours",
+      expected: { cashGiftsEnabled: false, headline: "What we saw" },
+    });
+    expect(cash.status).toBe(409);
+    const body = (await cash.json()) as { error: string; settings: { headline: string } };
+    expect(body.error).toBe("settings_changed");
+    expect(body.settings.headline).toBe("Theirs");
+  });
+
   it("refuses to switch cash gifts on before Stripe names the currency it settles in", async () => {
     const app = buildApp({
       tier: "gold",

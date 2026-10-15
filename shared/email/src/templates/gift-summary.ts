@@ -106,11 +106,15 @@ export function renderRegistryGiftSummary(data: RegistryGiftSummaryData): Render
     coupleHasTotal
       ? `Given in ${currency} — outside the ${data.giftCurrency} total`
       : `Given in ${currency}`;
+  const listed = data.gifts.length > 0;
+  const n = data.giftsUnlisted;
+  // "And N more" under a list; with no list there is nothing to be "more" than.
   const unlisted =
-    data.giftsUnlisted > 0
-      ? `And ${data.giftsUnlisted} more money ${data.giftsUnlisted === 1 ? "gift" : "gifts"}, counted above but not listed one by one.`
-      : null;
-  const listed = data.gifts.length > 0 || unlisted !== null;
+    n === 0
+      ? null
+      : listed
+        ? `And ${n} more money ${n === 1 ? "gift" : "gifts"}, counted above but not listed one by one.`
+        : `${n} money ${n === 1 ? "gift is" : "gifts are"} counted above but not listed one by one.`;
 
   const textList = listed
     ? [
@@ -123,7 +127,9 @@ export function renderRegistryGiftSummary(data: RegistryGiftSummaryData): Render
         ]),
         ...(unlisted === null ? [] : [``, `  ${unlisted}`]),
       ]
-    : [];
+    : unlisted === null
+      ? []
+      : [``, `  ${unlisted}`];
 
   const text = [
     `Hello,`,
@@ -158,7 +164,9 @@ export function renderRegistryGiftSummary(data: RegistryGiftSummaryData): Render
         .join("") +
       (unlisted === null ? "" : `<li style="margin:8px 0 0">${esc(unlisted)}</li>`) +
       `</ul>`
-    : "";
+    : unlisted === null
+      ? ""
+      : `<p>${esc(unlisted)}</p>`;
 
   const html = wrap(
     `<h2>Your gift record from ${esc(data.weddingName)}</h2>` +

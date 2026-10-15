@@ -1099,8 +1099,76 @@ describe("RegistryView — gifts received", () => {
       <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
     ));
     expect(
-      await screen.findByText("3 more cash gifts are counted above but not listed one by one."),
+      await screen.findByText("3 cash gifts are counted above but not listed one by one."),
     ).toBeInTheDocument();
+  });
+
+  it("counts one gift past the list as one more", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        giftSummary: summary({
+          contributions: {
+            count: 2,
+            totals: [{ currency: "AUD", amountMinor: 17_500, count: 2 }],
+            gifts: [{ on: "2025-05-11", amountMinor: 12_500, currency: "AUD" }],
+          },
+        }),
+      }),
+    );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    expect(
+      await screen.findByText("1 more cash gift is counted above but not listed one by one."),
+    ).toBeInTheDocument();
+  });
+
+  it("shows each currency as its own total when none came in the couple's", async () => {
+    // A wedding that changed currency after every gift: no couple-currency
+    // total to sit beside, so no "Plus" and no "not in the AUD total".
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        giftSummary: summary({
+          contributions: {
+            count: 1,
+            totals: [{ currency: "USD", amountMinor: 5_000, count: 1 }],
+            gifts: [{ on: "2025-03-02", amountMinor: 5_000, currency: "USD" }],
+          },
+        }),
+      }),
+    );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    const total = await screen.findByText(/1 cash gift in USD/);
+    expect(total).toHaveTextContent(/50[.,]00/);
+    expect(total).not.toHaveTextContent("Plus");
+    expect(screen.getByText("Given in USD")).toBeInTheDocument();
+    expect(screen.queryByText(/not in the AUD total/)).not.toBeInTheDocument();
+  });
+
+  it("names a currency by itself where the record kept no count for it", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        giftSummary: summary({
+          contributions: {
+            count: 3,
+            totals: [
+              { currency: "AUD", amountMinor: 17_500 },
+              { currency: "JPY", amountMinor: 3_000 },
+            ],
+          },
+        }),
+      }),
+    );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    expect(await screen.findByText(/175[.,]00/)).toHaveTextContent("in AUD");
+    expect(screen.getByText(/3.?000/)).toHaveTextContent("in JPY, not in the AUD total");
   });
 
   it("says the amount and day of each cash gift were kept", async () => {
