@@ -87,9 +87,12 @@ Backing resources:
 > each bucket's storage class, lifecycle rules, CORS rules and r2.dev access, and
 > each database's read replication, to what the probe declares, so the probe
 > refuses to run unless the live settings already match. A setting added to one
-> of these resources has to be added to the probe's declaration in
-> [`storage-preflight.ts`](../../tools/alchemy/storage-preflight.ts) as well, or
-> the probe stops. Recreating a dev database means updating its pinned id in
+> of these resources has to be added to that resource's entry in
+> [`declarations.ts`](../../tools/alchemy/declarations.ts) as well (or to the
+> shared defaults in
+> [`storage-preflight.ts`](../../tools/alchemy/storage-preflight.ts) when every
+> bucket or database gets it), or the probe stops. Recreating a dev database
+> means updating its pinned id in
 > [`boundary.ts`](../../tools/alchemy/boundary.ts). Runbook:
 > [`tools/alchemy/README.md`](../../tools/alchemy/README.md); the deploy and
 > routed-Worker side is in [[production-deploy]].

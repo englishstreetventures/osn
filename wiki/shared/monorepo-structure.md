@@ -72,7 +72,7 @@ last-reviewed: 2026-10-15
 
 # Monorepo Structure
 
-The monorepo is organised by **domain**. Six top-level directories, six workspace-name prefixes, one prefix per directory — no mixing. A seventh, `tools/`, holds the local-only developer tooling under `@tools/*`.
+The monorepo is organised by **domain**. Six top-level directories, six workspace-name prefixes, one prefix per directory — no mixing. A seventh, `tools/`, holds the developer tooling under `@tools/*`.
 
 ## Directory-to-Prefix Mapping
 
@@ -84,7 +84,7 @@ The monorepo is organised by **domain**. Six top-level directories, six workspac
 | `zap/` | `@zap/*` | Messaging stack — API (port 3002), DB. App is planned |
 | `cire/` | `@cire/*` | Wedding-invite stack — guest site, organiser portal, vendor portal, API, DB, theme validators, house components, marketing site |
 | `shared/` | `@shared/*` | Cross-cutting utilities and the UI primitives, consumable by any stack |
-| `tools/` | `@tools/*` | Local-only developer tooling — never shipped to a user |
+| `tools/` | `@tools/*` | Developer tooling — never shipped to a user |
 
 ## Full Directory Tree
 
@@ -144,8 +144,8 @@ shared/
   openapi/             # generated OpenAPI documents — not a workspace
   swift/               # OSNShared — the local SPM package the iOS targets depend on; not a workspace
   test-config/         # shared Vitest guard config — not a workspace
-tools/                 # local-only developer tooling, never shipped
-  alchemy/             # @tools/alchemy — dev-only Cloudflare infrastructure probe for Cire and OSN API bindings
+tools/                 # developer tooling, never shipped to a user
+  alchemy/             # @tools/alchemy — dev-only Cloudflare infrastructure probe for Cire and OSN API bindings; acts on the dev tier of the live account
   lab/                 # @tools/lab — component / three.js scratchpad (`bun run dev:lab`)
   metrics/             # @tools/metrics — session-metrics dashboard over .claude/metrics
   pr-metrics/          # @tools/pr-metrics — the session-performance cards themselves

@@ -10,7 +10,8 @@ related:
   - "[[cire]]"
   - "[[cire-vendors]]"
   - "[[subprocessors]]"
-last-reviewed: 2026-10-02
+  - "[[dev-environment]]"
+last-reviewed: 2026-10-15
 ---
 
 # Access Control
@@ -78,6 +79,15 @@ believed.
 |---|---|---|---|
 | `STRIPE_SECRET_KEY` | Unset ⇒ the organiser Connect routes are **not mounted** (no payment surface, not a broken one). The portal does **not** probe for this: the Money-gifts panel renders either way and surfaces the 404 as a toast, so an unset key is visible to a couple only when they press Connect (C-L1). Set ⇒ account creation, onboarding links, live account reads — calls that act on the platform's Stripe account. | `bunx wrangler secret put STRIPE_SECRET_KEY --env production`, then `wrangler deploy --env production` (a secret change does not cycle warm isolates). Requires Cloudflare access per the matrix above + Stripe Dashboard access to mint the key. Live key on production only; the dev tier gets a test-mode key (`sk_test_…`) or nothing. | Roll the key in the Stripe Dashboard (Developers → API keys) with an expiry window, `wrangler secret put` the new value, redeploy, let the old key expire. Immediate revocation (suspected compromise): roll with no window — the Worker 502s Stripe calls until the new value is deployed, which is the correct failure. |
 | `STRIPE_WEBHOOK_SECRET` | Unset ⇒ `POST /api/stripe/webhook` **does not exist**. Nothing else authenticates that endpoint — the signature IS the authentication — so without a signing secret it must not be reachable. | Same `wrangler secret put` + redeploy path. The value comes from the Dashboard webhook endpoint (created in checklist step 6). | **Zero-downtime by design, worth writing down:** when a secret is rolled in the Dashboard with an overlap window, Stripe signs each delivery with BOTH secrets, and the verifier (`cire/api/src/services/stripe.ts`) checks every `v1` digest in the header against its one configured secret — so deliveries verify throughout, whichever value the Worker holds. Sequence: roll in the Dashboard with an overlap window → `wrangler secret put` the new value → redeploy → old secret expires. |
+
+## Dev-tier infrastructure probe (`@tools/alchemy`)
+
+The Alchemy probe deploys two temporary Workers on `workers.dev` bound to the dev databases and buckets ([[dev-environment]]). It adds two credentials, both held by the operator running it and neither ever committed. Runbook: [`tools/alchemy/README.md`](../../tools/alchemy/README.md).
+
+| Credential | What it gates | Provisioned | Revoked |
+|---|---|---|---|
+| Cloudflare API token used by Alchemy | Uploading and deleting the two probe Workers, and reading the dev D1 and R2 settings. Workers Scripts edit is account-wide, so the token can also change the production Workers. | Minted by an operator with Cloudflare access per the matrix above, limited to Workers Scripts edit plus read-only D1 and Workers R2 Storage. Kept in `~/.alchemy/profiles/<profile>/cloudflare.json` (readable only by its owner) or exported in the shell for one run. | Delete it in the Cloudflare dashboard once the probes are destroyed. |
+| `ALCHEMY_PROBE_TOKEN` | `GET /health` on the two probes, which runs `SELECT 1` on each dev database and lists at most one key from each Cire dev bucket. | Generated for each run (`openssl rand -hex 32`, at least 32 characters, enforced) and bound to both probes as a secret. Alchemy keeps it in plaintext in `tools/alchemy/.alchemy/state/` until destroy. | `bun run destroy` deletes both Workers, which ends the token, and drops the state rows that hold it. |
 
 ## Access lifecycle
 
