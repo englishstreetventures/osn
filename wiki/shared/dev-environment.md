@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-15
 ---
 
 # Dev environment (cire + OSN identity)
@@ -79,6 +79,20 @@ Backing resources:
 > traffic burn a real guest household's claim budget. Dev takes fresh ranges —
 > and `1002` was unavailable anyway: the torn-down 2026-07 preview tier used it
 > and the live `CLAIM_SESSION_RATE_LIMITER` owns it now.
+
+> [!important] The Alchemy probe adopts the two dev databases and both dev buckets
+> `@tools/alchemy` deploys two temporary `workers.dev` Workers bound to
+> `cire-db-dev`, `osn-db-dev`, `cire-sheets-dev` and `cire-assets-dev`, and to
+> the namespaces `1101` and `2101`, which it never calls. Alchemy's adoption sets
+> each bucket's storage class, lifecycle rules, CORS rules and r2.dev access, and
+> each database's read replication, to what the probe declares, so the probe
+> refuses to run unless the live settings already match. A setting added to one
+> of these resources has to be added to the probe's declaration in
+> [`storage-preflight.ts`](../../tools/alchemy/storage-preflight.ts) as well, or
+> the probe stops. Recreating a dev database means updating its pinned id in
+> [`boundary.ts`](../../tools/alchemy/boundary.ts). Runbook:
+> [`tools/alchemy/README.md`](../../tools/alchemy/README.md); the deploy and
+> routed-Worker side is in [[production-deploy]].
 
 ### WebAuthn on dev
 

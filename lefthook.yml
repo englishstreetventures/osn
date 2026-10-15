@@ -84,9 +84,12 @@ pre-push:
       # requests it builds itself, and never calls `evaluateRequest` or
       # `satisfiesWithoutRevalidation`, the flawed path; no deployed build
       # contains it. Miniflare's bundled copy runs only in `wrangler dev` and
-      # the D1 test tier, for one developer's own Worker. Drop when
-      # http-cache-semantics > 4.2.0 ships and bun.lock resolves it, or when
-      # astro stops depending on it.
+      # the D1 test tier, for one developer's own Worker. A newer version is
+      # not by itself a fix: 4.3.0 keeps the same max-stale branch and only
+      # falls outside the range the advisory records, so resolving it would
+      # quiet `bun audit` while the flaw remains. Drop when a release that
+      # fixes the max-stale path ships and bun.lock resolves it, or when astro
+      # stops depending on it.
       # DROP AFTER GHSA-ch52-4w7c-c8xp 2027-01-07
       #
       # Comments stay above `run:`. Inside the folded block a `#` line is part

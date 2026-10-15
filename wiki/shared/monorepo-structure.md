@@ -67,7 +67,7 @@ packages:
   - "@tools/metrics"
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
-last-reviewed: 2026-10-14
+last-reviewed: 2026-10-15
 ---
 
 # Monorepo Structure
