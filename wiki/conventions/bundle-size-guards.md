@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-15
 ---
 
 # Guards that gate on a number
@@ -448,19 +448,84 @@ actually happened — `house/no-tracker-ref-in-comment`,
 they are advisory notes nobody reads.
 
 ```
-scripts/guard-lint-warnings.sh          # what ci.yml's `lint` job calls,
-                                         # as its own step after `bun run lint`
+scripts/guard-lint-warnings.sh                  # push to main: count <= ceiling
+scripts/guard-lint-warnings.sh --base HEAD^1    # pull request: also no more than the base
+scripts/guard-lint-warnings.sh --count          # release.yml: print the count
+scripts/guard-lint-warnings.sh --lower-to <n>   # release.yml: lower the ceiling to <n>
 ```
 
 **The ceiling** lives in `scripts/lint-warning-ceiling.txt` — one integer,
-alone on the first non-comment line, nothing else names it. **The headroom is
-zero in both directions.** The smallest mistake this guard exists to catch is
-one new warning, so anything above the ceiling fails. That makes it a
-ratchet, not a one-way cap: a count *below* the ceiling fails too, with a
-message naming the new, lower number to write into the file. Skipping that
-half would leave slack — a cleanup that fixes ten warnings but leaves the old
-ceiling in place lets the count silently climb back to where it started,
-which is the exact failure this page's second rule warns against.
+alone on the first non-comment line; nothing else names it. A count above it
+fails. A count below it passes and the file is left alone: a branch that
+removes warnings never edits it, so two such branches merge in either order
+with no conflict on that line. `release.yml` lowers the number on `main`
+after the merge.
+
+### Two checks, so the ceiling can lag without letting anything in
+
+| Check | Runs | Fails when |
+|---|---|---|
+| Absolute | every run | the count is above the ceiling |
+| Against the base, `--base <rev>` | pull-request CI, with `HEAD^1` | the tree has more warnings than `<rev>`, beyond any raise of the ceiling the branch makes |
+
+The absolute check alone would leave slack. Between a merge that removes
+warnings and the release commit that lowers the file, the ceiling sits above
+`main`'s count, and a branch whose CI ran in that gap could add warnings up
+to the difference. `main`'s required checks are not strict, so a green check
+from that gap stays green. The check against the base closes the gap: CI
+tests the merge commit, and `HEAD^1` is the `main` it was merged with, so
+every branch is held to "no more warnings than the `main` it lands on". That
+is this page's second rule for this guard: zero headroom, measured against
+the base rather than against a file. A stale green check stays valid as well,
+because a branch's effect on the count adds onto whatever `main` holds later.
+
+The base is measured with its own toolchain. The guard writes the base
+commit's tree out through a temporary index (the working tree, the real index
+and the worktree list are untouched), runs `bun install --frozen-lockfile
+--ignore-scripts` there, and lints it with that tree's own oxlint, plugins and
+`oxlintrc.json`. A branch that bumps oxlint or a lint plugin is therefore
+compared old tools against new, and warnings the bump adds count as warnings
+the branch adds. A failure names the rules that rose against the base and the
+one ceiling value that would pass.
+
+*Measured 2026-10-15 — `bash scripts/guard-lint-warnings.sh --base HEAD` on a
+warm local bun cache: 879 against 879 in 15.6 s, where the plain
+`bash scripts/guard-lint-warnings.sh` takes 3 s.*
+
+### How the ceiling moves
+
+- **Down, on `main` only.** On each merge, `release.yml`'s `lint-count` job
+  counts the warnings (`--count`) with a read-only token, no stored
+  credentials and no install scripts, so oxlint and its plugins never run
+  inside the `release` job, which holds `RELEASE_TOKEN`. That job checks the
+  count is a plain number of at most nine digits, runs `--lower-to <count>`,
+  and `scripts/release-commit.sh` commits the new value line in the same
+  commit as the version bumps — `chore: version packages, lower the
+  lint-warning ceiling`, or `chore: lower the lint-warning ceiling` when the
+  merge carried no changeset. `--lower-to` never raises the number and leaves
+  the file untouched when it already matches, so a re-run makes no empty
+  commit. `lint-count` skips the bot's own commits, which never change the
+  count. The split does not stop code in `lint-count` reaching `main`'s
+  dependency cache — on a hosted runner any step can reach the runner's own
+  token — so the `release` job restores no cache and installs from the
+  registry against `bun.lock`.
+- **Up, in a pull request, on purpose.** When a branch adds warnings it means
+  to keep, the failing guard names one number: set the value line to it and
+  put the branch and date in the line's trailing comment. Two raises open at
+  once then conflict as text instead of merging to one number. A raise open
+  while the bot lowers the line conflicts too; after the rebase, run the guard
+  again and take the number it names.
+- **Never down in a pull request.** Lowering by hand puts every such branch
+  back on the one line that conflicts.
+
+Before pushing, run the check CI runs:
+
+```bash
+bash scripts/guard-lint-warnings.sh --base "$(git merge-base origin/main HEAD)"
+```
+
+**If the file and this page ever disagree, the file is right** — the same rule
+the bundle table above states for itself.
 
 ### Counting method
 
@@ -500,48 +565,59 @@ Its own step in `ci.yml`'s `lint` job, after the existing `bun run lint`
 step and before `Format check` — deliberately separate from that step so "a
 rule errored" (Lint fails) and "the warning count moved" (this guard fails)
 read as two different failures rather than one step failing for either
-reason.
+reason. On a pull request the step runs `--base HEAD^1`, which is why the job
+checks out with `fetch-depth: 2`: the merge commit arrives with both parents.
+On a push to `main` it runs the absolute check alone. `release.yml` runs
+`--count` and `--lower-to` as above.
 
-Two test files, for the two things that can go wrong independently:
+Three test files, for the three things that can go wrong independently:
 
 - `scripts/tests/lint-warning-count.test.ts` (+ `.cli.test.ts`) — pure
   counting logic, run in `script-tests` like everything else under
   `scripts/tests/` (no `bun install`, since counting from a fixture JSON
   report needs no oxlint invocation at all).
 - `scripts/tests/guard-lint-warnings.test.sh` — the shell script end to end,
-  against small fixture projects with their own `oxlintrc.json`, but run
-  with the REAL oxlint binary from this checkout's `node_modules`
-  (`LINT_WARNING_OXLINT_BIN`). That real binary is why this one runs as its
-  own step in the `lint` job instead, after `bun install` — `script-tests`
-  does none, on purpose (see that job's own comment in `ci.yml`).
+  against small fixture projects and git repositories with their own
+  `oxlintrc.json`, but run with the REAL oxlint binary from this checkout's
+  `node_modules` (`LINT_WARNING_OXLINT_BIN`). It covers every mode: two
+  branches that each remove a warning merging in either order, a branch that
+  adds one, the lagging-ceiling case the absolute check alone lets through,
+  the first parent of a real merge commit, a branch that turns a rule on, and
+  a base installed from its own lockfile and linted with its own oxlint. That
+  real binary, and the cases that install oxlint into a fixture, are why it
+  runs as its own step in the `lint` job, after `bun install` —
+  `script-tests` does none, on purpose (see that job's own comment in
+  `ci.yml`). Those installs can reach the registry, so on a pull request the
+  step runs the suite only when the guard, the counter, the test,
+  `package.json`, `bun.lock` or `.bun-version` changed; it runs on every push
+  to `main`.
+- `scripts/tests/release-commit.test.sh` — the release job's commit step,
+  `scripts/release-commit.sh`, in throwaway repositories with a bare remote:
+  what it stages, which message it picks, that it commits nothing when
+  nothing it owns changed, and that a push behind the remote fails. It needs
+  only git, so it runs in `script-tests`. The job wiring around it —
+  `lint-count`'s skip, `needs` and the count it hands over — runs only on
+  `main`.
 
-### Re-baselining, in either direction
-
-Run `bun run lint` or `scripts/guard-lint-warnings.sh` (the second prints the
-new count on a failing run), then edit **only**
-`scripts/lint-warning-ceiling.txt` to that number, including a fresh trailing
-comment naming the branch and date it was measured from. **If the file and
-this page ever disagree, the file is right** — the same rule the bundle table
-above states for itself. An `oxlint` version bump is expected to move the
-count (a rule can be added, removed or have its default severity change) and
-trip this guard until the file is re-baselined; that is not a defect, it is
-the same zero-headroom trade this page's second rule always makes.
-
-> [!warning] Zero headroom means two concurrent PRs can still leave `main` red
-> `main`'s branch protection does not require a PR to be up to date with
-> `main` before merging. Two PRs that each add one warning, cut from the same
-> base, each write their own correct edit to
-> `scripts/lint-warning-ceiling.txt` and each pass in isolation. If both land,
-> the ceiling on `main` reflects only whichever merged last, not the sum of
-> both — unless the merge itself conflicts. The one thing standing between
-> that and a silently wrong ceiling is the trailing comment convention above:
-> two PRs' ceiling lines differ in branch name and date even when they
-> coincidentally agree on the leading number, so git treats concurrent edits
-> to this file as a real merge conflict a human has to resolve, rather than
-> auto-merging two edits to the same line. This is the same shape of gap
-> zero-headroom accepts everywhere on this page — the fix, if `main` does go
-> red this way, is the same as any other regression: re-measure and
-> re-baseline.
+> [!warning] What the two checks do not catch
+> - **Branches that interact.** Each branch is measured against its own
+>   base. Two branches that are each fine alone can still raise the count
+>   together, through a rule that reads more than one file. `main`'s own CI
+>   then fails the absolute check, and while `main` is over its ceiling every
+>   pull request fails it too, until one removes the warnings or raises the
+>   ceiling.
+> - **A ceiling that stays high.** The file sits above `main`'s count until a
+>   Release run lowers it. A run that loses a push race (`! [rejected] main ->
+>   main (fetch first)`) or fails at `bun run version` lowers nothing; the
+>   next run measures again and catches up. Pull requests are held against
+>   their base meanwhile, so the lag loosens only the absolute check on
+>   `main`. The release job starts only after `lint-count` finishes,
+>   which lengthens the time in which it can lose that race; a lost race
+>   delays the version bump and the lowering to the next run, and loses
+>   neither.
+> - **A stacked branch** is measured against its parent branch, whose
+>   vendored anti-slop tree this job does not verify; the parent's own CI
+>   did, and the job holds a read-only token.
 
 ## Related
 

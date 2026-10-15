@@ -5,18 +5,22 @@
 # monorepo. Nothing else names this number — not `.github/workflows/ci.yml`,
 # not a script argument.
 #
-# @see wiki/conventions/bundle-size-guards.md — why the headroom here is
-# zero in both directions: an INCREASE fails (a new warning was added), and
-# a DECREASE also fails, with a message to lower this file to match, so a
-# cleanup's slack can't let the count drift back up before anything notices.
+# @see wiki/conventions/bundle-size-guards.md — how this number moves.
 #
-# Re-baselining, in either direction: run `bun run lint` (or
-# scripts/guard-lint-warnings.sh, which prints the new count on a failing
-# run), and replace the number below with it. One value, alone on the first
-# non-comment, non-blank line — nothing else in this file is read. Keep the
-# trailing comment's branch and date current on every re-baseline: two
-# branches editing this line at once should collide as a real merge
-# conflict rather than silently agreeing on the same leading number while
-# disagreeing on what it was measured from.
+# A pull request never lowers it. A branch that removes warnings leaves
+# this file alone: CI passes a count below the ceiling, and
+# .github/workflows/release.yml lowers the number to the measured count on
+# main after the merge (scripts/guard-lint-warnings.sh --lower-to), in the
+# same commit as the version bumps. Pull-request CI holds every branch to
+# the warning count of its base instead (--base HEAD^1), so a ceiling that
+# has not been lowered yet lets nothing through.
+#
+# A pull request raises it only for warnings it adds on purpose: set the
+# number to the one the failing guard names, and put the branch and date in
+# the trailing comment. Two raises at once then collide as a real merge
+# conflict rather than silently agreeing on the same leading number.
+#
+# One value, alone on the first non-comment, non-blank line — nothing else
+# in this file is read.
 
 879   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/enable-cloudflare-worker-tracing @ 2026-10-15 on main 47be52292 — two unused test imports removed. No rule was disabled and nothing was suppressed.
