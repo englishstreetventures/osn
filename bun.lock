@@ -308,7 +308,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.29.3",
+      "version": "3.29.4",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.16",
@@ -380,7 +380,7 @@
     },
     "osn/db": {
       "name": "@osn/db",
-      "version": "0.24.5",
+      "version": "0.24.6",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -399,7 +399,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.27.22",
+      "version": "0.27.23",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -430,7 +430,7 @@
     },
     "pulse/db": {
       "name": "@pulse/db",
-      "version": "0.20.5",
+      "version": "0.20.6",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -472,7 +472,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.24.17",
+      "version": "0.24.18",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -519,7 +519,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.14.2",
+      "version": "0.14.3",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -635,7 +635,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.4.40",
+      "version": "0.4.41",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "^6.2.12",
@@ -825,7 +825,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.9.23",
+      "version": "0.9.24",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -852,7 +852,7 @@
     },
     "zap/db": {
       "name": "@zap/db",
-      "version": "0.6.4",
+      "version": "0.6.5",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
