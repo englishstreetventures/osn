@@ -82,8 +82,8 @@ tessl review run quality .claude/skills/<name>   # the deterministic gate — se
 
 ## The inner loop
 
-A full run is every scenario, two variants, three runs each — ninety agent
-solves across the fifteen scenarios there are today, and it grows with the
+A full run is every scenario, two variants, three runs each — ninety-six agent
+solves across the sixteen scenarios there are today, and it grows with the
 suite. That is most of a working day and hundreds of credits. The harness launches a
 whole run index at once (17–20 solves) and waits for the slowest before starting
 the next, so wall clock is the sum of the waves' maxima, not the mean solve:
@@ -265,6 +265,8 @@ put it. A scenario that changes code does not — the diff is the artefact.
 | `new-feat-tracker-finding-branch` | `new-feat` | A fictional tracker finding handed to the skill as the work to start. The public repo must not gain a duplicate issue, and the branch name, the commits and the plan file must not describe the defect — this repository is public and the tracker is not. Scores the routing rule, not the code. |
 | `retro-fallback-card-and-routing` | `retro` | A finished branch whose only card is the one the unattended `SessionEnd` fallback left: null pull request, null issue, null `complexity.declared`. The rating is on the issue and says `complexity:1`; the session cost $47, corrected six turns out of nine, and hit a compaction. Scores whether the card is recognised as the fallback's and replaced, whether spend is compared against the rating on the *issue* rather than the null on the card, and whether the unclear brief goes to the person rather than into an issue nobody can be assigned. |
 | `retro-restraint-on-a-proportionate-session` | `retro` | The same skill one session later, on work that cost $58 against a `complexity:5` a human confirmed before it started. Three baits — spend that reads as waste, a null first-edit boundary that reads as total exploration, and a hundred committed cards that invite a trend claim — and one real finding, a model missing from the rate table that priced at zero and understated the total. Ten of fourteen points are for **not** reporting the baits. The pair is the rediscovery/restraint shape applied to a skill whose failure mode is inventing findings rather than missing them. |
+| `pick-agent-read-only-auth-survey` | `pick-agent` | A task that reads as expensive — every route across four APIs, every auth gate, an epic behind it — whose deliverable is a `file:line` inventory and nothing else. Scores whether the choice follows what the task produces rather than the weight of its subject: the read-only `explorer`, named with its model and effort, and the effort level called a judgement rather than a measurement. |
+| `review-pr-adopted-branch-red-on-main` | `review-pr` | An open pull request another tool wrote, its branch already in a worktree under `.worktrees/`, with what `gh` would show saved under `.pr/`. Two checks are red: `Require changeset`, which is the branch's own — it adds a function to `@shared/color` and no changeset — and `Build & Test`, a lab test that failed on main's latest run too. The body says lint, tests and reviews all passed. The heaviest item is checking main before blaming the branch; the others score working in the existing worktree, treating the body's claims as unverified, and fixing only the branch's own failure, on the branch. The lockfile recipe is not covered: it needs the registry, which is why `review-deps-planted-drift-no-registry` was retired. |
 
 The rediscovery scenarios are the pattern worth repeating: **every merged fix PR
 is a free labelled example.** Pin its parent SHA, write one checklist item per
@@ -599,6 +601,10 @@ scenario. It lives here:
 | `review-tests-cire-consent-colocated-layout` | `6168009c` | layout predates #867 |
 | `review-docs-session-ttl-page-drift` | `981ea544` | constructed — reuses the TTL change from the prep-pr fixture, plants the anchor link |
 | `new-feat-tracker-finding-branch` | `6168009c` | parent of #852, shared with the entitlement scenario; the tracker issue is invented |
+| `pick-agent-read-only-auth-survey` | `6ac29559` | constructed — `TASK-ISSUE.md` and `AGENTS-AVAILABLE.md` are planted |
+| `retro-fallback-card-and-routing` | `b5f9c8f4` | constructed — the branch and its fallback card are planted |
+| `retro-restraint-on-a-proportionate-session` | `b5f9c8f4` | constructed — the card and its three baits are planted |
+| `review-pr-adopted-branch-red-on-main` | `435c28f6` | constructed — the branch, its worktree and the CI record are planted, in the shape of three pull requests adopted for review on one day |
 
 ## Write the rubric from the tree, not from the pull request
 

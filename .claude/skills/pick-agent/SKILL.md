@@ -27,10 +27,10 @@ than assuming either, and name both in your sentence.
 | Definition | Give it |
 |---|---|
 | `implementer` | Anything that designs something. New behaviour, a schema change, a major version bump, auth or session work, a bug whose cause is unknown. The default. |
-| `mechanic` | Work whose answer is fixed before it starts: patch and minor dependency sweeps, renames, changesets, a known pattern applied across files. |
-| `reviewer` | Reviewing a branch through one lens — `review-tests`, `review-security`, `review-performance`, `review-docs`, or a whole branch against its plan. Reports findings; fixes nothing. |
+| `mechanic` | Work whose answer is fixed before it starts: patch and minor dependency sweeps, renames, changesets, a known pattern applied across files, and skill-text, docs or test-only edits whose issue already states the change. |
+| `reviewer` | Reviewing a branch or a pull request through one lens — `review-tests`, `review-security`, `review-performance`, `review-docs`, or a whole branch against its plan. Reports findings; fixes nothing. Reviewing *and fixing* an open pull request is whole-task work: `implementer`. |
 | `explorer` | Read-only orientation. Returns `file:line`, proposes nothing. |
-| `shepherd` | Polling a pull request to a terminal state. |
+| `shepherd` | Reading a pull request's red CI and returning the decisive line, or polling it to a terminal state. |
 | `attacker` | Attacking a plan, cold, in a fresh context. |
 
 Where the issue carries a **confirmed** `complexity:` label, use it — it was set
@@ -133,15 +133,19 @@ checkout, and they build only when the brief says they are alone in it.
 
 ## What consumes this
 
-`orchestrate` Step 3, the task hand-off, asks this skill. The other dispatch
-sites are fixed by role and name their definition directly:
+`orchestrate` asks this skill for every task hand-off and re-dispatch (Step 3)
+and for each fix subagent after the reviews (Step 4), and writes the answer on
+the task's `agent:` line in `ORCHESTRATE.md`. With unconfirmed ratings ignored,
+the rubric table above is what sends a fixed-answer task to `mechanic`. The
+other dispatch sites are fixed by role and name their definition directly:
 
 | Site | Definition |
 |---|---|
 | `orchestrate` Step 1 | `explorer` |
-| `orchestrate` Step 4 fixes and rebases | `implementer` |
-| `orchestrate` Step 5 polling | `shepherd` |
+| `orchestrate` Step 5 rebases and check-failure fixes | `implementer` |
+| `orchestrate` Step 5 reading a red check | `shepherd` |
 | `prep-pr` Steps 4 and 6 | `reviewer` |
+| `review-pr` reviews | `reviewer` |
 | `stress-plan` Step 2 | `attacker` |
 | `new-feat` Step 2 | the built-in `Plan` agent |
 

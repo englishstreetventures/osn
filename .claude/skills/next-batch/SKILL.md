@@ -60,7 +60,7 @@ gh api repos/englishstreetventures/osn/commits/<sha>/check-runs \
   --jq '.check_runs[] | select(.conclusion=="failure") | .name'
 ```
 
-Record CI red (the job and its decisive line), `dirty` or `behind` (sibling PRs collide on `scripts/lint-warning-ceiling.txt`), an owner question left in the comments, or no PR at all (the card is wrong: a question). `orchestrate` Step 5 does the fixing.
+Record CI red (the job and its decisive line), `dirty` or `behind` (sibling PRs collide on `scripts/lint-warning-ceiling.txt`), an owner question left in the comments, or no PR at all (the card is wrong: a question). `orchestrate` Step 5 does the fixing. A pull request this pipeline did not write — another tool's, or one that never went through `prep-pr` — is adopted with `review-pr` instead (`orchestrate` §Adopting an open pull request).
 
 ## Step 3 — In Progress: hands off
 
