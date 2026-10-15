@@ -121,14 +121,14 @@ export interface OtlpTracing {
  * trace LEVEL, not ratio — so without this a Worker would export 100% of spans
  * while `OSN_TRACE_SAMPLE_RATIO` (0.1 by default in production) said otherwise,
  * which is both a lie and a free-tier cost. The decision is taken on ROOT spans
- * only; Effect's span constructor already forces a child to `sampled: false`
- * when its parent is unsampled, so one decision per trace propagates down.
+ * only — any span without a parent, whether or not the caller set
+ * `root: true`. Effect's span constructor already forces a child to
+ * `sampled: false` when its parent is unsampled, so one decision per trace
+ * propagates down.
  *
  * Matches what the Bun path gets from
  * `ParentBasedSampler({ root: TraceIdRatioBasedSampler })`, except the draw is
- * `Math.random()` rather than a hash of the trace id. A span without a parent
- * is a root even when the caller did not explicitly set `root: true`.
- * That only matters for a
+ * `Math.random()` rather than a hash of the trace id. That only matters for a
  * trace split across services, and these spans are per-call roots anyway (see
  * the module docstring).
  */
