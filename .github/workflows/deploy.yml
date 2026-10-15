@@ -475,15 +475,18 @@ jobs:
       - name: Guard cire/invites SSR bundle size
         run: ./scripts/guard-bundle-size.sh cire/invites
 
-      # Two edits to the adapter's generated config, in one pass:
+      # Three edits to the adapter's generated config, in one pass:
       #
       #  1. drop `legacy_env` — @astrojs/cloudflare still writes it, wrangler
       #     4.111+ hard-errors on it, and removing it is a behavioural no-op
-      #     (`true` WAS the default). See the prod job for the full history.
+      #     (`true` WAS the default). The prod job's strip step says the same.
       #  2. retarget name + routes at the dev Worker. The committed
       #     wrangler.jsonc names the PRODUCTION worker and its custom domain;
       #     rewriting here keeps one checked-in config instead of a near-copy
       #     that would drift.
+      #  3. trace every request with query strings kept. Dev holds synthetic
+      #     data only; production keeps the committed redaction, which
+      #     scripts/check-trace-redaction.ts checks before the prod deploy.
       - name: Retarget the generated config at dev
         run: |
           node -e "
@@ -588,6 +591,15 @@ jobs:
       # adapter stops emitting it.
       - name: Strip unsupported legacy_env from generated config
         run: node -e "const fs=require('fs'),f='dist/server/wrangler.json',c=JSON.parse(fs.readFileSync(f,'utf8'));delete c.legacy_env;fs.writeFileSync(f,JSON.stringify(c))"
+        working-directory: cire/invites
+
+      # Production traces every guest request. What keeps `?slug=`, `?code=` and
+      # the Stripe `&gift=` out of those traces is `redact_query_string` in the
+      # committed wrangler.jsonc, which the adapter copies into this generated
+      # file. Check the file that deploys, not the one committed: an adapter
+      # that drops the key fails here.
+      - name: Check the generated config redacts query strings
+        run: bun run ../../scripts/check-trace-redaction.ts --generated dist/server/wrangler.json
         working-directory: cire/invites
 
       # Deploy the SSR Worker. The adapter's generated config carries `main`, the

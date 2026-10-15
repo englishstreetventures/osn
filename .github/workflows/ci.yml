@@ -462,6 +462,15 @@ jobs:
       - name: Guard the D1 cost of the migration chains
         run: bun run scripts/guard-d1-migration-cost.ts --all
 
+      # The trace-redaction guard's tests run in "Test the scripts"; this runs
+      # it against the committed Worker configs. Every staging and production
+      # tier must redact query strings in Cloudflare logs and native traces, and
+      # no API Worker may trace there, because its paths carry ids and slugs. The
+      # API deploy jobs have no step of their own, so this is the check that
+      # covers them. No install: the script reads files with Bun built-ins.
+      - name: Check Worker configs redact query strings
+        run: bun run scripts/check-trace-redaction.ts
+
   openapi-freshness:
     name: OpenAPI Freshness
     runs-on: ubuntu-latest
