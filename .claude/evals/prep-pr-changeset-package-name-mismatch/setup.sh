@@ -16,7 +16,7 @@
 set -euo pipefail
 
 # The fixture repo carries `.claude/commands/*.md` — verbatim copies of the
-# skills under test, including the whole five-section PR-body specification.
+# skills under test, including the whole PR-body specification.
 # `exclude` in scenario.json does not actually strip them, so the baseline was
 # reading the very content the eval withholds. Delete every copy. The plugin
 # variant supplies `.claude/skills/`, which nothing here touches.

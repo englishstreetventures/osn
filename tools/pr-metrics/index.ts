@@ -1057,8 +1057,8 @@ function share(part: number, whole: number): string {
  * The card as a collapsed block for a pull-request body.
  *
  * A `<details>` block rather than a section, and that is a constraint rather
- * than a preference: `prep-pr` permits exactly five `##` headings and checks
- * the count before it finishes, so a sixth would fail a body that is otherwise
+ * than a preference: `prep-pr` permits a fixed set of `##` headings and checks
+ * the count before it finishes, so one more would fail a body that is otherwise
  * correct. `<details>` adds no heading.
  *
  * The summary line carries the four figures worth seeing without expanding.

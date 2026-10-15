@@ -306,7 +306,7 @@ Start from the live body, since the API replaces the whole of it:
 gh api repos/englishstreetventures/osn/pulls/<n> --jq .body > PR-BODY.md
 ```
 
-Invoke `write-pr` and rewrite it into the five sections. Keep nothing from the
+Invoke `write-pr` and rewrite it into the six sections, impact first. Keep nothing from the
 old body that this run did not confirm; the test plan is this run's rows only,
 each with its commit. Fix the title too when it breaks `write-pr` Step 3.
 

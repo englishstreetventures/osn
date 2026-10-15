@@ -27,8 +27,10 @@ than assuming either, and name both in your sentence.
 | Definition | Give it |
 |---|---|
 | `implementer` | Anything that designs something. New behaviour, a schema change, a major version bump, auth or session work, a bug whose cause is unknown. The default. |
+| `designer` | UI work that needs a design decision: a new page or component, a layout, a redesign, a token the design system does not have yet. It loads the `design-system` skill, which maps each surface to its `DESIGN.md` and says which design skill fits. UI logic with no visual change stays with `implementer`. |
+| `design-mechanic` | A small visual change the surface's `DESIGN.md` already settles: a token swap, spacing or a type step on the existing scale, a missing dark-mode value, a variant that already exists. Same `design-system` skill; hands back anything that needs a choice. |
 | `mechanic` | Work whose answer is fixed before it starts: patch and minor dependency sweeps, renames, changesets, a known pattern applied across files, and skill-text, docs or test-only edits whose issue already states the change. |
-| `reviewer` | Reviewing a branch or a pull request through one lens — `review-tests`, `review-security`, `review-performance`, `review-docs`, or a whole branch against its plan. Reports findings; fixes nothing. Reviewing *and fixing* an open pull request is whole-task work: `implementer`. |
+| `reviewer` | Reviewing a branch or a pull request through one lens — `review-tests`, `review-security`, `review-performance`, `review-docs`, or a whole branch against its plan. Reports findings; fixes nothing. Reviewing *and fixing* an open pull request is whole-task work: `implementer`, or `designer` when the pull request changes how a screen looks. A design audit is a review: name the surface's `DESIGN.md` and the `design-system` skill in the brief. `reviewer` has no `WebFetch`, so `web-design-guidelines` is not for it, and fetching its rules another way is not either. |
 | `explorer` | Read-only orientation. Returns `file:line`, proposes nothing. |
 | `shepherd` | Reading a pull request's red CI and returning the decisive line, or polling it to a terminal state. |
 | `attacker` | Attacking a plan, cold, in a fresh context. |
@@ -41,6 +43,13 @@ before work started, which is exactly why it is worth something:
 | 1–2 | `mechanic`, unless the cause is unknown or a version bump crosses a major |
 | 3 | `implementer` |
 | 5–8 | `implementer`, and consider splitting the task before dispatching at all |
+
+A task that changes how a screen looks goes to one of the two design agents at
+any rating, never to `mechanic`, which does not load the design system. Which
+one turns on the same question as `implementer` against `mechanic`: does the
+surface's `DESIGN.md` already hold the answer? A one-line change to a colour
+the system names is `design-mechanic`; a one-line change that adds a colour the
+system lacks is a design decision, and `designer`.
 
 **Ignore a rating carrying `complexity:unconfirmed`.** That label means an agent
 rated the issue and no human signed off. The session-metrics
@@ -71,6 +80,15 @@ to `implementer`, and its final whole-branch review to `reviewer`, none with a
 `model`. Its per-task reviews and re-reviews are the one exception: they keep
 the plugin's own `general-purpose` dispatch and model choice, because routing
 each of them to `reviewer` would run every small review at `xhigh`.
+
+## A session older than the definition
+
+The Agent tool reads `.claude/agents/` when a session starts. A session started
+before a definition existed rejects its name. Dispatch the definition on the
+same tier instead — `implementer` for `designer`, `mechanic` for
+`design-mechanic` — with everything below the chosen definition's frontmatter
+pasted into the brief. It carries the rules but runs at the stand-in's
+settings; say so in your sentence.
 
 ## Pass no `model` and no `effort`
 

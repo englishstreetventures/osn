@@ -4,7 +4,7 @@ Invoke these rather than reinventing what a skill already encodes. If none appli
 
 | Part of the task | Skill |
 |---|---|
-| Any new UI — components, pages, layouts, visual or UX work | `frontend-design`, then `web-design-guidelines` to review the result for accessibility |
+| Any new UI — components, pages, layouts, visual or UX work | `design-system` first: it maps each surface to its `DESIGN.md`, ranks that above any design skill, and names which design skill fits — `frontend-design:frontend-design` for a new screen, `web-design-guidelines` to review the result |
 | Page-load / Core Web Vitals profiling | `web-perf` |
 | Anything Cloudflare — Workers, Pages, KV, D1, R2, Images, AI, caching, bindings, config | `cloudflare`; writing or reviewing Worker code → `workers-best-practices`; running `wrangler` → `wrangler` |
 | A deployed Worker misbehaving, a failed first deploy, setting or rotating a Worker secret | `debug-workers` |
@@ -20,11 +20,11 @@ Invoke these rather than reinventing what a skill already encodes. If none appli
 | The feature is ambiguous or needs product direction | `superpowers:brainstorming` **with the user first**, before implementing |
 | Importing from or pushing to Figma designs | the `figma-*` skills |
 | Opening a GitHub issue — a follow-up, a deferral, a bug found on the way | `write-issue` — repository, title, type, labels, a body that stands on its own, and the command that files it |
-| Writing or editing a pull-request title and body | `write-pr` — the five sections, the `Closes` lines and what a public body may say about a tracker issue, the test plan, and the command that opens it |
+| Writing or editing a pull-request title and body | `write-pr` — the six sections, impact first, the `Closes` lines and what a public body may say about a tracker issue, the test plan, and the command that opens it |
 | Writing or restructuring any page under `wiki/` (also `AGENTS.md`, `README.md`) | `write-wiki` — where to edit, frontmatter, what renders on GitHub, measured numbers; it loads `obsidian:obsidian-markdown` for the syntax |
 | Searching the wiki from the `obsidian` CLI | `obsidian:obsidian-cli` — local machine, Obsidian running. **Read only**: its write commands hit `main`'s worktree, not the branch |
 | Reading a vendor doc, RFC or advisory from a URL | `obsidian:defuddle` when `defuddle` is installed — `defuddle parse <url> --md` strips the page chrome. Not for `.md` or raw URLs, which are already clean |
 | A page-shaped set of records in the wiki that a table can no longer hold | `obsidian:obsidian-bases` for a `.base` view — **beside the prose, never instead of it**; it renders in Obsidian only |
 | A phase, dependency or task graph worth seeing spatially | `obsidian:json-canvas` for a `.canvas` — same Obsidian-only caveat; keep the mermaid in the page for everyone else |
 
-`write-wiki`, `write-issue`, `write-pr` and `debug-workers` are this repository's own, in `.claude/skills/`. Other skill names outside the `superpowers:`, `obsidian:` and `resend:` prefixes are the user-level skills on the maintainer's machine; a remote session may not have them, in which case the repo conventions apply.
+`write-wiki`, `write-issue`, `write-pr`, `design-system` and `debug-workers` are this repository's own, in `.claude/skills/`. Other skill names outside the `superpowers:`, `obsidian:`, `resend:` and `frontend-design:` prefixes are the user-level skills on the maintainer's machine; a remote session may not have them, in which case the repo conventions apply.
