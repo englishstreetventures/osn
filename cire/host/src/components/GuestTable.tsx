@@ -186,8 +186,8 @@ interface GuestTableProps {
   canEdit?: boolean;
   /** Display name of the wedding — used in the copied invite message. */
   weddingName: string;
-  /** URL slug of the wedding — the copied invite message links to this wedding's
-   *  path on the SSR'd, path-routed guest site (`CIRE_WEB_URL/<slug>`). */
+  /** URL slug of the wedding — the copied invite message puts it in the query
+   *  of the fixed guest invitation route. */
   weddingSlug: string;
   /** The line pointing at the other places that shape the invite message, shown
    *  under the introduction. */

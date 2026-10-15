@@ -11,11 +11,8 @@ import { CIRE_WEB_URL } from "./osn";
  *   Your invitation code: {familyCode}
  *
  * Line 1 is the host's `customMessage` if they set one, else the built-in default
- * prose. Line 2 is this wedding's path on the public guest site
- * (`CIRE_WEB_URL/<slug>` / `PUBLIC_CIRE_WEB_URL/<slug>`). The guest site is SSR +
- * path-routed, so the link must carry the wedding slug in the PATH — sending the
- * bare origin would render whatever the bare domain resolves to (the primary
- * wedding), not necessarily this one. Line 3 is the family's claim code, under
+ * prose. Line 2 is this wedding's fixed-path invitation URL with the slug in
+ * the query string. Line 3 is the family's claim code, under
  * the same words the guest site's own field uses (`Invitation code`), so a guest
  * who has never seen the product knows what the string is for; they claim by
  * typing it on that page (no `?code=` needed).
@@ -33,7 +30,7 @@ export function buildInviteMessage(
   weddingSlug: string,
   customMessage?: string | null,
 ): string {
-  const guestUrl = `${CIRE_WEB_URL}/${encodeURIComponent(weddingSlug)}`;
+  const guestUrl = `${CIRE_WEB_URL}/cire/invite?slug=${encodeURIComponent(weddingSlug)}`;
   const message =
     customMessage?.trim() ||
     `You're invited to ${weddingName}! View your invitation and RSVP below.`;

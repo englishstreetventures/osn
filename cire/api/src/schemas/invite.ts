@@ -466,3 +466,15 @@ export const InviteDesignBody = Schema.Struct({
   designId: Schema.String,
 });
 export type InviteDesignBody = Schema.Schema.Type<typeof InviteDesignBody>;
+
+// ── Fixed-path guest lookup ─────────────────────────────────────────────────────
+
+/** Longest slug the lookup accepts. A real slug is at most 67 characters (a
+ *  60-character base, a hyphen and a 6-character suffix); the rest is slack. */
+const MAX_RESOLVE_SLUG = 128;
+
+/** Body for `POST /api/invite/resolve`: the slug the guest site read from its query. */
+export const InviteResolveBody = Schema.Struct({
+  slug: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(MAX_RESOLVE_SLUG)),
+});
+export type InviteResolveBody = Schema.Schema.Type<typeof InviteResolveBody>;

@@ -26,6 +26,13 @@ OSN_JWKS_URL = "http://localhost:4000/.well-known/jwks.json"
 OSN_ISSUER_URL = "http://localhost:4000"
 PULSE_API_ORIGIN = "http://localhost:3001"
 PULSE_LOGIN_URL = "http://localhost:1420/"
+
+[env.dev.observability]
+redact_query_string = false
+
+[env.dev.observability.traces]
+enabled = true
+head_sampling_rate = 1
 # OSN_OIDC_CLIENT_ID / OSN_OIDC_CLIENT_SECRET come from a client registered with
 # osn-api. Until both are set, /api/auth/oidc/* answers `sign_in_unavailable`
 # and the rest of the API is unaffected.
@@ -49,6 +56,12 @@ OSN_ISSUER_URL = "https://api.staging.osn.example"
 # `SameSite=Lax`, so a cross-site API host is never sent one.
 PULSE_API_ORIGIN = "https://api.pulse.example.com"
 PULSE_LOGIN_URL = "https://pulse.example.com/"
+
+[env.staging.observability]
+redact_query_string = true
+
+[env.staging.observability.traces]
+enabled = false
 # OSN_OIDC_CLIENT_ID is a var; OSN_OIDC_CLIENT_SECRET is a secret
 # (`wrangler secret put OSN_OIDC_CLIENT_SECRET --env staging`).
 
@@ -72,6 +85,12 @@ OSN_ISSUER_URL = "https://id.musubi.social"
 # `SameSite=Lax`, so a cross-site API host is never sent one.
 PULSE_API_ORIGIN = "https://api.pulse.example.com"
 PULSE_LOGIN_URL = "https://pulse.example.com/"
+
+[env.production.observability]
+redact_query_string = true
+
+[env.production.observability.traces]
+enabled = false
 # OSN_OIDC_CLIENT_ID is a var; OSN_OIDC_CLIENT_SECRET is a secret
 # (`wrangler secret put OSN_OIDC_CLIENT_SECRET --env production`).
 

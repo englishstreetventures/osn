@@ -137,10 +137,10 @@ describe("PreviewInviteButton", () => {
       ),
     );
 
-    await waitFor(() => expect(win.location.href).toContain("?code=HOST-ABCDEF0123456789ABCDEF01"));
+    await waitFor(() => expect(win.location.href).toContain("&code=HOST-ABCDEF0123456789ABCDEF01"));
   });
 
-  it("points the opened tab at the guest invite with ?code= on success", async () => {
+  it("points the opened tab at the guest invite with the slug and code in the query on success", async () => {
     authFetchMock.mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -166,9 +166,9 @@ describe("PreviewInviteButton", () => {
     expect((init as RequestInit).method).toBe("POST");
 
     // Navigates the already-open tab to the guest site (no second window.open).
-    // Path-routed: the wedding slug rides in the PATH, the host code in ?code=.
+    // The wedding slug and host code ride in the query string.
     expect(win.location.href).toBe(
-      "http://localhost:4321/alexander-samantha-a1b2c3?code=HOST-ABCDEF0123456789ABCDEF01",
+      "http://localhost:4321/cire/invite?slug=alexander-samantha-a1b2c3&code=HOST-ABCDEF0123456789ABCDEF01",
     );
     // Severs the opener reference for the navigated tab.
     expect(win.opener).toBeNull();
@@ -198,7 +198,7 @@ describe("PreviewInviteButton", () => {
 
     await waitFor(() => expect(assignSpy).toHaveBeenCalledTimes(1));
     expect(assignSpy.mock.calls[0]![0]).toBe(
-      "http://localhost:4321/alexander-samantha-a1b2c3?code=HOST-ABCDEF0123456789ABCDEF01",
+      "http://localhost:4321/cire/invite?slug=alexander-samantha-a1b2c3&code=HOST-ABCDEF0123456789ABCDEF01",
     );
     // No crash, no error toast on the success path.
     expect(toastErrorSpy).not.toHaveBeenCalled();

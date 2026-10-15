@@ -9,9 +9,40 @@ related:
   - "[[metrics]]"
   - "[[arc-tokens]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-07-22
+last-reviewed: 2026-10-15
 ---
 # Tracing
+
+## Native Workers traces
+
+The deployed Worker projects configure Cloudflare's automatic traces in Wrangler.
+Local and dev tiers trace requests without URL redaction. Staging and production
+tiers remove query strings from request URLs in Cloudflare logs and native traces.
+The production Cire guest Worker traces both existing `/<slug>` links and new
+`/cire/invite?slug=…` and `/cire/registry?slug=…` links. Existing slug paths and
+their outbound API URLs appear in native traces. New links use fixed paths and
+resolve their invite through a fixed API URL with the slug in the request body.
+Production API Workers keep native traces disabled while path values and
+outbound URLs are reviewed. Cloudflare records URLs before application code
+runs, so the shared logger's `redact()` cannot change native span attributes.
+
+[`scripts/check-trace-redaction.ts`](../../../scripts/check-trace-redaction.ts)
+holds that line. CI runs it on the committed configs: every staging and
+production tier must set `redact_query_string = true`, and no API Worker may
+trace there. The production guest deploy runs it again on the adapter's
+generated `dist/server/wrangler.json` before `wrangler deploy`.
+
+A fetch handler span records the full URL and path, the user agent, the
+visitor's country, city and timezone, their network (ASN) and
+`Accept-Language`; an outbound fetch span records the URL, its query and the
+response status. Neither records a body, a cookie or the client IP
+([spans and attributes](https://developers.cloudflare.com/workers/observability/traces/spans-and-attributes/),
+read 2026-10-15). Cloudflare keeps traces for seven days.
+
+The workerd-safe application spans below are separate from native Workers
+traces. `osn-api` and `cire-api` export them through an OTLP/HTTP exporter when
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set ([[cire-workerd]]); without it they are
+inert.
 
 ## Span creation
 

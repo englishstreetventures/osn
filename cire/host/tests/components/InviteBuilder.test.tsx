@@ -1059,7 +1059,9 @@ describe("design selector", () => {
     expect(galaLink).toBeDefined();
     expect(galaLink!.getAttribute("target")).toBe("_blank");
     expect(galaLink!.getAttribute("rel")).toBe("noopener");
-    expect(galaLink!.getAttribute("href")).toBe("http://localhost:4321/anita-ben?design=gala");
+    expect(galaLink!.getAttribute("href")).toBe(
+      "http://localhost:4321/cire/invite?slug=anita-ben&design=gala",
+    );
 
     // The link is a sibling of the radio control, never a descendant (nesting
     // an <a> inside the radio <button> would be invalid + would toggle

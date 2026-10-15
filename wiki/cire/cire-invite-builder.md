@@ -9,7 +9,7 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-15
 ---
 # Invite Builder
 
@@ -787,13 +787,19 @@ not).
 Service: `cire/api/src/services/invite.ts` (`inviteService`, Effect). Binary R2
 access: `cire/api/src/services/invite-assets.ts` (`AssetsR2Service` Tag — the
 CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
-`cire/api/src/routes/invite.ts`, three sibling Elysia instances:
+`cire/api/src/routes/invite.ts`, four sibling Elysia instances (the resolve lookup has its own, listed under Public):
 
 - **Public (no auth)** — under `/api/invite`:
   - `GET /api/invite/:slug` → text + image URL paths for the guest site, plus the
     hero and story switches; a switched-off section's own words are left out,
     and so is the organiser-only `inviteMessage` (`publicView` in
     `cire/api/src/services/invite.ts`).
+  - `POST /api/invite/resolve` with `{ "slug": "…" }` → the same payload, for the
+    guest site's fixed-path pages, so the outbound URL names no wedding. Its own
+    instance (`createInviteResolveRoutes`), mounted before the CSRF origin guard
+    because a Worker's server-side fetch sends no `Origin` ([[cire-auth]]). A
+    body that is not JSON or fails `InviteResolveBody` (a 1–128 character slug)
+    gets the unknown-slug 404, never a 500.
   - `GET /api/invite/:slug/image/:slot` → image bytes from R2 (`Cache-Control:
     immutable` for the hero and story, an hour for the gated closing image; the
     URL is cache-busted by `?v=`, a digest of the slot's R2 key —
@@ -912,14 +918,24 @@ sniffing** (`detectImageType`) — the stored content type comes from the bytes,
 not the declared `Content-Type`, so a mislabelled / hostile payload (HTML, SVG)
 is rejected (415). Allowlist: JPEG, PNG, WebP.
 
-## Guest rendering (SSR, path-routed)
+## Guest rendering (SSR)
 
 `cire/invites` is an `output: "server"` Astro site (the `@astrojs/cloudflare`
 adapter), deployed as a **Cloudflare Worker with Static Assets** — _not_ Pages.
-**Which wedding renders is resolved FROM THE PATH per request**, so there is no
-build-time `PUBLIC_WEDDING_SLUG` and any wedding renders from its own link:
+The wedding is resolved from each request's path or `slug` query parameter, so
+there is no build-time `PUBLIC_WEDDING_SLUG`:
 
-- **`/<slug>`** (`cire/invites/src/pages/[slug].astro`) — the per-wedding invite. The
+- **`/cire/invite?slug=<slug>`** (`cire/invites/src/pages/cire/invite.astro`) —
+  the invitation route for newly generated links. It resolves the invite through
+  `POST /api/invite/resolve`, keeping the slug in the request body. The query
+  string is redacted from production native traces. The `code` and `design`
+  query parameters work as on `/<slug>`, and it answers as `/<slug>` does: no
+  slug or an unknown one is a 404, and an API error still renders the shell.
+- **`/cire/registry?slug=<slug>`** (`cire/invites/src/pages/cire/registry.astro`)
+  — the gift page for newly generated links and both Stripe return URLs; it
+  uses the same fixed API lookup and keeps the rules of `/<slug>/registry`
+  ([[cire-registry]]). Existing `/<slug>/registry` links continue to render.
+- **`/<slug>`** (`cire/invites/src/pages/[slug].astro`) — an existing per-wedding invite link. The
   route reads `slug` from the path, fetches `GET ${PUBLIC_API_URL}/api/invite/<slug>`
   **server-side per request** (`cache: "no-store"`), and renders the resolved
   design pack's `src/designs/<pack>/Document.astro`, which mounts that pack's own
@@ -927,7 +943,7 @@ build-time `PUBLIC_WEDDING_SLUG` and any wedding renders from its own link:
   or missing ⇒ classic). An
   unknown slug (API 404) returns a real **404** with a tasteful `NotFoundDocument`;
   a transient API error renders the invite shell with built-in defaults (no false
-  404). The `?code=<host code>` auto-claim deep-link rides on `/<slug>?code=...`
+  404). The `?code=<host code>` auto-claim deep-link rides on either route
   (LoginSection reads it client-side, unchanged).
 - **`/`** (`cire/invites/src/pages/index.astro`) — the bare domain. **302-redirects
   off-origin to the marketing site** (`PUBLIC_MARKETING_URL`, defaulting to the
@@ -936,12 +952,12 @@ build-time `PUBLIC_WEDDING_SLUG` and any wedding renders from its own link:
   one that ever rode the bare domain was a `?code=` host-preview deep link, which
   means nothing to the marketing site and shouldn't be forwarded off-origin.
 - **`/privacy`, `/terms`** — opt back into static prerendering
-  (`export const prerender = true`); only the invite route is per-request SSR.
+  (`export const prerender = true`); guest routes are per-request SSR.
 
 **Search engines index the legal pages and nothing else.** Every SSR response
 carries `X-Robots-Tag: noindex, nofollow`, set by `securityHeaders()` in
 `cire/invites/src/lib/security-headers.ts` and applied by `src/middleware.ts`.
-The invite and the gift page (`/<slug>/registry`) show a couple's names and
+The invite and gift routes show a couple's names and
 photo and are meant for invited guests, so they stay out of search. It is a
 header rather than a `robots.txt` disallow: a crawler that obeys a disallow
 never fetches the page to see a `noindex`, and a disallowed URL can still be
@@ -1064,19 +1080,18 @@ site rebuild needed, no baked-in wedding slug, and one invite request per
 render.** The `/api/claim` event/guest flow (`InvitePage`'s claim/RSVP logic) and
 its animations are untouched.
 
-### Organiser links (path-routed)
+### Organiser links
 
-Both organiser-side links that point at the guest site now carry the wedding slug
-in the **path** (so they open the correct wedding, not whatever the bare domain
-resolves to):
+Organiser-side links to the guest site put the wedding slug in the query string
+of a fixed path:
 
 - **Preview invite** (`cire/host/.../PreviewInviteButton.tsx`): opens
-  `${CIRE_WEB_URL}/<slug>?code=<host preview code>`. The slug comes back from the
+  `${CIRE_WEB_URL}/cire/invite?slug=<slug>&code=<host preview code>`. The slug comes back from the
   `POST /api/organiser/weddings/:weddingId/preview-code` response, which now
   returns `{ publicId, slug }`.
 - **Copy invite message** (`cire/host/.../invite-message.ts`, used by
   `GuestTable` and `invite/InviteMessageCopy.tsx`): links to
-  `${CIRE_WEB_URL}/<slug>`. The slug is threaded
+  `${CIRE_WEB_URL}/cire/invite?slug=<slug>`. The slug is threaded
   `OrganiserApp → ModuleShell → GuestTable | InviteBuilder → buildInviteMessage`. Three lines
   — the host's line, that link, then `Your invitation code: <code>`. The label
   is composed around the code rather than written into the default prose, so a

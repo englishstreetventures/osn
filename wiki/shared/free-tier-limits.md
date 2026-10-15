@@ -12,7 +12,7 @@ related:
   - "[[observability-setup]]"
   - "[[cire-auth]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-10
+last-reviewed: 2026-10-15
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -395,12 +395,29 @@ fail-open vs fail-closed split is NOT uniform — read this table, don't guess.*
 
 ## Monitoring
 
-With **Workers observability enabled** on cire-api (`[observability]` +
-`[env.production.observability]` in `cire/api/wrangler.toml`) and on osn-api
-(`[observability]` in `osn/api/wrangler.toml`), Workers Logs persist for
-**7 days**, plus invocation records on osn-api. Both cire Workers (cire-api in
-every env, cire-invites) set `invocation_logs = false`, because an invocation
-record stores the request URL and the public cire routes carry the wedding slug. Logs are viewable in the CF dashboard.
+With **Workers observability enabled** on cire-api, cire-invites and osn-api
+(the `observability` block of each Worker's Wrangler config), Workers Logs
+persist for **3 days** on the Workers Free plan, plus invocation records on
+osn-api. Both cire Workers (cire-api in every env, cire-invites) set
+`invocation_logs = false`, because an invocation record stores the request URL
+and the public cire routes carry the wedding slug. Logs are viewable in the CF
+dashboard.
+
+**Native traces** sample every request on each Worker's dev tier and on the
+production `cire-invites` Worker; Cloudflare keeps them for **7 days**. The
+production API Workers keep them off ([[tracing]]).
+
+**From 2026-12-01 the ceiling changes shape.** The Free plan's 200,000 log
+events a day becomes one **0.5 GB a day** ingestion allowance for the whole
+account, shared by every Worker's logs and traces, and log retention rises to 7
+days. At the limit Cloudflare stops ingesting until 00:00 UTC: Workers keep
+serving, but no Worker writes a log line for the rest of that day. Lower
+`observability.traces.head_sampling_rate` first. Nothing watches this
+allowance yet — englishstventures/osn#1505.
+
+*Figures from Cloudflare's [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/),
+[Workers traces](https://developers.cloudflare.com/workers/observability/traces/) and
+[Observability pricing](https://developers.cloudflare.com/observability/pricing/) pages, read 2026-10-15.*
 
 - **Where to watch:** CF dashboard → **Workers & Pages → cire-api / osn-api →
   Observability / Logs** (and the Query Builder). D1 + Workers request metrics
