@@ -61,7 +61,7 @@ test("humanDuration reads in the unit that fits", () => {
   expect(humanDuration(7_500)).toBe("2h 5m");
 });
 
-// `prep-pr` permits exactly five `##` headings and counts them before it
+// `prep-pr` permits a fixed set of `##` headings and counts them before it
 // finishes. A metrics *section* would fail a body that is otherwise correct, so
 // the block must contribute no heading at all.
 test("renderDetails adds no markdown heading", () => {

@@ -127,7 +127,7 @@ cat /tmp/card.md >> /tmp/body.md
 gh pr edit "$PR" --body-file /tmp/body.md
 ```
 
-Read the body out and append to it — never compose a new one. The five sections
+Read the body out and append to it — never compose a new one. The six sections
 `prep-pr` wrote are the pull request's contract, and an edit that rebuilds the
 body from memory loses them.
 
@@ -141,7 +141,7 @@ gh pr view "$PR" --json body --jq .body | grep -c '^<details><summary>Session me
 ```
 
 The block is a `<details>`, never a `##` section: `prep-pr`'s body shape check
-permits exactly five top-level headings, and appending a sixth fails a body that
+permits exactly six top-level headings, and appending a seventh fails a body that
 is otherwise correct.
 
 **When a step here cannot run**, record which and carry on — a missing card

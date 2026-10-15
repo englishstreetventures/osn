@@ -1,11 +1,11 @@
 ---
 name: write-pr
-description: Use when writing or editing a pull-request title and body in this repository — at prep-pr Step 8, when a later commit or a review makes the body untrue, or for any pull request that closes public issues or private tracker findings. Covers the title, the five sections and what each holds, the Closes and Part of lines and what a public body may say about a tracker issue, owner and deploy actions, an honest test plan, the faults agent-written bodies fall into, and the command that opens or edits it.
+description: Use when writing or editing a pull-request title and body in this repository — at prep-pr Step 8, when a later commit or a review makes the body untrue, or for any pull request that closes public issues or private tracker findings. Covers the title, the six sections and what each holds — the change's impact first — the Closes and Part of lines and what a public body may say about a tracker issue, owner and deploy actions, an honest test plan, the faults agent-written bodies fall into, and the command that opens or edits it.
 ---
 
 # Write a pull request
 
-A pull request has three readers. The owner reads it today to decide whether to merge, often without opening the diff. Someone reads it months from now, arriving from `git blame` with none of the session behind it. And GitHub reads its closing lines: a line it cannot parse leaves the issue open after the merge, and nobody is told. Write for all three.
+A pull request has three readers. The owner reads it today to decide whether to merge, often without opening the diff, so the body opens with why the change matters before it says what changed. Someone reads it months from now, arriving from `git blame` with none of the session behind it. And GitHub reads its closing lines: a line it cannot parse leaves the issue open after the merge, and nobody is told. Write for all three.
 
 This skill owns the **title and the body**. `prep-pr` owns the gates that feed them — base branch, changeset, builds, reviews, findings filed — and hands over at its Step 8. Two things this skill does not own:
 
@@ -19,6 +19,10 @@ A worked body, before and after, is in `references/examples.md`.
 `prep-pr` writes this skeleton before its Step 0. Outside `prep-pr`, write it yourself before anything else — to `PR-BODY.md` at the root of the checkout unless the task named another file; it is gitignored:
 
 ```markdown
+## Impact
+
+None
+
 ## Summary
 
 None
@@ -40,12 +44,12 @@ None
 None
 ```
 
-Those five `##` headings are the whole permitted set, in that order. From then on the file is **edited, never rewritten**: replace a `None` as the work establishes what belongs there, and leave it where the answer really is nothing. A body composed in your head and written out whole at the end is how a section goes missing.
+Those six `##` headings are the whole permitted set, in that order. From then on the file is **edited, never rewritten**: replace a `None` as the work establishes what belongs there, and leave it where the answer really is nothing. A body composed in your head and written out whole at the end is how a section goes missing.
 
-- Never add a sixth `##`. A change-specific heading belongs in the title; a gate that could not run gets a `## Test plan` row.
-- A decision is a `###` inside `## Decisions`, never a `##`.
-- Unlike an issue, where an empty section is left out, a section here with nothing to say keeps `None`: an absent one reads as forgotten.
-- The only text outside the five sections is the owner actions above `## Summary` (Step 4).
+- Never add a seventh `##`. A change-specific heading belongs in the title; a gate that could not run gets a `## Test plan` row.
+- A decision is a `###` inside `## Decisions`, never a `##`. The deep dive, when there is one, is a `### Deep dive` at the end of `## Summary`.
+- Unlike an issue, where an empty section is left out, a section here with nothing to say keeps `None`: an absent one reads as forgotten. `## Impact` is the exception: every change has one, so it is never `None` when the body is sent.
+- Owner actions (Step 4) go at the end of `## Impact`, after its text and before `## Summary`.
 
 ## Step 2 — Gather the facts
 
@@ -54,6 +58,7 @@ Each line of the body comes from a command or a file, not from memory.
 | Fact | Where it comes from |
 |---|---|
 | The base branch | `prep-pr` Step 0's `$BASE`: `main`, or the parent branch of a stacked one |
+| The impact, in numbers | the public issue's **Why** — never a tracker issue's, whose text stays private — and a command that measures the change: a test count, a bundle size, a query count, a timing, a row count, how many users, weddings or files it reaches, counted from the repository, a test or the dev tier — never from a production database or anyone's real data. Before and after where the run already has both: a review report's measurements, `git show "$DIFF_BASE":<file>` for a count in a file, CI on the base. Never build or test the base just for this section |
 | What changed | `git log "$DIFF_BASE"..HEAD --oneline`, `git diff --stat "$DIFF_BASE"...HEAD` |
 | The issues it fixes, wholly or in part | the issue `new-feat` took or opened (`NEW-FEAT.md`), and every tracker issue for a finding the branch fixed (`prep-pr` Step 7) |
 | The issues raised against it | each `write-issue` call this session, and the findings its review filed |
@@ -74,9 +79,19 @@ The title becomes the squash commit's subject on `main`, so it is read in `git l
 
 ## Step 4 — Fill the sections
 
-### Owner actions, above `## Summary`
+### Impact
 
-When a person has to do something, it is the first thing the owner reads: the lines above `## Summary`, one bold lead-in per moment. When there is no action, nothing goes there.
+The first thing anyone reads, and the reason the pull request exists. One to three sentences, in plain English, that answer: **who is better off after this merges, and by how much?**
+
+- **Lead with the effect, not the change.** "Organisers can chase the 40 households that never replied without re-sending to the 160 who did" is an impact. "Adds a resend endpoint" is a summary, and belongs one section down.
+- **Use a number whenever the change has one**, and write it out: `3 database round trips per page load, down from 11`, `bundle 212 kB → 148 kB`, `5 flaky tests made deterministic`, `every pull request CI runs`. Before and after where the run already has both — never build the base just to get the before. Each number comes from a command or a file, as Step 2 says, and the test plan or a decision shows where.
+- **No number to give is fine; an invented one is not.** Say plainly what gets better and for whom: "A reviewer no longer has to open the diff to learn which issues the merge closes." Never "improves performance", "better developer experience" or "cleaner code" — name the person and the thing they can now do, or stop doing.
+- **Tooling, skills and docs have readers too.** The effect is on the agents and people who use them: what they now get right that they got wrong, or how much less they spend.
+- **A tracker fix states only the present effect, and it overrides every rule above.** "Guest sessions now last 14 days." No before value, no "down from", "no longer" or "previously", no "who was exposed" or who is better off for it, nothing about the old behaviour — the same rule as the Summary below. That one sentence is a complete Impact for a branch that only fixes tracker issues; it is not `None`. The same holds when the change is to a skill or a tool: say what it now does, never what it used to get wrong.
+
+### Owner actions, at the end of Impact
+
+When a person has to do something, the owner reads it straight after the impact: lines at the end of `## Impact`, before `## Summary`, one bold lead-in per moment. When there is no action, nothing goes there.
 
 ```markdown
 **Do not merge until** production `cire-api` has applied migrations 0062–0081: approve the pending "Deploy cire/api — production" job and let it finish.
@@ -88,7 +103,9 @@ Use `**Do not merge until**`, `**At deploy**` or `**After merging**`, and name t
 
 ### Summary
 
-Two or three sentences: what the branch changes, for whom, and why it was needed. Then bullets for what the prose cannot carry. Describe the change, not the session: "I explored", "after three attempts", "Phase 2 complete" and a list of every file touched belong in your report to whoever dispatched you. The commits carry the steps; the diff carries the files.
+What changed, now that Impact has said why it matters: two or three sentences, then bullets for what the prose cannot carry. Do not repeat the impact. Describe the change, not the session: "I explored", "after three attempts", "Phase 2 complete" and a list of every file touched belong in your report to whoever dispatched you. The commits carry the steps; the diff carries the files.
+
+**Deep dive, only when the change needs one.** A `### Deep dive` at the end of `## Summary` explains how it works — the mechanism, the data flow, a diagram, the trade-off a reviewer must understand to judge the diff. A rename, a bump or a copy change has none; leave the heading out rather than writing `None`. A tracker fix never has one: how the fix works points at what it fixed.
 
 **For a tracker fix, say what the code now does and stop**, as the diff and the changeset already do: "Guest sessions now last 14 days." Never what was wrong with the old behaviour, how it could be abused, or which finding the change answers. Those stay in the tracker issue.
 
@@ -170,7 +187,7 @@ A table, one row per gate, every row from a command you ran in this worktree:
 
 ## The faults, by name
 
-Each of these shipped in the pull requests opened between #1367 and #1444.
+Each of these has shipped in this repository's pull requests.
 
 | Fault | Looks like | Instead |
 |---|---|---|
@@ -180,8 +197,9 @@ Each of these shipped in the pull requests opened between #1367 and #1444.
 | Tracker finding in public | A tracker reference beside its finding ID; a decision headed by a finding ID; prose saying how the fixed defect was reached | The bare reference; the rest in the tracker issue |
 | Gate with no commit | A test plan that never says which commit it ran on | The `Commit` column |
 | Gate left to CI | "`skill-eval.yml` runs it on this PR" as a result | `NOT RUN — left to CI` |
-| No test plan | Four sections and no `## Test plan` | The skeleton, first |
-| Buried owner action | Production migrations in a `## Follow-ups` section at the bottom; a post-merge workflow run in the middle of the Summary | Above `## Summary`, as a bold lead-in |
+| No test plan | Five sections and no `## Test plan` | The skeleton, first |
+| Buried owner action | Production migrations in a `## Follow-ups` section at the bottom; a post-merge workflow run in the middle of the Summary | At the end of `## Impact`, as a bold lead-in |
+| Change without why | "Adds a `resend` route and an `INVITE_RESEND_KEY` secret", and nothing on who needed it | `## Impact`: who is better off, and by how much |
 | Next steps with no issue | "Note for whoever lands second: rebase that paragraph and recount"; a `## Follow-ups` list | An issue number; a check nobody has made yet is an unverified line under the test plan |
 | File-list summary | A Summary built from function and file names | What changes, for whom, and why |
 | Personal detail | The owner's email address in a public body | Leave it out |
@@ -190,8 +208,15 @@ Each of these shipped in the pull requests opened between #1367 and #1444.
 
 Check before sending:
 
-- [ ] `grep -c '^## \(Summary\|Workspaces affected\|Issues\|Decisions\|Test plan\)$' PR-BODY.md` and `grep -c '^## ' PR-BODY.md` both print `5`.
-- [ ] Owner actions, if any, above `## Summary`.
+- [ ] `grep -c '^## \(Impact\|Summary\|Workspaces affected\|Issues\|Decisions\|Test plan\)$' PR-BODY.md` and `grep -c '^## ' PR-BODY.md` both print `6`.
+- [ ] `## Impact` is not `None`, says who is better off, and carries a number wherever the change has one — unless the body closes a tracker issue, where it says only what the code now does. Then this prints nothing:
+
+  ```bash
+  grep -niE 'down from|no longer|previously|used to|→|->|was exposed' PR-BODY.md
+  ```
+
+- [ ] No count in the body comes from production data.
+- [ ] Owner actions, if any, at the end of `## Impact`.
 - [ ] One plain `Closes` line per fixed issue, in `## Issues`, tracker lines last and bare; `Part of` for a partial fix; no closing keyword in prose before an issue the branch does not close.
 - [ ] No finding ID in the title, the branch name, a commit message or the body — these four print nothing:
 
