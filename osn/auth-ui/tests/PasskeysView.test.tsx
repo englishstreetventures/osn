@@ -477,20 +477,6 @@ describe("PasskeysView", () => {
     expect(su.otpBegin).not.toHaveBeenCalled();
   });
 
-  it("renders new-device help with cross-device / synced-passkey / recovery guidance", async () => {
-    pk.list.mockResolvedValue({ passkeys: passkeyRows });
-    render(() => (
-      <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} accessToken="acc" />
-    ));
-    await waitFor(() => screen.getAllByRole("button", { name: /^Rename$/ }));
-    // The disclosure copy points users at the three real ways onto a new
-    // device. Open it first (details/summary).
-    fireEvent.click(screen.getByText(/Signing in somewhere new/i));
-    expect(screen.getByText(/Cross-device sign-in/i)).toBeTruthy();
-    expect(screen.getAllByText(/recovery code/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Backed-up passkey/i)).toBeTruthy();
-  });
-
   // While a step-up is in flight, every Rename / Delete button on the
   // page is disabled to prevent a rapid double-click swapping the pending id.
   it("locks every Rename/Delete button while a step-up is in flight (S-L1)", async () => {

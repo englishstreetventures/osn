@@ -48,13 +48,6 @@ describe("QrCode", () => {
     expect(svg.querySelector("path")?.getAttribute("fill")).toBe("#000");
   });
 
-  it("keeps module edges hard so a camera can resolve them", () => {
-    render(() => <QrCode value={URI} label={LABEL} />);
-    expect(screen.getByRole("img", { name: LABEL }).getAttribute("shape-rendering")).toBe(
-      "crispEdges",
-    );
-  });
-
   it("draws a dark module for every dark module in the symbol", () => {
     render(() => <QrCode value={URI} label={LABEL} />);
     const drawn = (

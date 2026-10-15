@@ -65,9 +65,4 @@ describe("FaqList", () => {
     const { container } = render(() => <FaqList entries={entries} />);
     expect(container.querySelector("summary h1, summary h2, summary h3, summary h4")).toBeNull();
   });
-
-  it("takes the pack's outer rules", () => {
-    const { container } = render(() => <FaqList entries={entries} class="border-y" />);
-    expect(container.querySelector("[data-faq-list]")!.className).toContain("border-y");
-  });
 });

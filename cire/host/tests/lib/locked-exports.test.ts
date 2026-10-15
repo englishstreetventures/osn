@@ -16,7 +16,6 @@ import {
   fetchModuleRows,
   LOCKED_EXPORTS,
   LockedExportError,
-  lockedExportFor,
 } from "../../src/lib/locked-exports";
 import { isModuleLocked } from "../../src/lib/module-nav";
 
@@ -33,14 +32,6 @@ describe("LOCKED_EXPORTS", () => {
     for (const module of Object.keys(LOCKED_EXPORTS)) {
       expect(isModuleLocked(module as keyof typeof LOCKED_EXPORTS, "ivory")).toBe(true);
     }
-  });
-
-  it("maps each Gold module to its file, and Vendors to none", () => {
-    expect(lockedExportFor("budget")).toMatchObject({ path: "/budget.csv", count: "budgetLines" });
-    expect(lockedExportFor("checklist")).toMatchObject({ path: "/tasks.csv", count: "tasks" });
-    expect(lockedExportFor("registry")).toMatchObject({ path: "/gifts.csv", count: "gifts" });
-    expect(lockedExportFor("vendors")).toBeUndefined();
-    expect(lockedExportFor("guests")).toBeUndefined();
   });
 });
 

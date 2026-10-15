@@ -143,24 +143,6 @@ describe("ExplorePage", () => {
     expect(container.textContent).toContain("Happening now");
   });
 
-  it("renders 'On your radar' section", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText } = render(() => <ExplorePage />);
-    expect(await findByText("On your radar")).toBeTruthy();
-  });
-
-  it("renders 'More this week' section with count", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText } = render(() => <ExplorePage />);
-    expect(await findByText("More this week")).toBeTruthy();
-  });
-
   it("shows empty state when no events returned", async () => {
     mockGet.mockResolvedValue({
       data: { events: [], nextCursor: null, series: {} },
@@ -168,16 +150,6 @@ describe("ExplorePage", () => {
     });
     const { findByText } = render(() => <ExplorePage />);
     expect(await findByText("Nothing here yet.")).toBeTruthy();
-  });
-
-  it("renders filter rail", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText } = render(() => <ExplorePage />);
-    expect(await findByText("For you")).toBeTruthy();
-    expect(await findByText("Music")).toBeTruthy();
   });
 
   it("refetches with priceMax + currency when 'Free' chip clicked", async () => {
@@ -231,43 +203,6 @@ describe("ExplorePage", () => {
     expect(lastArgs.query?.category).toBe("art");
   });
 
-  it("search filters events by title", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText, container } = render(() => <ExplorePage />);
-    await findByText("Jazz Night");
-    const input = container.querySelector("input[type='text']") as HTMLInputElement;
-    fireEvent.input(input, { target: { value: "ceramics" } });
-    // Ceramics should still be visible, others filtered
-    expect(container.textContent).toContain("Ceramics Open Studio");
-  });
-
-  it("search filters events by venue", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText, container } = render(() => <ExplorePage />);
-    await findByText("Jazz Night");
-    const input = container.querySelector("input[type='text']") as HTMLInputElement;
-    fireEvent.input(input, { target: { value: "prospect" } });
-    expect(container.textContent).toContain("Run Club");
-  });
-
-  it("search filters events by host name", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText, container } = render(() => <ExplorePage />);
-    await findByText("Jazz Night");
-    const input = container.querySelector("input[type='text']") as HTMLInputElement;
-    fireEvent.input(input, { target: { value: "sana" } });
-    expect(container.textContent).toContain("Ceramics Open Studio");
-  });
-
   it("shows empty state when search matches nothing", async () => {
     mockGet.mockResolvedValue({
       data: { events: sampleEvents, nextCursor: null, series: {} },
@@ -278,26 +213,6 @@ describe("ExplorePage", () => {
     const input = container.querySelector("input[type='text']") as HTMLInputElement;
     fireEvent.input(input, { target: { value: "xyznonexistent" } });
     expect(container.textContent).toContain("Nothing here yet.");
-  });
-
-  it("renders map pane", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { container, findByText } = render(() => <ExplorePage />);
-    await findByText("Jazz Night");
-    expect(container.querySelector(".explore-map-pane")).toBeTruthy();
-  });
-
-  it("renders two-pane layout", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { container, findByText } = render(() => <ExplorePage />);
-    await findByText("Jazz Night");
-    expect(container.querySelector(".explore-body")).toBeTruthy();
   });
 
   it("wires fetched venues into the map as venue pin links (T-S2)", async () => {

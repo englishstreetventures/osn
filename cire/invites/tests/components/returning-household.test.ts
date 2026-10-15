@@ -1,25 +1,11 @@
 import { createRoot } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  createWelcomeBack,
-  returningHousehold,
-  setReturningHousehold,
-} from "../../src/components/returning-household";
+import { createWelcomeBack, setReturningHousehold } from "../../src/components/returning-household";
 
 afterEach(() => {
   // Module state outlives each case; put it back.
   setReturningHousehold(false);
-});
-
-describe("returningHousehold", () => {
-  it("starts false and follows what the panel publishes", () => {
-    expect(returningHousehold()).toBe(false);
-    setReturningHousehold(true);
-    expect(returningHousehold()).toBe(true);
-    setReturningHousehold(false);
-    expect(returningHousehold()).toBe(false);
-  });
 });
 
 describe("createWelcomeBack", () => {

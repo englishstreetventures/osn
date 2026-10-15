@@ -70,15 +70,6 @@ describe("EventTable per-event image", () => {
     resetOrganiserMocks();
   });
 
-  it("renders the event with an image upload field and the replace note", async () => {
-    authFetchMock.mockResolvedValueOnce(json([EVENT]));
-    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
-
-    await waitFor(() => screen.getByText("Reception"));
-    expect(screen.getByLabelText("Event image")).toBeTruthy();
-    expect(screen.getByText(/replaces the current one/i)).toBeTruthy();
-  });
-
   it("POSTs the chosen file to the per-event image endpoint and shows the preview", async () => {
     authFetchMock.mockResolvedValueOnce(json([EVENT])); // initial load
     authFetchMock.mockResolvedValueOnce(

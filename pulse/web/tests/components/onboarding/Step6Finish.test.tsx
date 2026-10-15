@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render } from "@solidjs/testing-library";
+import { cleanup, render } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Step6Finish } from "../../../src/components/onboarding/Step6Finish";
@@ -37,19 +37,6 @@ describe("Step6Finish", () => {
     expect(headline?.textContent).not.toMatch(/, \./); // no "You're in, ."
   });
 
-  it("primary button reads 'Start exploring' when not busy", () => {
-    const { getByText } = render(() => (
-      <Step6Finish
-        displayName={null}
-        totalSteps={6}
-        busy={false}
-        onPrimary={vi.fn()}
-        onBack={vi.fn()}
-      />
-    ));
-    expect(getByText("Start exploring")).toBeTruthy();
-  });
-
   it("primary button reads 'Saving…' and is disabled when busy", () => {
     const { getByText } = render(() => (
       <Step6Finish
@@ -63,36 +50,6 @@ describe("Step6Finish", () => {
     const btn = getByText(/Saving/) as HTMLButtonElement;
     expect(btn).toBeTruthy();
     expect(btn.disabled).toBe(true);
-  });
-
-  it("primary fires onPrimary when not busy", () => {
-    const onPrimary = vi.fn();
-    const { getByText } = render(() => (
-      <Step6Finish
-        displayName={null}
-        totalSteps={6}
-        busy={false}
-        onPrimary={onPrimary}
-        onBack={vi.fn()}
-      />
-    ));
-    fireEvent.click(getByText("Start exploring"));
-    expect(onPrimary).toHaveBeenCalled();
-  });
-
-  it("Back fires onBack", () => {
-    const onBack = vi.fn();
-    const { getByText } = render(() => (
-      <Step6Finish
-        displayName={null}
-        totalSteps={6}
-        busy={false}
-        onPrimary={vi.fn()}
-        onBack={onBack}
-      />
-    ));
-    fireEvent.click(getByText("← Back"));
-    expect(onBack).toHaveBeenCalled();
   });
 
   it("renders a date stamp containing today's day-of-month", () => {

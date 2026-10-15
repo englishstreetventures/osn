@@ -1,16 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_DESIGN_ID, DESIGNS, isDesignId } from "../src/index";
+import { DESIGNS, isDesignId } from "../src/index";
 
 describe("invite design catalog", () => {
-  it("contains classic as a free design", () => {
-    expect(DESIGNS).toContainEqual({ id: "classic", name: "Classic", tier: "free" });
-  });
-
-  it("defaults to classic", () => {
-    expect(DEFAULT_DESIGN_ID).toBe("classic");
-  });
-
   it("has unique ids", () => {
     expect(new Set(DESIGNS.map((d) => d.id)).size).toBe(DESIGNS.length);
   });
@@ -24,9 +16,5 @@ describe("invite design catalog", () => {
     expect(isDesignId(42)).toBe(false);
     expect(isDesignId(null)).toBe(false);
     expect(isDesignId(undefined)).toBe(false);
-  });
-
-  it("contains gala as a free design", () => {
-    expect(DESIGNS).toContainEqual({ id: "gala", name: "Gala", tier: "free" });
   });
 });

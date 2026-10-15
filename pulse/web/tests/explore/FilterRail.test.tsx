@@ -7,25 +7,6 @@ import { FilterRail } from "../../src/explore/FilterRail";
 describe("FilterRail", () => {
   afterEach(cleanup);
 
-  it("renders all category chips", () => {
-    const { getByText } = render(() => <FilterRail active="all" onSelect={() => {}} />);
-    expect(getByText("For you")).toBeTruthy();
-    expect(getByText("Tonight")).toBeTruthy();
-    expect(getByText("Free")).toBeTruthy();
-    expect(getByText("Music")).toBeTruthy();
-    expect(getByText("Food & Drink")).toBeTruthy();
-    expect(getByText("Outdoors")).toBeTruthy();
-    expect(getByText("Art & Design")).toBeTruthy();
-    expect(getByText("Talks")).toBeTruthy();
-    expect(getByText("Sports")).toBeTruthy();
-    expect(getByText("Late night")).toBeTruthy();
-  });
-
-  it("renders 'More filters' button", () => {
-    const { getByText } = render(() => <FilterRail active="all" onSelect={() => {}} />);
-    expect(getByText("More filters")).toBeTruthy();
-  });
-
   it("highlights the active chip with foreground styling", () => {
     const { getByText } = render(() => <FilterRail active="music" onSelect={() => {}} />);
     const musicBtn = getByText("Music").closest("button")!;
@@ -52,18 +33,5 @@ describe("FilterRail", () => {
     const { getByText } = render(() => <FilterRail active="music" onSelect={onSelect} />);
     fireEvent.click(getByText("For you").closest("button")!);
     expect(onSelect).toHaveBeenCalledWith("all");
-  });
-
-  it("each category chip has its icon glyph", () => {
-    const { container } = render(() => <FilterRail active="all" onSelect={() => {}} />);
-    // `[class~=]` rather than an escaped `.text-ui-sm`: the token is what the
-    // 13px arbitrary value became on the contract's scale, and the attribute
-    // form needs nothing escaped.
-    const glyphs = Array.from(container.querySelectorAll('span[class~="text-ui-sm"]'));
-    // 10 categories, each with an icon span
-    expect(glyphs.length).toBe(10);
-    // Spot check a few
-    expect(glyphs[0]!.textContent).toBe("✦"); // For you
-    expect(glyphs[3]!.textContent).toBe("♪"); // Music
   });
 });

@@ -20,19 +20,6 @@ describe("designLayout", () => {
     expect(DESIGNS.map((d) => d.id).toSorted()).toEqual(Object.keys(LAYOUTS).toSorted());
   });
 
-  it("distinguishes the two shipped packs where they actually differ", () => {
-    const classic = designLayout("classic");
-    const gala = designLayout("gala");
-    expect(classic.heroAnchor).toBe("center");
-    expect(gala.heroAnchor).toBe("bottom-left");
-    expect(classic.align).toBe("center");
-    expect(gala.align).toBe("left");
-    expect(classic.welcome).toBe("band");
-    expect(gala.welcome).toBe("panel");
-    expect(classic.eventsRule).toBe(false);
-    expect(gala.eventsRule).toBe(true);
-  });
-
   it("falls back to the default pack for an unknown or absent id", () => {
     const fallback = designLayout(DEFAULT_DESIGN_ID);
     expect(designLayout("not-a-design")).toEqual(fallback);

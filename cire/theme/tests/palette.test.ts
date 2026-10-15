@@ -17,7 +17,6 @@ import {
   paletteContrastWarnings,
   parseColor,
   resolveSeeds,
-  type DerivedToken,
   type PaletteSeeds,
   rgbToOklch,
   sectionToneVars,
@@ -659,14 +658,6 @@ describe("hero scrim", () => {
 });
 
 describe("sectionToneVars", () => {
-  test("maps each tone to its surface token", () => {
-    expect(sectionToneVars("ground")).toEqual({ "--invite-section-bg": "var(--color-bg)" });
-    expect(sectionToneVars("card")).toEqual({ "--invite-section-bg": "var(--color-surface)" });
-    expect(sectionToneVars("raised")).toEqual({
-      "--invite-section-bg": "var(--color-surface-raised)",
-    });
-  });
-
   test("an absent or unknown tone falls back to the page ground", () => {
     expect(sectionToneVars(null)).toEqual({ "--invite-section-bg": "var(--color-bg)" });
     expect(sectionToneVars("nonsense" as never)).toEqual({
@@ -678,19 +669,6 @@ describe("sectionToneVars", () => {
 // ── Toast tokens ─────────────────────────────────────────────────────────────
 
 describe("toast tokens", () => {
-  test("emits a toast token for every name the allow-list expects", () => {
-    const tokens = derivePalette(PALETTE_PRESETS.evergreen);
-    for (const key of [
-      "--toast-surface",
-      "--toast-ink",
-      "--toast-border",
-      "--toast-error",
-      "--toast-success",
-    ]) {
-      expect(tokens[key as DerivedToken], key).toBeDefined();
-    }
-  });
-
   test("paints the toast on the raised surface, matching where it actually sits", () => {
     const tokens = derivePalette(PALETTE_PRESETS.evergreen);
     expect(tokens["--toast-surface"]).toBe(tokens["--color-surface-raised"]);

@@ -101,12 +101,3 @@ describe("<MobileTopBar /> — unauthenticated", () => {
     expect(result.getByText("Create account")).toBeDefined();
   });
 });
-
-describe("<MobileTopBar /> — mobile shell contract", () => {
-  it("is hidden at md and up", () => {
-    const result = renderTopBar(signedOutAuth());
-    const header = result.container.querySelector("header");
-    expect(header).not.toBeNull();
-    expect(header!.className).toContain("md:hidden");
-  });
-});

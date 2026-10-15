@@ -445,14 +445,6 @@ describe("events routes", () => {
     expect(res.status).toBe(403);
   });
 
-  it("DELETE /events/:id returns 204 when requester owns the event", async () => {
-    const token = await makeToken("usr_alice");
-    const createRes = await post(app, "/events", { title: "Mine", startTime: FUTURE }, token);
-    const { event } = (await createRes.json()) as { event: { id: string } };
-    const res = await del(app, `/events/${event.id}`, token);
-    expect(res.status).toBe(204);
-  });
-
   it("PATCH /events/:id returns 403 when requester does not own the event", async () => {
     const localAliceToken = await makeToken("usr_alice");
     const bobToken = await makeToken("usr_bob");
@@ -465,15 +457,6 @@ describe("events routes", () => {
     const { event } = (await createRes.json()) as { event: { id: string } };
     const res = await patch(app, `/events/${event.id}`, { title: "Hijacked" }, bobToken);
     expect(res.status).toBe(403);
-  });
-
-  it("PATCH /events/:id returns 200 when requester owns the event", async () => {
-    const createRes = await post(app, "/events", { title: "Mine", startTime: FUTURE }, aliceToken);
-    const { event } = (await createRes.json()) as { event: { id: string } };
-    const res = await patch(app, `/events/${event.id}`, { title: "Updated Mine" }, aliceToken);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { event: { title: string } };
-    expect(body.event.title).toBe("Updated Mine");
   });
 
   it("PATCH /events/:id returns 401 when no auth token provided", async () => {

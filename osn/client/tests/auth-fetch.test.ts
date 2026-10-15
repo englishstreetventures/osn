@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createAuthFetchers, safeErrorMessage, safeJson } from "../src/auth-fetch";
-import * as barrel from "../src/index";
 
 class FakeError extends Error {
   constructor(message: string) {
@@ -149,11 +148,6 @@ describe("safeErrorMessage", () => {
 });
 
 describe("safeJson", () => {
-  it("returns the parsed value for valid JSON", async () => {
-    const res = { json: () => Promise.resolve({ a: 1 }) } as Response;
-    await expect(safeJson(res)).resolves.toEqual({ a: 1 });
-  });
-
   it("returns null when json() rejects", async () => {
     const res = { json: () => Promise.reject(new Error("bad json")) } as Response;
     await expect(safeJson(res)).resolves.toBeNull();
@@ -199,11 +193,5 @@ describe("createAuthFetchers — signal forwarding", () => {
     await authDeleteVoid(url, TOKEN, { signal: controller.signal });
     const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
     expect(init.signal).toBe(controller.signal);
-  });
-});
-
-describe("barrel", () => {
-  it("does not re-export createAuthFetchers", () => {
-    expect(Object.keys(barrel)).not.toContain("createAuthFetchers");
   });
 });

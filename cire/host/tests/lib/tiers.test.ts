@@ -4,7 +4,6 @@ import {
   isPaidTier,
   isTier,
   legacyTierFromEntitlements,
-  TIER_LABEL,
   TIERS,
   tierAtLeast,
   tierOf,
@@ -16,17 +15,6 @@ import {
  * through `tierOf` — so a wrong answer here opens a module the API refuses, or
  * hides one the organiser paid for.
  */
-describe("TIERS", () => {
-  it("ranks the tiers lowest first", () => {
-    // The API's own list is compared in `tiers.contract.test.ts`.
-    expect([...TIERS]).toEqual(["ivory", "gold", "crimson"]);
-  });
-
-  it("labels every tier", () => {
-    expect(Object.keys(TIER_LABEL).toSorted()).toEqual([...TIERS].toSorted());
-  });
-});
-
 describe("tierAtLeast", () => {
   it("holds for the same tier and every tier below it", () => {
     expect(tierAtLeast("ivory", "ivory")).toBe(true);

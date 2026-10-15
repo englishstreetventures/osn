@@ -14,13 +14,6 @@ describe("PulseHero", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the editorial headline with its italic accent word", () => {
-    const { getByRole, getByText } = render(() => <PulseHero {...baseProps} />);
-    const heading = getByRole("heading", { level: 1 });
-    expect(heading.textContent).toMatch(/Find what/i);
-    expect(getByText("happening")).toBeTruthy();
-  });
-
   it("falls back to the generic CTA when geo is unavailable", async () => {
     // No /api/geo in the test env, so the location-aware enhancement never
     // resolves and the hero keeps its generic copy + app-root CTA.

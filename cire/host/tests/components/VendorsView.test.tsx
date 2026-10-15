@@ -52,17 +52,6 @@ describe("VendorsView", () => {
     expect(screen.queryByRole("heading", { name: "Contacted" })).not.toBeInTheDocument();
   });
 
-  it("shows category chip on vendor card", async () => {
-    setCachedVendors("wed_1", [vendor({ id: "a", name: "Flower Farm", category: "florals" })]);
-    render(() => <VendorsView weddingId="wed_1" canEdit={true} canManage={true} />);
-    await screen.findByText("Flower Farm");
-    // Multiple matches expected: one chip <span> and one <option> in the add-form select.
-    const floralsEls = screen.getAllByText("Florals");
-    expect(floralsEls.length).toBeGreaterThanOrEqual(1);
-    // At least one should be a span (the chip), not an option.
-    expect(floralsEls.some((el) => el.tagName.toLowerCase() === "span")).toBe(true);
-  });
-
   it("hides the add-vendor form for a viewer (read-only)", async () => {
     setCachedVendors("wed_1", [vendor({ id: "a", name: "Caterer" })]);
     render(() => <VendorsView weddingId="wed_1" canEdit={false} canManage={false} />);

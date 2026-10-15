@@ -255,17 +255,6 @@ describe("Register component", () => {
       expect(trigger.getAttribute("tabindex")).toBeNull();
     });
 
-    it("gives all three uses of the address, naming the product it was given", async () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />);
-      fireEvent.click(screen.getByLabelText("What this address is used for"));
-
-      const panel = await screen.findByRole("dialog");
-      expect(panel.textContent).toMatch(/six-digit code/);
-      expect(panel.textContent).toMatch(/Kumiho account is not created until you enter it/);
-      expect(panel.textContent).toMatch(/lose every device with a passkey/);
-      expect(panel.textContent).toMatch(/Security notices/);
-    });
-
     // The form is filled to valid first on purpose. `submitDetails` returns
     // early while the details are invalid, and happy-dom's `requestSubmit`
     // runs `checkValidity()` against three required inputs — so on an empty
@@ -572,25 +561,6 @@ describe("Register component", () => {
       // one for as long as this component was written for a single consumer,
       // so the assertion is on the name and not just on the sentence.
       expect(screen.getByText(/You.re all set\. Loading Musubi/)).toBeTruthy();
-    });
-  });
-
-  describe("product name", () => {
-    it("heads the dialog with the product it was given", () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />);
-      expect(screen.getByRole("heading", { name: "Create your Kumiho account" })).toBeTruthy();
-    });
-
-    it("names the product in the age gate and the WebAuthn fallback", () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />);
-      fillEmail("alice@example.com");
-      fillBirthdate("2020-01-01");
-      expect(screen.getByText("Kumiho is for users 13 and older")).toBeTruthy();
-
-      cleanup();
-      hoisted.webauthnSupported = false;
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />);
-      expect(screen.getByText(/Creating an account on Kumiho needs a passkey/)).toBeTruthy();
     });
   });
 

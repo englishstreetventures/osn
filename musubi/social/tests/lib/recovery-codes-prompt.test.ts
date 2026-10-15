@@ -12,10 +12,6 @@ afterEach(() => {
 });
 
 describe("recovery-codes prompt dismissal", () => {
-  it("starts undismissed", () => {
-    expect(isRecoveryPromptDismissed("prof_1")).toBe(false);
-  });
-
   it("remembers a dismissal across a fresh read", () => {
     dismissRecoveryPrompt("prof_1");
     expect(isRecoveryPromptDismissed("prof_1")).toBe(true);

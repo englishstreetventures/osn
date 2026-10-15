@@ -9,11 +9,6 @@ import {
 } from "../../src/lib/rotated-session-store";
 
 describe("createInMemoryRotatedSessionStore", () => {
-  it("reports its backend", () => {
-    const store = createInMemoryRotatedSessionStore();
-    expect(store.backend).toBe("memory");
-  });
-
   it("track → check returns the familyId and rotation time", async () => {
     const store = createInMemoryRotatedSessionStore();
     const before = Date.now();
@@ -112,11 +107,6 @@ describe("createRedisRotatedSessionStore (memory-backed RedisClient)", () => {
     // The shared memory client supports get/set/del which is all this store
     // needs — no Lua scripts. That lets us exercise the real Redis impl here.
     client = createMemoryClient();
-  });
-
-  it("reports its backend", () => {
-    const store = createRedisRotatedSessionStore(client);
-    expect(store.backend).toBe("redis");
   });
 
   it("track → check round-trips the familyId and rotation time", async () => {

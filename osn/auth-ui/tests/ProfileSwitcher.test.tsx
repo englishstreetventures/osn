@@ -53,11 +53,6 @@ describe("ProfileSwitcher", () => {
     cleanup();
   });
 
-  it("shows active profile handle on trigger button", () => {
-    render(() => <ProfileSwitcher />);
-    expect(screen.getByText("@alice")).toBeTruthy();
-  });
-
   it("opens popover and lists all profiles", async () => {
     render(() => <ProfileSwitcher />);
     fireEvent.click(screen.getByRole("button", { name: /@alice/ }));

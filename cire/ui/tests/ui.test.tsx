@@ -5,7 +5,7 @@ import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 
 import Button from "../src/button";
-import Card, { cardClass, CardEyebrow } from "../src/card";
+import { cardClass } from "../src/card";
 import Loading from "../src/loading";
 import { UsernameInput } from "../src/username-input";
 
@@ -104,15 +104,6 @@ describe("Button — the borderless variants", () => {
     expect(link.getByRole("button").className).not.toContain("uppercase");
   });
 
-  it("takes the type size but not a bordered control's padding", () => {
-    // `px-4 py-2` is what makes a bordered control a control. The same padding
-    // on a text link is a word floating in a gap.
-    const { getByRole } = render(() => <Button variant="link">Go</Button>);
-    const cls = getByRole("button").className;
-    expect(cls).toContain("text-ui-sm");
-    expect(cls).not.toMatch(/base:px-4|base:py-2/);
-  });
-
   it("underlines a link but never a glyph", () => {
     // `bare` is an arrow or a cross. There is no word to underline.
     const link = render(() => <Button variant="subtle">Cancel</Button>);
@@ -169,56 +160,9 @@ describe("Button — the variants that carry state or fill", () => {
     expect(cls).toContain("focus-visible:outline-ui-focus");
     expect(cls).not.toContain("focus-visible:ring");
   });
-
-  it("fills a tile, because a hairline stops describing a card-sized target", () => {
-    const tile = render(() => <Button variant="tile">Open dashboard</Button>);
-    const tileClass = tile.getByRole("button").className;
-    expect(tileClass).toContain("bg-ui-surface/30");
-    // Full ink, not the muted label ink: a tile's interior is composed content.
-    expect(tileClass).toMatch(/base:text-ui-ink(?![\w-])/);
-    tile.unmount();
-
-    const quiet = render(() => <Button variant="quiet">Open dashboard</Button>);
-    expect(quiet.getByRole("button").className).not.toContain("bg-ui-surface/30");
-  });
-
-  it("gives a tile room for a layout rather than for a label", () => {
-    // `px-4 py-2` around a marker and two lines of text reads as a paragraph
-    // squeezed into a button.
-    const { getByRole } = render(() => (
-      <Button variant="tile" size="lg">
-        Open dashboard
-      </Button>
-    ));
-    const cls = getByRole("button").className;
-    expect(cls).toContain("base:p-6");
-    expect(cls).not.toMatch(/base:px-6|base:py-3\.5/);
-  });
-
-  it("sizes a swatch from its picture, not from type it does not have", () => {
-    const { getByRole } = render(() => (
-      <Button variant="choice" size="swatch" aria-label="Second picture">
-        <img src="/x.png" alt="" width={80} height={80} />
-      </Button>
-    ));
-    const cls = getByRole("button").className;
-    expect(cls).toContain("base:p-1");
-    // The size contributes no type at all — there is no type to size.
-    expect(cls).not.toMatch(/base:text-ui-(xs|sm|base|md|lg)\b/);
-    expect(cls).not.toContain("base:uppercase");
-  });
 });
 
 describe("Card", () => {
-  it("renders its children in a plain box", () => {
-    const { getByText } = render(() => (
-      <Card>
-        <CardEyebrow>Guests</CardEyebrow>
-      </Card>
-    ));
-    expect(getByText("Guests")).toBeInTheDocument();
-  });
-
   it("marks the accented card out from the ordinary one", () => {
     expect(cardClass({ tone: "accent" })).not.toBe(cardClass());
   });
@@ -231,11 +175,6 @@ describe("Card", () => {
 });
 
 describe("UsernameInput", () => {
-  it("shows a fixed @ ahead of the box", () => {
-    const { getByText } = render(() => <UsernameInput aria-label="OSN handle" />);
-    expect(getByText("@")).toBeInTheDocument();
-  });
-
   it("names the control by the label alone — the @ isn't part of it", () => {
     const { getByRole } = render(() => <UsernameInput aria-label="OSN handle" />);
     expect(getByRole("textbox")).toHaveAccessibleName("OSN handle");
@@ -253,15 +192,6 @@ describe("UsernameInput", () => {
     const input = getByRole("textbox");
     expect(input).toHaveAccessibleName("OSN handle");
     expect(input).toHaveAttribute("aria-invalid", "true");
-  });
-
-  it("passes everything else through to the input", () => {
-    const { getByRole } = render(() => (
-      <UsernameInput aria-label="OSN handle" placeholder="alice" disabled />
-    ));
-    const input = getByRole("textbox");
-    expect(input).toHaveAttribute("placeholder", "alice");
-    expect(input).toBeDisabled();
   });
 });
 

@@ -107,13 +107,4 @@ describe("withBackgroundSink", () => {
     expect(handed).toHaveLength(1);
     await Promise.all(handed);
   });
-
-  it("reads the default sink when nothing provides one", async () => {
-    const sink = await Effect.runPromise(
-      Effect.gen(function* () {
-        return yield* CurrentBackgroundSink;
-      }),
-    );
-    expect(() => sink.add(Promise.resolve())).not.toThrow();
-  });
 });

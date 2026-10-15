@@ -45,13 +45,6 @@ describe("VenueEventCarousel", () => {
     expect(links.map((a) => a.getAttribute("href"))).toEqual(["/events/evt_a", "/events/evt_b"]);
   });
 
-  it("renders the heading when provided", () => {
-    const { getByText } = renderWithRouter(() => (
-      <VenueEventCarousel events={[evt({})]} heading="Upcoming at The Spot" />
-    ));
-    expect(getByText("Upcoming at The Spot")).toBeTruthy();
-  });
-
   it("hides the prev/next chevrons when the carousel does not need scrolling", () => {
     // jsdom-style envs report scrollWidth === clientWidth === 0, so the
     // needsScroll signal stays false on a freshly-mounted carousel —

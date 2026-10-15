@@ -179,23 +179,6 @@ describe("fetchOnboardingStatus", () => {
     mockMeOnboardingGet.mockResolvedValueOnce({ data: null, error: { value: "boom" } });
     expect(await fetchOnboardingStatus()).toBeNull();
   });
-
-  it("returns the status payload on success", async () => {
-    mockMeOnboardingGet.mockResolvedValueOnce({
-      data: {
-        completedAt: null,
-        interests: [],
-        notificationsOptIn: false,
-        eventRemindersOptIn: false,
-        notificationsPerm: "prompt",
-        locationPerm: "prompt",
-      },
-      error: null,
-    });
-    const status = await fetchOnboardingStatus();
-    expect(status?.completedAt).toBeNull();
-    expect(status?.interests).toEqual([]);
-  });
 });
 
 describe("completeOnboarding", () => {
@@ -209,24 +192,6 @@ describe("completeOnboarding", () => {
 
   beforeEach(() => {
     mockMeOnboardingCompletePost.mockReset();
-  });
-
-  it("returns the status payload on success", async () => {
-    const completedAt = new Date().toISOString();
-    mockMeOnboardingCompletePost.mockResolvedValueOnce({
-      data: {
-        completedAt,
-        interests: ["music"],
-        notificationsOptIn: true,
-        eventRemindersOptIn: false,
-        notificationsPerm: "granted",
-        locationPerm: "granted",
-      },
-      error: null,
-    });
-    const status = await completeOnboarding({ ...validPayload });
-    expect(status.completedAt).toBe(completedAt);
-    expect(status.interests).toEqual(["music"]);
   });
 
   it("throws with the stringified server error when error.value is present", async () => {

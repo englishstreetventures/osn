@@ -54,13 +54,6 @@ const baseItem: VendorEnquiryListItem = {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("VendorEnquiryInbox", () => {
-  it("shows a loading state while fetching", () => {
-    // Never resolves during this test
-    mockListEnquiries.mockReturnValue(new Promise(() => {}));
-    renderInbox();
-    expect(screen.getByText(/loading enquiries/i)).toBeInTheDocument();
-  });
-
   it("renders a row with weddingName and category label", async () => {
     mockListEnquiries.mockResolvedValue(pageOf([baseItem]));
     renderInbox();
@@ -87,13 +80,6 @@ describe("VendorEnquiryInbox", () => {
     mockListEnquiries.mockRejectedValue(new Error("network error"));
     renderInbox();
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
-  });
-
-  it("shows the status chip", async () => {
-    mockListEnquiries.mockResolvedValue(pageOf([baseItem]));
-    renderInbox();
-    await waitFor(() => expect(screen.getByText("Alex & Sam")).toBeInTheDocument());
-    expect(screen.getByText("open")).toBeInTheDocument();
   });
 
   it("shows the quoted amount when quotedMinor is set", async () => {

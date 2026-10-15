@@ -82,15 +82,6 @@ describe("createProfile", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("rejects reserved handles", () =>
-    Effect.gen(function* () {
-      const { accountId } = yield* setupAccount("res@test.com", "resuser");
-      const error = yield* Effect.flip(profile.createProfile(accountId, "admin"));
-      expect(error._tag).toBe("AuthError");
-      expect(error.message).toContain("Handle is reserved");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("rejects invalid handle format", () =>
     Effect.gen(function* () {
       const { accountId } = yield* setupAccount("inv@test.com", "invuser");

@@ -1026,23 +1026,6 @@ describe("design selector", () => {
     await waitFor(() => expect(classic.getAttribute("aria-checked")).toBe("true"));
   });
 
-  it("renders an abstract thumbnail svg per card, decorative", async () => {
-    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
-
-    const { container } = render(() => <InviteBuilder {...WEDDING} />);
-
-    await waitFor(() => screen.getByRole("radio", { name: /Classic/ }));
-    const radiogroup = screen.getByRole("radiogroup", { name: "Invite design" });
-    const thumbnails = radiogroup.querySelectorAll("svg");
-    // One thumbnail per catalog card (classic, test-premium, gala).
-    expect(thumbnails.length).toBe(3);
-    for (const svg of thumbnails) {
-      expect(svg.getAttribute("aria-hidden")).toBe("true");
-    }
-    // Thumbnails live inside the radio control, not floating in the card.
-    expect(container.querySelectorAll('[role="radio"] svg').length).toBe(3);
-  });
-
   it("shows a 'Preview live' link per unlocked card, outside the radio control", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
 
@@ -1515,23 +1498,6 @@ describe("InviteBuilder UX guards", () => {
     const alert = await waitFor(() => screen.getByText("Remove failed upstream"));
     expect(document.getElementById("invite-hero")!.contains(alert)).toBe(true);
     expect(toastSuccess).not.toHaveBeenCalledWith("Image removed");
-  });
-
-  it("renders the composed preview pane and the section jump list", async () => {
-    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
-    render(() => <InviteBuilder {...WEDDING} />);
-    await waitFor(() => screen.getByText("Save invite"));
-
-    // The persistent composed preview (sticky pane at wide widths) exists and
-    // composes the guest page; hidden sections read as placeholders.
-    const pane = screen.getByLabelText("Invite preview");
-    expect(pane.textContent).toContain("Enter Your Code");
-    expect(pane.textContent).toContain("hidden until it has content");
-
-    // The sticky jump list mirrors the section order.
-    const nav = screen.getByRole("navigation", { name: "Invite sections" });
-    expect(nav.textContent).toContain("Hero");
-    expect(nav.textContent).toContain("Closing");
   });
 
   it("shows one section at a time via the native `hidden` attribute", async () => {

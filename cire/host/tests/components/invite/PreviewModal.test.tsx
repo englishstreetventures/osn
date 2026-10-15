@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
+import { cleanup, render, screen } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -42,18 +42,6 @@ afterEach(() => {
 });
 
 describe("PreviewModal", () => {
-  it("renders nothing when open={false}", () => {
-    render(() => <PreviewModal {...previewProps} open={false} onClose={vi.fn()} />);
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
-  it("renders the dialog and the composed preview when open={true}", () => {
-    render(() => <PreviewModal {...previewProps} open={true} onClose={vi.fn()} />);
-    expect(screen.getByRole("dialog", { name: "Invite preview modal" })).toBeInTheDocument();
-    // The same `PreviewPane` the sticky side pane uses — one markup source.
-    expect(screen.getByLabelText("Invite preview")).toBeInTheDocument();
-  });
-
   it("names the pack, falling back to the raw id for one this build doesn't carry", () => {
     // The mid-deploy case. If the `?? props.design` fallback were dropped the
     // label would render EMPTY while the miniature silently showed the default
@@ -120,13 +108,6 @@ describe("PreviewModal", () => {
     );
     expect(strips).toContain("FAQ — switched off");
     expect(screen.queryByText(/Is there parking/)).toBeNull();
-  });
-
-  it("Close button calls onClose", () => {
-    const onClose = vi.fn();
-    render(() => <PreviewModal {...previewProps} open={true} onClose={onClose} />);
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   /*

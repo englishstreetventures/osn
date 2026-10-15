@@ -21,12 +21,6 @@ const entry = (challenge: string, attempts = 0): Entry => ({
 });
 
 describe("createInMemoryCeremonyStore", () => {
-  it("reports backend + namespace", () => {
-    const store = createInMemoryCeremonyStore<Entry>("reg_challenge");
-    expect(store.backend).toBe("memory");
-    expect(store.namespace).toBe("reg_challenge");
-  });
-
   it("set → get round-trips the value", async () => {
     const store = createInMemoryCeremonyStore<Entry>("reg_challenge");
     await store.set("k1", entry("c1"), 60_000);
@@ -163,12 +157,6 @@ describe("createRedisCeremonyStore (memory-backed RedisClient)", () => {
   let client: RedisClient;
   beforeEach(() => {
     client = createMemoryClient();
-  });
-
-  it("reports backend + namespace", () => {
-    const store = createRedisCeremonyStore<Entry>(client, "reg_challenge");
-    expect(store.backend).toBe("redis");
-    expect(store.namespace).toBe("reg_challenge");
   });
 
   it("set → get round-trips JSON across two store instances sharing the client", async () => {

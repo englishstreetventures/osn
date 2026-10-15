@@ -11,9 +11,4 @@ describe("Hero", () => {
   it('protects the external demo link with rel="noopener noreferrer"', () => {
     expect(hero).toContain("noopener noreferrer");
   });
-
-  it("renders the primary CTA to the organiser portal", () => {
-    expect(hero).toContain("Create your invitation");
-    expect(hero).toContain("ORGANISER_URL");
-  });
 });

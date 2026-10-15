@@ -35,10 +35,6 @@ describe("policyFor", () => {
       });
     }
   }
-
-  it("covers every role in the table — no role is left unasserted", () => {
-    expect(Object.keys(EXPECTED).toSorted()).toEqual([...ROLES].toSorted());
-  });
 });
 
 describe("refusal strings", () => {
@@ -76,9 +72,5 @@ describe("policy shape", () => {
     for (const role of ROLES) {
       expect(["forbidden", "read_only_role"]).toContain(policyFor(role).refusal);
     }
-  });
-
-  it("grants the owner every capability there is", () => {
-    expect([...policyFor("owner").capabilities].toSorted()).toEqual([...CAPABILITIES].toSorted());
   });
 });

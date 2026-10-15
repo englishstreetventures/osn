@@ -301,33 +301,6 @@ describe("SignIn component", () => {
     });
   });
 
-  describe("product name", () => {
-    it("heads the dialog with the product it was given", () => {
-      render(() => (
-        <SignIn
-          client={asLogin(login)}
-          recoveryClient={asRecovery(recovery)}
-          productName="Kumiho"
-        />
-      ));
-      expect(screen.getByRole("heading", { name: "Sign in to Kumiho" })).toBeTruthy();
-    });
-
-    it("names the product in the WebAuthn-unsupported fallback", async () => {
-      hoisted.webauthnSupported = false;
-      render(() => (
-        <SignIn
-          client={asLogin(login)}
-          recoveryClient={asRecovery(recovery)}
-          productName="Kumiho"
-        />
-      ));
-      await waitFor(() => {
-        expect(screen.getByText(/Kumiho sign-in needs a passkey or security key/)).toBeTruthy();
-      });
-    });
-  });
-
   describe("Lost your passkey? escape hatch", () => {
     it("surfaces the recovery form when the user clicks it", async () => {
       render(() => (

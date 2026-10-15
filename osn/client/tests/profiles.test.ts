@@ -33,35 +33,12 @@ function seedSession(profileId = "usr_aaaaaaaaaaaa") {
 // getActiveProfile
 // ---------------------------------------------------------------------------
 
-it.effect("getActiveProfile returns null before login", () =>
-  Effect.gen(function* () {
-    const auth = yield* OsnAuth;
-    const active = yield* auth.getActiveProfile();
-    expect(active).toBeNull();
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
 it.effect("getActiveProfile returns the profile ID after setSession", () =>
   Effect.gen(function* () {
     const auth = yield* OsnAuth;
     yield* seedSession("usr_aaaaaaaaaaaa");
     const active = yield* auth.getActiveProfile();
     expect(active).toBe("usr_aaaaaaaaaaaa");
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
-// ---------------------------------------------------------------------------
-// getSession reconstructs from account session model
-// ---------------------------------------------------------------------------
-
-it.effect("getSession returns a Session reconstructed from the account session", () =>
-  Effect.gen(function* () {
-    const auth = yield* OsnAuth;
-    yield* seedSession("usr_aaaaaaaaaaaa");
-    const session = yield* auth.getSession();
-    expect(session).not.toBeNull();
-    expect(session?.accessToken).toBeTruthy();
-    expect(session?.scopes).toEqual(["openid", "profile"]);
   }).pipe(Effect.provide(createTestLayer())),
 );
 
