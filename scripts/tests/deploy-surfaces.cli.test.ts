@@ -8,7 +8,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { changedFiles } from "../deploy-surfaces";
+import { changedFiles, deployReason, isAncestor, surface } from "../deploy-surfaces";
 
 const SCRIPT = new URL("../deploy-surfaces.ts", import.meta.url).pathname;
 const GIT_ENV = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
@@ -154,6 +154,15 @@ test("with no $GITHUB_OUTPUT the lines go to stdout", async () => {
   });
 });
 
+test("a run with no --event is refused", async () => {
+  await withRepo(async (repo, output) => {
+    await commit(repo, { "README.md": "1" });
+    const { exitCode, stderr } = await run(["bun", "run", SCRIPT], repo, { GITHUB_OUTPUT: output });
+    expect(exitCode).toBe(2);
+    expect(stderr).toContain("--event is required");
+  });
+});
+
 test("a push with no --base is refused", async () => {
   await withRepo(async (repo) => {
     await commit(repo, { "README.md": "1" });
@@ -178,5 +187,33 @@ test("changedFiles refuses a revision git could read as an option", async () => 
     const a = await commit(repo, { "x/a.ts": "1" });
     expect(changedFiles("--output=/tmp/x", a, repo)).toBeUndefined();
     expect(changedFiles(a, "--stat", repo)).toBeUndefined();
+  });
+});
+
+test("changedFiles lists both paths of a moved file, so the surface it left redeploys", async () => {
+  await withRepo(async (repo) => {
+    const a = await commit(repo, {
+      "cire/landing/src/page.astro": "a page long enough to be a move",
+    });
+    await mkdir(join(repo, "docs"));
+    await git(repo, "mv", "cire/landing/src/page.astro", "docs/page.astro");
+    await git(repo, "commit", "-m", "move");
+    const b = await git(repo, "rev-parse", "HEAD");
+    const files = changedFiles(a, b, repo) ?? [];
+    expect(files.toSorted()).toEqual(["cire/landing/src/page.astro", "docs/page.astro"]);
+    expect(deployReason(surface("cire_landing"), files, "production")).toBeDefined();
+  });
+});
+
+test("isAncestor answers for commit SHAs only", async () => {
+  await withRepo(async (repo) => {
+    const a = await commit(repo, { "x/a.ts": "1" });
+    const b = await commit(repo, { "x/a.ts": "2" });
+    expect(isAncestor(a, b, repo)).toBe(true);
+    expect(isAncestor(b, a, repo)).toBe(false);
+    expect(isAncestor(a, a, repo)).toBe(true);
+    // A ref name or an option is not a SHA, even where git would resolve it.
+    expect(isAncestor(a, "main", repo)).toBe(false);
+    expect(isAncestor("--help", b, repo)).toBe(false);
   });
 });

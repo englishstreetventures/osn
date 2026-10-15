@@ -10,7 +10,8 @@ name: Production release
 #
 # `plan` runs scripts/release-plan.ts. For each surface it finds the commit
 # production last deployed (the GitHub Deployment records the jobs below
-# leave, tied to a surface by job name), diffs it against this run's commit,
+# leave, tied to a surface by job name and checked against the run that made
+# them), diffs it against this run's commit,
 # and outputs one boolean per surface. Because the baseline is what production
 # runs rather than what a push changed, a release that was skipped, cancelled
 # or rejected strands nothing: the next one finds the same gap. A changed
@@ -35,7 +36,9 @@ name: Production release
 # Credentials: CLOUDFLARE_API_TOKEN is held only by the `production`
 # Environment, so only an approved job can read it. The `production`
 # Environment also allows `main` alone; the plan job refuses any other ref
-# before the build starts.
+# before the build starts. Every checkout sets `persist-credentials: false`:
+# no step fetches or pushes, so the job token never sits in .git/config while
+# dependency code runs.
 on:
   # 20:17 UTC — 07:17 in Sydney in summer time, 06:17 in winter, so the
   # release waits for approval at the start of the owner's day with the
@@ -80,7 +83,7 @@ jobs:
     timeout-minutes: 10
     # A job-level block replaces the workflow's, so `contents` is restated.
     # `deployments` reads the Deployment records and their statuses;
-    # `actions` reads the job names that tie a record to a surface.
+    # `actions` reads the runs and jobs that tie a record to a surface.
     permissions:
       contents: read
       deployments: read
@@ -132,6 +135,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -216,6 +221,8 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -294,6 +301,8 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -396,6 +405,8 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -472,6 +483,8 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -540,6 +553,8 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -612,6 +627,8 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -704,6 +721,8 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -790,6 +809,8 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         with:

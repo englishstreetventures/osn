@@ -172,7 +172,8 @@ export function deployReason(
  * cannot compare them (an unknown commit, the all-zero SHA GitHub sends for a
  * branch's first push, an orphan left by a force-push). A tree diff, not a
  * merge-base one: whatever differs from the base has to deploy, whichever side
- * of history it is on.
+ * of history it is on. `--no-renames` lists both paths of a moved file, so a
+ * file moved out of a surface's tree still redeploys that surface.
  */
 export function changedFiles(
   base: string,
@@ -180,7 +181,7 @@ export function changedFiles(
   cwd: string,
 ): readonly string[] | undefined {
   if (!/^[0-9a-f]{4,40}$/i.test(base) || !/^([0-9a-f]{4,40}|HEAD)$/i.test(head)) return undefined;
-  const proc = Bun.spawnSync(["git", "diff", "--name-only", base, head, "--"], {
+  const proc = Bun.spawnSync(["git", "diff", "--name-only", "--no-renames", base, head, "--"], {
     cwd,
     stdout: "pipe",
     stderr: "pipe",

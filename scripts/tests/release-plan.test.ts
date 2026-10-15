@@ -12,12 +12,20 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { changedFiles, deployReason, surface, SURFACES, type SurfaceKey } from "../deploy-surfaces";
+import {
+  changedFiles,
+  deployReason,
+  surface,
+  SURFACES,
+  type SurfaceKey,
+  WORKFLOW_FILE,
+} from "../deploy-surfaces";
 import {
   apiAheadOfHost,
   applyDevGate,
   changedSurfaces,
   type DeploymentReader,
+  deploysTier,
   devGateWanted,
   findDeployed,
   lastDeployed,
@@ -29,114 +37,22 @@ import {
   runReleasePlan,
   sameContent,
 } from "../release-plan";
+import {
+  API,
+  dev,
+  fakeGitHub,
+  type FakeGitHub,
+  type FixtureRecord,
+  fullRun,
+  prod,
+  REPO,
+  TOKEN,
+} from "./fake-github";
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
-const REPO = "englishstreetventures/osn";
-const API = "https://api.github.com";
-
-/** One job's Deployment record as GitHub keeps it. `states` newest first. */
-interface FixtureRecord {
-  readonly environment: "production" | "dev";
-  readonly sha: string;
-  readonly job: string;
-  readonly states: readonly string[];
-  /** Runs are grouped by this number; job ids are derived from it. */
-  readonly run: number;
-}
-
-interface FakeGitHub {
-  readonly fetch: typeof fetch;
-  readonly calls: string[];
-}
-
-/**
- * A fake api.github.com serving `records` (newest first, per environment) the
- * way the REST API does: paged deployment lists, one statuses list per record,
- * and one jobs list per run. `goneRuns` answer 404, as a run past log
- * retention does.
- */
-function fakeGitHub(
-  records: readonly FixtureRecord[],
-  options: { goneRuns?: readonly number[] } = {},
-): FakeGitHub {
-  const calls: string[] = [];
-  const withIds = records.map((record, index) => ({
-    ...record,
-    id: 1000 + index,
-    jobId: 50_000 + index,
-  }));
-  const json = (body: unknown, status = 200) =>
-    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-
-  const fake = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-    const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
-    );
-    calls.push(`${url.pathname}${url.search}`);
-    const headers = new Headers(init?.headers);
-    if (headers.get("authorization") !== "Bearer test-token")
-      return json({ message: "Bad credentials" }, 401);
-
-    const prefix = `/repos/${REPO}`;
-    const path = url.pathname.slice(prefix.length);
-    if (path === "/deployments") {
-      const environment = url.searchParams.get("environment");
-      const perPage = Number(url.searchParams.get("per_page"));
-      const page = Number(url.searchParams.get("page"));
-      const list = withIds.filter((r) => r.environment === environment);
-      return json(
-        list.slice((page - 1) * perPage, page * perPage).map((r) => ({ id: r.id, sha: r.sha })),
-      );
-    }
-    const statuses = /^\/deployments\/(\d+)\/statuses$/.exec(path);
-    if (statuses) {
-      const record = withIds.find((r) => r.id === Number(statuses[1]));
-      if (!record) return json({ message: "Not Found" }, 404);
-      return json(
-        record.states.map((state) => ({
-          state,
-          log_url: `https://github.com/${REPO}/actions/runs/${record.run}/job/${record.jobId}`,
-        })),
-      );
-    }
-    const jobs = /^\/actions\/runs\/(\d+)\/jobs$/.exec(path);
-    if (jobs) {
-      const run = Number(jobs[1]);
-      if (options.goneRuns?.includes(run)) return json({ message: "Not Found" }, 404);
-      const page = Number(url.searchParams.get("page"));
-      const perPage = Number(url.searchParams.get("per_page"));
-      const list = withIds.filter((r) => r.run === run).map((r) => ({ id: r.jobId, name: r.job }));
-      return json({
-        total_count: list.length,
-        jobs: list.slice((page - 1) * perPage, page * perPage),
-      });
-    }
-    return json({ message: `unrouted ${path}` }, 500);
-  };
-  return { fetch: fake as unknown as typeof fetch, calls };
-}
-
 function reader(github: FakeGitHub): DeploymentReader {
-  return restReader({ fetch: github.fetch, token: "test-token", repository: REPO, apiUrl: API });
-}
-
-const prod = (key: SurfaceKey) => surface(key).production.name;
-const dev = (key: SurfaceKey) => {
-  const job = surface(key).dev;
-  if (!job) throw new Error(`${key} has no dev job`);
-  return job.name;
-};
-
-/** Every production (or dev) job of one run, all successful. */
-function fullRun(environment: "production" | "dev", sha: string, run: number): FixtureRecord[] {
-  return SURFACES.filter((s) => environment === "production" || s.dev !== undefined).map((s) => ({
-    environment,
-    sha,
-    run,
-    job: environment === "production" ? s.production.name : dev(s.key),
-    states: ["success", "in_progress", "queued", "waiting"],
-  }));
+  return restReader({ fetch: github.fetch, token: TOKEN, repository: REPO, apiUrl: API });
 }
 
 const GIT_ENV = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
@@ -189,7 +105,7 @@ function parseOutputs(text: string): Record<string, string> {
 const env = (head: string, extra: Record<string, string> = {}) => ({
   GITHUB_SHA: head,
   GITHUB_REPOSITORY: REPO,
-  GITHUB_TOKEN: "test-token",
+  GITHUB_TOKEN: TOKEN,
   GITHUB_API_URL: API,
   GITHUB_SERVER_URL: "https://github.com",
   ...extra,
@@ -311,6 +227,9 @@ describe("a surface whose production deploy never ran", () => {
 
       const outputs = parseOutputs(
         (await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo })).outputs,
+      );
+      expect(Object.keys(outputs).toSorted()).toEqual(
+        [...SURFACES.map((s) => s.key), "any"].toSorted(),
       );
       expect(Object.values(outputs).every((value) => value === "false")).toBe(true);
       // Nothing ships, so no dev record is read.
@@ -595,6 +514,223 @@ describe("lastDeployed", () => {
   });
 });
 
+// ── which records count ─────────────────────────────────────────────────────
+
+// Anyone who can write Deployments can create a record and point its status at
+// any job. Each of these is a record that claims more than the run it links
+// shows; each must be passed over for the older, true one.
+describe("a record counts only when the run it links bears it out", () => {
+  const truth: FixtureRecord = {
+    environment: "production",
+    sha: "a1",
+    run: 1,
+    job: prod("osn_api"),
+    states: ["success"],
+  };
+  const claim = (overrides: Partial<FixtureRecord>): FixtureRecord => ({
+    environment: "production",
+    sha: "b2",
+    run: 2,
+    job: prod("osn_api"),
+    states: ["success"],
+    ...overrides,
+  });
+  const found = async (github: FakeGitHub, environment: "production" | "dev" = "production") =>
+    Object.fromEntries(
+      await lastDeployed(reader(github), environment, [
+        environment === "production" ? "osn_api" : "cire_host",
+      ]),
+    );
+
+  test("the linked job ran on another commit", async () => {
+    const github = fakeGitHub([claim({ jobSha: "a1" }), truth]);
+    expect(await found(github)).toEqual({ osn_api: "a1" });
+  });
+
+  test("the linked job did not succeed", async () => {
+    for (const conclusion of ["failure", "cancelled", null]) {
+      const github = fakeGitHub([claim({ conclusion }), truth]);
+      expect(await found(github)).toEqual({ osn_api: "a1" });
+    }
+  });
+
+  test("the run is another workflow's, another branch's, or a fork's", async () => {
+    const origins = [
+      { path: ".github/workflows/ci.yml" },
+      { branch: "feature" },
+      { branch: null },
+      { headRepository: "someone/osn" },
+      { headRepository: null },
+    ];
+    for (const origin of origins) {
+      const github = fakeGitHub([claim({}), truth], { origins: { 2: origin } });
+      expect(await found(github)).toEqual({ osn_api: "a1" });
+    }
+  });
+
+  test("production takes deploy.yml's records, which carried production before releases", async () => {
+    const github = fakeGitHub([claim({}), truth], {
+      origins: { 2: { path: WORKFLOW_FILE.dev } },
+    });
+    expect(await found(github)).toEqual({ osn_api: "b2" });
+  });
+
+  test("dev takes only deploy.yml's records", async () => {
+    const devTruth = { ...truth, environment: "dev" as const, job: dev("cire_host") };
+    const github = fakeGitHub([{ ...devTruth, sha: "b2", run: 2 }, devTruth], {
+      origins: { 2: { path: WORKFLOW_FILE.production } },
+    });
+    expect(await found(github, "dev")).toEqual({ cire_host: "a1" });
+  });
+
+  test("deploysTier needs the workflow, main and this repository together", () => {
+    const origin = {
+      path: WORKFLOW_FILE.production,
+      headBranch: "main",
+      headRepository: REPO,
+      repository: REPO,
+    };
+    expect(deploysTier(origin, "production")).toBe(true);
+    expect(deploysTier(origin, "dev")).toBe(false);
+    expect(deploysTier({ ...origin, repository: "", headRepository: "" }, "production")).toBe(
+      false,
+    );
+    expect(deploysTier(undefined, "production")).toBe(false);
+  });
+
+  test("a forged record cannot keep a changed surface out of a release", async () => {
+    await withRepo(async (repo) => {
+      const a = await commit(repo, { "osn/api/src/index.ts": "1" });
+      const b = await commit(repo, { "osn/api/src/index.ts": "2" });
+      // The forged record claims production already runs B, linking a job of
+      // a pull-request run made from a fork's own `main` branch.
+      const github = fakeGitHub(
+        [
+          { environment: "production", sha: b, run: 9, job: prod("osn_api"), states: ["success"] },
+          ...fullRun("production", a, 1),
+          { environment: "dev", sha: b, run: 2, job: dev("osn_api"), states: ["success"] },
+          ...fullRun("dev", a, 1),
+        ],
+        { origins: { 9: { headRepository: "someone/osn" } } },
+      );
+      const outputs = parseOutputs(
+        (await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo })).outputs,
+      );
+      expect(outputs.osn_api).toBe("true");
+    });
+  });
+
+  test("a forged dev record cannot carry a change past the dev gate", async () => {
+    await withRepo(async (repo) => {
+      const a = await commit(repo, { "cire/host/src/App.tsx": "1" });
+      const b = await commit(repo, { "cire/host/src/App.tsx": "2" });
+      // Dev's deploy of B failed; the forged record claims it succeeded,
+      // linking a job that really ran on A.
+      const github = fakeGitHub([
+        ...fullRun("production", a, 1),
+        {
+          environment: "dev",
+          sha: b,
+          run: 1,
+          job: dev("cire_host"),
+          states: ["success"],
+          jobSha: a,
+        },
+        ...fullRun("dev", a, 1),
+      ]);
+      const result = await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo });
+      expect(parseOutputs(result.outputs).cire_host).toBe("false");
+      expect(result.summary).toContain("held back");
+    });
+  });
+});
+
+describe("how far the walk reads", () => {
+  test("a record made by an earlier attempt of a re-run run still counts", async () => {
+    // Attempt 2 re-ran only the failed jobs; osn-api's successful deploy is in
+    // attempt 1, which GitHub lists only with filter=all.
+    const github = fakeGitHub([
+      {
+        environment: "production",
+        sha: "b2",
+        run: 5,
+        attempt: 2,
+        job: prod("cire_api"),
+        states: ["success"],
+      },
+      {
+        environment: "production",
+        sha: "b2",
+        run: 5,
+        attempt: 1,
+        job: prod("osn_api"),
+        states: ["success"],
+      },
+      { environment: "production", sha: "a1", run: 1, job: prod("osn_api"), states: ["success"] },
+    ]);
+    expect(
+      Object.fromEntries(await lastDeployed(reader(github), "production", ["osn_api"])),
+    ).toEqual({ osn_api: "b2" });
+  });
+
+  test("the default cap is 300 records, three pages, then the surface is not found", async () => {
+    const github = fakeGitHub([
+      ...Array.from({ length: 300 }, (_, i) => ({
+        environment: "production" as const,
+        sha: `s${i}`,
+        run: i + 10,
+        job: prod("cire_api"),
+        states: ["error"],
+      })),
+      { environment: "production", sha: "a1", run: 1, job: prod("osn_api"), states: ["success"] },
+    ]);
+    const found = await lastDeployed(reader(github), "production", ["osn_api"]);
+    expect(found.size).toBe(0);
+    const pages = github.calls.filter((call) => call.includes("/deployments?"));
+    expect(pages).toHaveLength(3);
+    expect(github.calls.filter((call) => call.includes("/statuses"))).toHaveLength(300);
+  });
+
+  test("a held surface does not cost a status read for every record up to the cap", async () => {
+    // Dev's newest record for cire-host has other content, and so does every
+    // record after it. Once the newest is known, a record `accept` refuses by
+    // its commit alone is skipped without reading its statuses.
+    const github = fakeGitHub([
+      { environment: "dev", sha: "c3", run: 3, job: dev("cire_host"), states: ["success"] },
+      ...Array.from({ length: 150 }, (_, i) => ({
+        environment: "dev" as const,
+        sha: `old${i}`,
+        run: 100 + i,
+        job: dev(i % 2 === 0 ? "cire_host" : "osn_api"),
+        states: ["success"],
+      })),
+    ]);
+    const found = await findDeployed(reader(github), "dev", ["cire_host"], {
+      accept: (_, sha) => sha === "never",
+      batch: 1,
+    });
+    expect(found.accepted.size).toBe(0);
+    expect(found.newest.get("cire_host")).toBe("c3");
+    expect(github.calls.filter((call) => call.includes("/statuses"))).toHaveLength(1);
+    // Every page up to the cap is still listed: a matching record may be on any.
+    expect(github.calls.filter((call) => call.includes("/deployments?"))).toHaveLength(2);
+  });
+
+  test("a skipped record is read after all when accept would take its commit", async () => {
+    const github = fakeGitHub([
+      { environment: "dev", sha: "c3", run: 3, job: dev("cire_host"), states: ["success"] },
+      { environment: "dev", sha: "x0", run: 4, job: dev("cire_host"), states: ["success"] },
+      { environment: "dev", sha: "b2", run: 2, job: dev("cire_host"), states: ["success"] },
+    ]);
+    const found = await findDeployed(reader(github), "dev", ["cire_host"], {
+      accept: (_, sha) => sha === "b2",
+      batch: 1,
+    });
+    expect(Object.fromEntries(found.accepted)).toEqual({ cire_host: "b2" });
+    expect(github.calls.filter((call) => call.includes("/statuses"))).toHaveLength(2);
+  });
+});
+
 describe("restReader", () => {
   test("sends the token and the API version, and names the environment", async () => {
     const seen: { url: string; headers: Headers }[] = [];
@@ -618,13 +754,83 @@ describe("restReader", () => {
     const r = restReader({ fetch: fetcher, token: "t", repository: REPO, apiUrl: API });
     await expect(r.deployments("production", 1)).rejects.toThrow(/502/);
     await expect(r.statuses(1)).rejects.toThrow(/502/);
-    await expect(r.jobNames(1)).rejects.toThrow(/502/);
+    await expect(r.jobs(1)).rejects.toThrow(/502/);
+    await expect(r.origin(1)).rejects.toThrow(/502/);
   });
 
-  test("reads every page of a run's jobs", async () => {
-    const jobs = Array.from({ length: 130 }, (_, i) => ({ id: i + 1, name: `job ${i + 1}` }));
+  // Each of these, read as "no records", would ship every surface with a
+  // plausible reason: the fail-open the planner exists to refuse.
+  test("a missing deployments list is an error, not an empty one", async () => {
+    const fetcher = (async () =>
+      new Response('{"message":"Not Found"}', { status: 404 })) as unknown as typeof fetch;
+    const r = restReader({ fetch: fetcher, token: "t", repository: REPO, apiUrl: API });
+    await expect(r.deployments("production", 1)).rejects.toThrow(/404/);
+    await expect(r.statuses(1)).rejects.toThrow(/404/);
+  });
+
+  test("an answer of the wrong shape is an error", async () => {
+    const answering = (body: unknown) =>
+      restReader({
+        fetch: (async () => new Response(JSON.stringify(body))) as unknown as typeof fetch,
+        token: "t",
+        repository: REPO,
+        apiUrl: API,
+      });
+    await expect(answering({ deployments: [] }).deployments("production", 1)).rejects.toThrow(
+      /list of deployments/,
+    );
+    await expect(answering([{ sha: "a1" }]).deployments("production", 1)).rejects.toThrow(
+      /numeric `id`/,
+    );
+    await expect(answering([{ log_url: "x" }]).statuses(1)).rejects.toThrow(/`state`/);
+    await expect(answering({ jobs: "none" }).jobs(1)).rejects.toThrow(/list of jobs/);
+    await expect(answering({ jobs: [{ id: 1, name: "j" }] }).jobs(1)).rejects.toThrow(/head_sha/);
+    await expect(answering({ id: 1 }).origin(1)).rejects.toThrow(/`path`/);
+  });
+
+  test("a run that is gone has no jobs and no origin", async () => {
+    const fetcher = (async () =>
+      new Response('{"message":"Not Found"}', { status: 404 })) as unknown as typeof fetch;
+    const r = restReader({ fetch: fetcher, token: "t", repository: REPO, apiUrl: API });
+    expect((await r.jobs(1)).size).toBe(0);
+    expect(await r.origin(1)).toBeUndefined();
+  });
+
+  test("reads a run's origin", async () => {
+    const fetcher = (async () =>
+      new Response(
+        JSON.stringify({
+          path: ".github/workflows/deploy.yml",
+          head_branch: "main",
+          head_repository: { full_name: "fork/osn" },
+          repository: { full_name: REPO },
+        }),
+      )) as unknown as typeof fetch;
+    const origin = await restReader({
+      fetch: fetcher,
+      token: "t",
+      repository: REPO,
+      apiUrl: API,
+    }).origin(7);
+    expect(origin).toEqual({
+      path: ".github/workflows/deploy.yml",
+      headBranch: "main",
+      headRepository: "fork/osn",
+      repository: REPO,
+    });
+  });
+
+  test("reads every page of a run's jobs, every attempt", async () => {
+    const seen: string[] = [];
+    const jobs = Array.from({ length: 130 }, (_, i) => ({
+      id: i + 1,
+      name: `job ${i + 1}`,
+      head_sha: "a1",
+      conclusion: "success",
+    }));
     const fetcher = (async (input: string | URL | Request) => {
       const url = new URL(String(input));
+      seen.push(url.search);
       const page = Number(url.searchParams.get("page"));
       return new Response(
         JSON.stringify({ total_count: 130, jobs: jobs.slice((page - 1) * 100, page * 100) }),
@@ -635,9 +841,10 @@ describe("restReader", () => {
       token: "t",
       repository: REPO,
       apiUrl: API,
-    }).jobNames(7);
+    }).jobs(7);
     expect(names.size).toBe(130);
-    expect(names.get(130)).toBe("job 130");
+    expect(names.get(130)).toEqual({ name: "job 130", headSha: "a1", conclusion: "success" });
+    expect(seen.every((search) => search.includes("filter=all"))).toBe(true);
   });
 });
 
@@ -666,6 +873,19 @@ describe("parseRequest", () => {
   test("force is true or false, nothing else", () => {
     expect(parseRequest("", "true").force).toBe(true);
     expect(() => parseRequest("", "yes")).toThrow(/FORCE/);
+  });
+
+  test("force with no surfaces named forces every surface, rollbacks included", () => {
+    const request = parseRequest("", "true");
+    expect(request.surfaces).toEqual(SURFACES.map((s) => s.key));
+    const decisions = changedSurfaces({
+      head,
+      request,
+      production: new Map(SURFACES.map((s) => [s.key, base])),
+      diff: () => [],
+      productionIsNewer: () => true,
+    });
+    expect(decisions.every((d) => d.ship && d.reason.includes("forced"))).toBe(true);
   });
 });
 
@@ -863,6 +1083,41 @@ describe("runReleasePlan refuses a broken environment", () => {
         cwd: ".",
       }),
     ).rejects.toThrow(/GITHUB_REPOSITORY/);
+  });
+
+  test("a repository name that climbs out of the repos path", async () => {
+    const github = fakeGitHub([]);
+    await expect(
+      runReleasePlan({
+        env: { ...env(head), GITHUB_REPOSITORY: "owner/.." },
+        fetch: github.fetch,
+        cwd: ".",
+      }),
+    ).rejects.toThrow(/GITHUB_REPOSITORY/);
+    expect(github.calls).toHaveLength(0);
+  });
+
+  test("a release commit that is not a full SHA", async () => {
+    const github = fakeGitHub([]);
+    for (const sha of ["main", "abc1234", `--${"f".repeat(38)}`]) {
+      await expect(
+        runReleasePlan({ env: env(sha), fetch: github.fetch, cwd: "." }),
+      ).rejects.toThrow(/full SHA/);
+    }
+    expect(github.calls).toHaveLength(0);
+  });
+
+  test("with GITHUB_SHA unset, the release commit is the checkout's HEAD", async () => {
+    await withRepo(async (repo) => {
+      const a = await commit(repo, { "osn/api/src/index.ts": "1" });
+      const github = fakeGitHub([...fullRun("production", a, 1)]);
+      const result = await runReleasePlan({
+        env: { ...env(a), GITHUB_SHA: "" },
+        fetch: github.fetch,
+        cwd: repo,
+      });
+      expect(result.summary).toContain(`Production release of [\`${a.slice(0, 7)}\`]`);
+    });
   });
 
   test("an API error fails the plan rather than shipping everything", async () => {

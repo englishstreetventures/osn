@@ -20,6 +20,11 @@
  * job of one surface takes the same concurrency group without cancelling, so
  * they run in the order they were created, and a re-run makes a new record.
  *
+ * A record is only a claim: anyone who can write Deployments can create one
+ * and point its status at any job. So a record counts only when the job it
+ * links succeeded at the record's own commit, in a run of a workflow that
+ * deploys that tier (`DEPLOYING_WORKFLOWS`), on `main`, from this repository.
+ *
  * Dev gates production. A changed surface with a dev tier ships only when a
  * recent successful dev deployment of it was built from the same content (its
  * own paths and the shared ones) as the release commit. Otherwise it is held
@@ -30,7 +35,7 @@
  * surface is left alone unless the release is forced.
  *
  * Inputs, from the environment:
- *   GITHUB_TOKEN        read access to deployments and Actions jobs
+ *   GITHUB_TOKEN        read access to deployments and Actions runs and jobs
  *   GITHUB_REPOSITORY   owner/name
  *   GITHUB_SHA          the release commit (default: git rev-parse HEAD)
  *   GITHUB_API_URL, GITHUB_SERVER_URL   default to github.com's
@@ -64,6 +69,7 @@ import {
   type Surface,
   type SurfaceKey,
   type Tier,
+  WORKFLOW_FILE,
 } from "./deploy-surfaces";
 
 // ── reading GitHub ──────────────────────────────────────────────────────────
@@ -78,13 +84,58 @@ export interface DeploymentStatus {
   readonly log_url: string;
 }
 
-/** The three REST reads the planner makes. A seam for the tests. */
+/** One job of a workflow run: what the planner checks a record against. */
+export interface RunJob {
+  readonly name: string;
+  /** The commit the job ran on. */
+  readonly headSha: string;
+  /** `success`, `failure`, …; null while the job has not finished. */
+  readonly conclusion: string | null;
+}
+
+/** Where a workflow run came from. */
+export interface RunOrigin {
+  /** The workflow file, as `.github/workflows/<name>.yml`. */
+  readonly path: string;
+  /** Empty when GitHub gives none. */
+  readonly headBranch: string;
+  /** owner/name of the repository the run's commit came from; empty when gone. */
+  readonly headRepository: string;
+  /** owner/name of the repository the run belongs to. */
+  readonly repository: string;
+}
+
+/** The four REST reads the planner makes. A seam for the tests. */
 export interface DeploymentReader {
   /** One page of an environment's Deployment records, newest first. */
   deployments(environment: Tier, page: number): Promise<readonly DeploymentRecord[]>;
   statuses(deploymentId: number): Promise<readonly DeploymentStatus[]>;
-  /** Job id → job name for every attempt of a run; empty when the run is gone. */
-  jobNames(runId: number): Promise<ReadonlyMap<number, string>>;
+  /** Job id → job, for every attempt of a run; empty when the run is gone. */
+  jobs(runId: number): Promise<ReadonlyMap<number, RunJob>>;
+  /** Where a run came from; undefined when the run is gone. */
+  origin(runId: number): Promise<RunOrigin | undefined>;
+}
+
+/**
+ * The workflow files whose runs deploy each tier. Production's list includes
+ * deploy.yml because its runs carried the production jobs before
+ * production-release.yml did: one of their records is still what production
+ * runs for a surface no release has shipped since.
+ */
+export const DEPLOYING_WORKFLOWS = {
+  production: [WORKFLOW_FILE.production, WORKFLOW_FILE.dev],
+  dev: [WORKFLOW_FILE.dev],
+} as const satisfies Record<Tier, readonly string[]>;
+
+/** Whether a run is one that deploys `environment`: the workflow for it, on main, in this repository. */
+export function deploysTier(origin: RunOrigin | undefined, environment: Tier): boolean {
+  return (
+    origin !== undefined &&
+    DEPLOYING_WORKFLOWS[environment].some((path) => path === origin.path) &&
+    origin.headBranch === "main" &&
+    origin.repository !== "" &&
+    origin.headRepository === origin.repository
+  );
 }
 
 /** Records per page — the REST maximum. */
@@ -110,15 +161,50 @@ function parseStatus(item: unknown): DeploymentStatus {
   return { state: status.state, log_url: typeof status.log_url === "string" ? status.log_url : "" };
 }
 
-function parseJobs(payload: unknown): readonly { readonly id: number; readonly name: string }[] {
+function parseJobs(payload: unknown): readonly (RunJob & { readonly id: number })[] {
   const body = payload as { jobs?: unknown } | null;
   return listOf(body?.jobs, "jobs").map((item) => {
-    const job = item as { id?: unknown; name?: unknown } | null;
-    if (typeof job?.id !== "number" || typeof job.name !== "string") {
-      throw new TypeError("GitHub API: a job has no numeric `id` or string `name`");
+    const job = item as {
+      id?: unknown;
+      name?: unknown;
+      head_sha?: unknown;
+      conclusion?: unknown;
+    } | null;
+    if (
+      typeof job?.id !== "number" ||
+      typeof job.name !== "string" ||
+      typeof job.head_sha !== "string"
+    ) {
+      throw new TypeError("GitHub API: a job has no numeric `id`, string `name` or `head_sha`");
     }
-    return { id: job.id, name: job.name };
+    return {
+      id: job.id,
+      name: job.name,
+      headSha: job.head_sha,
+      conclusion: typeof job.conclusion === "string" ? job.conclusion : null,
+    };
   });
+}
+
+function fullName(value: unknown): string {
+  const repository = value as { full_name?: unknown } | null;
+  return typeof repository?.full_name === "string" ? repository.full_name : "";
+}
+
+function parseOrigin(payload: unknown): RunOrigin {
+  const run = payload as {
+    path?: unknown;
+    head_branch?: unknown;
+    head_repository?: unknown;
+    repository?: unknown;
+  } | null;
+  if (typeof run?.path !== "string") throw new TypeError("GitHub API: a run has no `path`");
+  return {
+    path: run.path,
+    headBranch: typeof run.head_branch === "string" ? run.head_branch : "",
+    headRepository: fullName(run.head_repository),
+    repository: fullName(run.repository),
+  };
 }
 
 export function restReader(options: {
@@ -164,20 +250,27 @@ export function restReader(options: {
       return listOf(await response.json(), "deployment statuses").map(parseStatus);
     },
 
-    async jobNames(runId) {
-      const names = new Map<number, string>();
-      // One page at a time, each depending on the last one's length.
-      const readFrom = async (page: number): Promise<ReadonlyMap<number, string>> => {
+    async jobs(runId) {
+      const jobs = new Map<number, RunJob>();
+      // `filter=all`: the default lists only the latest attempt's jobs, and a
+      // record made by an earlier attempt links one of those. One page at a
+      // time, each depending on the last one's length.
+      const readFrom = async (page: number): Promise<ReadonlyMap<number, RunJob>> => {
         const response = await request(
           `/actions/runs/${runId}/jobs?filter=all&per_page=${PAGE_SIZE}&page=${page}`,
           "allow",
         );
-        if (response === undefined) return names;
-        const jobs = parseJobs(await response.json());
-        for (const job of jobs) names.set(job.id, job.name);
-        return jobs.length < PAGE_SIZE ? names : readFrom(page + 1);
+        if (response === undefined) return jobs;
+        const listed = parseJobs(await response.json());
+        for (const { id, ...job } of listed) jobs.set(id, job);
+        return listed.length < PAGE_SIZE ? jobs : readFrom(page + 1);
       };
       return readFrom(1);
+    },
+
+    async origin(runId) {
+      const response = await request(`/actions/runs/${runId}`, "allow");
+      return response === undefined ? undefined : parseOrigin(await response.json());
     },
   };
 }
@@ -185,19 +278,26 @@ export function restReader(options: {
 const JOB_LINK = /\/actions\/runs\/(\d+)\/job\/(\d+)/;
 
 export interface DeployedCommits {
-  /** Per surface, the commit of its newest successful record. */
+  /** Per surface, the commit of its newest trusted successful record. */
   readonly newest: ReadonlyMap<SurfaceKey, string>;
-  /** Per surface, the commit of its newest successful record that `accept` took. */
+  /** Per surface, the commit of its newest trusted successful record that `accept` took. */
   readonly accepted: ReadonlyMap<SurfaceKey, string>;
 }
 
 /**
  * Walk `environment`'s Deployment records newest first, reading only those
- * with a `success` status that a wanted surface's job made. Stops once `accept`
- * has taken a record for every wanted surface, or after `maxRecords` records.
- * Statuses are read `batch` records at a time, and the job names of the runs
- * in a batch together. Without `accept`, the first success per surface is
- * taken.
+ * with a `success` status that a wanted surface's job made, in a run that
+ * deploys `environment` (`deploysTier`), at the commit the job ran on. Stops
+ * once `accept` has taken a record for every wanted surface, or after
+ * `maxRecords` records. Statuses are read `batch` records at a time, and the
+ * jobs and origins of the runs in a batch together, each run once. Without
+ * `accept`, the first such record per surface is taken.
+ *
+ * With `accept`, a record is skipped before its statuses are read once every
+ * surface still open has a newest record and `accept` refuses the record's
+ * commit for all of them: reading it could change neither answer. That keeps a
+ * walk that finds no acceptable record — the dev gate holding a surface back —
+ * from spending a status read on every record up to `maxRecords`.
  */
 export async function findDeployed(
   reader: DeploymentReader,
@@ -211,7 +311,7 @@ export async function findDeployed(
 ): Promise<DeployedCommits> {
   const maxRecords = options.maxRecords ?? 300;
   const batch = options.batch ?? 10;
-  const accept = options.accept ?? (() => true);
+  const { accept } = options;
   const newest = new Map<SurfaceKey, string>();
   const accepted = new Map<SurfaceKey, string>();
   const want = new Set(wanted);
@@ -222,31 +322,61 @@ export async function findDeployed(
     const job = environment === "production" ? s.production : s.dev;
     if (job !== undefined) surfaceByJob.set(job.name, s.key);
   }
-  const jobNames = new Map<number, ReadonlyMap<number, string>>();
+  const jobsByRun = new Map<number, ReadonlyMap<number, RunJob>>();
+  const origins = new Map<number, RunOrigin | undefined>();
+
+  /** Read what `cache` lacks for `runIds`, all at once. */
+  const fill = async <T>(
+    cache: Map<number, T>,
+    runIds: readonly number[],
+    read: (runId: number) => Promise<T>,
+  ): Promise<void> => {
+    const unread = [...new Set(runIds)].filter((runId) => !cache.has(runId));
+    const results = await Promise.all(unread.map(read));
+    for (const [index, runId] of unread.entries()) cache.set(runId, results[index] as T);
+  };
+
+  const worthReading = (record: DeploymentRecord): boolean => {
+    if (accept === undefined) return true;
+    const open = [...want].filter((key) => !accepted.has(key));
+    return open.some((key) => !newest.has(key) || accept(key, record.sha));
+  };
 
   /** Read one batch; true once every wanted surface has an accepted record. */
   const readBatch = async (records: readonly DeploymentRecord[]): Promise<boolean> => {
-    const statuses = await Promise.all(records.map((record) => reader.statuses(record.id)));
-    const links = records.flatMap((record, index) => {
+    const read = records.filter(worthReading);
+    const statuses = await Promise.all(read.map((record) => reader.statuses(record.id)));
+    const links = read.flatMap((record, index) => {
       const success = statuses[index]?.find((status) => status.state === "success");
       const link = success === undefined ? null : JOB_LINK.exec(success.log_url);
       return link === null
         ? []
         : [{ sha: record.sha, runId: Number(link[1]), jobId: Number(link[2]) }];
     });
-    const unread = [...new Set(links.map((link) => link.runId))].filter(
-      (runId) => !jobNames.has(runId),
+    await fill(
+      jobsByRun,
+      links.map((link) => link.runId),
+      (runId) => reader.jobs(runId),
     );
-    const read = await Promise.all(unread.map((runId) => reader.jobNames(runId)));
-    for (const [index, runId] of unread.entries()) jobNames.set(runId, read[index] ?? new Map());
 
-    for (const link of links) {
-      const name = jobNames.get(link.runId)?.get(link.jobId);
-      const key = name === undefined ? undefined : surfaceByJob.get(name);
-      if (key === undefined || !want.has(key) || accepted.has(key)) continue;
-      if (!newest.has(key)) newest.set(key, link.sha);
-      if (!accept(key, link.sha)) continue;
-      accepted.set(key, link.sha);
+    const candidates = links.flatMap((link) => {
+      const job = jobsByRun.get(link.runId)?.get(link.jobId);
+      const key = job === undefined ? undefined : surfaceByJob.get(job.name);
+      if (key === undefined || !want.has(key) || accepted.has(key)) return [];
+      if (job?.conclusion !== "success" || job.headSha !== link.sha) return [];
+      return [{ ...link, key }];
+    });
+    await fill(
+      origins,
+      candidates.map((candidate) => candidate.runId),
+      (runId) => reader.origin(runId),
+    );
+
+    for (const { key, sha, runId } of candidates) {
+      if (accepted.has(key) || !deploysTier(origins.get(runId), environment)) continue;
+      if (!newest.has(key)) newest.set(key, sha);
+      if (accept !== undefined && !accept(key, sha)) continue;
+      accepted.set(key, sha);
       if (accepted.size === want.size) return true;
     }
     return false;
@@ -539,14 +669,14 @@ export async function runReleasePlan(options: {
     return diffs.get(from);
   };
 
+  const newer = new Map<string, boolean>();
+  const productionIsNewer = (commit: string): boolean => {
+    if (!newer.has(commit)) newer.set(commit, isAncestor(head, commit, options.cwd));
+    return newer.get(commit) === true;
+  };
+
   const production = await lastDeployed(reader, "production", request.surfaces);
-  const changed = changedSurfaces({
-    head,
-    request,
-    production,
-    diff,
-    productionIsNewer: (commit) => isAncestor(head, commit, options.cwd),
-  });
+  const changed = changedSurfaces({ head, request, production, diff, productionIsNewer });
   const dev = await findDeployed(reader, "dev", devGateWanted(changed, request.force), {
     accept: (key, commit) => sameContent(surface(key), diff(commit)),
   });

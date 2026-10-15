@@ -12,13 +12,24 @@
 //     the gate later would need a review of its own.
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { SURFACES, WORKFLOW_FILE } from "../deploy-surfaces";
 
+interface Step {
+  readonly id?: string;
+  readonly name?: string;
+  readonly if?: string;
+  readonly uses?: string;
+  readonly run?: string;
+  readonly with?: Record<string, string | number | boolean>;
+  readonly env?: Record<string, string>;
+}
+
 interface Job {
   readonly name?: string;
+  readonly steps?: readonly Step[];
   readonly needs?: string | readonly string[];
   readonly if?: string;
   readonly environment?: string | { readonly name: string };
@@ -38,6 +49,10 @@ const load = (path: string) => Bun.YAML.parse(readFileSync(join(root, path), "ut
 const dev = load(WORKFLOW_FILE.dev);
 const production = load(WORKFLOW_FILE.production);
 
+const stepsOf = (job: Job | undefined) => job?.steps ?? [];
+const checkoutsOf = (job: Job | undefined) =>
+  stepsOf(job).filter((step) => step.uses?.startsWith("actions/checkout@") === true);
+
 const environmentOf = (job: Job) =>
   typeof job.environment === "string" ? job.environment : job.environment?.name;
 const needsOf = (job: Job) =>
@@ -55,6 +70,19 @@ describe("deploy.yml deploys dev only", () => {
     const keys = SURFACES.filter((s) => s.dev !== undefined).map((s) => s.key);
     expect(Object.keys(outputs).toSorted()).toEqual(keys.toSorted());
     for (const key of keys) expect(outputs[key]).toBe(`\${{ steps.filter.outputs.${key} }}`);
+  });
+
+  test("the changes job diffs the push with the surface map, over full history", () => {
+    const changes = dev.jobs.changes;
+    expect(checkoutsOf(changes)[0]?.with?.["fetch-depth"]).toBe(0);
+    const filter = stepsOf(changes).find((step) => step.id === "filter");
+    expect(filter?.run).toBe(
+      'bun run scripts/deploy-surfaces.ts --event "$EVENT_NAME" --base "$BEFORE_SHA"',
+    );
+    expect(filter?.env).toEqual({
+      EVENT_NAME: "${{ github.event_name }}",
+      BEFORE_SHA: "${{ github.event.before }}",
+    });
   });
 
   test("its deploy jobs are the map's dev jobs, no more and no fewer", () => {
@@ -101,6 +129,40 @@ describe("production-release.yml", () => {
       expect(outputs[key]).toBe(`\${{ steps.plan.outputs.${key} }}`);
   });
 
+  test("the plan job refuses any ref but main before it does anything else", () => {
+    const [guard] = stepsOf(production.jobs.plan);
+    expect(guard?.if).toBe("github.ref != 'refs/heads/main'");
+    expect(guard?.run).toContain("exit 1");
+  });
+
+  test("the plan job runs the planner over full history, with the token and both inputs", () => {
+    const plan = production.jobs.plan;
+    expect(checkoutsOf(plan)[0]?.with?.["fetch-depth"]).toBe(0);
+    const step = stepsOf(plan).find((s) => s.id === "plan");
+    expect(step?.run).toBe("bun run scripts/release-plan.ts");
+    expect(step?.env).toEqual({
+      GITHUB_TOKEN: "${{ github.token }}",
+      SURFACES: "${{ inputs.surfaces }}",
+      FORCE: "${{ inputs.force }}",
+    });
+  });
+
+  test("no checkout leaves the job token on disk", () => {
+    const checkouts = Object.values(production.jobs).flatMap((job) => checkoutsOf(job));
+    expect(checkouts.length).toBe(Object.keys(production.jobs).length);
+    for (const checkout of checkouts) expect(checkout.with?.["persist-credentials"]).toBe(false);
+  });
+
+  test("the surfaces input lists exactly the map's keys", () => {
+    const dispatch = production.on.workflow_dispatch as {
+      inputs: Record<string, { description: string }>;
+    };
+    const listed = /: ([a-z_ ]+)\. Empty means all\./.exec(
+      dispatch.inputs.surfaces?.description ?? "",
+    );
+    expect(listed?.[1]?.split(" ")).toEqual(SURFACES.map((s) => s.key));
+  });
+
   test("build runs only when something ships", () => {
     const build = production.jobs.build!;
     expect(needsOf(build)).toEqual(["plan"]);
@@ -126,4 +188,25 @@ describe("production-release.yml", () => {
       });
     },
   );
+});
+
+describe("every other workflow", () => {
+  // The planner ties a Deployment record to a surface by its job's name, and
+  // counts only records from runs of the two deploy workflows. A job of the
+  // same name anywhere else is a deploy the planner cannot see.
+  test("uses none of the map's job names", () => {
+    const names = new Set(
+      SURFACES.flatMap((s) => (s.dev ? [s.production.name, s.dev.name] : [s.production.name])),
+    );
+    const owners = new Set<string>([WORKFLOW_FILE.dev, WORKFLOW_FILE.production]);
+    const others = readdirSync(join(root, ".github/workflows"))
+      .filter((file) => file.endsWith(".yml") || file.endsWith(".yaml"))
+      .map((file) => `.github/workflows/${file}`)
+      .filter((path) => !owners.has(path));
+    expect(others.length).toBeGreaterThan(0);
+    for (const path of others) {
+      const jobs = Object.values(load(path).jobs ?? {});
+      for (const job of jobs) expect(names.has(job.name ?? "")).toBe(false);
+    }
+  });
 });
