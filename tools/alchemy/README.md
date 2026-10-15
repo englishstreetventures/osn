@@ -17,7 +17,7 @@ curl -fsS -H "Authorization: Bearer $ALCHEMY_PROBE_TOKEN" https://osn-api-alchem
 bun run plan --no-input
 ```
 
-Both health responses should contain `"ok":true`. The postdeploy plan should show no changes. Unauthenticated requests return 401 before reading storage. The probe reads D1 with `SELECT 1`, lists at most one object from each Cire R2 bucket, and checks the Images and rate limit bindings. It has no application routes or secrets.
+Both health responses should contain `"ok":true`. The postdeploy plan should show no changes. Check live drift with `bun alchemy drift --config alchemy.run.ts --stage dev --no-input`; this beta reports both adopted D1 databases as updates even when their IDs, names and read replication mode match live metadata. Do not run `drift --repair` on the adopted databases until that difference is understood (see [#1490](https://github.com/englishstreetventures/osn/issues/1490)). Unauthenticated requests return 401 before reading storage. The probe reads D1 with `SELECT 1`, lists at most one object from each Cire R2 bucket, and checks the Images and rate limit bindings. It has no application routes or application secrets; its only secret is the separate probe token.
 
 ## Clean up
 
