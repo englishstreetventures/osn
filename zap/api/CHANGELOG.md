@@ -1,5 +1,20 @@
 # @zap/api
 
+## 0.9.23
+
+### Patch Changes
+
+- 6b5f538: Refresh the eligible Effect libraries to 4.0.3 and align the Vitest family at
+  5.0.3. Update the affected schema, tracing, and test integrations for the stable
+  Effect API; refresh the eligible WebAuthn, Three.js, and Nitro consumers.
+- Updated dependencies [6b5f538]
+  - @shared/crypto@0.14.2
+  - @shared/db-utils@0.7.4
+  - @shared/observability@0.18.7
+  - @shared/osn-auth-client@0.4.40
+  - @shared/rate-limit@0.3.5
+  - @zap/db@0.6.4
+
 ## 0.9.22
 
 ### Patch Changes

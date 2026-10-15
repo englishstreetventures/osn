@@ -1,5 +1,13 @@
 # @shared/openapi-tools
 
+## 0.1.5
+
+### Patch Changes
+
+- 6b5f538: Refresh the eligible Effect libraries to 4.0.3 and align the Vitest family at
+  5.0.3. Update the affected schema, tracing, and test integrations for the stable
+  Effect API; refresh the eligible WebAuthn, Three.js, and Nitro consumers.
+
 ## 0.1.4
 
 ### Patch Changes
