@@ -1,80 +1,15 @@
 ---
-// Honest answers to the questions couples actually ask. Native <details> so it
-// works with zero JS and is accessible by default. Roman summaries.
 const faqs = [
-  {
-    q: 'Do my guests need an account or an app?',
-    a: 'No. Guests open a link (or enter a short code from a paper invite) and reply right there. Nothing to download, nothing to sign up for.',
-  },
-  {
-    q: 'Is it really private?',
-    a: 'Yes. There is no public guest list and no shareable per-guest link to leak. Each household claims its own code, and the details they share are used only for your wedding, never sold, never used for ads.',
-  },
-  {
-    q: 'Can I make it match our wedding?',
-    a: 'That is the point. Colours, fonts, photography and moodboards make each invitation unmistakably yours, so it feels like your day from the first second a guest opens it.',
-  },
-  {
-    q: 'Is paper not more special than digital?',
-    a: 'Paper is gorgeous, and static. Cire keeps the ceremony of opening something beautiful, then adds what paper cannot: a map, add to calendar, live RSVPs and headcounts. Many couples send both, and a printed card with a claim code is the perfect pairing.',
-  },
-  {
-    q: 'How do RSVPs work?',
-    a: 'Guests reply per person, attending or not, with dietary notes, in a tap. You see every response, headcount and note gather on a dashboard built for the couple, updating live.',
-  },
-  {
-    q: 'What does it cost?',
-    a: 'Cire is in an invitation-only early chapter while we craft each wedding by hand. Start your invitation and we will walk you through what is involved, with no surprises.',
-  },
-] as const
+  { q: 'Do my guests need an account or an app?', a: 'No. Guests open your wedding link, enter their household code and respond in their browser. There is no app to download or account to create.' },
+  { q: 'Can we make the invitation feel like us?', a: 'Yes. Classic and Gala are both included in the free Ivory plan. Choose your colours, photographs and wording, and personalise the details of your celebrations.' },
+  { q: 'Can different guests be invited to different events?', a: 'Yes. Organise invitations by person and event. Each household sees the celebrations its members are invited to, and can respond for each person separately.' },
+  { q: 'What can we do for free?', a: 'Ivory includes your invitation, events, guest list, RSVPs, import and co-hosts for up to 100 guests. You can begin before choosing a paid plan.' },
+  { q: 'How do paid plans work?', a: 'Gold is A$79 once per wedding, with up to 500 guests, budget, checklist and registry. Crimson is A$149 once per wedding, adding vendor tools and room for 1,000 guests. If you already have Gold, the move to Crimson is A$70.' },
+  { q: 'Can someone help us organise the wedding?', a: 'Yes. Invite co-hosts to your wedding workspace and choose the access they need. Co-hosts are included with Ivory, Gold and Crimson.' },
+  { q: 'How is our guest information used?', a: 'Guest information is used to provide your wedding experience. Your guest list is not public, and guests access their household details with a code. Read our Privacy Notice for how information is handled.' },
+]
 ---
-<section id="faq" class="px-6 py-24 md:py-32" aria-labelledby="faq-heading">
-  <div class="mx-auto max-w-[44rem]">
-    <div class="mb-14 text-center" data-reveal>
-      <h2
-        id="faq-heading"
-        class="display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-ui-tight"
-      >
-        Everything you might be wondering.
-      </h2>
-    </div>
-
-    <div class="flex flex-col" data-reveal>
-      {
-        faqs.map((faq) => (
-          <details class="faq-item border-border border-b">
-            <summary class="display text-text flex cursor-pointer items-center justify-between gap-4 py-5 text-ui-lg font-normal">
-              <span>{faq.q}</span>
-              <span class="faq-marker text-gold shrink-0 text-2xl leading-none" aria-hidden="true">
-                +
-              </span>
-            </summary>
-            <p class="font-body text-text-muted pb-5 text-ui-base leading-ui-relaxed font-light">
-              {faq.a}
-            </p>
-          </details>
-        ))
-      }
-    </div>
-  </div>
+<section id="faq" class="faq-section section-wrap section-space" aria-labelledby="faq-heading">
+  <div class="faq-intro" data-reveal><h2 id="faq-heading" class="display">A few things<br />you might be wondering.</h2><p>For your day, and the people in it.</p><a href="/privacy" class="text-link">Our privacy promise <span aria-hidden="true">↗</span></a></div>
+  <div class="faq-list" data-reveal>{faqs.map(faq => <details><summary>{faq.q}<span class="faq-marker" aria-hidden="true">+</span></summary><p>{faq.a}</p></details>)}</div>
 </section>
-
-<style>
-  .faq-item summary {
-    list-style: none;
-  }
-  .faq-item summary::-webkit-details-marker {
-    display: none;
-  }
-  .faq-item summary:focus-visible {
-    outline: 2px solid var(--color-gold);
-    outline-offset: 3px;
-    border-radius: 0.125rem;
-  }
-  .faq-item[open] .faq-marker {
-    transform: rotate(45deg);
-  }
-  .faq-marker {
-    transition: transform 0.2s var(--ease-out);
-  }
-</style>

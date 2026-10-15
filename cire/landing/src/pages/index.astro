@@ -1,31 +1,12 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro'
 import Hero from '../components/sections/Hero.astro'
-import Promise from '../components/sections/Promise.astro'
 import Features from '../components/sections/Features.astro'
-import HowItWorks from '../components/sections/HowItWorks.astro'
 import SeeItLive from '../components/sections/SeeItLive.astro'
-import Craft from '../components/sections/Craft.astro'
-import Testimonials from '../components/sections/Testimonials.astro'
+import Planning from '../components/sections/Planning.astro'
+import HowItWorks from '../components/sections/HowItWorks.astro'
+import Pricing from '../components/sections/Pricing.astro'
 import Faq from '../components/sections/Faq.astro'
 import FinalCta from '../components/sections/FinalCta.astro'
 ---
-<BaseLayout>
-  {/* The Unfolding Letter: the page reads top to bottom like opening and reading
-      a single invitation — sealed hero, the letter unfolds, what's inside, how it
-      works, open one yourself, the trust behind it, questions, and the sign-off. */}
-  <Hero />
-
-  <main>
-    <Promise />
-    <Features />
-    <HowItWorks />
-    <SeeItLive />
-    <Craft />
-    {/* Renders nothing until real, consented couple quotes exist (honest social
-        proof — SHOW_TESTIMONIALS stays false until then). */}
-    <Testimonials />
-    <Faq />
-    <FinalCta />
-  </main>
-</BaseLayout>
+<BaseLayout><main id="main-content"><Hero /><Features /><SeeItLive /><Planning /><HowItWorks /><Pricing /><Faq /><FinalCta /></main></BaseLayout>

@@ -1,42 +1,7 @@
 ---
-// The sign-off before the footer: one clear invitation to begin, over a faint
-// gold bloom. Same CTA labels as the hero (one intent, one label everywhere).
-import { DEMO_ANCHOR, DEMO_INVITE_URL, ORGANISER_URL } from '../../lib/site'
-
-const demoHref = DEMO_INVITE_URL ?? DEMO_ANCHOR
-const demoIsExternal = DEMO_INVITE_URL !== null
+import { ORGANISER_URL } from '../../lib/site'
 ---
-<section
-  class="relative overflow-hidden px-6 py-28 text-center md:py-40"
-  aria-labelledby="cta-heading"
->
-  <div
-    class="absolute inset-0 -z-10"
-    style="background: radial-gradient(120% 80% at 50% 0%, oklch(74.99% 0.0854 82.08 / 0.12), transparent 60%);"
-  >
-  </div>
-  <div class="letter-column" data-reveal>
-    <h2
-      id="cta-heading"
-      class="display text-text text-[clamp(2.2rem,6vw,4rem)] leading-ui-none"
-    >
-      Begin your invitation.
-    </h2>
-    <p class="font-body text-text-muted mx-auto mt-6 max-w-[32rem] text-ui-md leading-ui-relaxed font-light">
-      Give your guests something to remember opening, and give yourself one less thing to chase.
-    </p>
-    <div class="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-      <a href={ORGANISER_URL} class="cta-primary w-full sm:w-auto">
-        Create your invitation
-      </a>
-      <a
-        href={demoHref}
-        target={demoIsExternal ? '_blank' : undefined}
-        rel={demoIsExternal ? 'noopener noreferrer' : undefined}
-        class="cta-ghost w-full sm:w-auto"
-      >
-        See a live invite
-      </a>
-    </div>
-  </div>
+<section class="closing-section section-wrap" aria-labelledby="closing-heading">
+  <div class="closing-photo"><img src="/images/celebration.webp" width="1000" height="667" loading="lazy" alt="A couple together in the evening sunlight, holding their wedding bouquet" /></div>
+  <div class="closing-copy" data-reveal><h2 id="closing-heading" class="display">More time for<br />the good part.</h2><p>The people. The moments. The two of you.<br />Let Cire give the details a home.</p><a href={ORGANISER_URL} class="cta-primary">Start your wedding free <span aria-hidden="true">↗</span></a></div>
 </section>

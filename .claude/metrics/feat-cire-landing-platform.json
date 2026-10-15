@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1467,
+    "branch": "feat/cire-landing-platform",
+    "base_sha": "22ca3163f6f33d259a4b9aa4dd29d0360170c5e1",
+    "head_sha": "475df86e351166ace16384eb5971da0b695e8836",
+    "generated_at": "2026-10-09T03:01:44.857Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1456,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:3"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed"
+  },
+  "window": {
+    "sessions": 0,
+    "first_ts": null,
+    "last_ts": null,
+    "span_seconds": 0,
+    "active_seconds": 0,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "thinking": 0,
+      "cache_write_5m": 0,
+      "cache_write_1h": 0,
+      "cache_read": 0
+    },
+    "by_model": {},
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {},
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 2,
+      "docs": 2,
+      "config": 0,
+      "source": 26
+    },
+    "loc": {
+      "generated": {
+        "added": 5,
+        "deleted": 0
+      },
+      "test": {
+        "added": 29,
+        "deleted": 1
+      },
+      "docs": {
+        "added": 50,
+        "deleted": 226
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 408,
+        "deleted": 614
+      }
+    },
+    "packages": [
+      "cire/landing"
+    ],
+    "touches_migration": false,
+    "commits": 1
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {},
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}

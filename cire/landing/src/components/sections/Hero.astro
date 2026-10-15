@@ -1,69 +1,26 @@
 ---
-// The face of the invitation. The whole first screen is the sealed letter: a
-// real, three-dimensional wax seal resting at its heart, with the opening line
-// and the calls to action set beneath it.
-//
-// Progressive enhancement is the rule here. Every word and both CTAs are
-// server-rendered and painted immediately — the 3D seal (WaxSeal3D) is a purely
-// decorative island layered in. No JS, no WebGL, or reduced motion: the seal is
-// a flat gold disc and the page reads and converts exactly the same.
-import { WaxSeal3D } from '../WaxSeal3D'
-import { DEMO_ANCHOR, DEMO_INVITE_URL, IMAGES, ORGANISER_URL, unsplash } from '../../lib/site'
-
+import { DEMO_ANCHOR, DEMO_INVITE_URL, ORGANISER_URL } from '../../lib/site'
 const demoHref = DEMO_INVITE_URL ?? DEMO_ANCHOR
-const demoIsExternal = DEMO_INVITE_URL !== null
-const hero = IMAGES.hero
+const external = DEMO_INVITE_URL !== null
 ---
-<section
-  class="relative flex min-h-[100svh] flex-col items-center justify-center overflow-hidden px-6 pt-28 pb-20 text-center"
-  aria-label="Cire: invitations worthy of the moment"
->
-  {/* Candle-warm celebration photo, dimmed under a forest radial so type and the
-      seal stay legible. Eager: it is the hero's paint. */}
-  <div class="absolute inset-0 -z-10">
-    <img
-      src={unsplash(hero.id, 2000)}
-      srcset={[640, 1024, 1600, 2000].map((w) => `${unsplash(hero.id, w)} ${w}w`).join(', ')}
-      sizes="100vw"
-      alt={hero.alt}
-      class="h-full w-full object-cover opacity-40"
-      fetchpriority="high"
-    />
-    <div
-      class="absolute inset-0"
-      style="background: radial-gradient(120% 90% at 50% 32%, oklch(19.96% 0.0331 147.34 / 0.55), oklch(19.96% 0.0331 147.34 / 0.97));"
-    >
+<section class="hero section-wrap" aria-labelledby="hero-heading">
+  <div class="hero-copy">
+    <p class="eyebrow">For everything that makes it yours</p>
+    <h1 id="hero-heading" class="display">Your wedding.<br /><span>Beautifully together.</span></h1>
+    <p class="hero-description">Beautiful invitations. Thoughtful planning. One place to bring your wedding together.</p>
+    <div class="hero-actions">
+      <a href={ORGANISER_URL} class="cta-primary">Start your wedding free <span aria-hidden="true">↗</span></a>
+      <a href={demoHref} target={external ? '_blank' : undefined} rel={external ? 'noopener noreferrer' : undefined} class="text-link">Explore the invitation <span aria-hidden="true">↗</span></a>
     </div>
   </div>
-
-  {/* The seal presenter — decorative, hydrates client-side, degrades to a poster. */}
-  <div class="mb-10 md:mb-12">
-    <WaxSeal3D client:load />
-  </div>
-
-  <div class="letter-column max-w-[46rem]">
-    <p class="eyebrow mb-6">Bespoke digital wedding invitations</p>
-    <h1 class="display text-text text-[clamp(2.6rem,8vw,5rem)] leading-ui-none">
-      Invitations worthy of the moment
-    </h1>
-    <p
-      class="font-body text-text-muted mx-auto mt-7 max-w-[34rem] text-ui-md leading-ui-relaxed font-light"
-    >
-      A real invitation: tactile, animated, personal. And it counts every RSVP, so you never chase a
-      reply.
-    </p>
-    <div class="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-      <a href={ORGANISER_URL} class="cta-primary w-full sm:w-auto">
-        Create your invitation
-      </a>
-      <a
-        href={demoHref}
-        target={demoIsExternal ? '_blank' : undefined}
-        rel={demoIsExternal ? 'noopener noreferrer' : undefined}
-        class="cta-ghost w-full sm:w-auto"
-      >
-        See a live invite
-      </a>
-    </div>
+  <div class="hero-product" aria-label="Example Cire invitation and planning workspace">
+    <div class="hero-invite"><img src="/images/classic.webp" width="900" height="1200" alt="Classic invitation for the example wedding of Amara and Sam, with their photograph, names and date" fetchpriority="high" /></div>
+    <div class="hero-workspace"><img src="/images/overview.webp" width="1920" height="1350" alt="Cire organiser overview showing upcoming tasks, guest replies and wedding planning" /></div>
+    <p class="product-caption">A warm welcome for them. A little breathing room for you.</p>
   </div>
 </section>
+<div class="hero-foundation section-wrap" aria-label="Included with Cire">
+  <p>Made personal.<br /><span>From the very first invitation.</span></p>
+  <p>Guests feel welcome.<br /><span>No app or account needed.</span></p>
+  <p>Start with Ivory, free.<br /><span>For up to 100 guests.</span></p>
+</div>
