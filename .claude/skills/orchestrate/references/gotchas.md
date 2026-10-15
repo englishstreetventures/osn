@@ -1,6 +1,6 @@
 # Gotchas — learned the hard way
 
-Each row is a run that went wrong once. `SKILL.md` carries the five that cost the most; this is the whole list.
+Each row is a run that went wrong once. `SKILL.md` carries the six that cost the most; this is the whole list.
 
 | Gotcha | Do this |
 |---|---|
@@ -11,8 +11,12 @@ Each row is a run that went wrong once. `SKILL.md` carries the five that cost th
 | `scripts/validate-changesets.sh` uses `mapfile` (bash 4+); macOS ships bash 3.2 | Run it as `bash` from Homebrew or let CI (ubuntu) validate; either way, match the existing changeset format |
 | Changesets: `@cire/*` packages are version-less (ignored); a changeset never mixes an ignored and a versioned package; a PR touching only allowlisted paths (`.github/`, `scripts/`, `wiki/`, `docs/`, `.claude/`, Swift trees, top-level prose) needs none | Name only the right packages; split a mixed one; `scripts/changeset-required.sh` is the allowlist |
 | Wrangler named environments do NOT inherit top-level bindings (`[[d1_databases]]`, `[[r2_buckets]]`, `[[unsafe.bindings]]`, `[images]`) | Mirror every binding into `[env.production]` and `[env.dev]`; verify with `wrangler deploy --dry-run`, and remember a real first deploy catches module-eval crashes a dry run does not |
-| The Bash tool's shell is fish, and bare `git` may not be on PATH | Wrap bash-isms in `bash -c '...'`; call `/usr/bin/git` |
-| A fresh worktree has no `node_modules` | The subagent runs `bun install` at the worktree root before any test |
+| The Bash tool's shell is fish, and bare `git` may not be on PATH. A `Monitor` script or a background loop runs in fish too, and a bash-only line in it fails with nothing on stdout, which reads as "still waiting" | Wrap bash-isms in `bash -c '...'`; put any loop in a file and run `bash <file>`; call `/usr/bin/git` |
+| macOS has no `timeout` binary; `timeout 600 <cmd>` exits 127 | Keep the deadline inside the loop with `$SECONDS`, as `references/wait-pr.sh` does, or use a `Monitor`'s `timeout_ms` |
+| A wait with no end: a loop that matches only success, a `Monitor` filter that is silent on failure, an empty check list read as finished, an agent left "waiting on its own background work" after its CI went red | Every wait names its terminal states, failure and cancellation included, and a deadline after which it reports and exits — SKILL.md Step 5, **Every wait ends**; `references/wait-pr.sh` for a pull request |
+| A reviewer or watcher outlives its purpose — a security reviewer still running days after its pull request merged — and the agent listing calls it completed | Record every background task on the task's `running:` line; at each step boundary stop with `TaskStop` whatever has served its purpose, trusting the ledger over the listing. A subagent that dispatches reviewers collects or stops them before it returns |
+| Every agent on the account shares one usage limit, and reaching it stops all of them at once; a resumed agent re-reads its whole context | Run `pick-agent`'s rubric on every hand-off instead of sending everything to `implementer` by habit: work whose answer the issue already states goes to `mechanic`. The rubric still decides by what the task needs (`pick-agent` §Four traps); the shared limit is why skipping it costs every other running task too |
+| A fresh worktree has no `node_modules` | The subagent runs `bun install --frozen-lockfile` at the worktree root before any test |
 | LSP diagnostics in a worktree are often stale or wrong (no `node_modules` → bad type resolution) | Trust `bun test`, `tsc --noEmit` and `wrangler deploy --dry-run` over streamed diagnostics |
 | Merging many PRs in sequence: the release workflow auto-versions on each merge, and sibling PRs touching the same file (`wrangler.toml`, an entry `index.ts`) conflict | Merge in dependency order; rebase and resolve additively as you go |
 | A wiki edit made through the Obsidian MCP or the `obsidian` CLI lands in `main`'s working tree, not the task's branch — it never reaches the PR and it dirties `main` | Both are read-only by construction (the vault path is baked to `main/wiki/`). Search with them; edit with Edit/Write in the task's worktree. If `main` is already dirty, tell the user — never reset another worktree |

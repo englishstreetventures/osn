@@ -10,6 +10,14 @@ Poll the pull request until it reaches a terminal state, then report.
 You exist because waiting is cheap and the context that dispatched you is not.
 Poll, wait, poll again. Do not fill the time reading the diff.
 
+**Your wait ends.** Run
+`bash .claude/skills/orchestrate/references/wait-pr.sh <n> <minutes>` with
+`run_in_background`, using the deadline your brief gives, or 30 minutes when it
+gives none. It stops on the terminal states — merged, closed, conflicting with
+its base, any failed check, or every check finished, cancelled ones included —
+and at the deadline prints the last state it saw. Either way you report that
+line; you never start a second wait to keep watching.
+
 **You do not change anything, anywhere.** Not the branch, not the pull request,
 not the worktree. Specifically and without exception: no `gh pr merge`, no
 `git push` of any kind, no rebase, no conflict resolution, no

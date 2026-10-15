@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: Use when driving one or more tasks end to end from the local bare repo's `main` worktree — a feature designed with the user first when its scope is open, or a ready list of tasks — ordering them, cutting a worktree per task, handing each to a subagent that runs new-feat, running prep-pr with every finding fixed rather than reported, and shepherding each pull request to a squash merge and worktree teardown. Not for a one-file change, and not outside the bare repo.
+description: Use when driving one or more tasks end to end from the local bare repo's `main` worktree — a feature designed with the user first when its scope is open, or a ready list of tasks — ordering them, cutting a worktree per task, handing each to a subagent that runs new-feat, running prep-pr with every finding fixed rather than reported, and shepherding each pull request to a squash merge and worktree teardown. Also the route for a request to review and fix an open pull request another tool or session wrote, through review-pr. Not for a one-file change, and not outside the bare repo.
 ---
 
 Orchestrate `$ARGUMENTS` end to end. If it is empty, or asks what to work on next, run the `next-batch` skill first: it reads the project board and returns the task list.
@@ -9,7 +9,7 @@ You are the orchestrator: you order the work and drive the loop, and you **do no
 
 ## What this run must produce
 
-Every task merged into `main` as its own squash-merged pull request, its worktree removed, and a closing summary: each PR (number and one line), anything deferred as a tracked follow-up, any deploy-time or human action a subagent surfaced, and any issue a merge did not close that the owner must close by hand.
+Every task merged into `main` as its own squash-merged pull request, the worktree this run created for it removed, and a closing summary: each PR (number and one line), anything deferred as a tracked follow-up, any deploy-time or human action a subagent surfaced, any issue a merge did not close that the owner must close by hand, and any worktree left in place because another tool or session made it.
 
 ## Precondition — the local bare-repo setup, run from `main/`
 
@@ -76,9 +76,16 @@ worktree. One block per task:
 ## task 3 — vendor enquiry weddingName
 issue:       englishstventures/osn#812
 claimed:     osn#812 item 264995573
+agent:       implementer — new field on a route response plus its test; rating unconfirmed, chosen from the text
+premises:
+  - the route file is cire/api/src/routes/vendor-enquiries.ts
+    `git ls-tree --name-only origin/main cire/api/src/routes/ | grep enquir` → organiser-enquiries.ts, vendor-enquiries.ts
+  - the wedding's name column is display_name, not name
+    `git show origin/main:cire/db/src/schema.ts | grep -n display_name` → 27:    displayName: text("display_name").notNull(),
 worktree:    /Users/ac/.work/osn.git/vendor-enquiry-name
 branch:      feat/vendor-enquiry-name (base origin/main)
 pr:          not opened
+running:     a3f9 implementer (hand-off; ends when it reports) · b71c shepherd (PR CI; terminal state or 30 min)
 gates:       check ok · lint ok · test:run NOT RUN · fmt:check NOT RUN
 findings:    plan 1 · brief 0 · worker 2
 next:        stress-plan finding #2 still open — the DoD names a command that runs nothing
@@ -91,12 +98,21 @@ wrong thing, the brief's when the instruction was right but under-specified, the
 worker's when the brief was right and the code is not. It costs one line and it is
 the only signal that says which stage to spend more on.
 
+`agent:` is the definition `pick-agent` chose for the hand-off (Step 3) and the
+reason in one line. `premises:` holds every claim the brief makes about the
+code, each with the command that checked it on `origin/main` and the output that
+answered (Step 1). A task block with no `agent:` or no `premises:` line is not
+ready to dispatch. `running:` names every background task this run started for
+the task — subagent, shepherd, `Monitor`, background shell — with its id and
+what ends it; the sweep in Step 5 reads it.
+
 ## Step 00 — Feature or task list?
 
 Classify the input before ordering anything.
 
 - **A ready task list** — concrete changes, each with clear acceptance criteria ("add `weddingName` to the vendor enquiries response", "wire `astro check` into the two cire frontends"). Go to Step 0.
 - **A feature** — open scope, needs product or design direction, spans subsystems, or is big enough to want phases. Run the design phase first. When unsure, treat it as a feature: a short design gate is cheaper than a subagent guessing at scope.
+- **An open pull request to review and fix** — "review and fix PR #N", usually one another tool or session wrote. The branch and the pull request already exist; follow [Adopting an open pull request](#adopting-an-open-pull-request), which changes Steps 2 to 5.
 
 **The design phase is interactive; the build loop is not.** Do it with the user, synchronously, before any subagent exists:
 
@@ -128,6 +144,30 @@ Collect **orientation pointers** for the subagent: the files in play, the patter
 
 **Hit the wiki before the source** — its system pages already hold the contract, the finding history and the footguns. Use the three-tier ladder in `AGENTS.md` §The wiki (detail in `wiki/conventions/wiki-search.md`), pulling one heading (`get_note_outline`, `get_vault_file_partial`) rather than a whole page. Hand the subagent **wiki page paths, not pasted prose**: it has its own context window. Include the pages the task will make stale — that is `prep-pr`'s docs work list.
 
+**Check every premise before writing the brief.** A wrong fact in a brief costs
+the subagent a full plan-and-stress cycle, or a stop and a resume, before any
+code exists: a migration "numbered 0002" when the generator continues the
+archived chain, a script that no longer exists, a column on the wrong table, a
+route said to lack a limiter it has. Three checks, all before dispatch:
+
+1. **Each claim about the code, checked on `origin/main` with a command.** List
+   every fact the brief will state — a file, a column, a script, a route's
+   behaviour, the next migration number — and run the command that shows it:
+   `git show origin/main:<path>`, `git grep -n '<text>' origin/main -- <dir>`,
+   `git ls-tree --name-only origin/main <dir>/`. Quote the command and the
+   output on the task's `premises:` line. A claim the output contradicts is
+   corrected or dropped; it is never sent. **A brief states no code fact without
+   the command that showed it.**
+2. **Every owner decision the brief relies on is posted on the issue first.**
+   Write it as a comment (`gh api repos/englishstreetventures/<repo>/issues/<n>/comments -F body=@<file>`),
+   then point the brief at the comment's URL rather than paraphrasing it. A
+   subagent told a decision "is on the issue" looks for it there. A decision
+   about a tracker task goes on the private tracker issue, never on a public one.
+3. **The issue's own words are the contract.** For a task from an issue, quote
+   its **Done when** — or **Solution** where it has no Done when — verbatim in
+   the brief, rather than restating it. A feature phase has no such section:
+   its plan file is the contract, as Step 00 says.
+
 ### Step 2 — Worktree and branch
 
 **Fetch `main` and check the branch name is free.** The refspec is explicit because a bare clone maps no remote-tracking refs, so a plain `fetch origin main` leaves `origin/main` stale.
@@ -151,9 +191,13 @@ git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <pr
 
 ### Step 3 — Hand the task off, whole
 
-Dispatch **one** subagent that owns planning and implementation. Give it the task, the Step 1 pointers, the worktree path and branch, and these instructions.
+Dispatch **one** subagent that owns the task. Give it the task, the Step 1 pointers and premises, the worktree path and branch, and these instructions.
 
-Which one: run the `pick-agent` skill. It maps the task and its `complexity:` label to a definition in `.claude/agents/`, and so to a model and an effort level — `implementer` for anything that designs something, `mechanic` for work whose answer is fixed before it starts. Default to `implementer` when unsure; defaulting up is recoverable and defaulting down produces a subagent that does a worse job and reports success.
+**Which one: run the `pick-agent` skill for every hand-off and every re-dispatch of it**, and write its answer on the task's `agent:` line before sending. Its §The rubric table and its complexity table decide — `implementer` for anything that designs something, `mechanic` for work whose answer is fixed before it starts — and it says why a `complexity:unconfirmed` rating counts for nothing. Three cases decide most hand-offs:
+
+- A skill-text, docs or test-only task whose issue already states the change — the wording, the test — goes to `mechanic`.
+- Reviewing and fixing an open pull request is whole-task work and goes to `implementer`. A review that fixes nothing goes to `reviewer`, a plan attack to `attacker`; neither ever goes to `implementer` or `general-purpose`.
+- Anything the rubric does not settle goes to `implementer`: defaulting up is recoverable, and defaulting down produces a subagent that does a worse job and reports success. Unsure means the rubric did not settle it, not that it was not run.
 
 **The dispatch is a contract, not a description.** A subagent inherits no
 conversation, so anything not in the text does not exist, and anything wrong in it
@@ -176,6 +220,8 @@ gets followed to the letter. Every dispatch carries:
   it. If nothing reads it, the task is not done — "create the file" and "make
   something call it" are separate steps, and an implementer reliably does the
   first and skips the second.
+- **The issue's Done when, verbatim**, and the premises from Step 1, each with
+  the command that showed it.
 - **Never invent an identifier.** Hostname, key name, path, port, flag, package
   name. Unknown value means stop and report `NEEDS INPUT`, never a plausible
   placeholder.
@@ -193,7 +239,7 @@ gets followed to the letter. Every dispatch carries:
 `test -e` every path a dispatch names before sending it. A whole task has been
 lost to a directory that did not exist, and that was the orchestrator's fault.
 
-Then the instructions themselves:
+Then the instructions themselves, for an `implementer` hand-off:
 
 - Invoke the `new-feat` skill and follow it — it routes to the right sub-skills. Plan the implementation itself; do not wait for a plan from you.
 - Match repo conventions (`AGENTS.md`, the product's `wiki/<product>/<product>-development.md`), add the changeset, follow the observability rules, write tests — TDD where there is logic.
@@ -202,6 +248,16 @@ Then the instructions themselves:
 - On a decision it cannot resolve from the context and sensible defaults, **stop and return `NEEDS INPUT: <question> + options + recommendation`** rather than guess.
 
 Do not re-implement or second-guess its design. Its final message is a report to you, not to the user.
+
+**A `mechanic` hand-off does not run `new-feat`.** The definition applies a change
+whose answer the brief already holds, so the brief carries that answer: the
+issue's Fix and Done when, verbatim, the files the issue names and the command
+that proves the change. You are not designing it — the issue states it, which is
+what made the task mechanical. Its instructions: apply the change exactly,
+commit on the branch, do not push, and return `NEEDS INPUT` the moment the
+change needs a decision nobody has made. A `NEEDS INPUT` from a `mechanic` is
+answered by re-dispatching the task to an `implementer` with the question in
+its brief, and the `agent:` line changes to say so.
 
 For a **large phase** — a plan with many independent tasks — tell the subagent to run `superpowers:subagent-driven-development` against the plan file instead of `new-feat`: a fresh implementer per task, a review per task, a review of the whole branch, all inside the one branch. Still one PR; `prep-pr` runs once at the end. That plugin's templates dispatch `general-purpose` with a `model`; tell the subagent to route them as `pick-agent` §Never `general-purpose` says — cheapest-tier implementer prompts to `mechanic`, the rest to `implementer`, the final whole-branch review to `reviewer`, per-task reviews left as the plugin dispatches them.
 
@@ -233,7 +289,7 @@ Two rules for anything you dispatch into a worktree:
   worktree, as `prep-pr` Step 6 runs two: their tool grant has no `Edit` and
   their definition tells them never to change the checkout.
 
-Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. This skill's contract is stronger: **after the reviews, dispatch `implementer` fix subagents to add the missing tests and fix every security and performance finding** — Critical, High and Medium at minimum, Low and Info when cheap — then re-verify. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. A Medium deliberately deferred is carried into the PR body as a tracked follow-up. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the five-section PR body with the `write-pr` skill, push, and open the PR. Once it is open, move the issue's card to In Review (`next-batch` §Claim, step 4).
+Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. This skill's contract is stronger: **after the reviews, dispatch fix subagents to add the missing tests and fix every security and performance finding** — Critical, High and Medium at minimum, Low and Info when cheap — then re-verify. Choose each fix subagent with `pick-agent`, as Step 3 does: a missing test whose cases the review already spells out is `mechanic` work, and a fix that needs a design is `implementer` work. Record each on the task's `running:` line until it reports. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. A Medium deliberately deferred is carried into the PR body as a tracked follow-up. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the five-section PR body with the `write-pr` skill, push, and open the PR. Once it is open, move the issue's card to In Review (`next-batch` §Claim, step 4).
 
 ### Step 5 — Retro, then watch, merge, tear down
 
@@ -251,18 +307,87 @@ The shepherd's whole job:
 
 ```bash
 gh pr ready <n>                                                       # if opened as a draft; then wait ~10 s before reading state
-gh pr view <n> --json mergeStateStatus,statusCheckRollup,state
+gh pr checks <n> --repo englishstreetventures/osn --json name,bucket,link
+gh pr view <n> --repo englishstreetventures/osn --json mergeStateStatus,state
 ```
 
-It reports the terminal state, and for a failure the job name and the decisive line of its output — not the whole log. Then you act on what it reports:
+Its brief names the terminal states and the deadline, as **Every wait ends** below says. It reports the terminal state it reached, or the last state it saw when the deadline passed, and for a failure the job name and the decisive line of its output — not the whole log. Then you act on what it reports:
 
 - All checks green and `mergeStateStatus: CLEAN` → **you** run `gh pr merge <n> --squash --delete-branch`.
 - `DIRTY` or `BEHIND` → dispatch an **`implementer`** to rebase onto the latest `origin/main`, resolve conflicts (sibling PRs that merged first are usually additive — keep both sides; for changeset or version churn from the release workflow, take the regenerated state), re-run the touched package's tests and `git push --force-with-lease`. Conflict resolution is a judgement call and a force-push is not recoverable, so neither belongs to the polling agent.
-- A real check failure → dispatch an `implementer` fix subagent, push, re-poll. Never merge red.
-- Once `MERGED`, **you** run `git worktree remove --force <dir>` and delete the local branch. Never leave a merged task's worktree behind.
+- A check failure → first find out whose it is: a test that also fails on `main`, or one the branch never touches that passes on a rerun, is not this branch's to fix (`review-pr` Step 3 has the commands). A real failure of the branch's → dispatch an `implementer` fix subagent, push, re-poll. Never merge red.
+- Once `MERGED`, **you** run `git worktree remove --force <dir>` and delete the local branch, for the worktree this run created. Never leave one of those behind. A worktree another tool or session made — an adopted pull request's — stays where it is, and the closing summary names it.
 - Once `MERGED`, carry into the closing summary every close the subagent reported it could not make — tracker lines the classifier refused, a stacked pull request's closes that never registered (`write-pr` Step 6). Those issues stay open until the owner closes them by hand.
 
 **Between dependent tasks:** fetch `main` with Step 2's refspec and fast-forward local `main` so the next worktree is cut from the updated tip. If a later task's branch already exists and now conflicts, rebase it before its Step 5.
+
+#### Every wait ends
+
+A wait with no end holds its slot against the account's usage limit and tells
+the owner work is moving when it is not. Three rules, for every wait this run
+or any subagent starts — the shepherd's poll, a `Monitor`, a background loop, an
+agent watching its own CI:
+
+1. **It names its terminal states and a deadline, and it ends on either.** For a
+   pull request the terminal states are `MERGED` or `CLOSED`; `DIRTY`, which
+   runs no checks until a rebase; any check in the `fail` bucket; or at least
+   one check and none `pending` — `pass`, `skipping` and `cancel` all count as
+   finished. For a single workflow run it is `status: completed`, whatever the
+   conclusion: `success`, `failure`, `cancelled`, `timed_out`,
+   `startup_failure`. An empty check list is not terminal, since a pull request
+   has none until its workflows register after a push. The deadline is 30
+   minutes for CI unless the brief sets another; when it passes, the wait
+   prints the last state it saw and exits. A filter that prints only on
+   success is silent on a failure, and silence reads as "still running".
+   `references/wait-pr.sh` does all of this for a pull request:
+
+   ```bash
+   bash .claude/skills/orchestrate/references/wait-pr.sh <n> 30   # exit 0 done, 1 needs action, 2 deadline
+   ```
+
+   The Bash tool stops a foreground call after ten minutes and refuses a
+   foreground `sleep`, so run it with `run_in_background`, which sends one
+   notice when it exits. A `Monitor` works too, but expires after 30 minutes
+   at most, so give the script a shorter deadline than its `timeout_ms`.
+   Either way the script's own deadline ends it with a line, and you work on
+   something else meanwhile.
+2. **A subagent that dispatched reviewers or watchers collects or stops them
+   before it returns.** Every brief that lets a subagent dispatch says so;
+   `prep-pr` Steps 4 and 6 say it for their reviewers.
+3. **At each step boundary, sweep.** Read every `running:` line in
+   `ORCHESTRATE.md` and the harness's own task listing; stop with `TaskStop`
+   anything whose pull request has merged or whose purpose has passed, and
+   strike it from the line. Trust the ledger over the listing: a listing can
+   show a task as completed while it still runs, so a task you started and
+   never saw report is stopped anyway — stopping a finished task does nothing.
+
+## Adopting an open pull request
+
+"Review and fix PR #N" hands you a branch, a pull request and usually a
+worktree that already exist, often made by another tool. The `review-pr` skill
+holds the procedure; this run changes around it as follows.
+
+- **Step 1** as usual, and the premises include the PR's head branch and
+  repository, the issue it closes, and its worktree:
+  `git worktree list | grep -F "[<branch>]"`.
+- **The claim.** The open pull request already holds its issue in `next-batch`
+  §Claim's terms; the owner's request is what lets you take it. Write
+  `claimed: <repo>#<n> (adopting PR #N at the owner's request)` and leave the
+  card in, or move it to, In Review. If the issue is In Progress and you did
+  not move it there, another session may be working on it: ask the owner.
+- **Step 2 is skipped.** The branch's own worktree replaces it; `review-pr`
+  makes one only when none exists, and then this run owns it.
+- **Step 3** dispatches an `implementer` whose brief says to invoke `review-pr`
+  on PR #N in that worktree, not `new-feat`. The pull request already exists,
+  so the hand-off pushes and rewrites the body itself: the usual "do not push"
+  instruction does not apply. It stops after the push and reports; the CI wait
+  is Step 5's.
+- **Step 4.** `review-pr` has already run `prep-pr`'s gates and reviews and
+  rewritten the body. Do the mechanical checks and read the diff and its
+  report as usual; do not run `prep-pr` again — its Step 9 would open a second
+  pull request.
+- **Step 5** as usual, except the teardown: remove the worktree only if this
+  run created it, and name any other in the closing summary.
 
 ## When a subagent dies mid-task
 
@@ -301,6 +426,7 @@ The full table, with the reason behind each, is `references/gotchas.md`. The one
 - Pre-push runs `bun audit --audit-level=high`. An advisory in an installed package is a real stop; do not push with `--no-verify` to get past one — fix or override it in `package.json` and say so in the PR. When no fixed version exists, an `--ignore` entry is possible only on the terms in the comment above `audit` in `lefthook.yml`, with its dated `DROP AFTER` marker (never for a malicious-package advisory), and it is the owner's call, not yours: write the evidence into the issue, label it `needs:decision`, and do not merge that pull request until the owner approves it.
 - Merging several PRs in sequence: the release workflow versions on every merge, so sibling PRs touching `wrangler.toml` or an `index.ts` conflict. Merge in dependency order and rebase additively.
 - Wrangler named environments inherit no top-level bindings. Every `[[d1_databases]]`, `[[r2_buckets]]` and `[images]` is mirrored into `[env.production]` and `[env.dev]`; verify with `wrangler deploy --dry-run`.
+- A wait with no end — a loop that prints only on success, a reviewer nobody collected, a watcher left running after its PR merged — holds a slot against the usage limit until the owner notices. Step 5, **Every wait ends**.
 
 ## When not to use this
 
