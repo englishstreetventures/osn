@@ -46,14 +46,14 @@
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
     "@testing-library/jest-dom": "^7.0.1",
-    "@vitest/browser": "4.1.11",
-    "@vitest/browser-playwright": "4.1.11",
+    "@vitest/browser": "5.0.3",
+    "@vitest/browser-playwright": "5.0.3",
     "happy-dom": "^20.12.2",
     "playwright": "^1.62.1",
     "typescript": "^6.0.3",
     "vite": "^8.2.2",
     "vite-plugin-solid": "^2.11.14",
-    "vitest": "^4.1.11"
+    "vitest": "5.0.3"
   },
   "portless": {
     "name": "host.cire",

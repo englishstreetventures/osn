@@ -7,7 +7,11 @@ import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { runCire } from "../observability";
-import { PlusOneNameBody, PlusOnePermissionBody } from "../schemas/plus-one";
+import {
+  PlusOneNameBody,
+  PlusOnePermissionBody,
+  PlusOnePermissionParseOptions,
+} from "../schemas/plus-one";
 import { plusOneService } from "../services/plus-one";
 
 // Sentinel parse hook — same idiom as the other organiser PUT routes: the
@@ -84,7 +88,10 @@ export const createOrganiserPlusOneRoutes = (db: Db, osnAuthOptions: OsnAuthOpti
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknownEffect(PlusOnePermissionBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(
+                  PlusOnePermissionBody,
+                  PlusOnePermissionParseOptions,
+                )(raw);
                 return yield* plusOneService.setGuestPermission({
                   weddingId,
                   guestId: params.guestId,
@@ -115,7 +122,10 @@ export const createOrganiserPlusOneRoutes = (db: Db, osnAuthOptions: OsnAuthOpti
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknownEffect(PlusOnePermissionBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(
+                  PlusOnePermissionBody,
+                  PlusOnePermissionParseOptions,
+                )(raw);
                 return yield* plusOneService.setHouseholdPermission({
                   weddingId,
                   familyId: params.familyId,

@@ -211,13 +211,14 @@ wiki/.obsidian/
 # Private business/legal planning notes — never committed
 wiki/business/
 
-# Vitest browser-mode artifacts (transient, per-run). Vitest writes a screenshot
-# and an attachment for every FAILING browser test, next to the test file. They
-# are debugging aids for the run that produced them — regenerated on the next
-# failure and meaningless once the test is fixed. See
+# Vitest browser-mode artifacts (transient, per-run). Vitest writes failure
+# screenshots and attachments under each package's .vitest/attachments/, and
+# `page.screenshot()` without a path writes to __screenshots__/ beside the test.
+# `toMatchScreenshot` reference images would also land in __screenshots__/ and
+# must be committed: none exist, and adding one means narrowing that line. See
 # [[wiki/conventions/browser-tests]].
+.vitest/
 **/__screenshots__/
-**/.vitest-attachments/
 
 # Xcode / SwiftPM (generated, never committed)
 *.xcodeproj

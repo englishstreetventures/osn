@@ -20,7 +20,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
  * ## Tracing
  *
  * `makeOtlpTracing` sets the `Tracer.Tracer` reference to an OTLP/HTTP exporter
- * built on `effect/unstable/observability` + `globalThis.fetch` — no
+ * built on `effect/observability` + `globalThis.fetch` — no
  * `@effect/opentelemetry` `NodeSdk`, no `@opentelemetry/sdk-*`, so it runs on
  * workerd. Until this existed, every `Effect.withSpan` in the deployed Worker
  * recorded into Effect's in-memory default tracer and was dropped on the floor.

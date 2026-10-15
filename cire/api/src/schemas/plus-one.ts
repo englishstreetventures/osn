@@ -88,12 +88,16 @@ export type ConfirmedPlusOne = Schema.Schema.Type<typeof ConfirmedPlusOne>;
  *
  * Unknown keys are refused rather than dropped: a misspelled confirmation would
  * otherwise decode as "confirms nobody" and be refused as `plus_one_named` again
- * and again, with nothing to say why.
+ * and again, with nothing to say why. That refusal holds only where the
+ * decoder is given `PlusOnePermissionParseOptions`: Effect ignores parse
+ * options set as an annotation on the schema, so every decode of this body
+ * passes them.
  */
 export const PlusOnePermissionBody = Schema.Struct({
   allowed: Schema.Boolean,
   removePlusOnes: Schema.Array(ConfirmedPlusOne)
     .check(Schema.isMaxLength(PLUS_ONE_REMOVALS_MAX))
     .pipe(Schema.withDecodingDefaultType(Effect.succeed([]))),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+});
+export const PlusOnePermissionParseOptions = { onExcessProperty: "error" } as const;
 export type PlusOnePermissionBody = Schema.Schema.Type<typeof PlusOnePermissionBody>;
