@@ -193,7 +193,7 @@ describe("global.css lockstep (T-S1)", () => {
     // The palette overrides these at the root; global.css is what paints when
     // no scheme is set. A token derived here but missing there would render as
     // an empty custom property on an un-themed invite.
-    const css = readFileSync(resolve(process.cwd(), "src/styles/global.css"), "utf8");
+    const css = readFileSync(resolve(import.meta.dirname, "../../src/styles/global.css"), "utf8");
     for (const token of Object.keys(derivePalette(PALETTE_PRESETS.evergreen))) {
       expect(css).toContain(`${token}:`);
     }
@@ -203,7 +203,7 @@ describe("global.css lockstep (T-S1)", () => {
     // `evergreen` IS today's look, spelled out in `@cire/theme`. If someone
     // retunes a token in global.css without updating the preset, an un-themed
     // invite and an explicitly-evergreen one would drift apart.
-    const css = readFileSync(resolve(process.cwd(), "src/styles/global.css"), "utf8");
+    const css = readFileSync(resolve(import.meta.dirname, "../../src/styles/global.css"), "utf8");
     const token = (name: string): string => {
       const match = css.match(new RegExp(`${name}:\\s*([^;]+);`));
       expect(match, `${name} must exist in global.css`).not.toBeNull();
