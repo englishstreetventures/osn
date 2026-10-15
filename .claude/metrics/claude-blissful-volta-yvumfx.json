@@ -41,7 +41,7 @@
       "cache_read": 97140352
     },
     "by_model": {
-      "claude-opus-5-5": {
+      "redacted": {
         "tokens": {
           "input": 1036,
           "output": 143931,
