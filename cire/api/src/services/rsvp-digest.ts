@@ -4,10 +4,11 @@
  *
  * Who gets one: every owner of the wedding and every co-host whose role
  * carries the `editor` capability (`policyFor` in `middleware/wedding-role.ts`),
- * less anyone who turned it off for that wedding. What it covers: the changes
- * in `rsvp_changes` past that person's `digest_seq`, counted in households per
- * kind, and for someone with no marker yet only what changed after they were
- * given their seat. It carries no guest name (see the template in
+ * less anyone who turned it off for that wedding. What it covers: the
+ * household changes in `rsvp_changes` past that person's `digest_seq` (never
+ * an organiser's status save), counted in households per kind, and for
+ * someone with no marker yet only what changed after they were given their
+ * seat. It carries no guest name (see the template in
  * `@shared/email`).
  *
  * Built for one shared cron invocation on Workers Free — 50 external
@@ -47,7 +48,7 @@ import { metricRsvpDigestEmails, type RsvpDigestOutcome } from "../metrics";
 import { decideCapability, type WeddingRole } from "../middleware/wedding-role";
 import { normaliseHostRole } from "./hosts";
 import type { OrganiserEmailAnswer, OsnOrganiserEmailLookup } from "./osn-bridge";
-import { rsvpChangeService, type RsvpChangeError } from "./rsvp-changes";
+import { householdChanges, rsvpChangeService, type RsvpChangeError } from "./rsvp-changes";
 
 /**
  * Recipients per run. One osn-api lookup call takes 100 ids and one Resend
@@ -230,10 +231,13 @@ export function buildMarkStatement(db: Db, marks: readonly Mark[], now: Date) {
 }
 
 /**
- * The digest's first read: each wedding with a change in the window, its
- * newest seq and newest time. The `+` keeps SQLite from answering the
- * `GROUP BY` by walking the wedding index over the whole 90-day log; with it
- * the read ranges over `rsvp_changes_created_at_idx` (pinned by a plan test).
+ * The digest's first read: each wedding with a household change in the
+ * window, its newest seq and newest time. An organiser's status save is no
+ * change to mail, so a wedding with only those is no candidate and its
+ * markers stay. The `+` keeps SQLite from answering the `GROUP BY` by walking
+ * a wedding index over the whole 90-day log; with it the read ranges over
+ * `rsvp_changes_household_created_at_idx` (pinned by a plan test), the
+ * household's rows of the window and no organiser's.
  */
 export function buildCandidateQuery(db: Db, since: Date) {
   return db
@@ -243,7 +247,7 @@ export function buildCandidateQuery(db: Db, since: Date) {
       maxAt: max(rsvpChanges.createdAt),
     })
     .from(rsvpChanges)
-    .where(gte(rsvpChanges.createdAt, since))
+    .where(and(gte(rsvpChanges.createdAt, since), householdChanges))
     .groupBy(sql`+${rsvpChanges.weddingId}`);
 }
 
@@ -388,7 +392,8 @@ export const rsvpDigestService = {
           .select({
             weddingId: rsvpChanges.weddingId,
             familyId: rsvpChanges.familyId,
-            kind: rsvpChanges.kind,
+            // The WHERE admits only the household's kinds.
+            kind: sql<RsvpChangeKind>`${rsvpChanges.kind}`,
             maxSeq: max(rsvpChanges.seq),
             maxAt: max(rsvpChanges.createdAt),
           })
@@ -398,6 +403,7 @@ export const rsvpDigestService = {
               inArray(rsvpChanges.weddingId, jsonEachIn(chosenWeddings)),
               gte(rsvpChanges.createdAt, lookback),
               gt(rsvpChanges.seq, minCursor),
+              householdChanges,
             ),
           )
           .groupBy(rsvpChanges.weddingId, rsvpChanges.familyId, rsvpChanges.kind)

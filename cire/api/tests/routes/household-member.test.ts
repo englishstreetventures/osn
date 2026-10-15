@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 
 import {
+  BOOTSTRAP_WEDDING_ID,
   families,
   guestAccountLinks,
   guestEvents,
@@ -67,6 +68,12 @@ function guestId(db: TestDb, firstName: string): string {
     .get();
   if (!row) throw new Error(`no seeded guest named ${firstName}`);
   return row.id;
+}
+
+function familyOf(db: TestDb, id: string): string {
+  const row = db.select({ familyId: guests.familyId }).from(guests).where(eq(guests.id, id)).get();
+  if (!row) throw new Error("no such guest");
+  return row.familyId;
 }
 
 function firstEventOf(db: TestDb, id: string): string {
@@ -536,6 +543,8 @@ describe("POST /api/rsvp and the member step", () => {
     await Effect.runPromise(
       rsvpService
         .recordStatus({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          familyId: familyOf(db, bo),
           guestId: bo,
           eventId,
           status: "declined",

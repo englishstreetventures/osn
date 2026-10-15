@@ -163,10 +163,12 @@ CREATE TABLE IF NOT EXISTS rsvp_changes (
   event_id TEXT,
   kind TEXT NOT NULL,
   created_at INTEGER NOT NULL,
-  actor_guest_id TEXT
+  actor_guest_id TEXT,
+  actor_osn_profile_id TEXT
 );
-CREATE INDEX IF NOT EXISTS rsvp_changes_wedding_idx ON rsvp_changes(wedding_id);
+CREATE INDEX IF NOT EXISTS rsvp_changes_wedding_actor_idx ON rsvp_changes(wedding_id, actor_osn_profile_id);
 CREATE INDEX IF NOT EXISTS rsvp_changes_created_at_idx ON rsvp_changes(created_at);
+CREATE INDEX IF NOT EXISTS rsvp_changes_household_created_at_idx ON rsvp_changes(created_at) WHERE actor_osn_profile_id IS NULL;
 CREATE INDEX IF NOT EXISTS rsvp_changes_family_idx ON rsvp_changes(family_id);
 
 CREATE TABLE IF NOT EXISTS host_rsvp_notices (

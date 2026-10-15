@@ -20,7 +20,7 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
   )}
 
   <h1>Privacy Notice</h1>
-  <p class="meta">Last updated: 2026-08-20</p>
+  <p class="meta">Last updated: 2026-10-15</p>
 
   <p>
     This notice explains how <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>, trading as Cire
@@ -46,6 +46,10 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
   <ul>
     <li><strong>Organiser accounts</strong> — your name, email address and passkey credentials
       (public key only — no passwords), and the weddings you manage.</li>
+    <li><strong>Which organiser changed a guest&rsquo;s reply</strong> — when you record or
+      change a guest&rsquo;s RSVP in the organiser portal, we note your account identifier
+      against that reply, and each time you change only its status we also keep a dated
+      record naming you. This lets a couple with several organisers tell who changed what.</li>
     <li><strong>Wedding content</strong> — invitation wording, images, event schedules, checklists
       and budgets you create.</li>
     <li><strong>Guest information uploaded by organisers</strong> — guest names, household
@@ -67,6 +71,8 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
     <li>To process purchases and unlock paid add-ons.</li>
     <li>To send transactional email (sign-in codes, security notices) — never marketing without consent.</li>
     <li>To keep the service secure and improve it.</li>
+    <li>To keep an accurate record of who changed a guest&rsquo;s reply when several people
+      manage one wedding — our legitimate interest in a shared record the couple can rely on.</li>
   </ul>
   <p>We do not sell personal information, and we do not use it for third-party advertising.</p>
 
@@ -101,7 +107,9 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
     needs) is automatically deleted <strong>one year after the wedding&rsquo;s final event</strong>.
     That window is set by us and applies to every wedding — an organiser cannot extend it.
     Other wedding and account data is kept while your account is active and removed when you ask us
-    to; specific periods for account data:
+    to. The dated record of a status change naming the organiser who made it is deleted after
+    <strong>90 days</strong>; the note of who last changed a reply goes with the reply. Specific
+    periods for account data:
     <span class={ph(LEGAL_ENTITY.accountDataRetention)}>{LEGAL_ENTITY.accountDataRetention}</span>.
   </p>
 

@@ -24,3 +24,12 @@ describe("events schema indexes", () => {
     expect(indexNames.has("events_wedding_idx")).toBe(false);
   });
 });
+
+// The change-log readers that tell organisers about changes admit only
+// RSVP_CHANGE_KINDS, so a kind an organiser's write records must never be one.
+describe("rsvp_changes kinds", () => {
+  it("keeps the household's kinds and the organiser's apart", () => {
+    const household = new Set<string>(schema.RSVP_CHANGE_KINDS);
+    expect(schema.RSVP_HOST_CHANGE_KINDS.filter((kind) => household.has(kind))).toEqual([]);
+  });
+});

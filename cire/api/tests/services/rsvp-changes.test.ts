@@ -10,6 +10,7 @@ import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import {
+  buildHostStatusStatement,
   buildRecordStatement,
   buildUnseenHouseholdsQuery,
   buildUnseenPairsQuery,
@@ -29,6 +30,8 @@ import { insertWedding } from "../test-helpers/wedding";
 
 const OWNER = "usr_dev_bootstrap_owner";
 const EDITOR = "usr_changes_editor";
+/** An organiser whose status-only saves the log records. */
+const RECORDER = "usr_changes_recorder";
 const HINDU = eventsData.hindu.id;
 const RECEPTION = eventsData.reception.id;
 
@@ -67,6 +70,28 @@ async function record(
     at,
   );
   if (statement) await commitBatch(db, [statement]);
+}
+
+/** Writes the row an organiser's status-only save logs, committed on its own. */
+async function recordHostStatus(
+  db: TestDb,
+  who: { id: string; familyId: string },
+  eventId: string,
+  at = new Date(),
+) {
+  await commitBatch(db, [
+    buildHostStatusStatement(
+      db,
+      {
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        familyId: who.familyId,
+        guestId: who.id,
+        eventId,
+        osnProfileId: RECORDER,
+      },
+      at,
+    ),
+  ]);
 }
 
 const reply = (
@@ -175,6 +200,7 @@ describe("buildRecordStatement", () => {
         kind: "reply_new",
         createdAt: new Date("2026-09-20T10:00:00Z"),
         actorGuestId: ada.id,
+        actorOsnProfileId: null,
       },
       {
         seq: rows[0]!.seq + 1,
@@ -185,6 +211,7 @@ describe("buildRecordStatement", () => {
         kind: "plus_one_added",
         createdAt: new Date("2026-09-20T10:00:00Z"),
         actorGuestId: ada.id,
+        actorOsnProfileId: null,
       },
     ]);
   });
@@ -202,6 +229,28 @@ describe("buildRecordStatement", () => {
       new Date(),
     ) as unknown as { toSQL(): { params: unknown[] } };
     expect(statement.toSQL().params.length).toBeLessThan(10);
+  });
+});
+
+describe("buildHostStatusStatement", () => {
+  it("writes one host_status_set row naming the organiser, not a household member", async () => {
+    const { db, ada } = fixture();
+    const at = new Date("2026-09-21T10:00:00Z");
+    await recordHostStatus(db, ada, HINDU, at);
+    const rows = db.select().from(rsvpChanges).all();
+    expect(rows).toEqual([
+      {
+        seq: rows[0]!.seq,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        familyId: ada.familyId,
+        guestId: ada.id,
+        eventId: HINDU,
+        kind: "host_status_set",
+        createdAt: at,
+        actorGuestId: null,
+        actorOsnProfileId: RECORDER,
+      },
+    ]);
   });
 });
 
@@ -353,7 +402,73 @@ describe("rsvpChangeService.feed", () => {
     });
   });
 
-  it("reads each window once, through the wedding index, ranging on seq", () => {
+  it("leaves an organiser's status saves out of the card and the badges", async () => {
+    const { db, ada, bo } = fixture();
+    await recordHostStatus(db, ada, HINDU);
+    expect(await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER))).toEqual({
+      households: 0,
+      truncated: false,
+      items: [],
+    });
+    expect(await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER))).toEqual({
+      markSeq: 0,
+      rows: [],
+    });
+
+    // Beside a household's change, only the household's change is shown.
+    await record(db, bo.familyId, [{ guestId: bo.id, eventId: RECEPTION, kind: "reply_edited" }]);
+    await recordHostStatus(db, ada, RECEPTION);
+    const feed = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(feed.households).toBe(1);
+    expect(feed.items.map((i) => [i.familyId, i.kinds])).toEqual([[bo.familyId, ["reply_edited"]]]);
+    const table = await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(table.rows).toEqual([{ guestId: bo.id, eventId: RECEPTION }]);
+    const [boRow] = db
+      .select({ seq: rsvpChanges.seq })
+      .from(rsvpChanges)
+      .where(eq(rsvpChanges.kind, "reply_edited"))
+      .all();
+    expect(table.markSeq).toBe(boRow!.seq);
+  });
+
+  it("badges household changes on either side of organiser saves", async () => {
+    const { db, ada, bo } = fixture();
+    await record(db, bo.familyId, [{ guestId: bo.id, eventId: HINDU, kind: "reply_new" }]);
+    for (let i = 0; i < 3; i++) await recordHostStatus(db, ada, HINDU);
+    await record(db, ada.familyId, [{ guestId: ada.id, eventId: RECEPTION, kind: "reply_new" }]);
+    const feed = await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(feed.households).toBe(2);
+    expect(feed.truncated).toBe(false);
+    const table = await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER));
+    expect(table.rows).toEqual([
+      { guestId: bo.id, eventId: HINDU },
+      { guestId: ada.id, eventId: RECEPTION },
+    ]);
+  });
+
+  it("keeps a status save out once an organiser's erasure has removed their id", async () => {
+    const { db, ada } = fixture();
+    await recordHostStatus(db, ada, HINDU);
+    // The erasure step in wiki/compliance/dsar.md: the row stays, nameless.
+    db.update(rsvpChanges)
+      .set({ actorOsnProfileId: "" })
+      .where(eq(rsvpChanges.actorOsnProfileId, RECORDER))
+      .run();
+    expect(db.select({ kind: rsvpChanges.kind }).from(rsvpChanges).all()).toEqual([
+      { kind: "host_status_set" },
+    ]);
+    expect(await ok(db, rsvpChangeService.feed(BOOTSTRAP_WEDDING_ID, OWNER))).toEqual({
+      households: 0,
+      truncated: false,
+      items: [],
+    });
+    expect(await ok(db, rsvpChangeService.unseenRows(BOOTSTRAP_WEDDING_ID, OWNER))).toEqual({
+      markSeq: 0,
+      rows: [],
+    });
+  });
+
+  it("reads each window once, through the household index, ranging on seq", () => {
     const { db } = fixture();
     for (const build of [buildUnseenHouseholdsQuery, buildUnseenPairsQuery]) {
       const { sql: text, params } = build(db, BOOTSTRAP_WEDDING_ID, OWNER).toSQL();
@@ -364,7 +479,7 @@ describe("rsvpChangeService.feed", () => {
         .filter((detail) => /\b(SEARCH|SCAN) rsvp_changes\b/.test(detail));
       expect(lines).toEqual([
         expect.stringMatching(
-          /^SEARCH rsvp_changes USING INDEX rsvp_changes_wedding_idx \(wedding_id=\? AND rowid>\?\)$/,
+          /^SEARCH rsvp_changes USING (COVERING )?INDEX rsvp_changes_wedding_actor_idx \(wedding_id=\? AND actor_osn_profile_id=\? AND rowid>\?\)$/,
         ),
       ]);
     }
@@ -374,6 +489,20 @@ describe("rsvpChangeService.feed", () => {
 });
 
 describe("rsvpChangeService.markSeen", () => {
+  it("clamps to the newest household change, past any later status save", async () => {
+    const { db, ada } = fixture();
+    await record(db, ada.familyId, [{ guestId: ada.id, eventId: HINDU, kind: "reply_new" }]);
+    await recordHostStatus(db, ada, RECEPTION);
+    const [household] = db
+      .select({ seq: rsvpChanges.seq })
+      .from(rsvpChanges)
+      .where(eq(rsvpChanges.kind, "reply_new"))
+      .all();
+    expect(await ok(db, rsvpChangeService.markSeen(BOOTSTRAP_WEDDING_ID, OWNER, 1_000_000))).toBe(
+      household!.seq,
+    );
+  });
+
   it("never moves the marker past the wedding's newest change", async () => {
     const { db, ada } = fixture();
     await record(db, ada.familyId, [{ guestId: ada.id, eventId: HINDU, kind: "reply_new" }]);
@@ -458,6 +587,20 @@ describe("rsvpChangeService.sweepExpired", () => {
       { eventId: RECEPTION },
     ]);
   });
+
+  it("deletes an organiser's status saves on the same 90 days", async () => {
+    const { db, ada } = fixture();
+    const now = new Date("2026-09-27T04:00:00Z");
+    const old = new Date(now.getTime() - RSVP_CHANGE_RETENTION_MS - 1000);
+    const fresh = new Date(now.getTime() - RSVP_CHANGE_RETENTION_MS + 60_000);
+    await recordHostStatus(db, ada, HINDU, old);
+    await recordHostStatus(db, ada, RECEPTION, fresh);
+    await record(db, ada.familyId, [{ guestId: ada.id, eventId: HINDU, kind: "reply_new" }], old);
+    expect(await ok(db, rsvpChangeService.sweepExpired(now))).toBe(2);
+    expect(
+      db.select({ eventId: rsvpChanges.eventId, kind: rsvpChanges.kind }).from(rsvpChanges).all(),
+    ).toEqual([{ eventId: RECEPTION, kind: "host_status_set" }]);
+  });
 });
 
 describe("rsvp_changes cascade", () => {
@@ -465,6 +608,8 @@ describe("rsvp_changes cascade", () => {
     const { db, ada, bo } = fixture();
     await record(db, ada.familyId, [{ guestId: ada.id, eventId: HINDU, kind: "reply_new" }]);
     await record(db, bo.familyId, [{ guestId: bo.id, eventId: HINDU, kind: "reply_new" }]);
+    // An organiser's status save under the household goes with it too.
+    await recordHostStatus(db, ada, RECEPTION);
     db.delete(families).where(eq(families.id, ada.familyId)).run();
     expect(db.select({ familyId: rsvpChanges.familyId }).from(rsvpChanges).all()).toEqual([
       { familyId: bo.familyId },

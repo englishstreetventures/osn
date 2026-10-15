@@ -954,6 +954,8 @@ describe("householdReplied in the claim payload", () => {
     const statusOnly = (guestId: string, eventId: string) =>
       run(
         rsvpService.recordStatus({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          familyId: bo.familyId,
           guestId,
           eventId,
           status: "declined",

@@ -112,7 +112,8 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   **desktop-only and opt-in only** — Pinterest's `pinit_main.js` embed (touch
   devices get a plain link-out to Pinterest with no embed and no tracker). See
   [[subprocessors]]. The organisers' RSVP change notices add none: the change
-  log (`rsvp_changes`) holds ids and a kind, never the dietary content, and the
+  log (`rsvp_changes`) holds ids and a kind (and, on an organiser's
+  status-save row, that organiser's profile id), never the dietary content, and the
   daily digest email through Resend carries counts only — no household or guest
   name — so no guest data reaches the mail provider ([[cire-rsvp-changes]]).
 
@@ -220,10 +221,17 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     `rsvps.recorded_by_osn_profile_id`, and an organiser's dietary consent
     record names its attester in `rsvps.dietary_attested_by_osn_profile_id`,
     so with several editor seats each write and each attestation traces to one
-    person. The writer column holds the latest organiser writer only, not a
-    history: once anyone saves over a row, the earlier writer is gone. The
+    person. The writer column holds the latest organiser writer only: once
+    anyone saves over a row, the earlier writer is gone from it. So every
+    status-only save also writes a `host_status_set` row to the RSVP change log
+    naming the organiser (`rsvp_changes.actor_osn_profile_id`, migration 0084),
+    in the same D1 batch as the status, and that row keeps who set the status
+    for 90 days whatever is written over the reply after
+    ([[cire-rsvp-changes#Organiser status saves]]). The organisers' change
+    notices (card, badges, digest) never read those rows. The
     dashboard badges a host's status change on a guest's or household's reply
-    as "Host-updated"; no read endpoint returns either profile id. The
+    as "Host-updated", and the RSVP CSV labels it "(status by organiser)"; no
+    read endpoint returns any of the three profile ids. The
     household's claim payload carries one yes or no derived from
     `consent_source` (`householdReplied`: whether any of its replies is its
     own), so the invite can greet a returning household. It is a household
@@ -285,9 +293,10 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     `consent_source = 'inviter_attested'`**, and changes only the status (owner
     decision, englishstventures/osn#1251), as it does for every guest. The
     column then states the dietary data's consent basis, which is still the
-    household's attestation, and no longer who wrote the status. Accepted: the
-    status is not special-category data and the dietary evidence stays
-    accurate. An organiser dietary edit on a plus-one replaces the reply and
+    household's attestation, and no longer who wrote the status; who wrote it
+    is `rsvps.recorded_by_osn_profile_id` and the save's `host_status_set`
+    change-log row (above). The status is not special-category data and the
+    dietary evidence stays accurate. An organiser dietary edit on a plus-one replaces the reply and
     stamps `'organiser_attested'`. A household box never opens ticked over a
     record the organiser made, so a household that re-submits its reply
     afterwards must tick its own attestation for the organiser's answer, or
@@ -352,7 +361,8 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   `consent_source = 'inviter_attested'`, distinct from a guest's own and an
   organiser's, so the stored evidence says who attested. The RSVP report keeps
   it apart too: the dashboard badges such a reply "Household-entered", the
-  report's "Recorded By" column says "Household", and a "Plus-one Of" column
+  report's "Recorded By" column says "Household" — "Household (status by
+  organiser)" once an organiser has set one of those replies' status — and a "Plus-one Of" column
   names the guest who brought them. The invite takes a plus-one's dietary
   data only behind the household's attestation box, and the API stores it
   only when the reply names the attestation version it stamps and the name

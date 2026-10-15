@@ -23,7 +23,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-15
 ---
 
 # Cire
@@ -68,7 +68,7 @@ Two separate systems by design — full contract in [[cire-auth]]:
 - `wedding_hosts(wedding_id, osn_profile_id, role, …)` (#148) holds every organiser's **seat**, unique per `(wedding_id, osn_profile_id)`. A wedding's owners are its seats with role `owner` — it can have several, all equal, counted towards the 50-seat cap, and always at least one (migration `0076` moved ownership here from the dropped `weddings.owner_osn_profile_id`). The profile id is an opaque `usr_*` string — **no cross-DB FK** (cire's D1 and OSN's DB are separate databases). See [[cire-auth#Equal owners]].
 - `weddings.deleted_at` + `deleted_by_osn_profile_id` (migration `0077`) make a wedding **soft-deleted**: an owner's delete sets them, and from that moment the wedding is hidden from every guest, vendor and co-host path. Any owner can restore it for 7 days; then the daily purge hard-deletes the row and, by FK cascade, every child, and reaps the R2 objects those rows name. See [[cire-auth#Soft-deleted weddings]].
 - A **plus-one** is an ordinary `guests` row whose `plus_one_of_guest_id` names the guest who brought them; `guests.plus_one_allowed` is the organiser's permission (migration 0066). The household names them on the invite; the change pipeline never matches one. See [[cire-plus-ones]].
-- `rsvp_changes` logs each guest-side RSVP change (ids, kind, time; `seq` AUTOINCREMENT cursor; cascades with the household and wedding, purged at 90 days) and `host_rsvp_notices` keeps each organiser's read marker and digest switch per wedding (migration 0068). See [[cire-rsvp-changes]].
+- `rsvp_changes` logs each household RSVP change (ids, kind, time; `seq` AUTOINCREMENT cursor; cascades with the household and wedding, purged at 90 days) and each organiser status-only save, naming the organiser (migration 0084; read by nothing that tells organisers about changes), and `host_rsvp_notices` keeps each organiser's read marker and digest switch per wedding (migration 0068). See [[cire-rsvp-changes]].
 - `guest_account_links` records the optional per-invitee OSN link: `guest_id`/`family_id`/`wedding_id` (cascade FKs) + opaque `osn_account_id` / `osn_profile_id` (no cross-DB FK). See [[cire-auth]].
 - **No bootstrap owner / no boot gate (#156).** Earlier builds seeded a demo wedding `wed_bootstrap` and gated the whole Worker on a `BOOTSTRAP_OWNER_PROFILE_ID` env var (`ensureBootstrapOwner` threw → 503 in any deployed tier until a real `usr_*` owner was set). That entire mechanism is **removed**: migration `0015_drop_bootstrap_wedding.sql` deletes the demo wedding, the env var + `ensureBootstrapOwner` + `resolveBootstrapOwnerProfileId` are gone, and a freshly signed-in account gets `GET /api/organiser/weddings → 200 {weddings: []}` and creates its first wedding. (Migration `0006_multi_tenant.sql` still uses the `__keep_*` snapshot/restore pattern for the multi-tenant scaffold — DROP TABLE under enforced FKs fires ON DELETE CASCADE into children on D1, verified by testing.)
 

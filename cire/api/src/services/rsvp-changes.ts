@@ -1,14 +1,17 @@
 /**
- * The RSVP change log: what guests changed, and how far each organiser has read.
+ * The RSVP change log: what households changed, which organiser set a reply's
+ * status, and how far each organiser has read.
  *
  * `POST /api/rsvp` records one row per guest×event pair whose reply is new or
  * differs from the stored one, in the same batch as the reply (see
  * {@link buildRecordStatement}); the guest plus-one writes record theirs the
- * same way. The organiser portal reads the rows past the caller's own marker
- * for its "since your last visit" card and, separately, the RSVP table's
- * "New" badges; the daily digest (`services/rsvp-digest.ts`) reads them
- * past each recipient's digest marker. A daily cron deletes rows older than
- * {@link RSVP_CHANGE_RETENTION_MS}.
+ * same way. The organiser portal reads the household's rows past the caller's
+ * own marker for its "since your last visit" card and, separately, the RSVP
+ * table's "New" badges; the daily digest (`services/rsvp-digest.ts`) reads
+ * them past each recipient's digest marker. An organiser's status-only save
+ * records one row naming that organiser, in the same batch as the status (see
+ * {@link buildHostStatusStatement}); none of those readers reads it. A daily
+ * cron deletes rows older than {@link RSVP_CHANGE_RETENTION_MS}.
  *
  * A row carries ids, a kind and a time. The dietary content a reply holds is
  * compared here and never stored in the log.
@@ -20,10 +23,23 @@ import {
   RSVP_CHANGE_KINDS,
   rsvpChanges,
   type RsvpChangeKind,
+  type RsvpHostChangeKind,
 } from "@cire/db";
 import { serialisePresets, type DietaryPreset } from "@cire/dietary";
 import { rowsChanged } from "@shared/db-utils";
-import { and, asc, desc, eq, getTableColumns, gt, inArray, lt, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Data, Effect } from "effect";
 
@@ -124,18 +140,53 @@ const TUPLE_FIELDS = [
   "kind",
   "createdAt",
   "actorGuestId",
+  "actorOsnProfileId",
 ] as const;
 
+/** One change-log row before it is bound, in {@link TUPLE_FIELDS} order. */
+type ChangeTuple = [
+  weddingId: string,
+  familyId: string,
+  guestId: string,
+  eventId: string | null,
+  kind: RsvpChangeKind | RsvpHostChangeKind,
+  // As the column's driver encoding gives it.
+  createdAt: unknown,
+  actorGuestId: string | null,
+  actorOsnProfileId: string | null,
+];
+
 /**
- * One `INSERT … SELECT … FROM json_each(?)` for the whole change set, or `null`
- * when there is nothing to record.
+ * One `INSERT … SELECT … FROM json_each(?)` for the given rows. The rows ride
+ * as ONE bound JSON parameter, so a 200-pair RSVP stays one statement under
+ * D1's 100-parameter cap. Drizzle inserts every column in schema order, so the
+ * select list is derived from that order, with `NULL` for `seq` so SQLite
+ * assigns the next number.
+ */
+function insertChanges(db: Db, tuples: readonly ChangeTuple[], when?: SQL): BatchItem<"sqlite"> {
+  const payload = JSON.stringify(tuples);
+  const selectList = Object.keys(getTableColumns(rsvpChanges)).map((key): SQL => {
+    if (key === "seq") return sql`NULL`;
+    const position = (TUPLE_FIELDS as readonly string[]).indexOf(key);
+    if (position < 0) throw new Error(`rsvp_changes column "${key}" has no tuple position`);
+    return sql`json_extract(value, ${`$[${position}]`})`;
+  });
+  return db
+    .insert(rsvpChanges)
+    .select(
+      when
+        ? sql`SELECT ${sql.join(selectList, sql`, `)} FROM json_each(${payload}) WHERE ${when}`
+        : sql`SELECT ${sql.join(selectList, sql`, `)} FROM json_each(${payload})`,
+    );
+}
+
+/**
+ * One `INSERT … SELECT … FROM json_each(?)` for the household's whole change
+ * set, or `null` when there is nothing to record. It names no organiser.
  *
- * The rows ride as ONE bound JSON parameter, so a 200-pair RSVP stays one
- * statement under D1's 100-parameter cap. It is an insert builder rather than
- * `db.run(sql)` because a builder runs when the batch runs, on both drivers;
- * `db.run` on bun:sqlite runs the moment it is called. Drizzle inserts every
- * column in schema order, so the select list is derived from that order, with
- * `NULL` for `seq` so SQLite assigns the next number.
+ * It is an insert builder rather than `db.run(sql)` because a builder runs
+ * when the batch runs, on both drivers; `db.run` on bun:sqlite runs the
+ * moment it is called.
  *
  * The guest plus-one writes (`services/plus-one.ts`) record a
  * {@link PlusOneChangeKind} through this in their own batch, with
@@ -159,8 +210,9 @@ export function buildRecordStatement(
   const { changes } = input;
   if (changes.length === 0) return null;
   const createdAt = rsvpChanges.createdAt.mapToDriverValue(now);
-  const payload = JSON.stringify(
-    changes.map((change) => [
+  return insertChanges(
+    db,
+    changes.map((change): ChangeTuple => [
       input.weddingId,
       input.familyId,
       change.guestId,
@@ -168,22 +220,53 @@ export function buildRecordStatement(
       change.kind,
       createdAt,
       input.actorGuestId ?? null,
+      null,
     ]),
+    when,
   );
-  const selectList = Object.keys(getTableColumns(rsvpChanges)).map((key): SQL => {
-    if (key === "seq") return sql`NULL`;
-    const position = (TUPLE_FIELDS as readonly string[]).indexOf(key);
-    if (position < 0) throw new Error(`rsvp_changes column "${key}" has no tuple position`);
-    return sql`json_extract(value, ${`$[${position}]`})`;
-  });
-  return db
-    .insert(rsvpChanges)
-    .select(
-      when
-        ? sql`SELECT ${sql.join(selectList, sql`, `)} FROM json_each(${payload}) WHERE ${when}`
-        : sql`SELECT ${sql.join(selectList, sql`, `)} FROM json_each(${payload})`,
-    );
 }
+
+/**
+ * The row an organiser's status-only save records: kind `host_status_set`,
+ * keyed on the guest whose reply it is and that guest's household, naming the
+ * organiser and no household member. Rides the status write's own batch
+ * (`rsvpService.recordStatus`), so the two commit together or not at all.
+ */
+export function buildHostStatusStatement(
+  db: Db,
+  input: {
+    weddingId: string;
+    familyId: string;
+    guestId: string;
+    eventId: string;
+    /** The organiser who saved the status. */
+    osnProfileId: string;
+  },
+  now: Date,
+): BatchItem<"sqlite"> {
+  return insertChanges(db, [
+    [
+      input.weddingId,
+      input.familyId,
+      input.guestId,
+      input.eventId,
+      "host_status_set",
+      rsvpChanges.createdAt.mapToDriverValue(now),
+      null,
+      input.osnProfileId,
+    ],
+  ]);
+}
+
+/**
+ * The household's own rows: every reader that tells organisers about changes
+ * — the card, the badges, the digest — reads only these. {@link
+ * buildRecordStatement} is the only writer of a null actor, and it writes only
+ * {@link RSVP_CHANGE_KINDS}; {@link buildHostStatusStatement} always names one.
+ * The term is also what lets SQLite range over the household's rows alone, in
+ * `rsvp_changes_wedding_actor_idx` and `rsvp_changes_household_created_at_idx`.
+ */
+export const householdChanges: SQL = isNull(rsvpChanges.actorOsnProfileId);
 
 /**
  * The caller's read marker, as a scalar subquery, so a read needs no separate
@@ -193,17 +276,19 @@ const seenMarker = (weddingId: string, osnProfileId: string): SQL =>
   sql`coalesce((SELECT ${hostRsvpNotices.seenSeq} FROM ${hostRsvpNotices} WHERE ${hostRsvpNotices.weddingId} = ${weddingId} AND ${hostRsvpNotices.osnProfileId} = ${osnProfileId}), 0)`;
 
 /**
- * The caller's unseen rows in one wedding. Each feed read takes
+ * The caller's unseen household rows in one wedding. Each feed read takes
  * `UNSEEN_SCAN_LIMIT + 1` of them from one end of the range, as a CTE named
  * `w` carrying only the columns that read uses (the card's is materialised and
- * scanned more than once). Served by `rsvp_changes_wedding_idx` with a rowid
- * range in either direction (pinned by a plan test), so each read costs at most
- * that many rows however long the unseen range is.
+ * scanned more than once). Served by `rsvp_changes_wedding_actor_idx` with a
+ * rowid range in either direction inside the wedding's household entries
+ * (pinned by a plan test), so each read costs at most that many rows however
+ * long the unseen range is and however many status saves sit in it.
  */
 const unseenIn = (weddingId: string, osnProfileId: string): SQL | undefined =>
   and(
     eq(rsvpChanges.weddingId, weddingId),
     gt(rsvpChanges.seq, seenMarker(weddingId, osnProfileId)),
+    householdChanges,
   );
 
 /** One row of {@link buildUnseenHouseholdsQuery}: a (household, kind) group. */
@@ -253,7 +338,8 @@ export function buildUnseenHouseholdsQuery(db: Db, weddingId: string, osnProfile
     .select({
       familyId: w.familyId,
       familyName: families.familyName,
-      kind: w.kind,
+      // `w` holds only the household's kinds (see `unseenIn`).
+      kind: sql<RsvpChangeKind>`${w.kind}`,
       last: sql<number>`max(${w.seq})`.as("last"),
       at: sql<number>`max(${w.createdAt})`.as("at"),
       households: sql<number>`(SELECT count(DISTINCT "family_id") FROM "w")`.as("households"),
@@ -391,9 +477,12 @@ export function summarisePairs(pairs: readonly UnseenPairRow[], pairLimit: numbe
   return { markSeq, rows: shown.map(({ guestId, eventId }) => ({ guestId, eventId })) };
 }
 
-/** `(select coalesce(max(seq), 0) …)` for one wedding — the newest change's number. */
+/**
+ * `(select coalesce(max(seq), 0) …)` for one wedding — the newest household
+ * change's number, the newest any reader can show. One index probe.
+ */
 const newestSeq = (weddingId: string): SQL =>
-  sql`(SELECT coalesce(max(${rsvpChanges.seq}), 0) FROM ${rsvpChanges} WHERE ${rsvpChanges.weddingId} = ${weddingId})`;
+  sql`(SELECT coalesce(max(${rsvpChanges.seq}), 0) FROM ${rsvpChanges} WHERE ${rsvpChanges.weddingId} = ${weddingId} AND ${householdChanges})`;
 
 /** A feed read, failing as {@link RsvpChangeError} rather than as a defect. */
 const read = <A>(run: () => A | Promise<A>) =>
