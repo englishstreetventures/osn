@@ -1,0 +1,22 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // The boundary tests read every Worker config that deploys into the
+    // account, which sit outside this package. Restating the root's inputs
+    // and adding those files means an edit to any of them re-runs the tests
+    // instead of replaying a cached result. Keep this list in step with
+    // WORKER_CONFIGS in boundary.ts.
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "$TURBO_ROOT$/cire/api/wrangler.toml",
+        "$TURBO_ROOT$/osn/api/wrangler.toml",
+        "$TURBO_ROOT$/pulse/api/wrangler.toml",
+        "$TURBO_ROOT$/zap/api/wrangler.toml",
+        "$TURBO_ROOT$/cire/invites/wrangler.jsonc"
+      ]
+    }
+  }
+}

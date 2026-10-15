@@ -8,7 +8,7 @@
     "test": "bun test tests/",
     "plan": "bun alchemy plan alchemy.run.ts --stage dev --adopt --detailed",
     "deploy": "bun alchemy deploy alchemy.run.ts --stage dev --adopt",
-    "destroy": "bun alchemy destroy alchemy.run.ts --stage dev"
+    "destroy": "ALCHEMY_PROBE_TEARDOWN=1 bun alchemy destroy alchemy.run.ts --stage dev"
   },
   "dependencies": {
     "@distilled.cloud/cloudflare": "1.0.0-rc.13",
