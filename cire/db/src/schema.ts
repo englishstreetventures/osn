@@ -763,9 +763,9 @@ export const registrySettings = sqliteTable("registry_settings", {
   // away a year after the wedding, and the couple's record of what arrived goes
   // with it. This row is KEPT by that sweep (it carries no guest PII and the
   // published invite depends on it), which makes it the right home for a
-  // parting summary: written just before the delete, aggregates only — counts
-  // and totals, never a household, a name or a note. See
-  // `wiki/compliance/retention.md`.
+  // parting summary: written just before the delete — counts, totals and each
+  // money gift's amount, currency and day, never a household, a name or a
+  // note. See `wiki/compliance/retention.md`.
   giftSummaryJson: text("gift_summary_json"),
   giftSummaryAt: integer("gift_summary_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
@@ -935,9 +935,12 @@ export const registryContributions = sqliteTable(
     // four are NULL when the gift was already in the primary currency — the
     // common case — and the UI then shows a single figure.
     //
-    // The rate comes from Stripe's balance transaction (`exchange_rate`): it is
-    // authoritative, free, arrives with a webhook we already handle, and matches
-    // what actually reached the couple's bank. It is written ONCE. A gift log
+    // NULL for every gift today. A gift is charged in the wedding's currency,
+    // and money gifts are only taken while the couple's Stripe account settles
+    // in that same currency, so Stripe applies no rate. The columns are for a
+    // gift a guest pays in their own currency, which the checkout does not
+    // offer; its rate would be Stripe's balance-transaction `exchange_rate`
+    // (whose `amount` is gross, before Stripe's fee), written ONCE. A gift log
     // that re-values itself whenever rates move is not a record of anything.
     primaryAmountMinor: integer("primary_amount_minor"),
     primaryCurrency: text("primary_currency"),
@@ -945,9 +948,9 @@ export const registryContributions = sqliteTable(
     // display and audit, and binary float would round it on the way in.
     fxRate: text("fx_rate"),
     fxRateAt: integer("fx_rate_at", { mode: "timestamp" }),
-    // What Stripe sent back, in the charge's own currency — the one
-    // `coalesce(primary_currency, currency)` names, because a refund is always
-    // denominated in what the account settled. NULL until a refund is seen. A
+    // What Stripe sent back, in the charge's own currency — `currency`, since
+    // Stripe's `amount_refunded` is denominated in what the guest was charged.
+    // NULL until a refund is seen. A
     // PARTIAL refund records the amount and leaves the status at `succeeded`,
     // because the couple did keep the rest; a full refund records the whole
     // amount and moves the status too, so the two columns never disagree about

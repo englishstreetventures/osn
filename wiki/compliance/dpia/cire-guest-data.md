@@ -11,7 +11,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-10
+last-reviewed: 2026-10-15
 ---
 
 # DPIA — Cire guest data
@@ -322,6 +322,19 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   sweep. A wedding its owners delete is purged whole 7–8 days later (later if
   the daily purge cap or a payment still settling defers it): every row by
   cascade, and its sheet and image objects ([[cire-auth#Soft-deleted weddings]]).
+- **What outlives the sweep (2026-10-15).** The sweep leaves the couple a record
+  of their gifts on `registry_settings.gift_summary_json`: counts of list gifts
+  reserved and bought, a total and a count per currency, and **each money gift's
+  amount, currency and day** (at most 200 a wedding). No household, no name, no
+  note. It stays with the wedding until the couple delete it. Each per-gift line
+  is a guest's personal data: unnamed, but an amount and a day match one charge
+  in the couple's own Stripe account, which names the payer. Basis Art. 6(1)(f):
+  the couple's interest in seeing the gifts they were given, balanced on their
+  already holding every one of these facts, with the name, in their own Stripe
+  and bank records — the line tells them nothing new about a guest. Every member
+  of the wedding reads it, viewers included, the audience that read the named
+  gift log before the sweep; the owners are emailed it. Guests are told in the
+  privacy notice. See [[data-map]] and [[retention]].
 
 ## 3. Risks to data subjects
 
@@ -332,6 +345,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
 | Indefinite retention of guest PII + raw CSVs (incl. across reverts) | High | Medium | Mitigated: the 1-year guest-data sweep (rows and their sheets) and the purge of a deleted wedding (every row, both R2 buckets); a sheet whose delete failed is reaped by the daily `cire-sheets` reconciler within one pass over the bucket ([[retention]]). Residuals: browser copies of public images can live a year, the couple's Stripe Express account and Zap enquiry chats outlive the purge, and while an operator has the reconcilers stopped (a `reconcile/stop` object or `CIRE_R2_RECONCILE_DISABLED`, around a database restore) orphaned sheets wait for them — emailed to the operator daily, 14 days at most by the runbook. |
 | Guest spreadsheets or invite photos permanently deleted by the daily R2 orphan reconciler while the rows naming them are missing — a bad migration, a wrong bulk delete, a `cire-db` restore — with no versioning or second copy of `cire-sheets` or `cire-assets` to restore from ([[backup-dr]]) | Low | High | Mitigated: only objects R2 says are 7 days old are judged; a failed or empty reference read, a database paired with another environment's bucket, or a lookup that loses its control deletes nothing; at most 500 objects a run; a run whose rows naming the bucket's objects fell by more than half holds, emails the operator, and keeps holding against the earlier count for up to 7 runs; an operator's `reconcile/stop` object stops a reconciler without a deploy, and the restore runbook in [[backup-dr]] sets it first; every delete batch logs a warning. Residuals: no backup of either bucket; a loss under half the rows is not held; a hold lasts 7 runs and a stop relies on an operator acting on the email; an empty table or a total wipe aborts every run with a warning log and sends no email. |
 | Cross-DB deletion orphan — OSN-account deletion does not erase cire guest data | Medium | Medium | No fan-out; orphan-tolerance documented in [[dsar]] (C-M1). |
+| A guest's gift amount and day outlive the year in the couple's record | Medium | Low | Kept unnamed, with no note or Stripe identifier, a day rather than a time, at most 200 lines a wedding; read only by the wedding's members and mailed to its owners. The couple can still match a line to the payer in their own Stripe account — but they were the recipients and hold that record anyway, so the residual is that cire keeps a copy past the year. Guests are told in the privacy notice; the record goes when the couple delete the wedding. |
 | A plus-one's name and reply held on another guest's word, and they may never see the notice | Medium | Low–Medium | The household names the plus-one; the plus-one never holds the claim code. Mitigated: dietary data on a plus-one's reply is stored only under an attestation that speaks of the plus-one — the household's, or the organiser's for a phone or paper reply — each in its own box and wording, pinned by its own version and to the name the plus-one carries now; a household rename clears the plus-one's dietary answers; the capture copy asks the household to pass on the privacy notice, which has a section for them; an editor can correct the name at any time; the household can remove the plus-one until the RSVP deadline and the organiser at any time (permission off with the remove flag); swept with the household at 1 year ([[retention]]). |
 | A member's reply attributed to the wrong person on a shared device | Low | Low | Anyone holding the household code can pick any member's name — the household trust model the claim has always had. Mitigated by "Not you?" (clears the member and ends the browser's musubi sign-in), by the invite naming the member answering, and by musubi always showing the signed-in account before a link (`prompt=select_account`). `submitted_via_link` lets the organisers tell "signed in as" from "picked from a list". |
 | One household member relays another adult's dietary consent | Medium | Medium | Existing gap, now visible in the record (which member ticked the box for whom). Accepted: the consent gate is unchanged and the household relays consent on its own word; revisit on request. |

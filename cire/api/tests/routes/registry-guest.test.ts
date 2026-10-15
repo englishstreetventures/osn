@@ -126,6 +126,8 @@ function buildApp(
     /** The couple's intent, and Stripe's capability — two different things. */
     cashGiftsEnabled?: boolean;
     stripeChargesEnabled?: boolean;
+    /** The currency Stripe settles the account in; the wedding prices in AUD. */
+    stripeDefaultCurrency?: string | null;
     images?: ImagesBindingLike;
   } = {},
 ) {
@@ -137,6 +139,7 @@ function buildApp(
     shippingVisibleFrom = null,
     cashGiftsEnabled = false,
     stripeChargesEnabled = false,
+    stripeDefaultCurrency = "AUD",
     images,
   } = opts;
   const db = createDb(":memory:");
@@ -175,6 +178,7 @@ function buildApp(
         message: "Your presence is the present.",
         cashGiftsEnabled,
         stripeChargesEnabled,
+        stripeDefaultCurrency,
         shippingAddress,
         shippingVisibleFrom,
         // Present so a leak test has something to catch: no guest payload may
@@ -519,6 +523,42 @@ describe("whether a guest may give money", () => {
 
   it("is true only when both are", async () => {
     const { app } = buildApp({ cashGiftsEnabled: true, stripeChargesEnabled: true });
+    const body = await listView(app, await guestCookie(app));
+    expect(body.cashGiftsEnabled).toBe(true);
+  });
+
+  /**
+   * A gift is charged in the wedding's currency. An account that settles in
+   * another one — a couple who reconnected a different Stripe account, or whose
+   * payout currency changed at Stripe — would convert every gift on Stripe's
+   * terms, so the form stays hidden until the two agree again.
+   */
+  it("is false when the account settles in another currency", async () => {
+    const { app } = buildApp({
+      cashGiftsEnabled: true,
+      stripeChargesEnabled: true,
+      stripeDefaultCurrency: "USD",
+    });
+    const body = await listView(app, await guestCookie(app));
+    expect(body.cashGiftsEnabled).toBe(false);
+  });
+
+  it("is false when Stripe has not said which currency the account settles in", async () => {
+    const { app } = buildApp({
+      cashGiftsEnabled: true,
+      stripeChargesEnabled: true,
+      stripeDefaultCurrency: null,
+    });
+    const body = await listView(app, await guestCookie(app));
+    expect(body.cashGiftsEnabled).toBe(false);
+  });
+
+  it("reads a lower-case settlement currency as the same currency", async () => {
+    const { app } = buildApp({
+      cashGiftsEnabled: true,
+      stripeChargesEnabled: true,
+      stripeDefaultCurrency: "aud",
+    });
     const body = await listView(app, await guestCookie(app));
     expect(body.cashGiftsEnabled).toBe(true);
   });

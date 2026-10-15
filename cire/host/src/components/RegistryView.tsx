@@ -132,6 +132,17 @@ function giftStatus(gift: GiftLogEntry) {
 }
 
 /**
+ * One formatter for every date in the record band: up to 200 listed gifts each
+ * print a day. Pinned to UTC on both ends — see `summaryDate`.
+ */
+const SUMMARY_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  timeZone: "UTC",
+});
+
+/**
  * The gift registry — the couple's list, and the log of gifts against it.
  *
  * Guest-authored text (`note`, `displayName`, and the household's `familyName`)
@@ -140,6 +151,7 @@ function giftStatus(gift: GiftLogEntry) {
  * couple reads it in an authenticated portal, so any HTML path here is stored
  * XSS against the account that owns the wedding.
  */
+
 export default function RegistryView(props: RegistryViewProps) {
   const { authFetch } = useAuth();
   const snapshot = registryAccessor(props.weddingId);
@@ -469,12 +481,12 @@ export default function RegistryView(props: RegistryViewProps) {
    * differ from the date in the record.
    */
   const summaryDate = (iso: string): string =>
-    new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      timeZone: "UTC",
-    });
+    SUMMARY_DATE_FORMAT.format(new Date(`${iso}T00:00:00Z`));
+
+  /** The couple's currency. Its own memo, so a write elsewhere in the snapshot
+   *  — a thank-you, a hidden note, another page of the log — does not re-derive
+   *  every listed gift below: a string memo notifies only when it changes. */
+  const coupleCurrency = createMemo(() => (snapshot()?.currency ?? "").toUpperCase());
 
   /**
    * Everything the summary band derives, worked out once per summary. Below
@@ -484,14 +496,37 @@ export default function RegistryView(props: RegistryViewProps) {
   const summaryBand = createMemo(() => {
     const summary = giftSummary();
     if (!summary) return null;
+    // Nothing is converted: every gift is charged in the wedding's currency,
+    // so one in another currency was given before the couple changed it. The
+    // couple's own currency gets the headline total; each other currency is
+    // named as outside it, with the gifts it adds where the record knows.
+    const couple = coupleCurrency();
+    const ours = (code: string) => code.toUpperCase() === couple;
+    const { count, totals } = summary.contributions;
+    const listed = summary.contributions.gifts ?? [];
     return {
       summary,
+      couple,
       sweptOn: summaryDate(summary.sweptOn),
       firstGiftOn: summaryDate(summary.firstGiftOn),
       lastGiftOn: summaryDate(summary.lastGiftOn),
       claimsTotal: summary.claims.reserved + summary.claims.purchased,
+      oursTotal: totals.find((t) => ours(t.currency)) ?? null,
+      otherTotals: totals.filter((t) => !ours(t.currency)),
+      gifts: listed.map((g) => ({
+        on: summaryDate(g.on),
+        amount: formatMinor(g.amountMinor, g.currency),
+        otherCurrency: ours(g.currency) ? null : g.currency,
+      })),
+      unlisted: Math.max(0, count - listed.length),
     };
   });
+
+  /** "3 cash gifts in AUD", or "in AUD" where the record kept no count. */
+  const giftsIn = (total: { currency: string; count?: number }): string =>
+    total.count === undefined
+      ? `in ${total.currency}`
+      : `${plural(total.count, "cash gift", "cash gifts")} in ${total.currency}`;
 
   /** The two money lines a gift renders as. Foreign-currency gifts show the
    *  as-given amount as the headline with the primary equivalent underneath;
@@ -981,8 +1016,8 @@ export default function RegistryView(props: RegistryViewProps) {
               </span>
               <p class="text-text-muted text-ui-sm">
                 On {band().sweptOn}, a year after your wedding, we deleted your guests' details —
-                and the gifts went with them. Who gave what, and the notes they wrote, are gone.
-                These totals are what we kept.
+                who gave each gift, and the notes they wrote. We kept the amount and the day of each
+                cash gift, and these totals.
               </p>
               <Show when={band().claimsTotal > 0}>
                 <span class="text-text text-ui-md">
@@ -994,20 +1029,64 @@ export default function RegistryView(props: RegistryViewProps) {
                 </span>
               </Show>
               <Show when={band().summary.contributions.count > 0}>
-                {/* Per currency, side by side, never added together: a total
-                    that re-values itself is not a record of anything, and
-                    there is nothing left here to re-derive a rate from. */}
-                <span class="text-text text-ui-md">
-                  {band()
-                    .summary.contributions.totals.map((total) =>
-                      formatMinor(total.amountMinor, total.currency),
-                    )
-                    .join(" · ")}
-                  <span class="text-text-muted text-ui-sm">
-                    {" "}
-                    · {plural(band().summary.contributions.count, "cash gift", "cash gifts")}
-                  </span>
-                </span>
+                {/* Per currency, never added together: two currencies summed is
+                    not an amount of anything. Each total names the gifts it
+                    adds, so a count never sits beside a total of fewer. */}
+                <Show when={band().oursTotal}>
+                  {(ours) => (
+                    <span class="text-text text-ui-md">
+                      {formatMinor(ours().amountMinor, ours().currency)}
+                      <span class="text-text-muted text-ui-sm">
+                        {" "}
+                        ·{" "}
+                        {band().otherTotals.length === 0
+                          ? plural(band().summary.contributions.count, "cash gift", "cash gifts")
+                          : giftsIn(ours())}
+                      </span>
+                    </span>
+                  )}
+                </Show>
+                <For each={band().otherTotals}>
+                  {(total) => (
+                    <span class="text-text-muted text-ui-sm">
+                      {band().oursTotal ? "Plus " : ""}
+                      {formatMinor(total.amountMinor, total.currency)} · {giftsIn(total)}
+                      {band().oursTotal ? `, not in the ${band().couple} total` : ""}
+                    </span>
+                  )}
+                </For>
+                {/* Each gift as given, oldest first — the gift-log rule, with
+                    no converted line because nothing is converted. */}
+                <Show when={band().gifts.length > 0 || band().unlisted > 0}>
+                  <ul class="m-0 flex list-none flex-col gap-1 p-0" aria-label="Each cash gift">
+                    <For each={band().gifts}>
+                      {(gift) => (
+                        <li class="flex flex-col">
+                          <span class="text-text text-ui-sm">
+                            {gift.on} · {gift.amount}
+                          </span>
+                          <Show when={gift.otherCurrency}>
+                            {(other) => (
+                              <span class="text-text-muted text-ui-xs">
+                                Given in {other()}
+                                {band().oursTotal ? ` — not in the ${band().couple} total` : ""}
+                              </span>
+                            )}
+                          </Show>
+                        </li>
+                      )}
+                    </For>
+                    <Show when={band().unlisted > 0}>
+                      {/* "More" only under a list; a record kept before gifts
+                          were listed has nothing for them to be more than. */}
+                      <li class="text-text-muted text-ui-sm">
+                        {`${band().unlisted} ${band().gifts.length > 0 ? "more " : ""}${
+                          band().unlisted === 1 ? "cash gift is" : "cash gifts are"
+                        } counted above but not listed one by one.`}
+                      </li>
+                    </Show>
+                  </ul>
+                </Show>
               </Show>
               <span class="text-text-muted text-ui-sm">
                 Gifts arrived between {band().firstGiftOn} and {band().lastGiftOn}. Each currency is
@@ -1030,21 +1109,16 @@ export default function RegistryView(props: RegistryViewProps) {
                 <span class="text-text text-ui-md">
                   {formatMinor(snap().contributionsPrimaryMinor, snap().currency)}
                 </span>
-                {/* A gift converted to the couple's currency was converted at the
-                    rate on the day it arrived, so this is a sum of historical
-                    conversions, not a live valuation. Labelled, never exact. */}
-                <span class="text-text-muted text-ui-sm">
-                  Approximate — a gift given in another currency is counted at the rate on the day
-                  it arrived.
-                </span>
-                {/* Adding two currencies together gives a number that is not an
-                    amount of anything, so gifts left in their own currency are
-                    counted here instead of being folded into the figure above. */}
+                {/* Exact: every gift is charged in the wedding's currency and
+                    nothing is converted. Adding two currencies together gives a
+                    number that is not an amount of anything, so a gift given
+                    before the couple changed currency is counted here instead
+                    of being folded into the figure above. */}
                 <Show when={snap().contributionsOtherCurrencyCount > 0}>
                   <span class="text-text-muted text-ui-sm">
                     {snap().contributionsOtherCurrencyCount === 1
-                      ? "One more gift is held in another currency and is not in this total."
-                      : `${snap().contributionsOtherCurrencyCount} more gifts are held in other currencies and are not in this total.`}{" "}
+                      ? "One more gift was given in another currency and is not in this total."
+                      : `${snap().contributionsOtherCurrencyCount} more gifts were given in other currencies and are not in this total.`}{" "}
                     The gift log below shows each one as it was given.
                   </span>
                 </Show>

@@ -25,6 +25,7 @@ import {
   RegistryItemLimitReached,
   RegistryItemNotInWedding,
   SettingsChanged,
+  SettlementCurrencyUnknown,
   StripeNotReady,
   toEpochSeconds,
 } from "../../src/services/registry";
@@ -155,10 +156,24 @@ describe("the parting gift summary", () => {
     contributions: {
       count: 3,
       totals: [
-        { currency: "AUD", amountMinor: 17_500 },
-        { currency: "JPY", amountMinor: 3_000 },
+        { currency: "AUD", amountMinor: 17_500, count: 2 },
+        { currency: "JPY", amountMinor: 3_000, count: 1 },
+      ],
+      gifts: [
+        { on: "2025-05-11", amountMinor: 12_500, currency: "AUD" },
+        { on: "2025-05-11", amountMinor: 5_000, currency: "AUD" },
+        { on: "2025-05-20", amountMinor: 3_000, currency: "JPY" },
       ],
     },
+  };
+
+  /** A summary written before gifts were listed or totals carried a count. */
+  const KEPT_BEFORE_LISTS = {
+    sweptOn: "2026-06-17",
+    firstGiftOn: "2025-05-11",
+    lastGiftOn: "2025-05-20",
+    claims: { reserved: 1, purchased: 2 },
+    contributions: { count: 3, totals: [{ currency: "AUD", amountMinor: 17_500 }] },
   };
 
   it("reads as absent for a wedding that was never swept", async () => {
@@ -172,6 +187,56 @@ describe("the parting gift summary", () => {
     writeSummary(db, JSON.stringify(KEPT));
     const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
     expect(snap.giftSummary).toEqual(KEPT);
+  });
+
+  it("reads a summary kept before gifts were listed as an empty list, totals uncounted", async () => {
+    // The count still says how many gifts there were; the portal says how many
+    // it cannot list one by one.
+    const db = db0();
+    writeSummary(db, JSON.stringify(KEPT_BEFORE_LISTS));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(snap.giftSummary).toEqual({
+      ...KEPT_BEFORE_LISTS,
+      contributions: { ...KEPT_BEFORE_LISTS.contributions, gifts: [] },
+    });
+  });
+
+  it("reads a gift list that is not a list as empty, and keeps the rest", async () => {
+    const db = db0();
+    writeSummary(
+      db,
+      JSON.stringify({ ...KEPT, contributions: { ...KEPT.contributions, gifts: "x" } }),
+    );
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(snap.giftSummary).toEqual({
+      ...KEPT,
+      contributions: { ...KEPT.contributions, gifts: [] },
+    });
+  });
+
+  it("drops a malformed listed gift and keeps the rest", async () => {
+    const db = db0();
+    const damaged = {
+      ...KEPT,
+      contributions: {
+        ...KEPT.contributions,
+        gifts: [
+          KEPT.contributions.gifts[0],
+          { on: "2025-05-11", amountMinor: "lots", currency: "AUD" },
+          { on: "2025-05-12", amountMinor: 1_000, currency: "AUD", familyName: "Ashworth" },
+          KEPT.contributions.gifts[2],
+        ],
+      },
+    };
+    writeSummary(db, JSON.stringify(damaged));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(snap.giftSummary?.contributions.gifts).toEqual([
+      KEPT.contributions.gifts[0],
+      { on: "2025-05-12", amountMinor: 1_000, currency: "AUD" },
+      KEPT.contributions.gifts[2],
+    ]);
+    // Copied field by field: a stray key on an entry never reaches the portal.
+    expect(JSON.stringify(snap.giftSummary)).not.toContain("Ashworth");
   });
 
   it("drops keys the summary never had rather than passing them through", async () => {
@@ -194,6 +259,17 @@ describe("the parting gift summary", () => {
       [JSON.stringify({ ...KEPT, claims: { reserved: "lots" } }), new Date()],
       [
         JSON.stringify({ ...KEPT, contributions: { count: 1, totals: [{ currency: "AUD" }] } }),
+        new Date(),
+      ],
+      // A per-currency count that is not a number is a damaged total.
+      [
+        JSON.stringify({
+          ...KEPT,
+          contributions: {
+            ...KEPT.contributions,
+            totals: [{ currency: "AUD", amountMinor: 17_500, count: "two" }],
+          },
+        }),
         new Date(),
       ],
       // JSON with no `gift_summary_at` is a half-written row, not a record.
@@ -1463,10 +1539,11 @@ describe("registry ownership + range guards", () => {
     const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
     expect(snap.settings.cashGiftsEnabled).toBe(false);
 
-    // Once Stripe reports charges enabled, the same patch goes through.
+    // Once Stripe reports charges enabled, in the wedding's own currency, the
+    // same patch goes through.
     await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
     db.update(registrySettings)
-      .set({ stripeChargesEnabled: true })
+      .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
       .run();
     const enabled = await ok(
@@ -1509,7 +1586,10 @@ describe("registry ownership + range guards", () => {
     expect(enabled.cashGiftsEnabled).toBe(true);
   });
 
-  it("treats a settlement currency Stripe has not named as unknown, not as a mismatch", async () => {
+  it("refuses cash gifts while Stripe has not said which currency it settles in", async () => {
+    // Guests are charged in the wedding's currency. An account whose settlement
+    // currency is unknown may convert every gift on Stripe's terms, so the
+    // switch waits until Stripe names it.
     const db = db0();
     await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
     db.update(registrySettings)
@@ -1517,11 +1597,119 @@ describe("registry ownership + range guards", () => {
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
       .run();
 
-    const enabled = await ok(
+    const blocked = await run(
       db,
       registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
     );
-    expect(enabled.cashGiftsEnabled).toBe(true);
+    expect(Exit.isFailure(blocked)).toBe(true);
+    if (Exit.isFailure(blocked)) {
+      expect(blocked.cause.toString()).toContain(new SettlementCurrencyUnknown()._tag);
+    }
+    const refused = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(refused.settings.cashGiftsEnabled).toBe(false);
+  });
+
+  it("refuses cash gifts when the wedding's currency changes between the check and the write", async () => {
+    // The check reads the two currencies, then the upsert writes. A currency
+    // change landing between them must not leave cash gifts on against an
+    // account that settles in the old currency, so the write re-checks.
+    const db = db0();
+    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
+    db.update(registrySettings)
+      .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (sql.startsWith('insert into "registry_settings"')) {
+          prepare("UPDATE weddings SET currency = 'USD' WHERE id = ?").run(BOOTSTRAP_WEDDING_ID);
+        }
+        return prepare(sql);
+      },
+    });
+
+    const blocked = await run(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+    );
+    Reflect.deleteProperty(client, "prepare");
+    expect(Exit.isFailure(blocked)).toBe(true);
+    if (Exit.isFailure(blocked)) {
+      // The true reason, not "someone else saved these settings".
+      expect(blocked.cause.toString()).toContain(new CurrencyMismatch()._tag);
+    }
+    const row = db
+      .select({ on: registrySettings.cashGiftsEnabled })
+      .from(registrySettings)
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .get();
+    expect(row?.on).toBe(false);
+  });
+
+  it("refuses cash gifts when Stripe stops naming the currency between the check and the write", async () => {
+    // The refresh route writes whatever Stripe says, and Stripe can send no
+    // settlement currency at all. The re-check inside the write names that.
+    const db = db0();
+    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
+    db.update(registrySettings)
+      .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    Object.defineProperty(client, "prepare", {
+      configurable: true,
+      value: (sql: string) => {
+        if (sql.startsWith('insert into "registry_settings"')) {
+          prepare(
+            "UPDATE registry_settings SET stripe_default_currency = NULL WHERE wedding_id = ?",
+          ).run(BOOTSTRAP_WEDDING_ID);
+        }
+        return prepare(sql);
+      },
+    });
+
+    const blocked = await run(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+    );
+    Reflect.deleteProperty(client, "prepare");
+    expect(Exit.isFailure(blocked)).toBe(true);
+    if (Exit.isFailure(blocked)) {
+      expect(blocked.cause.toString()).toContain(new SettlementCurrencyUnknown()._tag);
+    }
+  });
+
+  it("still tells a stale tab that turned cash gifts on that someone else saved", async () => {
+    // The currencies agree, so the refusal is the field that moved, and the
+    // caller gets the row as it stands rather than a Stripe message.
+    const db = db0();
+    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { headline: "Theirs" }));
+    db.update(registrySettings)
+      .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+
+    const stale = await run(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
+        cashGiftsEnabled: true,
+        headline: "Ours",
+        expected: { cashGiftsEnabled: false, headline: "What we saw" },
+      }),
+    );
+    expect(Exit.isFailure(stale)).toBe(true);
+    if (Exit.isFailure(stale)) {
+      const failure = Cause.findErrorOption(stale.cause);
+      expect(Option.isSome(failure)).toBe(true);
+      const error = Option.getOrThrow(failure);
+      expect(error).toBeInstanceOf(SettingsChanged);
+      expect((error as SettingsChanged).current.headline).toBe("Theirs");
+      expect((error as SettingsChanged).current.cashGiftsEnabled).toBe(false);
+    }
   });
 
   it("stops a wedding adding items past the ceiling", async () => {
@@ -2215,9 +2403,20 @@ describe("findReusableContribution", () => {
     familyId: twoFamilies(db)[0],
     itemId: null,
     amountMinor: 10_000,
+    currency: "AUD",
     message: null,
     displayName: null,
     since: new Date(Date.now() - 60_000),
+  });
+
+  it("hands back no page opened in another currency", async () => {
+    // The gate approves this request's currency; a page priced before a
+    // currency change would charge in the old one.
+    const db = db0();
+    seedContribution(db, { status: "pending", sessionId: "cs_1" });
+    expect(
+      await ok(db, registryService.findReusableContribution({ ...reuse(db), currency: "NZD" })),
+    ).toBeNull();
   });
 
   it("hands back the page an identical attempt already got", async () => {

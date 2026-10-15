@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-885   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), fix/limiter-first @ 2026-10-15 — six warnings fewer after this branch (six finding tags dropped from comments it rewrites). No warning-level rule was disabled or suppressed.
+882   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/gift-fx-per-gift @ 2026-10-15 — this branch's comment fixes on top of main. No rule was disabled and nothing was suppressed.

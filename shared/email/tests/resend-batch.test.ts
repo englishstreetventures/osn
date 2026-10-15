@@ -97,6 +97,51 @@ describe("ResendEmailLive.sendBatch", () => {
     expect(body[1]!.headers).toBeUndefined();
   });
 
+  it("renders data shared by several recipients once, and sends each its own copy", async () => {
+    // Rendering depends only on the template and the data, so one wedding's
+    // record mailed to three owners renders once. Counted through a getter
+    // the template reads, against the reads one render makes.
+    let reads = 0;
+    const counted = () => {
+      const data = { ...digest("x").data };
+      return Object.defineProperty(data, "weddingName", {
+        get: () => {
+          reads += 1;
+          return "Ama & Jonah";
+        },
+        enumerable: true,
+      });
+    };
+    await run([
+      { template: "rsvp-change-digest", to: "a@example.test", data: counted() } as SendEmailInput,
+    ]);
+    const perRender = reads;
+    expect(perRender).toBeGreaterThan(0);
+
+    reads = 0;
+    calls = [];
+    const shared = counted();
+    const result = await run(
+      ["a@example.test", "b@example.test", "c@example.test"].map(
+        (to) =>
+          ({
+            template: "rsvp-change-digest" as const,
+            to,
+            data: shared,
+          }) as SendEmailInput,
+      ),
+    );
+    expect(Result.isSuccess(result)).toBe(true);
+    expect(reads).toBe(perRender);
+    const body = calls[0]!.body as { to: string[]; subject: string }[];
+    expect(body.map((m) => m.to)).toEqual([
+      ["a@example.test"],
+      ["b@example.test"],
+      ["c@example.test"],
+    ]);
+    expect(new Set(body.map((m) => m.subject))).toEqual(new Set(["RSVP changes for Ama & Jonah"]));
+  });
+
   it("splits past the provider's limit into calls of at most that many", async () => {
     const inputs = Array.from({ length: RESEND_BATCH_LIMIT + 1 }, (_, i) =>
       digest(`${i}@example.test`),

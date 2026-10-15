@@ -97,6 +97,29 @@ describe("privacy.astro", () => {
    */
   it("states the retention window the sweep actually enforces", () => {
     expect(body).toContain("1 year after the final wedding event");
+    // The sweep can hold a wedding back up to 30 days past that, on purpose
+    // as well as on failure (`GIFT_SUMMARY_HOLD_BACK_MS`), and says so.
+    expect(body).toMatch(/up to 30 days later/);
+  });
+
+  /**
+   * The sweep leaves the couple a record of their gifts: no names, but the
+   * amount, currency and day of each money gift (`GiftSummary` in
+   * `cire/api/src/services/retention.ts`). It outlives the year, so the notice
+   * names it, and names gifts among what is collected.
+   */
+  it("names the gift record the hosts keep after the year, and gifts as collected", () => {
+    expect(body).toContain("Gifts, if you give one through the registry");
+    expect(body).toMatch(/your hosts keep a record of their gifts with no names in it/);
+    expect(body).toMatch(/the amount, currency and day of\s+each money gift/);
+  });
+
+  it("says Stripe takes a money gift on the hosts' account and sees the card, not cire", () => {
+    expect(body).toMatch(
+      /the payment is taken by <strong>Stripe<\/strong>\s+on your hosts’ own Stripe account/,
+    );
+    expect(body).toMatch(/Stripe collects your card details and the name and\s+email you give it/);
+    expect(body).toMatch(/we never see your card/);
   });
 
   /**

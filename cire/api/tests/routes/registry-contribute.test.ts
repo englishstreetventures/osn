@@ -99,12 +99,15 @@ function buildApp({
   cashGiftsEnabled = true,
   chargesEnabled = true,
   accountId = ACCOUNT as string | null,
+  settlementCurrency = "AUD" as string | null,
   published = true,
   stripe,
 }: {
   cashGiftsEnabled?: boolean;
   chargesEnabled?: boolean;
   accountId?: string | null;
+  /** The currency Stripe settles the account in; the wedding prices in AUD. */
+  settlementCurrency?: string | null;
   published?: boolean;
   stripe?: StripeClient | null;
 } = {}) {
@@ -142,6 +145,7 @@ function buildApp({
       stripeAccountId: accountId,
       stripeChargesEnabled: chargesEnabled,
       stripePayoutsEnabled: chargesEnabled,
+      stripeDefaultCurrency: settlementCurrency,
       createdAt: now,
       updatedAt: now,
     })
@@ -247,6 +251,11 @@ describe("the couple must be taking money", () => {
     ["they never turned cash gifts on", { cashGiftsEnabled: false }],
     ["Stripe cannot take a charge today", { chargesEnabled: false }],
     ["there is no connected account", { accountId: null }],
+    // Every gift is charged in the wedding's currency. An account that settles
+    // in another one — or has not said which — would convert each gift on
+    // Stripe's terms, so the guest is turned away until the two agree.
+    ["the account settles in another currency", { settlementCurrency: "USD" }],
+    ["Stripe has not said which currency the account settles in", { settlementCurrency: null }],
   ];
 
   for (const [label, options] of cases) {
@@ -305,8 +314,9 @@ describe("what reaches Stripe, and what does not", () => {
   it("prices the gift in the wedding's own currency, read by the registry gate", async () => {
     // AUD is both the seeded default and the fallback for a missing value, so
     // only a different currency shows the gate actually read the column.
+    // The account settles in the same currency, as the gate requires.
     const stripe = stripeStub();
-    const { app, db } = buildApp({ stripe: stripe.client });
+    const { app, db } = buildApp({ stripe: stripe.client, settlementCurrency: "NZD" });
     db.update(weddings).set({ currency: "NZD" }).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID)).run();
     const cookie = await guestCookie(app);
 
@@ -558,6 +568,43 @@ describe("what reaches Stripe, and what does not", () => {
     const rows = await db.select().from(registryContributions).all();
     expect(rows).toHaveLength(1);
     expect(rows[0]?.stripeCheckoutSessionId).toBe("cs_1");
+  });
+
+  it("never hands back a page priced in a currency the gate no longer approves", async () => {
+    // The first page was opened in AUD. Stripe then pays the account out in
+    // NZD and the couple move the wedding to NZD. The same press again must
+    // get an NZD page, not the AUD one still open at Stripe.
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    const cookie = await guestCookie(app);
+    const first = await contribute(app, cookie, { amountMinor: 5000, message: "aaa" });
+    expect(first.status).toBe(200);
+
+    db.update(registrySettings)
+      .set({ stripeDefaultCurrency: "NZD" })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+    db.update(weddings).set({ currency: "NZD" }).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID)).run();
+    const second = await contribute(app, cookie, { amountMinor: 5000, message: "aaa" });
+
+    expect(second.status).toBe(200);
+    expect(stripe.retrieved).toEqual([]);
+    expect(stripe.sessions.map((session) => session.currency)).toEqual(["AUD", "NZD"]);
+    expect(await second.json()).not.toEqual(await first.json());
+  });
+
+  it("closes every payment page within the hour", async () => {
+    // A page stays payable at Stripe until it expires, whatever changes here
+    // meanwhile, so it is never left open for Stripe's default day.
+    const stripe = stripeStub();
+    const { app } = buildApp({ stripe: stripe.client });
+    const before = Math.floor(Date.now() / 1000);
+    await contribute(app, await guestCookie(app), { amountMinor: 5000 });
+    const expiresAt = stripe.sessions[0]?.expiresAt ?? 0;
+    expect(expiresAt).toBeGreaterThan(before);
+    expect(expiresAt).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 60 * 60);
+    // Stripe refuses a page that closes in under 30 minutes.
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 30 * 60);
   });
 
   /**

@@ -1,8 +1,8 @@
-import { weddings } from "@cire/db";
-import { eq } from "drizzle-orm";
+import { registrySettings, weddings } from "@cire/db";
+import { and, eq, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { DbService, dbQuery, outerColumn } from "../db";
 import { isRsvpClosed } from "../lib/rsvp-deadline";
 import { metricWeddingSettingsSaved } from "../metrics";
 import type { UpdateSettingsBody } from "../schemas/settings";
@@ -51,6 +51,20 @@ export class RsvpDeadlineInPast extends Data.TaggedError("RsvpDeadlineInPast")<{
   readonly timezone: string | null;
 }> {}
 
+/**
+ * The patch would change the wedding's currency while money gifts are on and
+ * the connected Stripe account settles in another currency, or has not said
+ * which. 409-class.
+ *
+ * Every gift is charged in the wedding's currency, and money gifts can only be
+ * switched on while the account settles in that same currency
+ * (`registryService.updateSettings`). Changing the currency underneath them
+ * would leave guests paying into an account that converts each gift on Stripe's
+ * terms. The couple turn money gifts off first; switching them back on checks
+ * the new currency.
+ */
+export class CurrencyLockedByCashGifts extends Data.TaggedError("CurrencyLockedByCashGifts") {}
+
 const PROFILE_COLUMNS = {
   id: weddings.id,
   slug: weddings.slug,
@@ -96,7 +110,7 @@ export const weddingSettingsService = {
     updatedByOsnProfileId: string,
   ): Effect.Effect<
     WeddingProfile,
-    WeddingNotFound | SettingsWriteError | RsvpDeadlineInPast,
+    WeddingNotFound | SettingsWriteError | RsvpDeadlineInPast | CurrencyLockedByCashGifts,
     DbService
   > {
     return Effect.gen(function* () {
@@ -180,17 +194,38 @@ export const weddingSettingsService = {
         }
       }
 
-      yield* Effect.tryPromise({
+      // A currency CHANGE may not land while money gifts are on and the
+      // connected account settles in anything but the new currency (see
+      // `CurrencyLockedByCashGifts`). Judged on the change, not the value: the
+      // owner form re-sends the whole profile, and refusing the value would
+      // lock a couple out of their own settings. The check rides in the
+      // UPDATE's own WHERE, so money gifts switched on between the read above
+      // and this write still stop it. A disconnected account (no id) locks
+      // nothing — the guest gate checks a reconnected one where money moves.
+      const changesCurrency = patch.currency !== undefined && patch.currency !== current.currency;
+      const unlocked = changesCurrency
+        ? sql`not exists (select 1 from ${registrySettings} where ${registrySettings.weddingId} = ${outerColumn(weddings.id)} and ${registrySettings.cashGiftsEnabled} = 1 and ${registrySettings.stripeAccountId} is not null and (${registrySettings.stripeDefaultCurrency} is null or upper(${registrySettings.stripeDefaultCurrency}) <> ${patch.currency}))`
+        : undefined;
+
+      const written = yield* Effect.tryPromise({
         try: () =>
           Promise.resolve(
             db
               .update(weddings)
               .set({ ...changes, updatedByOsnProfileId, updatedAt: new Date() })
-              .where(eq(weddings.id, weddingId))
-              .run(),
+              .where(and(eq(weddings.id, weddingId), unlocked))
+              .returning({ id: weddings.id })
+              .all(),
           ),
         catch: (cause) => new SettingsWriteError({ reason: "update", cause }),
       });
+      if (written.length === 0) {
+        // The row was read a moment ago, so with the lock in the WHERE a miss
+        // is the lock; without it, the wedding went between the two.
+        return yield* changesCurrency
+          ? new CurrencyLockedByCashGifts()
+          : new WeddingNotFound({ weddingId });
+      }
 
       return next;
     }).pipe(

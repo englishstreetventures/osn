@@ -79,13 +79,18 @@ import { organiserSessionService } from "../../src/services/organiser-session";
 import { plusOneService } from "../../src/services/plus-one";
 import { RECONCILE_GRACE_MS } from "../../src/services/r2-reconcile";
 import {
+  CurrencyMismatch,
   registryGuestService,
   registryService,
   SettingsChanged,
 } from "../../src/services/registry";
 import {
+  type GiftSummary,
   type GiftSummaryNotice,
+  GIFT_SUMMARY_MAX_LISTED,
+  MAX_LISTED_GIFTS_PER_SWEEP,
   MAX_WEDDINGS_PER_SWEEP,
+  packGiftSummaries,
   retentionService,
 } from "../../src/services/retention";
 import { rsvpService } from "../../src/services/rsvp";
@@ -104,6 +109,10 @@ import { createUpgradeCatalogue } from "../../src/services/upgrade-catalogue";
 import { createUpgradeService } from "../../src/services/upgrades";
 import { vendorsService } from "../../src/services/vendors";
 import { weddingLifecycleService } from "../../src/services/wedding-lifecycle";
+import {
+  CurrencyLockedByCashGifts,
+  weddingSettingsService,
+} from "../../src/services/wedding-settings";
 import {
   fullWeddingKeys,
   fullWeddingStatements,
@@ -1578,9 +1587,197 @@ describe("cire/api over real D1 (Miniflare)", () => {
       await run(retentionService.sweepExpiredGuestData(now));
       expect(JSON.parse((await summary()) ?? "{}").contributions).toEqual({
         count: 1,
-        totals: [{ currency: "AUD", amountMinor: 5_000 }],
+        totals: [{ currency: "AUD", amountMinor: 5_000, count: 1 }],
+        gifts: [{ on: "2025-06-02", amountMinor: 5_000, currency: "AUD" }],
       });
       expect(await db.select().from(guests).where(eq(guests.familyId, FAMILY_ID))).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the currency guards hold inside their own statements on D1",
+    async () => {
+      // Both rules ride in the write itself — a NOT EXISTS on the weddings
+      // UPDATE, an EXISTS in the settings upsert's conflict WHERE — so the
+      // engine that evaluates them is the one to test them on.
+      const stamp = new Date("2026-01-01T00:00:00.000Z");
+      await db.insert(registrySettings).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        published: true,
+        cashGiftsEnabled: true,
+        stripeAccountId: "acct_d1_currency",
+        stripeChargesEnabled: true,
+        stripeDefaultCurrency: "AUD",
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+      const currency = async () =>
+        (
+          await db
+            .select({ currency: weddings.currency })
+            .from(weddings)
+            .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+        )[0]?.currency;
+
+      // Money gifts on, account settles in AUD: the change is refused.
+      const locked = await run(
+        Effect.exit(
+          weddingSettingsService.update(BOOTSTRAP_WEDDING_ID, { currency: "USD" }, "usr_d1"),
+        ),
+      );
+      expect(Exit.isFailure(locked)).toBe(true);
+      if (Exit.isFailure(locked)) {
+        expect(locked.cause.toString()).toContain(new CurrencyLockedByCashGifts()._tag);
+      }
+      expect(await currency()).toBe("AUD");
+
+      // Off, it goes through; switching back on against an AUD account is then
+      // refused, from the upsert's own check as much as the read before it.
+      await db
+        .update(registrySettings)
+        .set({ cashGiftsEnabled: false })
+        .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID));
+      await run(weddingSettingsService.update(BOOTSTRAP_WEDDING_ID, { currency: "USD" }, "usr_d1"));
+      expect(await currency()).toBe("USD");
+      const mismatched = await run(
+        Effect.exit(
+          registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+        ),
+      );
+      expect(Exit.isFailure(mismatched)).toBe(true);
+      if (Exit.isFailure(mismatched)) {
+        expect(mismatched.cause.toString()).toContain(new CurrencyMismatch()._tag);
+      }
+
+      // Once the two agree, the upsert's EXISTS lets the switch on.
+      await run(weddingSettingsService.update(BOOTSTRAP_WEDDING_ID, { currency: "AUD" }, "usr_d1"));
+      const enabled = await run(
+        registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+      );
+      expect(enabled.cashGiftsEnabled).toBe(true);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the retention sweep stores a run's summaries across several statements, all with the delete or none",
+    async () => {
+      // As many full lists of money gifts as one run takes: more JSON than one
+      // store statement binds, so the batch carries several. All inside the
+      // 30-day hold-back, so a failed batch deletes nothing.
+      const n = MAX_LISTED_GIFTS_PER_SWEEP / GIFT_SUMMARY_MAX_LISTED;
+      const stamp = new Date("2025-06-02T00:00:00.000Z");
+      const ids = Array.from({ length: n }, (_, i) => `wed_d1_chunk_${i}`);
+      await db.run(
+        insertManyViaJsonEach(
+          weddings,
+          ids.map((id) => ({
+            id,
+            slug: `slug-${id}`,
+            displayName: `Wedding ${id}`,
+            createdAt: stamp,
+            updatedAt: stamp,
+          })),
+        ),
+      );
+      await db.run(
+        insertManyViaJsonEach(
+          events,
+          ids.map((id) => ({
+            id: `ev_${id}`,
+            weddingId: id,
+            slug: "ceremony",
+            name: "Ceremony",
+            startAt: "2025-06-01T10:00:00+11:00",
+            endAt: "2025-06-01T12:00:00+11:00",
+            timezone: "Australia/Sydney",
+          })),
+        ),
+      );
+      await db.run(
+        insertManyViaJsonEach(
+          families,
+          ids.map((id, i) => ({
+            id: `fam_${id}`,
+            weddingId: id,
+            publicId: `CHUNK${String(i).padStart(3, "0")}`,
+            familyName: "Family",
+            createdAt: stamp,
+            updatedAt: stamp,
+          })),
+        ),
+      );
+      await db.run(
+        insertManyViaJsonEach(
+          registrySettings,
+          ids.map((id) => ({ weddingId: id, published: true, createdAt: stamp, updatedAt: stamp })),
+        ),
+      );
+      await db.run(
+        insertManyViaJsonEach(
+          registryContributions,
+          ids.flatMap((id) =>
+            Array.from({ length: GIFT_SUMMARY_MAX_LISTED }, (_, g) => ({
+              id: `rct_${id}_${g}`,
+              weddingId: id,
+              itemId: null,
+              familyId: `fam_${id}`,
+              status: "succeeded" as const,
+              amountMinor: 100_000_000 + g,
+              currency: "AUD",
+              stripeCheckoutSessionId: `cs_${id}_${g}`,
+              createdAt: new Date(stamp.getTime() + g * 1_000),
+              updatedAt: stamp,
+            })),
+          ),
+        ),
+      );
+      const now = new Date("2026-06-17T04:00:00.000Z");
+      const stored = async () =>
+        db
+          .select({ weddingId: registrySettings.weddingId, json: registrySettings.giftSummaryJson })
+          .from(registrySettings)
+          .where(inArray(registrySettings.weddingId, jsonEachIn(ids)));
+      const households = async () =>
+        db
+          .select()
+          .from(families)
+          .where(inArray(families.weddingId, jsonEachIn(ids)));
+
+      // Fails the LAST summary row written — by then every earlier store
+      // statement has run inside the batch — so a pass proves the earlier
+      // statements roll back with it.
+      await d1
+        .prepare(
+          `CREATE TRIGGER fail_last_summary BEFORE UPDATE OF gift_summary_json ON registry_settings WHEN (SELECT count(*) FROM registry_settings WHERE gift_summary_json IS NOT NULL AND wedding_id LIKE 'wed_d1_chunk_%') >= ${n - 1} BEGIN SELECT RAISE(ABORT, 'boom'); END`,
+        )
+        .run();
+      try {
+        const exit = await run(Effect.exit(retentionService.sweepExpiredGuestData(now)));
+        expect(Exit.isFailure(exit)).toBe(true);
+        expect((await stored()).every((row) => row.json === null)).toBe(true);
+        expect(await households()).toHaveLength(n);
+      } finally {
+        // beforeEach clears rows, not triggers.
+        await d1.prepare("DROP TRIGGER IF EXISTS fail_last_summary").run();
+      }
+
+      // Without the fault every summary lands, each with its full list, and
+      // the run did need more than one statement to carry them.
+      await run(retentionService.sweepExpiredGuestData(now));
+      const rows = await stored();
+      expect(rows).toHaveLength(n);
+      const summaries = new Map(
+        rows.map((row) => [row.weddingId, JSON.parse(row.json ?? "{}") as GiftSummary] as const),
+      );
+      for (const summary of summaries.values()) {
+        expect(summary.contributions.count).toBe(GIFT_SUMMARY_MAX_LISTED);
+        expect(summary.contributions.gifts).toHaveLength(GIFT_SUMMARY_MAX_LISTED);
+        expect(summary.contributions.gifts[0]?.amountMinor).toBe(100_000_000);
+      }
+      expect(packGiftSummaries(summaries).length).toBeGreaterThan(1);
+      expect(await households()).toEqual([]);
     },
     MF_TIMEOUT_MS,
   );

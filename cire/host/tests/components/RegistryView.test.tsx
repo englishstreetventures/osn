@@ -564,13 +564,15 @@ describe("RegistryView — gifts received", () => {
     expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
   });
 
-  it("labels the cash total as approximate", async () => {
+  it("states the cash total as given, never as an approximation", async () => {
+    // Every gift is charged in the wedding's currency and nothing is converted,
+    // so the figure is exact; calling it approximate would invent a doubt.
     setCachedRegistry("wed_1", snapshot({ contributionsPrimaryMinor: 250_00 }));
     render(() => (
       <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
     ));
-    expect(await screen.findByText(/Approximate/)).toBeInTheDocument();
-    expect(screen.getByText(/250[.,]00/)).toBeInTheDocument();
+    expect(await screen.findByText(/250[.,]00/)).toBeInTheDocument();
+    expect(screen.queryByText(/Approximate/)).not.toBeInTheDocument();
   });
 
   it("says how many gifts the cash total leaves out", async () => {
@@ -584,7 +586,7 @@ describe("RegistryView — gifts received", () => {
       <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
     ));
     expect(
-      await screen.findByText(/2 more gifts are held in other currencies/),
+      await screen.findByText(/2 more gifts were given in other currencies/),
     ).toBeInTheDocument();
   });
 
@@ -593,8 +595,8 @@ describe("RegistryView — gifts received", () => {
     render(() => (
       <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
     ));
-    await screen.findByText(/Approximate/);
-    expect(screen.queryByText(/other currencies/)).not.toBeInTheDocument();
+    await screen.findByText(/250[.,]00/);
+    expect(screen.queryByText(/other currenc/)).not.toBeInTheDocument();
   });
 
   it("toggles a thank-you and POSTs the new state", async () => {
@@ -1020,13 +1022,140 @@ describe("RegistryView — gifts received", () => {
     expect(line).toHaveTextContent("20");
   });
 
-  it("totals each currency as it was given, never converted into one figure", async () => {
+  it("totals the couple's currency with the gifts it adds", async () => {
+    setCachedRegistry("wed_1", snapshot({ giftSummary: summary() }));
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    const line = await screen.findByText(/175[.,]00/);
+    expect(line).toHaveTextContent("3 cash gifts");
+  });
+
+  it("names each other currency as outside the couple's total, never adding them up", async () => {
+    // A gift given before the couple changed their currency stays in its own:
+    // nothing is converted, and two currencies summed is not an amount.
     setCachedRegistry(
       "wed_1",
       snapshot({
         giftSummary: summary({
           contributions: {
             count: 4,
+            totals: [
+              { currency: "AUD", amountMinor: 17_500, count: 3 },
+              { currency: "JPY", amountMinor: 3_000, count: 1 },
+            ],
+            gifts: [],
+          },
+        }),
+      }),
+    );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    const ours = await screen.findByText(/175[.,]00/);
+    expect(ours).toHaveTextContent("3 cash gifts in AUD");
+    const theirs = screen.getByText(/1 cash gift in JPY/);
+    expect(theirs).toHaveTextContent(/3.?000/);
+    expect(theirs).toHaveTextContent("not in the AUD total");
+  });
+
+  it("lists each cash gift as given, by its day, and marks one in another currency", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        giftSummary: summary({
+          contributions: {
+            count: 2,
+            totals: [
+              { currency: "AUD", amountMinor: 12_500, count: 1 },
+              { currency: "USD", amountMinor: 5_000, count: 1 },
+            ],
+            gifts: [
+              { on: "2025-03-02", amountMinor: 5_000, currency: "USD" },
+              { on: "2025-05-11", amountMinor: 12_500, currency: "AUD" },
+            ],
+          },
+        }),
+      }),
+    );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    const list = await screen.findByRole("list", { name: "Each cash gift" });
+    const rows = list.querySelectorAll("li");
+    expect(rows).toHaveLength(2);
+    // Oldest first; the day pinned to UTC so it is the stored one.
+    expect(rows[0]).toHaveTextContent("2025");
+    expect(rows[0]).toHaveTextContent(/50[.,]00/);
+    expect(rows[0]).toHaveTextContent("Given in USD — not in the AUD total");
+    expect(rows[1]).toHaveTextContent(/125[.,]00/);
+    expect(rows[1]).not.toHaveTextContent("Given in");
+  });
+
+  it("says how many gifts the record counts but does not list", async () => {
+    // A record kept before gifts were listed holds a count and totals only.
+    setCachedRegistry("wed_1", snapshot({ giftSummary: summary() }));
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    expect(
+      await screen.findByText("3 cash gifts are counted above but not listed one by one."),
+    ).toBeInTheDocument();
+  });
+
+  it("counts one gift past the list as one more", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        giftSummary: summary({
+          contributions: {
+            count: 2,
+            totals: [{ currency: "AUD", amountMinor: 17_500, count: 2 }],
+            gifts: [{ on: "2025-05-11", amountMinor: 12_500, currency: "AUD" }],
+          },
+        }),
+      }),
+    );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    expect(
+      await screen.findByText("1 more cash gift is counted above but not listed one by one."),
+    ).toBeInTheDocument();
+  });
+
+  it("shows each currency as its own total when none came in the couple's", async () => {
+    // A wedding that changed currency after every gift: no couple-currency
+    // total to sit beside, so no "Plus" and no "not in the AUD total".
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        giftSummary: summary({
+          contributions: {
+            count: 1,
+            totals: [{ currency: "USD", amountMinor: 5_000, count: 1 }],
+            gifts: [{ on: "2025-03-02", amountMinor: 5_000, currency: "USD" }],
+          },
+        }),
+      }),
+    );
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    const total = await screen.findByText(/1 cash gift in USD/);
+    expect(total).toHaveTextContent(/50[.,]00/);
+    expect(total).not.toHaveTextContent("Plus");
+    expect(screen.getByText("Given in USD")).toBeInTheDocument();
+    expect(screen.queryByText(/not in the AUD total/)).not.toBeInTheDocument();
+  });
+
+  it("names a currency by itself where the record kept no count for it", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        giftSummary: summary({
+          contributions: {
+            count: 3,
             totals: [
               { currency: "AUD", amountMinor: 17_500 },
               { currency: "JPY", amountMinor: 3_000 },
@@ -1038,9 +1167,18 @@ describe("RegistryView — gifts received", () => {
     render(() => (
       <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
     ));
-    const line = await screen.findByText(/175[.,]00/);
-    expect(line).toHaveTextContent(/3.?000/);
-    expect(line).toHaveTextContent("4 cash gifts");
+    expect(await screen.findByText(/175[.,]00/)).toHaveTextContent("in AUD");
+    expect(screen.getByText(/3.?000/)).toHaveTextContent("in JPY, not in the AUD total");
+  });
+
+  it("says the amount and day of each cash gift were kept", async () => {
+    setCachedRegistry("wed_1", snapshot({ giftSummary: summary() }));
+    render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" canEdit={true} />
+    ));
+    expect(
+      await screen.findByText(/We kept the amount and the day of each\s+cash gift/),
+    ).toBeInTheDocument();
   });
 
   it("stops saying there are no gifts once the detail has been swept", async () => {
