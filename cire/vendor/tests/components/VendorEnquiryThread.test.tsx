@@ -72,6 +72,21 @@ afterEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("VendorEnquiryThread", () => {
+  // ── Privacy notice ────────────────────────────────────────────────────────
+
+  it("renders the notice that enquiries are not end-to-end encrypted", async () => {
+    mockGetEnquiryMessages.mockResolvedValue([]);
+    render(() => (
+      <VendorEnquiryThread enquiryId="enq_1" ownProfileId="p-vendor" onBack={() => {}} />
+    ));
+    await waitFor(() =>
+      expect(screen.getByText(/Enquiries aren't end-to-end encrypted/i)).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText(/cire can read these messages to keep the marketplace safe/i),
+    ).toBeInTheDocument();
+  });
+
   // ── Message bubbles ────────────────────────────────────────────────────────
 
   it("renders messages with correct data-mine attribute", async () => {

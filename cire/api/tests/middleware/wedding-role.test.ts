@@ -8,9 +8,6 @@ import type { WeddingCapability, WeddingRole } from "../../src/middleware/weddin
 // behaves; this proves the policy every gate reads, so a role added without a
 // deliberate decision shows up here as a failure rather than as silence.
 
-const ROLES: readonly WeddingRole[] = ["owner", "editor", "viewer", "helper"];
-const CAPABILITIES: readonly WeddingCapability[] = ["member", "editor", "runSheet", "manage"];
-
 /** Every (role, capability) pair, as `allowed` booleans. Written out in full on
  *  purpose — a table that derives its expectations from the code under test
  *  would agree with any change to it. */
@@ -26,6 +23,11 @@ const EXPECTED: Record<WeddingRole, Record<WeddingCapability, boolean>> = {
   helper: { member: false, editor: false, runSheet: true, manage: false },
 };
 
+// Derived from the typed table, so the compiler forces every role and every
+// capability into the loops below.
+const ROLES = Object.keys(EXPECTED) as WeddingRole[];
+const CAPABILITIES = Object.keys(EXPECTED.owner) as WeddingCapability[];
+
 describe("policyFor", () => {
   for (const role of ROLES) {
     for (const capability of CAPABILITIES) {
@@ -35,6 +37,10 @@ describe("policyFor", () => {
       });
     }
   }
+
+  it("grants the owner every capability there is", () => {
+    expect([...policyFor("owner").capabilities].toSorted()).toEqual([...CAPABILITIES].toSorted());
+  });
 });
 
 describe("refusal strings", () => {

@@ -156,6 +156,7 @@ A test asserting only that a function returns without throwing is not coverage. 
 - An E2E test that ends without writing an artifact (a trace, screenshots, a JSON results file), or whose artifact changes between runs (unseeded data, the real clock), is `T-S`.
 - A unit or isolated test the branch adds is `T-S` unless `NEW-FEAT.md` lists, from before the code, the failure mode it guards. Unit tests written after the code to cover it are the low-signal kind this repo deletes. The `Solution` is to delete the test, or to name the listed failure it maps to.
 - Never propose an isolated unit test as a gap's fix when an E2E test can reach the behaviour.
+- Never propose deleting a test that checks a refusal or a redaction (an authorisation gate, a permission table, a rate limit, a CSP, an input rejection, log redaction) unless you name the existing test that checks the same refusal.
 
 **No tautological tests.** A test that cannot fail however the code under test changes is not coverage, and it is worse than no test: it reads as coverage. Check every test the branch adds or changes against these shapes:
 

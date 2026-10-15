@@ -22,7 +22,7 @@ Three rules decide what kind of test a change gets. They come before every patte
 
 **Never write unit tests after the code.** A unit test written to cover code that already works describes what the code does, not what it must do. It goes green on the first run and stays green through the bugs that matter. Those tests are the low-signal kind this repo has deleted: constants asserted against themselves, mock echoes, "renders without crashing", snapshots of static markup, framework behaviour, types the compiler already checks.
 
-The bar for keeping any non-E2E test: **name the real bug it catches that no E2E test would.** No name, no test. [[#Assertions that cannot fail]] lists the shapes that fail that bar most often.
+The bar for keeping any non-E2E test: **name the real bug it catches that no E2E test would.** No name, no test. One exception: a test that checks a refusal or a redaction (an authorisation gate, a permission table, a rate limit, a CSP, an input rejection, log redaction) stays unless a named, existing test checks the same refusal. "An E2E test could catch it" is not enough; one has to exist. [[#Assertions that cannot fail]] lists the shapes that fail that bar most often.
 
 ## Directory Layout
 

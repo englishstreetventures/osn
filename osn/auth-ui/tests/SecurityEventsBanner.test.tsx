@@ -92,6 +92,22 @@ describe("SecurityEventsBanner", () => {
 
   // S-H1: the takeover half of the threat model — gets its own headline so
   // the user knows the codes were USED, not just regenerated.
+  it("renders the recovery_code_generate headline with UA label", async () => {
+    stub.list.mockResolvedValue({ events: [recoveryGenerateEvent] });
+    render(() => (
+      <SecurityEventsBanner
+        client={asClient(stub)}
+        stepUpClient={asStepUp(stepUp)}
+        accessToken="acc"
+        productName="Musubi"
+      />
+    ));
+    await waitFor(() => {
+      expect(screen.getByText(/your Musubi recovery codes were regenerated/i)).toBeTruthy();
+      expect(screen.getByText(/Firefox on macOS/)).toBeTruthy();
+    });
+  });
+
   it("renders the recovery_code_consume headline", async () => {
     stub.list.mockResolvedValue({ events: [recoveryConsumeEvent] });
     render(() => (

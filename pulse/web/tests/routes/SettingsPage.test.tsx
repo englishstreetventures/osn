@@ -84,4 +84,9 @@ describe("SettingsPage", () => {
     expect(getByText("Sign in to change your settings.")).toBeTruthy();
     expect(queryByText("Save")).toBeNull();
   });
+
+  it("warns that a public guest list overrides the setting", () => {
+    const { getByText } = render(() => <SettingsPage />);
+    expect(getByText((content) => content.includes("public guest list"))).toBeTruthy();
+  });
 });
