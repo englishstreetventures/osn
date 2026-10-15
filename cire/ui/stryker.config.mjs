@@ -11,5 +11,8 @@ export default {
   ...options,
   plugins: ["@stryker-mutator/vitest-runner"],
   testRunner: "vitest",
+  // `related: true` picks tests by import graph and misses the ones that reach
+  // a module indirectly: on `@cire/host`'s `src/lib/haptics.ts` it killed 6
+  // mutants where the full suite kills 20.
   vitest: { configFile: `${pkg}/stryker.vitest.config.ts`, related: false },
 };

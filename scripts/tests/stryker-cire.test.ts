@@ -5,7 +5,14 @@
 
 import { expect, test } from "bun:test";
 
-import { refusal, rewriteArgs, rewriteMutate, strykerCommand } from "../stryker-cire";
+import {
+  changedMutate,
+  refusal,
+  rewriteArgs,
+  rewriteMutate,
+  strykerCommand,
+  takeChangedFlag,
+} from "../stryker-cire";
 
 const ROOT = "/repo";
 
@@ -99,4 +106,51 @@ test("the CLI exits 2 outside a cire package", async () => {
   });
   expect(await proc.exited).toBe(2);
   expect(await new Response(proc.stderr).text()).toContain("run from a cire package");
+});
+
+test("takeChangedFlag removes --changed and defaults its base to origin/main", () => {
+  expect(takeChangedFlag(["--changed", "--concurrency", "2"])).toEqual({
+    base: "origin/main",
+    rest: ["--concurrency", "2"],
+  });
+  expect(takeChangedFlag(["--changed=feat/parent"]).base).toBe("feat/parent");
+  expect(takeChangedFlag(["--mutate", "src/a.ts"])).toEqual({
+    base: undefined,
+    rest: ["--mutate", "src/a.ts"],
+  });
+});
+
+const DIFF = [
+  "diff --git a/cire/host/src/lib/a.ts b/cire/host/src/lib/a.ts",
+  "--- a/cire/host/src/lib/a.ts",
+  "+++ b/cire/host/src/lib/a.ts",
+  "@@ -10,2 +10,3 @@ export function a() {",
+  "@@ -40 +41 @@",
+  "@@ -50,4 +52,0 @@",
+  "--- a/cire/host/src/lib/gone.ts",
+  "+++ /dev/null",
+  "@@ -1,9 +0,0 @@",
+  "--- a/cire/host/src/lib/b.test.ts",
+  "+++ b/cire/host/src/lib/b.test.ts",
+  "@@ -1 +1 @@",
+  "--- a/cire/host/src/env.d.ts",
+  "+++ b/cire/host/src/env.d.ts",
+  "@@ -1 +1 @@",
+].join("\n");
+
+test("changedMutate turns added and changed hunks into line ranges and skips pure deletions", () => {
+  expect(changedMutate(DIFF, [])).toEqual([
+    "cire/host/src/lib/a.ts:10-12",
+    "cire/host/src/lib/a.ts:41-41",
+  ]);
+});
+
+test("changedMutate mutates an untracked source file whole and skips tests and declarations", () => {
+  expect(
+    changedMutate("", [
+      "cire/host/src/lib/new.tsx",
+      "cire/host/src/lib/new.test.tsx",
+      "cire/host/src/x.d.ts",
+    ]),
+  ).toEqual(["cire/host/src/lib/new.tsx"]);
 });

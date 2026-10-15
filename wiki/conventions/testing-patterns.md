@@ -356,21 +356,28 @@ Every `cire/*` package with tests has a `stryker.config.mjs` and a
 
 ### When to run it
 
-When you write or change tests for cire source, run it on the source files you
-changed, before calling the tests done. A full-package run is for a baseline,
-not for a branch: one `@cire/host` file is several hundred mutants and about ten
-minutes, and the whole package is hours.
+When you write or change tests for cire source, run it on the lines you
+changed, before calling the tests done. `--changed` mutates only the lines the
+branch adds or changes under the package's `src/` — committed or not, plus any
+untracked source file whole — so no time goes on mutants nobody will read. A
+whole file is several hundred mutants (one `@cire/host` file is about ten
+minutes); a whole package is hours and is for a baseline, not a branch.
 
 ```bash
-# A vitest package: scope with --mutate
-bun run --cwd cire/host test:mutation --mutate src/lib/guest-event-draft.ts
+# The lines this branch changed, against origin/main (or --changed=<base> on a stacked branch)
+bun run --cwd cire/host test:mutation --changed
 
-# Several files, or a line range
+# A file, several files, or a line range
+bun run --cwd cire/host test:mutation --mutate src/lib/guest-event-draft.ts
 bun run --cwd cire/vendor test:mutation --mutate 'src/lib/enquiry-inbox.ts,src/lib/theme.ts:20-48'
 
-# @cire/api: also name the tests that cover the file — it will not start without them
-STRYKER_TESTS=tests/lib/money.test.ts bun run --cwd cire/api test:mutation --mutate src/lib/money.ts
+# @cire/api: also name the tests that cover the code — it will not start without them
+STRYKER_TESTS=tests/lib/money.test.ts bun run --cwd cire/api test:mutation --changed
 ```
+
+After adding a test, `--incremental` re-tests only the mutants whose code or
+covering tests changed. Use it in the vitest packages only: the command-runner
+packages report no coverage, so Stryker would keep every earlier survivor.
 
 Run a long one in the background: the agent shell's foreground limit is ten
 minutes, and an interrupted run only wastes the time already spent. The report
@@ -419,6 +426,12 @@ What the configs depend on, and what breaks without it:
   strict `^7` or `^8`. A root `overrides` entry for `@babel/core` forces one
   version on both and breaks one of them: under `^7` Stryker crashes while
   instrumenting.
+- **The vitest runner is patched for Vitest 5**
+  (`patches/@stryker-mutator%2Fvitest-runner@10.0.0.patch`). Stryker filters
+  the tests to run per mutant by name, and Vitest 5 joins a test's suite chain
+  with ` > ` where the runner joins it with a space, so unpatched every mutant
+  runs no tests and survives. A run reporting `Ran 0.00 tests per mutant` is
+  that failure. Bounded until englishstventures/osn#1520 lands.
 - **Every vitest config names `@stryker-mutator/vitest-runner` in `plugins`.**
   Bun's isolated install hides the runner from Stryker's plugin discovery, which
   fails with "Cannot find TestRunner plugin".
@@ -764,8 +777,8 @@ bun run --cwd pulse/api test
 # The browser tier, per package
 bun run --cwd shared/ui test:browser
 
-# Mutation testing, cire only, scoped to the files you changed
-bun run --cwd cire/host test:mutation --mutate src/lib/guest-event-draft.ts
+# Mutation testing, cire only, scoped to the lines this branch changed
+bun run --cwd cire/host test:mutation --changed
 ```
 
 `@shared/ui` runs the two-project split — `unit` and `browser` — that

@@ -28,6 +28,16 @@ export function cireStryker(configDir) {
       ignorePatterns: [
         ".claude",
         "wiki",
+        // No cire test or config reads the other products; the copy skips them.
+        "osn",
+        "pulse",
+        "musubi",
+        "zap",
+        "docs",
+        "tools",
+        ".agents",
+        ".changeset",
+        "**/coverage",
         ".stryker-tmp-*",
         "**/dist",
         "**/.astro",
@@ -41,6 +51,10 @@ export function cireStryker(configDir) {
         "**/*.pem",
         "**/*.key",
       ],
+      // Read by `--incremental`, which reuses every result whose code and
+      // covering tests are unchanged. Only the vitest runner reports coverage;
+      // under the command runner it would keep a survivor after a killing test.
+      incrementalFile: `${pkg}/reports/mutation/stryker-incremental.json`,
       reporters: ["clear-text", "progress", "html"],
       htmlReporter: { fileName: `${pkg}/reports/mutation/mutation.html` },
     },

@@ -181,33 +181,37 @@ copy in `.stryker-tmp-cire-<pkg>/` at the repo root and leaves tracked files
 alone, but it is a build-sized load, and two runs in one checkout share that
 directory. Not alone: record each run you would have made under `## Not run`.
 
-For each affected cire package, run it on the **changed source files only** —
-never the whole package, which takes hours. Run it in the background (the
-shell's foreground limit is ten minutes; one `@cire/host` file is about ten)
-and keep auditing while it runs:
+For each affected cire package, run it on the **lines the branch changed** —
+`--changed=$DIFF_BASE` mutates only the added and changed lines under the
+package's `src/`, so every mutant it reports is the branch's. Never the whole
+package, which takes hours. Run it in the background (the shell's foreground
+limit is ten minutes) and keep auditing while it runs:
 
 ```bash
-bun run --cwd cire/<pkg> test:mutation --mutate '<src/a.ts>,<src/b.tsx>' > <scratch>/mutation-<pkg>.log 2>&1
+bun run --cwd cire/<pkg> test:mutation --changed="$DIFF_BASE" > <scratch>/mutation-<pkg>.log 2>&1
 ```
 
-`@cire/api` will not start without `STRYKER_TESTS`, the test files that cover
-the mutated code — the paired files from Step 3, never `tests/db/`:
+It prints `no changed source lines` and exits 0 when the branch changes no
+source there — record that and move on. `@cire/api` will not start without
+`STRYKER_TESTS`, the test files that cover the mutated code — the paired files
+from Step 3, never `tests/db/`:
 
 ```bash
-STRYKER_TESTS='tests/lib/money.test.ts' bun run --cwd cire/api test:mutation --mutate src/lib/money.ts
+STRYKER_TESTS='tests/lib/money.test.ts' bun run --cwd cire/api test:mutation --changed="$DIFF_BASE"
 ```
+
+First check the log's `Ran N tests per mutant on average` line. `0.00` means
+the runner ran no tests at all and every survivor is false — record the run
+under `## Not run` with that line quoted, and report no gaps from it.
 
 Read the `[Survived]` and `[NoCoverage]` entries from the log. Each prints the
-file, the line and the change. **Report only those on lines the branch
-changed** — `git diff -U0 "$DIFF_BASE"...HEAD -- <file>` gives the ranges;
-survivors on untouched lines predate the branch and are not its gaps. Each one
-reported is a gap:
+file, the line and the change. Each one is a gap:
 
 - a survivor or `NoCoverage` in an error path, a gate or a denial is `T-E`;
 - any other is `T-U` for the export the line belongs to.
 
 Group survivors that share one missing test into one gap. Quote the mutation in
-the `Issue` (`src/lib/money.ts:42 — \`<\` → \`<=\` survived`), and in the
+the `Issue` (`cire/api/src/lib/money.ts:42 — \`<\` → \`<=\` survived`), and in the
 `Solution` name the input that tells the two versions apart. A mutant that
 cannot change behaviour (an overwritten default, log wording) is not a gap:
 list it under the file's line in `## Files audited` as `equivalent mutant` with

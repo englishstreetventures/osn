@@ -65,6 +65,50 @@ export function rewriteArgs(args: readonly string[], pkgDir: string, repoRoot: s
   return out;
 }
 
+const MUTABLE = /\/src\/.*\.tsx?$/;
+const NOT_MUTABLE = /\.d\.ts$|\.(test|spec)\.tsx?$/;
+
+/**
+ * Takes the wrapper's own `--changed[=<base>]` flag out of `argv`. `base` is
+ * `undefined` when the flag is absent; a bare `--changed` diffs against
+ * `origin/main`.
+ */
+export function takeChangedFlag(argv: readonly string[]) {
+  let base: string | undefined;
+  const rest: string[] = [];
+  for (const arg of argv) {
+    const match = /^--changed(?:=(.+))?$/.exec(arg);
+    if (match) base = match[1] ?? "origin/main";
+    else rest.push(arg);
+  }
+  return { base, rest };
+}
+
+/**
+ * Turns `git diff -U0` output and a list of untracked files into `--mutate`
+ * entries: one `path:start-end` per added or changed hunk, and the whole file
+ * for an untracked one. Only source under `src/` is kept — no declaration
+ * files and no tests. A hunk that only deletes lines has nothing to mutate.
+ */
+export function changedMutate(diff: string, untracked: readonly string[]): string[] {
+  const keep = (path: string) => MUTABLE.test(path) && !NOT_MUTABLE.test(path);
+  const entries: string[] = [];
+  let file: string | undefined;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+++ ")) {
+      const path = line.slice(4);
+      file = path.startsWith("b/") && keep(path.slice(2)) ? path.slice(2) : undefined;
+      continue;
+    }
+    const hunk = /^@@ -\S+ \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (!file || !hunk) continue;
+    const start = Number(hunk[1]);
+    const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+    if (count > 0) entries.push(`${file}:${start}-${start + count - 1}`);
+  }
+  return [...entries, ...untracked.filter(keep)];
+}
+
 /** Why `cwd` cannot run mutation tests, or `undefined` when it can. */
 export function refusal(
   cwd: string,
@@ -98,7 +142,27 @@ if (import.meta.main) {
     process.stderr.write(`${refused}\n`);
     process.exit(2);
   }
-  const { cmd, cwd } = strykerCommand(process.cwd(), process.argv.slice(2), REPO_ROOT);
+  const { base, rest } = takeChangedFlag(process.argv.slice(2));
+  let argv = rest;
+  if (base !== undefined) {
+    const pkgSrc = join(relative(REPO_ROOT, process.cwd()), "src");
+    const git = (...args: string[]) => {
+      const run = Bun.spawnSync(["git", ...args], { cwd: REPO_ROOT, stderr: "inherit" });
+      if (run.exitCode !== 0) process.exit(2);
+      return run.stdout.toString();
+    };
+    const mergeBase = git("merge-base", base, "HEAD").trim();
+    const mutate = changedMutate(
+      git("diff", "-U0", "--no-color", "--no-ext-diff", mergeBase, "--", pkgSrc),
+      git("ls-files", "--others", "--exclude-standard", "--", pkgSrc).split("\n").filter(Boolean),
+    );
+    if (mutate.length === 0) {
+      process.stdout.write(`stryker-cire: no changed source lines under ${pkgSrc} since ${base}\n`);
+      process.exit(0);
+    }
+    argv = [...rest, "--mutate", mutate.map((entry) => join(REPO_ROOT, entry)).join(",")];
+  }
+  const { cmd, cwd } = strykerCommand(process.cwd(), argv, REPO_ROOT);
   const proc = Bun.spawn(cmd, { cwd, stdio: ["inherit", "inherit", "inherit"] });
   process.exit(await proc.exited);
 }
