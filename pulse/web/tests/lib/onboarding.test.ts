@@ -179,6 +179,23 @@ describe("fetchOnboardingStatus", () => {
     mockMeOnboardingGet.mockResolvedValueOnce({ data: null, error: { value: "boom" } });
     expect(await fetchOnboardingStatus()).toBeNull();
   });
+
+  it("returns the status payload on success", async () => {
+    mockMeOnboardingGet.mockResolvedValueOnce({
+      data: {
+        completedAt: null,
+        interests: [],
+        notificationsOptIn: false,
+        eventRemindersOptIn: false,
+        notificationsPerm: "prompt",
+        locationPerm: "prompt",
+      },
+      error: null,
+    });
+    const status = await fetchOnboardingStatus();
+    expect(status?.completedAt).toBeNull();
+    expect(status?.interests).toEqual([]);
+  });
 });
 
 describe("completeOnboarding", () => {
