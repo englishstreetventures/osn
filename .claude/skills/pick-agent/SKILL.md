@@ -30,7 +30,7 @@ than assuming either, and name both in your sentence.
 | `mechanic` | Work whose answer is fixed before it starts: patch and minor dependency sweeps, renames, changesets, a known pattern applied across files, and skill-text, docs or test-only edits whose issue already states the change. |
 | `reviewer` | Reviewing a branch or a pull request through one lens — `review-tests`, `review-security`, `review-performance`, `review-docs`, or a whole branch against its plan. Reports findings; fixes nothing. Reviewing *and fixing* an open pull request is whole-task work: `implementer`. |
 | `explorer` | Read-only orientation. Returns `file:line`, proposes nothing. |
-| `shepherd` | Polling a pull request to a terminal state. |
+| `shepherd` | Reading a pull request's red CI and returning the decisive line, or polling it to a terminal state. |
 | `attacker` | Attacking a plan, cold, in a fresh context. |
 
 Where the issue carries a **confirmed** `complexity:` label, use it — it was set
@@ -143,7 +143,7 @@ other dispatch sites are fixed by role and name their definition directly:
 |---|---|
 | `orchestrate` Step 1 | `explorer` |
 | `orchestrate` Step 5 rebases and check-failure fixes | `implementer` |
-| `orchestrate` Step 5 polling | `shepherd` |
+| `orchestrate` Step 5 reading a red check | `shepherd` |
 | `prep-pr` Steps 4 and 6 | `reviewer` |
 | `review-pr` reviews | `reviewer` |
 | `stress-plan` Step 2 | `attacker` |

@@ -9,6 +9,15 @@
 # script runs inside the checkout the agent then works in.
 set -euo pipefail
 
+# Refuse to run anywhere but a checkout of this repository. Everything below is
+# a relative `rm -rf` or a `git add -A`, and `.claude/projects` is where Claude
+# Code keeps its session transcripts. The harness does `cd` to `installPath`
+# first, but that is an assumption about someone else's runner.
+[ -f CLAUDE.md ] && [ -d .claude/skills ] && [ -d shared/color ] || {
+  echo "setup.sh: not in an osn checkout — refusing to delete anything" >&2
+  exit 1
+}
+
 # The fixture repo may carry `.claude/commands/*.md` copies of skills, and
 # ships its eval rubrics; `exclude` in scenario.json does not strip either.
 # The plugin variant supplies `.claude/skills/`, which nothing here touches.
@@ -154,3 +163,6 @@ if printf '%s\n' "$CHANGED" | grep -q '^tools/lab/'; then fail "branch touches t
 if printf '%s\n' "$CHANGED" | grep -q '^\.changeset/'; then fail "branch carries a changeset"; fi
 grep -q '"name": "@shared/color"' shared/color/package.json || fail "shared/color is not @shared/color"
 git worktree list | grep -qF "[$BRANCH]" || fail "no worktree for $BRANCH"
+[ -z "$(git -C .worktrees/shared-color-readable-on status --porcelain)" ] || fail "the worktree is not clean"
+grep -q "\"headSha\": \"$MAIN_SHA\"" .pr/runs.json || fail "runs.json does not carry main's head"
+grep -q "\"headSha\": \"$HEAD_SHA\"" .pr/runs.json || fail "runs.json does not carry the branch's head"

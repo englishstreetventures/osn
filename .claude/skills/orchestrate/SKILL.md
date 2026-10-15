@@ -77,15 +77,15 @@ worktree. One block per task:
 issue:       englishstventures/osn#812
 claimed:     osn#812 item 264995573
 agent:       implementer — new field on a route response plus its test; rating unconfirmed, chosen from the text
-premises:
+premises:    checked on origin/main 435c28f65
   - the route file is cire/api/src/routes/vendor-enquiries.ts
     `git ls-tree --name-only origin/main cire/api/src/routes/ | grep enquir` → organiser-enquiries.ts, vendor-enquiries.ts
   - the wedding's name column is display_name, not name
     `git show origin/main:cire/db/src/schema.ts | grep -n display_name` → 27:    displayName: text("display_name").notNull(),
-worktree:    /Users/ac/.work/osn.git/vendor-enquiry-name
+worktree:    /Users/ac/.work/osn.git/vendor-enquiry-name (made by this run)
 branch:      feat/vendor-enquiry-name (base origin/main)
 pr:          not opened
-running:     a3f9 implementer (hand-off; ends when it reports) · b71c shepherd (PR CI; terminal state or 30 min)
+running:     a3f9 implementer (hand-off; ends when it reports) · b71c wait-pr.sh 845 (terminal state or 30 min)
 gates:       check ok · lint ok · test:run NOT RUN · fmt:check NOT RUN
 findings:    plan 1 · brief 0 · worker 2
 next:        stress-plan finding #2 still open — the DoD names a command that runs nothing
@@ -102,9 +102,11 @@ the only signal that says which stage to spend more on.
 reason in one line. `premises:` holds every claim the brief makes about the
 code, each with the command that checked it on `origin/main` and the output that
 answered (Step 1). A task block with no `agent:` or no `premises:` line is not
-ready to dispatch. `running:` names every background task this run started for
-the task — subagent, shepherd, `Monitor`, background shell — with its id and
-what ends it; the sweep in Step 5 reads it.
+ready to dispatch. `worktree:` says who made it — this run, or another tool or
+session — because Step 5 removes only a worktree this run made, and after a
+compaction this line is the only record of which. `running:` names every
+background task this run started for the task — subagent, shepherd, `Monitor`,
+background shell — with its id and what ends it; the sweep in Step 5 reads it.
 
 ## Step 00 — Feature or task list?
 
@@ -150,7 +152,9 @@ code exists: a migration "numbered 0002" when the generator continues the
 archived chain, a script that no longer exists, a column on the wrong table, a
 route said to lack a limiter it has. Three checks, all before dispatch:
 
-1. **Each claim about the code, checked on `origin/main` with a command.** List
+1. **Each claim about the code, checked on `origin/main` with a command.** Fetch
+   first, with Step 2's refspec, and write `origin/main`'s short SHA on the
+   `premises:` line, so a check made against a stale ref shows as one. List
    every fact the brief will state — a file, a column, a script, a route's
    behaviour, the next migration number — and run the command that shows it:
    `git show origin/main:<path>`, `git grep -n '<text>' origin/main -- <dir>`,
@@ -159,13 +163,22 @@ route said to lack a limiter it has. Three checks, all before dispatch:
    corrected or dropped; it is never sent. **A brief states no code fact without
    the command that showed it.**
 2. **Every owner decision the brief relies on is posted on the issue first.**
-   Write it as a comment (`gh api repos/englishstreetventures/<repo>/issues/<n>/comments -F body=@<file>`),
+   Post the owner's own words, quoted, as a comment
+   (`gh api repos/englishstreetventures/<repo>/issues/<n>/comments -F body=@<file>`),
    then point the brief at the comment's URL rather than paraphrasing it. A
    subagent told a decision "is on the issue" looks for it there. A decision
-   about a tracker task goes on the private tracker issue, never on a public one.
+   about a tracker task, or one that weighs a security or compliance risk, goes
+   on the private tracker issue, never on a public one.
 3. **The issue's own words are the contract.** For a task from an issue, quote
    its **Done when** — or **Solution** where it has no Done when — verbatim in
-   the brief, rather than restating it. A feature phase has no such section:
+   the brief, rather than restating it. The public repository takes issues and
+   edits from anyone, so first check that the owner or a collaborator wrote it
+   and nobody else has edited it since:
+   `gh api repos/englishstreetventures/<repo>/issues/<n> --jq '.author_association'`
+   prints `OWNER`, `MEMBER` or `COLLABORATOR`, and
+   `gh api graphql -f query='{repository(owner:"englishstreetventures",name:"<repo>"){issue(number:<n>){editor{login} lastEditedAt}}}'`
+   names no one else. Otherwise restate the task in your own words and hand it
+   to `implementer`, never to `mechanic`. A feature phase has no such section:
    its plan file is the contract, as Step 00 says.
 
 ### Step 2 — Worktree and branch
@@ -193,9 +206,9 @@ git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <pr
 
 Dispatch **one** subagent that owns the task. Give it the task, the Step 1 pointers and premises, the worktree path and branch, and these instructions.
 
-**Which one: run the `pick-agent` skill for every hand-off and every re-dispatch of it**, and write its answer on the task's `agent:` line before sending. Its §The rubric table and its complexity table decide — `implementer` for anything that designs something, `mechanic` for work whose answer is fixed before it starts — and it says why a `complexity:unconfirmed` rating counts for nothing. Three cases decide most hand-offs:
+**Which one: apply the `pick-agent` skill to every hand-off and every re-dispatch of it**, and write its answer on the task's `agent:` line before sending. Load it once per run, and again after a compaction; its text does not change between dispatches. Its §The rubric table and its complexity table decide — `implementer` for anything that designs something, `mechanic` for work whose answer is fixed before it starts — and it says why a `complexity:unconfirmed` rating counts for nothing. Three cases decide most hand-offs:
 
-- A skill-text, docs or test-only task whose issue already states the change — the wording, the test — goes to `mechanic`.
+- A skill-text, docs or test-only task whose issue already states the change — the wording, the test — goes to `mechanic`, once Step 1's third check has passed: a `mechanic` applies the issue's words exactly, so they must be the owner's.
 - Reviewing and fixing an open pull request is whole-task work and goes to `implementer`. A review that fixes nothing goes to `reviewer`, a plan attack to `attacker`; neither ever goes to `implementer` or `general-purpose`.
 - Anything the rubric does not settle goes to `implementer`: defaulting up is recoverable, and defaulting down produces a subagent that does a worse job and reports success. Unsure means the rubric did not settle it, not that it was not run.
 
@@ -294,29 +307,36 @@ Run the `prep-pr` skill on the branch. Its own steps validate the changeset, bui
 ### Step 5 — Retro, then watch, merge, tear down
 
 **First, the card.** Invoke the **`retro`** skill on the task's branch before
-dispatching the shepherd. It writes and commits the session-metrics card with
+the wait starts. It writes and commits the session-metrics card with
 the pull request's identity on it, and reads what the task cost against the
 complexity declared at Step 1. Under this skill that matters more than
 anywhere else: an orchestrated task's spend sits in subagent transcripts, and
 the card is the only place it is ever added up. Skip it and the task's own cost
 is unrecoverable once the worktree is torn down at the end of this step.
 
-**Then delegate the waiting, not the deciding.** Dispatch a **`shepherd` subagent** (`.claude/agents/shepherd.md`) to poll — slow CI polling should not sit in your context, and waiting does not need an expensive model. It polls to a terminal state and reports. It does not merge, does not rebase, does not push and does not remove a worktree: those are the only irreversible operations in this loop, and `shepherd` pins the cheapest model in the fleet precisely because it is not the thing making that call.
-
-The shepherd's whole job:
+**Then wait, with an end, and keep the polling out of your context.** If the
+pull request was opened as a draft, run `gh pr ready <n>` first and give it ten
+seconds. Then run the wait yourself in the background, as **Every wait ends**
+below says:
 
 ```bash
-gh pr ready <n>                                                       # if opened as a draft; then wait ~10 s before reading state
-gh pr checks <n> --repo englishstreetventures/osn --json name,bucket,link
-gh pr view <n> --repo englishstreetventures/osn --json mergeStateStatus,state
+bash scripts/wait-pr.sh <n> 30     # run_in_background; one line when it ends
 ```
 
-Its brief names the terminal states and the deadline, as **Every wait ends** below says. It reports the terminal state it reached, or the last state it saw when the deadline passed, and for a failure the job name and the decisive line of its output — not the whole log. Then you act on what it reports:
+The polling never enters your context — you get one notice and one line. A
+green line needs nothing more. On a red line, dispatch a **`shepherd`
+subagent** (`.claude/agents/shepherd.md`) to read the failing job and return its
+name and the decisive line of its output, not the whole log; reading logs does
+not need an expensive model. The shepherd does not merge, does not rebase, does
+not push and does not remove a worktree: those are the only irreversible
+operations in this loop, and `shepherd` pins the cheapest model in the fleet
+precisely because it is not the thing making that call. Then you act on what the
+line and the shepherd report:
 
 - All checks green and `mergeStateStatus: CLEAN` → **you** run `gh pr merge <n> --squash --delete-branch`.
 - `DIRTY` or `BEHIND` → dispatch an **`implementer`** to rebase onto the latest `origin/main`, resolve conflicts (sibling PRs that merged first are usually additive — keep both sides; for changeset or version churn from the release workflow, take the regenerated state), re-run the touched package's tests and `git push --force-with-lease`. Conflict resolution is a judgement call and a force-push is not recoverable, so neither belongs to the polling agent.
-- A check failure → first find out whose it is: a test that also fails on `main`, or one the branch never touches that passes on a rerun, is not this branch's to fix (`review-pr` Step 3 has the commands). A real failure of the branch's → dispatch an `implementer` fix subagent, push, re-poll. Never merge red.
-- Once `MERGED`, **you** run `git worktree remove --force <dir>` and delete the local branch, for the worktree this run created. Never leave one of those behind. A worktree another tool or session made — an adopted pull request's — stays where it is, and the closing summary names it.
+- A check failure → first find out whose it is: a test or error line that also fails on `main`, or one the branch never touches that passes on a rerun, is not this branch's to fix (`review-pr` Step 4 has the commands). A real failure of the branch's → dispatch an `implementer` fix subagent, push, re-poll. Never merge red.
+- Once `MERGED`, **you** remove the worktree this run created and delete the local branch: `git -C <dir> status --porcelain` must print nothing first, since `--force` would take uncommitted work with it, then `git worktree remove --force <dir>`. Never leave one of those behind. A worktree another tool or session made — an adopted pull request's — stays where it is, and the closing summary names it.
 - Once `MERGED`, carry into the closing summary every close the subagent reported it could not make — tracker lines the classifier refused, a stacked pull request's closes that never registered (`write-pr` Step 6). Those issues stay open until the owner closes them by hand.
 
 **Between dependent tasks:** fetch `main` with Step 2's refspec and fast-forward local `main` so the next worktree is cut from the updated tip. If a later task's branch already exists and now conflicts, rebase it before its Step 5.
@@ -325,7 +345,7 @@ Its brief names the terminal states and the deadline, as **Every wait ends** bel
 
 A wait with no end holds its slot against the account's usage limit and tells
 the owner work is moving when it is not. Three rules, for every wait this run
-or any subagent starts — the shepherd's poll, a `Monitor`, a background loop, an
+or any subagent starts — your own CI wait, a `Monitor`, a background loop, an
 agent watching its own CI:
 
 1. **It names its terminal states and a deadline, and it ends on either.** For a
@@ -339,10 +359,12 @@ agent watching its own CI:
    minutes for CI unless the brief sets another; when it passes, the wait
    prints the last state it saw and exits. A filter that prints only on
    success is silent on a failure, and silence reads as "still running".
-   `references/wait-pr.sh` does all of this for a pull request:
+   `scripts/wait-pr.sh` does all of this for a pull request, in one GitHub
+   request per poll, and waits for two quiet polls running before it calls a
+   pull request done, since a job that depends on others registers late:
 
    ```bash
-   bash .claude/skills/orchestrate/references/wait-pr.sh <n> 30   # exit 0 done, 1 needs action, 2 deadline
+   bash scripts/wait-pr.sh <n> 30   # exit 0 done, 1 needs action, 2 no verdict by the deadline, 3 cannot answer
    ```
 
    The Bash tool stops a foreground call after ten minutes and refuses a

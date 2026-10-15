@@ -19,6 +19,7 @@ Do whatever this repository does to bring someone else's pull request to merge-r
 - `origin` resolves to this checkout, so `git fetch origin` works.
 - Package tooling is not installed. Do not run `bun install`; no test, build, lint or type check can run.
 - Commit whatever the branch needs, on the branch. Do not push.
+- Do not dispatch subagents. Review the diff yourself; this task is not scored on any review agent's output.
 
 ## Deliverables
 
