@@ -16,6 +16,10 @@
  * normalised the way its R2 provider normalises them and compared with its
  * own `deepEqual`, so a rule that matches in meaning but differs in shape is
  * refused here instead of being rewritten there.
+ *
+ * Both claims are about Alchemy 2.0.0-beta.80. `tests/package.test.ts` fails
+ * on any other version, so an upgrade starts by re-checking this file against
+ * the new R2 and D1 providers.
  */
 import * as d1 from "@distilled.cloud/cloudflare/d1";
 import * as r2 from "@distilled.cloud/cloudflare/r2";
@@ -40,7 +44,7 @@ export type BucketSettings = {
 /** The D1 setting Alchemy's adoption update writes, as the stack declares it. */
 export type DatabaseSettings = { readReplication: { mode: "auto" | "disabled" } };
 
-/** What the dev buckets are configured with: nothing beyond Cloudflare's defaults. */
+/** What both dev buckets are configured with: Standard storage, no lifecycle or CORS rules, r2.dev off. */
 export const DEV_BUCKET_SETTINGS: BucketSettings = {
   storageClass: "Standard",
   lifecycleRules: [],
@@ -255,7 +259,7 @@ export const checkAdoptedStorage = (declared: DeclaredStorage) =>
         ? Effect.void
         : Effect.die(
             new Error(
-              `Refusing to adopt dev storage whose live settings differ from the declaration in alchemy.run.ts:\n- ${findings.join("\n- ")}`,
+              `Refusing to adopt dev storage whose live settings differ from its declaration in declarations.ts:\n- ${findings.join("\n- ")}`,
             ),
           );
     }),

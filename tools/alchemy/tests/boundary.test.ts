@@ -188,4 +188,97 @@ describe("probe boundary", () => {
     scope(configs, "zap/api/wrangler.toml").name = PROBE.cire.worker;
     expect(checkProbeBoundary(configs).join("\n")).toContain("zap/api/wrangler.toml");
   });
+
+  test("[env.dev] binding a bucket under another name is refused", () => {
+    const configs = committed();
+    const sheets = scope(configs, "cire/api/wrangler.toml", "dev").r2_buckets?.find(
+      (bucket) => bucket.binding === "SHEETS",
+    );
+    if (!sheets) throw new Error("fixture has no dev SHEETS bucket");
+    sheets.bucket_name = "cire-sheets-dev-2";
+    expect(checkProbeBoundary(configs).join("\n")).toContain("[env.dev] binds SHEETS to");
+  });
+
+  test("a probe bucket no config binds is refused", () => {
+    const probe = table((p) => {
+      const sheets = p.cire.buckets[0];
+      if (!sheets) throw new Error("probe table has no bucket");
+      sheets.name = "cire-sheet-dev";
+    });
+    expect(checkProbeBoundary(readWorkerConfigs(repoRoot), probe).join("\n")).toContain(
+      "[env.dev] binds SHEETS to",
+    );
+  });
+
+  test("two probes with one Worker name are refused", () => {
+    const probe = table((p) => {
+      p.osn.worker = p.cire.worker;
+    });
+    expect(checkProbeBoundary(readWorkerConfigs(repoRoot), probe).join("\n")).toContain(
+      "both probes are named",
+    );
+  });
+
+  test("[env.dev] naming another database while keeping the dev id is refused", () => {
+    const configs = committed();
+    const dev = scope(configs, "cire/api/wrangler.toml", "dev").d1_databases?.[0];
+    if (!dev) throw new Error("fixture has no dev D1");
+    dev.database_name = "cire-db-dev-2";
+    expect(checkProbeBoundary(configs).join("\n")).toContain("binds DB to cire-db-dev-2");
+  });
+
+  test("another scope using the dev database's name with its own id is refused", () => {
+    const configs = committed();
+    const staging = scope(configs, "osn/api/wrangler.toml", "staging").d1_databases?.[0];
+    if (!staging) throw new Error("fixture has no staging D1");
+    staging.database_name = PROBE.osn.database.name;
+    expect(checkProbeBoundary(configs).join("\n")).toContain(
+      `[env.staging] also uses D1 ${PROBE.osn.database.name}`,
+    );
+  });
+
+  test("a dev limiter on another namespace, period or missing is refused", () => {
+    const edits: ((claim: {
+      namespace_id: string;
+      simple: { limit: number; period: number };
+    }) => void)[] = [
+      (claim) => {
+        claim.namespace_id = "1199";
+      },
+      (claim) => {
+        claim.simple = { limit: 5, period: 10 };
+      },
+    ];
+    for (const edit of edits) {
+      const configs = committed();
+      const claim = scope(configs, "cire/api/wrangler.toml", "dev").unsafe?.bindings?.find(
+        (binding) => binding.name === "CLAIM_RATE_LIMITER",
+      );
+      if (!claim) throw new Error("fixture has no dev claim limiter");
+      edit(claim);
+      expect(checkProbeBoundary(configs).join("\n")).toContain(
+        "[env.dev] CLAIM_RATE_LIMITER is not namespace 1101",
+      );
+    }
+
+    const removed = committed();
+    const dev = scope(removed, "cire/api/wrangler.toml", "dev");
+    if (!dev.unsafe?.bindings) throw new Error("fixture has no dev unsafe bindings");
+    dev.unsafe.bindings = dev.unsafe.bindings.filter(
+      (binding) => binding.name !== "CLAIM_RATE_LIMITER",
+    );
+    expect(checkProbeBoundary(removed).join("\n")).toContain(
+      "[env.dev] CLAIM_RATE_LIMITER is not namespace 1101",
+    );
+  });
+
+  test("WORKER_CONFIGS lists every Worker config in the repository", async () => {
+    const found: string[] = [];
+    for await (const path of new Bun.Glob("*/*/wrangler.{toml,json,jsonc}").scan({
+      cwd: repoRoot,
+    })) {
+      found.push(path);
+    }
+    expect(found.toSorted()).toEqual([...WORKER_CONFIGS].toSorted());
+  });
 });

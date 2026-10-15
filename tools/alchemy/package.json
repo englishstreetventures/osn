@@ -6,9 +6,10 @@
   "scripts": {
     "check": "tsc --noEmit",
     "test": "bun test tests/",
-    "plan": "bun alchemy plan alchemy.run.ts --stage dev --adopt --detailed",
-    "deploy": "bun alchemy deploy alchemy.run.ts --stage dev --adopt",
-    "destroy": "ALCHEMY_PROBE_TEARDOWN=1 bun alchemy destroy alchemy.run.ts --stage dev"
+    "plan": "DO_NOT_TRACK=1 bun alchemy plan alchemy.run.ts --stage dev --adopt --detailed",
+    "deploy": "DO_NOT_TRACK=1 bun alchemy deploy alchemy.run.ts --stage dev --adopt",
+    "drift": "DO_NOT_TRACK=1 bun alchemy drift --config alchemy.run.ts --stage dev",
+    "destroy": "DO_NOT_TRACK=1 ALCHEMY_PROBE_TEARDOWN=1 bun alchemy destroy alchemy.run.ts --stage dev"
   },
   "dependencies": {
     "@distilled.cloud/cloudflare": "1.0.0-rc.13",

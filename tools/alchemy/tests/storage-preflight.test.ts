@@ -137,6 +137,33 @@ describe("storageFindings", () => {
     expect(infrequent).toContain("InfrequentAccess");
   });
 
+  test("a declared CORS rule matching the live one passes, and one field off is refused", () => {
+    const declaredRule = {
+      id: "browser",
+      allowedMethods: ["GET" as const],
+      allowedOrigins: ["https://example.com"],
+      maxAgeSeconds: 3600,
+    };
+    const withCors: DeclaredStorage = {
+      ...declared,
+      buckets: { "cire-sheets-dev": { ...DEV_BUCKET_SETTINGS, cors: [declaredRule] } },
+    };
+    const liveRule = {
+      id: "browser",
+      allowed: { methods: ["GET" as const], origins: ["https://example.com"] },
+      maxAgeSeconds: 3600,
+    };
+    expect(storageFindings(withCors, live({ bucket: bucket({ corsRules: [liveRule] }) }))).toEqual(
+      [],
+    );
+    expect(
+      storageFindings(
+        withCors,
+        live({ bucket: bucket({ corsRules: [{ ...liveRule, maxAgeSeconds: 60 }] }) }),
+      ).join("\n"),
+    ).toContain("CORS");
+  });
+
   test("a missing bucket or database is refused, so the stack never creates one", () => {
     expect(storageFindings(declared, live({ bucket: undefined })).join("\n")).toContain(
       "R2 bucket cire-sheets-dev does not exist",

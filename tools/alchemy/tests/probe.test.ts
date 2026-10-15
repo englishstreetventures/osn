@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import probe, { MIN_PROBE_TOKEN_LENGTH, tokensMatch, type ProbeEnv } from "../probe.ts";
+import { PROBE } from "../boundary.ts";
+import probe, { MIN_PROBE_TOKEN_LENGTH, sameDigest, tokensMatch, type ProbeEnv } from "../probe.ts";
 
 type Bucket = NonNullable<ProbeEnv["SHEETS"]>;
 
@@ -163,11 +164,62 @@ describe("Alchemy dev probe", () => {
     expect(await response.json()).toEqual({ product: "osn", ok: true });
   });
 
+  test("a Cire probe missing any one of its bindings fails health", async () => {
+    for (const binding of ["SHEETS", "ASSETS", "IMAGES", "CLAIM_RATE_LIMITER"] as const) {
+      const response = await probe.fetch(healthRequest(), cireEnv({ [binding]: undefined }));
+      expect(response.status).toBe(503);
+      expect(await response.text()).toBe("cire binding probe failed");
+    }
+  });
+
+  test("an unbound token fails closed with 503, not an exception", async () => {
+    const env = osnEnv();
+    const unbound = { ...env, PROBE_TOKEN: undefined } as unknown as ProbeEnv;
+    const response = await probe.fetch(healthRequest(), unbound);
+    expect(response.status).toBe(503);
+    expect(await response.text()).toBe("Probe token not configured");
+  });
+
+  test("reads its bindings under the names the stack binds them", async () => {
+    const [sheets, assets] = PROBE.cire.buckets;
+    const cire = await probe.fetch(healthRequest(), {
+      PROBE_PRODUCT: "cire",
+      PROBE_TOKEN: token,
+      DB: database({ ok: 1 }, []),
+      IMAGES: {},
+      [sheets.binding]: bucket([]),
+      [assets.binding]: bucket([]),
+      [PROBE.cire.rateLimit.binding]: limiter([]),
+    });
+    const osn = await probe.fetch(healthRequest(), {
+      PROBE_PRODUCT: "osn",
+      PROBE_TOKEN: token,
+      DB: database({ ok: 1 }, []),
+      [PROBE.osn.rateLimit.binding]: limiter([]),
+    });
+    expect(cire.status).toBe(200);
+    expect(osn.status).toBe(200);
+  });
+
   test("the shared dev rate-limit counters are never spent", async () => {
     const calls: string[] = [];
     await probe.fetch(healthRequest(), osnEnv({ RL_AUTH_IP_5_60: limiter(calls) }));
     await probe.fetch(healthRequest(), cireEnv({ CLAIM_RATE_LIMITER: limiter(calls) }));
     expect(calls).toEqual([]);
+  });
+});
+
+describe("sameDigest", () => {
+  test("a difference in the first or the last byte is a mismatch", () => {
+    const base = new Uint8Array(32).fill(7);
+    const first = base.slice();
+    first[0] = 8;
+    const last = base.slice();
+    last[31] = 8;
+    expect(sameDigest(base, base.slice())).toBe(true);
+    expect(sameDigest(first, base)).toBe(false);
+    expect(sameDigest(last, base)).toBe(false);
+    expect(sameDigest(base.slice(0, 31), base)).toBe(false);
   });
 });
 

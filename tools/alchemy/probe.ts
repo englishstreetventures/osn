@@ -36,15 +36,24 @@ async function sha256(value: string): Promise<Uint8Array> {
 }
 
 /**
+ * True when two equal-length digests match, after comparing every byte pair
+ * whatever the result so far.
+ */
+export function sameDigest(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let difference = 0;
+  for (let i = 0; i < a.length; i++) difference |= (a[i] ?? 0) ^ (b[i] ?? 0);
+  return difference === 0;
+}
+
+/**
  * Compares two strings in time that depends on neither their contents nor
  * where they first differ: both are hashed to 32 bytes and every byte pair is
  * compared. Runs the same way under Bun and workerd.
  */
 export async function tokensMatch(presented: string, expected: string): Promise<boolean> {
   const [a, b] = await Promise.all([sha256(presented), sha256(expected)]);
-  let difference = 0;
-  for (let i = 0; i < a.length; i++) difference |= (a[i] ?? 0) ^ (b[i] ?? 0);
-  return difference === 0;
+  return sameDigest(a, b);
 }
 
 function bearerToken(request: Request): string | undefined {

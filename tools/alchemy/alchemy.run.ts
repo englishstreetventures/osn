@@ -9,34 +9,21 @@ import * as Effect from "effect/Effect";
 
 import { checkProbeBoundary, PROBE, readWorkerConfigs } from "./boundary.ts";
 import { probeToken, teardownRequested } from "./config.ts";
-import { runMode } from "./run-mode.ts";
 import {
-  checkAdoptedStorage,
-  DEV_BUCKET_SETTINGS,
-  DEV_DATABASE_SETTINGS,
-  type DeclaredStorage,
-} from "./storage-preflight.ts";
+  CIRE_BUCKETS,
+  CIRE_DATABASE,
+  declaredStorage,
+  OSN_DATABASE,
+  unretainedStorage,
+} from "./declarations.ts";
+import { runMode } from "./run-mode.ts";
+import { checkAdoptedStorage } from "./storage-preflight.ts";
 
 // This stack is an isolated probe. The routed Cire and OSN Workers keep their
 // existing Wrangler deployments and secrets; nothing here names them.
 
 const stackDir = fileURLToPath(new URL(".", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
-
-// The settings Alchemy's post-adoption update converges each resource to;
-// `checkAdoptedStorage` refuses the run unless the live resources already
-// match, so adopting writes nothing.
-const declaredStorage: DeclaredStorage = {
-  buckets: Object.fromEntries(
-    PROBE.cire.buckets.map((bucket) => [bucket.name, DEV_BUCKET_SETTINGS]),
-  ),
-  databases: Object.fromEntries(
-    [PROBE.cire.database, PROBE.osn.database].map((database) => [
-      database.name,
-      { id: database.id, ...DEV_DATABASE_SETTINGS },
-    ]),
-  ),
-};
 
 const compatibility = {
   date: "2025-03-01",
@@ -76,25 +63,41 @@ export default Alchemy.Stack(
 
     yield* checkAdoptedStorage(declaredStorage);
 
-    const { cire: cireProbe, osn: osnProbe } = PROBE;
-    const [sheets, assets] = cireProbe.buckets;
+    // Everything declared in this block is retained by default, so a
+    // resource that loses its own `retain()` still survives destroy; the
+    // check below refuses the run if any of them would not.
+    const storage = yield* Effect.gen(function* () {
+      const database = (declaration: typeof CIRE_DATABASE) =>
+        Cloudflare.D1.Database(declaration.logicalId, {
+          name: declaration.name,
+          ...declaration.settings,
+        }).pipe(RemovalPolicy.retain());
+      const buckets = yield* Effect.forEach(CIRE_BUCKETS, (declaration) =>
+        Cloudflare.R2.Bucket(declaration.logicalId, {
+          name: declaration.name,
+          ...declaration.settings,
+        }).pipe(
+          RemovalPolicy.retain(),
+          Effect.map((bucket) => [declaration.binding, bucket] as const),
+        ),
+      );
+      return {
+        cireDb: yield* database(CIRE_DATABASE),
+        osnDb: yield* database(OSN_DATABASE),
+        buckets,
+      };
+    }).pipe(RemovalPolicy.retain());
 
-    const cireDb = Cloudflare.D1.Database("CireDevDb", {
-      name: cireProbe.database.name,
-      ...DEV_DATABASE_SETTINGS,
-    }).pipe(RemovalPolicy.retain());
-    const cireSheets = Cloudflare.R2.Bucket("CireDevSheets", {
-      name: sheets.name,
-      ...DEV_BUCKET_SETTINGS,
-    }).pipe(RemovalPolicy.retain());
-    const cireAssets = Cloudflare.R2.Bucket("CireDevAssets", {
-      name: assets.name,
-      ...DEV_BUCKET_SETTINGS,
-    }).pipe(RemovalPolicy.retain());
-    const osnDb = Cloudflare.D1.Database("OsnDevDb", {
-      name: osnProbe.database.name,
-      ...DEV_DATABASE_SETTINGS,
-    }).pipe(RemovalPolicy.retain());
+    const unretained = unretainedStorage([
+      storage.cireDb,
+      storage.osnDb,
+      ...storage.buckets.map(([, bucket]) => bucket),
+    ]);
+    if (unretained.length > 0) {
+      return yield* Effect.die(new Error(`Refusing to adopt:\n- ${unretained.join("\n- ")}`));
+    }
+
+    const { cire: cireProbe, osn: osnProbe } = PROBE;
 
     const cire = yield* Cloudflare.Worker("CireProbe", {
       name: cireProbe.worker,
@@ -105,16 +108,15 @@ export default Alchemy.Stack(
       env: {
         PROBE_PRODUCT: "cire",
         PROBE_TOKEN: probeToken,
-        DB: cireDb,
-        [sheets.binding]: cireSheets,
-        [assets.binding]: cireAssets,
+        DB: storage.cireDb,
+        ...Object.fromEntries(storage.buckets),
         IMAGES: Cloudflare.Images.Images("IMAGES"),
         [cireProbe.rateLimit.binding]: Cloudflare.RateLimit(cireProbe.rateLimit.binding, {
           namespaceId: cireProbe.rateLimit.namespaceId,
           simple: cireProbe.rateLimit.simple,
         }),
       },
-    });
+    }).pipe(RemovalPolicy.destroy());
 
     const osn = yield* Cloudflare.Worker("OsnProbe", {
       name: osnProbe.worker,
@@ -125,13 +127,13 @@ export default Alchemy.Stack(
       env: {
         PROBE_PRODUCT: "osn",
         PROBE_TOKEN: probeToken,
-        DB: osnDb,
+        DB: storage.osnDb,
         [osnProbe.rateLimit.binding]: Cloudflare.RateLimit(osnProbe.rateLimit.binding, {
           namespaceId: osnProbe.rateLimit.namespaceId,
           simple: osnProbe.rateLimit.simple,
         }),
       },
-    });
+    }).pipe(RemovalPolicy.destroy());
 
     return { cireUrl: cire.url, osnUrl: osn.url };
   }),
