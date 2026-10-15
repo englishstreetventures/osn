@@ -1,5 +1,20 @@
 # @osn/pulse
 
+## 0.24.17
+
+### Patch Changes
+
+- 6b5f538: Refresh the eligible Effect libraries to 4.0.3 and align the Vitest family at
+  5.0.3. Update the affected schema, tracing, and test integrations for the stable
+  Effect API; refresh the eligible WebAuthn, Three.js, and Nitro consumers.
+- Updated dependencies [6b5f538]
+  - @pulse/api@0.27.22
+  - @shared/design-tokens@0.3.5
+  - @shared/legal@0.0.5
+  - @shared/rp-auth@0.2.9
+  - @shared/toast@0.3.4
+  - @shared/ui@0.4.2
+
 ## 0.24.16
 
 ### Patch Changes
