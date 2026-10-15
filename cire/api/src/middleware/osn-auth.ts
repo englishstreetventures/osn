@@ -20,8 +20,7 @@ export interface OsnAuthOptions extends SharedOsnAuthOptions {
 /**
  * The OSN profile behind a request, or undefined. The `cire_org_session`
  * cookie is tried first, then an `Authorization: Bearer` OSN access token —
- * see {@link osnAuth} for why each exists. Both plugins below call this, so the
- * two cannot accept different credentials.
+ * see {@link osnAuth} for why each exists.
  */
 async function osnProfileIdOf(
   options: OsnAuthOptions,
@@ -78,47 +77,22 @@ async function osnProfileIdOf(
  * state-changing method and the cookie is `SameSite=Lax`; that pair is the
  * whole defence and both have to stay.
  *
- * The lookup is a `derive`, so it runs in the transform phase, ahead of every
- * before-handle hook — the role gates (`weddingMember()` and the rest) are
- * derives that read `osnProfileId` there. A per-IP limiter on such a route
- * answers only after the lookup. A route with no derive behind the check uses
- * {@link osnAuthResolve} instead.
+ * **Order.** The lookup is an Elysia `resolve`, so it runs in the before-handle
+ * phase in `.use` order, like `sessionAuth()`. A per-IP `rateLimitMiddleware`
+ * mounted before this plugin answers a refused request with 429 before the
+ * organiser session query or the token verify runs. Everything that reads
+ * `osnProfileId` mounts after it: the role gates (`weddingMember()` and the
+ * rest, resolves too) and `rateLimitMiddlewareByUser`.
+ *
+ * Unnamed: Elysia deduplicates a named plugin, and this one carries no state
+ * worth sharing.
  */
 export function osnAuth(options: OsnAuthOptions) {
   return (
-    new Elysia({ name: "cire-osn-auth" })
-      // Elysia 1.4 hooks default to "local" scope — without { as: "scoped" }
-      // the derive/onBeforeHandle never run in the parent app and every
-      // request silently passes unauthenticated.
-      .derive({ as: "scoped" }, async ({ headers, request }) => ({
-        osnProfileId: await osnProfileIdOf(options, request, headers.authorization),
-      }))
-      .onBeforeHandle({ as: "scoped" }, ({ osnProfileId, set }) => {
-        if (!osnProfileId) {
-          set.status = 401;
-          return { error: "unauthorised" };
-        }
-      })
-  );
-}
-
-/**
- * {@link osnAuth} as an Elysia `resolve`: the same credentials, the same 401,
- * but the lookup runs in the before-handle phase, in `.use` order. A route that
- * mounts a per-IP `rateLimitMiddleware` first therefore answers a refused
- * request with 429 before the organiser session query or the token verify runs
- * — the same order `sessionAuth()` keeps on the guest routes.
- *
- * Only for a route where nothing in the transform phase needs `osnProfileId`:
- * every derive runs before any resolve, so a role gate mounted behind this
- * would see no profile and refuse. Unnamed, unlike `osnAuth`: Elysia
- * deduplicates a named plugin, and this one carries no state worth sharing.
- */
-export function osnAuthResolve(options: OsnAuthOptions) {
-  return (
     new Elysia()
-      // Scoped so the resolve/onBeforeHandle lift into the route instance that
-      // `.use`s this plugin (and no further).
+      // Elysia 1.4 hooks default to "local" scope — without { as: "scoped" }
+      // the resolve/onBeforeHandle never run in the parent app and every
+      // request silently passes unauthenticated.
       .resolve({ as: "scoped" }, async ({ headers, request }) => ({
         osnProfileId: await osnProfileIdOf(options, request, headers.authorization),
       }))

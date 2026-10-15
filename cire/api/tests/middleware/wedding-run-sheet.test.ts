@@ -57,10 +57,10 @@ function buildDb(): Db {
   return db;
 }
 
-/** Stands in for the upstream osnAuth() plugin by deriving a fixed profile. */
+/** Stands in for the upstream osnAuth() plugin by resolving a fixed profile. */
 function buildApp(profileId?: string, db: Db = buildDb()) {
   return new Elysia({ aot: false })
-    .derive(() => ({ osnProfileId: profileId }))
+    .resolve(() => ({ osnProfileId: profileId }))
     .group("/weddings/:weddingId", (group) =>
       group
         .use(weddingRunSheet(db))
@@ -163,7 +163,7 @@ describe("a helper scoped own receives no other person's assignments", () => {
   function buildRunSheetApp(profileId: string) {
     const db = buildDb();
     return new Elysia({ aot: false })
-      .derive(() => ({ osnProfileId: profileId }))
+      .resolve(() => ({ osnProfileId: profileId }))
       .group("/weddings/:weddingId", (group) =>
         group
           .use(weddingRunSheet(db))

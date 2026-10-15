@@ -1,7 +1,7 @@
 /**
  * Readers for values that an UPSTREAM plugin parked on the Elysia context.
  *
- * Elysia threads `derive` types down a single fluent chain, and the gates in
+ * Elysia threads `resolve` types down a single fluent chain, and the gates in
  * this directory are built as standalone `new Elysia()` instances that only meet
  * `osnAuth()` (and each other) when `app.ts` composes them with `.use()`. By
  * then their own handler signatures are already fixed, so `osnProfileId` and the
@@ -18,7 +18,7 @@
 import { isTier } from "../services/tiers";
 import type { Tier } from "../services/tiers";
 
-/** The OSN profile id `osnAuth()` derived, or undefined if it never ran. */
+/** The OSN profile id `osnAuth()` resolved, or undefined if it never ran. */
 export function readOsnProfileId(ctx: unknown): string | undefined {
   if (typeof ctx !== "object" || ctx === null || !("osnProfileId" in ctx)) return undefined;
   const value = ctx.osnProfileId;

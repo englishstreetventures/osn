@@ -89,7 +89,7 @@ const noStore = (set: { headers: HTTPHeaders }) => {
 
 /**
  * Wedding-scoped organiser routes, mounted under /api/organiser. osnAuth()
- * gates every route in this instance (osnProfileId derived on every request).
+ * gates every route in this instance (osnProfileId resolved on every request).
  *
  * The per-wedding subtree splits by authorisation level (roles matrix,
  * platform-plan §3.5):
@@ -145,7 +145,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
       group
         .use(weddingMember(db))
         .get("/guests", ({ weddingId, set }) => {
-          // weddingMember() always derives this; the guard keeps a future
+          // weddingMember() always resolves this; the guard keeps a future
           // remount without the plugin from compiling into an unscoped query.
           if (!weddingId) {
             set.status = 500;
@@ -572,9 +572,11 @@ export const createOrganiserExportRoutes = (
 /**
  * Create a new wedding owned by the caller, split into its own instance so the
  * per-IP rate limiter gates only this mutating insert and not the
- * `GET /weddings` list above. osnAuth() supplies the owner — the body carries
- * only the display name (slug + id are server-generated). Same sibling-instance
- * pattern as the preview + account-link POSTs.
+ * `GET /weddings` list above. The limiter answers before osnAuth(), so a
+ * refused request costs no session lookup or token verify. osnAuth() supplies
+ * the owner — the body carries only the display name (slug + id are
+ * server-generated). Same sibling-instance pattern as the preview +
+ * account-link POSTs.
  */
 export const createOrganiserWeddingCreateRoute = (
   db: Db,
@@ -582,8 +584,8 @@ export const createOrganiserWeddingCreateRoute = (
   limiter: RateLimiterBackend,
 ) =>
   new Elysia({ prefix: "/api/organiser" })
-    .use(osnAuth(osnAuthOptions))
     .use(rateLimitMiddleware(limiter))
+    .use(osnAuth(osnAuthOptions))
     .post(
       "/weddings",
       async ({ osnProfileId, request, set }) => {
@@ -640,7 +642,9 @@ export const createOrganiserWeddingCreateRoute = (
  * host-preview family (idempotent find-or-create, blocked from submitting
  * RSVPs), not a guest credential, so the owner-only code-management rule
  * doesn't apply. The organiser dashboard opens the guest invite with
- * `?code=<publicId>` so the host sees every event.
+ * `?code=<publicId>` so the host sees every event. The limiter answers before
+ * osnAuth() and the member gate, so a refused request costs no session lookup,
+ * token verify or gate query.
  */
 export const createOrganiserPreviewRoutes = (
   db: Db,
@@ -648,34 +652,32 @@ export const createOrganiserPreviewRoutes = (
   limiter: RateLimiterBackend,
 ) =>
   new Elysia({ prefix: "/api/organiser" })
+    .use(rateLimitMiddleware(limiter))
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
-      group
-        .use(weddingMember(db))
-        .use(rateLimitMiddleware(limiter))
-        .post("/preview-code", ({ weddingId, weddingSlug, set }) => {
-          if (!weddingId || !weddingSlug) {
-            set.status = 500;
-            return { error: "Internal error" };
-          }
-          return runCire(
-            hostCodeService.ensureForWedding(weddingId, weddingSlug).pipe(
-              Effect.provideService(DbService, db),
-              Effect.catchTag("HostCodeError", () =>
-                Effect.sync(() => {
-                  set.status = 500;
-                  return { error: "Internal error" };
-                }),
-              ),
-              Effect.catchDefect(() =>
-                Effect.sync(() => {
-                  set.status = 500;
-                  return { error: "Internal error" };
-                }),
-              ),
+      group.use(weddingMember(db)).post("/preview-code", ({ weddingId, weddingSlug, set }) => {
+        if (!weddingId || !weddingSlug) {
+          set.status = 500;
+          return { error: "Internal error" };
+        }
+        return runCire(
+          hostCodeService.ensureForWedding(weddingId, weddingSlug).pipe(
+            Effect.provideService(DbService, db),
+            Effect.catchTag("HostCodeError", () =>
+              Effect.sync(() => {
+                set.status = 500;
+                return { error: "Internal error" };
+              }),
             ),
-          );
-        }),
+            Effect.catchDefect(() =>
+              Effect.sync(() => {
+                set.status = 500;
+                return { error: "Internal error" };
+              }),
+            ),
+          ),
+        );
+      }),
     );
 
 /**
@@ -689,6 +691,9 @@ export const createOrganiserPreviewRoutes = (
  * `weddingOwner()`. Marking a code shared is bookkeeping for whoever copied the
  * message — it records that a code went out, and changes no credential — so
  * it is `weddingEditor()`: an editor who sends the invites gets them counted.
+ *
+ * One limiter, mounted ahead of osnAuth() and both gates, so a refused request
+ * costs no session lookup, token verify or gate query.
  */
 export const createOrganiserRemintRoutes = (
   db: Db,
@@ -696,11 +701,11 @@ export const createOrganiserRemintRoutes = (
   limiter: RateLimiterBackend,
 ) =>
   new Elysia({ prefix: "/api/organiser" })
+    .use(rateLimitMiddleware(limiter))
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
         .use(weddingOwner(db))
-        .use(rateLimitMiddleware(limiter))
         // Flip the wedding's code style + rotate EVERY guest family's code
         // onto it, clearing each family's shared marker + revoking its sessions,
         // atomically. Destructive: any already-shared code is invalidated.
@@ -756,7 +761,6 @@ export const createOrganiserRemintRoutes = (
     .group("/weddings/:weddingId", (group) =>
       group
         .use(weddingEditor(db))
-        .use(rateLimitMiddleware(limiter))
         // Mark a family's invite code as "shared" — best-effort, fired by the
         // Copy-message button. Bodiless. 404 if the family isn't in :weddingId.
         .post("/families/:familyId/mark-shared", ({ weddingId, params, set }) => {

@@ -16,24 +16,25 @@ interface TierGateError {
 
 /**
  * Plan-tier gate for /api/organiser/weddings/:weddingId/* routes whose module
- * belongs to a paid tier. Sits AFTER the role gate and BEFORE the rate limiter:
- * a viewer is already stopped by the role gate's 403, so a 402 here only
- * reaches callers who ARE allowed by role but whose WEDDING is on a tier below
- * `min`. Answers 402 `{ error: "payment_required", tier: min }` — the tier
- * that unlocks the route, which is what the portal's upgrade offer names.
+ * belongs to a paid tier. Sits AFTER the role gate and BEFORE a per-organiser
+ * rate limiter: a viewer is already stopped by the role gate's 403, so a 402
+ * here only reaches callers who ARE allowed by role but whose WEDDING is on a
+ * tier below `min`. Answers 402 `{ error: "payment_required", tier: min }` —
+ * the tier that unlocks the route, which is what the portal's upgrade offer
+ * names.
  *
  * Every mount sits directly behind `weddingMember()`, `weddingEditor()`,
  * `weddingOwner()` or `weddingRunSheet()`, each of which reads the wedding's
  * tier from the row it already selects and parks it on the context as
- * `weddingTier`. This derive reads that, so a gated route costs no query of its
+ * `weddingTier`. This resolve reads that, so a gated route costs no query of its
  * own. `tests/routes/tier-gate-pairing.test.ts` fails the build when a mount
  * breaks that pairing. Mounted standalone (only in tests) it reads the tier
  * itself, and a read that fails denies with a log line naming the wedding.
  *
- * When the role gate has already parked an error, this derive returns without
- * reading anything: the role gate's onBeforeHandle is registered first and so
- * answers first, keeping the status order routes are tested against (401, then
- * 403, then 402 `payment_required`).
+ * Runs as a `resolve`, in `.use` order after the role gate, whose
+ * onBeforeHandle answers its own refusal before this runs — the status order
+ * routes are tested against (401, then 403, then 402 `payment_required`). A
+ * role gate error found on the context anyway stops it reading anything.
  *
  * A missing `weddingId` in `params` (the role gate has already validated it)
  * degrades to the 402 rather than throwing.
@@ -41,7 +42,7 @@ interface TierGateError {
 export function weddingTier(db: Db, min: PaidTier) {
   const refusal: TierGateError = { status: 402, body: { error: "payment_required", tier: min } };
   return new Elysia()
-    .derive({ as: "scoped" }, async (ctx) => {
+    .resolve({ as: "scoped" }, async (ctx) => {
       if (hasWeddingGateError(ctx))
         return { tierGateError: undefined as TierGateError | undefined };
       const weddingId = ctx.params?.weddingId;

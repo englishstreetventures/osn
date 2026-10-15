@@ -1,77 +1,32 @@
 import { describe, it, expect, beforeAll, spyOn } from "bun:test";
 
+import { BOOTSTRAP_WEDDING_ID } from "@cire/db";
+import { DEV_OWNER_PROFILE_ID } from "@cire/db/seed";
 import { Elysia } from "elysia";
+import type { AnyElysia } from "elysia";
 import { SignJWT, generateKeyPair } from "jose";
 
-import { createDb } from "../../src/db/setup";
+import type { Db } from "../../src/db";
+import { createDb, seedBootstrapWedding } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
-import { osnAuth, osnAuthResolve } from "../../src/middleware/osn-auth";
+import { osnAuth } from "../../src/middleware/osn-auth";
 import { rateLimitMiddleware } from "../../src/middleware/rate-limit";
+import { vendorOrgMember } from "../../src/middleware/vendor-org-member";
+import { weddingEditor } from "../../src/middleware/wedding-editor";
+import { weddingMember } from "../../src/middleware/wedding-member";
+import { weddingOwner, weddingOwnerIncludingDeleted } from "../../src/middleware/wedding-owner";
+import { weddingRunSheet } from "../../src/middleware/wedding-run-sheet";
+import { weddingSeat } from "../../src/middleware/wedding-seat";
+import { weddingTier } from "../../src/middleware/wedding-tier";
+import type { OsnOrgMembershipResolver } from "../../src/services/osn-bridge";
 import { appRequest, jsonBody, recordStatements } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 
 const KID = "test-kid-1";
 
-describe("osnAuth (cire wrapper)", () => {
-  let signKey: CryptoKey;
-  let verifyKey: CryptoKey;
+const limiter = (allowed: boolean) => ({ check: () => allowed });
 
-  beforeAll(async () => {
-    const pair = await generateKeyPair("ES256");
-    signKey = pair.privateKey;
-    verifyKey = pair.publicKey;
-  });
-
-  function buildApp() {
-    return new Elysia({ aot: false })
-      .use(
-        osnAuth({
-          jwksUrl: "http://osn.test/.well-known/jwks.json",
-          audience: "osn-access",
-          _testKey: verifyKey,
-        }),
-      )
-      .get("/probe", ({ osnProfileId }) => ({ profileId: osnProfileId ?? null }));
-  }
-
-  function mint(audience: string, profileId = "usr_test123") {
-    return new SignJWT({})
-      .setProtectedHeader({ alg: "ES256", kid: KID })
-      .setSubject(profileId)
-      .setAudience(audience)
-      .setIssuedAt()
-      .setExpirationTime("5m")
-      .sign(signKey);
-  }
-
-  it("returns 401 without a Bearer header", async () => {
-    const app = buildApp();
-    const res = await appRequest(app, "/probe");
-    expect(res.status).toBe(401);
-    expect(await jsonBody(res)).toEqual({ error: "unauthorised" });
-  });
-
-  it("derives osnProfileId for a valid ES256 token with aud osn-access", async () => {
-    const app = buildApp();
-    const token = await mint("osn-access");
-    const res = await appRequest(app, "/probe", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(res.status).toBe(200);
-    expect(await jsonBody(res)).toEqual({ profileId: "usr_test123" });
-  });
-
-  it("returns 401 on wrong audience", async () => {
-    const app = buildApp();
-    const token = await mint("some-other-aud");
-    const res = await appRequest(app, "/probe", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(res.status).toBe(401);
-  });
-});
-
-describe("osnAuthResolve (the OSN check in before-handle order)", () => {
+describe("osnAuth", () => {
   let signKey: CryptoKey;
   let verifyKey: CryptoKey;
 
@@ -88,47 +43,48 @@ describe("osnAuthResolve (the OSN check in before-handle order)", () => {
     db,
   });
 
-  const limiter = (allowed: boolean) => ({ check: () => allowed });
-
   /** A probe route behind a per-IP limiter mounted first, then the OSN check. */
-  function buildApp(check: "resolve" | "derive", db?: TestDb, allowed = true) {
-    const limited = new Elysia({ aot: false }).use(rateLimitMiddleware(limiter(allowed)));
-    return check === "resolve"
-      ? limited
-          .use(osnAuthResolve(options(db)))
-          .get("/probe", ({ osnProfileId }) => ({ profileId: osnProfileId ?? null }))
-      : limited
-          .use(osnAuth(options(db)))
-          .get("/probe", ({ osnProfileId }) => ({ profileId: osnProfileId ?? null }));
+  function buildApp(db?: TestDb, allowed = true) {
+    return new Elysia({ aot: false })
+      .use(rateLimitMiddleware(limiter(allowed)))
+      .use(osnAuth(options(db)))
+      .get("/probe", ({ osnProfileId }) => ({ profileId: osnProfileId ?? null }));
   }
 
-  const mint = (profileId = "usr_resolve1") =>
+  const mint = (audience = "osn-access", profileId = "usr_test123") =>
     new SignJWT({})
       .setProtectedHeader({ alg: "ES256", kid: KID })
       .setSubject(profileId)
-      .setAudience("osn-access")
+      .setAudience(audience)
       .setIssuedAt()
       .setExpirationTime("5m")
       .sign(signKey);
 
   it("returns 401 without a credential", async () => {
-    const res = await appRequest(buildApp("resolve"), "/probe");
+    const res = await appRequest(buildApp(), "/probe");
     expect(res.status).toBe(401);
     expect(await jsonBody(res)).toEqual({ error: "unauthorised" });
   });
 
-  it("names the profile behind a valid bearer token", async () => {
-    const res = await appRequest(buildApp("resolve"), "/probe", {
+  it("names the profile behind a valid ES256 token with aud osn-access", async () => {
+    const res = await appRequest(buildApp(), "/probe", {
       headers: { Authorization: `Bearer ${await mint()}` },
     });
     expect(res.status).toBe(200);
-    expect(await jsonBody(res)).toEqual({ profileId: "usr_resolve1" });
+    expect(await jsonBody(res)).toEqual({ profileId: "usr_test123" });
+  });
+
+  it("returns 401 on wrong audience", async () => {
+    const res = await appRequest(buildApp(), "/probe", {
+      headers: { Authorization: `Bearer ${await mint("some-other-aud")}` },
+    });
+    expect(res.status).toBe(401);
   });
 
   it("names the profile behind an organiser session cookie", async () => {
     const db = createDb(":memory:");
     const token = await seedOrganiserSession(db, "usr_cookie1");
-    const res = await appRequest(buildApp("resolve", db), "/probe", {
+    const res = await appRequest(buildApp(db), "/probe", {
       headers: { cookie: `cire_org_session=${token}` },
     });
     expect(res.status).toBe(200);
@@ -139,7 +95,7 @@ describe("osnAuthResolve (the OSN check in before-handle order)", () => {
     const db = createDb(":memory:");
     const token = await seedOrganiserSession(db, "usr_cookie2");
     const statements = recordStatements(db);
-    const res = await appRequest(buildApp("resolve", db, false), "/probe", {
+    const res = await appRequest(buildApp(db, false), "/probe", {
       headers: { cookie: `cire_org_session=${token}` },
     });
     expect(res.status).toBe(429);
@@ -159,7 +115,7 @@ describe("osnAuthResolve (the OSN check in before-handle order)", () => {
         const jwksUrl = `http://osn.test/${crypto.randomUUID()}/jwks.json`;
         const app = new Elysia({ aot: false })
           .use(rateLimitMiddleware(limiter(allowed)))
-          .use(osnAuthResolve({ jwksUrl, audience: "osn-access" }))
+          .use(osnAuth({ jwksUrl, audience: "osn-access" }))
           .get("/probe", ({ osnProfileId }) => ({ profileId: osnProfileId ?? null }));
         return appRequest(app, "/probe", {
           headers: { Authorization: `Bearer ${await mint()}` },
@@ -176,37 +132,151 @@ describe("osnAuthResolve (the OSN check in before-handle order)", () => {
     }
   });
 
-  it("refuses a dead organiser cookie and a token for another audience", async () => {
+  it("falls back to the bearer token when the organiser cookie is dead", async () => {
     const db = createDb(":memory:");
-    const deadCookie = await appRequest(buildApp("resolve", db), "/probe", {
-      headers: { cookie: "cire_org_session=not-a-live-session-token" },
+    const res = await appRequest(buildApp(db), "/probe", {
+      headers: {
+        cookie: "cire_org_session=not-a-live-session-token",
+        Authorization: `Bearer ${await mint("osn-access", "usr_bearer1")}`,
+      },
     });
-    expect(deadCookie.status).toBe(401);
-    const foreign = await new SignJWT({})
-      .setProtectedHeader({ alg: "ES256", kid: KID })
-      .setSubject("usr_resolve1")
-      .setAudience("some-other-aud")
-      .setIssuedAt()
-      .setExpirationTime("5m")
-      .sign(signKey);
-    const wrongAudience = await appRequest(buildApp("resolve"), "/probe", {
-      headers: { Authorization: `Bearer ${foreign}` },
-    });
-    expect(wrongAudience.status).toBe(401);
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ profileId: "usr_bearer1" });
   });
 
-  it("is needed: osnAuth looks the session up before any limiter refuses", async () => {
-    // A derive runs in the transform phase, ahead of every before-handle hook
-    // whatever the mount order — the reason the resolve form exists.
+  it("takes the organiser cookie's profile over a bearer token's", async () => {
     const db = createDb(":memory:");
-    const token = await seedOrganiserSession(db, "usr_cookie3");
+    const token = await seedOrganiserSession(db, "usr_cookie4");
+    const res = await appRequest(buildApp(db), "/probe", {
+      headers: {
+        cookie: `cire_org_session=${token}`,
+        Authorization: `Bearer ${await mint("osn-access", "usr_bearer2")}`,
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ profileId: "usr_cookie4" });
+  });
+
+  it("refuses a dead organiser cookie", async () => {
+    const db = createDb(":memory:");
+    const res = await appRequest(buildApp(db), "/probe", {
+      headers: { cookie: "cire_org_session=not-a-live-session-token" },
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
+// Every role gate reads `osnProfileId` and runs its own query in the
+// before-handle phase, in `.use` order. So behind a limiter mounted first and
+// `osnAuth`, a refused request costs neither the session lookup nor the gate's
+// read, and a request let through costs both. The second half matters as much
+// as the first: a gate left running in the transform phase would see no
+// profile there, refuse with 401 before any query, and pass the refused case.
+describe("role gates behind osnAuth and a limiter mounted first", () => {
+  const ORG = "org_probe";
+
+  /** Membership resolver that counts its calls; the dev owner is an admin of ORG. */
+  function countingMembership() {
+    let calls = 0;
+    const resolve: OsnOrgMembershipResolver = async (orgId, profileId) => {
+      calls++;
+      return orgId === ORG && profileId === DEV_OWNER_PROFILE_ID ? "admin" : null;
+    };
+    return { resolve, calls: () => calls };
+  }
+
+  const gates: {
+    name: string;
+    plugins: (db: Db, membership: OsnOrgMembershipResolver) => AnyElysia[];
+    /** What a request let through answers: the gate's pass, or its own refusal. */
+    allowedStatus: number;
+    /** Whether the gate reads D1 (false: it calls the membership resolver instead). */
+    reads: boolean;
+  }[] = [
+    {
+      name: "weddingMember",
+      plugins: (db) => [weddingMember(db)],
+      allowedStatus: 200,
+      reads: true,
+    },
+    {
+      name: "weddingEditor",
+      plugins: (db) => [weddingEditor(db)],
+      allowedStatus: 200,
+      reads: true,
+    },
+    { name: "weddingOwner", plugins: (db) => [weddingOwner(db)], allowedStatus: 200, reads: true },
+    {
+      name: "weddingOwnerIncludingDeleted",
+      plugins: (db) => [weddingOwnerIncludingDeleted(db)],
+      allowedStatus: 200,
+      reads: true,
+    },
+    {
+      name: "weddingRunSheet",
+      plugins: (db) => [weddingRunSheet(db)],
+      allowedStatus: 200,
+      reads: true,
+    },
+    { name: "weddingSeat", plugins: (db) => [weddingSeat(db)], allowedStatus: 200, reads: true },
+    {
+      // The bootstrap wedding is on `ivory`, so the tier gate answers 402 —
+      // which it can only do once it has run, after the member gate.
+      name: "weddingTier behind weddingMember",
+      plugins: (db) => [weddingMember(db), weddingTier(db, "gold")],
+      allowedStatus: 402,
+      reads: true,
+    },
+    {
+      name: "vendorOrgMember",
+      plugins: (_db, membership) => [vendorOrgMember(ORG, membership)],
+      allowedStatus: 200,
+      reads: false,
+    },
+  ];
+
+  async function send(
+    plugins: (db: Db, membership: OsnOrgMembershipResolver) => AnyElysia[],
+    allowed: boolean,
+  ) {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+    const token = await seedOrganiserSession(db, DEV_OWNER_PROFILE_ID);
+    const membership = countingMembership();
+    const app = new Elysia({ aot: false })
+      .use(rateLimitMiddleware(limiter(allowed)))
+      .use(
+        osnAuth({ jwksUrl: "http://osn.test/.well-known/jwks.json", audience: "osn-access", db }),
+      )
+      .group("/weddings/:weddingId", (group) => {
+        let gated: AnyElysia = group;
+        for (const plugin of plugins(db, membership.resolve)) gated = gated.use(plugin);
+        return gated.get("/probe", () => ({ ok: true }));
+      });
     const statements = recordStatements(db);
-    const res = await appRequest(buildApp("derive", db, false), "/probe", {
+    const res = await appRequest(app, `/weddings/${BOOTSTRAP_WEDDING_ID}/probe`, {
       headers: { cookie: `cire_org_session=${token}` },
     });
-    expect(res.status).toBe(429);
-    expect(statements.map((s) => s.sql)).toEqual([
-      expect.stringMatching(/from "organiser_sessions"/),
-    ]);
-  });
+    return { res, statements, membershipCalls: membership.calls() };
+  }
+
+  for (const { name, plugins, allowedStatus, reads } of gates) {
+    it(`${name}: a refused request costs no query and no membership call`, async () => {
+      const { res, statements, membershipCalls } = await send(plugins, false);
+      expect(res.status).toBe(429);
+      expect(statements).toEqual([]);
+      expect(membershipCalls).toBe(0);
+    });
+
+    it(`${name}: a request let through runs the gate after the session lookup`, async () => {
+      const { res, statements, membershipCalls } = await send(plugins, true);
+      expect(res.status).toBe(allowedStatus);
+      expect(statements[0]?.sql).toMatch(/from "organiser_sessions"/);
+      if (reads) {
+        expect(statements.slice(1).some((s) => /"wedding_hosts"/.test(s.sql))).toBe(true);
+      } else {
+        expect(membershipCalls).toBe(1);
+      }
+    });
+  }
 });

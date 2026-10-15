@@ -57,7 +57,7 @@ const pass = (
  * this one, which would leave the run sheet the one thing a helper cannot read.
  * It runs its own `hostsService.authorize()` for that reason.
  *
- * Derives, beyond the usual `weddingId` / `weddingIsOwner` / `weddingRole`:
+ * Provides, beyond the usual `weddingId` / `weddingIsOwner` / `weddingRole`:
  *
  * - `weddingHostId` — the caller's own `wedding_hosts.id`. Every member holds
  *   a seat, owners included.
@@ -68,14 +68,15 @@ const pass = (
  * - `weddingTier` — the wedding's plan tier, for a `weddingTier(db, min)`
  *   mounted directly after this gate.
  *
- * Mirrors the other gates' lifecycle: the derive runs before osnAuth's
- * onBeforeHandle fires, so it tolerates an unauthenticated request (records the
- * gate failure; osnAuth's 401 wins). 404 for unknown weddings, 403 `forbidden`
- * for non-members.
+ * Runs as a `resolve`, in `.use` order after `osnAuth()`: osnAuth's 401
+ * answers before this reads anything, and a per-IP limiter mounted ahead of
+ * both refuses a request before either runs. With no profile on the context
+ * (no `osnAuth()` upstream) it refuses 401 without a query.
+ * 404 for unknown weddings, 403 `forbidden` for non-members.
  */
 export function weddingRunSheet(db: Db) {
   return new Elysia()
-    .derive({ as: "scoped" }, async (ctx) => {
+    .resolve({ as: "scoped" }, async (ctx) => {
       const { params } = ctx;
       const osnProfileId = readOsnProfileId(ctx);
 

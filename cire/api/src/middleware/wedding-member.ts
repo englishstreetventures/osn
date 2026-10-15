@@ -70,8 +70,8 @@ function authorizeFor(weddingId: string, osnProfileId: string, options: WeddingM
 /**
  * Authz gate for /api/organiser/weddings/:weddingId/* — admits any caller whose
  * seat's role carries the `member` capability: every owner, and the co-hosts
- * `policyFor()` says. Requires osnAuth() upstream (osnProfileId derived). 404
- * for unknown weddings, 403 for callers who hold no such seat. Derives
+ * `policyFor()` says. Requires osnAuth() upstream (osnProfileId resolved). 404
+ * for unknown weddings, 403 for callers who hold no such seat. Provides
  * `weddingId` (on success), `weddingIsOwner`, and `weddingRole` so a route can
  * keep an owner-only action gated even though co-hosts reach the shared
  * dashboard reads, plus `weddingSlug` from the same read.
@@ -82,24 +82,25 @@ function authorizeFor(weddingId: string, osnProfileId: string, options: WeddingM
  * that WRITE must sit behind `weddingEditor()` (see `wedding-editor.ts`) or
  * `weddingOwner()` instead.
  *
- * Mirrors `weddingOwner()`'s lifecycle: the derive runs before osnAuth's
- * onBeforeHandle fires, so it tolerates an unauthenticated request (records the
- * gate failure; osnAuth's 401 wins).
+ * Runs as a `resolve`, in `.use` order after `osnAuth()`: osnAuth's 401
+ * answers before this reads anything, and a per-IP limiter mounted ahead of
+ * both refuses a request before either runs. With no profile on the context
+ * (no `osnAuth()` upstream) it refuses 401 without a query.
  *
- * Also derives `weddingTier`, read from the wedding row this gate already
+ * Also provides `weddingTier`, read from the wedding row this gate already
  * selects, so a `weddingTier(db, min)` mounted directly after it costs no
  * query of its own.
  *
  * `inviteImages: true` joins the wedding's invite image keys into that same
- * query and derives them as `weddingInviteImages`, so the organiser image read
+ * query and provides them as `weddingInviteImages`, so the organiser image read
  * resolves its object without a second one. `rsvpDigest: true` joins the
- * caller's `host_rsvp_notices` row and derives their digest setting as
+ * caller's `host_rsvp_notices` row and provides their digest setting as
  * `weddingRsvpDigest`, so the RSVP-changes card's read needs no statement for
  * it. Every other mount leaves both off and runs the narrower query.
  */
 export function weddingMember(db: Db, options: WeddingMemberOptions = {}) {
   return new Elysia()
-    .derive({ as: "scoped" }, async (ctx) => {
+    .resolve({ as: "scoped" }, async (ctx) => {
       const { params } = ctx;
       const osnProfileId = readOsnProfileId(ctx);
 

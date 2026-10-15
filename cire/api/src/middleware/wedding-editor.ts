@@ -49,20 +49,21 @@ const pass = (weddingId: string, role: WeddingRole, slug: string, tier: Tier) =>
  * 404 for unknown weddings, 403 `forbidden` for non-members — the same contract
  * as the member gate.
  *
- * Derives `weddingRole` so a route can tell an owner from an editor, and
+ * Provides `weddingRole` so a route can tell an owner from an editor, and
  * `weddingSlug` from the same read.
  *
- * Mirrors `weddingMember()`'s lifecycle: the derive runs before osnAuth's
- * onBeforeHandle fires, so it tolerates an unauthenticated request (records the
- * gate failure; osnAuth's 401 wins).
+ * Runs as a `resolve`, in `.use` order after `osnAuth()`: osnAuth's 401
+ * answers before this reads anything, and a per-IP limiter mounted ahead of
+ * both refuses a request before either runs. With no profile on the context
+ * (no `osnAuth()` upstream) it refuses 401 without a query.
  *
- * Also derives `weddingTier`, read from the wedding row this gate already
+ * Also provides `weddingTier`, read from the wedding row this gate already
  * selects, so a `weddingTier(db, min)` mounted directly after it costs no
  * query of its own.
  */
 export function weddingEditor(db: Db) {
   return new Elysia()
-    .derive({ as: "scoped" }, async (ctx) => {
+    .resolve({ as: "scoped" }, async (ctx) => {
       const { params } = ctx;
       const osnProfileId = readOsnProfileId(ctx);
 

@@ -16,7 +16,7 @@ related:
   - "[[cire-plus-ones]]"
   - "[[cire-invite-designs]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-15
 ---
 # Plan tiers — what a wedding has paid for
 
@@ -104,14 +104,16 @@ deletes them and narrows the enum once the tier release is deployed.
 
 ## The tier gate — `weddingTier(db, min)`
 
-`cire/api/src/middleware/wedding-tier.ts`. An Elysia plugin (scoped derive plus
-`onBeforeHandle`) mounted per route group:
+`cire/api/src/middleware/wedding-tier.ts`. An Elysia plugin (scoped resolve plus
+`onBeforeHandle`) mounted per route group. Every step is a before-handle hook,
+run in `.use` order:
 
 ```
-osnAuth()                                  ← verifies the OSN access JWT (401)
-weddingMember / Editor / Owner / RunSheet  ← role gate (403)
-weddingTier(db, "gold" | "crimson")        ← tier gate (402)
-rate limiter                               ← 429
+per-IP rate limiter, where the route has one  ← 429, before any credential work
+osnAuth()                                     ← organiser session or OSN access JWT (401)
+weddingMember / Editor / Owner / RunSheet     ← role gate (403)
+weddingTier(db, "gold" | "crimson")           ← tier gate (402)
+per-organiser rate limiter                    ← 429
 ```
 
 **402 response contract:**
@@ -130,10 +132,11 @@ parks it on the context as `weddingTier`. The tier gate reads that
 which only tests do — it reads the tier itself with `tierService.tierOf`, and a
 read that fails denies, logging a warning that names the wedding.
 
-**It reads nothing when the role gate has refused.** A role gate parks its
-refusal as `weddingGateError`, and the tier derive returns at once when it
-finds one, so a stranger's request never reaches a tier read, and the status
-order stays 401, then 403, then 402. A missing `weddingId` (the role gate has
+**It reads nothing when the role gate has refused.** The role gate's own
+`onBeforeHandle` answers its refusal before the tier gate runs, so a stranger's
+request never reaches a tier read, and the status order stays 401, then 403,
+then 402. A refusal parked as `weddingGateError` but not yet answered still
+stops the tier gate reading. A missing `weddingId` (the role gate has
 already validated it) degrades to the 402 rather than throwing.
 
 ### Where it is mounted

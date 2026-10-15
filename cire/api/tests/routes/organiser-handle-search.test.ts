@@ -72,6 +72,9 @@ function buildApp(overrides: Partial<AppOptions> = {}) {
     osnTestKey: auth.key,
     resolveOsnHandleSearch: stubSearch,
     resolveOsnConnectionSearch: stubConnections,
+    // Its own budget: the module default is shared by every suite in the run,
+    // and refused requests spend it too, since it answers before sign-in.
+    handleSearchLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
     ...overrides,
   });
   return { db, app };

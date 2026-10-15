@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1497,
+    "branch": "fix/limiter-first",
+    "base_sha": "c045761d6d815c07d5ab1b90d7487fda0d610009",
+    "head_sha": "0516eedb48b73aaf2cf47068886fbea2d896623a",
+    "generated_at": "2026-10-15T00:06:22.908Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 775,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "not-fetched"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-09T15:11:01.754Z",
+    "last_ts": "2026-10-15T00:06:18.808Z",
+    "span_seconds": 464117,
+    "active_seconds": 3698,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 51.02432220000003,
+    "tokens": {
+      "input": 1060,
+      "output": 5819,
+      "thinking": 252,
+      "cache_write_5m": 1960451,
+      "cache_write_1h": 0,
+      "cache_read": 102753618
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1060,
+          "output": 5819,
+          "thinking": 252,
+          "cache_write_5m": 1960451,
+          "cache_write_1h": 0,
+          "cache_read": 102753618
+        },
+        "usd_equivalent": 51.02432220000003,
+        "messages": 528
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1060,
+          "output": 5819,
+          "thinking": 252,
+          "cache_write_5m": 1960451,
+          "cache_write_1h": 0,
+          "cache_read": 102753618
+        },
+        "usd_equivalent": 51.02432220000003,
+        "messages": 529
+      }
+    },
+    "effort": {
+      "xhigh": 428,
+      "high": 100
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 14,
+      "docs": 5,
+      "config": 0,
+      "source": 19
+    },
+    "loc": {
+      "generated": {
+        "added": 10,
+        "deleted": 0
+      },
+      "test": {
+        "added": 665,
+        "deleted": 141
+      },
+      "docs": {
+        "added": 37,
+        "deleted": 26
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 166,
+        "deleted": 168
+      }
+    },
+    "packages": [
+      "cire/api"
+    ],
+    "touches_migration": false,
+    "commits": 3
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 510,
+      "Read": 12,
+      "Write": 10,
+      "Skill": 8,
+      "Edit": 4,
+      "Agent": 4,
+      "SubagentHandback": 4
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 5
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "review-performance": 1,
+      "review-tests": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 3
+    }
+  }
+}
