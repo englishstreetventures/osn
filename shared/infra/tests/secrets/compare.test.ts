@@ -10,6 +10,7 @@ import {
   liveExpectations,
   parseTierArgument,
   parseWranglerSecretList,
+  redactAccountIds,
 } from "../../src/secrets/compare";
 
 describe("parseWranglerSecretList", () => {
@@ -186,4 +187,18 @@ describe("accountIdFrom", () => {
       expect(() => accountIdFrom(env)).toThrow(/CLOUDFLARE_ACCOUNT_ID/);
     },
   );
+});
+
+describe("redactAccountIds", () => {
+  test("replaces an account id in a wrangler error line and leaves the rest", () => {
+    const id = "0123456789abcdef0123456789abcdef";
+    expect(
+      redactAccountIds(
+        `A request to /accounts/${id}/workers/scripts/osn-api-dev/secrets failed (10000)`,
+      ),
+    ).toBe(
+      "A request to /accounts/<account-id>/workers/scripts/osn-api-dev/secrets failed (10000)",
+    );
+    expect(redactAccountIds(`account ${id} not found`)).toBe("account <account-id> not found");
+  });
 });

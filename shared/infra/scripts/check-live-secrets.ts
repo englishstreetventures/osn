@@ -19,6 +19,7 @@ import {
   liveExpectations,
   parseTierArgument,
   parseWranglerSecretList,
+  redactAccountIds,
   type NameDiff,
 } from "../src/secrets/compare";
 import type { Tier } from "../src/stage";
@@ -27,9 +28,10 @@ import type { Tier } from "../src/stage";
 const WRANGLER = fileURLToPath(new URL("../../../node_modules/.bin/wrangler", import.meta.url));
 
 let tier: Tier;
+let accountId: string;
 try {
   tier = parseTierArgument(process.argv.slice(2));
-  accountIdFrom(process.env);
+  accountId = accountIdFrom(process.env);
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(2);
@@ -42,15 +44,24 @@ for (const expected of liveExpectations(tier)) {
     ["secret", "list", "--name", expected.scriptName, "--format", "json"],
     {
       encoding: "utf8",
+      env: { ...process.env, CLOUDFLARE_ACCOUNT_ID: accountId },
     },
   );
   if (run.status !== 0) {
     process.stderr.write(
-      `wrangler secret list --name ${expected.scriptName} exited ${run.status}\n${run.stderr}`,
+      `wrangler secret list --name ${expected.scriptName} exited ${run.status}\n${redactAccountIds(run.stderr)}`,
     );
     process.exit(2);
   }
-  diffs.push(liveDiff(expected, parseWranglerSecretList(run.stdout)));
+  try {
+    diffs.push(liveDiff(expected, parseWranglerSecretList(run.stdout)));
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    process.stderr.write(
+      `wrangler secret list --name ${expected.scriptName} printed output this check cannot read: ${redactAccountIds(reason)}\n`,
+    );
+    process.exit(2);
+  }
 }
 process.stdout.write(formatDiffs(diffs));
 process.exit(

@@ -11,13 +11,20 @@
  */
 import { spawnSync } from "node:child_process";
 
-import { formatDiffs, githubDiff, parseTierArgument } from "../src/secrets/compare";
+import {
+  formatDiffs,
+  githubDiff,
+  parseTierArgument,
+  redactAccountIds,
+} from "../src/secrets/compare";
 import type { Tier } from "../src/stage";
 
 function gh(args: readonly string[]): string {
   const run = spawnSync("gh", args, { encoding: "utf8" });
   if (run.status !== 0) {
-    process.stderr.write(`gh ${args.join(" ")} exited ${run.status}\n${run.stderr}`);
+    process.stderr.write(
+      `gh ${args.join(" ")} exited ${run.status}\n${redactAccountIds(run.stderr)}`,
+    );
     process.exit(2);
   }
   return run.stdout;

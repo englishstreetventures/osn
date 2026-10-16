@@ -154,3 +154,10 @@ export function accountIdFrom(env: Readonly<Record<string, string | undefined>>)
   }
   return id;
 }
+
+/** `text` with every Cloudflare account id (32 lowercase hex characters) replaced, so tool errors never carry one into a log. */
+export function redactAccountIds(text: string): string {
+  return text
+    .replace(/\/accounts\/[0-9a-f]{32}/g, "/accounts/<account-id>")
+    .replace(/[0-9a-f]{32}/g, "<account-id>");
+}
