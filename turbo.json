@@ -22,7 +22,13 @@
         ".output/**",
         "build/**"
       ],
-      "env": ["PUBLIC_*", "VITE_*", "SITE"]
+      "env": ["PUBLIC_*", "VITE_*", "SITE"],
+      // Strict env mode hides every variable not named here. cire/invites'
+      // dev build sets ASTRO_KEY so two builds of one commit are
+      // byte-identical; without it Astro makes a new key on every build.
+      // Passed through, not hashed: a secret's value stays out of the cache
+      // key.
+      "passThroughEnv": ["ASTRO_KEY"]
     },
     "dev": {
       "cache": false,

@@ -21,9 +21,9 @@
  *
  * The bash version advertised "grep only; no bun, no network" so it ran
  * identically everywhere. That property is traded away here for the real parse.
- * It is affordable because both callers — the cire-api jobs in
- * `.github/workflows/deploy.yml` and `production-release.yml` — run
- * `bun install` before this step, and the repo pins bun in `.bun-version`.
+ * It is affordable because its caller — the cire-api job in
+ * `.github/workflows/production-release.yml` — runs `bun install` before this
+ * step, and the repo pins bun in `.bun-version`.
  *
  * `WRANGLER_TOML` overrides the target (used by the tests); defaults to the
  * committed cire/api config.
