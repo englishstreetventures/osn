@@ -247,6 +247,23 @@ describe("apiWorkerProps", () => {
     expect((error as Error).message).not.toContain("not-a-real-secret");
   });
 
+  test("I3: OSN_API_URL is a var on dev and a secret on production, never both", () => {
+    expect(tierSecrets("cire-api", "dev").secrets).not.toContain("OSN_API_URL");
+    const asSecret = {
+      ...cireApiSecrets("dev"),
+      OSN_API_URL: Redacted.make("https://osn.invalid"),
+    };
+    const error = thrown(() => apiWorkerProps({ ...cireApiDev, secrets: asSecret }));
+    expect(error).toBeInstanceOf(UndeclaredSecretsError);
+    expect(error).toMatchObject({ unexpected: ["OSN_API_URL"] });
+    expect(() =>
+      apiWorkerProps({
+        ...cireApiProduction,
+        vars: { ...cireApiProduction.vars, OSN_API_URL: "https://osn.invalid" },
+      }),
+    ).toThrow(BindingNameClashError);
+  });
+
   test("leaves zone routes unmanaged", () => {
     expect(apiWorkerProps(cireApiDev)).not.toHaveProperty("routes");
   });

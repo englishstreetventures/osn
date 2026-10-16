@@ -38,15 +38,15 @@ describe("requireSecrets", () => {
 
   test("names every missing or empty secret in one error", () => {
     const env: Record<string, string | undefined> = { ...envFor("cire-api", "dev") };
+    delete env.CIRE_API_ARC_KEY_ID;
     delete env.CIRE_OIDC_CLIENT_SECRET;
-    delete env.OSN_API_URL;
     env.STRIPE_SECRET_KEY = "";
     env.STRIPE_WEBHOOK_SECRET = "   ";
     const error = thrown(() => requireSecrets({ worker: "cire-api", stage: "dev", env }));
     expect(error).toBeInstanceOf(MissingSecretsError);
     expect((error as MissingSecretsError).missing).toEqual([
+      "CIRE_API_ARC_KEY_ID",
       "CIRE_OIDC_CLIENT_SECRET",
-      "OSN_API_URL",
       "STRIPE_SECRET_KEY",
       "STRIPE_WEBHOOK_SECRET",
     ]);

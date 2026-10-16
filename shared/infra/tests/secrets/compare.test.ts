@@ -90,12 +90,12 @@ describe("formatDiffs", () => {
 });
 
 describe("liveExpectations", () => {
-  test("covers one tier's deployed Workers and skips a Worker the tier lacks", () => {
+  test("covers each tier's deployed Workers", () => {
     expect(
       liveExpectations("dev")
         .map((expectation) => expectation.scriptName)
         .toSorted(),
-    ).toEqual(["cire-api-dev", "cire-invites-dev", "osn-api-dev"]);
+    ).toEqual(["cire-api-dev", "cire-invites-dev", "osn-api-dev", "zap-api-dev"]);
     expect(
       liveExpectations("production")
         .map((expectation) => expectation.scriptName)

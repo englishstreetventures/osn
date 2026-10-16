@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import {
   accountSecrets,
   allowedCredentials,
+  DEV_READONLY_CREDENTIALS,
   forbiddenCredentials,
   knownCredentials,
   TIER_ACCOUNTS,
@@ -36,6 +37,7 @@ describe("TIER_ACCOUNTS", () => {
     expect(forbiddenCredentials("production")).toEqual([
       "CLOUDFLARE_API_TOKEN_DEV",
       "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN",
+      "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
       "CLOUDFLARE_DEV_ACCOUNT_ID",
     ]);
     for (const tier of TIERS) {
@@ -43,6 +45,14 @@ describe("TIER_ACCOUNTS", () => {
         expect(forbiddenCredentials(tier)).not.toContain(name);
       }
     }
+  });
+
+  test("I4: the dev read-only token is classified, allowed in dev and forbidden in production", () => {
+    expect(knownCredentials()).toContain("CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY");
+    expect(allowedCredentials("dev")).toContain("CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY");
+    expect(forbiddenCredentials("production")).toContain(
+      "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
+    );
   });
 });
 
@@ -54,6 +64,17 @@ describe("the credentials the workflows read", () => {
 
   test("production's Alchemy credentials are the ones the production release deploys with today", () => {
     expect(cloudflareSecrets("production-release.yml")).toEqual([...accountSecrets("production")]);
+  });
+
+  // Off until deploy.yml deploys the dev stacks (englishstreetventures/osn#1553); it then replaces the next test.
+  // oxlint-disable-next-line vitest/warn-todo -- turned on in the same change that makes deploy.yml read the dev account
+  test.todo("only alchemy-state.yml, deploy.yml and free-tier-ceiling-alert.yml reach the dev account", () => {
+    const allowed = new Set(["alchemy-state.yml", "deploy.yml", "free-tier-ceiling-alert.yml"]);
+    const dev = new Set([...accountSecrets("dev"), ...DEV_READONLY_CREDENTIALS]);
+    for (const file of workflowFiles.filter((candidate) => !allowed.has(candidate))) {
+      const reached = cloudflareSecrets(file).filter((name) => dev.has(name));
+      expect({ file, reached }).toEqual({ file, reached: [] });
+    }
   });
 
   test("only the state-store workflow reaches the dev account", () => {

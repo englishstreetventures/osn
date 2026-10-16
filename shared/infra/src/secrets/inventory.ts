@@ -9,12 +9,13 @@ import type { Tier } from "../stage";
  * missing here is a secret deleted by the first Alchemy deploy, and a secret
  * a Worker should start holding is a change to this file.
  *
- * The required and present optional names equal `wrangler secret list --name
- * <scriptName>` on each live Worker; `bun run --cwd shared/infra
- * secrets:check-live -- --tier <tier>` compares them and reports any
- * forbidden name a Worker still holds. Each value lives in the GitHub
- * Environment secret of the same name, in the `dev` or `production`
- * Environment.
+ * The production rows' required and present optional names equal `wrangler
+ * secret list --name <scriptName>` on each live Worker. The dev rows name
+ * what the dev account's Workers hold, which the dev stacks create with
+ * these secrets. `bun run --cwd shared/infra secrets:check-live -- --tier
+ * <tier>` compares either tier with what is live and reports any forbidden
+ * name a Worker still holds. Each value lives in the GitHub Environment
+ * secret of the same name, in the `dev` or `production` Environment.
  */
 export type WorkerKey = "osn-api" | "cire-api" | "zap-api" | "cire-invites";
 
@@ -88,7 +89,7 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "CIRE_API_ARC_KEY_ID",
           "CIRE_API_ARC_PRIVATE_KEY",
           "CIRE_OIDC_CLIENT_SECRET",
-          "OSN_API_URL",
+          // OSN_API_URL is a var on dev, derived from the dev domain.
           "STRIPE_PLATFORM_WEBHOOK_SECRET",
           "STRIPE_SECRET_KEY",
           "STRIPE_WEBHOOK_SECRET",
@@ -114,7 +115,13 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
     worker: "zap-api",
     sourceDir: "zap/api/src",
     tiers: {
-      dev: { scriptName: null, secrets: [], optional: [], forbidden: [] },
+      dev: {
+        scriptName: "zap-api-dev",
+        secrets: ["INTERNAL_SERVICE_SECRET"],
+        optional: [],
+        // No zap code reads a GrowthBook key.
+        forbidden: ["GROWTHBOOK_CLIENT_KEY"],
+      },
       production: {
         scriptName: "zap-api-production",
         secrets: ["INTERNAL_SERVICE_SECRET"],
@@ -146,6 +153,7 @@ export const SHARED_SECRET_VALUES: readonly {
   readonly workers: readonly WorkerKey[];
 }[] = [
   // zap-api registers its ARC key at osn-api with this value, so both must hold the same one.
+  { tier: "dev", name: "INTERNAL_SERVICE_SECRET", workers: ["osn-api", "zap-api"] },
   { tier: "production", name: "INTERNAL_SERVICE_SECRET", workers: ["osn-api", "zap-api"] },
 ];
 

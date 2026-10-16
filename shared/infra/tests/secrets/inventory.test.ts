@@ -143,6 +143,15 @@ describe("secret inventory", () => {
     }
   });
 
+  test("I1: zap-api on dev holds the service secret it registers its ARC key with, and no GrowthBook key", () => {
+    expect(tierSecrets("zap-api", "dev")).toEqual({
+      scriptName: "zap-api-dev",
+      secrets: ["INTERNAL_SERVICE_SECRET"],
+      optional: [],
+      forbidden: ["GROWTHBOOK_CLIENT_KEY"],
+    });
+  });
+
   test("zap-api production forbids the GrowthBook key no zap code reads, while cire-api production keeps its own", () => {
     expect(reads("zap/api/src", "GROWTHBOOK_CLIENT_KEY")).toBe(false);
     expect(tierSecrets("zap-api", "production").forbidden).toContain("GROWTHBOOK_CLIENT_KEY");

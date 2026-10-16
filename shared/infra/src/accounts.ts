@@ -42,6 +42,11 @@ export const RETIRING_DEV_CREDENTIALS: readonly string[] = [
   "CLOUDFLARE_API_TOKEN_DEV",
 ];
 
+/** The `dev` Environment's read-only token for the dev account, which the free-tier ceiling alert reads. */
+export const DEV_READONLY_CREDENTIALS: readonly string[] = [
+  "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
+];
+
 /** Repository-level credentials, outside both Environments: read-only access to the production account. */
 export const REPOSITORY_CREDENTIALS: readonly string[] = [
   "CLOUDFLARE_ACCOUNT_ID",
@@ -58,7 +63,9 @@ export function accountSecrets(tier: Tier): readonly string[] {
 
 /** Credential names `tier`'s Environment may hold besides its own account's, sorted. */
 export function allowedCredentials(tier: Tier): readonly string[] {
-  return tier === "dev" ? RETIRING_DEV_CREDENTIALS.toSorted() : [];
+  return tier === "dev"
+    ? [...RETIRING_DEV_CREDENTIALS, ...DEV_READONLY_CREDENTIALS].toSorted()
+    : [];
 }
 
 /** Credential names `tier`'s Environment must never hold: the other tier's, where this tier does not use the name too. */
@@ -77,6 +84,7 @@ export function knownCredentials(): readonly string[] {
       ...accountSecrets("dev"),
       ...accountSecrets("production"),
       ...RETIRING_DEV_CREDENTIALS,
+      ...DEV_READONLY_CREDENTIALS,
       ...REPOSITORY_CREDENTIALS,
     ]),
   ].toSorted();
