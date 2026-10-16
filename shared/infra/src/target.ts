@@ -51,19 +51,32 @@ export function assertDevDeployTarget(
     if ((env[name] ?? "").trim() === "") {
       throw new DeployTargetError({
         stage: valid,
-        message: `${name} is unset, so Alchemy would choose the account from a stored profile. Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN to the ${tier} account's credentials.`,
+        message: `${name} is unset or blank, so Alchemy would choose the account from a stored profile. Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN to the ${tier} account's credentials.`,
       });
     }
   }
   return valid;
 }
 
-/** Bun loads these from the working directory into process.env (`alchemy/bin/cli.js:17`); a stack directory must hold none. */
+/**
+ * Every `.env` file Bun loads from the working directory into process.env,
+ * whatever NODE_ENV is; a stack directory must hold none. Which ones load
+ * depends on how the CLI starts: `bunx --bun alchemy` runs it in a Bun
+ * started with the shell's NODE_ENV (unset: `.env`, `.env.local` and the
+ * `.development` pair), while `bun alchemy` starts it under Node, which sets
+ * NODE_ENV to production (`alchemy/bin/cli.js:17`) and hands off to a Bun
+ * that loads `.env`, `.env.local` and the `.production` pair. NODE_ENV=test
+ * loads `.env` and the `.test` pair.
+ */
 export const DOT_ENV_FILES: readonly string[] = [
   ".env",
   ".env.local",
+  ".env.development",
+  ".env.development.local",
   ".env.production",
   ".env.production.local",
+  ".env.test",
+  ".env.test.local",
 ];
 
 /** Throws when `directory` holds a file Bun would load into the stack's environment, naming it. */

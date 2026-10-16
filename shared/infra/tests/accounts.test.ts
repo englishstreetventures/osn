@@ -66,22 +66,11 @@ describe("the credentials the workflows read", () => {
     expect(cloudflareSecrets("production-release.yml")).toEqual([...accountSecrets("production")]);
   });
 
-  // Off until deploy.yml deploys the dev stacks (englishstreetventures/osn#1553); it then replaces the next test.
-  // oxlint-disable-next-line vitest/warn-todo -- turned on in the same change that makes deploy.yml read the dev account
-  test.todo("only alchemy-state.yml, deploy.yml and free-tier-ceiling-alert.yml reach the dev account", () => {
+  test("only alchemy-state.yml, deploy.yml and free-tier-ceiling-alert.yml reach the dev account", () => {
     const allowed = new Set(["alchemy-state.yml", "deploy.yml", "free-tier-ceiling-alert.yml"]);
     const dev = new Set([...accountSecrets("dev"), ...DEV_READONLY_CREDENTIALS]);
     for (const file of workflowFiles.filter((candidate) => !allowed.has(candidate))) {
       const reached = cloudflareSecrets(file).filter((name) => dev.has(name));
-      expect({ file, reached }).toEqual({ file, reached: [] });
-    }
-  });
-
-  test("only the state-store workflow reaches the dev account", () => {
-    for (const file of workflowFiles.filter((candidate) => candidate !== "alchemy-state.yml")) {
-      const reached = cloudflareSecrets(file).filter((name) =>
-        accountSecrets("dev").includes(name),
-      );
       expect({ file, reached }).toEqual({ file, reached: [] });
     }
   });
