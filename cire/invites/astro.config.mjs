@@ -134,5 +134,10 @@ export default defineConfig({
   integrations: [solidJs(), minifySsrBuild(), tierHeaders()],
   vite: {
     plugins: [tailwindcss(), stubMotionForSsr()],
+    // Pre-bundled for the dev server's SSR runner. Discovered on the first
+    // request instead, each one triggers a re-optimise and a reload in which
+    // the runner imports a chunk the optimiser has just deleted, and `astro dev`
+    // exits — on a cold cache and a warm one alike.
+    ssr: { optimizeDeps: { include: ["astro/assets/services/noop", "astro/app/manifest"] } },
   },
 });

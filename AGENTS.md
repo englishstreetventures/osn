@@ -65,6 +65,8 @@ bun run build | check | lint | fmt
 bun run test                 # all packages
 bun run test:d1              # Miniflare D1 tier
 bun run test:browser         # real-Chromium tier
+bun run test:e2e             # end-to-end suite: boots the stack, writes e2e-artifacts/
+bun run test:e2e:repro       # it, twice, failing unless results.json matches byte for byte
 bun run test:scripts         # bun tests under scripts/
 bun run --cwd cire/<pkg> test:mutation --changed  # Stryker on changed lines, cire only
 bun run --cwd <pkg> test:run # one Vitest package, once

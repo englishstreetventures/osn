@@ -7,7 +7,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[contributing]]"
   - "[[passkey-primary]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-10-16
 ---
 
 # Devloop URLs
@@ -110,6 +110,8 @@ The **first** load after a cold start is the one to know about: on `@pulse/web` 
 PORTLESS=0 bun run dev                # whole devloop on the old fixed ports
 bun run --cwd cire/host dev:app       # one app, no proxy at all
 ```
+
+Without `PORTLESS_URL`, `dev-env` exports nothing, so each app falls back to its own default for every sibling origin, and those defaults do not all line up with the `DEV_APPS` ports: osn-api's `OSN_ORIGIN` defaults to `http://localhost:5173`, not Musubi's `1422`. Set the sibling variables yourself, as `tools/e2e/src/stack.ts` does for the E2E suite ([[testing-patterns#The end-to-end suite]]).
 
 `PORTLESS` is in `globalPassThroughEnv` in `turbo.json`. Turbo 2 runs strict env
 mode, which hands each task only the variables it is told to, so without that

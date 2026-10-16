@@ -10,8 +10,12 @@ import { createAssetsStub } from "./services/invite-assets";
 import { createR2Stub } from "./services/r2-imports";
 import { createStripeClientFromEnv } from "./services/stripe";
 
-const db = createDb(":memory:");
-await seedDb(db);
+// In memory unless CIRE_LOCAL_DB_PATH names a file, which lets another process
+// (the E2E suite) read the rows this server writes. The seed runs on every
+// boot, so the file must not exist yet.
+const db = createDb(process.env.CIRE_LOCAL_DB_PATH || ":memory:");
+// One transaction, for the same reason `createDb` applies its DDL in one.
+db.$client.transaction(() => seedDb(db))();
 
 // Dev convenience: the in-memory seed gives the sample wedding's owner seat to
 // the fixed local dev id (usr_dev_bootstrap_owner — see DEV_OWNER_PROFILE_ID in

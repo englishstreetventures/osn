@@ -1,0 +1,29 @@
+{
+  "name": "@tools/e2e",
+  "private": true,
+  "description": "End-to-end suite: boots the real stack on fixed ports, drives Chromium through each product's flows, writes a reproducible artifact",
+  "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
+  "scripts": {
+    "e2e": "bun run src/launcher.ts",
+    "e2e:repro": "bun run src/repro.ts",
+    "check": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@osn/db": "workspace:*",
+    "@pulse/db": "workspace:*",
+    "@shared/dev-urls": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@shared/typescript-config": "workspace:*",
+    "typescript": "^6.0.3"
+  }
+}
