@@ -86,10 +86,10 @@ Import the workerd-safe `/config`, `/logger`, and `/tracing` subpaths, never the
 
 `healthRoutes` exposes two endpoints, and it stays mounted on the Workers entries as well:
 
-- **`/health`** -- basic liveness check
-- **`/ready`** -- readiness check (includes dependency health)
+- **`/health`** -- liveness: 200 whenever the service is up
+- **`/ready`** -- readiness: it checks a dependency only when the service passes `healthRoutes` a `probe`. None does (`osn/api`, `zap/api` and `pulse/api` pass only `serviceName`), so it answers 200 whenever `/health` does and says nothing about D1 or Redis.
 
-They confirm that the service runs and that its dependencies answer. Every Worker deploy already asks its Worker's health by machine and rolls it back when the answer is wrong ([[production-deploy]] §7); call them by hand locally, or to look at a deployed Worker between deploys.
+They confirm that the service runs. Every CI Worker deploy already asks its Worker's health by machine and rolls it back when the answer is wrong ([[production-deploy]] §7); call them by hand locally, or to look at a deployed Worker between deploys.
 
 ```bash
 # local Bun services

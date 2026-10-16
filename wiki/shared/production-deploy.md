@@ -77,7 +77,7 @@ marked **TBD** blocks the deploy.
 |---|---|---|
 | `OSN_JWT_PRIVATE_KEY` / `OSN_JWT_PUBLIC_KEY` (ES256 JWK, base64) | osn-api | **generate** (section 1) |
 | `OSN_SESSION_IP_PEPPER` (≥32 bytes) | osn-api | **generate** (section 1) |
-| `OSN_TOTP_ENCRYPTION_KEY` (exactly 32 bytes, base64) | osn-api | **DONE — set on dev and on production 2026-09-13** (`set-osn-api-secret` run 34760078500). Production ran without it from the 2026-07-27 cutover until then and answered 503 `Worker misconfigured` on **every** route, not just the TOTP ones — see §7 smoke check 1 for why a deploy can go green with the key missing. To set it on a new tier: `openssl rand -base64 32`, **keep your copy** (see below), add it as that tier's GitHub Environment secret, then run the `set-osn-api-secret` workflow. It must exist BEFORE the first deploy of the tier. Rotatable, in the fixed order in §10. See [[totp]]. |
+| `OSN_TOTP_ENCRYPTION_KEY` (exactly 32 bytes, base64) | osn-api | **DONE — set on dev and on production 2026-09-13** (`set-osn-api-secret` run 34760078500). Production ran without it from the 2026-07-27 cutover until then and answered 503 `Worker misconfigured` on **every** route, not just the TOTP ones — see §7 check 1 for why `wrangler deploy` succeeds with the key missing, and how the smoke check now fails and rolls back such a deploy. To set it on a new tier: `openssl rand -base64 32`, **keep your copy** (see below), add it as that tier's GitHub Environment secret, then run the `set-osn-api-secret` workflow. It must exist BEFORE the first deploy of the tier. Rotatable, in the fixed order in §10. See [[totp]]. |
 | `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` (exactly 32 bytes, base64) | osn-api | **optional** — set only while a rotation drains (§10), and deleted afterwards. Present-but-malformed fails the boot exactly as the current key does. |
 | `OSN_RP_ID` (WebAuthn RP ID — registrable domain) | osn-api WebAuthn | **DONE — `musubi.social`** (identity's own registrable apex, as of the 2026-07-27 move — §5.4, [[musubi-identity-migration]]). It covers the apex itself plus every future `*.musubi.social` surface. **This invalidated every passkey enrolled under `cireweddings.com`** — the private half is bound to the RP ID inside the authenticator, so nothing in D1 re-points it. |
 | `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://musubi.social`** (the identity app — the one surface that can legally run a ceremony under the new RP ID). The cire origins were **removed** on 2026-07-27: a different registrable domain cannot run a ceremony for RP ID `musubi.social`, so listing them would only have hidden the failure. Picked up by the next release — **osn-api deploys via CI** (`deploy-osn-api` in `production-release.yml`); no manual `wrangler deploy` needed. |
@@ -103,7 +103,7 @@ marked **TBD** blocks the deploy.
 | musubi/social `VITE_OSN_ISSUER_URL` (build-time) | musubi/social Pages (`osn-social`) | **DONE — `https://id.musubi.social`** (set in `production-release.yml`, job `deploy-osn-social`) |
 | musubi/social `VITE_TURNSTILE_SITEKEY` (build-time) | musubi/social Pages (`osn-social`) | **DONE — `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}`** in `deploy-osn-social`. **Not optional**: osn-api holds `TURNSTILE_SECRET_KEY`, and musubi.social is now the only origin running the OSN ceremonies, so a blank sitekey means `400 turnstile_failed` on every sign-in and registration (this is exactly what broke on 2026-07-27). [[turnstile]] |
 | `OSN_AUTHORIZE_UI_URL` (OIDC consent screen) | osn-api wrangler.toml | **DONE — `https://musubi.social/authorize`**. Needs the apex attached to the `osn-social` Pages project (§5.4) to resolve |
-| **musubi.social zone: apex → `osn-social` Pages, `id.` → osn-api Worker** | Cloudflare dashboard | **Apex attached 2026-07-27.** The Worker side auto-provisions on first deploy (`custom_domain = true`, zone in-account) — verify `https://id.musubi.social/health` returns 200 after the release that deploys it. §5.4. |
+| **musubi.social zone: apex → `osn-social` Pages, `id.` → osn-api Worker** | Cloudflare dashboard | **Apex attached 2026-07-27.** The Worker side auto-provisions on first deploy (`custom_domain = true`, zone in-account) — the osn-api job's smoke check asks `https://id.musubi.social/health` after every release that deploys it (§7). §5.4. |
 | **musubi.social on the Turnstile widget** | Cloudflare dashboard | **DONE 2026-07-27.** `id.musubi.social` is not needed — only form-rendering hostnames are. [[turnstile]] |
 
 ---
@@ -537,7 +537,8 @@ create it in the dashboard (or with a custom API token that has the scope).
    # from cire/api (gates /api/claim + /api/rsvp)
    cd cire/api && echo "<secret>" | bunx wrangler secret put TURNSTILE_SECRET_KEY --env production
    ```
-   Then `wrangler deploy` both Workers so the new isolate picks up the secret.
+   Then `wrangler deploy` both Workers so the new isolate picks up the secret, and run
+   the smoke check after each (§5.1).
    **Confirm the secret and the shipped sitekey are the two halves of the same widget**
    and run one real end-to-end claim — a mismatch rejects every guest claim (2026-07-20
    incident, see [[free-tier-limits]]). To back it out:
@@ -813,30 +814,52 @@ access can create a record, so the planner checks each one against its run.
    here. (Seen 2026-08-06, taking out four jobs across two consecutive runs.)
 7. **A red `Smoke check, rolling back on failure` step** means the Worker deployed but
    did not answer as a working one does for a minute (§7). Its annotations name each
-   probe and what it got.
-   - **The Worker answered wrongly**: the step ran `wrangler rollback`, so the Worker
-     now runs Cloudflare's previous deployment of it, usually the last release's. It
-     then asked once more: a notice says the restored version answers, an error says
-     it is still failing — the cause is then not this release's code but a secret, a
-     binding, D1 or an upstream, and production is still down.
-   - **Nothing answered, or Cloudflare Access or a bot challenge answered**: no
-     rollback. The Worker stays on this release's version.
+   probe and what it got, and their titles say which of four things happened:
+   - **The Worker answered wrongly and was rolled back** (`Smoke check failed: … rolling
+     the Worker back`, then no `Rollback refused` or `Rollback failed`). The step
+     restored the version that served before this deploy, usually the last release's.
+     It then asked once more: a notice says the restored version answers; `Still
+     failing after rollback` says it does not, so the cause is not this release's code
+     but a binding, D1 or an upstream, and production is still down. After a rollback:
+     - **`wrangler secret put` refuses until the Worker is deployed again** — so does
+       the `set-osn-api-secret` workflow (#1531). The newest uploaded version is the
+       one rolled back from, and wrangler will not edit secrets while it is not the one
+       serving. To add a missing secret, run `bunx wrangler versions secret put <NAME>`
+       from the Worker's directory with its own selector — `--env production` for
+       cire-api, osn-api and zap-api, `--config dist/server/wrangler.json` for
+       cire-invites (the `wrangler` field of its entry in `scripts/smoke-check.ts`).
+       That adds the secret to a new version without deploying it; then re-run the
+       failed job (newest release only) or dispatch a release with `force` for that
+       surface.
+     - **Only that surface went back.** The rest of the release stayed forward. If it
+       is `cire_api` and `cire_host` shipped in the same release, read §5.6.
+   - **The Worker answered wrongly and the rollback was refused** (`Rollback refused`).
+     Either the Worker's secrets changed since the version it would restore — restoring
+     it would put the old values back, a rotated key or a revoked secret, so Cloudflare
+     refuses and the step does not force it — or something deployed the Worker during
+     the check, so the version to restore is no longer known. The Worker still runs
+     this release's version, answering wrongly. Decide by hand: fix forward, or roll
+     back knowing which secret values come back (`bunx wrangler rollback` with the
+     Worker's selector asks before crossing a secret change when run in a terminal).
+   - **The Worker answered wrongly and the rollback failed** (`Rollback failed`). The
+     Worker still runs this release's version, and it is answering wrongly. Roll it
+     back by hand: `bunx wrangler rollback` with its selector, from its directory, or
+     the Deployments tab in the dashboard. A hand rollback leaves no Deployment record
+     (§5.1). A Worker's first deploy always lands here: there is no earlier version to
+     go back to.
+   - **Nothing answered, or Cloudflare answered in the Worker's place** (`Smoke check
+     failed: … not rolling back`): DNS, TLS, a timeout, Cloudflare Access, a bot
+     challenge or a 429 — the account's daily request cap among them. No rollback. The
+     Worker stays on this release's version, and `wrangler secret put` works as usual.
 
-   Either way the job is red, GitHub marks its Deployment `failure` (on the commit, the
-   pull request and the Environments page), and the planner treats the surface as not
-   shipped: the next release offers it again. Before you act:
-   - **The D1 migrations stay applied.** A rollback restores code only (§4).
-   - **`wrangler secret put` refuses until the Worker is deployed again** — so does the
-     `set-osn-api-secret` workflow. The newest uploaded version is the one rolled back
-     from, and wrangler will not edit secrets while it is not the one serving. To add a
-     missing secret, run `bunx wrangler versions secret put <NAME> --env production`
-     from the Worker's directory, which adds it to a new version without deploying
-     it; then re-run the failed job (newest release only) or dispatch a release with
-     `force` for that surface.
-   - **Only that surface went back.** The rest of the release stayed forward. If it is
-     `cire_api` and `cire_host` shipped in the same release, read §5.6.
-   - **A rollback crosses a secret change without stopping.** wrangler asks to confirm
-     one, and in CI the answer is yes.
+   Whichever it was, the job is red, GitHub marks its Deployment `failure` (on the
+   commit, the pull request and the Environments page), and the planner treats the
+   surface as not shipped: the next release offers it again. **The planner does not
+   remember the failure.** Until the cause is fixed — the secret or binding set, or a
+   fix on `main` that dev has deployed — every release offers the same content again,
+   and approving it ships the version that failed. Until then, approve only a release
+   dispatched with `surfaces` listing every other surface. **The D1 migrations stay
+   applied** whichever it was: a rollback restores code only (§4).
 
 A red **Deploy** run concerns dev only ([[dev-environment]] §2). Nothing alerts on a
 failed release. Every release retries every surface production is behind on, except one
@@ -882,6 +905,12 @@ bunx wrangler deploy --dry-run --outdir ./dist   # optional: build-only sanity c
 bunx wrangler deploy --env dev               # or --env staging | --env production
 ```
 
+A hand-run deploy gets no smoke check unless you run it. From the repository root,
+`bun run scripts/smoke-check.ts osn_api production` (or `dev`) asks the same probes CI
+does (§7). With `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` exported it also
+rolls the Worker back if it answers wrongly; without them it says what it found and
+rolls nothing back.
+
 **Prod URL (custom domain):** the production Worker is served at
 **`https://id.musubi.social`** via the custom-domain route in `osn/api/wrangler.toml`
 `[env.production]` (`routes = [{ pattern = "id.musubi.social", custom_domain = true }]`).
@@ -918,6 +947,7 @@ Set any conditional secrets first (`wrangler secret put …`, §6.2). Then deplo
 cd cire/api
 bunx wrangler types          # regenerate binding types if bindings changed
 bunx wrangler deploy --env production
+cd ../.. && bun run scripts/smoke-check.ts cire_api production   # the check CI runs (§7)
 ```
 
 Confirm the deploy picked up the prod vars from `[env.production.vars]` and the
@@ -948,6 +978,7 @@ PUBLIC_SITE_URL=https://invite.cireweddings.com \
   bun run --cwd cire/invites build
 # delete the adapter's `legacy_env` key first — see the §3.3 foot-gun note
 bunx wrangler deploy --config cire/invites/dist/server/wrangler.json
+bun run scripts/smoke-check.ts cire_invites production   # the check CI runs (§7)
 
 # organiser portal (Pages project: cire-organiser, host.cireweddings.com)
 PUBLIC_CIRE_API_URL=https://api.cireweddings.com \
@@ -1028,9 +1059,10 @@ Nothing reaches production unattended, and nothing reaches it per merge.
   Otherwise the plan holds it back and says why (§5.0). The check does not cover what no
   path rule sees: a `.bun-version`, `bunfig.toml` or deploy-script change can reach
   production in a build dev never ran.
-- **No rollbacks.** A surface whose production commit already contains the release
-  commit is left alone, so re-running an old release in full cannot roll production
-  back. A `force` dispatch can.
+- **A release never ships an older commit.** A surface whose production commit already
+  contains the release commit is left alone, so re-running an old release in full
+  cannot roll production back. A `force` dispatch can, and so can a failed smoke check
+  (§5.0 item 7).
 - **One approval.** `build` runs the install, build, tests and D1 tests on the release
   commit. Then every shipping surface's job reaches the `production` gate at the same
   moment, and one review releases them all. A release with nothing to ship skips
@@ -1256,11 +1288,12 @@ unset, 401 on a bad bearer — `routes/graph-internal.ts:203-214`.)
 ## 7. Post-deploy verification (smoke checks)
 
 Each check maps to a startup requirement listed above. The first runs by machine after
-every Worker deploy; a person runs the rest.
+every Worker deploy from CI (`production-release.yml`, `deploy.yml`); after a hand-run
+deploy, run it yourself (§5.1). A person runs the rest.
 
 | Check | Who runs it |
 |---|---|
-| 1. Each Worker answers: health, JWKS, a first route | **Automatic** — the `Smoke check, rolling back on failure` step after every Worker deploy, production and dev |
+| 1. Each Worker answers: health, JWKS, a first route | **Automatic** — the `Smoke check, rolling back on failure` step after every CI Worker deploy, production and dev |
 | 2. No ephemeral-key warning in osn-api's logs | A person |
 | 3. Upstash limits persist across isolates | A person |
 | 4. OTP email arrives | A person |
@@ -1293,24 +1326,35 @@ How it decides:
   probe passes in two rounds in a row. No answer names the version that gave it, so a
   pass straight after the deploy can come from the version before; the second pass
   narrows that window, it does not close it.
-- **The Worker answered wrongly** when time runs out: it runs `wrangler rollback` with
-  the deploy step's own `--env` or `--config` and the message `Smoke check failed:
-  <run URL>`, which restores Cloudflare's previous deployment of that Worker, then asks
-  once more and says whether the restored version answers.
+- **The Worker answered wrongly** when time runs out: it restores the version that
+  served before this deploy, with the message `Smoke check failed: <run URL>`, then
+  asks once more and says whether the restored version answers. It reads the Worker's
+  deployments before the first probe and picks the version as `wrangler rollback`
+  would, but makes the rollback itself through the Cloudflare API with the job's
+  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`: `wrangler rollback` in CI
+  answers its own "secrets have changed" prompt with yes and forces the rollback
+  through, which would put old secret values back.
+- **The rollback was refused** (`Rollback refused`) when the Worker's secrets changed
+  since the version it would restore, or when anything deployed the Worker during the
+  check. **It failed** (`Rollback failed`) when the API refused for another reason, or
+  when the Worker has no earlier version — always so on its first deploy. Either way
+  the Worker stays on the version that failed for a person to decide (§5.0 item 7).
 - **Nothing answered** (DNS, TLS, a timeout), **or Cloudflare answered** in the Worker's
-  place (Access, a bot challenge): no rollback, since code is not what failed.
-- Either way the step exits 1. The failed job makes GitHub mark its Deployment
+  place (Access, a bot challenge, a 429): no rollback, since code is not what failed. A
+  429 counts here because Cloudflare answers every Worker on the account with one once
+  the daily request cap is spent, and anyone can spend it from the public hosts.
+- Whichever it was, the step exits 1. The failed job makes GitHub mark its Deployment
   `failure`, which shows on the commit, the pull request and the Environments page.
   In production the planner then treats the surface as not shipped and the next release
-  offers it again (§5.0 item 7); on dev the dev gate holds the change back from
-  production.
+  offers it again, the same content included, until the cause is fixed (§5.0 item 7);
+  on dev the dev gate holds the change back from production.
 - A rollback restores code only. The migrations the job applied stay (§4).
 - Dispatching **Deploy** with `smoke_fail` set to a dev Worker forces that Worker's
   check to fail — the dry run of the rollback path ([[dev-environment]] §2).
 
 ### The checks
 
-1. **Health / readiness / JWKS — automatic.** The smoke check above. Its 200s confirm the
+1. **Health / JWKS / a first route — automatic.** The smoke check above. Its 200s confirm the
    Worker booted: no startup throw fired and the edge returned no 503
    `Worker misconfigured`. For osn-api that is the **whole** fail-closed set in one
    check — in a non-local tier the boot throws on a missing or malformed:
