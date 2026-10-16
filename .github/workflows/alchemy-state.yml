@@ -1,0 +1,106 @@
+name: Alchemy state store
+
+# Bootstraps or checks one tier's Alchemy state store: the Worker
+# `alchemy-state-store` on that tier's account's workers.dev, with its bearer
+# token and encryption key in that account's Secrets Store. Dev and
+# production are separate Cloudflare accounts, so each has its own store, and
+# a run reaches only the store of the account its credentials name.
+# TIER_ACCOUNTS in shared/infra/src/accounts.ts names each tier's credential
+# secrets; shared/infra/tests/accounts.test.ts holds the two run steps to it.
+#
+#   action: bootstrap  deploys the store when absent; when it is serving,
+#                      refreshes credentials and upgrades it only if its version
+#                      differs from the pinned Alchemy's. The tier's token
+#                      needs Secrets Store edit.
+#   action: check      lists the store's top level (stack names) and writes no
+#                      state; proves this tier's token reaches it. Like every
+#                      CI run against the store, it uploads a temporary
+#                      edge-preview Worker to read the store's bearer token.
+#
+# `alchemy state ls` is the only state command allowed here: state holds
+# resolved resource props, and run logs on this repository are public.
+# scripts/check-alchemy-usage.ts refuses every other.
+on:
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: Which tier's account and state store
+        required: true
+        type: choice
+        options:
+          - dev
+          - production
+      action:
+        description: check (lists stack names, writes no state) or bootstrap
+        required: true
+        default: check
+        type: choice
+        options:
+          - check
+          - bootstrap
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alchemy-state-store-${{ inputs.tier }}
+  cancel-in-progress: false
+
+env:
+  DO_NOT_TRACK: "1"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  state:
+    name: ${{ inputs.action }} the ${{ inputs.tier }} state store
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.tier }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      # The dev account's credentials have names of their own: the dev
+      # Environment's CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN_DEV
+      # reach the production account.
+      - name: Run against the dev account
+        if: inputs.tier == 'dev'
+        working-directory: shared/infra
+        env:
+          ACTION: ${{ inputs.action }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ] || [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::The dev Environment holds no CLOUDFLARE_DEV_ACCOUNT_ID or CLOUDFLARE_DEV_ACCOUNT_API_TOKEN, so there is no dev account to reach."
+            exit 1
+          fi
+          if [ "$ACTION" = bootstrap ]; then
+            bun run state:bootstrap
+          else
+            bun run state:check
+          fi
+      - name: Run against the production account
+        if: inputs.tier == 'production'
+        working-directory: shared/infra
+        env:
+          ACTION: ${{ inputs.action }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ] || [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::The production Environment holds no CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN."
+            exit 1
+          fi
+          if [ "$ACTION" = bootstrap ]; then
+            bun run state:bootstrap
+          else
+            bun run state:check
+          fi

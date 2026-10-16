@@ -82,3 +82,78 @@ describe("the credentials the workflows read", () => {
     }
   });
 });
+
+const WORKFLOW = fileURLToPath(
+  new URL("../../../.github/workflows/alchemy-state.yml", import.meta.url),
+);
+
+interface WorkflowStep {
+  readonly if?: string;
+  readonly env?: Readonly<Record<string, string>>;
+  readonly run?: string;
+}
+
+interface StateWorkflow {
+  readonly env?: Readonly<Record<string, string | boolean>>;
+  readonly on: {
+    readonly workflow_dispatch: {
+      readonly inputs: { readonly tier: { readonly options: readonly string[] } };
+    };
+  };
+  readonly jobs: {
+    readonly state: {
+      readonly environment: string;
+      readonly env?: Readonly<Record<string, string>>;
+      readonly steps: readonly WorkflowStep[];
+    };
+  };
+}
+
+/** The `${{ secrets.NAME }}` names a workflow fragment reads, sorted. Plain environment variable names do not count. */
+const secretsRead = (fragment: unknown): string[] =>
+  [
+    ...new Set(
+      [...JSON.stringify(fragment ?? {}).matchAll(/\$\{\{\s*secrets\.([A-Z0-9_]+)\s*\}\}/g)].map(
+        (match) => match[1],
+      ),
+    ),
+  ].toSorted();
+
+describe("the Alchemy state store workflow", () => {
+  const workflow = Bun.YAML.parse(readFileSync(WORKFLOW, "utf8")) as StateWorkflow;
+  const { steps } = workflow.jobs.state;
+
+  test("offers exactly the two tiers and runs in the chosen tier's Environment", () => {
+    expect([...workflow.on.workflow_dispatch.inputs.tier.options].toSorted()).toEqual([
+      "dev",
+      "production",
+    ]);
+    expect(workflow.jobs.state.environment).toBe("${{ inputs.tier }}");
+  });
+
+  test("keeps Alchemy telemetry off for the whole workflow", () => {
+    expect(workflow.env?.DO_NOT_TRACK).toBe("1");
+  });
+
+  test("each tier's step reads exactly that tier's credential secrets, as the variables Alchemy reads", () => {
+    for (const tier of TIERS) {
+      const step = steps.find((candidate) => candidate.if === `inputs.tier == '${tier}'`);
+      expect(step, `${tier}`).toBeDefined();
+      expect(secretsRead(step), `${tier}`).toEqual([...accountSecrets(tier)]);
+      expect(step?.env?.CLOUDFLARE_ACCOUNT_ID).toBe(
+        `\${{ secrets.${TIER_ACCOUNTS[tier].accountIdSecret} }}`,
+      );
+      expect(step?.env?.CLOUDFLARE_API_TOKEN).toBe(
+        `\${{ secrets.${TIER_ACCOUNTS[tier].apiTokenSecret} }}`,
+      );
+    }
+  });
+
+  test("no secret is read anywhere else in the workflow", () => {
+    const tierSteps = new Set(TIERS.map((tier) => `inputs.tier == '${tier}'`));
+    const otherSteps = steps.filter((step) => step.if === undefined || !tierSteps.has(step.if));
+    expect(secretsRead(workflow.env)).toEqual([]);
+    expect(secretsRead(workflow.jobs.state.env)).toEqual([]);
+    expect(otherSteps.flatMap((step) => secretsRead(step))).toEqual([]);
+  });
+});
