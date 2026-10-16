@@ -106,6 +106,9 @@ describe("apiWorkerProps", () => {
     expect(() =>
       apiWorkerProps({ ...cireApiDev, vars: { CIRE_OIDC_CLIENT_SECRET: "plain" } }),
     ).toThrow(BindingNameClashError);
+    expect(() => apiWorkerProps({ ...cireApiDev, bindings: { OSN_ENV: {} as never } })).toThrow(
+      BindingNameClashError,
+    );
   });
 
   test("refuses a name Alchemy binds itself", () => {
