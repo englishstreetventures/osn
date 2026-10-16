@@ -47,6 +47,7 @@
     "test:scripts": "bun test ./scripts/",
     "check:release-age-excludes": "bun run scripts/check-release-age-excludes.ts",
     "check:jest-dom-markers": "bash scripts/check-jest-dom-markers.sh",
+    "check:alchemy-usage": "bun run scripts/check-alchemy-usage.ts",
     "clean": "git clean -fdX",
     "db:reset": "bun run --cwd osn/db db:reset && bun run --cwd pulse/db db:reset && bun run --cwd zap/db db:reset && bun run --cwd cire/db db:reset",
     "fmt": "bunx --bun oxfmt musubi osn pulse zap shared cire tools/e2e tools/lab tools/metrics tools/oxlint/house tools/pr-metrics tools/stryker '!**/*.{json,jsonc,md,yml,yaml,css,html,astro}'",
