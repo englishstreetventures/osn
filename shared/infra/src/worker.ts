@@ -76,7 +76,7 @@ const previewsEnabled = (stage: string): boolean => tierOf(stage) !== "productio
 /**
  * Production request paths carry ids and slugs, so production keeps query
  * strings redacted and native traces off — the rule
- * `scripts/check-trace-redaction.ts` holds today's Wrangler configs to.
+ * `scripts/check-trace-redaction.ts` holds today's API Workers to.
  */
 function checkProductionObservability(input: ApiWorkerInput): void {
   if (tierOf(input.stage) !== "production") return;

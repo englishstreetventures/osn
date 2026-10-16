@@ -96,8 +96,9 @@ describe("apiWorkerProps", () => {
   });
 
   test("passes every var, binding and secret through env, secrets still redacted", () => {
-    const env = apiWorkerProps(cireApiDev).env as Record<string, unknown>;
-    expect(Object.keys(env).toSorted()).toEqual(["CIRE_OIDC_CLIENT_SECRET", "OSN_ENV"]);
+    const withBinding: ApiWorkerInput = { ...cireApiDev, bindings: { CIRE_DB: {} as never } };
+    const env = apiWorkerProps(withBinding).env as Record<string, unknown>;
+    expect(Object.keys(env).toSorted()).toEqual(["CIRE_DB", "CIRE_OIDC_CLIENT_SECRET", "OSN_ENV"]);
     expect(Redacted.isRedacted(env.CIRE_OIDC_CLIENT_SECRET)).toBe(true);
   });
 
