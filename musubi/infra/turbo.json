@@ -1,0 +1,18 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "$TURBO_ROOT$/shared/infra/src/**",
+        "$TURBO_ROOT$/osn/api/wrangler.toml",
+        "$TURBO_ROOT$/osn/api/src/**",
+        "$TURBO_ROOT$/osn/db/drizzle/**",
+        "$TURBO_ROOT$/cire/api/src/index.ts",
+        "$TURBO_ROOT$/cire/api/src/services/osn-bridge.ts"
+      ]
+    }
+  }
+}

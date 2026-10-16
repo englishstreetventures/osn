@@ -254,6 +254,21 @@
         "vitest": "5.0.3",
       },
     },
+    "musubi/infra": {
+      "name": "@musubi/infra",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform-bun": "4.0.3",
+        "@effect/platform-node": "4.0.3",
+        "@shared/infra": "workspace:*",
+        "alchemy": "2.0.0-beta.83",
+        "effect": "4.0.3",
+      },
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "vitest": "5.0.3",
+      },
+    },
     "musubi/landing": {
       "name": "@musubi/landing",
       "version": "0.2.12",
@@ -1567,6 +1582,8 @@
     "@manypkg/tools": ["@manypkg/tools@2.1.2", "", { "dependencies": { "jju": "^1.4.0", "tinyglobby": "^0.2.13", "yaml": "^2.9.0" } }, "sha512-6QEf6yqFbETdwGITKq57aYoPfX/3K8XFNwsAlx0C1M7o8cb79sv1M3w+tWuWvIcSbNqrLF7OD7YpZMVVz335hQ=="],
 
     "@mrleebo/prisma-ast": ["@mrleebo/prisma-ast@0.13.1", "", { "dependencies": { "chevrotain": "^10.5.0", "lilconfig": "^2.1.0" } }, "sha512-XyroGQXcHrZdvmrGJvsA9KNeOOgGMg1Vg9OlheUsBOSKznLMDl+YChxbkboRHvtFYJEMRYmlV3uoo/njCw05iw=="],
+
+    "@musubi/infra": ["@musubi/infra@workspace:musubi/infra"],
 
     "@musubi/landing": ["@musubi/landing@workspace:musubi/landing"],
 
