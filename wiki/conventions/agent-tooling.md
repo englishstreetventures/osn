@@ -32,7 +32,7 @@ Locally the repository is the bare `~/.work/osn.git`, and every worktree — `ma
 
 A procedure an agent follows lives in `.claude/skills/<name>/SKILL.md` and nowhere else. Claude Code invokes a skill as `/<name>`, so a wrapper in `.claude/commands/` only splits the procedure across two files that drift.
 
-Skills are measurable. `.claude/` is a Tessl plugin (`.tessl-plugin/plugin.json`), and each scenario under `.claude/evals/<scenario>/` runs an agent with and without the skill and scores the gap. A scenario pins a real commit and builds its branch in `setup.sh`; that commit ships whatever `.claude/` held then, so `setup.sh` deletes it — `exclude` in `scenario.json` does not. Every merged fix pull request is a free labelled scenario: pin its parent SHA, one checklist item per finding it fixed. Full guide: `.claude/evals/README.md`.
+Skills are measurable. `.claude/` is a Tessl plugin (`.tessl-plugin/plugin.json`), and each scenario under `.claude/evals/<scenario>/` runs an agent with and without the skill and scores the gap. A scenario pins a real commit and builds its branch in `setup.sh`; that commit ships whatever `.claude/` held then, so `setup.sh` deletes it — `exclude` in `scenario.json` does not. Every merged fix pull request is a free labelled scenario: pin its parent SHA, one checklist item per finding it fixed. Nothing in CI runs the evals or `tessl review run quality`; a person runs them by hand, from `scripts/skill-evals.ts` and the `tessl` CLI. Full guide: `.claude/evals/README.md`.
 
 ## Third-party skills
 
@@ -55,7 +55,7 @@ To move a pin, read the upstream change first — `git diff <old-sha>..<new-sha>
 
 `scripts/check-skills-lock.ts` recomputes the CLI's folder hash and fails when a lock entry is not pinned to a full SHA, a folder no longer matches its hash, or a folder under `.agents/skills/` has no entry. The CLI never checks the hash after writing it; this runs on every pull request, through `bun run test:scripts`. It cannot tell whether the tree matches upstream at `ref` — that needs the network, and is what reading the diff is for.
 
-Nothing of ours writes into it. `oxlintrc.json` ignores both `.agents` and the symlink path (it follows the link and would report each file twice), both lefthook pre-commit commands exclude `.agents/**`, and the `skill-eval.yml` quality loop skips a symlinked skill. A fix made in someone else's file fails `check-skills-lock`, and the next install throws it away: it goes upstream and comes back as a new pin.
+Nothing of ours writes into it. `oxlintrc.json` ignores both `.agents` and the symlink path (it follows the link and would report each file twice), both lefthook pre-commit commands exclude `.agents/**`, and `scripts/skill-evals.ts` skips a symlinked skill. A fix made in someone else's file fails `check-skills-lock`, and the next install throws it away: it goes upstream and comes back as a new pin.
 
 ## Vendored lint plugin
 

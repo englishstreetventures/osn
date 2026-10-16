@@ -1359,8 +1359,10 @@ How it decides:
   offers it again, the same content included, until the cause is fixed (§5.0 item 7);
   on dev the dev gate holds the change back from production.
 - A rollback restores code only. The migrations the job applied stay (§4).
-- Dispatching **Deploy** with `smoke_fail` set to a dev Worker forces that Worker's
-  check to fail — the dry run of the rollback path ([[dev-environment]] §2).
+- The rollback path has run for real: on 2026-10-16, **Deploy** run 38869446427
+  forced osn-api's dev check to fail, and job 116870013485 rolled `osn-api-dev`
+  back and found the restored version healthy. How to prove it again by hand is in
+  [[dev-environment]] §2, *Proving the rollback path*.
 
 ### The checks
 
