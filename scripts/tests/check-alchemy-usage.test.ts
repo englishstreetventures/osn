@@ -129,6 +129,13 @@ describe("checkStackSource", () => {
     expect(checkStackSource("cire/infra/alchemy.run.ts", code)).toHaveLength(1);
   });
 
+  test.each([
+    'import * as CF from "alchemy/Cloudflare"; CF.state()',
+    'import * as Aws from "alchemy/AWS"; Aws.state()',
+  ])("refuses a state call through a namespace import, %j", (code) => {
+    expect(checkStackSource("cire/infra/alchemy.run.ts", code)).toHaveLength(1);
+  });
+
   test("passes a stack that takes stackOptions()", () => {
     expect(
       checkStackSource("cire/infra/alchemy.run.ts", "Alchemy.Stack('cire', stackOptions(), body)"),
@@ -176,6 +183,7 @@ describe("compound commands", () => {
     "DO_NOT_TRACK=1 bun alchemy state ls; bun alchemy deploy",
     "DO_NOT_TRACK=1 bun alchemy state ls || bun alchemy deploy",
     "DO_NOT_TRACK=1 bun alchemy state ls | bun alchemy deploy",
+    "DO_NOT_TRACK=1 bun alchemy state ls & bun alchemy deploy",
   ])("flags the second command of %j", (script) => {
     expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
   });
@@ -197,6 +205,31 @@ describe("compound commands", () => {
           x: "DO_NOT_TRACK=1 bun alchemy state ls && DO_NOT_TRACK=1 bun alchemy deploy --stage dev",
         }),
       ),
+    ).toEqual([]);
+  });
+});
+
+describe("commands that print a token or delete a long-lived stage", () => {
+  test("refuses creating a Cloudflare API token, which prints it to the log", () => {
+    expect(
+      checkPackageScripts(
+        "p",
+        manifest({ x: "DO_NOT_TRACK=1 bun alchemy provider cloudflare token" }),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test.each([
+    "DO_NOT_TRACK=1 bun alchemy destroy --stage production",
+    "DO_NOT_TRACK=1 bun alchemy destroy --stage=dev",
+    "DO_NOT_TRACK=1 bun alchemy --stage dev destroy --yes",
+  ])("refuses %j", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
+  });
+
+  test("passes destroying an investigation stage", () => {
+    expect(
+      checkPackageScripts("p", manifest({ x: "DO_NOT_TRACK=1 bun alchemy destroy --stage pr-7" })),
     ).toEqual([]);
   });
 });

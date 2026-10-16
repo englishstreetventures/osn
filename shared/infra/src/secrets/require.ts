@@ -6,9 +6,9 @@ import { tierSecrets, type WorkerKey } from "./inventory";
 export class MissingSecretsError extends Data.TaggedError("MissingSecretsError")<{
   readonly worker: WorkerKey;
   readonly tier: Tier;
-  /** GitHub Environment secret names that are unset or blank. Never values. */
+  /** Required GitHub Environment secret names that are unset, empty or only whitespace. Never values. */
   readonly missing: readonly string[];
-  /** Names whose value starts or ends with whitespace. Never values. */
+  /** Names whose value starts or ends with whitespace, an optional name holding only whitespace included. Never values. */
   readonly malformed: readonly string[];
   readonly message: string;
 }> {}
@@ -16,10 +16,12 @@ export class MissingSecretsError extends Data.TaggedError("MissingSecretsError")
 /**
  * Reads every secret the inventory declares for `worker` at `stage` from
  * `env` (the GitHub Environment secrets a deploy job passes through), and
- * throws before anything is uploaded when a required one is unset or blank,
- * or any value carries leading or trailing whitespace. An optional secret is
- * declared only when its value is present. A value is never trimmed: a pasted
- * trailing newline would otherwise reach the Worker as a different key.
+ * throws before anything is uploaded when a required one is unset, empty or
+ * only whitespace, or any value carries leading or trailing whitespace. An
+ * optional secret is left out only when it is unset or empty; one holding
+ * only whitespace is refused, because leaving it out would delete the live
+ * secret from the Worker. A value is never trimmed: a pasted trailing newline
+ * would otherwise reach the Worker as a different key.
  */
 export function requireSecrets(input: {
   readonly worker: WorkerKey;
@@ -33,7 +35,7 @@ export function requireSecrets(input: {
   const present: (readonly [string, Redacted.Redacted<string>])[] = [];
   const read = (name: string, required: boolean): void => {
     const value = input.env[name];
-    if (value === undefined || value.trim() === "") {
+    if (value === undefined || value === "" || (required && value.trim() === "")) {
       if (required) missing.push(name);
     } else if (value !== value.trim()) {
       malformed.push(name);

@@ -5,7 +5,8 @@
  * state store.
  *
  *  - Commands are read after joining backslash line continuations and split
- *    into segments on `&&`, `||`, `;` and `|`; each segment is checked alone.
+ *    into segments on `&&`, `||`, `;`, `|` and a background `&` (not the `&`
+ *    of a redirection such as `2>&1`); each segment is checked alone.
  *  - package.json scripts: every segment that runs Alchemy starts with
  *    `DO_NOT_TRACK=1 `.
  *  - workflows: a step that runs Alchemy has `DO_NOT_TRACK: "1"` in its own
@@ -14,14 +15,19 @@
  *    carries the inline prefix. Composite actions: on the step or the segment.
  *  - all three: `alchemy state ls`/`list` is the only `state` command allowed
  *    (bare `state` opens an explorer that reads records; `provider cloudflare
- *    state logs` reads the store's logs), and never `nuke`, `drift … --repair`
- *    or `teardown`.
+ *    state logs` reads the store's logs), and never `nuke`, `drift … --repair`,
+ *    `teardown`, `provider cloudflare token` (it prints the token it creates)
+ *    or `destroy` with `--stage dev` or `--stage production`, in any flag order.
  *  - stack files (`*\/infra/**\/*.ts`, `*alchemy.run.ts`, tests excluded): no
- *    state constructor and no `state` import from `alchemy/Cloudflare`;
- *    `shared/infra/src/stack.ts` alone calls `Cloudflare.state()`.
+ *    state constructor, no `state` import from `alchemy/Cloudflare`, and no
+ *    `.state(` call in a file that names `alchemy/Cloudflare` or `alchemy/AWS`
+ *    as a module in any import form; `shared/infra/src/stack.ts` alone calls
+ *    `Cloudflare.state()`.
  *
- * Unit tests: scripts/tests/check-alchemy-usage.test.ts. CI runs this file
- * against the committed tree in the `script-tests` job of .github/workflows/ci.yml.
+ * Tests: scripts/tests/check-alchemy-usage.test.ts (the checks) and
+ * scripts/tests/check-alchemy-usage.cli.test.ts (this file run as CI runs it).
+ * CI runs this file against the committed tree in the `script-tests` job of
+ * .github/workflows/ci.yml.
  * Imports only Bun and Node built-ins.
  */
 import { spawnSync } from "node:child_process";
@@ -59,19 +65,37 @@ const FORBIDDEN: readonly { readonly pattern: RegExp; readonly why: string }[] =
     pattern: new RegExp(String.raw`${INVOCATION}[^\n]*\bteardown\b`),
     why: "deletes the state store",
   },
+  {
+    pattern: new RegExp(String.raw`${INVOCATION}[^\n]*\bprovider\s+cloudflare\s+token\b`),
+    why: "creates a Cloudflare API token and prints it to stdout, which lands in a public run log",
+  },
+  {
+    pattern: new RegExp(
+      String.raw`${INVOCATION}(?=[^\n]*\bdestroy\b)(?=[^\n]*--stage(?:\s+|=)["']?(?:dev|production)["']?(?![\w-]))`,
+    ),
+    why: "`destroy` on dev or production deletes every resource and state row of a long-lived stage",
+  },
 ];
 
 const STATE_CONSTRUCTOR =
   /\b(?:localState|inMemoryState|postgresState)\s*\(|\bCloudflare\.state\b|\bimport\s*\{[^}]*\bstate\b[^}]*\}\s*from\s*["']alchemy\/Cloudflare["']/;
 
+/** `alchemy/Cloudflare` or `alchemy/AWS`, or a path under either, quoted as a module specifier: each exports a `state()`. */
+const STATE_PROVIDER_MODULE = /["']alchemy\/(?:Cloudflare|AWS)(?:\/[^"'\n]*)?["']/;
+
+const STATE_CALL = /\.state\s*\(/;
+
 /** Backslash-newline continuations become one space, as the shell reads them. */
 const joinContinuations = (command: string): string => command.replace(/\\\r?\n\s*/g, " ");
 
-/** The Alchemy segments of a command: one per `&&`, `||`, `;` or `|` part. */
+/** `&&`, `||`, `;`, `|`, or a lone `&` that runs a command in the background; never the `&` of `2>&1`, `>&2` or `&>`. */
+const COMMAND_SEPARATOR = /&&|\|\||;|\||(?<![<>])&(?!>)/;
+
+/** The Alchemy segments of a command: one per part between separators. */
 const alchemySegments = (command: string): string[] =>
   joinContinuations(command)
     .split("\n")
-    .flatMap((line) => line.split(/&&|\|\||;|\|/))
+    .flatMap((line) => line.split(COMMAND_SEPARATOR))
     .filter((segment) => ALCHEMY_COMMAND.test(segment));
 
 const INLINE_TELEMETRY_OFF = /^\s*(?:[A-Za-z_]\w*=\S*\s+)*DO_NOT_TRACK=1\s/;
@@ -160,7 +184,9 @@ export function checkCompositeAction(where: string, yamlText: string): Finding[]
 }
 
 export function checkStackSource(where: string, text: string): Finding[] {
-  return STATE_CONSTRUCTOR.test(text)
+  const choosesState =
+    STATE_CONSTRUCTOR.test(text) || (STATE_PROVIDER_MODULE.test(text) && STATE_CALL.test(text));
+  return choosesState
     ? [{ where, problem: `a stack takes its state from stackOptions() (${STATE_STORE_FILE})` }]
     : [];
 }

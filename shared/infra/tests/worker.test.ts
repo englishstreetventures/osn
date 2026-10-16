@@ -1,15 +1,34 @@
 import { Redacted } from "effect";
 import { describe, expect, test } from "vitest";
 
+import { tierSecrets } from "../src/secrets/inventory";
+import type { Tier } from "../src/stage";
 import {
   apiWorkerProps,
   BindingNameClashError,
   ProductionObservabilityError,
   siteWorkerProps,
+  UndeclaredSecretsError,
   type ApiWorkerInput,
 } from "../src/worker";
 
+/** Every secret the inventory requires of cire-api on `tier`, each with a placeholder value. */
+const cireApiSecrets = (tier: Tier): Record<string, Redacted.Redacted<string>> =>
+  Object.fromEntries(
+    tierSecrets("cire-api", tier).secrets.map((name) => [name, Redacted.make("not-a-real-secret")]),
+  );
+
+function thrown(run: () => unknown): unknown {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("expected a throw");
+}
+
 const cireApiDev: ApiWorkerInput = {
+  worker: "cire-api",
   name: "cire-api-dev",
   stage: "dev",
   main: "../../cire/api/src/index.ts",
@@ -22,11 +41,12 @@ const cireApiDev: ApiWorkerInput = {
   workersDev: false,
   vars: { OSN_ENV: "dev" },
   bindings: {},
-  secrets: { CIRE_OIDC_CLIENT_SECRET: Redacted.make("not-a-real-secret") },
+  secrets: cireApiSecrets("dev"),
   observability: {
     headSamplingRate: 1,
     redactQueryString: false,
     traces: { enabled: true, headSamplingRate: 1 },
+    issues: false,
   },
 };
 
@@ -35,7 +55,13 @@ const cireApiProduction: ApiWorkerInput = {
   name: "cire-api-production",
   stage: "production",
   domain: "api.cireweddings.com",
-  observability: { headSamplingRate: 1, redactQueryString: true, traces: { enabled: false } },
+  secrets: cireApiSecrets("production"),
+  observability: {
+    headSamplingRate: 1,
+    redactQueryString: true,
+    traces: { enabled: false },
+    issues: true,
+  },
 };
 
 describe("apiWorkerProps", () => {
@@ -65,6 +91,7 @@ describe("apiWorkerProps", () => {
       redactQueryString: true,
       logs: { enabled: true, invocationLogs: false },
       traces: { enabled: false },
+      issues: { enabled: true },
     });
     expect(() =>
       apiWorkerProps({
@@ -87,6 +114,7 @@ describe("apiWorkerProps", () => {
       redactQueryString: false,
       logs: { enabled: true, invocationLogs: false },
       traces: { enabled: true, headSamplingRate: 1 },
+      issues: { enabled: false },
     });
     const on = apiWorkerProps({
       ...cireApiDev,
@@ -98,7 +126,9 @@ describe("apiWorkerProps", () => {
   test("passes every var, binding and secret through env, secrets still redacted", () => {
     const withBinding: ApiWorkerInput = { ...cireApiDev, bindings: { CIRE_DB: {} as never } };
     const env = apiWorkerProps(withBinding).env as Record<string, unknown>;
-    expect(Object.keys(env).toSorted()).toEqual(["CIRE_DB", "CIRE_OIDC_CLIENT_SECRET", "OSN_ENV"]);
+    expect(Object.keys(env).toSorted()).toEqual(
+      ["CIRE_DB", "OSN_ENV", ...tierSecrets("cire-api", "dev").secrets].toSorted(),
+    );
     expect(Redacted.isRedacted(env.CIRE_OIDC_CLIENT_SECRET)).toBe(true);
   });
 
@@ -115,6 +145,35 @@ describe("apiWorkerProps", () => {
     expect(() => apiWorkerProps({ ...cireApiDev, vars: { ALCHEMY_STAGE: "dev" } })).toThrow(
       /ALCHEMY_STAGE/,
     );
+  });
+
+  test("refuses secrets that leave out a name the inventory requires, naming it", () => {
+    const { CIRE_OIDC_CLIENT_SECRET: _dropped, ...secrets } = cireApiSecrets("dev");
+    const error = thrown(() => apiWorkerProps({ ...cireApiDev, secrets }));
+    expect(error).toBeInstanceOf(UndeclaredSecretsError);
+    expect(error).toMatchObject({
+      worker: "cire-api",
+      tier: "dev",
+      missing: ["CIRE_OIDC_CLIENT_SECRET"],
+      unexpected: [],
+    });
+    expect((error as Error).message).not.toContain("not-a-real-secret");
+  });
+
+  test("refuses a secret the inventory does not declare for the Worker and tier, naming it", () => {
+    const secrets = {
+      ...cireApiSecrets("production"),
+      STRIPE_SECRET_KEY: Redacted.make("not-a-real-secret"),
+    };
+    const error = thrown(() => apiWorkerProps({ ...cireApiProduction, secrets }));
+    expect(error).toBeInstanceOf(UndeclaredSecretsError);
+    expect(error).toMatchObject({
+      worker: "cire-api",
+      tier: "production",
+      missing: [],
+      unexpected: ["STRIPE_SECRET_KEY"],
+    });
+    expect((error as Error).message).not.toContain("not-a-real-secret");
   });
 
   test("states the custom domain, or null to detach every one", () => {
@@ -147,6 +206,7 @@ describe("siteWorkerProps", () => {
     workersDev: false,
     htmlHandling: "auto-trailing-slash",
     notFoundHandling: "404-page",
+    issues: true,
   } as const;
 
   test("deploys assets only, with every routing choice stated", () => {
@@ -173,6 +233,7 @@ describe("siteWorkerProps", () => {
         redactQueryString: true,
         logs: { enabled: true, invocationLogs: false },
         traces: { enabled: false },
+        issues: { enabled: true },
       });
     }
   });

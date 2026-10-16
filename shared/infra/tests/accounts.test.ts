@@ -153,14 +153,14 @@ describe("the Alchemy state store workflow", () => {
   });
 
   test("no secret is read anywhere else in the workflow", () => {
-    const tierSteps = TIERS.map((tier) =>
-      steps.find((step) => step.if === `inputs.tier == '${tier}'`),
+    const tierSteps = new Set(
+      TIERS.map((tier) => steps.find((step) => step.if === `inputs.tier == '${tier}'`)),
     );
     const rest = {
       ...workflow,
       jobs: {
         ...workflow.jobs,
-        state: { ...workflow.jobs.state, steps: steps.filter((step) => !tierSteps.includes(step)) },
+        state: { ...workflow.jobs.state, steps: steps.filter((step) => !tierSteps.has(step)) },
       },
     };
     expect(JSON.stringify(rest)).not.toMatch(/secrets/i);

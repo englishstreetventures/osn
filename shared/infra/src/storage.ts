@@ -4,16 +4,17 @@ import { Data } from "effect";
 import { tierOf } from "./stage";
 
 export class AdoptedLocationHintError extends Data.TaggedError("AdoptedLocationHintError")<{
-  readonly name: string;
+  /** The database or bucket name. */
+  readonly resource: string;
   readonly message: string;
 }> {}
 
 /** Production storage is adopted, so it never declares where it lives: a hint that differs from live replaces it. */
-function refuseAdoptedHint(name: string, stage: string, locationHint: string | null): void {
+function refuseAdoptedHint(resource: string, stage: string, locationHint: string | null): void {
   if (locationHint !== null && tierOf(stage) === "production") {
     throw new AdoptedLocationHintError({
-      name,
-      message: `${name} is adopted on production and must not declare a location hint.`,
+      resource,
+      message: `${resource} is adopted on production and must not declare a location hint.`,
     });
   }
 }

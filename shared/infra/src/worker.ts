@@ -1,7 +1,8 @@
 import type * as Cloudflare from "alchemy/Cloudflare";
 import { Data, type Redacted } from "effect";
 
-import { tierOf } from "./stage";
+import { tierSecrets, type WorkerKey } from "./secrets/inventory";
+import { tierOf, type Tier } from "./stage";
 
 export interface ApiWorkerObservability {
   readonly headSamplingRate: number;
@@ -9,10 +10,14 @@ export interface ApiWorkerObservability {
   readonly traces: { readonly enabled: boolean; readonly headSamplingRate?: number };
   /** Off unless set: cire-api and cire-invites carry wedding slugs and names in request paths. */
   readonly invocationLogs?: boolean;
+  /** Workers Issues error detection. Alchemy turns it off on the next full deploy when omitted. */
+  readonly issues: boolean;
 }
 
 /** Every setting where Alchemy's default differs from today's Wrangler config is required. */
 export interface ApiWorkerInput {
+  /** The Worker's entry in the secret inventory, which `secrets` must match for the stage's tier. */
+  readonly worker: WorkerKey;
   /** The deployed script name; adoption keys on it. */
   readonly name: string;
   readonly stage: string;
@@ -43,6 +48,8 @@ export interface SiteWorkerInput {
     | "drop-trailing-slash"
     | "none";
   readonly notFoundHandling: "none" | "404-page" | "single-page-application";
+  /** Workers Issues error detection. Alchemy turns it off on the next full deploy when omitted. */
+  readonly issues: boolean;
 }
 
 export class BindingNameClashError extends Data.TaggedError("BindingNameClashError")<{
@@ -54,6 +61,42 @@ export class ProductionObservabilityError extends Data.TaggedError("ProductionOb
   readonly worker: string;
   readonly message: string;
 }> {}
+
+export class UndeclaredSecretsError extends Data.TaggedError("UndeclaredSecretsError")<{
+  readonly worker: WorkerKey;
+  readonly tier: Tier;
+  /** Names the inventory requires of the Worker on this tier that `secrets` leaves out. Never values. */
+  readonly missing: readonly string[];
+  /** Names in `secrets` the inventory neither requires nor allows on this tier. Never values. */
+  readonly unexpected: readonly string[];
+  readonly message: string;
+}> {}
+
+/**
+ * An upload keeps only the secrets it declares and deletes every other secret
+ * the Worker holds, so `secrets` holds every name the inventory requires of
+ * the Worker on the stage's tier, and no name the inventory does not declare.
+ */
+function checkDeclaredSecrets(input: ApiWorkerInput): void {
+  const tier = tierOf(input.stage);
+  const row = tierSecrets(input.worker, tier);
+  const passed = new Set(Object.keys(input.secrets));
+  const declared = new Set([...row.secrets, ...row.optional]);
+  const missing = row.secrets.filter((name) => !passed.has(name));
+  const unexpected = [...passed].filter((name) => !declared.has(name)).toSorted();
+  if (missing.length === 0 && unexpected.length === 0) return;
+  const parts = [
+    missing.length > 0 ? `required by the inventory but not passed: ${missing.join(", ")}` : "",
+    unexpected.length > 0 ? `not in the inventory: ${unexpected.join(", ")}` : "",
+  ].filter((part) => part !== "");
+  throw new UndeclaredSecretsError({
+    worker: input.worker,
+    tier,
+    missing,
+    unexpected,
+    message: `${input.name} (${input.worker}, ${tier} tier) secrets ${parts.join("; ")}. Pass requireSecrets() for this Worker and stage.`,
+  });
+}
 
 /** Alchemy binds `ALCHEMY_*` plain-text values first and skips any later env key with the same name. */
 const ALCHEMY_RESERVED_PREFIX = "ALCHEMY_";
@@ -93,6 +136,7 @@ function checkProductionObservability(input: ApiWorkerInput): void {
 }
 
 export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
+  checkDeclaredSecrets(input);
   const clashes = clashingNames([
     Object.keys(input.vars),
     Object.keys(input.bindings),
@@ -125,6 +169,7 @@ export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
               enabled: observability.traces.enabled,
               headSamplingRate: observability.traces.headSamplingRate,
             },
+      issues: { enabled: observability.issues },
     },
     env: { ...input.vars, ...input.bindings, ...input.secrets },
   };
@@ -147,6 +192,7 @@ export function siteWorkerProps(input: SiteWorkerInput): Cloudflare.WorkerProps 
       redactQueryString: true,
       logs: { enabled: true, invocationLogs: false },
       traces: { enabled: false },
+      issues: { enabled: input.issues },
     },
   };
 }

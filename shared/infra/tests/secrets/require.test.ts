@@ -100,6 +100,13 @@ describe("requireSecrets", () => {
     expect(Redacted.value(out.OSN_TOTP_ENCRYPTION_KEY_PREVIOUS)).toBe("outgoing-key");
   });
 
+  test("refuses an optional value of only whitespace rather than dropping the secret", () => {
+    const env = { ...envFor("osn-api", "production"), OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: "\n" };
+    const error = thrown(() => requireSecrets({ worker: "osn-api", stage: "production", env }));
+    expect(error).toBeInstanceOf(MissingSecretsError);
+    expect((error as MissingSecretsError).malformed).toEqual(["OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"]);
+  });
+
   test("refuses a padded optional value like a required one", () => {
     const env = { ...envFor("osn-api", "dev"), OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: " outgoing-key" };
     const error = thrown(() => requireSecrets({ worker: "osn-api", stage: "dev", env }));
