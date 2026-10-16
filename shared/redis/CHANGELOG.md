@@ -1,5 +1,11 @@
 # @shared/redis
 
+## 0.8.4
+
+### Patch Changes
+
+- ddece0f: Delete low-signal unit tests: constants asserted against themselves, mock echoes, valid-object schema acceptances with no edge, static render checks and duplicates. Tests only; no runtime change.
+
 ## 0.8.3
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 # @osn/social
 
+## 0.18.6
+
+### Patch Changes
+
+- ddece0f: Delete low-signal unit tests: constants asserted against themselves, mock echoes, valid-object schema acceptances with no edge, static render checks and duplicates. Tests only; no runtime change.
+- Updated dependencies [ddece0f]
+  - @osn/auth-ui@3.0.11
+  - @osn/client@2.18.5
+  - @shared/legal@0.0.6
+  - @shared/ui@0.4.3
+
 ## 0.18.5
 
 ### Patch Changes

@@ -1,5 +1,18 @@
 # @zap/api
 
+## 0.9.25
+
+### Patch Changes
+
+- ddece0f: Delete low-signal unit tests: constants asserted against themselves, mock echoes, valid-object schema acceptances with no edge, static render checks and duplicates. Tests only; no runtime change.
+- Updated dependencies [ddece0f]
+  - @shared/crypto@0.14.4
+  - @shared/db-utils@0.7.5
+  - @shared/observability@0.18.8
+  - @shared/rate-limit@0.3.6
+  - @zap/db@0.6.6
+  - @shared/osn-auth-client@0.4.42
+
 ## 0.9.24
 
 ### Patch Changes

@@ -23,4 +23,4 @@
 # One value, alone on the first non-comment, non-blank line — nothing else
 # in this file is read.
 
-879   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/enable-cloudflare-worker-tracing @ 2026-10-15 on main 47be52292 — two unused test imports removed. No rule was disabled and nothing was suppressed.
+878   # lowered by scripts/guard-lint-warnings.sh --lower-to, 2026-10-16
