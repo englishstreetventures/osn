@@ -137,6 +137,9 @@ describe("the Alchemy state store workflow", () => {
 
   test("each tier's step reads exactly that tier's credential secrets, as the variables Alchemy reads", () => {
     for (const tier of TIERS) {
+      expect(steps.filter((candidate) => candidate.if === `inputs.tier == '${tier}'`)).toHaveLength(
+        1,
+      );
       const step = steps.find((candidate) => candidate.if === `inputs.tier == '${tier}'`);
       expect(step, `${tier}`).toBeDefined();
       expect(secretsRead(step), `${tier}`).toEqual([...accountSecrets(tier)]);
@@ -150,10 +153,16 @@ describe("the Alchemy state store workflow", () => {
   });
 
   test("no secret is read anywhere else in the workflow", () => {
-    const tierSteps = new Set(TIERS.map((tier) => `inputs.tier == '${tier}'`));
-    const otherSteps = steps.filter((step) => step.if === undefined || !tierSteps.has(step.if));
-    expect(secretsRead(workflow.env)).toEqual([]);
-    expect(secretsRead(workflow.jobs.state.env)).toEqual([]);
-    expect(otherSteps.flatMap((step) => secretsRead(step))).toEqual([]);
+    const tierSteps = TIERS.map((tier) =>
+      steps.find((step) => step.if === `inputs.tier == '${tier}'`),
+    );
+    const rest = {
+      ...workflow,
+      jobs: {
+        ...workflow.jobs,
+        state: { ...workflow.jobs.state, steps: steps.filter((step) => !tierSteps.includes(step)) },
+      },
+    };
+    expect(JSON.stringify(rest)).not.toMatch(/secrets/i);
   });
 });
