@@ -113,3 +113,27 @@ export function stageHosts(domain: string, stage: string): StageHosts {
 }
 
 export const origin = (host: string): string => `https://${host}`;
+
+const snakeCase = (key: string): string =>
+  key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+
+/**
+ * The values the `dev-hosts` command writes, one GitHub step output each:
+ * every host's origin as `<host_key>_origin`, then the URLs registered
+ * outside the repository that name cire-api, built from its routes
+ * (cire/api/src/index.ts OIDC callback, cire/api/src/routes/stripe-webhook.ts,
+ * cire/api/src/routes/stripe-platform-webhook.ts).
+ */
+export function devHostOutputs(domain: string, stage: string): ReadonlyMap<string, string> {
+  const hosts = stageHosts(domain, stage);
+  const cireApi = origin(hosts.cireApi);
+  return new Map([
+    ...Object.entries(hosts).map(([key, host]): [string, string] => [
+      `${snakeCase(key)}_origin`,
+      origin(host),
+    ]),
+    ["oidc_redirect_uri", `${cireApi}/api/auth/oidc/callback`],
+    ["stripe_webhook_url", `${cireApi}/api/stripe/webhook`],
+    ["stripe_platform_webhook_url", `${cireApi}/api/stripe/platform-webhook`],
+  ]);
+}
