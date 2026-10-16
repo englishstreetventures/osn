@@ -230,6 +230,27 @@ function checkProductionObservability(input: ApiWorkerInput): void {
 const routingRules = (rules: boolean | readonly string[]): boolean | string[] =>
   typeof rules === "boolean" ? rules : [...rules];
 
+/**
+ * Modules only Bun can load, kept out of every Worker bundle as runtime
+ * imports that never run there. `shared/db-utils` loads drizzle's bun-sqlite
+ * driver through a non-literal specifier so that a bundler leaves it alone;
+ * rolldown folds the constant and would bundle the driver, whose static
+ * `bun:sqlite` import workerd cannot resolve.
+ */
+export const BUN_ONLY_MODULES: readonly string[] = ["drizzle-orm/bun-sqlite"];
+
+/**
+ * Rolldown's `external` for every Worker Alchemy bundles. An `input.external`
+ * override replaces the list Alchemy sets itself (`lightningcss`, `fsevents`:
+ * alchemy src/Cloudflare/Workers/Sources/Rolldown.ts) rather than adding to
+ * it, so that list is repeated first.
+ */
+export const WORKER_BUNDLE_EXTERNAL: readonly string[] = [
+  "lightningcss",
+  "fsevents",
+  ...BUN_ONLY_MODULES,
+];
+
 export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
   checkDeclaredSecrets(input);
   const clashes = clashingNames([
@@ -273,9 +294,13 @@ export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
     },
     env: { ...input.vars, ...input.bindings, ...input.secrets },
   };
-  if (input.assets === null) return props;
+  // A prebuilt Worker is uploaded as it is, so it takes no bundler options.
+  const built: Cloudflare.WorkerProps = input.bundle
+    ? { ...props, build: { input: { external: [...WORKER_BUNDLE_EXTERNAL] } } }
+    : props;
+  if (input.assets === null) return built;
   return {
-    ...props,
+    ...built,
     assets: {
       directory: input.assets.directory,
       htmlHandling: input.assets.htmlHandling,

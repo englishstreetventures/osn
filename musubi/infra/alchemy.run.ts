@@ -4,12 +4,11 @@ import { dirname } from "node:path";
 import {
   apiWorker,
   assertDevDeployTarget,
-  assertRetained,
+  assertStackRetained,
   flattenMigrations,
   origin,
   readDevDomain,
   refuseDotEnvFiles,
-  removalFor,
   requireSecrets,
   requireSeedSecret,
   retainedD1,
@@ -102,10 +101,7 @@ export const musubiStack = (input: {
     });
     const social = yield* siteWorker("MusubiSocial", declared.musubiSocial);
     const landing = yield* siteWorker("MusubiLanding", declared.musubiLanding);
-    // Storage is kept at every stage, Workers only on a long-lived one: an
-    // investigation stage's Workers go with the stage.
-    const workers = [osnApi, social, landing];
-    assertRetained(removalFor("worker", stage) === "retain" ? [db, ...workers] : [db]);
+    assertStackRetained({ stage, storage: [db], workers: [osnApi, social, landing] });
     return {
       osnApi: hosts.osnApi,
       musubiSocial: hosts.musubiSocial,

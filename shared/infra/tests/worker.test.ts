@@ -1,3 +1,7 @@
+import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+
 import { Redacted } from "effect";
 import { describe, expect, test } from "vitest";
 
@@ -20,6 +24,17 @@ const cireApiSecrets = (tier: Tier): Record<string, Redacted.Redacted<string>> =
   Object.fromEntries(
     tierSecrets("cire-api", tier).secrets.map((name) => [name, Redacted.make("not-a-real-secret")]),
   );
+
+/** The installed Alchemy package's directory, as this package resolves it. */
+function alchemyDir(): string {
+  let dir = dirname(createRequire(import.meta.url).resolve("alchemy"));
+  while (!existsSync(join(dir, "src", "Cloudflare", "Workers", "Sources", "Rolldown.ts"))) {
+    const parent = dirname(dir);
+    if (parent === dir) throw new Error("no Alchemy source above the resolved entry");
+    dir = parent;
+  }
+  return dir;
+}
 
 function thrown(run: () => unknown): unknown {
   try {
@@ -271,6 +286,22 @@ describe("apiWorkerProps", () => {
   test("B1: a prebuilt Worker reaches the props unbundled", () => {
     expect(apiWorkerProps({ ...cireApiDev, bundle: false }).bundle).toBe(false);
     expect(apiWorkerProps(cireApiDev).bundle).toBe(true);
+  });
+
+  test("B8: a bundled Worker keeps Alchemy's own externals and every Bun-only module out of its bundle; a prebuilt one passes no build options", () => {
+    // An `input.external` override replaces the list Alchemy sets itself,
+    // so the props must repeat it.
+    const bundler = readFileSync(
+      join(alchemyDir(), "src", "Cloudflare", "Workers", "Sources", "Rolldown.ts"),
+      "utf8",
+    );
+    expect(bundler).toContain('external: ["lightningcss", "fsevents"],');
+    expect(bundler).toContain("...overrides,");
+
+    expect(apiWorkerProps(cireApiDev).build).toEqual({
+      input: { external: ["lightningcss", "fsevents", "drizzle-orm/bun-sqlite"] },
+    });
+    expect(apiWorkerProps({ ...cireApiDev, bundle: false })).not.toHaveProperty("build");
   });
 
   test("B2: maps the assets config field for field, copying the routing rules", () => {
