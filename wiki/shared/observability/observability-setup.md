@@ -8,7 +8,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[shared/observability/logging]]"
   - "[[shared/observability/tracing]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-16
 ---
 
 # Observability Setup Runbook
@@ -89,16 +89,18 @@ Import the workerd-safe `/config`, `/logger`, and `/tracing` subpaths, never the
 - **`/health`** -- basic liveness check
 - **`/ready`** -- readiness check (includes dependency health)
 
-Call these endpoints after each deployment. They confirm that the service runs and that its dependencies answer.
+They confirm that the service runs and that its dependencies answer. Every Worker deploy already asks its Worker's health by machine and rolls it back when the answer is wrong ([[production-deploy]] §7); call them by hand locally, or to look at a deployed Worker between deploys.
 
 ```bash
 # local Bun services
 curl http://localhost:4000/health
 curl http://localhost:3001/ready
 
-# deployed Workers
+# deployed Workers. cire-api mounts no healthRoutes; its session probe answers
+# {"signedIn":false} once the Worker has booted.
 curl https://id.musubi.social/health
-curl https://api.cireweddings.com/health
+curl https://zap.cireweddings.com/health
+curl https://api.cireweddings.com/api/auth/session
 ```
 
 ### 5. Verify Data in Grafana
