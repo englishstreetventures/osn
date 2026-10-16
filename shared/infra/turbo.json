@@ -1,0 +1,18 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "$TURBO_ROOT$/osn/api/src/**",
+        "$TURBO_ROOT$/cire/api/src/**",
+        "$TURBO_ROOT$/zap/api/src/**",
+        "$TURBO_ROOT$/cire/invites/src/**",
+        "$TURBO_ROOT$/bun.lock",
+        "$TURBO_ROOT$/.github/workflows/**"
+      ]
+    }
+  }
+}
