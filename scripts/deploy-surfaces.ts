@@ -17,9 +17,9 @@
  * patches, the lockfile, the root build config — redeploys everything, rather
  * than mapping each shared package to its consumers (a mapping that rots the
  * first time an import is added). So does the tier's own workflow file, and
- * this file. On dev, so does scripts/smoke-check.ts, the check every Worker
- * deploy runs: a change to it then runs on every dev Worker before a release
- * runs it against production.
+ * this file. On dev, a change to scripts/smoke-check.ts, the check every Worker
+ * deploy runs, redeploys the dev Workers that run it, so it runs there before a
+ * release runs it against production.
  *
  * The job ids and names are load-bearing. A GitHub Deployment record does not
  * say which surface it deployed; the name of the job that made it does, and
@@ -126,11 +126,22 @@ export const WORKFLOW_FILE = {
 const SURFACE_MAP_FILE = "scripts/deploy-surfaces.ts";
 
 /**
- * The check every Worker deploy runs. A change to it redeploys dev only: it
- * changes how a deploy is verified, not what is deployed, so production waits
- * for a release that ships for its own reasons.
+ * The check every Worker deploy runs. A change to it redeploys the dev surfaces
+ * whose jobs run it, and nothing else: it changes how a deploy is verified, not
+ * what is deployed, so production waits for a release that ships for its own
+ * reasons, and a Pages surface, which never runs it, has nothing to redeploy.
  */
 const SMOKE_CHECK_FILE = "scripts/smoke-check.ts";
+
+/**
+ * The dev surfaces whose deploy job runs SMOKE_CHECK_FILE: the dev targets in
+ * its SMOKE_TARGETS. scripts/tests/smoke-targets.test.ts holds the two equal.
+ */
+export const SMOKE_CHECKED_ON_DEV: ReadonlySet<SurfaceKey> = new Set([
+  "cire_api",
+  "cire_invites",
+  "osn_api",
+]);
 
 /** What every surface is built from. */
 const SHARED_CONTENT =
@@ -148,12 +159,7 @@ export function surface(key: SurfaceKey): Surface {
 
 /** Whether a change to `file` redeploys every surface on `tier`. */
 export function sharedPath(file: string, tier: Tier): boolean {
-  return (
-    SHARED_CONTENT.test(file) ||
-    file === WORKFLOW_FILE[tier] ||
-    file === SURFACE_MAP_FILE ||
-    (tier === "dev" && file === SMOKE_CHECK_FILE)
-  );
+  return SHARED_CONTENT.test(file) || file === WORKFLOW_FILE[tier] || file === SURFACE_MAP_FILE;
 }
 
 /**
@@ -175,7 +181,13 @@ export function deployReason(
   const shared = files.find((file) => sharedPath(file, tier));
   if (shared !== undefined) return `${shared} changed, which every surface builds from`;
   const own = files.filter((file) => target.paths.test(file));
-  if (own.length === 0) return undefined;
+  if (own.length === 0) {
+    return tier === "dev" &&
+      SMOKE_CHECKED_ON_DEV.has(target.key) &&
+      files.includes(SMOKE_CHECK_FILE)
+      ? `${SMOKE_CHECK_FILE} changed, which checks this Worker's deploy`
+      : undefined;
+  }
   return own.length === 1
     ? `${own[0]} changed`
     : `${own[0]} changed, and ${own.length - 1} more of its files`;
