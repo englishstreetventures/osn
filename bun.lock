@@ -478,6 +478,21 @@
         "wrangler": "4.149.0",
       },
     },
+    "pulse/infra": {
+      "name": "@pulse/infra",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform-bun": "4.0.3",
+        "@effect/platform-node": "4.0.3",
+        "@shared/infra": "workspace:*",
+        "alchemy": "2.0.0-beta.83",
+        "effect": "4.0.3",
+      },
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "vitest": "5.0.3",
+      },
+    },
     "pulse/landing": {
       "name": "@pulse/landing",
       "version": "0.1.25",
@@ -1873,6 +1888,8 @@
     "@pulse/api": ["@pulse/api@workspace:pulse/api"],
 
     "@pulse/db": ["@pulse/db@workspace:pulse/db"],
+
+    "@pulse/infra": ["@pulse/infra@workspace:pulse/infra"],
 
     "@pulse/landing": ["@pulse/landing@workspace:pulse/landing"],
 

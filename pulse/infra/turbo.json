@@ -1,0 +1,15 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "$TURBO_ROOT$/shared/*/src/**",
+        "$TURBO_ROOT$/pulse/landing/worker/**",
+        "$TURBO_ROOT$/bun.lock"
+      ]
+    }
+  }
+}
