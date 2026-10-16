@@ -4,10 +4,14 @@
  * or deletes Alchemy state or the state store, and no stack chooses its own
  * state store.
  *
- *  - package.json scripts: an Alchemy command starts with `DO_NOT_TRACK=1 `.
- *  - workflows: a step that runs Alchemy has `DO_NOT_TRACK: "1"` in the
- *    workflow, job or step `env`, or the inline prefix on each Alchemy line.
- *    Composite actions: on the step or the line.
+ *  - Commands are read after joining backslash line continuations and split
+ *    into segments on `&&`, `||`, `;` and `|`; each segment is checked alone.
+ *  - package.json scripts: every segment that runs Alchemy starts with
+ *    `DO_NOT_TRACK=1 `.
+ *  - workflows: a step that runs Alchemy has `DO_NOT_TRACK: "1"` in its own
+ *    `env` or, when the step sets none, in the job or workflow `env`; a
+ *    different value there turns telemetry on. Otherwise each Alchemy segment
+ *    carries the inline prefix. Composite actions: on the step or the segment.
  *  - all three: `alchemy state ls`/`list` is the only `state` command allowed
  *    (bare `state` opens an explorer that reads records; `provider cloudflare
  *    state logs` reads the store's logs), and never `nuke`, `drift … --repair`
@@ -60,8 +64,20 @@ const FORBIDDEN: readonly { readonly pattern: RegExp; readonly why: string }[] =
 const STATE_CONSTRUCTOR =
   /\b(?:localState|inMemoryState|postgresState)\s*\(|\bCloudflare\.state\b|\bimport\s*\{[^}]*\bstate\b[^}]*\}\s*from\s*["']alchemy\/Cloudflare["']/;
 
-function forbidden(where: string, command: string): Finding[] {
-  return FORBIDDEN.filter(({ pattern }) => pattern.test(command)).map(({ why }) => ({
+/** Backslash-newline continuations become one space, as the shell reads them. */
+const joinContinuations = (command: string): string => command.replace(/\\\r?\n\s*/g, " ");
+
+/** The Alchemy segments of a command: one per `&&`, `||`, `;` or `|` part. */
+const alchemySegments = (command: string): string[] =>
+  joinContinuations(command)
+    .split("\n")
+    .flatMap((line) => line.split(/&&|\|\||;|\|/))
+    .filter((segment) => ALCHEMY_COMMAND.test(segment));
+
+const INLINE_TELEMETRY_OFF = /^\s*(?:[A-Za-z_]\w*=\S*\s+)*DO_NOT_TRACK=1\s/;
+
+function forbidden(where: string, segment: string): Finding[] {
+  return FORBIDDEN.filter(({ pattern }) => pattern.test(segment)).map(({ why }) => ({
     where,
     problem: why,
   }));
@@ -75,12 +91,13 @@ export function checkPackageScripts(where: string, manifestText: string): Findin
   const manifest = JSON.parse(manifestText) as Manifest;
   const findings: Finding[] = [];
   for (const [name, value] of Object.entries(manifest.scripts ?? {})) {
-    if (!ALCHEMY_COMMAND.test(value)) continue;
     const at = `${where} scripts.${name}`;
-    if (!value.startsWith("DO_NOT_TRACK=1 ")) {
-      findings.push({ where: at, problem: "an Alchemy command must start with DO_NOT_TRACK=1" });
+    for (const segment of alchemySegments(value)) {
+      if (!INLINE_TELEMETRY_OFF.test(segment)) {
+        findings.push({ where: at, problem: "an Alchemy command must start with DO_NOT_TRACK=1" });
+      }
+      findings.push(...forbidden(at, segment));
     }
-    findings.push(...forbidden(at, value));
   }
   return findings;
 }
@@ -104,22 +121,28 @@ interface CompositeAction {
   readonly runs?: { readonly steps?: readonly Step[] };
 }
 
-const telemetryOff = (env: EnvBlock | undefined): boolean =>
-  env !== undefined && String(env.DO_NOT_TRACK) === "1";
+/** The first env block that sets `DO_NOT_TRACK` decides; none set means on. */
+const telemetryOff = (...levels: readonly (EnvBlock | undefined)[]): boolean => {
+  const decider = levels.find((env) => env !== undefined && env.DO_NOT_TRACK !== undefined);
+  return decider !== undefined && String(decider.DO_NOT_TRACK) === "1";
+};
 
-function checkSteps(where: string, steps: readonly Step[], inheritedOff: boolean): Finding[] {
+function checkSteps(
+  where: string,
+  steps: readonly Step[],
+  outer: readonly (EnvBlock | undefined)[],
+): Finding[] {
   const findings: Finding[] = [];
   for (const [index, step] of steps.entries()) {
-    if (typeof step.run !== "string" || !ALCHEMY_COMMAND.test(step.run)) continue;
+    if (typeof step.run !== "string") continue;
+    const segments = alchemySegments(step.run);
+    if (segments.length === 0) continue;
     const at = `${where}.steps[${index}]`;
-    const inline = step.run
-      .split("\n")
-      .filter((line) => ALCHEMY_COMMAND.test(line))
-      .every((line) => /(?:^|\s)DO_NOT_TRACK=1\s/.test(line));
-    if (!(inheritedOff || telemetryOff(step.env) || inline)) {
+    const off = telemetryOff(step.env, ...outer);
+    if (!off && !segments.every((segment) => INLINE_TELEMETRY_OFF.test(segment))) {
       findings.push({ where: at, problem: 'an Alchemy step needs DO_NOT_TRACK: "1" in its env' });
     }
-    findings.push(...forbidden(at, step.run));
+    for (const segment of segments) findings.push(...forbidden(at, segment));
   }
   return findings;
 }
@@ -127,17 +150,13 @@ function checkSteps(where: string, steps: readonly Step[], inheritedOff: boolean
 export function checkWorkflow(where: string, yamlText: string): Finding[] {
   const workflow = (Bun.YAML.parse(yamlText) ?? {}) as Workflow;
   return Object.entries(workflow.jobs ?? {}).flatMap(([jobId, job]) =>
-    checkSteps(
-      `${where} jobs.${jobId}`,
-      job.steps ?? [],
-      telemetryOff(workflow.env) || telemetryOff(job.env),
-    ),
+    checkSteps(`${where} jobs.${jobId}`, job.steps ?? [], [job.env, workflow.env]),
   );
 }
 
 export function checkCompositeAction(where: string, yamlText: string): Finding[] {
   const action = (Bun.YAML.parse(yamlText) ?? {}) as CompositeAction;
-  return checkSteps(`${where} runs`, action.runs?.steps ?? [], false);
+  return checkSteps(`${where} runs`, action.runs?.steps ?? [], []);
 }
 
 export function checkStackSource(where: string, text: string): Finding[] {
@@ -148,15 +167,19 @@ export function checkStackSource(where: string, text: string): Finding[] {
 
 if (import.meta.main) {
   const root = resolve(import.meta.dir, "..");
-  const tracked = (...patterns: string[]): string[] =>
-    spawnSync("git", ["ls-files", "--", ...patterns], { cwd: root, encoding: "utf8" })
-      .stdout.split("\n")
-      .filter((path) => path !== "");
+  let gitFailed = false;
+  const tracked = (...patterns: string[]): string[] => {
+    const result = spawnSync("git", ["ls-files", "--", ...patterns], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    if (result.status !== 0) gitFailed = true;
+    return (result.stdout ?? "").split("\n").filter((path) => path !== "");
+  };
   const read = (path: string): string => readFileSync(resolve(root, path), "utf8");
+  const manifests = tracked("package.json", "*/package.json");
   const findings = [
-    ...tracked("package.json", "*/package.json").flatMap((path) =>
-      checkPackageScripts(path, read(path)),
-    ),
+    ...manifests.flatMap((path) => checkPackageScripts(path, read(path))),
     ...tracked(".github/workflows/*.yml", ".github/workflows/*.yaml").flatMap((path) =>
       checkWorkflow(path, read(path)),
     ),
@@ -167,6 +190,12 @@ if (import.meta.main) {
       .filter((path) => path !== STATE_STORE_FILE && !/(?:^|\/)tests\//.test(path))
       .flatMap((path) => checkStackSource(path, read(path))),
   ];
+  if (gitFailed || !manifests.includes("package.json")) {
+    process.stderr.write(
+      "check-alchemy-usage: could not list the files git tracks; nothing was checked.\n",
+    );
+    process.exit(1);
+  }
   for (const finding of findings) process.stderr.write(`${finding.where}: ${finding.problem}\n`);
   process.stdout.write(
     findings.length === 0

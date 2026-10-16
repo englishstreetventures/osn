@@ -135,3 +135,132 @@ describe("checkStackSource", () => {
     ).toEqual([]);
   });
 });
+
+const blockWorkflow = (env: string, stepEnv: string, lines: readonly string[]) => `
+name: t
+on: workflow_dispatch
+${env}
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - name: s
+${stepEnv}
+        run: |
+${lines.map((line) => `          ${line}`).join("\n")}
+`;
+
+const TRACK_OFF = 'env:\n  DO_NOT_TRACK: "1"';
+
+describe("line continuations", () => {
+  test.each([
+    "DO_NOT_TRACK=1 bunx alchemy drift \\\n--stage dev \\\n--repair",
+    "DO_NOT_TRACK=1 bunx alchemy \\\nstate read cire",
+    "DO_NOT_TRACK=1 bunx alchemy \\\nnuke",
+  ])("refuses %j as a package script", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
+  });
+
+  test.each([
+    { lines: ["bunx alchemy drift \\", "--stage dev \\", "--repair"] },
+    { lines: ["bunx alchemy \\", "state read cire"] },
+    { lines: ["bunx alchemy \\", "nuke"] },
+  ])("refuses $lines in a workflow step with telemetry off", ({ lines }) => {
+    expect(checkWorkflow("w", blockWorkflow(TRACK_OFF, "", lines))).toHaveLength(1);
+  });
+});
+
+describe("compound commands", () => {
+  test.each([
+    "DO_NOT_TRACK=1 bun alchemy state ls && bun alchemy deploy",
+    "DO_NOT_TRACK=1 bun alchemy state ls; bun alchemy deploy",
+    "DO_NOT_TRACK=1 bun alchemy state ls || bun alchemy deploy",
+    "DO_NOT_TRACK=1 bun alchemy state ls | bun alchemy deploy",
+  ])("flags the second command of %j", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
+  });
+
+  test("flags a ; compound in a workflow step with no env", () => {
+    expect(
+      checkWorkflow(
+        "w",
+        blockWorkflow("", "", ["DO_NOT_TRACK=1 bunx alchemy state ls; bunx alchemy deploy"]),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("passes when every segment carries the prefix", () => {
+    expect(
+      checkPackageScripts(
+        "p",
+        manifest({
+          x: "DO_NOT_TRACK=1 bun alchemy state ls && DO_NOT_TRACK=1 bun alchemy deploy --stage dev",
+        }),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("env levels and values", () => {
+  test("accepts DO_NOT_TRACK at job level", () => {
+    const yaml = `
+name: t
+on: workflow_dispatch
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    env:
+      DO_NOT_TRACK: "1"
+    steps:
+      - name: s
+        run: bunx alchemy deploy
+`;
+    expect(checkWorkflow("w", yaml)).toEqual([]);
+  });
+
+  test.each(["0", "true"])("flags the value %j at the package-script prefix", (value) => {
+    expect(
+      checkPackageScripts("p", manifest({ x: `DO_NOT_TRACK=${value} bun alchemy deploy` })),
+    ).toHaveLength(1);
+  });
+
+  test.each(["0", "true"])("flags the value %j in the workflow env", (value) => {
+    expect(
+      checkWorkflow(
+        "w",
+        blockWorkflow(`env:\n  DO_NOT_TRACK: "${value}"`, "", ["bunx alchemy deploy"]),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test.each(["0", "true"])("flags the value %j in the step env", (value) => {
+    expect(
+      checkWorkflow(
+        "w",
+        blockWorkflow("", `        env:\n          DO_NOT_TRACK: "${value}"`, [
+          "bunx alchemy deploy",
+        ]),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("flags a two-line run where only one Alchemy line has the prefix", () => {
+    expect(
+      checkWorkflow(
+        "w",
+        blockWorkflow("", "", ["DO_NOT_TRACK=1 bunx alchemy state ls", "bunx alchemy deploy"]),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("lets a step's own DO_NOT_TRACK override the workflow's", () => {
+    expect(
+      checkWorkflow(
+        "w",
+        blockWorkflow(TRACK_OFF, '        env:\n          DO_NOT_TRACK: "0"', [
+          "bunx alchemy deploy",
+        ]),
+      ),
+    ).toHaveLength(1);
+  });
+});
