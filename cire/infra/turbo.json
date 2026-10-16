@@ -1,0 +1,22 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "$TURBO_ROOT$/shared/*/src/**",
+        "$TURBO_ROOT$/musubi/infra/src/**",
+        "$TURBO_ROOT$/cire/api/wrangler.toml",
+        "$TURBO_ROOT$/cire/api/src/**",
+        "$TURBO_ROOT$/cire/db/src/**",
+        "$TURBO_ROOT$/cire/db/migrations/**",
+        "$TURBO_ROOT$/cire/db/seed/dev-seed.sql",
+        "$TURBO_ROOT$/cire/invites/wrangler.jsonc",
+        "$TURBO_ROOT$/scripts/cire-db-seed.sh",
+        "$TURBO_ROOT$/bun.lock"
+      ]
+    }
+  }
+}

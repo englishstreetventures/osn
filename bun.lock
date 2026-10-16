@@ -119,6 +119,20 @@
         "vitest": "5.0.3",
       },
     },
+    "cire/infra": {
+      "name": "@cire/infra",
+      "dependencies": {
+        "@effect/platform-bun": "4.0.3",
+        "@effect/platform-node": "4.0.3",
+        "@shared/infra": "workspace:*",
+        "alchemy": "2.0.0-beta.83",
+        "effect": "4.0.3",
+      },
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "vitest": "5.0.3",
+      },
+    },
     "cire/invite-designs": {
       "name": "@cire/invite-designs",
       "devDependencies": {
@@ -1174,6 +1188,8 @@
     "@cire/dietary": ["@cire/dietary@workspace:cire/dietary"],
 
     "@cire/host": ["@cire/host@workspace:cire/host"],
+
+    "@cire/infra": ["@cire/infra@workspace:cire/infra"],
 
     "@cire/invite-designs": ["@cire/invite-designs@workspace:cire/invite-designs"],
 
