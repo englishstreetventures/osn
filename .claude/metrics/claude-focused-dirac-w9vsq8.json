@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1543,
+    "branch": "claude/focused-dirac-w9vsq8",
+    "base_sha": "b25ee7da8393268a56c56b1150726d7706514205",
+    "head_sha": "c16f210b7806c7d78046723874ef47318bc28967",
+    "generated_at": "2026-10-16T03:03:53.370Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1528,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:8"
+    ]
+  },
+  "complexity": {
+    "declared": 8,
+    "method": "manual"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-16T01:19:26.519Z",
+    "last_ts": "2026-10-16T03:03:52.439Z",
+    "span_seconds": 6266,
+    "active_seconds": 6067,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 74.0319176,
+    "tokens": {
+      "input": 1458,
+      "output": 195131,
+      "thinking": 44218,
+      "cache_write_5m": 1278243,
+      "cache_write_1h": 861989,
+      "cache_read": 143609883
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1394,
+          "output": 194663,
+          "thinking": 44218,
+          "cache_write_5m": 1118923,
+          "cache_write_1h": 861989,
+          "cache_read": 142587350
+        },
+        "usd_equivalent": 73.42430299999998,
+        "messages": 688
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 64,
+          "output": 468,
+          "thinking": 0,
+          "cache_write_5m": 159320,
+          "cache_write_1h": 0,
+          "cache_read": 1022533
+        },
+        "usd_equivalent": 0.6076146000000001,
+        "messages": 32
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 606,
+          "output": 190750,
+          "thinking": 44218,
+          "cache_write_5m": 0,
+          "cache_write_1h": 861989,
+          "cache_read": 93719688
+        },
+        "usd_equivalent": 48.20121120000001,
+        "messages": 294
+      },
+      "subagent": {
+        "tokens": {
+          "input": 852,
+          "output": 4381,
+          "thinking": 0,
+          "cache_write_5m": 1278243,
+          "cache_write_1h": 0,
+          "cache_read": 49890195
+        },
+        "usd_equivalent": 25.830706400000004,
+        "messages": 426
+      }
+    },
+    "effort": {
+      "medium": 294,
+      "xhigh": 300,
+      "low": 32,
+      "high": 94
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 3,
+      "test": 17,
+      "docs": 6,
+      "config": 5,
+      "source": 21
+    },
+    "loc": {
+      "generated": {
+        "added": 48,
+        "deleted": 0
+      },
+      "test": {
+        "added": 1075,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 99,
+        "deleted": 7
+      },
+      "config": {
+        "added": 305,
+        "deleted": 2
+      },
+      "source": {
+        "added": 1226,
+        "deleted": 8
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/invites",
+      "pulse/api",
+      "pulse/web",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 5
+  },
+  "interaction": {
+    "user_turns": 1,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": 798431,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 690,
+      "Write": 18,
+      "Skill": 12,
+      "Agent": 9,
+      "Read": 9,
+      "SubagentHandback": 7,
+      "ToolSearch": 5,
+      "Grep": 3,
+      "mcp__github__issue_read": 2,
+      "AskUserQuestion": 2,
+      "Edit": 2,
+      "mcp__github__issue_write": 1,
+      "mcp__github__list_pull_requests": 1,
+      "mcp__claude-code-remote__add_repo": 1,
+      "mcp__github__create_pull_request": 1,
+      "mcp__claude-code-remote__subscribe_pr_activity": 1,
+      "mcp__github__update_pull_request": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 2
+    },
+    "skills": {
+      "new-feat": 1,
+      "rate-complexity": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "prep-pr": 1,
+      "review-security": 1,
+      "review-performance": 2,
+      "review-tests": 2,
+      "write-pr": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "explorer": 3,
+      "attacker": 1,
+      "reviewer": 5
+    }
+  }
+}

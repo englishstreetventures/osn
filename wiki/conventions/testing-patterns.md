@@ -7,7 +7,9 @@ related:
   - "[[schema-layers]]"
   - "[[commands]]"
   - "[[bundle-size-guards]]"
-last-reviewed: 2026-10-15
+  - "[[devloop-urls]]"
+  - "[[browser-tests]]"
+last-reviewed: 2026-10-16
 ---
 
 # Testing Patterns
@@ -17,12 +19,77 @@ last-reviewed: 2026-10-15
 Three rules decide what kind of test a change gets. They come before every pattern on this page.
 
 1. **End-to-end tests first, and ideally only.** A complex feature is proved by an E2E test that drives the real stack the way a user or caller does: browser, API, database. Reach for nothing else unless the E2E test cannot reach the behaviour.
-2. **Every E2E test ends by producing an artifact.** It writes something a reviewer can check without rerunning the suite, and that comes out the same on every run: a Playwright trace, screenshots of the final state, or a JSON record of the requests and results. It runs against seeded data and a fixed clock, so a second run gives the same artifact. Name where the artifact lands in the PR test plan.
+2. **Every E2E test ends by producing an artifact.** It writes something a reviewer can check without rerunning the suite, and that comes out the same on every run: a Playwright trace, screenshots of the final state, or a JSON record of the requests and results. It runs against seeded data and a fixed clock, so a second run gives the same artifact. Name where the artifact lands in the PR test plan. The suite that does this, and how to add a flow to it, is [[#The end-to-end suite]].
 3. **Isolated tests are written failure-modes first.** When a system must be tested on its own (a parser, a crypto routine, a rate-limit window, a state machine an E2E test cannot steer into every state), first write down every way it can fail. Put that list in `NEW-FEAT.md`, before any code exists. Write one test per entry, then the code that makes them pass. A test that maps to no listed failure does not get written.
 
 **Never write unit tests after the code.** A unit test written to cover code that already works describes what the code does, not what it must do. It goes green on the first run and stays green through the bugs that matter. Those tests are the low-signal kind this repo has deleted: constants asserted against themselves, mock echoes, "renders without crashing", snapshots of static markup, framework behaviour, types the compiler already checks.
 
 The bar for keeping any non-E2E test: **name the real bug it catches that no E2E test would.** No name, no test. One exception: a test that checks a refusal or a redaction (an authorisation gate, a permission table, a rate limit, a CSP, an input rejection, log redaction) stays unless a named, existing test checks the same refusal. "An E2E test could catch it" is not enough; one has to exist. [[#Assertions that cannot fail]] lists the shapes that fail that bar most often.
+
+## The end-to-end suite
+
+`tools/e2e` (`@tools/e2e`) is where E2E tests live. `bun run test:e2e` boots the real stack, runs every flow in Chromium, and writes the artifact. `bun run test:e2e:repro` runs it twice and fails unless both runs wrote the same `results.json` byte for byte. CI runs the repro on every pull request (the `E2E` job) and uploads `e2e-artifacts/`.
+
+### What one run does
+
+1. Refuses to start if any of its ports is taken, and names the port. It never reuses a server it did not start. Stop your `bun run dev` first. A refused run leaves the previous run's artifacts where they are.
+2. Clears `e2e-artifacts/`, so nothing from an earlier run survives.
+3. Checks that the shared clock reaches a Bun child and a Node child: `Date.now()`, `new Date()` and `Date()` each.
+4. Builds fresh SQLite files from each package's `applySchema` and seeds fixed rows: Pulse is registered with osn-api as a first-party OIDC client. cire-api seeds its own file at boot (`CIRE_LOCAL_DB_PATH`).
+5. Starts a stand-in for the Resend API (port 4590), then every app at once except pulse-api. pulse-api registers its service key with osn-api at boot, so it starts once osn-api answers, and counts as ready once its key is in osn-api's database.
+6. Runs Playwright, serially and with no retries.
+7. Stops every process group, the Playwright runner's included, whether the run passed, failed or was interrupted. A `SIGINT` or `SIGTERM` sent to the launcher alone stops them too.
+
+| App | Port | Started as |
+|---|---|---|
+| osn-api | 4000 | `bun --no-env-file --preload src/clock.mjs src/local.ts` |
+| pulse-api | 3001 | same |
+| cire-api | 8787 | same |
+| Musubi | 1422 | `bun run dev:app` |
+| Pulse web | 1420 | `bun run dev:app` |
+| cire invites | 4321 | `bun run dev:app --ignore-lock` |
+
+The ports are the `PORTLESS=0` ones from `DEV_APPS` in `@shared/dev-urls`, and `tools/e2e/tests/config.test.ts` keeps the two lists equal. Children get an explicit environment, not your shell's: `PATH`, `HOME` and a few proxy and certificate variables, plus every sibling origin set by name. The APIs also start with `--no-env-file`, so neither a `.env` file nor your shell's `REDIS_URL`, `OSN_ENV` or Turnstile key reaches them. The frontends still read their own `.env*` files, as Vite and Astro always do. Every variable the suite relies on there (each API origin, the Turnstile site keys) is set in their environment, and that beats a `.env` value.
+
+**The clock.** Every server and every browser page starts at `2026-10-01T00:00:00Z` and then ticks in real time. The APIs load `tools/e2e/src/clock.mjs` with `--preload`. Vite and Astro load it through `NODE_OPTIONS`. Each page gets `page.clock.install`. The date is fixed so that seeded deadlines and "must be in the future" checks resolve the same way whatever the real date is. Time still moves so that debounces and timers in the UI still fire. Each flow checks that the rows it wrote carry a timestamp on the suite clock, so a server that missed the preload fails on the day it breaks, not on the day a seeded deadline passes.
+
+### Reading the artifact
+
+```
+e2e-artifacts/
+  results.json                     flows, steps, API requests, assertions: the reproducible part
+  screenshots/<flow>.png           each flow's final state
+  traces/<file>-<flow>/trace.zip   bunx playwright show-trace <path>, or trace.playwright.dev
+  logs/<app>.log                   each server's output, for when a flow fails
+  state/*.db                       the databases as the run left them
+```
+
+`results.json` lists one record per flow, sorted by name. Each record has:
+
+- `status`: the runner's own result. A flow that dies before it writes a record still appears, with empty lists.
+- `steps`: the flow's named steps, in order.
+- `requests`: one line per distinct API call, as `METHOD app /path status`. The list is sorted.
+- `assertions`: each named check, with `expected`, `actual` and `pass`.
+
+Requests are kept only for osn-api, pulse-api and cire-api. Query strings are dropped, because they carry OIDC `state`, nonces and PKCE values. Generated ids in a path become `:id`. The list is a set, because how many parallel fetches a page makes depends on timing, while which calls it makes does not. Nothing time-shaped is recorded: no timestamps, durations or retry counts. If `results.json` changes between two runs, a flow is recording something nondeterministic. Fix the recording; do not rerun until it matches. Only `results.json` is byte-stable. Traces and screenshots are not.
+
+### Adding a flow
+
+1. Create `tools/e2e/tests/flows/<product>-<what>.flow.ts`. Playwright collects only `*.flow.ts`. The test title is the flow's name in `results.json`, and the screenshot and trace are named after it.
+2. Import `test` and `expect` from `../support/fixtures`, and take the `flow` fixture.
+3. Wrap each user-visible action in `flow.step("…", …)`. Record every outcome a reviewer should see with `flow.check(name, expected, actual)`, which also asserts. Check the database row, not only the UI: `queryOne(DB_FILES.<db>, sql, …)` reads a stack database read-only. Join on seeded or fixed values, never on a generated id.
+4. For a second user, create a context with `browser.newContext()` and open pages with `flow.newPage(context)`, so they get the suite clock and their requests are recorded. Point `flow.finalPage` at the page whose end state the screenshot should show.
+5. To create an OSN account, register through the UI when registration is what the flow tests (`otpFor(email)` reads the one-time code). Otherwise call `registerThroughApi(flow, context.request, person)`. Fixed people and values go in `tools/e2e/src/config.ts`.
+6. Wait on state only: `expect(locator)`, `expect(page).toHaveURL`, `page.waitForResponse`. `tools/e2e/tests/flows.test.ts` fails on `waitForTimeout`, `setTimeout`, `networkidle` or `.only` in a flow.
+7. Run `bun run test:e2e:repro` and confirm the two runs match.
+
+A new app in the stack goes in `appSpecs()` in `tools/e2e/src/stack.ts`, with its port in `config.ts`.
+
+### What it cannot see
+
+Every app is served from `localhost`. Cookies ignore the port, so the suite proves that a cross-origin `fetch` carries `credentials: "include"`: without it the browser drops `Set-Cookie` and the flow's cookie checks fail. The Musubi flow also clears the client's cached account and reloads, so the session can only come back through the cookie on `POST /token`, and then clears the cookie too and checks the reload is signed out. It cannot prove anything about how a cookie is scoped between real hosts. Locally there is no `Secure`, no `__Host-` prefix, and no `OSN_COOKIE_DOMAIN` marker. The browser tier ([[browser-tests]]) and the deploy checks own those.
+
+The Musubi flow reports conditional mediation as unavailable. The virtual authenticator answers an autofill passkey request on its own, which a person never does, so leaving it on would race the "@handle → Continue" path the flow drives.
 
 ## Directory Layout
 
@@ -61,6 +128,11 @@ scripts/
   tests/
     check-astro-fonts.test.ts      # scripts/ is not a workspace; `bun test ./scripts/`
     changeset-required.test.sh     # shell tests too
+tools/e2e/
+  tests/
+    flows/cire-rsvp.flow.ts        # E2E flow (Playwright, *.flow.ts only)
+    support/fixtures.ts            # the `flow` fixture, OTP and DB readers
+    ports.test.ts                  # the harness's own failure modes (bun test)
 shared/ui/
   tests/
     test-support/browser-commands.ts # Vitest browser commands (emulateMedia)
@@ -797,6 +869,10 @@ bun run --cwd pulse/api test
 # The browser tier, per package
 bun run --cwd shared/ui test:browser
 
+# The end-to-end suite (boots the stack; stop `bun run dev` first)
+bun run test:e2e
+bun run test:e2e:repro                     # twice, results.json compared byte for byte
+
 # Mutation testing, cire only, scoped to the lines this branch changed
 bun run --cwd cire/host test:mutation --changed
 ```
@@ -812,3 +888,4 @@ bun run --cwd cire/host test:mutation --changed
 - [[backend-patterns]] -- service and route layer architecture
 - [[schema-layers]] -- Elysia TypeBox vs Effect Schema
 - [[commands]] -- full CLI reference
+- [[devloop-urls]] -- the fixed ports the E2E suite boots on

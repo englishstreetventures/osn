@@ -592,7 +592,9 @@ export function createDb(path: string = ":memory:") {
   // REFERENCES clauses above are inert and tests would pass on FK-violating
   // data that D1 (FKs always on) would reject.
   sqlite.exec("PRAGMA foreign_keys = ON;");
-  sqlite.exec(DDL);
+  // One transaction: on a file every autocommitted statement writes and syncs
+  // its own journal, about a hundred of them; in memory it costs nothing.
+  sqlite.transaction(() => sqlite.exec(DDL))();
   return drizzle(sqlite, { schema });
 }
 

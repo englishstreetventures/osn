@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[testing-patterns]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-16
 ---
 
 # CLI Commands Reference
@@ -39,7 +39,13 @@ bun run --cwd pulse/api test              # Pulse API tests in watch mode
 
 # The real-Chromium tier, per package
 bun run --cwd shared/ui test:browser      # Modal, form and data primitives under real CSS
+
+# The end-to-end suite: boots the stack on fixed ports, writes e2e-artifacts/
+bun run test:e2e
+bun run test:e2e:repro                    # twice; fails unless results.json matches byte for byte
 ```
+
+The E2E suite refuses to start while anything holds its ports, so stop `bun run dev` first. What it boots and how to read its artifact: [[testing-patterns#The end-to-end suite]].
 
 `@shared/ui` splits its suite into a `unit` project and a `browser` one, so
 `test` and `test:run` there cover the unit project alone and `test:browser` is a

@@ -81,6 +81,14 @@ export interface AppOptions {
    * leaves empty during module evaluation.
    */
   includeOpenapi?: boolean;
+  /**
+   * Elysia's ahead-of-time handler compilation. Off by default because it
+   * builds handlers with `new Function`, which Cloudflare Workers forbid. The
+   * Bun entry turns it on: without it Elysia hands handlers no `server`, so
+   * direct-mode IP resolution (`server.requestIP`) finds no socket peer and
+   * every per-IP limiter fails closed with 429.
+   */
+  aot?: boolean;
 }
 
 /**
@@ -101,14 +109,14 @@ export function createApp(options: AppOptions = {}) {
     secureCookies = false,
     loginFallbackUrl = "http://localhost:1420/",
     includeOpenapi = true,
+    aot = false,
   } = options;
 
   const { write, discovery, share, exposure, authStart, authSession } = rateLimiters;
 
   const base =
-    // `aot: false` — Elysia's ahead-of-time compilation builds handlers via
-    // `new Function`, which Cloudflare Workers forbid (no dynamic code eval).
-    new Elysia({ aot: false })
+    // `aot` is false on Workers — see `AppOptions.aot`.
+    new Elysia({ aot })
       .use(corsOrigins ? cors({ origin: corsOrigins, credentials: true }) : cors())
       .use(observabilityPlugin({ serviceName: SERVICE_NAME }))
       // CSRF guard for the cookie-authenticated surface — mounted before any

@@ -284,3 +284,6 @@ TSDOC-EVALUATION.md
 **/reports/mutation/
 .stryker-tmp*/
 stryker-setup-*.js
+
+# End-to-end suite output (`bun run test:e2e`): traces, screenshots, results.json, logs, state
+e2e-artifacts/

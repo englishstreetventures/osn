@@ -87,10 +87,17 @@ export function ConsentBanner(props: ConsentBannerProps) {
    * keyed `Show` below reads it as its condition.
    */
   const [attempt, setAttempt] = createSignal(1);
+  // Nothing renders until this island has mounted. The store is shared, so
+  // when another island (the footer's preferences link) hydrates first it has
+  // already marked consent hydrated; rendering the prompt during this island's
+  // own hydration would then not match the server's empty markup, and Solid
+  // abandons the island — the prompt never appears.
+  const [mounted, setMounted] = createSignal(false);
+  onMount(() => setMounted(true));
   // The prompt hides while the preferences dialog is open — that dialog
   // supersedes it and carries its own answers, so showing both would leave
   // two competing sets of controls on screen.
-  const prompting = () => needsConsentDecision() && !consentPreferencesOpen();
+  const prompting = () => mounted() && needsConsentDecision() && !consentPreferencesOpen();
   const asBanner = () => props.prompt === "banner";
 
   return (

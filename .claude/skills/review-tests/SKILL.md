@@ -150,9 +150,10 @@ rather than edited: restore the five headings, put the gap back under
 
 A test asserting only that a function returns without throwing is not coverage. Say so, as `T-U`, and name what it should assert.
 
-**E2E first; isolated tests need a failure list.** The rules are in `wiki/conventions/testing-patterns.md` §What to test, and when. Hold the branch to them:
+**E2E first; isolated tests need a failure list.** The rules are in `wiki/conventions/testing-patterns.md` §What to test, and when. E2E tests live in `tools/e2e`; how to add a flow and read its artifact is §The end-to-end suite on the same page. Hold the branch to them:
 
-- A complex feature (a flow across routes, screens or services) with no E2E test is `T-M`, even when unit tests cover its parts. The `Solution` names the E2E test to add, not more unit tests.
+- A complex feature (a flow across routes, screens or services) with no E2E test is `T-M`, even when unit tests cover its parts. The `Solution` names the flow to add under `tools/e2e/tests/flows/`, not more unit tests.
+- A branch that adds or changes a flow has run `bun run test:e2e:repro`, and its test plan says so. A flow that waits on time (`waitForTimeout`, `setTimeout`, `networkidle`) or checks only the UI when the action writes a row is `T-S`.
 - An E2E test that ends without writing an artifact (a trace, screenshots, a JSON results file), or whose artifact changes between runs (unseeded data, the real clock), is `T-S`.
 - A unit or isolated test the branch adds is `T-S` unless `NEW-FEAT.md` lists, from before the code, the failure mode it guards. Unit tests written after the code to cover it are the low-signal kind this repo deletes. The `Solution` is to delete the test, or to name the listed failure it maps to.
 - Never propose an isolated unit test as a gap's fix when an E2E test can reach the behaviour.

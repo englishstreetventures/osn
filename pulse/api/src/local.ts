@@ -105,6 +105,8 @@ const appOptions: AppOptions = {
   corsOrigins,
   oidc,
   secureCookies: !!nonLocal,
+  // Bun allows the code generation Workers forbid; see `AppOptions.aot`.
+  aot: true,
 };
 if (process.env.PULSE_LOGIN_URL) appOptions.loginFallbackUrl = process.env.PULSE_LOGIN_URL;
 

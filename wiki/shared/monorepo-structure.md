@@ -62,11 +62,12 @@ packages:
   - "@shared/toast"
   - "@shared/turnstile"
   - "@shared/typescript-config"
+  - "@tools/e2e"
   - "@tools/lab"
   - "@tools/metrics"
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-16
 ---
 
 # Monorepo Structure
@@ -144,6 +145,7 @@ shared/
   swift/               # OSNShared — the local SPM package the iOS targets depend on; not a workspace
   test-config/         # shared Vitest guard config — not a workspace
 tools/                 # local-only developer tooling, never shipped
+  e2e/                 # @tools/e2e — the end-to-end suite (`bun run test:e2e`)
   lab/                 # @tools/lab — component / three.js scratchpad (`bun run dev:lab`)
   metrics/             # @tools/metrics — session-metrics dashboard over .claude/metrics
   pr-metrics/          # @tools/pr-metrics — the session-performance cards themselves
