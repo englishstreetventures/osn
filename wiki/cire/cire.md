@@ -109,6 +109,10 @@ own **in-memory** DB (not the persistent D1), so `bun run dev:cire` shows it
 without a separate seed step. When `CIRE_DEV_OWNER_PROFILE_ID` is set in its
 environment, it hands over the owner seat the same way, through
 `repointDevOwnerSeat` in [`cire/api/src/db/setup.ts`](../../cire/api/src/db/setup.ts).
+Set `CIRE_LOCAL_DB_PATH` to a file path and it keeps that DB in the file instead
+of in memory, so another process can read what it writes; the E2E suite does
+this ([[testing-patterns#The end-to-end suite]]). The seed runs on every boot,
+so the file must not exist yet.
 
 Both repoints first delete any other seat the profile holds on the sample
 wedding, because a profile holds one seat per wedding. They are two copies of
