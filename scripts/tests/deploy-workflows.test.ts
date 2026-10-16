@@ -75,6 +75,7 @@ interface Job {
 
 interface Workflow {
   readonly on: Record<string, unknown>;
+  readonly permissions?: Record<string, string>;
   readonly env?: Record<string, string | boolean>;
   readonly defaults?: unknown;
   readonly concurrency?: { readonly group: string; readonly "cancel-in-progress"?: boolean };
@@ -196,6 +197,22 @@ const DEV_BUILDS: Readonly<
   pulse: [{ pkg: "@pulse/landing", env: { SITE: hostOutput("pulse_landing_origin") } }],
 };
 
+/**
+ * The dev Environment variables each stack's deploy step passes to Alchemy.
+ * The cire stack seeds the owner seat from CIRE_DEV_OWNER_PROFILE_ID
+ * (cire/infra/alchemy.run.ts); missing or misspelt here, GitHub passes
+ * nothing and the stack seeds no owner seat, with every gate green.
+ */
+const DEPLOY_VARIABLES: Readonly<Record<StackKey, Record<string, string>>> = {
+  musubi: { DEV_DOMAIN: "${{ vars.DEV_DOMAIN }}" },
+  cire: {
+    DEV_DOMAIN: "${{ vars.DEV_DOMAIN }}",
+    CIRE_DEV_OWNER_PROFILE_ID: "${{ vars.CIRE_DEV_OWNER_PROFILE_ID }}",
+  },
+  zap: { DEV_DOMAIN: "${{ vars.DEV_DOMAIN }}" },
+  pulse: { DEV_DOMAIN: "${{ vars.DEV_DOMAIN }}" },
+};
+
 /** The bundle-size guards each stack job runs on its builds before anything uploads. */
 const BUNDLE_GUARDS: Readonly<Record<StackKey, readonly string[]>> = {
   musubi: [],
@@ -243,6 +260,13 @@ function runStep(step: Step, env: Readonly<Record<string, string>>, bunExit = 0)
 describe("deploy.yml deploys dev only", () => {
   test("no job in it reaches the production Environment", () => {
     expect(jobsIn(dev, "production")).toEqual([]);
+  });
+
+  test("it can only read the repository, and every Alchemy run in it sends no telemetry", () => {
+    expect(dev.permissions).toEqual({ contents: "read" });
+    // A job-level block would replace the workflow's for that job.
+    expect(Object.values(dev.jobs).filter((job) => job.permissions !== undefined)).toEqual([]);
+    expect(dev.env?.DO_NOT_TRACK).toBe("1");
   });
 
   test("its jobs are changes, build, the stack jobs and the record jobs, nothing else", () => {
@@ -449,6 +473,18 @@ describe("each stack job builds, deploys and checks its whole stack", () => {
       expect(order.every((at) => at > -1)).toBe(true);
       expect(order).toEqual(order.toSorted((a, b) => a - b));
       expect(new Set(order).size).toBe(order.length);
+    },
+  );
+
+  test.each(STACKS.map((s) => [s.key] as const))(
+    "%s: the deploy step passes exactly its stack's dev Environment variables",
+    (key) => {
+      const env = stepById(stackJobOf(key), "deploy")?.env ?? {};
+      const variables = Object.fromEntries(
+        Object.entries(env).filter(([, value]) => value.includes("vars.")),
+      );
+      expect(variables).toEqual(DEPLOY_VARIABLES[key]);
+      expect(Object.hasOwn(env, "CIRE_DEV_OWNER_PROFILE_ID")).toBe(key === "cire");
     },
   );
 
