@@ -30,9 +30,10 @@
  * rollback through. Restoring a version whose secrets differ would put the old
  * secret values back — a rotated key, a revoked sign-in secret — so when
  * Cloudflare refuses for that reason, this leaves the Worker as it is and asks a
- * person. It also reads the Worker's deployments before the first probe, and
- * refuses when anything deploys the Worker during the check: the version to
- * restore is then no longer known.
+ * person. It reads the Worker's deployments before the first probe, and rolls
+ * back only while the newest of them is the version this job deployed — named
+ * in the output file the deploy step's wrangler wrote — so a deploy made by
+ * anything else, before or during the check, is never overwritten.
  *
  * It does not roll back when nothing answered (DNS, TLS, a timeout) or when
  * Cloudflare answered in the Worker's place (Access, a bot challenge, a 429):
@@ -58,13 +59,19 @@
  *                       Without both, that target's check is skipped.
  *   GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT
  *                       name the run in the rollback message.
+ *   WRANGLER_OUTPUT_FILE_PATH
+ *                       the file the deploy step's `wrangler deploy` wrote its
+ *                       output to (the workflows set it on both steps). Its
+ *                       `deploy` entry names the version this job deployed.
+ *                       Unset, as in a hand run, the newest deployment at the
+ *                       first read is taken to be this job's.
  *   GITHUB_STEP_SUMMARY receives a line when the check fails.
  *
  * Exit codes: 0 healthy, or skipped; 1 unhealthy; 2 a usage error, before any
  * request — nothing is rolled back.
  */
 
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 
 import type { SurfaceKey, Tier } from "./deploy-surfaces";
 
@@ -479,22 +486,70 @@ async function readDeployments(
 }
 
 /**
+ * The version a `wrangler deploy` reports in its output file: the last
+ * `deploy` entry's `version_id`. Undefined when the file names none.
+ */
+export function deployedVersion(ndjson: string): string | undefined {
+  const versions = ndjson.split("\n").flatMap((line) => {
+    try {
+      const entry = JSON.parse(line) as { type?: unknown; version_id?: unknown } | null;
+      return entry?.type === "deploy" && typeof entry.version_id === "string"
+        ? [entry.version_id]
+        : [];
+    } catch {
+      return [];
+    }
+  });
+  return versions.at(-1);
+}
+
+/** The version named in the deploy step's output file, or why it cannot be read. */
+function readDeployedVersion(path: string): string | { readonly error: string } {
+  try {
+    const version = deployedVersion(readFileSync(path, "utf8"));
+    return version ?? { error: "the deploy step's wrangler output names no deployed version" };
+  } catch {
+    return {
+      error: "the deploy step's wrangler output (WRANGLER_OUTPUT_FILE_PATH) cannot be read",
+    };
+  }
+}
+
+/**
  * What a rollback would restore, read before the first probe: the newest
- * deployment (this job's) and the version that served at 100% in the newest
- * one before it — the choice `wrangler rollback` makes.
+ * deployment, which must be this job's, and the version that served at 100%
+ * in the newest one before it — the choice `wrangler rollback` makes.
+ * `refused` marks a plan that a deploy by something else made unsafe.
  */
 export type RestorePlan =
   | { readonly ok: true; readonly newest: string; readonly version: string }
-  | { readonly ok: false; readonly reason: string };
+  | { readonly ok: false; readonly refused: boolean; readonly reason: string };
 
-export function restorePlan(newestFirst: readonly Deployment[]): RestorePlan {
+export function restorePlan(
+  newestFirst: readonly Deployment[],
+  deployed: string | undefined,
+): RestorePlan {
   const [newest, ...earlier] = newestFirst;
-  if (newest === undefined) return { ok: false, reason: "the Worker has no deployments" };
+  if (newest === undefined) {
+    return { ok: false, refused: false, reason: "the Worker has no deployments" };
+  }
+  const serving = newest.versions.find((v) => v.percentage === 100)?.version_id;
+  if (deployed !== undefined && serving !== deployed) {
+    return {
+      ok: false,
+      refused: true,
+      reason: `the newest deployment serves ${serving ?? "a split of versions"}, not ${deployed}, the version this job deployed`,
+    };
+  }
   const before = earlier
     .map((deployment) => deployment.versions.find((v) => v.percentage === 100))
     .find((version) => version !== undefined);
   return before === undefined
-    ? { ok: false, reason: "no earlier version served all traffic — a first deploy has none" }
+    ? {
+        ok: false,
+        refused: false,
+        reason: "no earlier version served all traffic — a first deploy has none",
+      }
     : { ok: true, newest: newest.id, version: before.version_id };
 }
 
@@ -512,7 +567,7 @@ async function rollBack(
 ): Promise<Rollback> {
   if (typeof api === "string") return { kind: "failed", reason: api };
   if (plan === undefined) return { kind: "failed", reason: "the deployments were never read" };
-  if (!plan.ok) return { kind: "failed", reason: plan.reason };
+  if (!plan.ok) return { kind: plan.refused ? "refused" : "failed", reason: plan.reason };
   const now = await readDeployments(api, worker);
   if (!now.ok) return { kind: "failed", reason: `reading the deployments: ${now.reason}` };
   const newest = now.result[0]?.id;
@@ -644,10 +699,20 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   const api = cloudflareCredentials(env, input.fetch);
   let plan: RestorePlan | undefined;
   if (typeof api !== "string") {
-    const deployments = await readDeployments(api, target.worker);
-    plan = deployments.ok
-      ? restorePlan(deployments.result)
-      : { ok: false, reason: `reading the deployments before the check: ${deployments.reason}` };
+    const output = env.WRANGLER_OUTPUT_FILE_PATH ?? "";
+    const deployed = output === "" ? undefined : readDeployedVersion(output);
+    if (typeof deployed === "object") {
+      plan = { ok: false, refused: false, reason: deployed.error };
+    } else {
+      const deployments = await readDeployments(api, target.worker);
+      plan = deployments.ok
+        ? restorePlan(deployments.result, deployed)
+        : {
+            ok: false,
+            refused: false,
+            reason: `reading the deployments before the check: ${deployments.reason}`,
+          };
+    }
   }
 
   const probes: readonly Probe[] = forced
@@ -731,24 +796,21 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
     ),
   );
   const rollback = await rollBack(api, target.worker, plan, rollbackMessage(env));
+  // What the Worker runs now is not known here — a request that timed out may
+  // still have landed — so the person is told what to check, and what served
+  // before this deploy when that is known.
+  const byHand =
+    plan?.ok === true
+      ? `Check what ${target.worker} serves (its Deployments tab) before acting. The version that served before this deploy is ${plan.version}; to restore it by hand, run \`bunx wrangler rollback ${plan.version}\` with the Worker's selector.`
+      : `Check what ${target.worker} serves (its Deployments tab) before acting.`;
   if (rollback.kind === "refused") {
-    out(
-      annotation(
-        "error",
-        `Not rolled back: ${rollback.reason}. ${label} still runs the version this job deployed; a person decides what it runs next.`,
-        "Rollback refused",
-      ),
-    );
+    out(annotation("error", `Not rolled back: ${rollback.reason}. ${byHand}`, "Rollback refused"));
     summary(`smoke check failed; rollback refused: ${rollback.reason}.`);
     return 1;
   }
   if (rollback.kind === "failed") {
     out(
-      annotation(
-        "error",
-        `The rollback failed: ${rollback.reason}. ${label} still runs the version this job deployed.`,
-        "Rollback failed",
-      ),
+      annotation("error", `The rollback failed: ${rollback.reason}. ${byHand}`, "Rollback failed"),
     );
     summary(`smoke check failed, and the rollback failed: ${rollback.reason}.`);
     return 1;

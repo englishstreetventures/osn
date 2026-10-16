@@ -236,6 +236,10 @@ describe("every Worker deploy is smoke-checked, and rolls back the Worker it dep
     // the same Worker the deploy step deployed.
     expect(deploy.run).toBe(`bunx wrangler deploy ${target.wrangler.join(" ")}`);
     expect(deploy["working-directory"]).toBe(target.cwd);
+    // The deploy step writes the version it deployed where the check reads
+    // it; the check rolls back only while that version is the newest.
+    const output = "${{ runner.temp }}/wrangler-deploy.ndjson";
+    expect(deploy.env).toEqual({ WRANGLER_OUTPUT_FILE_PATH: output });
 
     const smoke = steps[deployAt + 1];
     expect(smoke?.name).toBe(SMOKE_STEP);
@@ -261,6 +265,7 @@ describe("every Worker deploy is smoke-checked, and rolls back the Worker it dep
     expect(workflowOf(tier).defaults).toBeUndefined();
 
     const env = smoke?.env ?? {};
+    expect(env.WRANGLER_OUTPUT_FILE_PATH).toBe(output);
     if (tier === "dev") expect(env.SMOKE_FORCE_FAIL).toBe(`\${{ inputs.smoke_fail == '${key}' }}`);
     else expect(env.SMOKE_FORCE_FAIL).toBeUndefined();
     if (target.access) {

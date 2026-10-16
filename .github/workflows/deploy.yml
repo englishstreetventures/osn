@@ -52,8 +52,10 @@ name: Deploy
 # After each dev Worker deploy (cire-api, cire-invites, osn-api),
 # scripts/smoke-check.ts asks the Worker's dev host whether it serves, and
 # rolls it back when it answers wrongly — the same check production-release.yml
-# runs. A failed check fails the job, so GitHub marks its Deployment `failure`
-# and the release planner's dev gate holds the change back from production.
+# runs, pinned the same way to the version each deploy step reports in
+# WRANGLER_OUTPUT_FILE_PATH. A failed check fails the job, so GitHub marks its
+# Deployment `failure` and the release planner's dev gate holds the change back
+# from production.
 # Dispatch with `smoke_fail` set to a surface to watch that path: its check
 # asks for a path the Worker answers 404, and the job rolls back and goes red.
 on:
@@ -290,6 +292,8 @@ jobs:
       - name: Deploy cire/api Worker (dev)
         run: bunx wrangler deploy --env dev
         working-directory: cire/api
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
 
       # The same check as production's (scripts/smoke-check.ts), against
       # api.dev.cireweddings.com. SMOKE_FORCE_FAIL is the dispatch's dry run.
@@ -297,6 +301,7 @@ jobs:
         run: bun run scripts/smoke-check.ts cire_api dev
         timeout-minutes: 5
         env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
           SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'cire_api' }}
 
   # ═══ cire invites (Astro SSR → Cloudflare Worker) ══════════════════════════
@@ -406,6 +411,8 @@ jobs:
       - name: Deploy cire/invites (dev Worker)
         run: bunx wrangler deploy --config dist/server/wrangler.json
         working-directory: cire/invites
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
 
       # invite.dev.cireweddings.com sits behind Cloudflare Access
       # ([[wiki/shared/dev-environment]] §5), so the check needs an Access
@@ -416,6 +423,7 @@ jobs:
         run: bun run scripts/smoke-check.ts cire_invites dev
         timeout-minutes: 5
         env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
           SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'cire_invites' }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
@@ -738,12 +746,15 @@ jobs:
       - name: Deploy osn/api Worker (dev)
         run: bunx wrangler deploy --env dev
         working-directory: osn/api
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
 
       # /health and /.well-known/jwks.json on id.dev.musubi.social.
       - name: Smoke check, rolling back on failure
         run: bun run scripts/smoke-check.ts osn_api dev
         timeout-minutes: 5
         env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
           SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'osn_api' }}
 
   # ═══ musubi/social (Vite SPA → Cloudflare Pages) ══════════════════════════════

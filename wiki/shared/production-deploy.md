@@ -836,17 +836,21 @@ access can create a record, so the planner checks each one against its run.
    - **The Worker answered wrongly and the rollback was refused** (`Rollback refused`).
      Either the Worker's secrets changed since the version it would restore — restoring
      it would put the old values back, a rotated key or a revoked secret, so Cloudflare
-     refuses and the step does not force it — or something deployed the Worker during
-     the check, so the version to restore is no longer known. The Worker still runs
-     this release's version, answering wrongly. Decide by hand: fix forward, or roll
-     back knowing which secret values come back (`bunx wrangler rollback` with the
-     Worker's selector asks before crossing a secret change when run in a terminal).
-   - **The Worker answered wrongly and the rollback failed** (`Rollback failed`). The
-     Worker still runs this release's version, and it is answering wrongly. Roll it
-     back by hand: `bunx wrangler rollback` with its selector, from its directory, or
-     the Deployments tab in the dashboard. A hand rollback leaves no Deployment record
-     (§5.1). A Worker's first deploy always lands here: there is no earlier version to
-     go back to.
+     refuses and the step does not force it — or the newest deployment is not the
+     version this job deployed, because something else deployed the Worker before or
+     during the check. Check what the Worker serves in its Deployments tab before
+     acting, then decide by hand: fix forward, or roll back knowing which secret values
+     come back. The annotation names the version that served before this deploy;
+     `bunx wrangler rollback <that version>` with the Worker's selector, run in a
+     terminal, asks before crossing a secret change. Without a version, wrangler picks
+     the deployment before the newest, which here may be the one that failed.
+   - **The Worker answered wrongly and the rollback failed** (`Rollback failed`). A
+     request that timed out may still have landed, so check what the Worker serves in
+     its Deployments tab first. If it is still this release's version, roll it back by
+     hand: `bunx wrangler rollback <version>` with the version the annotation names and
+     the Worker's selector, from its directory, or the Deployments tab. A hand rollback
+     leaves no Deployment record (§5.1). A Worker's first deploy always lands here:
+     there is no earlier version to go back to.
    - **Nothing answered, or Cloudflare answered in the Worker's place** (`Smoke check
      failed: … not rolling back`): DNS, TLS, a timeout, Cloudflare Access, a bot
      challenge or a 429 — the account's daily request cap among them. No rollback. The
@@ -909,7 +913,9 @@ A hand-run deploy gets no smoke check unless you run it. From the repository roo
 `bun run scripts/smoke-check.ts osn_api production` (or `dev`) asks the same probes CI
 does (§7). With `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` exported it also
 rolls the Worker back if it answers wrongly; without them it says what it found and
-rolls nothing back.
+rolls nothing back. Export the same `WRANGLER_OUTPUT_FILE_PATH` for the deploy and the
+check, as CI does, and the rollback is pinned to your deploy; without it, the newest
+deployment when the check starts is taken to be yours.
 
 **Prod URL (custom domain):** the production Worker is served at
 **`https://id.musubi.social`** via the custom-domain route in `osn/api/wrangler.toml`
@@ -1333,12 +1339,16 @@ How it decides:
   would, but makes the rollback itself through the Cloudflare API with the job's
   `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`: `wrangler rollback` in CI
   answers its own "secrets have changed" prompt with yes and forces the rollback
-  through, which would put old secret values back.
+  through, which would put old secret values back. Each deploy step writes the version
+  it deployed to `WRANGLER_OUTPUT_FILE_PATH`, and the check rolls back only while the
+  newest deployment serves that version, so a deploy made by anything else is never
+  overwritten.
 - **The rollback was refused** (`Rollback refused`) when the Worker's secrets changed
-  since the version it would restore, or when anything deployed the Worker during the
-  check. **It failed** (`Rollback failed`) when the API refused for another reason, or
-  when the Worker has no earlier version — always so on its first deploy. Either way
-  the Worker stays on the version that failed for a person to decide (§5.0 item 7).
+  since the version it would restore, or when the newest deployment is not this job's.
+  **It failed** (`Rollback failed`) when the API refused for another reason or did not
+  answer, when the deploy step's output cannot be read, or when the Worker has no
+  earlier version — always so on its first deploy. Either way a person decides what
+  the Worker serves next, starting from its Deployments tab (§5.0 item 7).
 - **Nothing answered** (DNS, TLS, a timeout), **or Cloudflare answered** in the Worker's
   place (Access, a bot challenge, a 429): no rollback, since code is not what failed. A
   429 counts here because Cloudflare answers every Worker on the account with one once

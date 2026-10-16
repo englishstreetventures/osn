@@ -14,6 +14,7 @@ import { join } from "node:path";
 import {
   annotation,
   type Deployment,
+  deployedVersion,
   FORCED_FAILURE_PATH,
   judge,
   type Outcome,
@@ -399,20 +400,48 @@ describe("probeOnce", () => {
 // ── what a rollback restores ────────────────────────────────────────────────
 
 describe("restorePlan", () => {
+  const history = [
+    deployment("d3", "2026-10-16T09:00:00Z", "v3"),
+    deployment("d2", "2026-10-15T09:00:00Z", "v2", 50),
+    deployment("d1", "2026-10-14T09:00:00Z", "v1"),
+  ];
+
   test("restores the newest version that served all traffic before the newest deployment", () => {
-    const plan = restorePlan([
-      deployment("d3", "2026-10-16T09:00:00Z", "v3"),
-      deployment("d2", "2026-10-15T09:00:00Z", "v2", 50),
-      deployment("d1", "2026-10-14T09:00:00Z", "v1"),
-    ]);
-    expect(plan).toEqual({ ok: true, newest: "d3", version: "v1" });
+    expect(restorePlan(history, undefined)).toEqual({ ok: true, newest: "d3", version: "v1" });
+    expect(restorePlan(history, "v3")).toEqual({ ok: true, newest: "d3", version: "v1" });
+  });
+
+  test("refuses when the newest deployment is not the version this job deployed", () => {
+    const plan = restorePlan(history, "v-this-job");
+    expect(plan.ok).toBe(false);
+    expect(plan.ok === false && plan.refused).toBe(true);
+    expect(plan.ok === false && plan.reason).toContain("not v-this-job");
   });
 
   test("a Worker with one deployment has nothing to restore", () => {
-    const plan = restorePlan([deployment("d1", "2026-10-16T09:00:00Z", "v1")]);
+    const plan = restorePlan([deployment("d1", "2026-10-16T09:00:00Z", "v1")], "v1");
     expect(plan.ok).toBe(false);
+    expect(plan.ok === false && plan.refused).toBe(false);
     expect(plan.ok === false && plan.reason).toContain("first deploy");
-    expect(restorePlan([]).ok).toBe(false);
+    expect(restorePlan([], undefined).ok).toBe(false);
+  });
+});
+
+describe("deployedVersion", () => {
+  test("reads the last deploy entry of wrangler's output file", () => {
+    const ndjson = [
+      JSON.stringify({ type: "wrangler-session", version: 1 }),
+      "not json",
+      JSON.stringify({ type: "deploy", version: 1, version_id: "v-first" }),
+      "",
+      JSON.stringify({ type: "deploy", version: 1, version_id: "v-this-job" }),
+    ].join("\n");
+    expect(deployedVersion(ndjson)).toBe("v-this-job");
+  });
+
+  test("names nothing when no entry is a deploy", () => {
+    expect(deployedVersion(JSON.stringify({ type: "deploy" }))).toBeUndefined();
+    expect(deployedVersion("")).toBeUndefined();
   });
 });
 
@@ -654,6 +683,73 @@ describe("a broken deploy", () => {
       expect(line.startsWith("::warning::encoded")).toBe(false);
     }
     expect(result.output).toContain("%250A::warning::encoded");
+  });
+});
+
+describe("the rollback restores only what served before this job's deploy", () => {
+  const BROKEN = { ...OSN_PROD, "https://id.musubi.social/health": MISCONFIGURED };
+
+  async function withOutput(contents: string | undefined, api?: ApiOptions) {
+    const dir = await mkdtemp(join(tmpdir(), "smoke-check-output-"));
+    try {
+      const file = join(dir, "wrangler-deploy.ndjson");
+      if (contents !== undefined) await Bun.write(file, contents);
+      return await smoke(["osn_api", "production"], BROKEN, {
+        env: { WRANGLER_OUTPUT_FILE_PATH: file },
+        api,
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+  const deployEntry = (version: string) =>
+    `${JSON.stringify({ type: "deploy", version: 1, version_id: version })}\n`;
+
+  test("rolls back when the newest deployment is the version the deploy step reported", async () => {
+    const result = await withOutput(deployEntry("v-this-job"));
+    expect(result.code).toBe(1);
+    expect(result.posts).toHaveLength(1);
+  });
+
+  test("refuses when another deploy landed before the check began", async () => {
+    const result = await withOutput(deployEntry("v-this-job"), {
+      reads: [[...HISTORY, deployment("dep-other", "2026-10-16T09:00:05Z", "v-other")]],
+    });
+    expect(result.code).toBe(1);
+    expect(result.posts).toEqual([]);
+    expect(result.output).toContain("::error title=Rollback refused::");
+    expect(result.output).toContain("serves v-other, not v-this-job");
+  });
+
+  test.each([
+    ["is missing", undefined, "cannot be read"],
+    [
+      "names no deploy",
+      `${JSON.stringify({ type: "wrangler-session" })}\n`,
+      "names no deployed version",
+    ],
+  ])("fails, rolling nothing back, when the output file %s", async (_, contents, reason) => {
+    const result = await withOutput(contents);
+    expect(result.code).toBe(1);
+    expect(result.posts).toEqual([]);
+    expect(result.output).toContain("::error title=Rollback failed::");
+    expect(result.output).toContain(reason);
+  });
+
+  test("a refused or failed rollback names the version to restore by hand, and claims nothing about what serves", async () => {
+    const refused = await smoke(["osn_api", "production"], BROKEN, {
+      api: { rollback: apiError(SECRETS_CHANGED, "secrets have changed: X") },
+    });
+    expect(refused.output).toContain("`bunx wrangler rollback v-before`");
+    expect(refused.output).toContain("Check what osn-api-production serves");
+    expect(refused.output).not.toContain("still runs");
+
+    const timedOut = await smoke(["osn_api", "production"], BROKEN, {
+      api: { rollback: new DOMException("The operation timed out.", "TimeoutError") },
+    });
+    expect(timedOut.output).toContain("::error title=Rollback failed::");
+    expect(timedOut.output).toContain("Check what osn-api-production serves");
+    expect(timedOut.output).not.toContain("still runs");
   });
 });
 
