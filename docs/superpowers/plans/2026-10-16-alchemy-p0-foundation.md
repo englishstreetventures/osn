@@ -36,7 +36,7 @@ Copied verbatim from the spec. Every task's requirements include this section.
 | Pages | Every Pages site moves to a Worker with static assets. None uses `_worker.js` or `_routes.json`; `_headers` and `_redirects` work on Workers static assets. One uses a Pages Function: pulse landing's `GET /api/geo` (`pulse/landing/functions/api/geo.ts`), which its Worker must serve beside the assets unless the owner drops it (open question 1). |
 | Previews | Cloudflare Worker preview URLs per pull request on dev, not separate preview stacks. |
 | Investigation stacks | A future milestone, out of scope. Stacks accept any stage name the stage rules allow, so it needs no rework. They run on the dev tier, in the dev account. |
-| Release path | Production deploys through the release workflow from englishstreetventures/osn#1449 (`.github/workflows/production-release.yml`, merged in #1524), with the smoke check and rollback from englishstreetventures/osn#1513. Each production release takes two approvals: the Alchemy plan job, then the deploy. This rollout starts its production phase only after #1513 merges. |
+| Release path | Production deploys through the release workflow from englishstreetventures/osn#1449 (`.github/workflows/production-release.yml`, merged in #1524), with the smoke check and rollback from englishstreetventures/osn#1513, merged in #1540. Each production release takes two approvals: the Alchemy plan job, then the deploy. |
 
 ### Constraints
 
@@ -53,7 +53,7 @@ Copied verbatim from the spec. Every task's requirements include this section.
 - What a production plan job writes to the run summary of this public repository is change counts and resource names only, never Alchemy's raw output, which can carry account-level values such as the `ALCHEMY_CLOUDFLARE_ACCOUNT_ID` binding.
 - Invocation logs stay off on cire-api and cire-invites; request paths carry wedding slugs and names.
 - Rotating the identity pairwise salt changes the pairwise subject identifiers that cire stores for linked accounts; if it must rotate, the same change rewrites those stored identifiers.
-- Stage names are lowercase letters and digits in hyphen-joined groups, at most 20 characters, never `prod`, `staging` or `local` (each derives or imitates a live name). `dev` and `production` keep today's resource names; any other stage derives `<base>-<stage>`, refused when that equals a dev or production name or passes Cloudflare's 63-character limit.
+- Stage names are lowercase letters and digits in hyphen-joined groups, starting with a letter, at most 20 characters, never `prod`, `staging` or `local` (each derives or imitates a live name). `dev` and `production` keep today's resource names; any other stage derives `<base>-<stage>`, refused when that equals a dev or production name or passes Cloudflare's 63-character limit.
 - `bun install --frozen-lockfile` in every job.
 
 ### Repository rules that bind this plan (`AGENTS.md`)
