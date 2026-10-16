@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[soc2]]"
   - "[[breach-response]]"
-last-reviewed: 2026-10-10
+last-reviewed: 2026-10-16
 ---
 
 # Backup + Disaster Recovery
@@ -45,7 +45,9 @@ Quarterly. Documented under `wiki/compliance/dr-drills/<YYYY>-<Q>.md`.
 2. Set up a parallel environment (DB instance, Redis, services).
 3. Restore from backup.
 4. Smoke-test:
-   - `/health` and `/ready` return 200 on every service.
+   - `/health` returns 200 on osn-api and zap-api, and cire-api's `GET /api/auth/session`
+     returns 200 `{"signedIn":false}` (cire-api has no health route). `/ready` checks no
+     dependency on any service ([[observability-setup]]), so it proves nothing here.
    - A test account can log in via passkey.
    - A test event can be created in Pulse.
    - A test message can be sent in Zap (once Zap M1 ships).

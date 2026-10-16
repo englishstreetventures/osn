@@ -118,6 +118,19 @@ describe("which surfaces a change redeploys", () => {
     expect(redeployed([WORKFLOW_FILE.production], "dev")).toEqual([]);
   });
 
+  test("the smoke check redeploys the dev Workers that run it, so a change to it runs there before any release uses it", () => {
+    expect(redeployed(["scripts/smoke-check.ts"], "dev")).toEqual([
+      "cire_api",
+      "cire_invites",
+      "osn_api",
+    ]);
+    expect(redeployed(["scripts/smoke-check.ts"], "production")).toEqual([]);
+    expect(sharedPath("scripts/smoke-check.ts", "dev")).toBe(false);
+    expect(deployReason(surface("osn_api"), ["scripts/smoke-check.ts"], "dev")).toBe(
+      "scripts/smoke-check.ts changed, which checks this Worker's deploy",
+    );
+  });
+
   test("the reason names the file that caused it", () => {
     expect(
       deployReason(surface("cire_api"), ["README.md", "cire/api/a.ts", "cire/api/b.ts"], "dev"),
@@ -151,6 +164,7 @@ describe("changesContent: what a surface is built from", () => {
       WORKFLOW_FILE.dev,
       WORKFLOW_FILE.production,
       "scripts/deploy-surfaces.ts",
+      "scripts/smoke-check.ts",
     ]) {
       expect(changesContent(surface("cire_host"), file)).toBe(false);
     }
