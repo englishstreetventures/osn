@@ -187,7 +187,7 @@ Platform priority is iOS, then web, then Android (deferred). The iOS apps are Sw
 
 ## Tech Stack
 
-Bun, TypeScript, Elysia, Effect v4 (backend only), Drizzle, SQLite locally and Cloudflare D1 in the deployed tiers (a Supabase Postgres migration is deferred — an open decision issue in `englishstventures/osn`), Eden+REST, WebSockets, Signal Protocol (planned), SolidJS, Astro, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest.
+Bun, TypeScript, Elysia, Effect v4 (backend only), Drizzle, SQLite locally and Cloudflare D1 in the deployed tiers (a Supabase Postgres migration is deferred — an open decision issue in `englishstreetventures/osn`), Eden+REST, WebSockets, Signal Protocol (planned), SolidJS, Astro, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest.
 
 ## Source Files
 

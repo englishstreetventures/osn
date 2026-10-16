@@ -225,7 +225,7 @@ data at all. Of the 200 heaviest queries on `cire-db-dev` in the week to
 
 *Measured 2026-09-10 — `bunx wrangler d1 insights cire-db-dev --time-period=7d --sort-by=writes`, and the same with `--sort-by=reads`.*
 
-Fixed in englishstventures/osn#979 and #980: the per-merge dev deploy now applies
+Fixed in englishstreetventures/osn#979 and #980: the per-merge dev deploy now applies
 migrations forward like production, the full rebuild runs nightly in
 `.github/workflows/cire-dev-db-rebuild.yml`, and the dev job supersedes queued
 runs. Budget after: one rebuild a day, 8% of the write ceiling.
@@ -414,7 +414,7 @@ account, shared by every Worker's logs and traces, and log retention rises to 7
 days. At the limit Cloudflare stops ingesting until 00:00 UTC: Workers keep
 serving, but no Worker writes a log line for the rest of that day. Lower
 `observability.traces.head_sampling_rate` first. Nothing watches this
-allowance yet — englishstventures/osn#1505.
+allowance yet — englishstreetventures/osn#1505.
 
 *Figures from Cloudflare's [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/),
 [Workers traces](https://developers.cloudflare.com/workers/observability/traces/) and
@@ -483,7 +483,7 @@ guard, auth middleware).
    confirm it wasn't disabled).
 
 > When these are done, tick them off here and note the date. Until then they are
-> open hardening items — file them in `englishstventures/osn-tracker` under
+> open hardening items — file them in `englishstreetventures/osn-tracker` under
 > `label:security` if they should be visible there.
 
 ## Related

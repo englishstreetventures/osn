@@ -173,7 +173,7 @@
     // Only the last doc block in front of a declaration is attached to it, so
     // a stack means an editor shows the reader the wrong text and whatever the
     // earlier block described has quietly lost its comment. Raised to "error"
-    // by englishstventures/osn#926, which cleared every existing site.
+    // by englishstreetventures/osn#926, which cleared every existing site.
     "house/no-stacked-doc-block": "error",
 
     // drizzle's `inArray` / `notInArray` bind one parameter per element of a
@@ -222,7 +222,7 @@
         // Four shapes that are not off-token hardcodes and have no token to
         // move to. `var()`, `calc()` and `clamp()` read a value decided at
         // runtime — cire's invite heading scale is computed from the wedding's
-        // own palette — and englishstventures/osn#1048 scopes them out by name. `env()`
+        // own palette — and englishstreetventures/osn#1048 scopes them out by name. `env()`
         // is the same thing for a device inset: `px-[max(1.5rem,env(safe-area-inset-left))]`
         // sits on the same element as an exempt `var()` gradient in
         // cire/invites' gala header, and only the function name differed.

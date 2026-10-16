@@ -664,4 +664,4 @@ Every handler runs `Effect.tapDefect` before its catch-all, so a defect is **log
 
 ## Still to land
 
-- **A guest paying in their own currency** is not offered; until it is, the four FX columns stay NULL and there is no rate to capture (see [Money](#money)). Part of englishstventures/osn#482.
+- **A guest paying in their own currency** is not offered; until it is, the four FX columns stay NULL and there is no rate to capture (see [Money](#money)). Part of englishstreetventures/osn#482.

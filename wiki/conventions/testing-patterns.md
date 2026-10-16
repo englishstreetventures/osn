@@ -523,7 +523,7 @@ What the configs depend on, and what breaks without it:
   the tests to run per mutant by name, and Vitest 5 joins a test's suite chain
   with ` > ` where the runner joins it with a space, so unpatched every mutant
   runs no tests and survives. A run reporting `Ran 0.00 tests per mutant` is
-  that failure. Bounded until englishstventures/osn#1520 lands.
+  that failure. Bounded until englishstreetventures/osn#1520 lands.
 - **Every vitest config names `@stryker-mutator/vitest-runner` in `plugins`.**
   Bun's isolated install hides the runner from Stryker's plugin discovery, which
   fails with "Cannot find TestRunner plugin".

@@ -35,7 +35,7 @@ This page captures **what we are building, why, and the staged plan**.
 Nothing here has shipped yet. Live work is in GitHub Issues:
 
 ```bash
-gh issue list --repo englishstventures/osn --state open --search "Verified Identity"
+gh issue list --repo englishstreetventures/osn --state open --search "Verified Identity"
 ```
 
 ## Why
@@ -179,8 +179,8 @@ New tables in `osn/db/src/schema/`:
 Encryption at rest for `verified_attributes.value` is required and not
 yet designed. The envelope format, and where the key is held and how it
 rotates, are open, and must be settled before the first attribute row is
-written. V-M0 (englishstventures/osn#543) builds the table; V-M1
-(englishstventures/osn#544) and V-M2 (englishstventures/osn#545) are the
+written. V-M0 (englishstreetventures/osn#543) builds the table; V-M1
+(englishstreetventures/osn#544) and V-M2 (englishstreetventures/osn#545) are the
 first milestones to write attributes into it. One rule is settled: the
 decryption key lives only in `@osn/api`, so that even direct DB access
 does not expose a raw date of birth or name.
@@ -248,7 +248,7 @@ This system creates **Special Category Personal Data** under GDPR Art.
 Hard requirements:
 
 - **DPIA** before M1 ships. Add to `[[compliance/gdpr]]` and link from
-  C-M3 in `englishstventures/osn-tracker`.
+  C-M3 in `englishstreetventures/osn-tracker`.
 - **Data map** updates: new processor (KYC vendor), new categories
   (biometric template hashes, document numbers via hash), new
   retention rule (verified_attributes default 24 months from
@@ -289,7 +289,7 @@ mDL acceptance.
 
 ## Phased plan
 
-The `Verified Identity` epics in `englishstventures/osn` carry the live work — one per
+The `Verified Identity` epics in `englishstreetventures/osn` carry the live work — one per
 milestone, each with its own sub-issues. Summary:
 
 - **V-M0 — Foundations**: vendor + DPIA + schema + SD-JWT VC issuance

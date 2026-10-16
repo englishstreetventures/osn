@@ -6,7 +6,7 @@
 ---
 
 Replace cire's per-module entitlement packs with three plan tiers per wedding
-(englishstventures/osn#1300). **Ivory** is free: the invite, events, guests,
+(englishstreetventures/osn#1300). **Ivory** is free: the invite, events, guests,
 RSVPs and import, up to 100 guests. **Gold** adds the budget, the checklist and
 the gift registry, up to 500. **Crimson** adds vendors (the CRM, the directory
 and enquiries) and every premium invite design, up to 1,000.
@@ -60,7 +60,7 @@ Ivory wedding and blank its Overview. Run the pre-flight queries in
 `wiki/shared/production-deploy.md` §5.6 first, and expire at Stripe any legacy
 session they show still pending.
 
-**Follow-up.** englishstventures/osn#1315 deletes the legacy entitlement rows
+**Follow-up.** englishstreetventures/osn#1315 deletes the legacy entitlement rows
 (in a later migration), narrows the enums, and drops the list's legacy keys, the
 capacity 402's `entitlement` field and the portal's fallback, once this release
 is live.

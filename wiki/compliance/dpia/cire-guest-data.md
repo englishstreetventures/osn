@@ -36,7 +36,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
 
 > **Label note.** This finding is labelled **C-H2 (cire dietary)** to
 > disambiguate it from the root **C-H2** (OSN account-erasure endpoint), which
-> is a separate finding in `englishstventures/osn-tracker`.
+> is a separate finding in `englishstreetventures/osn-tracker`.
 
 ## 1. Description of the processing
 
@@ -291,7 +291,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     organiser-attested variant above). **An organiser's status-only recording
     for a plus-one keeps the household's dietary answer, its consent record and
     `consent_source = 'inviter_attested'`**, and changes only the status (owner
-    decision, englishstventures/osn#1251), as it does for every guest. The
+    decision, englishstreetventures/osn#1251), as it does for every guest. The
     column then states the dietary data's consent basis, which is still the
     household's attestation, and no longer who wrote the status; who wrote it
     is `rsvps.recorded_by_osn_profile_id` and the save's `host_status_set`
@@ -459,7 +459,7 @@ household. Art. 36 prior consultation is not triggered.
 - Deactivating a family still deletes its sessions in the same commit, and the
   restore re-checks `deactivated_at` independently.
 
-**Outstanding mitigation — required, tracked as S-M2 in `englishstventures/osn-tracker`.**
+**Outstanding mitigation — required, tracked as S-M2 in `englishstreetventures/osn-tracker`.**
 There is no guest sign-out: `sessionService.revoke` exists but is wired to no
 guest-facing route, and the guest site offers no session control at all. A
 credential that auto-exercises itself needs a user-controlled way to stop it.

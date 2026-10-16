@@ -147,7 +147,7 @@ inventory read `0` on both rows two days earlier.
 
 > [!important] Do not add a fifth step deleting the old passkey rows
 > Re-checked against the credential-provenance cooldown, which ships with
-> `englishstventures/osn#952`. This sequence still works exactly as written, and it is
+> `englishstreetventures/osn#952`. This sequence still works exactly as written, and it is
 > worth being explicit about why, because the cooldown changes what the
 > credential from step 3 is allowed to do.
 >
@@ -223,7 +223,7 @@ ladder did not move.
 > `bunx wrangler secret list --env production` in each service, and read the
 > values out of `osn-prod-secrets.env`. A deploy-time preflight that fails when
 > a required secret is absent or points at an unreachable host is open as an
-> issue in `englishstventures/osn`.
+> issue in `englishstreetventures/osn`.
 
 Out-of-band, not in the repo:
 

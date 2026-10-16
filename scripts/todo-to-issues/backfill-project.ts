@@ -18,8 +18,8 @@ import { $ } from "bun";
 
 import { Throttle } from "./throttle";
 
-const OWNER = "englishstventures";
-const REPOS = ["englishstventures/osn", "englishstventures/osn-tracker"];
+const OWNER = "englishstreetventures";
+const REPOS = ["englishstreetventures/osn", "englishstreetventures/osn-tracker"];
 
 export type Run = (args: string[]) => Promise<string>;
 
