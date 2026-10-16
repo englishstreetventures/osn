@@ -45,7 +45,7 @@ Dev and production are separate Cloudflare accounts.
 
 Dev's names are new because the `dev` Environment's `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN_DEV` reach the production account: they drive the old dev tier's Wrangler deploys, and an Alchemy run that read them would reach production. `accounts.ts` lists those two as `RETIRING_DEV_CREDENTIALS`, deleted with the old dev tier, and the repository-level `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN_READONLY` (read-only, production account) as `REPOSITORY_CREDENTIALS`.
 
-Tests hold the names in place:
+Two checks enforce these names:
 
 - `shared/infra/tests/accounts.test.ts` reads every `.github/workflows/*.yml`. It fails when a workflow reads a Cloudflare credential `accounts.ts` does not classify, and when any workflow but `alchemy-state.yml` reaches the dev account.
 - `secrets:check-github` (below) fails when an Environment holds the other tier's credential (`forbiddenCredentials()`): `dev` must not hold `CLOUDFLARE_API_TOKEN`; `production` must not hold `CLOUDFLARE_API_TOKEN_DEV`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN` or `CLOUDFLARE_DEV_ACCOUNT_ID`.
@@ -58,18 +58,18 @@ Every builder takes each setting where Alchemy's default differs from today's Wr
 
 | Export | What it does | Alchemy default or behaviour it overrides |
 |---|---|---|
-| `apiWorker()`, `apiWorkerProps()` | An API Worker: entry, compatibility date and flags, custom domain (`null` detaches every one), crons, the stable `workers.dev` URL, vars, bindings, secrets and observability, all required. Version preview URLs off on production and on elsewhere. Invocation logs off unless the input turns them on. Zone routes stay unmanaged. Refuses a name used in two of vars, bindings and secrets, or one starting `ALCHEMY_` (`BindingNameClashError`), and on production an unredacted query string or native traces (`ProductionObservabilityError`). | `workers.dev` and version preview URLs on; invocation logs on when `observability` is omitted; five `ALCHEMY_*` plain-text bindings bound first, so a secret of the same name is silently dropped |
+| `apiWorker()`, `apiWorkerProps()` | An API Worker. Every setting is required: entry, compatibility date and flags, custom domain, crons, the stable `workers.dev` URL, vars, bindings, secrets and observability. A `null` domain detaches every custom domain. Version preview URLs are off on production and on elsewhere. Invocation logs are off unless the input turns them on. Zone routes stay unmanaged. It throws `BindingNameClashError` when one name appears in two of vars, bindings and secrets, or starts with `ALCHEMY_`. On production it throws `ProductionObservabilityError` when query strings are not redacted or native traces are on. | `workers.dev` and version preview URLs on; invocation logs on when `observability` is omitted; five `ALCHEMY_*` plain-text bindings bound first, so a secret of the same name is silently dropped |
 | `siteWorker()`, `siteWorkerProps()` | A static-assets Worker for a built site, with no `main`. Alchemy applies the directory's `_headers` and `_redirects`; HTML and not-found handling and the stable `workers.dev` URL are required. Version preview URLs off on production. Query strings redacted, native traces and invocation logs off, on every stage. | `workers.dev` and version preview URLs on; invocation logs on |
 | `retainedD1()`, `retainedD1Props()` | A D1 database kept on destroy: name, read replication and jurisdiction. `migrations` only once Alchemy is the database's migrator. A location hint only on a stage that creates the database; on production it throws `AdoptedLocationHintError`. | Removal policy `destroy`; a declared `primaryLocationHint` that differs from live replaces the database |
 | `retainedBucket()`, `retainedBucketProps()` | An R2 bucket kept on destroy: storage class, jurisdiction, public access, lifecycle rules, CORS and custom domains all required; `forceDestroy: false`; object locks left unmanaged. The same location-hint rule as D1. | Removal policy `destroy`; omitted lifecycle rules, CORS or custom domains are cleared; a changed location hint replaces the bucket |
 | `requireSecrets()` | Reads every secret the inventory names for a Worker's tier from `env` and returns them `Redacted`; throws `MissingSecretsError` before anything uploads ([[#Secrets]]). | An upload keeps only the secrets the stack declares and drops every other secret the Worker holds |
 | `stackOptions()` | The providers and state store every stack passes to `Alchemy.Stack`: `Cloudflare.providers()` and `Cloudflare.state()` ([[#State store]]). | — |
-| `removalFor()`, `assertRetained()` | Storage is always retained; a Worker on `dev` or `production` is retained, because deleting it deletes its secrets; an investigation stage's Workers are destroyed with it. A stack calls `assertRetained()` on every resource a long-lived stage keeps, so a lost `retain()` fails the plan rather than a destroy. | Every resource's removal policy is `destroy` |
+| `removalFor()`, `assertRetained()` | Storage is always retained; a Worker on `dev` or `production` is retained, because deleting it deletes its secrets; an investigation stage's Workers are destroyed with it. A stack calls `assertRetained()` on every resource a long-lived stage keeps, so a lost `retain()` fails the plan rather than a destroy. | Workers, D1 databases and R2 buckets default to removal policy `destroy` |
 | `parseStage()`, `tierOf()`, `isLongLivedStage()`, `physicalName()` | The stage rules ([[#Stages]]). | Alchemy's generated `${app}-${stage}-${id}` names: a long-lived resource always passes its name |
 | `TIER_ACCOUNTS`, `accountSecrets()`, `allowedCredentials()`, `forbiddenCredentials()`, `knownCredentials()` | Credential names per tier ([[#Accounts]]). | — |
 | `SECRET_INVENTORY`, `tierSecrets()`, `SHARED_SECRET_VALUES`, `DEPLOY_ENVIRONMENT` | The secret inventory ([[#Secrets]]). `DEPLOY_ENVIRONMENT` lists the names a deploy job sets itself (`CI`, `DO_NOT_TRACK` and every credential), which no Worker secret may share. | — |
 
-Storage on production is adopted, and adoption converges a resource to what is declared, so a production declaration states each setting exactly as it is live. A stage that creates storage — `dev` or an investigation stage — passes a location hint to place it where production's is; every D1 database is in `oc` ([[database-environments]]).
+Storage on production is adopted, and an adopted resource is changed to match its declaration, so a production declaration states each setting exactly as it is live. A stage that creates storage — `dev` or an investigation stage — passes a location hint to place it where production's is; every D1 database is in `oc` ([[database-environments]]).
 
 ## Stages
 
@@ -106,7 +106,7 @@ Forbidden today: `DEV_LOGIN_SECRET` on osn-api production, `RESEND_API_URL` on o
 
 Each value lives in the GitHub Environment secret **of the same name**, in the `dev` or `production` Environment. A name two Workers hold on one tier is therefore one GitHub secret, and the next Alchemy deploy gives both Workers its one value. `SHARED_SECRET_VALUES` lists each such pair on purpose, and a test fails on a shared name it does not list. Today it holds one: `INTERNAL_SERVICE_SECRET` on production, shared by osn-api and zap-api, because zap-api registers its ARC key at osn-api with it.
 
-Production values are today's live values, which the owner holds; each one with a public or stored counterpart is shown to match live before the first Alchemy deploys of osn-api and cire-api (englishstreetventures/osn#1537). Dev values are new, made for the new dev account (englishstreetventures/osn#1538).
+Production values are today's live values, which the owner holds; each one with a public or stored counterpart is shown to match live before P1, the phase that builds dev in the new account, starts (englishstreetventures/osn#1537). Dev values are new, made for the new dev account (englishstreetventures/osn#1538).
 
 Until a Worker deploys through Alchemy, `wrangler secret put` and [`.github/workflows/set-osn-api-secret.yml`](../../.github/workflows/set-osn-api-secret.yml) still set its live secrets. That Worker's first Alchemy deploy uploads the GitHub Environment's value over the live one, so **a production value changed that way must be changed in the `production` Environment too**.
 
@@ -126,7 +126,7 @@ Two read-only scripts compare the inventory with what is live. Each takes `--tie
 
 | Command | Compares | Needs | Exits |
 |---|---|---|---|
-| `bun run --cwd shared/infra secrets:check-live -- --tier <tier>` | The inventory with `wrangler secret list` on each of the tier's live Workers | `CLOUDFLARE_ACCOUNT_ID` naming the account that serves the tier's Workers — it refuses to run without one and passes it to Wrangler explicitly — and a `wrangler login` or `CLOUDFLARE_API_TOKEN` | 0 when every Worker matches; 1 on a missing, unlisted or forbidden name; 2 on a bad argument, no account id, or a Wrangler that cannot start, exits non-zero or prints output the check cannot read |
+| `bun run --cwd shared/infra secrets:check-live -- --tier <tier>` | The inventory with `wrangler secret list` on each of the tier's live Workers | `CLOUDFLARE_ACCOUNT_ID` naming the account that serves the tier's Workers — it refuses to run without one and passes it to Wrangler explicitly — and a `wrangler login` or `CLOUDFLARE_API_TOKEN` | 0 when every Worker matches; 1 on a name that is missing, not in the inventory or forbidden; 2 on a bad argument, no account id, or a Wrangler that cannot start, exits non-zero or prints output the check cannot read |
 | `bun run --cwd shared/infra secrets:check-github -- --tier <tier>` | The inventory's required names and the tier's two account credentials with the names in the tier's GitHub Environment | A `gh` login that can list Environment secrets | 0 when nothing required is missing and the Environment holds none of the other tier's credentials; 1 otherwise; 2 on a bad argument or a `gh` that cannot start or exits non-zero. A name that is neither a Worker secret nor a credential is printed but does not fail |
 
 Today the production live check exits 1 with exactly one `DIFF` line, the key englishstreetventures/osn#1532 retires; any other `DIFF` line is new drift. The dev live check, run against the old dev Workers in the production account, exits 0. Both GitHub checks exit 1: each Environment holds one Worker secret so far, and `dev` lacks the dev account's credentials.
@@ -135,7 +135,7 @@ Today the production live check exits 1 with exactly one `DIFF` line, the key en
 DIFF  zap-api production (zap-api-production) — forbidden but set: GROWTHBOOK_CLIENT_KEY
 ```
 
-*Measured 2026-10-16 — `CLOUDFLARE_ACCOUNT_ID=<production account id> bun run --cwd shared/infra secrets:check-live -- --tier production` (and `--tier dev`); `bun run --cwd shared/infra secrets:check-github -- --tier dev` (18 missing) and `--tier production` (14 missing)*
+*Measured 2026-10-16 — `env CLOUDFLARE_ACCOUNT_ID=<production account id> bun run --cwd shared/infra secrets:check-live -- --tier production` (and `--tier dev`); `bun run --cwd shared/infra secrets:check-github -- --tier dev` (18 missing; it also prints `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` as not in the inventory, which does not fail it) and `--tier production` (14 missing)*
 
 ## State store
 
@@ -152,7 +152,7 @@ The **Alchemy state store** workflow ([`.github/workflows/alchemy-state.yml`](..
 
 Neither store exists yet. The owner bootstraps production's once the production token holds Secrets Store Edit, and dev's once englishstreetventures/osn#1538 has created the dev account and its token.
 
-In CI (`CI=true`), a run against a missing or out-of-date store fails unless it passes `--yes`; `deploy --yes` deploys a missing store or upgrades an out-of-date one, which needs Secrets Store Edit. A CI run against a store at the pinned version keeps the store's URL and bearer token in memory. A run that deploys or upgrades the store writes them to `~/.alchemy/credentials/` on the runner, which GitHub deletes with the runner.
+In CI (`CI=true`), a run against a missing or out-of-date store fails unless it passes `--yes`; `deploy --yes` deploys a missing store or upgrades an out-of-date one, which needs Secrets Store Edit. A CI run against a store at the pinned version keeps the store's URL and bearer token in memory. A run that deploys or upgrades the store writes them to `~/.alchemy/credentials/` on the runner. A run that creates the store also writes the new bearer token and encryption key in plain text to `.alchemy/state/` under its working directory (`shared/infra/.alchemy/state/` in the workflow), and deletes them once it has copied that state into the new store; a run that fails between the two leaves them there. GitHub deletes both directories with the runner.
 
 No committed command prints state, because run logs on this repository are public. The guard allows `alchemy state ls` (or `list`) and refuses every other `state` subcommand, bare `alchemy state` (an explorer that reads records), `provider cloudflare state logs`, `nuke`, `drift … --repair` and `provider cloudflare teardown`, in package scripts, workflows and composite actions.
 
@@ -160,7 +160,7 @@ No committed command prints state, because run logs on this repository are publi
 
 `apiWorkerProps()`, and so `apiWorker()`, throws `ProductionObservabilityError` for a production stage whose input sets `redactQueryString: false` or turns native traces on. Production request paths carry ids and slugs, which no setting redacts. It is the rule `scripts/check-trace-redaction.ts` holds today's API Workers' Wrangler configs to while they still deploy.
 
-`siteWorker()` keeps query strings redacted and native traces off on every stage. cire-invites, the guest Worker, runs production with native traces on (`cire/invites/wrangler.jsonc`) and is not built with `apiWorker()`.
+`siteWorker()` keeps query strings redacted and native traces off on every stage. cire-invites, the guest Worker, runs production with native traces on (`cire/invites/wrangler.jsonc`), so it cannot be built with `apiWorker()`, which refuses native traces on production.
 
 ## Merging an infra change
 
@@ -174,7 +174,7 @@ Every Alchemy command runs with `DO_NOT_TRACK=1`, in package scripts and in CI. 
 - A package script's Alchemy command carries an inline `DO_NOT_TRACK=1`.
 - A workflow step's Alchemy command carries it inline, unless the step, job or workflow `env` sets `DO_NOT_TRACK: "1"`. The nearest level that sets `DO_NOT_TRACK` decides, so a step `env` that sets any other value overrides a `"1"` above it, and the command must then carry `DO_NOT_TRACK=1` inline.
 - A stack file (`*/infra/*.ts` or `*alchemy.run.ts`, tests excluded) calls no state constructor; only `shared/infra/src/stack.ts` calls `Cloudflare.state()`.
-- It fails closed: when `git ls-files` fails, it exits 1 and says nothing was checked.
+- When `git ls-files` fails, it exits 1 and says nothing was checked.
 
 CI runs it against the committed tree in the `script-tests` job of `.github/workflows/ci.yml`; its tests, `scripts/tests/check-alchemy-usage.test.ts`, run in the same job under `bun run test:scripts`.
 

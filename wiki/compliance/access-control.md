@@ -68,23 +68,24 @@ them the evidence.
 ## Worker secrets — Stripe (`cire-api-production`)
 
 Two Cloudflare Workers secrets gate the cire gift-payment surface.
-`cire-api-production` holds **neither**, so the code (PR #760, stacked
-PR #762) ships inert there; setting either on production is gated by the
-paperwork checklist in [[subprocessors]] §"Stripe Connect (cire) — the
-paperwork gate". `cire-api-dev` holds both, and a third,
-`STRIPE_PLATFORM_WEBHOOK_SECRET`, the signing secret of the platform webhook
-endpoint ([[stripe-webhooks]]). They are secrets, never `[vars]`: the API key
-can move money, and the signing secret is the only thing that stops anyone
-else's webhook body being believed.
+`cire-api-dev` holds both, and a third, `STRIPE_PLATFORM_WEBHOOK_SECRET`, the
+signing secret of the platform webhook endpoint ([[stripe-webhooks]]).
+`cire-api-production` holds **none of the three**, so the code (PR #760,
+stacked PR #762) ships inert there; setting either of the two below on
+production is gated by the paperwork checklist in [[subprocessors]]
+§"Stripe Connect (cire) — the paperwork gate". They are secrets, never
+`[vars]`: the API key can move money, and the signing secret is the only
+thing that stops anyone else's webhook body being believed.
 
-*Measured 2026-10-15 — `wrangler secret list --name cire-api-dev` (names
-only); 2026-10-16 — `secrets:check-live -- --tier production` found
-`cire-api-production` holding exactly its inventory names
-(`shared/infra/src/secrets/inventory.ts`), none of them Stripe's.*
+*Measured 2026-10-16 — `env CLOUDFLARE_ACCOUNT_ID=<production account id>
+bun run --cwd shared/infra secrets:check-live -- --tier dev` (and
+`--tier production`) reports each cire-api Worker holding exactly its names in
+`shared/infra/src/secrets/inventory.ts`: the three Stripe names on dev, none
+on production.*
 
 | Secret | What it gates | Provisioned | Rotation |
 |---|---|---|---|
-| `STRIPE_SECRET_KEY` | Unset ⇒ the organiser Connect routes are **not mounted** (no payment surface, not a broken one). The portal does **not** probe for this: the Money-gifts panel renders either way and surfaces the 404 as a toast, so an unset key is visible to a couple only when they press Connect (C-L1). Set ⇒ account creation, onboarding links, live account reads — calls that act on the platform's Stripe account. | `bunx wrangler secret put STRIPE_SECRET_KEY --env production`, then `wrangler deploy --env production` (a secret change does not cycle warm isolates). Requires Cloudflare access per the matrix above + Stripe Dashboard access to mint the key. Live key on production only; the dev tier gets a test-mode key (`sk_test_…`) or nothing. | Roll the key in the Stripe Dashboard (Developers → API keys) with an expiry window, `wrangler secret put` the new value, redeploy, let the old key expire. Immediate revocation (suspected compromise): roll with no window — the Worker 502s Stripe calls until the new value is deployed, which is the correct failure. |
+| `STRIPE_SECRET_KEY` | Unset ⇒ the organiser Connect routes are **not mounted** (no payment surface, not a broken one). The portal does **not** probe for this: the Money-gifts panel renders either way and surfaces the 404 as a toast, so an unset key is visible to a couple only when they press Connect (C-L1). Set ⇒ account creation, onboarding links, live account reads — calls that act on the platform's Stripe account. | `bunx wrangler secret put STRIPE_SECRET_KEY --env production`, then `wrangler deploy --env production` (a secret change does not cycle warm isolates). Requires Cloudflare access per the matrix above + Stripe Dashboard access to mint the key. Live key on production only; the key `cire-api-dev` holds must be a test-mode key (`sk_test_…`). | Roll the key in the Stripe Dashboard (Developers → API keys) with an expiry window, `wrangler secret put` the new value, redeploy, let the old key expire. Immediate revocation (suspected compromise): roll with no window — the Worker 502s Stripe calls until the new value is deployed, which is the correct failure. |
 | `STRIPE_WEBHOOK_SECRET` | Unset ⇒ `POST /api/stripe/webhook` **does not exist**. Nothing else authenticates that endpoint — the signature IS the authentication — so without a signing secret it must not be reachable. | Same `wrangler secret put` + redeploy path. The value comes from the Dashboard webhook endpoint (created in checklist step 6). | **Zero-downtime by design, worth writing down:** when a secret is rolled in the Dashboard with an overlap window, Stripe signs each delivery with BOTH secrets, and the verifier (`cire/api/src/services/stripe.ts`) checks every `v1` digest in the header against its one configured secret — so deliveries verify throughout, whichever value the Worker holds. Sequence: roll in the Dashboard with an overlap window → `wrangler secret put` the new value → redeploy → old secret expires. |
 
 ## Deploy credentials and secret copies
@@ -96,9 +97,9 @@ inventory, the state store and each tier's credentials are described in
 
 | Credential or copy | What it holds, and who can read it | Provisioned | Revoked or removed |
 |---|---|---|---|
-| GitHub Environment secrets, `dev` and `production` | A copy of every Worker secret value the secret inventory names, under the same name. Readable by any job that runs in that Environment. Both Environments admit only `main`, and a `production` job waits for its required reviewer. | By the owner, with `gh secret set` | `gh secret delete`, and rotate the value at its source: deleting the copy leaves the live value as it was |
-| Cloudflare CI tokens | `CLOUDFLARE_API_TOKEN` (`production` Environment) reaches the production account; the owner grants it Secrets Store Edit before bootstrapping the production state store. `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN` (`dev` Environment, englishstreetventures/osn#1538) reaches only the dev account. `CLOUDFLARE_API_TOKEN_DEV` (`dev` Environment) reaches the production account for the old dev tier's Wrangler deploys and gains nothing. Each is held only by its Environment. | By the owner in the Cloudflare dashboard, then `gh secret set` into its Environment | `CLOUDFLARE_API_TOKEN_DEV` is revoked when the old dev tier is deleted. Any token: roll it in the dashboard and set the new value |
-| Alchemy state store bearer token and encryption key (`AlchemyStateStoreToken`, `AlchemyStateStoreEncryptionKey`) | One pair per Cloudflare account, in that account's Secrets Store. Any token on the account with Workers Scripts Edit and Secrets Store Read can read the bearer token, through a temporary edge-preview Worker. | Created by the state store's bootstrap run | Only by `alchemy provider cloudflare teardown`, which no committed command runs and `scripts/check-alchemy-usage.ts` refuses |
+| GitHub Environment secrets, `dev` and `production` | Will hold a copy of every Worker secret value the secret inventory names, under the same name; today each holds one (`dev`: `DEV_LOGIN_SECRET`; `production`: `OSN_TOTP_ENCRYPTION_KEY`). Readable by any job that runs in that Environment. Both Environments admit only `main`, and a `production` job waits for its required reviewer. | By the owner, with `gh secret set` | `gh secret delete`, and rotate the value at its source: deleting the copy leaves the live value as it was |
+| Cloudflare CI tokens | `CLOUDFLARE_API_TOKEN` (`production` Environment) reaches the production account; the owner grants it Secrets Store Edit before bootstrapping the production state store. `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN` (`dev` Environment, englishstreetventures/osn#1538) reaches only the dev account. `CLOUDFLARE_API_TOKEN_DEV` (`dev` Environment) reaches the production account for the old dev tier's Wrangler deploys and gains nothing. Each of these three is held only by its Environment. `CLOUDFLARE_API_TOKEN_READONLY` is a repository-level secret, readable by any job, with read-only rights on the production account (`REPOSITORY_CREDENTIALS` in `shared/infra/src/accounts.ts`; its grants are in [[dev-environment]]). | By the owner in the Cloudflare dashboard, then `gh secret set` into its Environment, or into the repository for the read-only token | `CLOUDFLARE_API_TOKEN_DEV` is revoked when the old dev tier is deleted. Any token: roll it in the dashboard and set the new value |
+| Alchemy state store bearer token and encryption key (`AlchemyStateStoreToken`, `AlchemyStateStoreEncryptionKey`) | One pair per Cloudflare account, in that account's Secrets Store. Any token on the account with Workers Scripts Edit and Secrets Store Read can read the bearer token, through a temporary edge-preview Worker. | Created by the state store's bootstrap run; none exists yet | Only by `alchemy provider cloudflare teardown`, which no committed command runs and `scripts/check-alchemy-usage.ts` refuses |
 | Copies of every deployed Worker secret inside Alchemy state | Alchemy writes each `Redacted` prop's value into state (`src/State/StateEncoding.ts:62-85` in `alchemy@2.0.0-beta.83`). Readable by anyone who holds that account's store bearer token, so by any token on the account with Workers Scripts Edit and Secrets Store Read. None exists yet: no Worker deploys through Alchemy. | Written by each Alchemy deploy of a Worker | Only with that resource's state |
 
 ## Access lifecycle
