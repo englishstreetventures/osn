@@ -1,0 +1,233 @@
+// scripts/worker-deployments.ts runs on each side of a dev stack deploy: its
+// `snapshot` records each Worker's newest deployment before the deploy, and its
+// `compare` tells each smoke step which deployment the deploy made, or that it
+// made none. These drive it with an injected fetch standing in for the
+// Cloudflare API, and real files for the snapshot and $GITHUB_OUTPUT.
+
+import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { type Deployment, rollbackMessage } from "../smoke-check";
+import { runWorkerDeployments } from "../worker-deployments";
+
+const ACCOUNT = "0123456789abcdef0123456789abcdef";
+const TOKEN = "cf-token-for-worker-deployments-tests";
+const CREDENTIALS = { CLOUDFLARE_ACCOUNT_ID: ACCOUNT, CLOUDFLARE_API_TOKEN: TOKEN };
+
+const deploymentsUrl = (worker: string) =>
+  `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/workers/scripts/${worker}/deployments`;
+
+const deployment = (id: string, createdOn: string, message?: string): Deployment => ({
+  id,
+  created_on: createdOn,
+  versions: [{ version_id: `v-${id}`, percentage: 100 }],
+  ...(message === undefined ? {} : { annotations: { "workers/message": message } }),
+});
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+const listing = (deployments: readonly Deployment[]) =>
+  json({ success: true, errors: [], messages: [], result: { deployments } });
+const apiError = (code: number, message: string, status = 400) =>
+  json({ success: false, errors: [{ code, message }], messages: [], result: null }, status);
+const NOT_FOUND = () => apiError(10_007, "This Worker does not exist on your account.", 404);
+
+type Answer = () => Response | Error;
+
+/** Each Worker's deployments endpoint; any other URL is a test bug. */
+function fakeApi(answers: Record<string, Answer>) {
+  const calls: string[] = [];
+  const fetch = async (input: string | URL | Request) => {
+    const url = String(input instanceof Request ? input.url : input);
+    calls.push(url);
+    const answer = Object.entries(answers).find(([worker]) => url === deploymentsUrl(worker));
+    if (answer === undefined) throw new Error(`test fetched an unlisted URL: ${url}`);
+    const value = answer[1]();
+    if (value instanceof Error) throw value;
+    return value;
+  };
+  return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
+}
+
+async function withFiles<T>(body: (files: { snapshot: string; output: string }) => Promise<T>) {
+  const dir = await mkdtemp(join(tmpdir(), "worker-deployments-"));
+  try {
+    return await body({ snapshot: join(dir, "deployments.json"), output: join(dir, "output") });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function run(
+  args: readonly string[],
+  answers: Record<string, Answer>,
+  env: Record<string, string | undefined>,
+) {
+  const api = fakeApi(answers);
+  const lines: string[] = [];
+  const code = await runWorkerDeployments({
+    args,
+    env: { ...CREDENTIALS, ...env },
+    fetch: api.fetch,
+    out: (text: string) => lines.push(text),
+  });
+  return { code, calls: api.calls, output: lines.join("") };
+}
+
+const readOr = async (path: string) => (existsSync(path) ? readFile(path, "utf8") : undefined);
+
+describe("snapshot, then compare", () => {
+  test("a Worker that does not exist yet snapshots as null, and compare names the deployment the deploy made", async () => {
+    await withFiles(async ({ snapshot, output }) => {
+      const before = await run(
+        ["snapshot", snapshot, "osn_social"],
+        { "osn-social-dev": NOT_FOUND },
+        {
+          GITHUB_OUTPUT: output,
+        },
+      );
+      expect(before.code).toBe(0);
+      expect(JSON.parse((await readOr(snapshot)) ?? "")).toEqual({ osn_social: null });
+
+      const after = await run(
+        ["compare", snapshot, "osn_social"],
+        { "osn-social-dev": () => listing([deployment("dep-new", "2026-10-17T09:00:00Z")]) },
+        { GITHUB_OUTPUT: output },
+      );
+      expect(after.code).toBe(0);
+      expect(await readOr(output)).toContain("osn_social_deployment=dep-new\n");
+    });
+  });
+
+  test("compare writes every surface's line, unknown for one it cannot read, then exits 1", async () => {
+    await withFiles(async ({ snapshot, output }) => {
+      const same = deployment("dep-same", "2026-10-16T09:00:00Z");
+      await writeFile(
+        snapshot,
+        JSON.stringify({ osn_api: "dep-same", osn_social: "dep-old", musubi_landing: null }),
+      );
+      const result = await run(
+        ["compare", snapshot, "osn_api", "osn_social", "musubi_landing"],
+        {
+          "osn-api-dev": () => listing([same]),
+          "osn-social-dev": () => apiError(10_000, "Internal error", 500),
+          "musubi-landing-dev": () => listing([]),
+        },
+        { GITHUB_OUTPUT: output },
+      );
+      expect(result.code).toBe(1);
+      expect(await readOr(output)).toBe(
+        "osn_api_deployment=unchanged\nosn_social_deployment=unknown\nmusubi_landing_deployment=unknown\n",
+      );
+      expect(result.output).toContain("::error");
+    });
+  });
+});
+
+describe("snapshot", () => {
+  test.each([
+    ["Cloudflare refuses", () => apiError(10_000, "Authentication error", 403)],
+    ["Cloudflare never answers", () => new TypeError("fetch failed")],
+    [
+      "an answer whose newest id is not a deployment id",
+      () => listing([deployment("dep\nforce=true", "2026-10-16T09:00:00Z")]),
+    ],
+  ] as const)("exits 1 and writes nothing when %s", async (_, answer) => {
+    await withFiles(async ({ snapshot, output }) => {
+      const result = await run(
+        ["snapshot", snapshot, "osn_api"],
+        { "osn-api-dev": answer },
+        {
+          GITHUB_OUTPUT: output,
+        },
+      );
+      expect(result.code).toBe(1);
+      expect(await readOr(snapshot)).toBeUndefined();
+      expect(await readOr(output)).toBeUndefined();
+      expect(result.output).toContain("::error");
+    });
+  });
+
+  test("writes force=true, naming the Worker, when a newest deployment is a smoke-check rollback", async () => {
+    await withFiles(async ({ snapshot, output }) => {
+      const restored = deployment(
+        "dep-restored",
+        "2026-10-16T10:00:00Z",
+        rollbackMessage({ GITHUB_REPOSITORY: "englishstreetventures/osn", GITHUB_RUN_ID: "7" }),
+      );
+      const plain = deployment("dep-plain", "2026-10-16T09:00:00Z", "Deployed by hand");
+      const rolledBack = await run(
+        ["snapshot", snapshot, "osn_api", "osn_social"],
+        {
+          "osn-api-dev": () => listing([plain]),
+          "osn-social-dev": () => listing([plain, restored]),
+        },
+        { GITHUB_OUTPUT: output },
+      );
+      expect(rolledBack.code).toBe(0);
+      expect(await readOr(output)).toBe("force=true\n");
+      expect(rolledBack.output).toContain("osn-social-dev still serves a smoke check's rollback");
+      expect(rolledBack.output).not.toContain("osn-api-dev still serves");
+
+      await rm(output);
+      const clean = await run(
+        ["snapshot", snapshot, "osn_api", "osn_social"],
+        { "osn-api-dev": () => listing([plain]), "osn-social-dev": () => listing([plain]) },
+        { GITHUB_OUTPUT: output },
+      );
+      expect(clean.code).toBe(0);
+      expect(await readOr(output)).toBe("force=false\n");
+    });
+  });
+
+  test("never prints the account id or the token, even when Cloudflare echoes them", async () => {
+    await withFiles(async ({ snapshot, output }) => {
+      const echo = () =>
+        apiError(
+          10_000,
+          `account ${ACCOUNT} rejected token ${TOKEN} for /accounts/${ACCOUNT}`,
+          403,
+        );
+      const result = await run(
+        ["snapshot", snapshot, "osn_api"],
+        { "osn-api-dev": echo },
+        {
+          GITHUB_OUTPUT: output,
+        },
+      );
+      expect(result.code).toBe(1);
+      expect(result.output).toContain("<account>");
+      expect(result.output).not.toContain(ACCOUNT);
+      expect(result.output).not.toContain(TOKEN);
+    });
+  });
+});
+
+describe("usage", () => {
+  const SCRIPT = new URL("../worker-deployments.ts", import.meta.url).pathname;
+
+  test.each([
+    [[]],
+    [["snapshot"]],
+    [["snapshot", "deployments.json"]],
+    [["snapshot", "deployments.json", "no_such_surface"]],
+    [["compare", "deployments.json", "osn_api", "nope"]],
+    [["rollback", "deployments.json", "osn_api"]],
+  ])("%j exits 2 before any request", async (args) => {
+    await withFiles(async ({ snapshot }) => {
+      const proc = Bun.spawn(["bun", "run", SCRIPT, ...args], {
+        cwd: join(snapshot, ".."),
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { PATH: process.env.PATH ?? "", HOME: join(snapshot, ".."), ...CREDENTIALS },
+      });
+      const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+      expect(exitCode).toBe(2);
+      expect(stdout).toContain("::error::worker-deployments:");
+      expect(existsSync(join(snapshot, "..", "deployments.json"))).toBe(false);
+    });
+  });
+});

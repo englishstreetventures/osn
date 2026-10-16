@@ -3,16 +3,18 @@
  * Check a Worker straight after its deploy, and roll it back when it answers
  * wrongly.
  *
- * Runs as the step after `wrangler deploy` in every Worker job of
- * .github/workflows/deploy.yml (dev) and production-release.yml (production):
+ * Runs after every Worker deploy: in production-release.yml as the step after
+ * each production Worker's `wrangler deploy`, and in deploy.yml (dev) once per
+ * surface of a stack, after the Alchemy deploy of that stack:
  *
  *   bun run scripts/smoke-check.ts <surface> <tier>
  *
- * `wrangler deploy` reports success when the upload succeeds, not when the
- * Worker can serve: a missing secret makes osn-api answer 503 on every route
- * while its job goes green. This asks the Worker's own hosts (SMOKE_TARGETS)
- * what a working one answers, every 10 seconds for a minute, and calls the
- * deploy healthy once every probe passes in two rounds in a row.
+ * A deploy reports success when the upload succeeds, not when the Worker can
+ * serve: a missing secret makes osn-api answer 503 on every route while its
+ * job goes green. This asks the Worker's own hosts (SMOKE_TARGETS) what a
+ * working one answers, every 10 seconds for a minute, and calls the deploy
+ * healthy once every probe passes in two rounds in a row. On dev every surface
+ * is a Worker, the sites included, and each is checked.
  *
  * Two rounds, because no answer here names the version that gave it: a request
  * made the moment the deploy returns can still reach the version before it.
@@ -31,9 +33,14 @@
  * secret values back — a rotated key, a revoked sign-in secret — so when
  * Cloudflare refuses for that reason, this leaves the Worker as it is and asks a
  * person. It reads the Worker's deployments before the first probe, and rolls
- * back only while the newest of them is the version this job deployed — named
- * in the output file the deploy step's wrangler wrote — so a deploy made by
- * anything else, before or during the check, is never overwritten.
+ * back only while the newest of them is the one this job made — on production
+ * the version named in the output file the deploy step's wrangler wrote, on
+ * dev the deployment id scripts/worker-deployments.ts found after the stack
+ * deploy — so a deploy made by anything else, before or during the check, is
+ * never overwritten. On dev a Worker the stack deploy left unchanged is never
+ * rolled back, and one still serving what an earlier smoke check restored
+ * fails at once: the stack's state names code that Worker does not serve, and
+ * the next run re-uploads it with --force.
  *
  * It does not roll back when nothing answered (DNS, TLS, a timeout) or when
  * Cloudflare answered in the Worker's place (Access, a bot challenge, a 429):
@@ -50,30 +57,46 @@
  *                       api.cloudflare.com, to read the Worker's deployments
  *                       and to roll it back. Without both, a check that fails
  *                       says so and rolls nothing back.
- *   SMOKE_FORCE_FAIL    "true" adds a probe of FORCED_FAILURE_PATH, which every
- *                       Worker answers 404, so the job rolls back and goes red:
- *                       the dry run of the rollback path. Dev only.
+ *   SMOKE_FORCE_FAIL    "true" adds a probe of FORCED_FAILURE_PATH, which no
+ *                       Worker answers with the JSON it expects, so the job
+ *                       rolls back and goes red: the dry run of the rollback
+ *                       path. Dev only.
  *   CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET
  *                       a Cloudflare Access service token, sent only to a
- *                       target behind Access (the guest site's dev host).
- *                       Without both, that target's check is skipped.
+ *                       target that may sit behind Access (the dev sites), and
+ *                       only when both are set. Without them the check probes
+ *                       anyway, and Access answering fails it, rolling nothing
+ *                       back.
  *   GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT
  *                       name the run in the rollback message.
+ *   GITHUB_STEP_SUMMARY receives a line when the check fails.
+ * Production only:
  *   WRANGLER_OUTPUT_FILE_PATH
  *                       the file the deploy step's `wrangler deploy` wrote its
- *                       output to (the workflows set it on both steps). Its
+ *                       output to (the workflow sets it on both steps). Its
  *                       `deploy` entry names the version this job deployed.
  *                       Unset, as in a hand run, the newest deployment at the
  *                       first read is taken to be this job's.
- *   GITHUB_STEP_SUMMARY receives a line when the check fails.
+ * Dev only, each required:
+ *   SMOKE_ORIGIN        the https:// origin of the surface's dev host, with no
+ *                       path, query or trailing slash, from the stack job's
+ *                       dev-hosts step.
+ *   SMOKE_MARKETING_ORIGIN
+ *                       the cire marketing site's origin, which the guest
+ *                       site's `/` redirects to (cire_invites only).
+ *   SMOKE_DEPLOYMENT    what scripts/worker-deployments.ts compare found: the
+ *                       id of the deployment the stack deploy made, `unchanged`
+ *                       when it made none, or `unknown` when it could not
+ *                       read the Worker (then the check probes and never rolls
+ *                       back).
  *
- * Exit codes: 0 healthy, or skipped; 1 unhealthy; 2 a usage error, before any
- * request — nothing is rolled back.
+ * Exit codes: 0 healthy; 1 unhealthy; 2 a usage error, before any request —
+ * nothing is rolled back.
  */
 
 import { appendFileSync, readFileSync } from "node:fs";
 
-import type { SurfaceKey, Tier } from "./deploy-surfaces";
+import type { SurfaceKey } from "./deploy-surfaces";
 
 // ── what each Worker answers ────────────────────────────────────────────────
 
@@ -85,7 +108,11 @@ export type Expectation =
   /** A 3xx whose Location is on this origin. */
   | { readonly kind: "redirect"; readonly to: string }
   /** A rendered HTML page, 200 or 404. */
-  | { readonly kind: "page" };
+  | { readonly kind: "page" }
+  /** 200, an HTML page. */
+  | { readonly kind: "html" }
+  /** 200, a body that parses to a JSON object. */
+  | { readonly kind: "jsonObject" };
 
 export interface Probe {
   readonly url: string;
@@ -104,10 +131,27 @@ export interface SmokeTarget {
   readonly access?: boolean;
 }
 
-export type WorkerSurface = Extract<
-  SurfaceKey,
-  "cire_api" | "cire_invites" | "osn_api" | "zap_api"
->;
+/** The origins a dev target's probes are built from, as the stack job passes them. */
+export interface DevOrigins {
+  readonly origin: string;
+  readonly marketing?: string;
+}
+
+/** A dev Worker, which the stack deploys on a host the dev-hosts step derives. */
+export interface DevSmokeTarget {
+  /** The Worker's dev script name, which a rollback acts on. */
+  readonly worker: string;
+  /** A browser host, which may sit behind Cloudflare Access; never an API host. */
+  readonly access: boolean;
+  readonly probes: (origins: DevOrigins) => readonly Probe[];
+  /** The probes need SMOKE_MARKETING_ORIGIN as well as SMOKE_ORIGIN. */
+  readonly needsMarketing: boolean;
+}
+
+interface SmokeTargets {
+  readonly dev?: DevSmokeTarget;
+  readonly production?: SmokeTarget;
+}
 
 const health = (origin: string): Probe => ({
   url: `${origin}/health`,
@@ -137,11 +181,26 @@ const guestSite = (origin: string, marketing: string): readonly Probe[] => [
   { url: `${origin}/smoke-check-no-such-wedding`, expects: { kind: "page" } },
 ];
 
+/** A page a site Worker serves from its assets. */
+const sitePage = (origin: string, path: string): Probe => ({
+  url: `${origin}${path}`,
+  expects: { kind: "html" },
+});
+
+/** The marketing origin; runSmokeCheck refuses a guest-site check without one. */
+function marketingOf(origins: DevOrigins): string {
+  if (origins.marketing === undefined)
+    throw new Error("the guest site's probes need its marketing origin");
+  return origins.marketing;
+}
+
 /**
- * Hosts come from each Worker's route config (wrangler.toml, wrangler.jsonc,
- * and deploy.yml's retarget of the guest site's dev Worker), Worker names from
- * the same files, and the marketing origins from the jobs' PUBLIC_MARKETING_URL.
- * scripts/tests/smoke-targets.test.ts holds them equal.
+ * Production hosts come from each Worker's route config (wrangler.toml,
+ * wrangler.jsonc), Worker names from the same files, and the marketing origin
+ * from the job's PUBLIC_MARKETING_URL; scripts/tests/smoke-targets.test.ts
+ * holds them equal. A dev target names no host: the stack job passes the
+ * origin its dev-hosts step derives (SMOKE_ORIGIN). Its Worker is the dev
+ * script name the stack declares.
  */
 export const SMOKE_TARGETS = {
   cire_api: {
@@ -153,9 +212,9 @@ export const SMOKE_TARGETS = {
     },
     dev: {
       worker: "cire-api-dev",
-      cwd: "cire/api",
-      wrangler: ["--env", "dev"],
-      probes: [cireSession("https://api.dev.cireweddings.com")],
+      access: false,
+      probes: ({ origin }) => [cireSession(origin)],
+      needsMarketing: false,
     },
   },
   cire_invites: {
@@ -167,10 +226,9 @@ export const SMOKE_TARGETS = {
     },
     dev: {
       worker: "cire-invites-dev",
-      cwd: "cire/invites",
-      wrangler: ["--config", "dist/server/wrangler.json"],
-      probes: guestSite("https://invite.dev.cireweddings.com", "https://dev.cireweddings.com"),
       access: true,
+      probes: (origins) => guestSite(origins.origin, marketingOf(origins)),
+      needsMarketing: true,
     },
   },
   osn_api: {
@@ -182,9 +240,9 @@ export const SMOKE_TARGETS = {
     },
     dev: {
       worker: "osn-api-dev",
-      cwd: "osn/api",
-      wrangler: ["--env", "dev"],
-      probes: [health("https://id.dev.musubi.social"), jwks("https://id.dev.musubi.social")],
+      access: false,
+      probes: ({ origin }) => [health(origin), jwks(origin)],
+      needsMarketing: false,
     },
   },
   zap_api: {
@@ -194,17 +252,80 @@ export const SMOKE_TARGETS = {
       wrangler: ["--env", "production"],
       probes: [health("https://zap.cireweddings.com")],
     },
+    dev: {
+      worker: "zap-api-dev",
+      access: false,
+      probes: ({ origin }) => [health(origin)],
+      needsMarketing: false,
+    },
   },
-} as const satisfies Record<
-  WorkerSurface,
-  { readonly dev?: SmokeTarget; readonly production: SmokeTarget }
->;
+  cire_host: {
+    dev: {
+      worker: "cire-host-dev",
+      access: true,
+      probes: ({ origin }) => [sitePage(origin, "/")],
+      needsMarketing: false,
+    },
+  },
+  cire_vendor: {
+    dev: {
+      worker: "cire-vendor-dev",
+      access: true,
+      probes: ({ origin }) => [sitePage(origin, "/")],
+      needsMarketing: false,
+    },
+  },
+  cire_landing: {
+    dev: {
+      worker: "cire-landing-dev",
+      access: true,
+      probes: ({ origin }) => [sitePage(origin, "/")],
+      needsMarketing: false,
+    },
+  },
+  osn_social: {
+    dev: {
+      worker: "osn-social-dev",
+      access: true,
+      // A path no route names gets the single-page fallback: the app's shell.
+      probes: ({ origin }) => [sitePage(origin, "/"), sitePage(origin, "/smoke-check-deep-link")],
+      needsMarketing: false,
+    },
+  },
+  musubi_landing: {
+    dev: {
+      worker: "musubi-landing-dev",
+      access: true,
+      probes: ({ origin }) => [sitePage(origin, "/")],
+      needsMarketing: false,
+    },
+  },
+  pulse_landing: {
+    dev: {
+      worker: "pulse-landing-dev",
+      access: true,
+      // /api/geo is the Worker's own code, not an asset.
+      probes: ({ origin }) => [
+        sitePage(origin, "/"),
+        { url: `${origin}/api/geo`, expects: { kind: "jsonObject" } },
+      ],
+      needsMarketing: false,
+    },
+  },
+} as const satisfies Record<SurfaceKey, SmokeTargets>;
 
-/** The target for a surface on a tier, or undefined when it has no Worker there. */
-export function smokeTarget(surface: WorkerSurface, tier: Tier): SmokeTarget | undefined {
-  const tiers: { readonly dev?: SmokeTarget; readonly production: SmokeTarget } =
-    SMOKE_TARGETS[surface];
-  return tiers[tier];
+export type WorkerSurface = keyof typeof SMOKE_TARGETS;
+
+/** The production target for a surface, or undefined when production deploys no Worker for it. */
+export function productionTarget(surface: SurfaceKey): SmokeTarget | undefined {
+  const tiers: SmokeTargets = SMOKE_TARGETS[surface];
+  return tiers.production;
+}
+
+/** The dev target for a surface, or undefined when dev deploys no Worker for it. */
+export function devTarget(surface: SurfaceKey): DevSmokeTarget | undefined {
+  const tiers: SmokeTargets = SMOKE_TARGETS[surface];
+  return tiers.dev;
 }
 
 /** A path no Worker serves: the dry run's probe. */
@@ -255,6 +376,16 @@ function scalarFields(body: string): ScalarFields {
     );
   } catch {
     return new Map();
+  }
+}
+
+/** Whether the body parses to a JSON object (not an array, not null). */
+function isJsonObject(body: string): boolean {
+  try {
+    const parsed = JSON.parse(body) as object | null;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
+  } catch {
+    return false;
   }
 }
 
@@ -357,6 +488,17 @@ export function judge(probe: Probe, response: Response, body: string, access: bo
             reason: `answered ${status} ${oneLine(type, 80) || "with no content type"}, expected an HTML page, 200 or 404`,
           };
     }
+    case "html": {
+      const type = response.headers.get("content-type") ?? "";
+      return status === 200 && type.startsWith("text/html")
+        ? PASS
+        : {
+            kind: "wrong",
+            reason: `answered ${status} ${oneLine(type, 80) || "with no content type"}, expected a 200 HTML page`,
+          };
+    }
+    case "jsonObject":
+      return status === 200 && isJsonObject(body) ? PASS : wrong("200 with a JSON object");
   }
 }
 
@@ -403,20 +545,37 @@ export interface Deployment {
   readonly id: string;
   readonly created_on: string;
   readonly versions: readonly { readonly version_id: string; readonly percentage: number }[];
+  /** `workers/message` is the note a deploy or a rollback was made with. */
+  readonly annotations?: { readonly "workers/message"?: string };
 }
 
-type ApiAnswer<T> =
+/** The start of the note a smoke-check rollback leaves on the deployment it makes. */
+export const ROLLBACK_MESSAGE_PREFIX = "Smoke check failed";
+
+/** Whether a deployment is a smoke check's rollback, by the note rollbackMessage writes. */
+export function isSmokeRollback(deployment: Deployment): boolean {
+  return deployment.annotations?.["workers/message"]?.startsWith(ROLLBACK_MESSAGE_PREFIX) === true;
+}
+
+/**
+ * What a deployment id looks like (Cloudflare's are UUIDs). Anything else in
+ * SMOKE_DEPLOYMENT, or read back from the API, is refused rather than compared
+ * or written to $GITHUB_OUTPUT.
+ */
+export const DEPLOYMENT_ID = /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/;
+
+export type ApiAnswer<T> =
   | { readonly ok: true; readonly result: T }
   | { readonly ok: false; readonly codes: readonly number[]; readonly reason: string };
 
-interface Cloudflare {
+export interface Cloudflare {
   readonly fetch: typeof fetch;
   readonly token: string;
   readonly account: string;
 }
 
 /** The job's Cloudflare credentials, or why there are none. */
-function cloudflareCredentials(
+export function cloudflareCredentials(
   env: Readonly<Record<string, string | undefined>>,
   fetcher: typeof fetch,
 ): Cloudflare | string {
@@ -470,7 +629,7 @@ async function deploymentsApi<T>(
 }
 
 /** A Worker's deployments, newest first, as `wrangler rollback` orders them. */
-async function readDeployments(
+export async function readDeployments(
   api: Cloudflare,
   worker: string,
 ): Promise<ApiAnswer<readonly Deployment[]>> {
@@ -553,6 +712,51 @@ export function restorePlan(
     : { ok: true, newest: newest.id, version: before.version_id };
 }
 
+/**
+ * What a rollback on dev would restore, read before the first probe, judged by
+ * the deployment the stack deploy made (SMOKE_DEPLOYMENT): never a Worker the
+ * deploy left unchanged or could not read, never once another deployment has
+ * replaced this run's, and otherwise the version that served at 100% in the
+ * newest deployment before it.
+ */
+export function devRestorePlan(
+  newestFirst: readonly Deployment[],
+  deployment: string,
+  worker: string,
+): RestorePlan {
+  if (deployment === "unchanged") {
+    return { ok: false, refused: true, reason: `this run deployed nothing to ${worker}` };
+  }
+  if (deployment === "unknown") {
+    return {
+      ok: false,
+      refused: true,
+      reason: `the deployment this run made to ${worker} could not be read, so what to restore is not known`,
+    };
+  }
+  const [newest, ...earlier] = newestFirst;
+  if (newest === undefined) {
+    return { ok: false, refused: false, reason: "the Worker has no deployments" };
+  }
+  if (newest.id !== deployment) {
+    return {
+      ok: false,
+      refused: true,
+      reason: `${worker} was deployed again since this run deployed ${deployment} (its newest deployment is ${newest.id})`,
+    };
+  }
+  const before = earlier
+    .map((d) => d.versions.find((v) => v.percentage === 100))
+    .find((version) => version !== undefined);
+  return before === undefined
+    ? {
+        ok: false,
+        refused: false,
+        reason: "no earlier version served all traffic — a first deploy has none",
+      }
+    : { ok: true, newest: newest.id, version: before.version_id };
+}
+
 type Rollback =
   | { readonly kind: "done"; readonly version: string }
   /** Cloudflare or this script declined; the Worker is as the check found it. */
@@ -607,10 +811,12 @@ const MESSAGE_LIMIT = 120;
 
 export function rollbackMessage(env: Readonly<Record<string, string | undefined>>): string {
   const { GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT } = env;
-  if (!GITHUB_REPOSITORY || !GITHUB_RUN_ID) return "Smoke check failed outside GitHub Actions";
+  if (!GITHUB_REPOSITORY || !GITHUB_RUN_ID) {
+    return `${ROLLBACK_MESSAGE_PREFIX} outside GitHub Actions`;
+  }
   const server = GITHUB_SERVER_URL || "https://github.com";
   const attempt = GITHUB_RUN_ATTEMPT ? `/attempts/${GITHUB_RUN_ATTEMPT}` : "";
-  return `Smoke check failed: ${server}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}${attempt}`.slice(
+  return `${ROLLBACK_MESSAGE_PREFIX}: ${server}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}${attempt}`.slice(
     0,
     MESSAGE_LIMIT,
   );
@@ -645,6 +851,23 @@ export interface SmokeCheckInput {
 const isWorkerSurface = (value: string): value is WorkerSurface =>
   Object.hasOwn(SMOKE_TARGETS, value);
 
+/** An https:// origin exactly: no path, query, fragment, credentials or trailing slash. */
+function isHttpsOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.origin === value;
+  } catch {
+    return false;
+  }
+}
+
+/** What the run checks, once the arguments and the environment are read. */
+interface Checked {
+  readonly worker: string;
+  readonly probes: readonly Probe[];
+  readonly access: boolean;
+}
+
 type Round = readonly Outcome[];
 
 export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
@@ -658,40 +881,85 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   const [surface = "", tier = ""] = input.args;
   if (!isWorkerSurface(surface)) {
     return usage(
-      `'${surface}' is not a Worker surface; use one of ${Object.keys(SMOKE_TARGETS).join(", ")}`,
+      `'${surface}' is not a surface; use one of ${Object.keys(SMOKE_TARGETS).join(", ")}`,
     );
   }
   if (tier !== "dev" && tier !== "production")
     return usage(`tier must be dev or production, not '${tier}'`);
-  const target = smokeTarget(surface, tier);
-  if (target === undefined) return usage(`${surface} has no ${tier} Worker`);
 
   const force = env.SMOKE_FORCE_FAIL ?? "";
   if (force !== "" && force !== "true" && force !== "false") {
     return usage(`SMOKE_FORCE_FAIL must be true or false, not '${force}'`);
   }
   const forced = force === "true";
-  if (forced && tier === "production") {
-    return usage("SMOKE_FORCE_FAIL is for dev; the dry run never rolls production back");
+
+  // The origins on dev, and the deployment the stack deploy made, are the
+  // stack job's to pass; a check guessing either would judge the wrong host or
+  // roll back the wrong deployment.
+  const origin = (name: string): string | undefined => {
+    const value = env[name] ?? "";
+    return isHttpsOrigin(value) ? value : undefined;
+  };
+  const badOrigin = (name: string): number =>
+    usage(
+      env[name] === undefined || env[name] === ""
+        ? `${name} is not set: the stack job passes each dev check its origin`
+        : `${name} must be an https:// origin with no path, query or trailing slash, not '${oneLine(env[name] ?? "", 100)}'`,
+    );
+
+  let checked: Checked;
+  let deployment: string | undefined;
+  if (tier === "production") {
+    const target = productionTarget(surface);
+    if (target === undefined) return usage(`${surface} has no production Worker`);
+    if (forced) {
+      return usage("SMOKE_FORCE_FAIL is for dev; the dry run never rolls production back");
+    }
+    checked = { worker: target.worker, probes: target.probes, access: target.access === true };
+  } else {
+    const target = devTarget(surface);
+    if (target === undefined) return usage(`${surface} has no dev Worker`);
+    const devOrigin = origin("SMOKE_ORIGIN");
+    if (devOrigin === undefined) return badOrigin("SMOKE_ORIGIN");
+    const marketing = target.needsMarketing ? origin("SMOKE_MARKETING_ORIGIN") : undefined;
+    if (target.needsMarketing && marketing === undefined)
+      return badOrigin("SMOKE_MARKETING_ORIGIN");
+    deployment = env.SMOKE_DEPLOYMENT ?? "";
+    if (!DEPLOYMENT_ID.test(deployment)) {
+      return usage(
+        `SMOKE_DEPLOYMENT must be the deployment id worker-deployments.ts compare wrote, 'unchanged' or 'unknown', not '${oneLine(deployment, 100)}'`,
+      );
+    }
+    checked = {
+      worker: target.worker,
+      probes: target.probes(
+        marketing === undefined ? { origin: devOrigin } : { origin: devOrigin, marketing },
+      ),
+      access: target.access,
+    };
   }
 
   const label = `${surface} (${tier})`;
-  const headers: Record<string, string> = {};
-  if (target.access) {
-    const id = env.CF_ACCESS_CLIENT_ID ?? "";
-    const secret = env.CF_ACCESS_CLIENT_SECRET ?? "";
-    if (id !== "" && secret !== "") {
-      headers["cf-access-client-id"] = id;
-      headers["cf-access-client-secret"] = secret;
-    } else if (!forced) {
-      out(
-        annotation(
-          "warning",
-          `Smoke check skipped for ${label}: its host is behind Cloudflare Access and CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET are not both set on this Environment.`,
-        ),
-      );
-      return 0;
+  const summary = (line: string) => {
+    if (env.GITHUB_STEP_SUMMARY) {
+      appendFileSync(env.GITHUB_STEP_SUMMARY, `- **${label}**: ${line}\n`);
     }
+  };
+  const accessId = env.CF_ACCESS_CLIENT_ID ?? "";
+  const accessSecret = env.CF_ACCESS_CLIENT_SECRET ?? "";
+  const accessToken = accessId !== "" && accessSecret !== "";
+  const headers: Record<string, string> = {};
+  if (checked.access && accessToken) {
+    headers["cf-access-client-id"] = accessId;
+    headers["cf-access-client-secret"] = accessSecret;
+  }
+  if (deployment === "unknown") {
+    out(
+      annotation(
+        "warning",
+        `${label}: the deployment this run made to ${checked.worker} could not be read, so the check probes it but rolls nothing back.`,
+      ),
+    );
   }
 
   // Read before the first probe, so a rollback restores what served before
@@ -699,38 +967,57 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   const api = cloudflareCredentials(env, input.fetch);
   let plan: RestorePlan | undefined;
   if (typeof api !== "string") {
-    const output = env.WRANGLER_OUTPUT_FILE_PATH ?? "";
+    const output = deployment === undefined ? (env.WRANGLER_OUTPUT_FILE_PATH ?? "") : "";
     const deployed = output === "" ? undefined : readDeployedVersion(output);
     if (typeof deployed === "object") {
       plan = { ok: false, refused: false, reason: deployed.error };
     } else {
-      const deployments = await readDeployments(api, target.worker);
-      plan = deployments.ok
-        ? restorePlan(deployments.result, deployed)
-        : {
-            ok: false,
-            refused: false,
-            reason: `reading the deployments before the check: ${deployments.reason}`,
-          };
+      const deployments = await readDeployments(api, checked.worker);
+      const [newest] = deployments.ok ? deployments.result : [];
+      if (deployment === "unchanged" && newest !== undefined && isSmokeRollback(newest)) {
+        out(
+          annotation(
+            "error",
+            `${label}: an earlier smoke check restored ${checked.worker}, and this run deployed nothing over it, so it does not serve what this commit declares. The next run sees that rollback and re-uploads the Worker with --force; dispatch Deploy to run it now.`,
+            "Smoke check failed",
+          ),
+        );
+        summary(
+          "an earlier smoke check's rollback still serves, and this run deployed nothing over it; not probed.",
+        );
+        return 1;
+      }
+      if (!deployments.ok) {
+        plan = {
+          ok: false,
+          refused: false,
+          reason: `reading the deployments before the check: ${deployments.reason}`,
+        };
+      } else {
+        plan =
+          deployment === undefined
+            ? restorePlan(deployments.result, deployed)
+            : devRestorePlan(deployments.result, deployment, checked.worker);
+      }
     }
   }
 
   const probes: readonly Probe[] = forced
     ? [
-        ...target.probes,
+        ...checked.probes,
         {
-          url: new URL(FORCED_FAILURE_PATH, target.probes[0]?.url).href,
+          url: new URL(FORCED_FAILURE_PATH, checked.probes[0]?.url).href,
           expects: { kind: "json", fields: { status: "ok" } },
         },
       ]
-    : target.probes;
+    : checked.probes;
   const ask = (): Promise<Round> =>
     Promise.all(
       probes.map((probe) =>
         probeOnce(probe, {
           fetch: input.fetch,
           headers,
-          access: target.access === true,
+          access: checked.access,
           timeoutMs: TIMING.requestMs,
         }),
       ),
@@ -770,11 +1057,17 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   for (const { probe, outcome } of failures) {
     out(annotation("error", `${probe.url}: ${outcome.reason}`));
   }
-  const summary = (line: string) => {
-    if (env.GITHUB_STEP_SUMMARY) {
-      appendFileSync(env.GITHUB_STEP_SUMMARY, `- **${label}**: ${line}\n`);
-    }
-  };
+  if (checked.access && failures.some(({ outcome }) => outcome.kind === "blocked")) {
+    out(
+      annotation(
+        "error",
+        accessToken
+          ? `${label}: Cloudflare answered in the Worker's place. Check that CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET on this Environment hold a service token the Access application allows.`
+          : `${label}: Cloudflare answered in the Worker's place, and CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET are not both set on this Environment. A host behind Cloudflare Access needs that service token for its check.`,
+        "Cloudflare Access",
+      ),
+    );
+  }
 
   if (!failures.some(({ outcome }) => outcome.kind === "wrong")) {
     out(
@@ -795,14 +1088,19 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
       "Smoke check failed",
     ),
   );
-  const rollback = await rollBack(api, target.worker, plan, rollbackMessage(env));
+  const rollback = await rollBack(api, checked.worker, plan, rollbackMessage(env));
   // What the Worker runs now is not known here — a request that timed out may
   // still have landed — so the person is told what to check, and what served
-  // before this deploy when that is known.
+  // before this deploy when that is known. On dev a rollback by hand leaves the
+  // stack's state naming code the Worker does not serve, which no later run
+  // would see, so only production is told how to make one.
+  const lookFirst = `Check what ${checked.worker} serves (its Deployments tab) before acting.`;
   const byHand =
-    plan?.ok === true
-      ? `Check what ${target.worker} serves (its Deployments tab) before acting. The version that served before this deploy is ${plan.version}; to restore it by hand, run \`bunx wrangler rollback ${plan.version}\` with the Worker's selector.`
-      : `Check what ${target.worker} serves (its Deployments tab) before acting.`;
+    plan?.ok !== true
+      ? lookFirst
+      : tier === "production"
+        ? `${lookFirst} The version that served before this deploy is ${plan.version}; to restore it by hand, run \`bunx wrangler rollback ${plan.version}\` with the Worker's selector.`
+        : `${lookFirst} The version that served before this deploy is ${plan.version}.`;
   if (rollback.kind === "refused") {
     out(annotation("error", `Not rolled back: ${rollback.reason}. ${byHand}`, "Rollback refused"));
     summary(`smoke check failed; rollback refused: ${rollback.reason}.`);
@@ -819,7 +1117,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   await input.sleep(TIMING.intervalMs);
   const after = await ask();
   // The dry run's probe fails on every version; leave it out of the verdict.
-  const restored = after.slice(0, target.probes.length);
+  const restored = after.slice(0, checked.probes.length);
   if (passed(restored)) {
     out(
       annotation(

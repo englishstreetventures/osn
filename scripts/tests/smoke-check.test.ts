@@ -11,22 +11,24 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { isSurfaceKey } from "../deploy-surfaces";
 import {
   annotation,
   type Deployment,
   deployedVersion,
+  devRestorePlan,
+  devTarget,
   FORCED_FAILURE_PATH,
   judge,
   type Outcome,
   probeOnce,
   type Probe,
+  productionTarget,
   restorePlan,
   rollbackMessage,
   runSmokeCheck,
   SECRETS_CHANGED,
   SMOKE_TARGETS,
-  smokeTarget,
-  type WorkerSurface,
 } from "../smoke-check";
 
 // ── fixtures ────────────────────────────────────────────────────────────────
@@ -159,10 +161,25 @@ const RUN_ENV = {
 
 const workerOf = (args: readonly string[]) => {
   const [surface, tier] = args;
-  if (surface === undefined || !(surface in SMOKE_TARGETS)) return undefined;
-  if (tier !== "dev" && tier !== "production") return undefined;
-  return smokeTarget(surface as WorkerSurface, tier)?.worker;
+  if (surface === undefined || !isSurfaceKey(surface)) return undefined;
+  if (tier === "dev") return devTarget(surface)?.worker;
+  return tier === "production" ? productionTarget(surface)?.worker : undefined;
 };
+
+// Dev hosts come from the stack job's dev-hosts step, never from this script.
+const CIRE_API_DEV = "https://api.cire.example.test";
+const INVITES_DEV = "https://invite.cire.example.test";
+const CIRE_LANDING_DEV = "https://cire.example.test";
+const OSN_API_DEV = "https://id.musubi.example.test";
+
+/** The env a stack job's smoke step passes: its origin and the deployment its deploy made. */
+const devEnv = (origin: string, extra: Record<string, string | undefined> = {}) => ({
+  SMOKE_ORIGIN: origin,
+  SMOKE_DEPLOYMENT: "dep-this-job",
+  ...extra,
+});
+const INVITES_ENV = (extra: Record<string, string | undefined> = {}) =>
+  devEnv(INVITES_DEV, { SMOKE_MARKETING_ORIGIN: CIRE_LANDING_DEV, ...extra });
 
 async function smoke(
   args: string[],
@@ -296,6 +313,25 @@ describe("judge", () => {
     expect(reasonOf(await verdict(page, bare))).toContain("with no content type");
   });
 
+  test("an html probe wants a 200 HTML page: a 404 page is wrong", async () => {
+    const page = probe(`${CIRE_LANDING_DEV}/`, { kind: "html" });
+    expect(await verdict(page, html(200))).toEqual({ kind: "pass" });
+    const missing = await verdict(page, html(404));
+    expect(missing.kind).toBe("wrong");
+    expect(reasonOf(missing)).toContain("404");
+    expect((await verdict(page, json({ ok: true }))).kind).toBe("wrong");
+  });
+
+  test("a jsonObject probe wants a 200 whose body is a JSON object: any other 200 is wrong", async () => {
+    const geo = probe("https://pulse.example.test/api/geo", { kind: "jsonObject" });
+    expect(await verdict(geo, json({ country: "AU" }))).toEqual({ kind: "pass" });
+    expect(await verdict(geo, json({}))).toEqual({ kind: "pass" });
+    expect((await verdict(geo, html(200))).kind).toBe("wrong");
+    expect((await verdict(geo, json([{ country: "AU" }]))).kind).toBe("wrong");
+    expect((await verdict(geo, json(null))).kind).toBe("wrong");
+    expect((await verdict(geo, json({ country: "AU" }, 500))).kind).toBe("wrong");
+  });
+
   test("Cloudflare Access answering is blocked, not wrong, on any host", async () => {
     const login = redirect(
       "https://wispy-sun-215a.cloudflareaccess.com/cdn-cgi/access/login/invite.dev.cireweddings.com?kid=1&meta=secretish",
@@ -427,6 +463,21 @@ describe("restorePlan", () => {
   });
 });
 
+describe("devRestorePlan", () => {
+  test("restores the newest version that served all traffic before the deployment this run made", () => {
+    const history = [
+      deployment("d3", "2026-10-16T09:00:00Z", "v3"),
+      deployment("d2", "2026-10-15T09:00:00Z", "v2", 50),
+      deployment("d1", "2026-10-14T09:00:00Z", "v1"),
+    ];
+    expect(devRestorePlan(history, "d3", "osn-api-dev")).toEqual({
+      ok: true,
+      newest: "d3",
+      version: "v1",
+    });
+  });
+});
+
 describe("deployedVersion", () => {
   test("reads the last deploy entry of wrangler's output file", () => {
     const ndjson = [
@@ -538,11 +589,14 @@ describe("a broken deploy", () => {
   });
 
   test("rolls back the dev Worker on dev, and the guest site's own Worker", async () => {
-    const dev = await smoke(["cire_api", "dev"], {
-      "https://api.dev.cireweddings.com/api/auth/session": json({ error: "Not found" }, 404),
-    });
+    const dev = await smoke(
+      ["cire_api", "dev"],
+      { [`${CIRE_API_DEV}/api/auth/session`]: json({ error: "Not found" }, 404) },
+      { env: devEnv(CIRE_API_DEV) },
+    );
     expect(dev.code).toBe(1);
     expect(dev.posts).toHaveLength(1);
+    expect(dev.posts[0]?.body).toMatchObject({ versions: [{ version_id: "v-before" }] });
     expect(dev.apiCalls.every((c) => c.url === deploymentsUrl("cire-api-dev"))).toBe(true);
 
     const invites = await smoke(["cire_invites", "production"], {
@@ -820,9 +874,8 @@ describe("the step summary", () => {
     expect(text).toBe(`${label}${line}\n`);
   });
 
-  test("a healthy run and a skipped one write nothing", async () => {
+  test("a healthy run writes nothing", async () => {
     expect((await summaryOf(OSN_PROD)).text).toBeUndefined();
-    expect((await summaryOf({}, {}, ["cire_invites", "dev"])).text).toBeUndefined();
   });
 });
 
@@ -864,10 +917,10 @@ describe("a failure the Worker did not cause", () => {
     const result = await smoke(
       ["cire_invites", "dev"],
       {
-        "https://invite.dev.cireweddings.com/": login,
-        "https://invite.dev.cireweddings.com/smoke-check-no-such-wedding": login,
+        [`${INVITES_DEV}/`]: login,
+        [`${INVITES_DEV}/smoke-check-no-such-wedding`]: login,
       },
-      { env: { CF_ACCESS_CLIENT_ID: "id.access", CF_ACCESS_CLIENT_SECRET: "s3cret" } },
+      { env: INVITES_ENV({ CF_ACCESS_CLIENT_ID: "id.access", CF_ACCESS_CLIENT_SECRET: "s3cret" }) },
     );
     expect(result.code).toBe(1);
     expect(result.posts).toEqual([]);
@@ -903,36 +956,48 @@ describe("a failure the Worker did not cause", () => {
   });
 });
 
-describe("the guest site's dev host sits behind Cloudflare Access", () => {
+describe("a dev site behind Cloudflare Access", () => {
   const TOKEN_ENV = { CF_ACCESS_CLIENT_ID: "id.access", CF_ACCESS_CLIENT_SECRET: "s3cret" };
-
-  test("with no service token the check is skipped, with a warning, and asks nothing", async () => {
-    const result = await smoke(["cire_invites", "dev"], {});
-    expect(result.code).toBe(0);
-    expect(result.calls).toEqual([]);
-    expect(result.apiCalls).toEqual([]);
-    expect(result.output).toContain("::warning");
-    expect(result.output).toContain("CF_ACCESS_CLIENT_ID");
-  });
+  const login = () =>
+    redirect("https://wispy-sun-215a.cloudflareaccess.com/cdn-cgi/access/login/x");
 
   test.each([
+    ["no service token", {}],
     ["only the ID", { CF_ACCESS_CLIENT_ID: "id.access" }],
     ["only the secret", { CF_ACCESS_CLIENT_SECRET: "s3cret" }],
-  ])("with %s the check is skipped too", async (_, env) => {
-    const result = await smoke(["cire_invites", "dev"], {}, { env });
-    expect(result.code).toBe(0);
-    expect(result.calls).toEqual([]);
-    expect(result.output).toContain("::warning::Smoke check skipped for cire_invites (dev)");
-  });
+  ])(
+    "with %s it probes without the token, and Access answering fails the step without a rollback",
+    async (_, env) => {
+      const result = await smoke(
+        ["cire_invites", "dev"],
+        {
+          [`${INVITES_DEV}/`]: login,
+          [`${INVITES_DEV}/smoke-check-no-such-wedding`]: login,
+        },
+        { env: INVITES_ENV(env) },
+      );
+      expect(result.code).toBe(1);
+      expect(result.calls.length).toBeGreaterThan(0);
+      for (const call of result.calls) {
+        const headers = new Headers(call.init?.headers);
+        expect(headers.has("cf-access-client-id")).toBe(false);
+        expect(headers.has("cf-access-client-secret")).toBe(false);
+      }
+      expect(result.posts).toEqual([]);
+      expect(result.output).toContain("CF_ACCESS_CLIENT_ID");
+      expect(result.output).toContain("CF_ACCESS_CLIENT_SECRET");
+      expect(result.output).not.toContain("s3cret");
+    },
+  );
 
   test("with a service token every probe carries it, and a healthy Worker passes", async () => {
     const result = await smoke(
       ["cire_invites", "dev"],
       {
-        "https://invite.dev.cireweddings.com/": redirect("https://dev.cireweddings.com/"),
-        "https://invite.dev.cireweddings.com/smoke-check-no-such-wedding": html(404),
+        [`${INVITES_DEV}/`]: redirect(`${CIRE_LANDING_DEV}/`),
+        [`${INVITES_DEV}/smoke-check-no-such-wedding`]: html(404),
       },
-      { env: TOKEN_ENV },
+      { env: INVITES_ENV(TOKEN_ENV) },
     );
     expect(result.code).toBe(0);
     for (const call of result.calls) {
@@ -953,10 +1018,10 @@ describe("the guest site's dev host sits behind Cloudflare Access", () => {
       const result = await smoke(
         ["cire_invites", "dev"],
         {
-          "https://invite.dev.cireweddings.com/": refused,
-          "https://invite.dev.cireweddings.com/smoke-check-no-such-wedding": refused,
+          [`${INVITES_DEV}/`]: refused,
+          [`${INVITES_DEV}/smoke-check-no-such-wedding`]: refused,
         },
-        { env: TOKEN_ENV },
+        { env: INVITES_ENV(TOKEN_ENV) },
       );
       expect(result.code).toBe(1);
       expect(result.posts).toEqual([]);
@@ -968,10 +1033,10 @@ describe("the guest site's dev host sits behind Cloudflare Access", () => {
     const result = await smoke(
       ["osn_api", "dev"],
       {
-        "https://id.dev.musubi.social/health": HEALTHY,
-        "https://id.dev.musubi.social/.well-known/jwks.json": JWKS,
+        [`${OSN_API_DEV}/health`]: HEALTHY,
+        [`${OSN_API_DEV}/.well-known/jwks.json`]: JWKS,
       },
-      { env: TOKEN_ENV },
+      { env: devEnv(OSN_API_DEV, TOKEN_ENV) },
     );
     expect(result.code).toBe(0);
     for (const call of result.calls)
@@ -979,17 +1044,123 @@ describe("the guest site's dev host sits behind Cloudflare Access", () => {
   });
 });
 
+describe("dev learns its host and its deployment from the stack job", () => {
+  const BROKEN_CIRE_API = { [`${CIRE_API_DEV}/api/auth/session`]: json({ error: "x" }, 500) };
+
+  test("without SMOKE_ORIGIN, or the guest site without SMOKE_MARKETING_ORIGIN, it exits 2 asking nothing", async () => {
+    for (const [args, env] of [
+      [["cire_api", "dev"], { SMOKE_DEPLOYMENT: "dep-this-job" }],
+      [["cire_api", "dev"], devEnv("")],
+      [["cire_invites", "dev"], devEnv(INVITES_DEV)],
+    ] as const) {
+      const result = await smoke([...args], {}, { env });
+      expect(result.code).toBe(2);
+      expect(result.calls).toEqual([]);
+      expect(result.apiCalls).toEqual([]);
+      expect(result.output).toContain("SMOKE_");
+    }
+  });
+
+  test.each([
+    "http://api.cire.example.test",
+    "https://api.cire.example.test/",
+    "https://api.cire.example.test/api",
+    "https://api.cire.example.test?x=1",
+    "https://user@api.cire.example.test",
+    "api.cire.example.test",
+    " https://api.cire.example.test",
+  ])("SMOKE_ORIGIN %j is not an https origin: exit 2, asking nothing", async (origin) => {
+    const result = await smoke(["cire_api", "dev"], {}, { env: devEnv(origin) });
+    expect(result.code).toBe(2);
+    expect(result.calls).toEqual([]);
+    expect(result.apiCalls).toEqual([]);
+    expect(result.output).toContain("SMOKE_ORIGIN");
+  });
+
+  test.each([undefined, "", "dep this job", "unchanged\nx=1", "-dep"])(
+    "SMOKE_DEPLOYMENT %j is not a deployment id or a known word: exit 2, asking nothing",
+    async (value) => {
+      const result = await smoke(
+        ["cire_api", "dev"],
+        {},
+        { env: devEnv(CIRE_API_DEV, { SMOKE_DEPLOYMENT: value }) },
+      );
+      expect(result.code).toBe(2);
+      expect(result.calls).toEqual([]);
+      expect(result.apiCalls).toEqual([]);
+      expect(result.output).toContain("SMOKE_DEPLOYMENT");
+    },
+  );
+
+  test("a Worker this run deployed nothing to is never rolled back", async () => {
+    const result = await smoke(["cire_api", "dev"], BROKEN_CIRE_API, {
+      env: devEnv(CIRE_API_DEV, { SMOKE_DEPLOYMENT: "unchanged" }),
+    });
+    expect(result.code).toBe(1);
+    expect(result.posts).toEqual([]);
+    expect(result.output).toContain("::error title=Rollback refused::");
+    expect(result.output).toContain("this run deployed nothing to cire-api-dev");
+  });
+
+  test("a deployment that is no longer the newest is never rolled back", async () => {
+    const result = await smoke(["cire_api", "dev"], BROKEN_CIRE_API, {
+      env: devEnv(CIRE_API_DEV, { SMOKE_DEPLOYMENT: "dep-before" }),
+    });
+    expect(result.code).toBe(1);
+    expect(result.posts).toEqual([]);
+    expect(result.output).toContain("::error title=Rollback refused::");
+    expect(result.output).toContain("deployed again since this run");
+  });
+
+  test("an unchanged Worker still serving an earlier smoke check's rollback fails at once, naming the fix", async () => {
+    const restored: Deployment = {
+      ...deployment("dep-restored", "2026-10-16T10:00:00Z", "v-before"),
+      annotations: { "workers/message": rollbackMessage(RUN_ENV) },
+    };
+    const result = await smoke(
+      ["cire_api", "dev"],
+      { [`${CIRE_API_DEV}/api/auth/session`]: json({ signedIn: false }) },
+      {
+        env: devEnv(CIRE_API_DEV, { SMOKE_DEPLOYMENT: "unchanged" }),
+        api: { reads: [[...HISTORY, restored]] },
+      },
+    );
+    expect(result.code).toBe(1);
+    expect(result.calls).toEqual([]);
+    expect(result.posts).toEqual([]);
+    expect(result.output).toContain("an earlier smoke check restored cire-api-dev");
+    expect(result.output).toContain("--force");
+  });
+
+  test("an unreadable deployment is probed but never rolled back", async () => {
+    const env = devEnv(CIRE_API_DEV, { SMOKE_DEPLOYMENT: "unknown" });
+    const broken = await smoke(["cire_api", "dev"], BROKEN_CIRE_API, { env });
+    expect(broken.code).toBe(1);
+    expect(broken.calls.length).toBeGreaterThan(0);
+    expect(broken.posts).toEqual([]);
+    expect(broken.output).toContain("could not be read");
+
+    const healthy = await smoke(
+      ["cire_api", "dev"],
+      { [`${CIRE_API_DEV}/api/auth/session`]: json({ signedIn: false }) },
+      { env },
+    );
+    expect(healthy.code).toBe(0);
+    expect(healthy.output).toContain("could not be read");
+  });
+});
+
 describe("the dry run", () => {
   test("SMOKE_FORCE_FAIL on dev asks for a path the Worker answers 404, rolls back, and reports the restored version healthy", async () => {
-    const forced = `https://id.dev.musubi.social${FORCED_FAILURE_PATH}`;
+    const forced = `${OSN_API_DEV}${FORCED_FAILURE_PATH}`;
     const result = await smoke(
       ["osn_api", "dev"],
       {
-        "https://id.dev.musubi.social/health": HEALTHY,
-        "https://id.dev.musubi.social/.well-known/jwks.json": JWKS,
+        [`${OSN_API_DEV}/health`]: HEALTHY,
+        [`${OSN_API_DEV}/.well-known/jwks.json`]: JWKS,
         [forced]: new Response("NOT_FOUND", { status: 404 }),
       },
-      { env: { SMOKE_FORCE_FAIL: "true" } },
+      { env: devEnv(OSN_API_DEV, { SMOKE_FORCE_FAIL: "true" }) },
     );
     expect(result.code).toBe(1);
     expect(fetchesOf(result, forced)).toBe(8);
@@ -1005,10 +1176,10 @@ describe("the dry run", () => {
     const result = await smoke(
       ["osn_api", "dev"],
       {
-        "https://id.dev.musubi.social/health": HEALTHY,
-        "https://id.dev.musubi.social/.well-known/jwks.json": JWKS,
+        [`${OSN_API_DEV}/health`]: HEALTHY,
+        [`${OSN_API_DEV}/.well-known/jwks.json`]: JWKS,
       },
-      { env: { SMOKE_FORCE_FAIL: "false" } },
+      { env: devEnv(OSN_API_DEV, { SMOKE_FORCE_FAIL: "false" }) },
     );
     expect(result.code).toBe(0);
   });
@@ -1018,11 +1189,11 @@ describe("the dry run", () => {
     const result = await smoke(
       ["cire_invites", "dev"],
       {
-        "https://invite.dev.cireweddings.com/": login,
-        "https://invite.dev.cireweddings.com/smoke-check-no-such-wedding": login,
-        [`https://invite.dev.cireweddings.com${FORCED_FAILURE_PATH}`]: login,
+        [`${INVITES_DEV}/`]: login,
+        [`${INVITES_DEV}/smoke-check-no-such-wedding`]: login,
+        [`${INVITES_DEV}${FORCED_FAILURE_PATH}`]: login,
       },
-      { env: { SMOKE_FORCE_FAIL: "true" } },
+      { env: INVITES_ENV({ SMOKE_FORCE_FAIL: "true" }) },
     );
     expect(result.code).toBe(1);
     expect(result.posts).toEqual([]);
@@ -1043,7 +1214,7 @@ describe("usage", () => {
     [["osn_api"]],
     [["osn_api", "staging"]],
     [["osn_social", "production"]],
-    [["zap_api", "dev"]],
+    [["no_such_surface", "dev"]],
     [["osn_api", "dev", "extra"]],
   ])("%j is refused with exit 2, asking nothing and rolling nothing back", async (args) => {
     const result = await smoke(args, {});
@@ -1093,22 +1264,22 @@ describe("annotation", () => {
 });
 
 describe("SMOKE_TARGETS", () => {
-  test("covers exactly the Worker surfaces, production for all and dev for those with a dev Worker", () => {
-    expect(Object.keys(SMOKE_TARGETS).toSorted()).toEqual([
+  test("covers every surface on dev, and production for the four Workers production deploys", () => {
+    const keys = Object.keys(SMOKE_TARGETS) as (keyof typeof SMOKE_TARGETS)[];
+    expect(keys.filter((key) => devTarget(key) === undefined)).toEqual([]);
+    expect(keys.filter((key) => productionTarget(key) !== undefined).toSorted()).toEqual([
       "cire_api",
       "cire_invites",
       "osn_api",
       "zap_api",
     ]);
-    expect(Object.keys(SMOKE_TARGETS.zap_api)).toEqual(["production"]);
-    for (const key of ["cire_api", "cire_invites", "osn_api"] as const)
-      expect(Object.keys(SMOKE_TARGETS[key]).toSorted()).toEqual(["dev", "production"]);
   });
 
   test("checks osn-api's JWKS on both tiers", () => {
-    for (const tier of ["dev", "production"] as const) {
-      const kinds = SMOKE_TARGETS.osn_api[tier]?.probes.map((p) => p.expects.kind);
-      expect(kinds).toContain("jwks");
+    const dev = devTarget("osn_api")?.probes({ origin: OSN_API_DEV });
+    const production = productionTarget("osn_api")?.probes;
+    for (const probes of [dev, production]) {
+      expect(probes?.map((p) => p.expects.kind)).toContain("jwks");
     }
   });
 });
