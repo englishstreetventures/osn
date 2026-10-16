@@ -1,0 +1,60 @@
+import { Data, Redacted } from "effect";
+
+import { tierOf, type Tier } from "../stage";
+import { tierSecrets, type WorkerKey } from "./inventory";
+
+export class MissingSecretsError extends Data.TaggedError("MissingSecretsError")<{
+  readonly worker: WorkerKey;
+  readonly tier: Tier;
+  /** GitHub Environment secret names that are unset or blank. Never values. */
+  readonly missing: readonly string[];
+  /** Names whose value starts or ends with whitespace. Never values. */
+  readonly malformed: readonly string[];
+  readonly message: string;
+}> {}
+
+/**
+ * Reads every secret the inventory declares for `worker` at `stage` from
+ * `env` (the GitHub Environment secrets a deploy job passes through), and
+ * throws before anything is uploaded when a required one is unset or blank,
+ * or any value carries leading or trailing whitespace. An optional secret is
+ * declared only when its value is present. A value is never trimmed: a pasted
+ * trailing newline would otherwise reach the Worker as a different key.
+ */
+export function requireSecrets(input: {
+  readonly worker: WorkerKey;
+  readonly stage: string;
+  readonly env: Readonly<Record<string, string | undefined>>;
+}): Readonly<Record<string, Redacted.Redacted<string>>> {
+  const tier = tierOf(input.stage);
+  const row = tierSecrets(input.worker, tier);
+  const missing: string[] = [];
+  const malformed: string[] = [];
+  const present: (readonly [string, Redacted.Redacted<string>])[] = [];
+  const read = (name: string, required: boolean): void => {
+    const value = input.env[name];
+    if (value === undefined || value.trim() === "") {
+      if (required) missing.push(name);
+    } else if (value !== value.trim()) {
+      malformed.push(name);
+    } else {
+      present.push([name, Redacted.make(value)]);
+    }
+  };
+  for (const name of row.secrets) read(name, true);
+  for (const name of row.optional) read(name, false);
+  if (missing.length > 0 || malformed.length > 0) {
+    const parts = [
+      missing.length > 0 ? `unset or blank: ${missing.join(", ")}` : "",
+      malformed.length > 0 ? `leading or trailing whitespace: ${malformed.join(", ")}` : "",
+    ].filter((part) => part !== "");
+    throw new MissingSecretsError({
+      worker: input.worker,
+      tier,
+      missing,
+      malformed,
+      message: `${input.worker} cannot deploy at stage '${input.stage}' (${tier} tier). GitHub Environment secrets ${parts.join("; ")}.`,
+    });
+  }
+  return Object.fromEntries(present);
+}
