@@ -8,7 +8,7 @@
  */
 
 import { CIRE_GUEST, DB_FILES, ORIGINS } from "../../src/config";
-import { cookieNamed, expect, queryOne, test } from "../support/fixtures";
+import { cookieNamed, expect, onSuiteClock, queryOne, test } from "../support/fixtures";
 
 /** The seeded ceremony Ada is invited to (`cire/db/seed/data/events.ts`). */
 const CEREMONY_ID = "9f7a2c14-1b3d-4e5f-8a01-000000000001";
@@ -50,9 +50,9 @@ test("cire-rsvp", async ({ page, context, flow }) => {
     await expect(page.getByRole("button", { name: "Saved" })).toBeVisible();
   });
 
-  const row = queryOne<{ status: string }>(
+  const row = queryOne<{ status: string; created_at: number }>(
     DB_FILES.cire,
-    `SELECT r.status FROM rsvps r
+    `SELECT r.status, r.created_at FROM rsvps r
        JOIN guests g ON g.id = r.guest_id
        JOIN families f ON f.id = g.family_id
       WHERE f.public_id = ? AND g.first_name = ? AND r.event_id = ?`,
@@ -61,4 +61,5 @@ test("cire-rsvp", async ({ page, context, flow }) => {
     CEREMONY_ID,
   );
   flow.check("rsvps row for Ada at the ceremony", "attending", row?.status ?? "missing");
+  flow.check("rsvps row written on the suite clock", true, onSuiteClock(row?.created_at));
 });

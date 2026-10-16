@@ -34,22 +34,25 @@ function freshDatabase(path: string): Database {
 export function seedOsn(path: string): void {
   const sqlite = freshDatabase(path);
   try {
-    applyOsnSchema(sqlite);
-    drizzle(sqlite)
-      .insert(oauthClients)
-      .values({
-        id: PULSE_OIDC.rowId,
-        clientId: PULSE_OIDC.clientId,
-        name: "Pulse",
-        redirectUris: [PULSE_OIDC.redirectUri],
-        clientSecretHash: createHash("sha256").update(PULSE_OIDC.secret).digest("hex"),
-        sectorIdentifier: new URL(PULSE_OIDC.redirectUri).host,
-        // First-party skips consent and puts `osn_profile_id` in the ID token,
-        // which is what Pulse keys its session on.
-        isFirstParty: true,
-        createdAt: Math.floor(CLOCK_T0 / 1000),
-      })
-      .run();
+    // One transaction: on a file each autocommitted statement syncs its own journal.
+    sqlite.transaction(() => {
+      applyOsnSchema(sqlite);
+      drizzle(sqlite)
+        .insert(oauthClients)
+        .values({
+          id: PULSE_OIDC.rowId,
+          clientId: PULSE_OIDC.clientId,
+          name: "Pulse",
+          redirectUris: [PULSE_OIDC.redirectUri],
+          clientSecretHash: createHash("sha256").update(PULSE_OIDC.secret).digest("hex"),
+          sectorIdentifier: new URL(PULSE_OIDC.redirectUri).host,
+          // First-party skips consent and puts `osn_profile_id` in the ID token,
+          // which is what Pulse keys its session on.
+          isFirstParty: true,
+          createdAt: Math.floor(CLOCK_T0 / 1000),
+        })
+        .run();
+    })();
   } finally {
     sqlite.close();
   }
@@ -59,7 +62,7 @@ export function seedOsn(path: string): void {
 export function seedPulse(path: string): void {
   const sqlite = freshDatabase(path);
   try {
-    applyPulseSchema(sqlite);
+    sqlite.transaction(() => applyPulseSchema(sqlite))();
   } finally {
     sqlite.close();
   }

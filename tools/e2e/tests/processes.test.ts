@@ -79,3 +79,23 @@ describe("stopAll", () => {
     expect(alive(grandchild)).toBe(false);
   });
 });
+
+describe("stopOnSignal", () => {
+  test("SIGTERM to the launcher alone stops the runner it started", async () => {
+    const pidFile = join(logDir, "runner.pid");
+    const launcher = Bun.spawn(
+      ["bun", join(import.meta.dirname, "support/signal-child.ts"), pidFile],
+      { stdout: "ignore", stderr: "ignore" },
+    );
+    const readPid = (): number =>
+      Number(readFileSync(pidFile, { encoding: "utf8", flag: "a+" }).trim() || "0");
+    for (let i = 0; i < 200 && readPid() === 0; i++) await Bun.sleep(50);
+    const runner = readPid();
+    expect(alive(runner)).toBe(true);
+
+    launcher.kill("SIGTERM");
+    expect(await launcher.exited).toBe(130);
+    for (let i = 0; i < 40 && alive(runner); i++) await Bun.sleep(50);
+    expect(alive(runner)).toBe(false);
+  });
+});

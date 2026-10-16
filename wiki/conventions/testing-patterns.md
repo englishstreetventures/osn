@@ -32,13 +32,13 @@ The bar for keeping any non-E2E test: **name the real bug it catches that no E2E
 
 ### What one run does
 
-1. Clears `e2e-artifacts/`, so nothing from an earlier run survives.
-2. Refuses to start if any of its ports is taken, and names the port. It never reuses a server it did not start. Stop your `bun run dev` first.
-3. Checks that the shared clock reaches a Bun child and a Node child.
+1. Refuses to start if any of its ports is taken, and names the port. It never reuses a server it did not start. Stop your `bun run dev` first. A refused run leaves the previous run's artifacts where they are.
+2. Clears `e2e-artifacts/`, so nothing from an earlier run survives.
+3. Checks that the shared clock reaches a Bun child and a Node child: `Date.now()`, `new Date()` and `Date()` each.
 4. Builds fresh SQLite files from each package's `applySchema` and seeds fixed rows: Pulse is registered with osn-api as a first-party OIDC client. cire-api seeds its own file at boot (`CIRE_LOCAL_DB_PATH`).
-5. Starts a stand-in for the Resend API (port 4590), then the APIs one at a time, then the frontends. osn-api comes first, because pulse-api registers its service key with it at boot.
+5. Starts a stand-in for the Resend API (port 4590), then every app at once except pulse-api. pulse-api registers its service key with osn-api at boot, so it starts once osn-api answers, and counts as ready once its key is in osn-api's database.
 6. Runs Playwright, serially and with no retries.
-7. Stops every process group, whether the run passed, failed or was interrupted.
+7. Stops every process group, the Playwright runner's included, whether the run passed, failed or was interrupted. A `SIGINT` or `SIGTERM` sent to the launcher alone stops them too.
 
 | App | Port | Started as |
 |---|---|---|
@@ -49,9 +49,9 @@ The bar for keeping any non-E2E test: **name the real bug it catches that no E2E
 | Pulse web | 1420 | `bun run dev:app` |
 | cire invites | 4321 | `bun run dev:app --ignore-lock` |
 
-The ports are the `PORTLESS=0` ones from `DEV_APPS` in `@shared/dev-urls`, and `tools/e2e/tests/config.test.ts` keeps the two lists equal. Children get an explicit environment, not your shell's: `PATH`, `HOME` and a few proxy and certificate variables, plus every sibling origin set by name. A `.env` file, `REDIS_URL`, `OSN_ENV` or a Turnstile key cannot leak in.
+The ports are the `PORTLESS=0` ones from `DEV_APPS` in `@shared/dev-urls`, and `tools/e2e/tests/config.test.ts` keeps the two lists equal. Children get an explicit environment, not your shell's: `PATH`, `HOME` and a few proxy and certificate variables, plus every sibling origin set by name. The APIs also start with `--no-env-file`, so neither a `.env` file nor your shell's `REDIS_URL`, `OSN_ENV` or Turnstile key reaches them. The frontends still read their own `.env*` files, as Vite and Astro always do. Every variable the suite relies on there (each API origin, the Turnstile site keys) is set in their environment, and that beats a `.env` value.
 
-**The clock.** Every server and every browser page starts at `2026-10-01T00:00:00Z` and then ticks in real time. The APIs load `tools/e2e/src/clock.mjs` with `--preload`. Vite and Astro load it through `NODE_OPTIONS`. Each page gets `page.clock.install`. The date is fixed so that seeded deadlines and "must be in the future" checks resolve the same way whatever the real date is. Time still moves so that debounces and timers in the UI still fire.
+**The clock.** Every server and every browser page starts at `2026-10-01T00:00:00Z` and then ticks in real time. The APIs load `tools/e2e/src/clock.mjs` with `--preload`. Vite and Astro load it through `NODE_OPTIONS`. Each page gets `page.clock.install`. The date is fixed so that seeded deadlines and "must be in the future" checks resolve the same way whatever the real date is. Time still moves so that debounces and timers in the UI still fire. Each flow checks that the rows it wrote carry a timestamp on the suite clock, so a server that missed the preload fails on the day it breaks, not on the day a seeded deadline passes.
 
 ### Reading the artifact
 
@@ -87,7 +87,7 @@ A new app in the stack goes in `appSpecs()` in `tools/e2e/src/stack.ts`, with it
 
 ### What it cannot see
 
-Every app is served from `localhost`. Cookies ignore the port, so the suite proves that a cross-origin `fetch` carries `credentials: "include"`: without it the browser drops `Set-Cookie` and the flow's cookie and reload checks fail. It cannot prove anything about how a cookie is scoped between real hosts. Locally there is no `Secure`, no `__Host-` prefix, and no `OSN_COOKIE_DOMAIN` marker. The browser tier ([[browser-tests]]) and the deploy checks own those.
+Every app is served from `localhost`. Cookies ignore the port, so the suite proves that a cross-origin `fetch` carries `credentials: "include"`: without it the browser drops `Set-Cookie` and the flow's cookie checks fail. The Musubi flow also clears the client's cached account and reloads, so the session can only come back through the cookie on `POST /token`, and then clears the cookie too and checks the reload is signed out. It cannot prove anything about how a cookie is scoped between real hosts. Locally there is no `Secure`, no `__Host-` prefix, and no `OSN_COOKIE_DOMAIN` marker. The browser tier ([[browser-tests]]) and the deploy checks own those.
 
 The Musubi flow reports conditional mediation as unavailable. The virtual authenticator answers an autofill passkey request on its own, which a person never does, so leaving it on would race the "@handle → Continue" path the flow drives.
 

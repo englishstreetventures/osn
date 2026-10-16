@@ -14,7 +14,8 @@ import { createStripeClientFromEnv } from "./services/stripe";
 // (the E2E suite) read the rows this server writes. The seed runs on every
 // boot, so the file must not exist yet.
 const db = createDb(process.env.CIRE_LOCAL_DB_PATH || ":memory:");
-await seedDb(db);
+// One transaction, for the same reason `createDb` applies its DDL in one.
+db.$client.transaction(() => seedDb(db))();
 
 // Dev convenience: the in-memory seed gives the sample wedding's owner seat to
 // the fixed local dev id (usr_dev_bootstrap_owner — see DEV_OWNER_PROFILE_ID in

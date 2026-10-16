@@ -12,10 +12,13 @@ import { closeSync, openSync } from "node:fs";
 
 export interface Started {
   readonly name: string;
-  readonly logPath: string;
+  /** Where its output goes, or null when it writes to the launcher's own terminal. */
+  readonly logPath: string | null;
   readonly child: ChildProcess;
   /** Set once the process has exited, with its code or signal. */
   exit: string | null;
+  /** Resolves with the exit code once the process exits; 1 when a signal ended it. */
+  readonly exited: Promise<number>;
 }
 
 export function startProcess(options: {
@@ -23,21 +26,31 @@ export function startProcess(options: {
   readonly command: readonly string[];
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
-  readonly logPath: string;
+  /** Omitted: the process shares the launcher's terminal (the Playwright runner). */
+  readonly logPath?: string;
 }): Started {
-  const log = openSync(options.logPath, "a");
   const [file, ...args] = options.command;
   if (!file) throw new Error(`${options.name}: empty command`);
+  const log = options.logPath === undefined ? null : openSync(options.logPath, "a");
   const child = spawn(file, args, {
     cwd: options.cwd,
     env: options.env,
-    stdio: ["ignore", log, log],
+    stdio: log === null ? "inherit" : ["ignore", log, log],
     detached: true,
   });
-  closeSync(log);
-  const started: Started = { name: options.name, logPath: options.logPath, child, exit: null };
+  if (log !== null) closeSync(log);
+  let resolveExited: (code: number) => void = () => undefined;
+  const exited = new Promise<number>((done) => (resolveExited = done));
+  const started: Started = {
+    name: options.name,
+    logPath: options.logPath ?? null,
+    child,
+    exit: null,
+    exited,
+  };
   child.once("exit", (code, signal) => {
     started.exit = signal ?? `code ${code}`;
+    resolveExited(code ?? 1);
   });
   return started;
 }
@@ -79,10 +92,14 @@ export async function waitUntilReady(
     250,
   );
   if (exited) {
-    throw new Error(`${proc.name} exited (${proc.exit}) before it was ready; see ${proc.logPath}`);
+    throw new Error(
+      `${proc.name} exited (${proc.exit}) before it was ready; see ${proc.logPath ?? "its output above"}`,
+    );
   }
   if (!ready) {
-    throw new Error(`${proc.name} was not ready after ${timeoutMs / 1000}s; see ${proc.logPath}`);
+    throw new Error(
+      `${proc.name} was not ready after ${timeoutMs / 1000}s; see ${proc.logPath ?? "its output above"}`,
+    );
   }
 }
 
@@ -113,4 +130,20 @@ export async function stopAll(procs: readonly Started[], graceMs = 5000): Promis
   await pollUntil(allExited, Date.now() + graceMs, 100);
   for (const proc of procs) signalGroup(proc, "SIGKILL");
   await pollUntil(allExited, Number.POSITIVE_INFINITY, 50);
+}
+
+/**
+ * On SIGINT or SIGTERM to this process, stops every group in `procs` (the
+ * Playwright runner included) and anything else `teardown` names, then exits
+ * 130. A signal sent to the launcher alone — `kill <pid>`, a `timeout` wrapper —
+ * reaches no child, because each runs in its own process group.
+ */
+export function stopOnSignal(procs: readonly Started[], teardown: () => Promise<void>): void {
+  const onSignal = (): void => {
+    void stopAll(procs)
+      .then(teardown)
+      .then(() => process.exit(130));
+  };
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
 }

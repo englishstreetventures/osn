@@ -74,14 +74,24 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   flow.check("osn_session is HttpOnly", true, cookie?.httpOnly ?? false);
   flow.check("osn_session is SameSite=Lax", "Lax", cookie?.sameSite ?? "");
 
-  await flow.step("reload keeps the session", async () => {
+  await flow.step("reload restores the session from the cookie alone", async () => {
+    // Drop the client's cached account, so the only way back to a session is
+    // the HttpOnly cookie riding on a credentialed `POST /token`.
+    await page.evaluate(() => localStorage.clear());
     await page.reload();
     await expect(page.getByRole("button", { name: `@${ada.handle}` })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign in" })).toHaveCount(0);
+  });
+  flow.check("session restored through POST /token", true, flow.saw("POST osn-api /token 200"));
+
+  await flow.step("without the cookie, the reload is signed out", async () => {
+    await context.clearCookies();
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
   });
   flow.check(
-    "signed in after reload",
-    true,
+    "signed out with no cookie",
+    false,
     await page.getByRole("button", { name: `@${ada.handle}` }).isVisible(),
   );
 });

@@ -16,6 +16,7 @@ import { DB_FILES, ORIGINS, PEOPLE } from "../../src/config";
 import {
   cookieNamed,
   expect,
+  onSuiteClock,
   queryOne,
   registerThroughApi,
   test,
@@ -74,12 +75,13 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
     return body.event.id;
   });
 
-  const event = queryOne<{ title: string }>(
+  const event = queryOne<{ title: string; created_at: number }>(
     DB_FILES.pulse,
-    "SELECT title FROM events WHERE id = ?",
+    "SELECT title, created_at FROM events WHERE id = ?",
     eventId,
   );
   flow.check("events row title", EVENT_TITLE, event?.title ?? "missing");
+  flow.check("events row written on the suite clock", true, onSuiteClock(event?.created_at));
 
   // Closed by Playwright at the end of the test, after the fixture has taken
   // the final screenshot of the guest's page and saved this context's trace.
@@ -103,12 +105,13 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
       expect((await saved).ok(), "RSVP saved").toBe(true);
     });
 
-    const rsvp = queryOne<{ status: string }>(
+    const rsvp = queryOne<{ status: string; created_at: number }>(
       DB_FILES.pulse,
-      "SELECT status FROM event_rsvps WHERE event_id = ? AND profile_id <> (SELECT created_by_profile_id FROM events WHERE id = ?)",
+      "SELECT status, created_at FROM event_rsvps WHERE event_id = ? AND profile_id <> (SELECT created_by_profile_id FROM events WHERE id = ?)",
       eventId,
       eventId,
     );
     flow.check("event_rsvps row for the guest", "going", rsvp?.status ?? "missing");
+    flow.check("event_rsvps row written on the suite clock", true, onSuiteClock(rsvp?.created_at));
   }
 });

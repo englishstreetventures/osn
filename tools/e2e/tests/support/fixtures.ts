@@ -36,6 +36,8 @@ export interface Flow {
   check(name: string, expected: string | number | boolean, actual: string | number | boolean): void;
   /** A new page in `context` on the suite clock, with its API requests recorded. */
   newPage(context: BrowserContext): Promise<Page>;
+  /** True when an API request recorded so far normalises to `line` (`POST osn-api /token 200`). */
+  saw(line: string): boolean;
   /** A request made outside the browser (the API request context), recorded like a browser one. */
   recordRequest(method: string, url: string, status: number): void;
   /** The page whose final state is the flow's screenshot. Defaults to `page`. */
@@ -74,6 +76,9 @@ export const test = base.extend<{ flow: Flow }>({
         const p = await ctx.newPage();
         await p.clock.install({ time: suiteNow() });
         return p;
+      },
+      saw(line) {
+        return lines.includes(line);
       },
       recordRequest(method, url, status) {
         const line = requestLine(method, url, status, API_LABELS);
@@ -206,4 +211,14 @@ export function queryOne<T>(
 /** A cookie in `context` by name, or undefined. */
 export async function cookieNamed(context: BrowserContext, url: string, name: string) {
   return (await context.cookies(url)).find((c) => c.name === name);
+}
+
+/**
+ * True when a row timestamp (unix seconds) was written on the suite clock: at
+ * or after its start, within the hour a run takes. A server that missed the
+ * clock preload writes the real date and fails this whatever day it runs.
+ */
+export function onSuiteClock(unixSeconds: number | undefined): boolean {
+  const start = Math.floor(CLOCK_T0 / 1000);
+  return unixSeconds !== undefined && unixSeconds >= start && unixSeconds < start + 3600;
 }
