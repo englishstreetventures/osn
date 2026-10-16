@@ -80,12 +80,16 @@ PR=$(gh pr view --json number --jq .number)
 Then the two runs, which do different jobs:
 
 ```bash
+# The diff is measured against `--base`, which defaults to origin/main. On a
+# stacked branch that counts the parent's whole diff as this one's.
+BASE="origin/$(git config --get "branch.$BRANCH.gh-merge-base" || echo main)"
+
 # 1. The committed card. `--resolve-issue` finds the pull request, its first
 #    linked issue and that issue's `complexity:` label for itself.
-bun run --cwd tools/pr-metrics card -- --resolve-issue
+bun run --cwd tools/pr-metrics card -- --resolve-issue --base "$BASE"
 
 # 2. The `<details>` block for the pull-request body, on stdout, warnings excluded.
-bun run --cwd tools/pr-metrics card -- --resolve-issue --format markdown > /tmp/card.md
+bun run --cwd tools/pr-metrics card -- --resolve-issue --base "$BASE" --format markdown > /tmp/card.md
 ```
 
 Four rules about that pair:

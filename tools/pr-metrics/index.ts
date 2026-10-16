@@ -176,6 +176,8 @@ export interface SessionRecord {
   uuid?: string;
   timestamp?: string;
   isSidechain?: boolean;
+  /** Set on records the harness injects into the conversation, never on a typed prompt. */
+  isMeta?: boolean;
   isCompactSummary?: boolean;
   effort?: string;
   /** How this session was started. `cli` is a person at a terminal; an `sdk-*`
@@ -375,6 +377,10 @@ export function humanTurnText(record: SessionRecord): string | null {
   }
 
   if (record.type !== "user") return null;
+  // Hook feedback ("Stop hook feedback: …") and a subagent's hand-back
+  // ("Another Claude session sent a message: …") arrive as plain-text user
+  // records that open with no tag, so only this flag tells them from a person.
+  if (record.isMeta) return null;
 
   const content = record.message?.content;
 

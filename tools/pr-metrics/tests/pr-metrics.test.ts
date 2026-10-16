@@ -256,6 +256,20 @@ test("isHumanTurn reads a prompt queued while the agent was working", () => {
   ).toBe(false);
 });
 
+// Hook feedback and a subagent's hand-back can also arrive as plain-text `user`
+// records with no opening tag: "Stop hook feedback: …", "Another Claude session
+// sent a message: …". Nine of them scored as corrective on one branch here,
+// where the person sent one prompt. The harness marks them `isMeta`.
+test("isHumanTurn rejects harness-injected user records", () => {
+  for (const content of [
+    "Stop hook feedback:\n[~/.claude/stop-hook-git-check.sh]: There are untracked files",
+    'Another Claude session sent a message:\n<agent-message from="a1">done</agent-message>',
+  ]) {
+    expect(isHumanTurn({ type: "user", isMeta: true, message: { content } })).toBe(false);
+  }
+  expect(isHumanTurn({ type: "user", message: { content: "Build the harness" } })).toBe(true);
+});
+
 // A subagent hand-back and a background task notification are delivered as
 // queued commands too, and they are not prompts. Nine of them landed on one
 // branch here against three turns the person actually sent, so the card read
