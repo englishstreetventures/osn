@@ -21,9 +21,12 @@ import type { Tier } from "../src/stage";
 
 function gh(args: readonly string[]): string {
   const run = spawnSync("gh", args, { encoding: "utf8" });
-  if (run.status !== 0) {
+  if (run.error !== undefined || run.status !== 0) {
+    const command = `gh ${args.join(" ")}`;
     process.stderr.write(
-      `gh ${args.join(" ")} exited ${run.status}\n${redactAccountIds(run.stderr)}`,
+      run.error === undefined
+        ? `${command} exited ${run.status}\n${redactAccountIds(run.stderr ?? "")}`
+        : `${command} did not run: ${redactAccountIds(run.error.message)}\n`,
     );
     process.exit(2);
   }

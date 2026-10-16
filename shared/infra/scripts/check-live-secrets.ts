@@ -47,9 +47,12 @@ for (const expected of liveExpectations(tier)) {
       env: { ...process.env, CLOUDFLARE_ACCOUNT_ID: accountId },
     },
   );
-  if (run.status !== 0) {
+  if (run.error !== undefined || run.status !== 0) {
+    const command = `wrangler secret list --name ${expected.scriptName}`;
     process.stderr.write(
-      `wrangler secret list --name ${expected.scriptName} exited ${run.status}\n${redactAccountIds(run.stderr)}`,
+      run.error === undefined
+        ? `${command} exited ${run.status}\n${redactAccountIds(run.stderr ?? "")}`
+        : `${command} did not run: ${redactAccountIds(run.error.message)}\n`,
     );
     process.exit(2);
   }
