@@ -3,6 +3,12 @@ import { Data } from "effect";
 
 import { tierOf } from "./stage";
 
+export class ProductionSeedError extends Data.TaggedError("ProductionSeedError")<{
+  /** The database name. */
+  readonly resource: string;
+  readonly message: string;
+}> {}
+
 export class AdoptedLocationHintError extends Data.TaggedError("AdoptedLocationHintError")<{
   /** The database or bucket name. */
   readonly resource: string;
@@ -21,8 +27,11 @@ function refuseAdoptedHint(resource: string, stage: string, locationHint: string
 
 /**
  * A long-lived D1 database: on production adopted and declared exactly as
- * live, on dev created with production's settings. `clone` and
- * `importFiles` act only at creation and are never declared.
+ * live, on dev created with production's settings. `clone` acts only at
+ * creation and is never declared. `importFiles` are imported after the
+ * migrations, and each is imported again whenever its content changes; a
+ * file dropped from the list is forgotten, not undone (alchemy
+ * src/Cloudflare/D1/Database.ts:313-319, 515-524).
  */
 export interface RetainedD1Input {
   readonly name: string;
@@ -33,10 +42,18 @@ export interface RetainedD1Input {
   readonly locationHint: NonNullable<Cloudflare.D1.DatabaseProps["primaryLocationHint"]> | null;
   /** The migrations directory once Alchemy migrates this database; null while Wrangler still does. */
   readonly migrations: string | null;
+  /** SQL files Alchemy imports after the migrations, in order; refused on production, whose data is never seeded. */
+  readonly importFiles: readonly string[];
 }
 
 export function retainedD1Props(input: RetainedD1Input): Cloudflare.D1.DatabaseProps {
   refuseAdoptedHint(input.name, input.stage, input.locationHint);
+  if (input.importFiles.length > 0 && tierOf(input.stage) === "production") {
+    throw new ProductionSeedError({
+      resource: input.name,
+      message: `${input.name} is a production database, whose data is never seeded; declare no importFiles.`,
+    });
+  }
   const declared: Cloudflare.D1.DatabaseProps = {
     name: input.name,
     readReplication: { mode: input.readReplication },
@@ -46,7 +63,10 @@ export function retainedD1Props(input: RetainedD1Input): Cloudflare.D1.DatabaseP
     input.locationHint === null
       ? declared
       : { ...declared, primaryLocationHint: input.locationHint };
-  return input.migrations === null ? placed : { ...placed, migrations: input.migrations };
+  const migrated = input.migrations === null ? placed : { ...placed, migrations: input.migrations };
+  return input.importFiles.length === 0
+    ? migrated
+    : { ...migrated, importFiles: [...input.importFiles] };
 }
 
 /**

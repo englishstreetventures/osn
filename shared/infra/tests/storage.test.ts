@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   AdoptedLocationHintError,
+  ProductionSeedError,
   retainedBucketProps,
   retainedD1Props,
   type RetainedBucketInput,
@@ -14,6 +15,7 @@ describe("retainedD1Props", () => {
     readReplication: "disabled",
     jurisdiction: "default",
     locationHint: null,
+    importFiles: [],
   } as const;
 
   test("declares only what adoption converges on production, and no creation-only setting", () => {
@@ -55,6 +57,23 @@ describe("retainedD1Props", () => {
       jurisdiction: "default",
       migrations: "../../cire/db/migrations",
     });
+  });
+
+  test("B5: seed files reach a dev database's props, and production refuses any", () => {
+    const seeds = ["../../cire/db/seed/dev-seed.sql", ".generated/seeds/owner-seat.sql"];
+    const props = retainedD1Props({
+      ...cireDb,
+      name: "cire-db-dev",
+      stage: "dev",
+      locationHint: "oc",
+      migrations: ".generated/migrations/cire-db",
+      importFiles: seeds,
+    });
+    expect(props.importFiles).toEqual(seeds);
+    expect(props.importFiles).not.toBe(seeds);
+    expect(() =>
+      retainedD1Props({ ...cireDb, migrations: null, importFiles: ["seed.sql"] }),
+    ).toThrow(ProductionSeedError);
   });
 });
 

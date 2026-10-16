@@ -35,6 +35,8 @@ const cireApiDev: ApiWorkerInput = {
   name: "cire-api-dev",
   stage: "dev",
   main: "../../cire/api/src/index.ts",
+  bundle: true,
+  assets: null,
   compatibility: {
     date: "2025-03-01",
     flags: ["nodejs_compat", "nodejs_compat_populate_process_env"],
@@ -248,6 +250,52 @@ describe("apiWorkerProps", () => {
   test("leaves zone routes unmanaged", () => {
     expect(apiWorkerProps(cireApiDev)).not.toHaveProperty("routes");
   });
+
+  test("B1: a prebuilt Worker reaches the props unbundled", () => {
+    expect(apiWorkerProps({ ...cireApiDev, bundle: false }).bundle).toBe(false);
+    expect(apiWorkerProps(cireApiDev).bundle).toBe(true);
+  });
+
+  test("B2: maps the assets config field for field, copying the routing rules", () => {
+    const runWorkerFirst = ["/_server-islands/*", "!/_astro/*"];
+    const props = apiWorkerProps({
+      ...cireApiDev,
+      assets: {
+        directory: "../../cire/invites/dist/client",
+        htmlHandling: "drop-trailing-slash",
+        notFoundHandling: "404-page",
+        runWorkerFirst,
+      },
+    });
+    expect(props.assets).toEqual({
+      directory: "../../cire/invites/dist/client",
+      htmlHandling: "drop-trailing-slash",
+      notFoundHandling: "404-page",
+      runWorkerFirst: ["/_server-islands/*", "!/_astro/*"],
+    });
+    expect((props.assets as { readonly runWorkerFirst?: unknown }).runWorkerFirst).not.toBe(
+      runWorkerFirst,
+    );
+    const everyRequest = apiWorkerProps({
+      ...cireApiDev,
+      assets: {
+        directory: "dist",
+        htmlHandling: "none",
+        notFoundHandling: "none",
+        runWorkerFirst: true,
+      },
+    });
+    expect(everyRequest.assets).toEqual({
+      directory: "dist",
+      htmlHandling: "none",
+      notFoundHandling: "none",
+      runWorkerFirst: true,
+    });
+  });
+
+  test("B3: a Worker with no assets declares no assets prop", () => {
+    expect("assets" in apiWorkerProps(cireApiDev)).toBe(false);
+  });
 });
 
 describe("siteWorkerProps", () => {
@@ -261,6 +309,8 @@ describe("siteWorkerProps", () => {
     htmlHandling: "auto-trailing-slash",
     notFoundHandling: "404-page",
     issues: true,
+    entry: null,
+    redirectsFile: true,
   } as const;
 
   test("deploys assets only, with every routing choice stated", () => {
@@ -280,6 +330,41 @@ describe("siteWorkerProps", () => {
     expect(() => siteWorkerProps({ ...site, previewUrls: true })).toThrow(
       ProductionPreviewUrlsError,
     );
+  });
+
+  test("B4: a site with an entry runs it before the assets it names; one without has no script", () => {
+    const props = siteWorkerProps({
+      ...site,
+      name: "pulse-landing-dev",
+      stage: "dev",
+      directory: "../../pulse/landing/dist",
+      entry: {
+        main: "../../pulse/landing/worker/index.ts",
+        compatibility: { date: "2026-10-01", flags: ["nodejs_compat"] },
+        runWorkerFirst: ["/api/geo"],
+      },
+    });
+    expect(props.main).toBe("../../pulse/landing/worker/index.ts");
+    expect(props.compatibility).toEqual({ date: "2026-10-01", flags: ["nodejs_compat"] });
+    expect(props.assets).toEqual({
+      directory: "../../pulse/landing/dist",
+      htmlHandling: "auto-trailing-slash",
+      notFoundHandling: "404-page",
+      runWorkerFirst: ["/api/geo"],
+    });
+    const assetsOnly = siteWorkerProps(site);
+    expect(assetsOnly).not.toHaveProperty("main");
+    expect(assetsOnly).not.toHaveProperty("compatibility");
+  });
+
+  test("B7: a site that turns its _redirects file off sends empty redirects; one that keeps it sends none", () => {
+    expect(siteWorkerProps({ ...site, redirectsFile: false }).assets).toEqual({
+      directory: "../../cire/landing/dist",
+      htmlHandling: "auto-trailing-slash",
+      notFoundHandling: "404-page",
+      redirects: "",
+    });
+    expect(siteWorkerProps(site).assets).not.toHaveProperty("redirects");
   });
 
   test("keeps query strings out of logs and native traces off on every stage", () => {

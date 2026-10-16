@@ -2,7 +2,12 @@ import { Redacted } from "effect";
 import { describe, expect, test } from "vitest";
 
 import { tierSecrets, type WorkerKey } from "../../src/secrets/inventory";
-import { MissingSecretsError, requireSecrets } from "../../src/secrets/require";
+import {
+  MissingSecretsError,
+  requireSecrets,
+  requireSeedSecret,
+  SeedSecretError,
+} from "../../src/secrets/require";
 import type { Tier } from "../../src/stage";
 
 const envFor = (worker: WorkerKey, tier: Tier): Record<string, string> =>
@@ -88,5 +93,20 @@ describe("requireSecrets", () => {
     const env = { ...envFor("osn-api", "dev"), OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: " outgoing-key" };
     const error = thrown(() => requireSecrets({ worker: "osn-api", stage: "dev", env }));
     expect((error as MissingSecretsError).malformed).toEqual(["OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"]);
+  });
+});
+
+describe("requireSeedSecret", () => {
+  test("B6: refuses an unset, blank or padded value, naming the variable and never the value", () => {
+    for (const value of [undefined, "", "   ", " s3cr3t-seed", "s3cr3t-seed\n"]) {
+      const env = { CIRE_OIDC_CLIENT_SECRET: value };
+      const error = thrown(() => requireSeedSecret(env, "CIRE_OIDC_CLIENT_SECRET"));
+      expect(error).toBeInstanceOf(SeedSecretError);
+      expect((error as Error).message).toContain("CIRE_OIDC_CLIENT_SECRET");
+      expect((error as Error).message).not.toContain("s3cr3t-seed");
+    }
+    expect(
+      requireSeedSecret({ CIRE_OIDC_CLIENT_SECRET: "s3cr3t-seed" }, "CIRE_OIDC_CLIENT_SECRET"),
+    ).toBe("s3cr3t-seed");
   });
 });

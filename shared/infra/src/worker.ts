@@ -14,7 +14,25 @@ export interface ApiWorkerObservability {
   readonly issues: boolean;
 }
 
-/** Every setting where Alchemy's default differs from today's Wrangler config is required. */
+/** A Worker's static assets: the built directory and how requests reach it. */
+export interface WorkerAssetsInput {
+  readonly directory: string;
+  readonly htmlHandling:
+    | "auto-trailing-slash"
+    | "force-trailing-slash"
+    | "drop-trailing-slash"
+    | "none";
+  readonly notFoundHandling: "none" | "404-page" | "single-page-application";
+  /** `true` sends every request to the Worker first; a rule list sends only matching paths. */
+  readonly runWorkerFirst: boolean | readonly string[];
+}
+
+/**
+ * Every setting where Alchemy's default differs from today's Wrangler config
+ * is required. `bundle` and `assets` say whether `main` is source Alchemy
+ * bundles or a prebuilt Worker uploaded as it is, and which static assets
+ * the Worker serves beside it.
+ */
 export interface ApiWorkerInput {
   /** The Worker's entry in the secret inventory, which `secrets` must match for the stage's tier. */
   readonly worker: WorkerKey;
@@ -23,6 +41,10 @@ export interface ApiWorkerInput {
   readonly stage: string;
   /** The entry module, relative to the stack's working directory. */
   readonly main: string;
+  /** false: `main` is a prebuilt Worker, uploaded byte for byte with the modules beside it. */
+  readonly bundle: boolean;
+  /** The static assets the Worker serves, or null for none. */
+  readonly assets: WorkerAssetsInput | null;
   readonly compatibility: { readonly date: string; readonly flags: readonly string[] };
   /** The custom-domain hostname, or null to hold none. */
   readonly domain: string | null;
@@ -38,11 +60,25 @@ export interface ApiWorkerInput {
   readonly observability: ApiWorkerObservability;
 }
 
+/**
+ * A static site served from Workers static assets. Alchemy applies the built
+ * directory's `_headers`, and its `_redirects` unless `redirectsFile` is
+ * false. A site with an `entry` also runs that module for the paths its
+ * `runWorkerFirst` rules name; one without uploads no script.
+ */
 export interface SiteWorkerInput {
   readonly name: string;
   readonly stage: string;
-  /** The built site; Alchemy applies its `_headers` and `_redirects`. */
+  /** The built site. */
   readonly directory: string;
+  /** false sends an empty `_redirects`, which overrides the file in `directory`. */
+  readonly redirectsFile: boolean;
+  /** The module that serves the paths `runWorkerFirst` names, or null for an assets-only site. */
+  readonly entry: {
+    readonly main: string;
+    readonly compatibility: { readonly date: string; readonly flags: readonly string[] };
+    readonly runWorkerFirst: readonly string[];
+  } | null;
   readonly domain: string | null;
   readonly workersDev: boolean;
   /** Serve each version at its own workers.dev preview URL; refused on production. */
@@ -191,6 +227,9 @@ function checkProductionObservability(input: ApiWorkerInput): void {
   }
 }
 
+const routingRules = (rules: boolean | readonly string[]): boolean | string[] =>
+  typeof rules === "boolean" ? rules : [...rules];
+
 export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
   checkDeclaredSecrets(input);
   const clashes = clashingNames([
@@ -207,9 +246,10 @@ export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
   checkPlainBindings(input);
   checkProductionObservability(input);
   const { observability } = input;
-  return {
+  const props: Cloudflare.WorkerProps = {
     name: input.name,
     main: input.main,
+    bundle: input.bundle,
     compatibility: { date: input.compatibility.date, flags: [...input.compatibility.flags] },
     domain: input.domain,
     crons: [...input.crons],
@@ -233,16 +273,28 @@ export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
     },
     env: { ...input.vars, ...input.bindings, ...input.secrets },
   };
+  if (input.assets === null) return props;
+  return {
+    ...props,
+    assets: {
+      directory: input.assets.directory,
+      htmlHandling: input.assets.htmlHandling,
+      notFoundHandling: input.assets.notFoundHandling,
+      runWorkerFirst: routingRules(input.assets.runWorkerFirst),
+    },
+  };
 }
 
 export function siteWorkerProps(input: SiteWorkerInput): Cloudflare.WorkerProps {
-  return {
+  const routing = {
+    directory: input.directory,
+    htmlHandling: input.htmlHandling,
+    notFoundHandling: input.notFoundHandling,
+  };
+  const assets = input.redirectsFile ? routing : { ...routing, redirects: "" };
+  const props: Cloudflare.WorkerProps = {
     name: input.name,
-    assets: {
-      directory: input.directory,
-      htmlHandling: input.htmlHandling,
-      notFoundHandling: input.notFoundHandling,
-    },
+    assets,
     domain: input.domain,
     workersDev: {
       enabled: input.workersDev,
@@ -257,5 +309,13 @@ export function siteWorkerProps(input: SiteWorkerInput): Cloudflare.WorkerProps 
       traces: { enabled: false },
       issues: { enabled: input.issues },
     },
+  };
+  const { entry } = input;
+  if (entry === null) return props;
+  return {
+    ...props,
+    main: entry.main,
+    compatibility: { date: entry.compatibility.date, flags: [...entry.compatibility.flags] },
+    assets: { ...assets, runWorkerFirst: [...entry.runWorkerFirst] },
   };
 }
