@@ -15,7 +15,9 @@
   "scripts": {
     "check": "tsc --noEmit",
     "test": "bunx --bun vitest",
-    "test:run": "bunx --bun vitest run"
+    "test:run": "bunx --bun vitest run",
+    "secrets:check-live": "bun run scripts/check-live-secrets.ts",
+    "secrets:check-github": "bun run scripts/check-github-secrets.ts"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
