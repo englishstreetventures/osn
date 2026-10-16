@@ -19,7 +19,13 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { surface, SURFACES, type Tier, WORKFLOW_FILE } from "../deploy-surfaces";
+import {
+  PRODUCTION_SURFACES,
+  surface,
+  SURFACES,
+  type Tier,
+  WORKFLOW_FILE,
+} from "../deploy-surfaces";
 import { SMOKE_TARGETS, type WorkerSurface } from "../smoke-check";
 
 interface Step {
@@ -134,7 +140,7 @@ describe("production-release.yml", () => {
     expect(plan.permissions).toEqual({ contents: "read", deployments: "read", actions: "read" });
     const outputs = plan.outputs ?? {};
     expect(Object.keys(outputs).toSorted()).toEqual(
-      [...SURFACES.map((s) => s.key), "any"].toSorted(),
+      [...PRODUCTION_SURFACES.map((s) => s.key), "any"].toSorted(),
     );
     for (const key of Object.keys(outputs))
       expect(outputs[key]).toBe(`\${{ steps.plan.outputs.${key} }}`);
@@ -171,7 +177,7 @@ describe("production-release.yml", () => {
     const listed = /: ([a-z_ ]+)\. Empty means all\./.exec(
       dispatch.inputs.surfaces?.description ?? "",
     );
-    expect(listed?.[1]?.split(" ")).toEqual(SURFACES.map((s) => s.key));
+    expect(listed?.[1]?.split(" ")).toEqual(PRODUCTION_SURFACES.map((s) => s.key));
   });
 
   test("build runs only when something ships", () => {
@@ -182,10 +188,10 @@ describe("production-release.yml", () => {
 
   test("its production jobs are the map's, no more and no fewer", () => {
     const ids = jobsIn(production, "production").map(([id]) => id);
-    expect(ids.toSorted()).toEqual(SURFACES.map((s) => s.production.id).toSorted());
+    expect(ids.toSorted()).toEqual(PRODUCTION_SURFACES.map((s) => s.production.id).toSorted());
   });
 
-  test.each(SURFACES.map((s) => [s.key, s] as const))(
+  test.each(PRODUCTION_SURFACES.map((s) => [s.key, s] as const))(
     "%s: named as the map says, gated on its own output, released by the one approval",
     (key, s) => {
       const job = production.jobs[s.production.id]!;
@@ -335,7 +341,7 @@ describe("every other workflow", () => {
 
   test("uses none of the map's job names", () => {
     const names = new Set(
-      SURFACES.flatMap((s) => (s.dev ? [s.production.name, s.dev.name] : [s.production.name])),
+      SURFACES.flatMap((s) => (s.production ? [s.production.name, s.dev.name] : [s.dev.name])),
     );
     const others = otherWorkflows();
     expect(others.length).toBeGreaterThan(0);

@@ -77,9 +77,16 @@ const DEV_KEYS = [
   "cire_landing",
   "osn_api",
   "osn_social",
+  "musubi_landing",
+  "zap_api",
+  "pulse_landing",
+  "stack_musubi",
+  "stack_cire",
+  "stack_zap",
+  "stack_pulse",
 ];
 
-test("a push deploys the dev surfaces its diff touches, and writes only dev keys", async () => {
+test("a push deploys the dev surfaces its diff touches, then writes one line per stack", async () => {
   await withRepo(async (repo, output) => {
     const before = await commit(repo, {
       "cire/api/src/a.ts": "1",
@@ -99,7 +106,11 @@ test("a push deploys the dev surfaces its diff touches, and writes only dev keys
     expect(Object.keys(written)).toEqual(DEV_KEYS);
     expect(written.cire_landing).toBe("true");
     expect(written.cire_api).toBe("false");
-    expect(written.zap_api).toBeUndefined();
+    expect(written.zap_api).toBe("true");
+    expect(written.stack_cire).toBe("true");
+    expect(written.stack_zap).toBe("true");
+    expect(written.stack_musubi).toBe("false");
+    expect(written.stack_pulse).toBe("false");
   });
 });
 

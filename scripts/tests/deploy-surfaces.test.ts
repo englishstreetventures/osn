@@ -8,8 +8,12 @@ import {
   changesContent,
   deployReason,
   devDecisions,
+  devStackDecisions,
   isSurfaceKey,
+  PRODUCTION_SURFACES,
   sharedPath,
+  type StackKey,
+  STACKS,
   surface,
   SURFACES,
   WORKFLOW_FILE,
@@ -18,32 +22,50 @@ import {
 
 /** The keys a list of changed files redeploys on `tier`. */
 function redeployed(files: readonly string[], tier: "dev" | "production"): SurfaceKey[] {
-  return SURFACES.filter((s) => deployReason(s, files, tier) !== undefined).map((s) => s.key);
+  const surfaces = tier === "production" ? PRODUCTION_SURFACES : SURFACES;
+  return surfaces.filter((s) => deployReason(s, files, tier) !== undefined).map((s) => s.key);
+}
+
+/** The dev stacks a push of `files` deploys. */
+function stacksDeployed(files: readonly string[]): StackKey[] {
+  return devStackDecisions(devDecisions({ event: "push", files }), files, "push")
+    .filter((d) => d.deploy)
+    .map((d) => d.key);
 }
 
 const ALL = SURFACES.map((s) => s.key);
+const PRODUCTION = PRODUCTION_SURFACES.map((s) => s.key);
+const EVERY_STACK: StackKey[] = ["musubi", "cire", "zap", "pulse"];
 
 describe("the surface map", () => {
-  test("names eight surfaces, one key each", () => {
-    expect(ALL.toSorted()).toEqual([
-      "cire_api",
-      "cire_host",
-      "cire_invites",
-      "cire_landing",
-      "cire_vendor",
-      "osn_api",
-      "osn_social",
-      "zap_api",
-    ]);
+  test("names ten surfaces, one key each, each in its product's stack", () => {
+    expect(Object.fromEntries(SURFACES.map((s) => [s.key, s.stack]))).toEqual({
+      cire_api: "cire",
+      cire_invites: "cire",
+      cire_host: "cire",
+      cire_vendor: "cire",
+      cire_landing: "cire",
+      osn_api: "musubi",
+      osn_social: "musubi",
+      musubi_landing: "musubi",
+      zap_api: "zap",
+      pulse_landing: "pulse",
+    });
+    expect(new Set(ALL).size).toBe(10);
+    expect(STACKS.map((s) => s.key)).toEqual(EVERY_STACK);
   });
 
-  test("every surface but zap has a dev job", () => {
-    expect(SURFACES.filter((s) => s.dev === undefined).map((s) => s.key)).toEqual(["zap_api"]);
+  test("every surface has a dev job", () => {
+    expect(SURFACES.filter((s) => s.dev === undefined).map((s) => s.key)).toEqual([]);
   });
 
-  test("job ids and names are distinct", () => {
-    const ids = SURFACES.flatMap((s) => [s.production.id, ...(s.dev ? [s.dev.id] : [])]);
-    const names = SURFACES.flatMap((s) => [s.production.name, ...(s.dev ? [s.dev.name] : [])]);
+  test("job ids and names are distinct, over surfaces and stacks", () => {
+    const jobs = [
+      ...SURFACES.flatMap((s) => (s.production === undefined ? [s.dev] : [s.dev, s.production])),
+      ...STACKS.map((s) => s.job),
+    ];
+    const ids = jobs.map((job) => job.id);
+    const names = jobs.map((job) => job.name);
     expect(new Set(ids).size).toBe(ids.length);
     expect(new Set(names).size).toBe(names.length);
   });
@@ -55,7 +77,7 @@ describe("the surface map", () => {
   });
 
   test("surface() looks a key up", () => {
-    expect(surface("osn_social").production.name).toBe("Deploy musubi/social — production");
+    expect(surface("osn_social").production?.name).toBe("Deploy musubi/social — production");
   });
 });
 
@@ -64,7 +86,6 @@ describe("which surfaces a change redeploys", () => {
     ["cire/api/src/index.ts", ["cire_api"]],
     ["cire/db/migrations/0090_x.sql", ["cire_api"]],
     ["scripts/cire-db-migrate.ts", ["cire_api"]],
-    ["scripts/cire-dev-db-guard.ts", ["cire_api"]],
     ["scripts/check-d1-database-id.ts", ["cire_api"]],
     ["cire/invites/src/pages/index.astro", ["cire_invites"]],
     ["cire/host/src/App.tsx", ["cire_host"]],
@@ -103,7 +124,7 @@ describe("which surfaces a change redeploys", () => {
     ".browserslistrc",
     "scripts/deploy-surfaces.ts",
   ])("%s redeploys every surface on both tiers", (file) => {
-    expect(redeployed([file], "production")).toEqual(ALL);
+    expect(redeployed([file], "production")).toEqual(PRODUCTION);
     expect(redeployed([file], "dev")).toEqual(ALL);
   });
 
@@ -114,21 +135,58 @@ describe("which surfaces a change redeploys", () => {
   test("each tier's own workflow file redeploys that tier only", () => {
     expect(redeployed([WORKFLOW_FILE.dev], "dev")).toEqual(ALL);
     expect(redeployed([WORKFLOW_FILE.dev], "production")).toEqual([]);
-    expect(redeployed([WORKFLOW_FILE.production], "production")).toEqual(ALL);
+    expect(redeployed([WORKFLOW_FILE.production], "production")).toEqual(PRODUCTION);
     expect(redeployed([WORKFLOW_FILE.production], "dev")).toEqual([]);
   });
 
-  test("the smoke check redeploys the dev Workers that run it, so a change to it runs there before any release uses it", () => {
-    expect(redeployed(["scripts/smoke-check.ts"], "dev")).toEqual([
+  test.each(["scripts/smoke-check.ts", "scripts/worker-deployments.ts"])(
+    "%s redeploys every dev surface, each of which runs it, and no production surface",
+    (file) => {
+      expect(redeployed([file], "dev")).toEqual(ALL);
+      expect(stacksDeployed([file])).toEqual(EVERY_STACK);
+      expect(redeployed([file], "production")).toEqual([]);
+      expect(sharedPath(file, "dev")).toBe(false);
+      expect(deployReason(surface("pulse_landing"), [file], "dev")).toBe(
+        `${file} changed, which checks every dev deploy`,
+      );
+    },
+  );
+
+  test("a change under cire/infra/ redeploys every cire dev surface and no production surface", () => {
+    const file = "cire/infra/alchemy.run.ts";
+    expect(redeployed([file], "dev")).toEqual([
       "cire_api",
       "cire_invites",
-      "osn_api",
+      "cire_host",
+      "cire_vendor",
+      "cire_landing",
     ]);
-    expect(redeployed(["scripts/smoke-check.ts"], "production")).toEqual([]);
-    expect(sharedPath("scripts/smoke-check.ts", "dev")).toBe(false);
-    expect(deployReason(surface("osn_api"), ["scripts/smoke-check.ts"], "dev")).toBe(
-      "scripts/smoke-check.ts changed, which checks this Worker's deploy",
-    );
+    expect(stacksDeployed([file])).toEqual(["cire"]);
+    expect(redeployed([file], "production")).toEqual([]);
+    for (const s of SURFACES) expect(changesContent(s, file)).toBe(false);
+  });
+
+  test("a change to musubi landing runs the musubi stack", () => {
+    const file = "musubi/landing/src/x.astro";
+    expect(redeployed([file], "dev")).toEqual(["musubi_landing"]);
+    expect(stacksDeployed([file])).toEqual(["musubi"]);
+  });
+
+  test("a change under shared/infra/ runs every dev stack and offers production nothing", () => {
+    const file = "shared/infra/src/hosts.ts";
+    expect(stacksDeployed([file])).toEqual(EVERY_STACK);
+    expect(redeployed([file], "dev")).toEqual(ALL);
+    expect(redeployed([file], "production")).toEqual([]);
+    for (const s of PRODUCTION_SURFACES) expect(changesContent(s, file)).toBe(false);
+    // The rest of shared/ is still what every surface builds from.
+    expect(redeployed(["shared/ui/src/x.ts"], "dev")).toEqual(ALL);
+    expect(redeployed(["shared/ui/src/x.ts"], "production")).toEqual(PRODUCTION);
+  });
+
+  test("a change under zap/infra/ runs the zap stack and offers production nothing", () => {
+    expect(stacksDeployed(["zap/infra/alchemy.run.ts"])).toEqual(["zap"]);
+    expect(changesContent(surface("zap_api"), "zap/infra/alchemy.run.ts")).toBe(false);
+    expect(changesContent(surface("zap_api"), "zap/api/src/index.ts")).toBe(true);
   });
 
   test("the reason names the file that caused it", () => {

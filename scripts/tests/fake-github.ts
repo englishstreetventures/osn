@@ -3,7 +3,13 @@
 // REST API serves them. release-plan.test.ts calls it as an injected `fetch`;
 // release-plan.cli.test.ts serves it over HTTP to the real script.
 
-import { SURFACES, surface, type SurfaceKey, WORKFLOW_FILE } from "../deploy-surfaces";
+import {
+  PRODUCTION_SURFACES,
+  SURFACES,
+  surface,
+  type SurfaceKey,
+  WORKFLOW_FILE,
+} from "../deploy-surfaces";
 
 export const REPO = "englishstreetventures/osn";
 export const API = "https://api.github.com";
@@ -139,13 +145,13 @@ export function fakeGitHub(
   return { fetch: fake as unknown as typeof fetch, calls };
 }
 
-export const prod = (key: SurfaceKey): string => surface(key).production.name;
-
-export const dev = (key: SurfaceKey): string => {
-  const job = surface(key).dev;
-  if (!job) throw new Error(`${key} has no dev job`);
+export const prod = (key: SurfaceKey): string => {
+  const job = surface(key).production;
+  if (!job) throw new Error(`${key} has no production job`);
   return job.name;
 };
+
+export const dev = (key: SurfaceKey): string => surface(key).dev.name;
 
 /** Every production (or dev) job of one run, all successful. */
 export function fullRun(
@@ -153,11 +159,12 @@ export function fullRun(
   sha: string,
   run: number,
 ): FixtureRecord[] {
-  return SURFACES.filter((s) => environment === "production" || s.dev !== undefined).map((s) => ({
+  const surfaces = environment === "production" ? PRODUCTION_SURFACES : SURFACES;
+  return surfaces.map((s) => ({
     environment,
     sha,
     run,
-    job: environment === "production" ? s.production.name : dev(s.key),
+    job: environment === "production" ? prod(s.key) : dev(s.key),
     states: ["success", "in_progress", "queued", "waiting"],
   }));
 }
