@@ -11,7 +11,8 @@ sign-in, a cire guest RSVP, a Pulse event and RSVP) and writes traces,
 screenshots and a byte-reproducible `results.json` to `e2e-artifacts/`.
 
 `@cire/api`: the local server keeps its database in the file `CIRE_LOCAL_DB_PATH`
-names, when set, instead of in memory.
+names, when set, instead of in memory, and applies its schema and its seed in
+one transaction each.
 
 `@cire/invites`: `astro dev` no longer exits on its first request (two SSR
 dependencies are pre-bundled), and the consent prompt appears even when the
