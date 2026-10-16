@@ -40,7 +40,9 @@
  * never overwritten. On dev a Worker the stack deploy left unchanged is never
  * rolled back, and one still serving what an earlier smoke check restored
  * fails at once: the stack's state names code that Worker does not serve, and
- * the next run re-uploads it with --force.
+ * the next run re-uploads it with --force. An unchanged Worker whose history
+ * cannot be read fails the same way, unprobed, since the check cannot rule
+ * that out.
  *
  * It does not roll back when nothing answered (DNS, TLS, a timeout) or when
  * Cloudflare answered in the Worker's place (Access, a bot challenge, a 429):
@@ -558,11 +560,12 @@ export function isSmokeRollback(deployment: Deployment): boolean {
 }
 
 /**
- * What a deployment id looks like (Cloudflare's are UUIDs). Anything else in
- * SMOKE_DEPLOYMENT, or read back from the API, is refused rather than compared
- * or written to $GITHUB_OUTPUT.
+ * A deployment id as the Cloudflare deployments API returns it: a UUID.
+ * Anything else in SMOKE_DEPLOYMENT (bar `unchanged` and `unknown`), or read
+ * back from the API, is refused rather than compared or written to
+ * $GITHUB_OUTPUT, so a typo is never taken for an id.
  */
-export const DEPLOYMENT_ID = /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/;
+export const DEPLOYMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type ApiAnswer<T> =
   | { readonly ok: true; readonly result: T }
@@ -925,7 +928,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
     if (target.needsMarketing && marketing === undefined)
       return badOrigin("SMOKE_MARKETING_ORIGIN");
     deployment = env.SMOKE_DEPLOYMENT ?? "";
-    if (!DEPLOYMENT_ID.test(deployment)) {
+    if (deployment !== "unchanged" && deployment !== "unknown" && !DEPLOYMENT_ID.test(deployment)) {
       return usage(
         `SMOKE_DEPLOYMENT must be the deployment id worker-deployments.ts compare wrote, 'unchanged' or 'unknown', not '${oneLine(deployment, 100)}'`,
       );
@@ -962,9 +965,25 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
     );
   }
 
+  // An unchanged Worker may still serve an earlier smoke check's rollback,
+  // which only its history shows. Unread, a healthy answer would record
+  // success for code the Worker may not serve, so the check fails unprobed.
+  const unreadableUnchanged = (reason: string): number => {
+    out(
+      annotation(
+        "error",
+        `${label}: this run deployed nothing to ${checked.worker}, and its deployment history could not be read (${reason}), so the check cannot tell whether an earlier smoke check restored ${checked.worker}. Not probed and not rolled back; dispatch Deploy to check it again.`,
+        "Smoke check failed",
+      ),
+    );
+    summary("this run deployed nothing, and the deployment history could not be read; not probed.");
+    return 1;
+  };
+
   // Read before the first probe, so a rollback restores what served before
   // this deploy and can tell whether anything deployed the Worker since.
   const api = cloudflareCredentials(env, input.fetch);
+  if (deployment === "unchanged" && typeof api === "string") return unreadableUnchanged(api);
   let plan: RestorePlan | undefined;
   if (typeof api !== "string") {
     const output = deployment === undefined ? (env.WRANGLER_OUTPUT_FILE_PATH ?? "") : "";
@@ -973,6 +992,9 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
       plan = { ok: false, refused: false, reason: deployed.error };
     } else {
       const deployments = await readDeployments(api, checked.worker);
+      if (deployment === "unchanged" && !deployments.ok) {
+        return unreadableUnchanged(deployments.reason);
+      }
       const [newest] = deployments.ok ? deployments.result : [];
       if (deployment === "unchanged" && newest !== undefined && isSmokeRollback(newest)) {
         out(

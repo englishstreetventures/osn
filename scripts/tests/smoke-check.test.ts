@@ -112,10 +112,14 @@ const deployment = (
   versions: [{ version_id: version, percentage }],
 });
 
+// Deployment ids in the form the Cloudflare deployments API returns them.
+const DEP_BEFORE = "5d1c6b0e-4a63-4f0e-9b41-0f6e2a7c9d10";
+const DEP_THIS_JOB = "8f3a9c2d-17b4-4c5e-a6d8-3e2f1b0c4a97";
+
 /** This job's deploy, and the one before it, listed oldest first to prove the sort. */
 const HISTORY: readonly Deployment[] = [
-  deployment("dep-before", "2026-10-15T09:00:00Z", "v-before"),
-  deployment("dep-this-job", "2026-10-16T09:00:00Z", "v-this-job"),
+  deployment(DEP_BEFORE, "2026-10-15T09:00:00Z", "v-before"),
+  deployment(DEP_THIS_JOB, "2026-10-16T09:00:00Z", "v-this-job"),
 ];
 
 interface ApiOptions {
@@ -175,7 +179,7 @@ const OSN_API_DEV = "https://id.musubi.example.test";
 /** The env a stack job's smoke step passes: its origin and the deployment its deploy made. */
 const devEnv = (origin: string, extra: Record<string, string | undefined> = {}) => ({
   SMOKE_ORIGIN: origin,
-  SMOKE_DEPLOYMENT: "dep-this-job",
+  SMOKE_DEPLOYMENT: DEP_THIS_JOB,
   ...extra,
 });
 const INVITES_ENV = (extra: Record<string, string | undefined> = {}) =>
@@ -1049,7 +1053,7 @@ describe("dev learns its host and its deployment from the stack job", () => {
 
   test("without SMOKE_ORIGIN, or the guest site without SMOKE_MARKETING_ORIGIN, it exits 2 asking nothing", async () => {
     for (const [args, env] of [
-      [["cire_api", "dev"], { SMOKE_DEPLOYMENT: "dep-this-job" }],
+      [["cire_api", "dev"], { SMOKE_DEPLOYMENT: DEP_THIS_JOB }],
       [["cire_api", "dev"], devEnv("")],
       [["cire_invites", "dev"], devEnv(INVITES_DEV)],
     ] as const) {
@@ -1077,7 +1081,18 @@ describe("dev learns its host and its deployment from the stack job", () => {
     expect(result.output).toContain("SMOKE_ORIGIN");
   });
 
-  test.each([undefined, "", "dep this job", "unchanged\nx=1", "-dep"])(
+  test.each([
+    undefined,
+    "",
+    "dep this job",
+    "unchanged\nx=1",
+    "-dep",
+    "Unchanged",
+    "UNKNOWN",
+    "none",
+    "dep-this-job",
+    `${DEP_THIS_JOB}0`,
+  ])(
     "SMOKE_DEPLOYMENT %j is not a deployment id or a known word: exit 2, asking nothing",
     async (value) => {
       const result = await smoke(
@@ -1104,7 +1119,7 @@ describe("dev learns its host and its deployment from the stack job", () => {
 
   test("a deployment that is no longer the newest is never rolled back", async () => {
     const result = await smoke(["cire_api", "dev"], BROKEN_CIRE_API, {
-      env: devEnv(CIRE_API_DEV, { SMOKE_DEPLOYMENT: "dep-before" }),
+      env: devEnv(CIRE_API_DEV, { SMOKE_DEPLOYMENT: DEP_BEFORE }),
     });
     expect(result.code).toBe(1);
     expect(result.posts).toEqual([]);
@@ -1131,6 +1146,32 @@ describe("dev learns its host and its deployment from the stack job", () => {
     expect(result.output).toContain("an earlier smoke check restored cire-api-dev");
     expect(result.output).toContain("--force");
   });
+
+  test.each([
+    ["Cloudflare refuses the read", { api: { reads: [apiError(10_000, "Internal error", 500)] } }],
+    [
+      "the job has no Cloudflare credentials",
+      { env: { CLOUDFLARE_API_TOKEN: undefined, CLOUDFLARE_ACCOUNT_ID: undefined } },
+    ],
+  ] as const)(
+    "an unchanged Worker whose history cannot be read fails without a probe or a rollback: %s",
+    async (_, options) => {
+      const env = {
+        ...devEnv(CIRE_API_DEV, { SMOKE_DEPLOYMENT: "unchanged" }),
+        ...("env" in options ? options.env : {}),
+      };
+      const result = await smoke(
+        ["cire_api", "dev"],
+        { [`${CIRE_API_DEV}/api/auth/session`]: json({ signedIn: false }) },
+        { env, api: "api" in options ? options.api : undefined },
+      );
+      expect(result.code).toBe(1);
+      expect(result.calls).toEqual([]);
+      expect(result.posts).toEqual([]);
+      expect(result.output).toContain("could not be read");
+      expect(result.output).toContain("earlier smoke check restored cire-api-dev");
+    },
+  );
 
   test("an unreadable deployment is probed but never rolled back", async () => {
     const env = devEnv(CIRE_API_DEV, { SMOKE_DEPLOYMENT: "unknown" });

@@ -20,6 +20,13 @@ const CREDENTIALS = { CLOUDFLARE_ACCOUNT_ID: ACCOUNT, CLOUDFLARE_API_TOKEN: TOKE
 const deploymentsUrl = (worker: string) =>
   `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/workers/scripts/${worker}/deployments`;
 
+// Deployment ids in the form the Cloudflare deployments API returns them.
+const DEP_NEW = "0c9e2f4a-7b1d-4e3a-8c5f-6a2d9b1e0f73";
+const DEP_SAME = "3a7d1e9c-2b4f-4a6e-9d0c-8e1f5b2a7c46";
+const DEP_OLD = "6e4b2a1c-9d7f-4c3e-b8a5-1f0d2e3c4b59";
+const DEP_PLAIN = "9b1f3c5e-4d2a-4e6b-a7c9-0d8e2f1a3b64";
+const DEP_RESTORED = "d2a4c6e8-1b3f-4d5a-9c7e-2f4b6d8a0c18";
+
 const deployment = (id: string, createdOn: string, message?: string): Deployment => ({
   id,
   created_on: createdOn,
@@ -94,20 +101,20 @@ describe("snapshot, then compare", () => {
 
       const after = await run(
         ["compare", snapshot, "osn_social"],
-        { "osn-social-dev": () => listing([deployment("dep-new", "2026-10-17T09:00:00Z")]) },
+        { "osn-social-dev": () => listing([deployment(DEP_NEW, "2026-10-17T09:00:00Z")]) },
         { GITHUB_OUTPUT: output },
       );
       expect(after.code).toBe(0);
-      expect(await readOr(output)).toContain("osn_social_deployment=dep-new\n");
+      expect(await readOr(output)).toContain(`osn_social_deployment=${DEP_NEW}\n`);
     });
   });
 
   test("compare writes every surface's line, unknown for one it cannot read, then exits 1", async () => {
     await withFiles(async ({ snapshot, output }) => {
-      const same = deployment("dep-same", "2026-10-16T09:00:00Z");
+      const same = deployment(DEP_SAME, "2026-10-16T09:00:00Z");
       await writeFile(
         snapshot,
-        JSON.stringify({ osn_api: "dep-same", osn_social: "dep-old", musubi_landing: null }),
+        JSON.stringify({ osn_api: DEP_SAME, osn_social: DEP_OLD, musubi_landing: null }),
       );
       const result = await run(
         ["compare", snapshot, "osn_api", "osn_social", "musubi_landing"],
@@ -133,7 +140,11 @@ describe("snapshot", () => {
     ["Cloudflare never answers", () => new TypeError("fetch failed")],
     [
       "an answer whose newest id is not a deployment id",
-      () => listing([deployment("dep\nforce=true", "2026-10-16T09:00:00Z")]),
+      () => listing([deployment("dep-plain", "2026-10-16T09:00:00Z")]),
+    ],
+    [
+      "an answer whose newest id would write a line of its own",
+      () => listing([deployment(`${DEP_PLAIN}\nforce=true`, "2026-10-16T09:00:00Z")]),
     ],
   ] as const)("exits 1 and writes nothing when %s", async (_, answer) => {
     await withFiles(async ({ snapshot, output }) => {
@@ -154,11 +165,11 @@ describe("snapshot", () => {
   test("writes force=true, naming the Worker, when a newest deployment is a smoke-check rollback", async () => {
     await withFiles(async ({ snapshot, output }) => {
       const restored = deployment(
-        "dep-restored",
+        DEP_RESTORED,
         "2026-10-16T10:00:00Z",
         rollbackMessage({ GITHUB_REPOSITORY: "englishstreetventures/osn", GITHUB_RUN_ID: "7" }),
       );
-      const plain = deployment("dep-plain", "2026-10-16T09:00:00Z", "Deployed by hand");
+      const plain = deployment(DEP_PLAIN, "2026-10-16T09:00:00Z", "Deployed by hand");
       const rolledBack = await run(
         ["snapshot", snapshot, "osn_api", "osn_social"],
         {
