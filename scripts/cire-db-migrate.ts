@@ -15,7 +15,8 @@
  * refuses that case (`checkLedger`, then `checkBaselineSchema` for a ledger
  * holding only the baseline's name), then runs `wrangler d1 migrations apply`
  * with the same arguments. cire/db's `db:push` and `db:migrate:*` scripts call
- * it, and through them deploy.yml and cire-dev-db-rebuild.yml.
+ * it, and through them deploy.yml, production-release.yml and
+ * cire-dev-db-rebuild.yml.
  *
  * Usage, as cire/db's package scripts call it:
  *   cire-db-migrate.ts cire-db --local

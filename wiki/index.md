@@ -8,7 +8,7 @@ related:
   - "[[osn-and-musubi]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-16
 ---
 
 # OSN Wiki
@@ -41,8 +41,8 @@ Applies to every product: architecture, platform systems, observability, deploys
 - [[redis]] — Redis-backed rate limiters + cluster-safe auth state stores
 - [[toast]] — `@shared/toast`, the `--toast-*` theming contract, and contrast on the surface a toast actually sits on
 - [[database-environments]] — four DB environments (local bun:sqlite / dev·staging·prod D1), driver-agnostic Drizzle seam, D1 transaction caveat
-- [[dev-environment]] — the isolated cire + OSN dev tier: tier map, how a merge deploys dev, how to promote to production past the approval gate, how to reset dev by hand
-- [[production-deploy]] — first production cut-over of osn-api + the cire stack (secret/var checklist, migrations, CI pipeline, smoke checks)
+- [[dev-environment]] — the isolated cire + OSN dev tier: tier map, how a merge deploys dev, how a change reaches production, how to reset dev by hand
+- [[production-deploy]] — production runbook for osn-api + the cire stack (secret/var checklist, migrations, the daily production release and its one approval, smoke checks)
 - [[free-tier-limits]] — provider free-tier ceilings (Upstash / Workers / D1 / Pages / Turnstile / WAF), what breaks at each cap, the unavailability playbook, and the Cloudflare security-hardening TODO
 - [[rate-limit-incident]] — false positives, tuning, Redis health
 - [[bun-1.4-migration]] — what Bun 1.4 is worth using here: adopted (`$` shell, `Bun.TOML` guard, bun-types), impossible (`Bun.Image` in the seed), and what is left

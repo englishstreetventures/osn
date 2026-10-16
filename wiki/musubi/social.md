@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-09-14
+last-reviewed: 2026-10-16
 ---
 
 # Social
@@ -144,8 +144,9 @@ Environment variables (all prefixed `VITE_`):
 
 Cloudflare Pages, project **`osn-social`**, served at the apex
 **`https://musubi.social`**. The `deploy-osn-social` job in
-`.github/workflows/deploy.yml` builds and publishes it on every merge to
-`main`.
+`.github/workflows/production-release.yml` builds and publishes it in each
+production release that ships it; `deploy-osn-social-dev` in `deploy.yml`
+publishes the dev build on every merge to `main`. See [[production-deploy]].
 
 The host is not cosmetic, on two counts.
 

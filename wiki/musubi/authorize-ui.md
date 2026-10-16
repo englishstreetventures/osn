@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-16
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -30,7 +30,7 @@ and `osn/client/tests/authorize.test.ts`.
 
 **Deployed 2026-07-26**, on `me.cireweddings.com` at first. **Moved to the
 `musubi.social` apex 2026-07-27** with the rest of identity — see
-[[musubi-identity-migration]]. `@musubi/social` has a Pages job in `deploy.yml`;
+[[musubi-identity-migration]]. `@musubi/social` has a Pages job in `production-release.yml`;
 `OSN_AUTHORIZE_UI_URL` points at it.
 
 ## Where it lives

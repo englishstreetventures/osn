@@ -19,8 +19,9 @@
  *    `script-tests` job in `.github/workflows/ci.yml`.
  *  - `--generated <path>`: the guest Worker config `@astrojs/cloudflare` writes
  *    into `dist/server/wrangler.json`, which is the file that actually deploys.
- *    Run by `deploy-cire-invites` in `.github/workflows/deploy.yml` before
- *    `wrangler deploy`, so an adapter that drops the key fails the deploy.
+ *    Run by `deploy-cire-invites` in `.github/workflows/production-release.yml`
+ *    before `wrangler deploy`, so an adapter that drops the key fails the
+ *    deploy.
  */
 
 export type Finding = {

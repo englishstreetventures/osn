@@ -6,7 +6,8 @@
   // server-rendered per request; legal pages prerender to static assets.
   //
   // Deploy: `wrangler deploy` from `cire/invites` (config below is picked up; the
-  // adapter merges its generated `main`/`assets` into it). See deploy.yml.
+  // adapter merges its generated `main`/`assets` into it). See
+  // production-release.yml, and deploy.yml for the dev Worker.
   "name": "cire-invites",
   "compatibility_date": "2026-04-15",
   "compatibility_flags": ["nodejs_compat"],

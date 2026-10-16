@@ -16,7 +16,7 @@ related:
   - "[[cire-plus-ones]]"
   - "[[cire-invite-designs]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-16
 ---
 # Plan tiers — what a wedding has paid for
 
@@ -522,10 +522,11 @@ wording for that is englishstventures/osn#1317.
 
 ## Deploying a change to tiers
 
-The portal and the API deploy in separate jobs. In production, approve
-`deploy-cire-host` **before** `deploy-cire-api`: the new portal reads either
-list shape, while the old portal on the new API would request `/tasks` for an
-Ivory wedding, get a 402 and blank its Overview. The order and the pre-flight
+The portal and the API deploy in separate jobs, and one approval releases
+both. So in production ship them in **two releases, host first**: a release
+with `surfaces: cire_host`, then one with `surfaces: cire_api`. The new portal
+reads either list shape, while the old portal on the new API would request
+`/tasks` for an Ivory wedding, get a 402 and blank its Overview. The order and the pre-flight
 queries are in [[production-deploy]] §5.6.
 
 ## Observability

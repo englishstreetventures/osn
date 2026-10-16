@@ -94,7 +94,7 @@ The first thing anyone reads, and the reason the pull request exists. One to thr
 When a person has to do something, the owner reads it straight after the impact: lines at the end of `## Impact`, before `## Summary`, one bold lead-in per moment. When there is no action, nothing goes there.
 
 ```markdown
-**Do not merge until** production `cire-api` has applied migrations 0062–0081: approve the pending "Deploy cire/api — production" job and let it finish.
+**Do not merge until** production `cire-api` has applied migrations 0062–0081: dispatch a production release with `surfaces: cire_api`, approve it and let it finish.
 
 **After merging** — run `cire-dev-db-rebuild.yml` by `workflow_dispatch` and check its ledger step passes.
 ```

@@ -41,7 +41,7 @@ Phase 1. Three surfaces run in production on Cloudflare; the rest run locally.
 | Messaging (Zap) | `@zap/api`, `@zap/db` | Worker on `zap.cireweddings.com` — M1 in flight, client app not started |
 | OSN / Pulse marketing sites | `@musubi/landing`, `@pulse/landing` | Built, not yet deployed |
 
-CI deploys the `osn-api`, `cire-api` and `zap-api` Workers, the guest site (Worker SSR) and the identity app, organiser, vendor and landing sites (Pages) on merge to `main`. D1 migrations apply automatically. See `wiki/shared/production-deploy.md`.
+CI deploys the `osn-api`, `cire-api` and `zap-api` Workers, the guest site (Worker SSR) and the identity app, organiser, vendor and landing sites (Pages). A merge to `main` deploys the dev tier at once (zap-api has none); production ships in releases from `.github/workflows/production-release.yml`, once a day or by hand, one approval each. Each deploy applies its D1 migrations before the Worker. See `wiki/shared/production-deploy.md`.
 
 ## Applications
 
@@ -347,7 +347,7 @@ bun run changeset
 
 Pick the packages, pick the bump type, write a summary. The CI "Changeset Check" job fails without one. It enforces two rules. Package names must match the workspace `name` exactly — `"@pulse/web"`, not `"pulse"`. One changeset must not mix version-less packages (`@cire/*`) with versioned ones.
 
-On merge, CI runs `changeset version` to bump versions and update changelogs, lowers the lint-warning ceiling in `scripts/lint-warning-ceiling.txt` to the measured count, commits both to `main` in one commit, and deploys the live surfaces.
+On merge, CI runs `changeset version` to bump versions and update changelogs, lowers the lint-warning ceiling in `scripts/lint-warning-ceiling.txt` to the measured count, commits both to `main` in one commit. That push deploys the dev tier; production picks the change up in its next release.
 
 Read next:
 
