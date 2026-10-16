@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-17
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -91,7 +91,7 @@ along. If the user opens the link in a *different* browser, every call
 
 1. **Loading** — fetch context. 404 ⇒ *Expired* state.
 2. **Signed out** (`signedIn: false`, or arrived with `reason=login`) —
-   render the client card (name + logo + "wants to access your OSN
+   render the client card (name + logo + "wants to use your Musubi
    account") above the standard `<SignIn>` component, with a register
    link. On success, re-fetch context and continue. A sign-in performed
    here creates a fresh session, which by construction satisfies

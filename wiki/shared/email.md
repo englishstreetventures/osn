@@ -24,7 +24,7 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-17
 ---
 
 # Email Transport
@@ -76,25 +76,31 @@ const email = yield* EmailService;
 yield* email.send({
   template: "otp-registration",
   to: normalisedEmail,
-  data: { code, ttlMinutes: otpTtl / 60 },
+  data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
 });
 ```
 
-The template catalogue is the complete list of emails OSN sends:
+These are the account emails osn-api sends. Each names the identity instance
+it comes from, and takes that name as `instanceName` in its data: osn-api fills
+it from `AuthConfig.instanceName`, set in `osn/api/src/build-deps.ts`, and
+`@shared/email` names no product of its own. The security notices go through
+`notifySecurityEventByAccountId`, which adds `instanceName` itself, so their
+callers pass only the rest of the data.
 
 | Template                 | Data shape                          | Call site |
 |--------------------------|-------------------------------------|-----------|
-| `otp-registration`       | `{ code, ttlMinutes }`              | `beginRegistration` |
-| `otp-step-up`            | `{ code, ttlMinutes }`              | `beginStepUpOtp` |
-| `otp-email-change`       | `{ code, ttlMinutes }`              | `beginEmailChange` |
-| `otp-recovery`           | `{ code, ttlMinutes }`              | `beginEmailRecovery` |
-| `recovery-generated`     | `{}`                                | `notifyRecovery("recovery_code_generate")` |
-| `recovery-consumed`      | `{}`                                | `notifyRecovery("recovery_code_consume")` |
-| `recovery-used`          | `{}`                                | `completeRecoveryFactor` (email + TOTP) |
-| `passkey-added`          | `{}`                                | `notifyPasskeyRegisteredByAccountId` |
-| `passkey-removed`        | `{}`                                | `notifyPasskeyDeletedByAccountId` |
-| `totp-enrolled`          | `{}`                                | `completeTotpEnrollment` |
-| `totp-disabled`          | `{}`                                | `disableTotp` |
+| `otp-registration`       | `{ code, ttlMinutes, instanceName }` | `beginRegistration` |
+| `otp-step-up`            | `{ code, ttlMinutes, instanceName }` | `beginStepUpOtp` |
+| `otp-email-change`       | `{ code, ttlMinutes, instanceName }` | `beginEmailChange` |
+| `otp-recovery`           | `{ code, ttlMinutes, instanceName }` | `beginEmailRecovery` |
+| `recovery-generated`     | `{ instanceName }`                  | `notifyRecovery("recovery_code_generate")` |
+| `recovery-consumed`      | `{ instanceName }`                  | `notifyRecovery("recovery_code_consume")` |
+| `recovery-used`          | `{ disownUrl, instanceName }`       | `completeRecoveryFactor` (email + TOTP) |
+| `passkey-added`          | `{ instanceName }`                  | `notifyPasskeyRegisteredByAccountId` |
+| `passkey-removed`        | `{ instanceName }`                  | `notifyPasskeyDeletedByAccountId` |
+| `totp-enrolled`          | `{ instanceName }`                  | `completeTotpEnrollment` |
+| `totp-disabled`          | `{ instanceName }`                  | `disableTotp` |
+| `cross-device-login`     | `{ instanceName }`                  | `notifyCrossDeviceLoginByAccountId` |
 
 cire-api sends from the same catalogue:
 
@@ -135,7 +141,7 @@ Content-Type: application/json
 {
   "from":    "hello@cireweddings.com",
   "to":      ["user@example.com"],
-  "subject": "Verify your OSN email",
+  "subject": "Verify your Musubi email",
   "html":    "...",
   "text":    "...",
   "headers": { "List-Unsubscribe": "<https://…>" }
@@ -153,7 +159,7 @@ Content-Type: application/json
 {
   "to":      [{ "email": "user@example.com" }],
   "from":    { "email": "noreply@osn.app" },
-  "subject": "Verify your OSN email",
+  "subject": "Verify your Musubi email",
   "text":    "...",
   "html":    "..."
 }

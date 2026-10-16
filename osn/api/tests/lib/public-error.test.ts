@@ -19,7 +19,7 @@ describe("publicError", () => {
     const err = { _tag: "AgeRestrictionError" };
     expect(publicError(err)).toEqual({
       status: 422,
-      body: { error: "age_restricted", message: "OSN is for users 13 and older" },
+      body: { error: "age_restricted", message: "You must be 13 or older to create an account" },
     });
   });
 

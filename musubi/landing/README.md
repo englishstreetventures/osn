@@ -1,10 +1,10 @@
 # @musubi/landing
 
-Marketing / landing site for **OSN**. Static Astro + SolidJS + Tailwind v4 —
+Marketing / landing site for **Musubi**. Static Astro + SolidJS + Tailwind v4 —
 same stack as `@cire/landing`. Dark-grey, connections-led identity built on a
 dotted / network motif (`ConstellationCanvas` backdrop + `ConnectionsHero`).
 
-Pure brochure: no OSN auth, no first-party API calls.
+Pure brochure: no sign-in, no first-party API calls.
 
 ## Run
 
@@ -19,7 +19,7 @@ bun run --cwd musubi/landing test:run   # vitest
 
 CTA targets + canonical origin are build-time env vars (see `.env.example`):
 
-- `PUBLIC_APP_URL` — primary CTA → the OSN identity / social app (dev default `http://localhost:1422`)
+- `PUBLIC_APP_URL` — primary CTA → the Musubi app, `@musubi/social` (dev default `http://localhost:1422`)
 - `PUBLIC_DOCS_URL` — optional docs / source link
 - `SITE` — canonical origin baked into SEO meta (placeholder default)
 

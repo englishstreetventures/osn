@@ -360,6 +360,8 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
   const authConfig = {
     rpId: env.OSN_RP_ID || "localhost",
     rpName: env.OSN_RP_NAME || "OSN",
+    // Hard-coded until englishstreetventures/osn#1549 lands.
+    instanceName: "Musubi",
     origin: (env.OSN_ORIGIN || "http://localhost:5173")
       .split(",")
       .map((o) => o.trim())

@@ -3,6 +3,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { createMemo, createSignal, Show } from "solid-js";
 
+import { PRODUCT_NAME } from "../lib/auth";
 import { profileInitials, safeAvatarUrl } from "../lib/utils";
 import { AccountMenu } from "./AccountMenu";
 import { AuthDialogs } from "./AuthDialogs";
@@ -30,10 +31,10 @@ export function MobileTopBar() {
     <>
       <header class="border-border bg-background pt-safe px-safe border-b md:hidden">
         <div class="flex h-12 items-center justify-between px-4">
-          <div class="flex items-baseline gap-1.5">
-            <span class="text-foreground text-title font-medium">OSN</span>
-            <span class="text-subtle text-meta tracking-ui-wide uppercase">Social</span>
-          </div>
+          {/* The product name alone, without the rail's small-caps "Social" tag:
+              at 320px the signed-out bar has no room for the tag beside
+              "Sign in" and "Create account". */}
+          <span class="text-foreground text-title font-medium">{PRODUCT_NAME}</span>
           <div class="flex items-center gap-2">
             <ThemeToggle />
             <Show

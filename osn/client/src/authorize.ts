@@ -226,7 +226,7 @@ export function createAuthorizeClient(config: AuthorizeClientConfig): AuthorizeC
       }
       // A transport failure is the "anything else" arm of AuthorizeErrorCode:
       // wrap it so every caller has one error type to branch on.
-      throw new AuthorizeError("unknown", 0, "Could not reach OSN. Check your connection.");
+      throw new AuthorizeError("unknown", 0, "Could not reach the server. Check your connection.");
     } finally {
       if (timer !== undefined) clearTimeout(timer);
       caller?.removeEventListener("abort", onCallerAbort);

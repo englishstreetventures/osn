@@ -1,11 +1,20 @@
 import { describe, it, expect } from "vitest";
 
-import { renderTemplate, type EmailTemplate, type EmailTemplateData } from "../src/templates";
+import {
+  renderTemplate,
+  type AccountEmailTemplate,
+  type EmailTemplate,
+  type EmailTemplateData,
+} from "../src/templates";
 
 describe("renderTemplate", () => {
   it("renders registration OTP with code + TTL", () => {
-    const out = renderTemplate("otp-registration", { code: "000000", ttlMinutes: 10 });
-    expect(out.subject).toMatchInlineSnapshot(`"Verify your OSN email"`);
+    const out = renderTemplate("otp-registration", {
+      code: "000000",
+      ttlMinutes: 10,
+      instanceName: "Musubi",
+    });
+    expect(out.subject).toMatchInlineSnapshot(`"Verify your Musubi email"`);
     expect(out.text).toContain("000000");
     expect(out.text).toContain("10 minutes");
     expect(out.html).toContain("000000");
@@ -13,16 +22,20 @@ describe("renderTemplate", () => {
     expect(out.html.startsWith("<!doctype html>")).toBe(true);
   });
 
-  it("renders email-change OTP with S-L5 somebody-asked framing", () => {
-    const out = renderTemplate("otp-email-change", { code: "987654", ttlMinutes: 10 });
-    expect(out.subject).toBe("Confirm your new OSN email");
+  it("renders email-change OTP with somebody-asked framing", () => {
+    const out = renderTemplate("otp-email-change", {
+      code: "987654",
+      ttlMinutes: 10,
+      instanceName: "Musubi",
+    });
+    expect(out.subject).toBe("Confirm your new Musubi email");
     // The "not-you" framing is load-bearing for phishing resistance.
     expect(out.text).toContain("If that wasn't you");
   });
 
   it("recovery templates never include codes", () => {
-    const gen = renderTemplate("recovery-generated", {});
-    const used = renderTemplate("recovery-consumed", {});
+    const gen = renderTemplate("recovery-generated", { instanceName: "Musubi" });
+    const used = renderTemplate("recovery-consumed", { instanceName: "Musubi" });
     for (const out of [gen, used]) {
       expect(out.text).not.toMatch(/\b\d{4,}\b/);
       expect(out.html).not.toMatch(/\b\d{4,}\b/);
@@ -30,8 +43,8 @@ describe("renderTemplate", () => {
   });
 
   it("passkey templates never include codes", () => {
-    const added = renderTemplate("passkey-added", {});
-    const removed = renderTemplate("passkey-removed", {});
+    const added = renderTemplate("passkey-added", { instanceName: "Musubi" });
+    const removed = renderTemplate("passkey-removed", { instanceName: "Musubi" });
     for (const out of [added, removed]) {
       expect(out.text).not.toMatch(/\b\d{4,}\b/);
       expect(out.html).not.toMatch(/\b\d{4,}\b/);
@@ -44,6 +57,7 @@ describe("renderTemplate", () => {
     const out = renderTemplate("otp-registration", {
       code: "<script>",
       ttlMinutes: 10,
+      instanceName: "Musubi",
     });
     expect(out.html).not.toContain("<script>");
     expect(out.html).toContain("&lt;script&gt;");
@@ -75,18 +89,18 @@ describe("renderTemplate", () => {
       amountFormatted: "A$1,200.00",
       threadUrl: "https://example.test/thread/1",
     },
-    "otp-registration": { code: "000000", ttlMinutes: 10 },
-    "otp-step-up": { code: "000000", ttlMinutes: 10 },
-    "otp-email-change": { code: "000000", ttlMinutes: 10 },
-    "recovery-generated": {},
-    "recovery-consumed": {},
-    "otp-recovery": { code: "000000", ttlMinutes: 10 },
-    "recovery-used": { disownUrl: "https://example.test/disown/abc" },
-    "totp-enrolled": {},
-    "totp-disabled": {},
-    "passkey-added": {},
-    "passkey-removed": {},
-    "cross-device-login": {},
+    "otp-registration": { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
+    "otp-step-up": { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
+    "otp-email-change": { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
+    "recovery-generated": { instanceName: "Musubi" },
+    "recovery-consumed": { instanceName: "Musubi" },
+    "otp-recovery": { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
+    "recovery-used": { disownUrl: "https://example.test/disown/abc", instanceName: "Musubi" },
+    "totp-enrolled": { instanceName: "Musubi" },
+    "totp-disabled": { instanceName: "Musubi" },
+    "passkey-added": { instanceName: "Musubi" },
+    "passkey-removed": { instanceName: "Musubi" },
+    "cross-device-login": { instanceName: "Musubi" },
     "registry-gift-summary": {
       weddingName: "Ama & Jonah",
       finalEventOn: "2025-05-10",
@@ -148,4 +162,44 @@ describe("renderTemplate", () => {
       expect(out.html.length).toBeGreaterThan(0);
     }
   });
+});
+
+/**
+ * The account emails osn-api sends name the identity instance they come from,
+ * and that name is the instance's to choose: an operator running their own
+ * instance must not send mail that names ours. The name carries an `&` so the
+ * same render also proves it is escaped in the HTML part.
+ */
+describe("account emails name the instance passed in", () => {
+  const instanceName = "Acme & Co";
+  const accountEmails = {
+    "otp-registration": { code: "000000", ttlMinutes: 10, instanceName },
+    "otp-step-up": { code: "000000", ttlMinutes: 10, instanceName },
+    "otp-email-change": { code: "000000", ttlMinutes: 10, instanceName },
+    "otp-recovery": { code: "000000", ttlMinutes: 10, instanceName },
+    "recovery-generated": { instanceName },
+    "recovery-consumed": { instanceName },
+    "recovery-used": { disownUrl: "https://example.test/disown/abc", instanceName },
+    "passkey-added": { instanceName },
+    "passkey-removed": { instanceName },
+    "totp-enrolled": { instanceName },
+    "totp-disabled": { instanceName },
+    "cross-device-login": { instanceName },
+  } satisfies { [K in AccountEmailTemplate]: EmailTemplateData<K> };
+
+  for (const template of Object.keys(accountEmails) as AccountEmailTemplate[]) {
+    it(`${template} names the instance and no fixed product`, () => {
+      const out = renderTemplate(template, accountEmails[template]);
+      expect(`${out.subject}\n${out.text}`).toContain(instanceName);
+      for (const part of [out.subject, out.text, out.html]) {
+        expect(part).not.toMatch(/\bOSN\b|Musubi/);
+      }
+    });
+
+    it(`${template} escapes the instance name in its HTML`, () => {
+      const out = renderTemplate(template, accountEmails[template]);
+      expect(out.html).toContain("Acme &amp; Co");
+      expect(out.html).not.toContain(instanceName);
+    });
+  }
 });

@@ -22,6 +22,7 @@ import {
 } from "@playwright/test";
 
 import { API_LABELS, BIRTHDATE, CLOCK_T0, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
+import type { CapturedMail } from "../../src/mail";
 import { requestLine, requestSet, type Assertion, type FlowRecord } from "../../src/record";
 import { RECORD_ATTACHMENT } from "../../src/reporter";
 
@@ -115,6 +116,12 @@ export const test = base.extend<{ flow: Flow }>({
 });
 
 export { expect };
+
+/** Every message sent to `email` so far, oldest first. Reads; does not wait. */
+export async function mailFor(email: string): Promise<CapturedMail[]> {
+  const response = await fetch(`${ORIGINS.mail}/__e2e/mail?to=${encodeURIComponent(email)}`);
+  return (await response.json()) as CapturedMail[];
+}
 
 /** The newest one-time code sent to `email`, waiting for the mail to land. */
 export async function otpFor(email: string, after = 0): Promise<string> {

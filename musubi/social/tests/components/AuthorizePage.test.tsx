@@ -170,7 +170,7 @@ describe("<AuthorizePage />", () => {
     renderPage();
 
     expect(await screen.findByText("Cire")).toBeDefined();
-    expect(screen.getByText("wants to use your OSN account")).toBeDefined();
+    expect(screen.getByText("wants to use your Musubi account")).toBeDefined();
     expect(screen.getByText("Confirm who you are")).toBeDefined();
     expect(screen.getByText("See your profile")).toBeDefined();
     expect(screen.getByText("See your email address")).toBeDefined();

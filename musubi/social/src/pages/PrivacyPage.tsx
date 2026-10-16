@@ -7,7 +7,7 @@ import { LegalDocument } from "../components/LegalDocument";
  * The identity service's own privacy notice, at `/privacy`.
  *
  * It exists because `@musubi/landing`'s notice says in as many words that it
- * "covers visitors to this site only" and that "the OSN identity service and
+ * "covers visitors to this site only" and that "the Musubi identity service and
  * each connected app publish their own, separate privacy notices" — and then
  * no such notice existed. The account, the passkeys, the social graph and the
  * OIDC connections all live here, and this is where they are described.

@@ -8,7 +8,14 @@
  */
 
 import { ORIGINS, PEOPLE } from "../../src/config";
-import { addVirtualAuthenticator, cookieNamed, expect, otpFor, test } from "../support/fixtures";
+import {
+  addVirtualAuthenticator,
+  cookieNamed,
+  expect,
+  mailFor,
+  otpFor,
+  test,
+} from "../support/fixtures";
 
 const ada = PEOPLE.musubi;
 
@@ -26,6 +33,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await page.goto(ORIGINS.musubi);
     await expect(page.getByRole("button", { name: "Create account" }).first()).toBeVisible();
   });
+  flow.check("tab title", "Musubi", await page.title());
 
   await flow.step("register: details", async () => {
     await page.getByRole("button", { name: "Create account" }).first().click();
@@ -41,6 +49,8 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await page.getByLabel("Digit 1").pressSequentially(code);
     await page.getByRole("button", { name: "Verify email" }).click();
   });
+  const [verification] = await mailFor(ada.email);
+  flow.check("registration email subject", "Verify your Musubi email", verification?.subject ?? "");
 
   await flow.step("register: enroll passkey", async () => {
     await page.getByRole("button", { name: "Enroll credential" }).click();

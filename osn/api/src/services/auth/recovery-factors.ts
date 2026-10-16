@@ -213,7 +213,7 @@ export function createRecoveryFactorsModule(
         .send({
           template: "otp-recovery",
           to: recipientEmail,
-          data: { code, ttlMinutes: otpTtlMinutes },
+          data: { code, ttlMinutes: otpTtlMinutes, instanceName: config.instanceName },
         })
         .pipe(
           Effect.mapError(

@@ -6,7 +6,7 @@ import { LegalDocument } from "../components/LegalDocument";
 /**
  * Terms for the identity service itself, at `/terms`.
  *
- * `@musubi/landing`'s site terms say that "creating an OSN identity and using the
+ * `@musubi/landing`'s site terms say that "creating a Musubi identity and using the
  * connected apps is governed by separate terms entered into when you sign up",
  * and that those site terms grant no right to the service. This is the separate
  * agreement that sentence points at.

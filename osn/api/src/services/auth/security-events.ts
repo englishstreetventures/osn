@@ -36,7 +36,7 @@ export type SecurityNoticeTemplate =
   | "recovery-used";
 
 export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModule) {
-  const { recoveryGenerateAllowedAmr } = ctx;
+  const { config, recoveryGenerateAllowedAmr } = ctx;
   const { verifyStepUpToken } = stepUp;
 
   /**
@@ -214,12 +214,13 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
     kind: SecurityEventKind,
     template: T,
     /**
-     * The template's own data. Every notice but one is boilerplate and passes
-     * `{}`; `recovery-used` carries the "this wasn't me" URL, which is the
-     * whole reason this parameter exists. Typed against the template so a
-     * caller cannot pass the wrong bag or forget a required one.
+     * The template's own data, less the instance name, which this helper adds
+     * from `config`. Every notice but one is boilerplate and passes `{}`;
+     * `recovery-used` carries the "this wasn't me" URL, which is the whole
+     * reason this parameter exists. Typed against the template so a caller
+     * cannot pass the wrong bag or forget a required one.
      */
-    data: EmailTemplateData<T>,
+    data: Omit<EmailTemplateData<T>, "instanceName">,
   ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
@@ -236,10 +237,14 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
       const start = Date.now();
       // `SendEmailInput` is a discriminated union over `template`, and TypeScript
       // will not narrow it from an unresolved generic — the pair is correct by
-      // the signature above (`data: EmailTemplateData<T>`), which is where the
-      // check that matters happens. Narrowed here so the union is reconstructed
-      // rather than widened away.
-      const input = { template, to: recipient, data } as SendEmailInput;
+      // the signature above (`data` typed against `T`, less the instance name
+      // added here), which is where the check that matters happens. Narrowed
+      // here so the union is reconstructed rather than widened away.
+      const input = {
+        template,
+        to: recipient,
+        data: { ...data, instanceName: config.instanceName },
+      } as SendEmailInput;
       yield* email.send(input).pipe(
         Effect.mapError(() => new AuthError({ message: "notify_dispatch_failed" })),
         Effect.tap(() =>

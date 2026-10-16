@@ -1,6 +1,6 @@
 export const OSN_ISSUER_URL = import.meta.env.VITE_OSN_ISSUER_URL ?? "http://localhost:4000";
 
-/** The product name this instance shows in `@osn/auth-ui`'s auth copy. */
+/** The product name this app shows — in its own copy and in `@osn/auth-ui`'s. */
 export const PRODUCT_NAME = "Musubi";
 
 /**

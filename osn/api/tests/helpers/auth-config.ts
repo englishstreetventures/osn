@@ -10,6 +10,7 @@ import type { AuthConfig } from "../../src/services/auth";
 const BASE_CONFIG = {
   rpId: "localhost",
   rpName: "OSN Test",
+  instanceName: "Musubi",
   origin: "http://localhost:5173",
   issuerUrl: "http://localhost:4000",
   // Any stable 32+ byte string works — the salt only has to be constant

@@ -20,6 +20,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { SectionTabs } from "../components/SectionTabs";
 import { graphClient } from "../lib/api";
+import { PRODUCT_NAME } from "../lib/auth";
 
 type Tab = "all" | "pending" | "sent" | "blocked";
 
@@ -152,7 +153,9 @@ export function ConnectionsPage() {
     <main class="mx-auto w-full max-w-2xl px-4 py-6 md:px-8 md:py-8">
       <div class="mb-6">
         <h1 class="text-foreground text-display font-medium">Connections</h1>
-        <p class="text-muted-foreground text-body mt-1">People in your social network on OSN.</p>
+        <p class="text-muted-foreground text-body mt-1">
+          People in your social network on {PRODUCT_NAME}.
+        </p>
       </div>
 
       <Show

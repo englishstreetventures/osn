@@ -24,7 +24,7 @@ import { EmailSchema, genId, genOtpCode, hashSessionToken, logDevOtp } from "./h
 import type { StepUpModule } from "./step-up";
 
 export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) {
-  const { stores, otpTtl, emailChangeBeginCap } = ctx;
+  const { config, stores, otpTtl, emailChangeBeginCap } = ctx;
   const { verifyStepUpForEmailChange } = stepUp;
 
   const EMAIL_CHANGE_LIMIT = 2;
@@ -153,7 +153,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         .send({
           template: "otp-email-change",
           to: normalised,
-          data: { code, ttlMinutes: otpTtl / 60 },
+          data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
         })
         .pipe(
           Effect.mapError(
