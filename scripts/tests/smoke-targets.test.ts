@@ -8,7 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { WORKFLOW_FILE } from "../deploy-surfaces";
+import { SMOKE_CHECKED_ON_DEV, WORKFLOW_FILE } from "../deploy-surfaces";
 import { SMOKE_TARGETS, type SmokeTarget } from "../smoke-check";
 
 const root = join(import.meta.dir, "..", "..");
@@ -63,13 +63,46 @@ describe("every --env target probes the hosts its wrangler.toml routes", () => {
     expect(routes.length).toBeGreaterThan(0);
     expect([...hostsOf(target)]).toEqual(routes);
   });
+
+  // The rollback acts on the Worker by name. With no `name` of its own, an
+  // environment deploys `<name>-<env>`.
+  test.each(cases)("%s rolls back the Worker `wrangler deploy --env` deploys", (_, target) => {
+    const env = target.wrangler[1] ?? "";
+    const config = Bun.TOML.parse(read(join(target.cwd, "wrangler.toml"))) as {
+      name: string;
+      env?: Record<string, { name?: string }>;
+    };
+    expect(target.worker).toBe(config.env?.[env]?.name ?? `${config.name}-${env}`);
+  });
+});
+
+test("a change to the check redeploys exactly the dev Workers that run it", () => {
+  const devWorkers = Object.entries(SMOKE_TARGETS)
+    .filter(([, tiers]) => "dev" in tiers)
+    .map(([surface]) => surface);
+  expect([...SMOKE_CHECKED_ON_DEV].map(String).toSorted()).toEqual(devWorkers.toSorted());
 });
 
 describe("the guest site", () => {
-  test("production probes the route cire/invites/wrangler.jsonc gives the Worker", () => {
-    const config = Bun.JSONC.parse(read("cire/invites/wrangler.jsonc")) as { routes: Route[] };
+  test("production probes the route cire/invites/wrangler.jsonc gives the Worker, and rolls back that Worker", () => {
+    const config = Bun.JSONC.parse(read("cire/invites/wrangler.jsonc")) as {
+      name: string;
+      routes: Route[];
+    };
     const target = SMOKE_TARGETS.cire_invites.production!;
     expect([...hostsOf(target)]).toEqual(config.routes.map((r) => r.pattern));
+    expect(config.name).toBe(target.worker);
+    // The production job strips one field from the generated config and
+    // renames nothing.
+    const steps = workflow(WORKFLOW_FILE.production).jobs["deploy-cire-invites"]?.steps ?? [];
+    expect(steps.some((s) => s.run?.includes("c.name"))).toBe(false);
+  });
+
+  test("dev rolls back the Worker deploy.yml renames the generated config to", () => {
+    const steps = workflow(WORKFLOW_FILE.dev).jobs["deploy-cire-invites-dev"]?.steps ?? [];
+    const retarget = steps.find((s) => s.name === "Retarget the generated config at dev");
+    const name = /c\.name = '([^']+)';/.exec(retarget?.run ?? "");
+    expect(name?.[1]).toBe(SMOKE_TARGETS.cire_invites.dev!.worker);
   });
 
   test("dev probes the route deploy.yml retargets the generated config at", () => {

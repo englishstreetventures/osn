@@ -11,8 +11,9 @@
 //     approval gate together and one review releases them. A job that reached
 //     the gate later would need a review of its own;
 //   - every Worker deploy is followed by scripts/smoke-check.ts for its own
-//     surface and tier, and that script's rollback targets the Worker the
-//     deploy step deployed — the same working directory and wrangler flags.
+//     surface and tier, with the job's Cloudflare credentials in reach of its
+//     rollback, and that script's target is the Worker the deploy step
+//     deployed — the same working directory and wrangler flags.
 
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
@@ -36,6 +37,8 @@ interface Step {
 
 interface Job {
   readonly name?: string;
+  readonly env?: Record<string, string>;
+  readonly defaults?: unknown;
   readonly steps?: readonly Step[];
   readonly needs?: string | readonly string[];
   readonly if?: string;
@@ -47,6 +50,7 @@ interface Job {
 
 interface Workflow {
   readonly on: Record<string, unknown>;
+  readonly defaults?: unknown;
   readonly concurrency?: { readonly group: string; readonly "cancel-in-progress"?: boolean };
   readonly jobs: Record<string, Job>;
 }
@@ -243,6 +247,19 @@ describe("every Worker deploy is smoke-checked, and rolls back the Worker it dep
     expect(smoke?.["continue-on-error"]).toBeUndefined();
     expect(steps.length).toBe(deployAt + 2);
 
+    // The rollback reads the job's credentials. A token moved into the deploy
+    // step's own env would keep every deploy working and fail every rollback.
+    expect(job.env?.CLOUDFLARE_API_TOKEN).toMatch(/^\$\{\{ secrets\.CLOUDFLARE_API_TOKEN/);
+    expect(job.env?.CLOUDFLARE_ACCOUNT_ID).toBe("${{ secrets.CLOUDFLARE_ACCOUNT_ID }}");
+    for (const step of [deploy, smoke]) {
+      expect(Object.keys(step?.env ?? {}).filter((name) => name.startsWith("CLOUDFLARE_"))).toEqual(
+        [],
+      );
+    }
+    // `bun run scripts/smoke-check.ts` resolves from the repository root.
+    expect(job.defaults).toBeUndefined();
+    expect(workflowOf(tier).defaults).toBeUndefined();
+
     const env = smoke?.env ?? {};
     if (tier === "dev") expect(env.SMOKE_FORCE_FAIL).toBe(`\${{ inputs.smoke_fail == '${key}' }}`);
     else expect(env.SMOKE_FORCE_FAIL).toBeUndefined();
@@ -286,18 +303,31 @@ describe("installs", () => {
 });
 
 describe("every other workflow", () => {
+  const otherWorkflows = () => {
+    const owners = new Set<string>([WORKFLOW_FILE.dev, WORKFLOW_FILE.production]);
+    return readdirSync(join(root, ".github/workflows"))
+      .filter((file) => file.endsWith(".yml") || file.endsWith(".yaml"))
+      .map((file) => `.github/workflows/${file}`)
+      .filter((path) => !owners.has(path));
+  };
+
   // The planner ties a Deployment record to a surface by its job's name, and
   // counts only records from runs of the two deploy workflows. A job of the
   // same name anywhere else is a deploy the planner cannot see.
+  // A Worker deployed from anywhere else skips the smoke check, and the planner
+  // never sees it.
+  test("deploys no Worker", () => {
+    for (const path of otherWorkflows()) {
+      const text = readFileSync(join(root, path), "utf8");
+      expect(text).not.toMatch(/\bwrangler (versions )?deploy\b|cloudflare\/wrangler-action/);
+    }
+  });
+
   test("uses none of the map's job names", () => {
     const names = new Set(
       SURFACES.flatMap((s) => (s.dev ? [s.production.name, s.dev.name] : [s.production.name])),
     );
-    const owners = new Set<string>([WORKFLOW_FILE.dev, WORKFLOW_FILE.production]);
-    const others = readdirSync(join(root, ".github/workflows"))
-      .filter((file) => file.endsWith(".yml") || file.endsWith(".yaml"))
-      .map((file) => `.github/workflows/${file}`)
-      .filter((path) => !owners.has(path));
+    const others = otherWorkflows();
     expect(others.length).toBeGreaterThan(0);
     for (const path of others) {
       const jobs = Object.values(load(path).jobs ?? {});

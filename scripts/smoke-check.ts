@@ -8,35 +8,47 @@
  *
  *   bun run scripts/smoke-check.ts <surface> <tier>
  *
- * from the repository root. `wrangler deploy` reports success when the upload
- * succeeds, not when the Worker can serve: a missing secret makes osn-api
- * answer 503 on every route while its job goes green. This asks the Worker's
- * own hosts (SMOKE_TARGETS) what a working one answers, every 10 seconds for a
- * minute, and calls the deploy healthy once every probe passes in two rounds
- * in a row.
+ * `wrangler deploy` reports success when the upload succeeds, not when the
+ * Worker can serve: a missing secret makes osn-api answer 503 on every route
+ * while its job goes green. This asks the Worker's own hosts (SMOKE_TARGETS)
+ * what a working one answers, every 10 seconds for a minute, and calls the
+ * deploy healthy once every probe passes in two rounds in a row.
  *
  * Two rounds, because no answer here names the version that gave it: a request
  * made the moment the deploy returns can still reach the version before it.
  * A second pass ten seconds later narrows that window; it does not close it.
  *
  * When the minute runs out and the Worker itself is still answering wrongly,
- * this runs `bunx wrangler rollback` with the same `--env` or `--config` the
- * deploy step used, so it restores the version Cloudflare ran before this
- * deploy, then probes once more to say whether that version answers. Either
- * way it exits 1, which fails the job, and GitHub marks the job's Deployment
- * record `failure`. scripts/release-plan.ts counts only records whose job
- * succeeded, so the next release offers the surface again.
+ * this restores the version that served before this deploy, through the
+ * Cloudflare deployments API, then probes once more to say whether that version
+ * answers. Either way it exits 1, which fails the job, and GitHub marks the
+ * job's Deployment record `failure`. scripts/release-plan.ts counts only
+ * records whose job succeeded, so the next release offers the surface again.
+ *
+ * The rollback is made here rather than by `wrangler rollback`, which in CI
+ * answers its own "secrets have changed" prompt with yes and forces the
+ * rollback through. Restoring a version whose secrets differ would put the old
+ * secret values back — a rotated key, a revoked sign-in secret — so when
+ * Cloudflare refuses for that reason, this leaves the Worker as it is and asks a
+ * person. It also reads the Worker's deployments before the first probe, and
+ * refuses when anything deploys the Worker during the check: the version to
+ * restore is then no longer known.
  *
  * It does not roll back when nothing answered (DNS, TLS, a timeout) or when
- * Cloudflare answered in the Worker's place (Access, a bot challenge): a
- * rollback restores code, and code is not what failed. The step fails all the
- * same.
+ * Cloudflare answered in the Worker's place (Access, a bot challenge, a 429):
+ * a rollback restores code, and code is not what failed. The step fails all
+ * the same.
  *
  * A rollback restores the Worker's code, not its D1 database: the migrations
  * the job applied before deploying stay applied. That is why a migration must
  * keep working with the Worker version before it.
  *
  * Environment:
+ *   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+ *                       the job's own Cloudflare credentials, sent only to
+ *                       api.cloudflare.com, to read the Worker's deployments
+ *                       and to roll it back. Without both, a check that fails
+ *                       says so and rolls nothing back.
  *   SMOKE_FORCE_FAIL    "true" adds a probe of FORCED_FAILURE_PATH, which every
  *                       Worker answers 404, so the job rolls back and goes red:
  *                       the dry run of the rollback path. Dev only.
@@ -47,15 +59,12 @@
  *   GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT
  *                       name the run in the rollback message.
  *   GITHUB_STEP_SUMMARY receives a line when the check fails.
- *   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
- *                       read by wrangler for the rollback; never by this file.
  *
  * Exit codes: 0 healthy, or skipped; 1 unhealthy; 2 a usage error, before any
  * request — nothing is rolled back.
  */
 
 import { appendFileSync } from "node:fs";
-import { join } from "node:path";
 
 import type { SurfaceKey, Tier } from "./deploy-surfaces";
 
@@ -77,6 +86,8 @@ export interface Probe {
 }
 
 export interface SmokeTarget {
+  /** The Cloudflare Worker this tier's deploy step deploys, by name. */
+  readonly worker: string;
   /** Where the deploy step runs wrangler, relative to the repository root. */
   readonly cwd: string;
   /** The arguments that pick the Worker, exactly as the deploy step passes them. */
@@ -121,18 +132,20 @@ const guestSite = (origin: string, marketing: string): readonly Probe[] => [
 
 /**
  * Hosts come from each Worker's route config (wrangler.toml, wrangler.jsonc,
- * and deploy.yml's retarget of the guest site's dev Worker); the marketing
- * origins from the jobs' PUBLIC_MARKETING_URL. scripts/tests/smoke-targets.test.ts
- * holds them equal.
+ * and deploy.yml's retarget of the guest site's dev Worker), Worker names from
+ * the same files, and the marketing origins from the jobs' PUBLIC_MARKETING_URL.
+ * scripts/tests/smoke-targets.test.ts holds them equal.
  */
 export const SMOKE_TARGETS = {
   cire_api: {
     production: {
+      worker: "cire-api-production",
       cwd: "cire/api",
       wrangler: ["--env", "production"],
       probes: [cireSession("https://api.cireweddings.com")],
     },
     dev: {
+      worker: "cire-api-dev",
       cwd: "cire/api",
       wrangler: ["--env", "dev"],
       probes: [cireSession("https://api.dev.cireweddings.com")],
@@ -140,11 +153,13 @@ export const SMOKE_TARGETS = {
   },
   cire_invites: {
     production: {
+      worker: "cire-invites",
       cwd: "cire/invites",
       wrangler: ["--config", "dist/server/wrangler.json"],
       probes: guestSite("https://invite.cireweddings.com", "https://cireweddings.com"),
     },
     dev: {
+      worker: "cire-invites-dev",
       cwd: "cire/invites",
       wrangler: ["--config", "dist/server/wrangler.json"],
       probes: guestSite("https://invite.dev.cireweddings.com", "https://dev.cireweddings.com"),
@@ -153,11 +168,13 @@ export const SMOKE_TARGETS = {
   },
   osn_api: {
     production: {
+      worker: "osn-api-production",
       cwd: "osn/api",
       wrangler: ["--env", "production"],
       probes: [health("https://id.musubi.social"), jwks("https://id.musubi.social")],
     },
     dev: {
+      worker: "osn-api-dev",
       cwd: "osn/api",
       wrangler: ["--env", "dev"],
       probes: [health("https://id.dev.musubi.social"), jwks("https://id.dev.musubi.social")],
@@ -165,6 +182,7 @@ export const SMOKE_TARGETS = {
   },
   zap_api: {
     production: {
+      worker: "zap-api-production",
       cwd: "zap/api",
       wrangler: ["--env", "production"],
       probes: [health("https://zap.cireweddings.com")],
@@ -191,14 +209,16 @@ export type Outcome =
   | { readonly kind: "pass" }
   /** The Worker answered, and the answer is not what a working one gives. */
   | { readonly kind: "wrong"; readonly reason: string }
-  /** No answer: DNS, TLS, the connection, or the timeout. */
+  /** No answer: DNS, TLS, the connection, the timeout, or a body cut off. */
   | { readonly kind: "unreachable"; readonly reason: string }
-  /** Cloudflare answered in the Worker's place: Access, or a bot challenge. */
+  /** Cloudflare answered in the Worker's place: Access, a bot challenge, a 429. */
   | { readonly kind: "blocked"; readonly reason: string };
 
 const PASS: Outcome = { kind: "pass" };
 
-const oneLine = (text: string, max = 200) => text.replaceAll(/\s+/g, " ").trim().slice(0, max);
+/** Text on one line, at most `max` characters. */
+export const oneLine = (text: string, max = 200) =>
+  text.replaceAll(/\s+/g, " ").trim().slice(0, max);
 
 function locationOf(response: Response, base: string): URL | undefined {
   const location = response.headers.get("location");
@@ -258,6 +278,11 @@ const isEs256 = (key: Jwk) => key.kty === "EC" && key.crv === "P-256" && key.alg
 /**
  * What one answer says about the Worker. `access` marks a host behind
  * Cloudflare Access, where a 401 or 403 comes from Access, not the Worker.
+ *
+ * A 429 is never the Worker's verdict on itself: no probed route rate-limits,
+ * and Cloudflare answers 429 for every Worker on the account once its daily
+ * request cap is spent — which anyone can bring about from the public hosts.
+ * Counting it as wrong would let them turn a release into a rollback.
  */
 export function judge(probe: Probe, response: Response, body: string, access: boolean): Outcome {
   const { status } = response;
@@ -268,8 +293,19 @@ export function judge(probe: Probe, response: Response, body: string, access: bo
       reason: `Cloudflare Access answered (${status} to ${location.origin}), not the Worker`,
     };
   }
-  if (response.headers.get("cf-mitigated") === "challenge") {
-    return { kind: "blocked", reason: `Cloudflare answered ${status} with a bot challenge` };
+  const mitigated = response.headers.get("cf-mitigated");
+  if (mitigated !== null) {
+    return {
+      kind: "blocked",
+      reason: `Cloudflare answered ${status} in the Worker's place (cf-mitigated: ${oneLine(mitigated, 40)})`,
+    };
+  }
+  if (status === 429) {
+    return {
+      kind: "blocked",
+      reason:
+        "answered 429: a rate limit or the account's daily request cap, not the Worker's code",
+    };
   }
   if (access && (status === 401 || status === 403)) {
     return {
@@ -311,13 +347,16 @@ export function judge(probe: Probe, response: Response, body: string, access: bo
         ? PASS
         : {
             kind: "wrong",
-            reason: `answered ${status} ${type || "with no content type"}, expected an HTML page, 200 or 404`,
+            reason: `answered ${status} ${oneLine(type, 80) || "with no content type"}, expected an HTML page, 200 or 404`,
           };
     }
   }
 }
 
-/** Ask once. Never follows a redirect: a login page is not the Worker. */
+/**
+ * Ask once. Never follows a redirect: a login page is not the Worker. A body
+ * cut off part-way counts as no answer, the same as a connection that drops.
+ */
 export async function probeOnce(
   probe: Probe,
   options: {
@@ -337,20 +376,178 @@ export async function probeOnce(
   } catch (error) {
     return {
       kind: "unreachable",
-      reason: `no answer: ${error instanceof Error ? error.message : String(error)}`,
+      reason: `no answer: ${oneLine(error instanceof Error ? error.message : String(error))}`,
     };
   }
 }
 
-// ── the run ─────────────────────────────────────────────────────────────────
+// ── rolling back ────────────────────────────────────────────────────────────
 
 /** How long the check keeps asking, how often, and how long one request may take. */
 export const TIMING = { budgetMs: 60_000, intervalMs: 10_000, requestMs: 10_000 } as const;
 
+const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
+
+/** Cloudflare's refusal to restore a version whose secrets have changed since. */
+export const SECRETS_CHANGED = 10_220;
+
+/** One entry of a Worker's deployment history. */
+export interface Deployment {
+  readonly id: string;
+  readonly created_on: string;
+  readonly versions: readonly { readonly version_id: string; readonly percentage: number }[];
+}
+
+type ApiAnswer<T> =
+  | { readonly ok: true; readonly result: T }
+  | { readonly ok: false; readonly codes: readonly number[]; readonly reason: string };
+
+interface Cloudflare {
+  readonly fetch: typeof fetch;
+  readonly token: string;
+  readonly account: string;
+}
+
+/** The job's Cloudflare credentials, or why there are none. */
+function cloudflareCredentials(
+  env: Readonly<Record<string, string | undefined>>,
+  fetcher: typeof fetch,
+): Cloudflare | string {
+  const token = env.CLOUDFLARE_API_TOKEN ?? "";
+  const account = env.CLOUDFLARE_ACCOUNT_ID ?? "";
+  if (token === "" || account === "") {
+    return "CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are not both set";
+  }
+  if (!/^[0-9a-f]{32}$/i.test(account)) return "CLOUDFLARE_ACCOUNT_ID is not an account ID";
+  return { fetch: fetcher, token, account };
+}
+
+/** One call to the Cloudflare API on a Worker's deployments. */
+async function deploymentsApi<T>(
+  api: Cloudflare,
+  worker: string,
+  init: { readonly method: "GET" } | { readonly method: "POST"; readonly body: unknown },
+): Promise<ApiAnswer<T>> {
+  const url = `${CLOUDFLARE_API}/accounts/${api.account}/workers/scripts/${encodeURIComponent(worker)}/deployments`;
+  try {
+    const response = await api.fetch(url, {
+      method: init.method,
+      headers: { authorization: `Bearer ${api.token}`, "content-type": "application/json" },
+      body: init.method === "POST" ? JSON.stringify(init.body) : undefined,
+      signal: AbortSignal.timeout(TIMING.requestMs),
+    });
+    const envelope = (await response.json().catch(() => ({}))) as {
+      success?: boolean;
+      errors?: readonly { code?: number; message?: string }[];
+      result?: T;
+    };
+    if (response.ok && envelope.success === true) {
+      return { ok: true, result: envelope.result as T };
+    }
+    const errors = envelope.errors ?? [];
+    return {
+      ok: false,
+      codes: errors.flatMap((e) => (typeof e.code === "number" ? [e.code] : [])),
+      reason: oneLine(
+        errors.map((e) => `${e.message ?? "error"} [code: ${e.code ?? "none"}]`).join("; ") ||
+          `Cloudflare answered ${response.status}`,
+      ),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      codes: [],
+      reason: `no answer from the Cloudflare API: ${oneLine(error instanceof Error ? error.message : String(error))}`,
+    };
+  }
+}
+
+/** A Worker's deployments, newest first, as `wrangler rollback` orders them. */
+async function readDeployments(
+  api: Cloudflare,
+  worker: string,
+): Promise<ApiAnswer<readonly Deployment[]>> {
+  const answer = await deploymentsApi<{ deployments?: readonly Deployment[] }>(api, worker, {
+    method: "GET",
+  });
+  if (!answer.ok) return answer;
+  const deployments = answer.result.deployments ?? [];
+  return {
+    ok: true,
+    result: deployments.toSorted((a, b) => b.created_on.localeCompare(a.created_on)),
+  };
+}
+
+/**
+ * What a rollback would restore, read before the first probe: the newest
+ * deployment (this job's) and the version that served at 100% in the newest
+ * one before it — the choice `wrangler rollback` makes.
+ */
+export type RestorePlan =
+  | { readonly ok: true; readonly newest: string; readonly version: string }
+  | { readonly ok: false; readonly reason: string };
+
+export function restorePlan(newestFirst: readonly Deployment[]): RestorePlan {
+  const [newest, ...earlier] = newestFirst;
+  if (newest === undefined) return { ok: false, reason: "the Worker has no deployments" };
+  const before = earlier
+    .map((deployment) => deployment.versions.find((v) => v.percentage === 100))
+    .find((version) => version !== undefined);
+  return before === undefined
+    ? { ok: false, reason: "no earlier version served all traffic — a first deploy has none" }
+    : { ok: true, newest: newest.id, version: before.version_id };
+}
+
+type Rollback =
+  | { readonly kind: "done"; readonly version: string }
+  /** Cloudflare or this script declined; the Worker is as the check found it. */
+  | { readonly kind: "refused"; readonly reason: string }
+  | { readonly kind: "failed"; readonly reason: string };
+
+async function rollBack(
+  api: Cloudflare | string,
+  worker: string,
+  plan: RestorePlan | undefined,
+  message: string,
+): Promise<Rollback> {
+  if (typeof api === "string") return { kind: "failed", reason: api };
+  if (plan === undefined) return { kind: "failed", reason: "the deployments were never read" };
+  if (!plan.ok) return { kind: "failed", reason: plan.reason };
+  const now = await readDeployments(api, worker);
+  if (!now.ok) return { kind: "failed", reason: `reading the deployments: ${now.reason}` };
+  const newest = now.result[0]?.id;
+  if (newest !== plan.newest) {
+    return {
+      kind: "refused",
+      reason: `${worker} was deployed again during the check (deployment ${newest ?? "none"}), so the version to restore is no longer known`,
+    };
+  }
+  // No `?force=true`: Cloudflare refuses a version whose secrets have changed
+  // since, and that refusal is the one check that compares secret values.
+  const answer = await deploymentsApi<unknown>(api, worker, {
+    method: "POST",
+    body: {
+      strategy: "percentage",
+      versions: [{ version_id: plan.version, percentage: 100 }],
+      annotations: { "workers/message": message },
+    },
+  });
+  if (answer.ok) return { kind: "done", version: plan.version };
+  if (answer.codes.includes(SECRETS_CHANGED)) {
+    return {
+      kind: "refused",
+      reason: `the secrets of ${worker} changed since version ${plan.version} served, and restoring it would put the old values back (${answer.reason})`,
+    };
+  }
+  return { kind: "failed", reason: answer.reason };
+}
+
+// ── the run ─────────────────────────────────────────────────────────────────
+
 /** Rounds in a row that must pass. */
 const PASSES_NEEDED = 2;
 
-/** wrangler's limit on a rollback message. */
+/** The longest rollback message wrangler takes, kept for the same dashboard. */
 const MESSAGE_LIMIT = 120;
 
 export function rollbackMessage(env: Readonly<Record<string, string | undefined>>): string {
@@ -364,16 +561,29 @@ export function rollbackMessage(env: Readonly<Record<string, string | undefined>
   );
 }
 
+const escapeData = (text: string) =>
+  text.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
+
+/**
+ * A GitHub workflow command on one line, escaped as @actions/core escapes it,
+ * so no text from an answer can end the line and start a command of its own.
+ */
+export function annotation(
+  level: "error" | "warning" | "notice",
+  message: string,
+  title?: string,
+): string {
+  const property = (value: string) =>
+    escapeData(value).replaceAll(":", "%3A").replaceAll(",", "%2C");
+  return `::${level}${title === undefined ? "" : ` title=${property(title)}`}::${escapeData(message)}\n`;
+}
+
 export interface SmokeCheckInput {
   readonly args: readonly string[];
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly fetch: typeof fetch;
   readonly now: () => number;
   readonly sleep: (ms: number) => Promise<void>;
-  /** Runs a command in `cwd` with this process's environment; resolves to its exit code. */
-  readonly run: (command: readonly string[], cwd: string) => Promise<number>;
-  /** The repository root. */
-  readonly root: string;
   readonly out: (text: string) => void;
 }
 
@@ -385,7 +595,7 @@ type Round = readonly Outcome[];
 export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   const { env, out } = input;
   const usage = (message: string): number => {
-    out(`::error::smoke-check: ${message}\n`);
+    out(annotation("error", `smoke-check: ${message}`));
     return 2;
   };
 
@@ -420,10 +630,24 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
       headers["cf-access-client-secret"] = secret;
     } else if (!forced) {
       out(
-        `::warning::Smoke check skipped for ${label}: its host is behind Cloudflare Access and CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET are not both set on this Environment.\n`,
+        annotation(
+          "warning",
+          `Smoke check skipped for ${label}: its host is behind Cloudflare Access and CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET are not both set on this Environment.`,
+        ),
       );
       return 0;
     }
+  }
+
+  // Read before the first probe, so a rollback restores what served before
+  // this deploy and can tell whether anything deployed the Worker since.
+  const api = cloudflareCredentials(env, input.fetch);
+  let plan: RestorePlan | undefined;
+  if (typeof api !== "string") {
+    const deployments = await readDeployments(api, target.worker);
+    plan = deployments.ok
+      ? restorePlan(deployments.result)
+      : { ok: false, reason: `reading the deployments before the check: ${deployments.reason}` };
   }
 
   const probes: readonly Probe[] = forced
@@ -471,44 +695,62 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
     return 0;
   }
 
+  // Only the last round decides: a Worker that answered wrongly earlier but
+  // no longer answers at all is judged on what it does now.
   const { last } = result;
   const failures = probes.flatMap((probe, index) => {
     const outcome = last[index];
     return outcome === undefined || outcome.kind === "pass" ? [] : [{ probe, outcome }];
   });
-  for (const { probe, outcome } of failures) out(`::error::${probe.url}: ${outcome.reason}\n`);
+  for (const { probe, outcome } of failures) {
+    out(annotation("error", `${probe.url}: ${outcome.reason}`));
+  }
   const summary = (line: string) => {
-    if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `${line}\n`);
+    if (env.GITHUB_STEP_SUMMARY) {
+      appendFileSync(env.GITHUB_STEP_SUMMARY, `- **${label}**: ${line}\n`);
+    }
   };
 
   if (!failures.some(({ outcome }) => outcome.kind === "wrong")) {
     out(
-      `::error title=Smoke check failed::${label} did not answer as a working Worker does within ${TIMING.budgetMs / 1000} s, but the Worker never answered wrongly — not rolling back. See the probes above.\n`,
+      annotation(
+        "error",
+        `${label} did not answer as a working Worker does within ${TIMING.budgetMs / 1000} s, but the Worker never answered wrongly — not rolling back. See the probes above.`,
+        "Smoke check failed",
+      ),
     );
-    summary(
-      `- **${label}**: smoke check failed without an answer from the Worker; not rolled back.`,
-    );
+    summary("smoke check failed without a wrong answer from the Worker; not rolled back.");
     return 1;
   }
 
-  const command = [
-    "bunx",
-    "wrangler",
-    "rollback",
-    ...target.wrangler,
-    "--message",
-    rollbackMessage(env),
-    "--yes",
-  ];
   out(
-    `::error title=Smoke check failed::${label} answered wrongly for ${TIMING.budgetMs / 1000} s; rolling the Worker back.\n`,
+    annotation(
+      "error",
+      `${label} answered wrongly for ${TIMING.budgetMs / 1000} s; rolling the Worker back.`,
+      "Smoke check failed",
+    ),
   );
-  const code = await input.run(command, join(input.root, target.cwd));
-  if (code !== 0) {
+  const rollback = await rollBack(api, target.worker, plan, rollbackMessage(env));
+  if (rollback.kind === "refused") {
     out(
-      `::error title=Rollback failed::the rollback failed: wrangler rollback exited ${code}, so ${label} still runs the version this job deployed.\n`,
+      annotation(
+        "error",
+        `Not rolled back: ${rollback.reason}. ${label} still runs the version this job deployed; a person decides what it runs next.`,
+        "Rollback refused",
+      ),
     );
-    summary(`- **${label}**: smoke check failed and the rollback failed (exit ${code}).`);
+    summary(`smoke check failed; rollback refused: ${rollback.reason}.`);
+    return 1;
+  }
+  if (rollback.kind === "failed") {
+    out(
+      annotation(
+        "error",
+        `The rollback failed: ${rollback.reason}. ${label} still runs the version this job deployed.`,
+        "Rollback failed",
+      ),
+    );
+    summary(`smoke check failed, and the rollback failed: ${rollback.reason}.`);
     return 1;
   }
 
@@ -518,18 +760,21 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   const restored = after.slice(0, target.probes.length);
   if (passed(restored)) {
     out(
-      `::notice::${label} rolled back to its previous version; the restored version answers healthy.\n`,
+      annotation(
+        "notice",
+        `${label} rolled back to version ${rollback.version}; the restored version answers healthy.`,
+      ),
     );
-    summary(
-      `- **${label}**: smoke check failed; rolled back, and the restored version answers healthy.`,
-    );
+    summary("smoke check failed; rolled back, and the restored version answers healthy.");
   } else {
     out(
-      `::error title=Still failing after rollback::${label} rolled back, and the restored version is still failing: the cause is not this deploy's code (a secret, a binding, D1, an upstream).\n`,
+      annotation(
+        "error",
+        `${label} rolled back to version ${rollback.version}, and the restored version is still failing: the cause is not this deploy's code (a secret, a binding, D1, an upstream).`,
+        "Still failing after rollback",
+      ),
     );
-    summary(
-      `- **${label}**: smoke check failed; rolled back, and the restored version is still failing.`,
-    );
+    summary("smoke check failed; rolled back, and the restored version is still failing.");
   }
   return 1;
 }
@@ -541,11 +786,6 @@ if (import.meta.main) {
     fetch,
     now: () => Date.now(),
     sleep: (ms) => Bun.sleep(ms),
-    run: async (command, cwd) => {
-      const proc = Bun.spawn([...command], { cwd, stdout: "inherit", stderr: "inherit" });
-      return proc.exited;
-    },
-    root: process.cwd(),
     out: (text) => process.stdout.write(text),
   });
   process.exit(code);

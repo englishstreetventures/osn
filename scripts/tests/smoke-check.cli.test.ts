@@ -3,25 +3,33 @@
 // root. The exit code is the step's verdict, so these pin it for the cases
 // that decide before any request — a bad call, the dry run aimed at
 // production, and the guest site's dev check with no Access token. The
-// request-and-rollback paths run in smoke-check.test.ts, against a fake fetch
-// and a fake wrangler.
+// request-and-rollback paths run in smoke-check.test.ts, against a fake fetch.
 
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..", "..");
+
+// A home with no stored login, and a Cloudflare token that is set but valid
+// nowhere: should one of these cases ever get as far as a rollback, the
+// Cloudflare API refuses it instead of acting with whoever is logged in on
+// this machine.
+const home = mkdtempSync(join(tmpdir(), "smoke-check-cli-"));
+afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 async function run(args: string[], env: Record<string, string> = {}) {
   const proc = Bun.spawn(["bun", "run", "scripts/smoke-check.ts", ...args], {
     cwd: root,
     stdout: "pipe",
     stderr: "pipe",
-    // No credentials and no Access token unless a test passes them: a case
-    // here that reached the network or wrangler would fail, not hang.
     env: {
       PATH: process.env.PATH ?? "",
-      HOME: process.env.HOME ?? "",
-      CLOUDFLARE_API_TOKEN: "",
+      HOME: home,
+      XDG_CONFIG_HOME: join(home, ".config"),
+      CLOUDFLARE_API_TOKEN: "smoke-check-cli-test-not-a-token",
+      CLOUDFLARE_ACCOUNT_ID: "00000000000000000000000000000000",
       ...env,
     },
   });

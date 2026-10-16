@@ -30,11 +30,13 @@ name: Production release
 #
 # After each Worker deploy (cire-api, cire-invites, osn-api, zap-api),
 # scripts/smoke-check.ts asks the Worker's own hosts, for up to a minute,
-# whether the new version serves. One that answers wrongly is rolled back with
-# `wrangler rollback` and its job fails, so GitHub marks the job's Deployment
-# record `failure`: the planner keeps counting the previous release as what
-# production runs, and the next release offers the surface again. A rollback
-# restores the Worker's code only — the D1 migrations the job applied stay.
+# whether the new version serves. One that answers wrongly is rolled back to
+# the version before it, through the Cloudflare API with the job's own token,
+# and its job fails, so GitHub marks the job's Deployment record `failure`: the
+# planner keeps counting the previous release as what production runs, and the
+# next release offers the surface again. A rollback restores the Worker's code
+# only — the D1 migrations the job applied stay — and never crosses a secret
+# change: Cloudflare refuses that, and the script leaves it to a person.
 #
 # The job names are load-bearing: the planner maps a Deployment record to a
 # surface by the name of the job that made it (scripts/deploy-surfaces.ts).
@@ -401,8 +403,7 @@ jobs:
         run: bunx wrangler deploy --config dist/server/wrangler.json
         working-directory: cire/invites
 
-      # Rolls back through the same generated config, so it restores the
-      # Worker this step deployed.
+      # Rolls back cire-invites, the Worker the generated config names.
       - name: Smoke check, rolling back on failure
         run: bun run scripts/smoke-check.ts cire_invites production
         timeout-minutes: 5

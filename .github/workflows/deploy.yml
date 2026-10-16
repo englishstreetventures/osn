@@ -409,9 +409,9 @@ jobs:
 
       # invite.dev.cireweddings.com sits behind Cloudflare Access
       # ([[wiki/shared/dev-environment]] §5), so the check needs an Access
-      # service token. Until the dev Environment holds both values, the check
-      # is skipped with a warning. Rolls back through the retargeted config
-      # above, so it restores cire-invites-dev.
+      # service token; without both values on the dev Environment, the check
+      # is skipped with a warning. Rolls back cire-invites-dev, the Worker the
+      # retarget above names.
       - name: Smoke check, rolling back on failure
         run: bun run scripts/smoke-check.ts cire_invites dev
         timeout-minutes: 5
