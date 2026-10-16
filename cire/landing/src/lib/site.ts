@@ -7,7 +7,7 @@
  * Organiser portal — target of every primary "Create your invitation" CTA.
  * Build-time override via PUBLIC_ORGANISER_URL; the default is the local
  * organiser dev server so `bun run dev` works without env wiring. End-state prod
- * value is https://host.cireweddings.com (set in deploy.yml at cutover).
+ * value is https://host.cireweddings.com (set in production-release.yml).
  */
 export const ORGANISER_URL = import.meta.env.PUBLIC_ORGANISER_URL ?? "http://localhost:4322";
 

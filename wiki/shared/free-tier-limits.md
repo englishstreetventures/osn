@@ -12,7 +12,7 @@ related:
   - "[[observability-setup]]"
   - "[[cire-auth]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-16
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -310,8 +310,9 @@ secret set the gate is a true no-op (no token expected, the flow runs exactly
 as before); with a secret set, every request needs a valid token.
 
 The widget itself is live. `PUBLIC_TURNSTILE_SITEKEY` is a repo Variable and
-`deploy.yml` injects it into the cire web, organiser and vendor builds (#160),
-so the guest bundle renders a widget. What decides whether the gate bites is
+`deploy.yml` (dev) and `production-release.yml` (production) inject it into the
+cire guest-site build and, as `VITE_TURNSTILE_SITEKEY`, the musubi/social build (#160),
+so both render a widget. What decides whether the gate bites is
 the **Worker secret**.
 
 > **Warning:** once the secret is present, a missing, invalid, duplicate or

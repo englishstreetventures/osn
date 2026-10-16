@@ -2,13 +2,15 @@ import { expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { SURFACES } from "../deploy-surfaces";
+
 /*
- * The deploy workflow's `changes` job redeploys a cire surface only when a push
- * touches a path its `emit` regex names. `shared/` is not mapped per surface
- * (any change there deploys everything), but the cire packages are: each
- * surface's regex lists the `@cire/*` packages it bundles. That list is kept by
- * hand, so a surface that gains a dependency redeploys on nothing it shares
- * until the regex catches up.
+ * Both deploy workflows redeploy a cire surface only when a change touches a
+ * path its regex in scripts/deploy-surfaces.ts names. `shared/` is not mapped
+ * per surface (any change there deploys everything), but the cire packages
+ * are: each surface's regex lists the `@cire/*` packages it bundles. That list
+ * is kept by hand, so a surface that gains a dependency redeploys on nothing
+ * it shares until the regex catches up.
  *
  * This holds the map to the package manifests: every `@cire/*` package a
  * surface depends on, directly or through another `@cire/*` package, must be a
@@ -16,12 +18,8 @@ import { join } from "node:path";
  */
 
 const root = join(import.meta.dir, "..", "..");
-const workflow = readFileSync(join(root, ".github/workflows/deploy.yml"), "utf8");
 
-const filters = new Map<string, RegExp>();
-for (const [, output, pattern] of workflow.matchAll(/^\s*emit\s+(\w+)\s+'([^']+)'/gm)) {
-  filters.set(output!, new RegExp(pattern!));
-}
+const filters = new Map(SURFACES.map((s) => [s.key, s.paths]));
 
 interface CirePackage {
   dir: string;
@@ -52,29 +50,24 @@ function bundled(name: string, seen = new Set<string>()): Set<string> {
   return seen;
 }
 
-const surfaces = [...filters.keys()].filter((output) => output.startsWith("cire_"));
+const surfaces = [...filters.keys()].filter((key) => key.startsWith("cire_"));
 
-test("the workflow names cire surfaces, and each is a cire package", () => {
-  // Guards the parse above: a regex that matched no `emit` line would make the
-  // map test below pass over nothing, and an `emit` line lost or re-quoted
-  // would drop its surface out of the check while its deploy jobs still gate
-  // on the output.
-  const declared = [
-    ...workflow.matchAll(/^\s+(cire_\w+): \$\{\{ steps\.filter\.outputs\.\1 \}\}/gm),
-  ].map(([, output]) => output!);
-  expect(declared.length).toBeGreaterThan(0);
-  expect(surfaces.toSorted()).toEqual(declared.toSorted());
-  for (const output of surfaces) {
-    expect(existsSync(join(root, "cire", output.slice("cire_".length), "package.json"))).toBe(true);
+test("the map names cire surfaces, and each is a cire package", () => {
+  // Guards the loop below: an empty list would make it pass over nothing.
+  // That the workflows gate on exactly these keys is
+  // scripts/tests/deploy-workflows.test.ts's job.
+  expect(surfaces.length).toBeGreaterThan(0);
+  for (const key of surfaces) {
+    expect(existsSync(join(root, "cire", key.slice("cire_".length), "package.json"))).toBe(true);
   }
 });
 
 const nameByDir = new Map([...cire].map(([name, pkg]) => [pkg.dir, name]));
 
-test.each(surfaces)("%s redeploys when a cire package it bundles changes", (output) => {
-  const name = nameByDir.get(`cire/${output.slice("cire_".length)}/`);
+test.each(surfaces)("%s redeploys when a cire package it bundles changes", (key) => {
+  const name = nameByDir.get(`cire/${key.slice("cire_".length)}/`);
   expect(name).toBeDefined();
-  const filter = filters.get(output)!;
+  const filter = filters.get(key)!;
   const missing = [...bundled(name!)]
     .map((pkg) => cire.get(pkg)?.dir)
     .filter((dir): dir is string => dir !== undefined)

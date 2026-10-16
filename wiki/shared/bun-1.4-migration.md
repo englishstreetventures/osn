@@ -9,7 +9,7 @@ related:
   - "[[dev-environment]]"
   - "[[devloop-urls]]"
   - "[[commands]]"
-last-reviewed: 2026-09-17
+last-reviewed: 2026-10-16
 ---
 
 # Bun 1.4 migration
@@ -118,8 +118,8 @@ catches two shapes the greps could not:
   database *name* pasted into the wrong field satisfied all three greps.
 
 The bash version advertised "grep only, no bun". That is traded away for the
-real parse, and it costs nothing: both callers in `deploy.yml` run `bun install`
-first.
+real parse, and it costs nothing: both callers — the cire-api jobs in
+`deploy.yml` and `production-release.yml` — run `bun install` first.
 
 ### Two CI bugs found on the way
 
@@ -266,9 +266,11 @@ same reason, and is not a candidate either.
   The list is empty today; `fast-uri` and `bun-types` were the last two, and
   both were removed when their triggers fired.
 - **`linker = "isolated"`** — the global virtual store, claimed 7x faster warm
-  installs. `bun install` runs 4 times across `ci.yml` and 23 times across all
-  workflows, 16 of them in `deploy.yml`, so the win is bigger than it looks and
-  so is the downside: a resolution break there is a failed deploy, not a red PR.
+  installs. `bun install` runs 4 times across `ci.yml` and 26 times across all
+  workflows, 17 of them in the two deploy workflows (8 in `deploy.yml`, 9 in
+  `production-release.yml`), so the win is bigger than it looks and so is the
+  downside: a resolution break there is a failed deploy, not a red PR.
+  *Counted 2026-10-16 — `grep -c "run: bun install" .github/workflows/*.yml`*
   Isolated linking removes phantom hoisted dependencies, which is stricter and
   therefore what breaks. **Trial it on `build-test` specifically** — that is where
   the four fussy consumers live (vitest's browser provider, playwright, astro,
