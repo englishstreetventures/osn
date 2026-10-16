@@ -1,5 +1,13 @@
 # @shared/email
 
+## 0.16.2
+
+### Patch Changes
+
+- ddece0f: Delete low-signal unit tests: constants asserted against themselves, mock echoes, valid-object schema acceptances with no edge, static render checks and duplicates. Tests only; no runtime change.
+- Updated dependencies [ddece0f]
+  - @shared/observability@0.18.8
+
 ## 0.16.1
 
 ### Patch Changes

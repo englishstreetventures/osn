@@ -1,5 +1,23 @@
 # @osn/pulse
 
+## 0.24.19
+
+### Patch Changes
+
+- ddece0f: Delete low-signal unit tests: constants asserted against themselves, mock echoes, valid-object schema acceptances with no edge, static render checks and duplicates. Tests only; no runtime change.
+- a1c5be8: `@pulse/api`: the local Bun server compiles routes ahead of time, so per-IP
+  rate limits see the client's address and no longer answer every session check,
+  discovery request and sign-in leg with 429. Workers keep AOT off.
+
+  `@pulse/web`: "Skip for now" on the welcome screen lands on the home feed
+  instead of bouncing back to `/welcome`.
+
+- Updated dependencies [ddece0f]
+- Updated dependencies [a1c5be8]
+  - @pulse/api@0.27.24
+  - @shared/legal@0.0.6
+  - @shared/ui@0.4.3
+
 ## 0.24.18
 
 ### Patch Changes

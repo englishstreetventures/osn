@@ -1,5 +1,14 @@
 # @osn/crypto
 
+## 0.14.4
+
+### Patch Changes
+
+- ddece0f: Delete low-signal unit tests: constants asserted against themselves, mock echoes, valid-object schema acceptances with no edge, static render checks and duplicates. Tests only; no runtime change.
+- Updated dependencies [ddece0f]
+  - @osn/db@0.24.7
+  - @shared/observability@0.18.8
+
 ## 0.14.3
 
 ### Patch Changes

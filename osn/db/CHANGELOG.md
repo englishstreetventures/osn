@@ -1,5 +1,13 @@
 # @osn/db
 
+## 0.24.7
+
+### Patch Changes
+
+- ddece0f: Delete low-signal unit tests: constants asserted against themselves, mock echoes, valid-object schema acceptances with no edge, static render checks and duplicates. Tests only; no runtime change.
+- Updated dependencies [ddece0f]
+  - @shared/db-utils@0.7.5
+
 ## 0.24.6
 
 ### Patch Changes

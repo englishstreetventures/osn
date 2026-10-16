@@ -1,5 +1,13 @@
 # @pulse/db
 
+## 0.20.7
+
+### Patch Changes
+
+- ddece0f: Delete low-signal unit tests: constants asserted against themselves, mock echoes, valid-object schema acceptances with no edge, static render checks and duplicates. Tests only; no runtime change.
+- Updated dependencies [ddece0f]
+  - @shared/db-utils@0.7.5
+
 ## 0.20.6
 
 ### Patch Changes

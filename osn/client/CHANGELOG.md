@@ -1,5 +1,11 @@
 # @osn/client
 
+## 2.18.5
+
+### Patch Changes
+
+- ddece0f: Delete low-signal unit tests: constants asserted against themselves, mock echoes, valid-object schema acceptances with no edge, static render checks and duplicates. Tests only; no runtime change.
+
 ## 2.18.4
 
 ### Patch Changes

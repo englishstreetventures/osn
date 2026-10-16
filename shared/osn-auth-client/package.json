@@ -1,6 +1,6 @@
 {
   "name": "@shared/osn-auth-client",
-  "version": "0.4.41",
+  "version": "0.4.42",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",

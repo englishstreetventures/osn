@@ -1,5 +1,13 @@
 # @pulse/landing
 
+## 0.1.25
+
+### Patch Changes
+
+- ddece0f: Delete low-signal unit tests: constants asserted against themselves, mock echoes, valid-object schema acceptances with no edge, static render checks and duplicates. Tests only; no runtime change.
+- Updated dependencies [ddece0f]
+  - @shared/legal@0.0.6
+
 ## 0.1.24
 
 ### Patch Changes
