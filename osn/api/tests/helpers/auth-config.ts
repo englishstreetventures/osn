@@ -9,7 +9,7 @@ import type { AuthConfig } from "../../src/services/auth";
 
 const BASE_CONFIG = {
   rpId: "localhost",
-  rpName: "OSN Test",
+  rpName: "Musubi Test",
   instanceName: "Musubi",
   origin: "http://localhost:5173",
   issuerUrl: "http://localhost:4000",

@@ -285,7 +285,7 @@ Environment variables for `@osn/api`:
 | `RESEND_API_KEY` | non-local (preferred) | Resend API key (bearer). Selects `ResendEmailLive`; wins over the Cloudflare vars. `wrangler secret put RESEND_API_KEY`. |
 | `CLOUDFLARE_ACCOUNT_ID` | optional / legacy | Cloudflare account ID (fallback transport) |
 | `CLOUDFLARE_EMAIL_API_TOKEN` | optional / legacy | API token with Email Send permission (fallback transport) |
-| `OSN_EMAIL_FROM` | optional | Verified sender address (default: `noreply@osn.local`; prod: `hello@cireweddings.com`) |
+| `OSN_EMAIL_FROM` | optional | Verified sender address (default: `noreply@osn.local`; dev: `Musubi <hello@musubi.social>`; prod: `hello@cireweddings.com`) |
 | `RESEND_API_URL` | local only | Origin of a local Resend emulator, e.g. `http://localhost:4008`. Unset ⇒ `https://api.resend.com`. Loopback origins only (a `*.localhost` name needs https). **Never set in a deployed tier**: osn-api refuses to boot with it, the production deploy refuses to run while it exists as a secret, and a test fails if `wrangler.toml` sets it. |
 
 cire-api reads `RESEND_API_KEY` and `RESEND_API_URL` under the same names and
@@ -294,15 +294,14 @@ a refused override leaves no Resend transport and logs `email disabled: Resend
 misconfigured` with the reason, and the Worker keeps serving. Its production
 deploy refuses to run while `RESEND_API_URL` exists as a secret.
 
-> **The sender stayed on `cireweddings.com` through the identity move.** osn-api
-> now serves `id.musubi.social`, but `cireweddings.com` is the only domain verified
-> in Resend, and Resend refuses to send from a domain it cannot authenticate — a
-> premature switch would fail closed and take **OTP step-up** with it. That is
-> exactly the wrong thing to lose right now: after the RP-ID flip invalidated
-> every passkey, the way back into an account is recovery-code login **followed
-> by an OTP step-up** to enroll a new passkey. Move `OSN_EMAIL_FROM` only after
-> verifying a musubi.social sender in Resend (steps 1–2 below, against the new
-> domain). See [[musubi-identity-migration]].
+> **Dev sends from `musubi.social`; production still sends from `cireweddings.com`.**
+> Resend refuses to send from a domain it cannot authenticate, so dev's
+> `Musubi <hello@musubi.social>` works only once `musubi.social` is verified in
+> Resend; until then every dev OTP and security email fails. A failed send takes
+> **OTP step-up** with it, which is the way back into an account after a
+> recovery-code login. Production moves to the same sender only after dev mail
+> from `musubi.social` is seen to arrive. The steps are on
+> englishstreetventures/osn#1548. See [[musubi-identity-migration]].
 
 Before you deploy (Resend — the live path):
 

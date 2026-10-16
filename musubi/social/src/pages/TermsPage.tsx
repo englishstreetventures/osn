@@ -21,13 +21,13 @@ export function TermsPage(): JSX.Element {
   return (
     <LegalDocument
       title="Terms of Service"
-      updated="2026-08-20"
+      updated="2026-10-17"
       draft={draftPending(LEGAL_ENTITY.governingLaw)}
     >
       <p>
-        These terms govern your OSN account and the identity service run by {entity()} ("we", "us").
-        Each app you use your account with may add its own terms; those cover that app, and these
-        cover the account underneath it.
+        These terms govern your Musubi account and the identity service run by {entity()} ("we",
+        "us"). Each app you use your account with may add its own terms; those cover that app, and
+        these cover the account underneath it.
       </p>
 
       <h2>Your account</h2>
@@ -55,10 +55,10 @@ export function TermsPage(): JSX.Element {
 
       <h2>Connecting other apps</h2>
       <p>
-        You can let another app recognise you through your OSN account. What it receives is shown to
-        you before you agree, and you can withdraw it at any time in Settings under Connected apps.
-        Once an app holds information about you, its own privacy notice governs what it does with it
-        — we can stop it receiving more, not make it forget.
+        You can let another app recognise you through your Musubi account. What it receives is shown
+        to you before you agree, and you can withdraw it at any time in Settings under Connected
+        apps. Once an app holds information about you, its own privacy notice governs what it does
+        with it — we can stop it receiving more, not make it forget.
       </p>
 
       <h2>Your content</h2>

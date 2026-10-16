@@ -31,13 +31,13 @@ export function PrivacyPage(): JSX.Element {
   return (
     <LegalDocument
       title="Privacy Notice"
-      updated="2026-08-20"
+      updated="2026-10-17"
       draft={draftPending(LEGAL_ENTITY.regulator)}
     >
       <p>
-        This notice covers your OSN account — the identity you sign in with, the profiles you create
-        under it, your connections, and the apps you have allowed to recognise you. It is published
-        by {entity()}, who operates the service.
+        This notice covers your Musubi account — the identity you sign in with, the profiles you
+        create under it, your connections, and the apps you have allowed to recognise you. It is
+        published by {entity()}, who operates the service.
       </p>
 
       <h2>What we hold, and why</h2>
@@ -64,10 +64,10 @@ export function PrivacyPage(): JSX.Element {
       </p>
       <h3>Your social graph</h3>
       <p>
-        Connections between profiles, and blocks. Connections are shared with other OSN apps when
-        they need them — Pulse to show which of your connections are attending an event, Zap to
-        honour a block, Cire to offer co-host suggestions from your own accepted connections. Blocks
-        are enforced everywhere.
+        Connections between profiles, and blocks. Connections are shared with other apps that use
+        your Musubi account when they need them — Pulse to show which of your connections are
+        attending an event, Zap to honour a block, Cire to offer co-host suggestions from your own
+        accepted connections. Blocks are enforced everywhere.
       </p>
       <h3>Security records</h3>
       <p>
@@ -78,7 +78,7 @@ export function PrivacyPage(): JSX.Element {
       </p>
       <h3>Apps you have connected</h3>
       <p>
-        When you use your OSN account to sign in to another app, we record that you granted it —
+        When you use your Musubi account to sign in to another app, we record that you granted it —
         which app, which profile, what it may see, and when. That record <em>is</em> your consent,
         and withdrawing it in Settings under Connected apps stops the app receiving anything more
         and kills any authorisation still in flight. The row itself stays, marked withdrawn, as the

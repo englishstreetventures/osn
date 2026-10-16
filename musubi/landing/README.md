@@ -20,7 +20,6 @@ bun run --cwd musubi/landing test:run   # vitest
 CTA targets + canonical origin are build-time env vars (see `.env.example`):
 
 - `PUBLIC_APP_URL` — primary CTA → the Musubi app, `@musubi/social` (dev default `http://localhost:1422`)
-- `PUBLIC_DOCS_URL` — optional docs / source link
 - `SITE` — canonical origin baked into SEO meta (placeholder default)
 
 Site metadata and CTA targets live in `src/lib/site.ts`.

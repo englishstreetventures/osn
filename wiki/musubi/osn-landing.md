@@ -92,7 +92,6 @@ under jsdom / SSR). No `console.*` anywhere (observability rule).
 | Var | Purpose | Dev default |
 |---|---|---|
 | `PUBLIC_APP_URL` | Primary CTA → the Musubi app (`@musubi/social`) | `http://localhost:1422` |
-| `PUBLIC_DOCS_URL` | Optional docs / source link | unset |
 | `SITE` | Canonical origin for SEO meta (placeholder `https://www.musubi.social`) | config default |
 
 `public/_headers` ships a tight CSP: no external image host (`img-src 'self'

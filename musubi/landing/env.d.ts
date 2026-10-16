@@ -8,12 +8,6 @@ interface ImportMetaEnv {
    * Vite.
    */
   readonly PUBLIC_APP_URL?: string;
-  /**
-   * Optional: where the "Read the docs" / "Learn more" links point — the
-   * project README or a docs site. Unset ⇒ the default placeholder in
-   * `src/lib/site.ts` (or the link is omitted).
-   */
-  readonly PUBLIC_DOCS_URL?: string;
 }
 
 interface ImportMeta {

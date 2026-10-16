@@ -357,11 +357,13 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
 
   const totpEncryptionKeys = createTotpKeyRing(totpEncryptionKey, totpPreviousEncryptionKey);
 
+  // Hard-coded until englishstreetventures/osn#1549 lands.
+  const instanceName = "Musubi";
+
   const authConfig = {
     rpId: env.OSN_RP_ID || "localhost",
-    rpName: env.OSN_RP_NAME || "OSN",
-    // Hard-coded until englishstreetventures/osn#1549 lands.
-    instanceName: "Musubi",
+    rpName: env.OSN_RP_NAME || instanceName,
+    instanceName,
     origin: (env.OSN_ORIGIN || "http://localhost:5173")
       .split(",")
       .map((o) => o.trim())
