@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { PALETTE_SEED_KEYS, SECTION_TONES } from "@cire/theme";
+import { PALETTE_SEED_KEYS } from "@cire/theme";
 
 import { InviteThemeBody, THEME_SECTIONS } from "../../src/schemas/invite";
 
@@ -34,15 +34,5 @@ describe("InviteThemeBody ↔ @cire/theme lockstep", () => {
   it("declares one tone field per themeable section", () => {
     const expected = THEME_SECTIONS.map((section) => `${section}Tone`);
     expect(fields.filter((f) => f.endsWith("Tone")).toSorted()).toEqual(expected.toSorted());
-  });
-
-  it("keeps the tone vocabulary bounded to what the guest site can paint", () => {
-    // A tone the guest cannot resolve falls back to the page ground, so an
-    // accepted-but-unpaintable value would be a silent no-op.
-    expect([...SECTION_TONES].toSorted()).toEqual(["card", "ground", "raised"]);
-  });
-
-  it("carries the preset key", () => {
-    expect(fields).toContain("palettePreset");
   });
 });

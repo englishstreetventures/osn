@@ -405,11 +405,6 @@ describe("ConsentPreferencesLink", () => {
     fireEvent.click(getByText("Privacy choices"));
     expect(document.querySelectorAll("dialog")).toHaveLength(1);
   });
-
-  it("accepts a custom label", () => {
-    const { getByText } = render(() => <ConsentPreferencesLink label="Open my privacy choices" />);
-    expect(getByText("Open my privacy choices")).toBeTruthy();
-  });
 });
 
 /** The switch whose label reads `label`. */

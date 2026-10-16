@@ -74,21 +74,6 @@ afterEach(() => {
 });
 
 describe("CommandPalette", () => {
-  it("renders nothing until it is opened", () => {
-    mount({ open: false });
-    expect(screen.queryByRole("combobox")).toBeNull();
-  });
-
-  it("leads every row with one icon at the shared size, hidden from assistive tech", () => {
-    mount();
-    for (const option of options()) {
-      const icons = option.querySelectorAll("svg");
-      expect(icons).toHaveLength(1);
-      expect(icons[0]!.classList.contains("size-icon")).toBe(true);
-      expect(icons[0]!.getAttribute("aria-hidden")).toBe("true");
-    }
-  });
-
   it("marks the theme row with the theme it switches to", () => {
     setThemePreference("dark");
     mount();

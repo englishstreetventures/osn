@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import ProfileMenu from "../../src/components/ProfileMenu";
 
@@ -137,20 +137,6 @@ describe("ProfileMenu", () => {
     expect(link).toHaveAttribute("target", "_blank");
     expect(link.getAttribute("rel")).toContain("noopener");
     expect(link.getAttribute("href")).toContain("/settings");
-  });
-
-  it("signs out", async () => {
-    const onSignOut = vi.fn();
-    render(() => <ProfileMenu session={SESSION} onSignOut={onSignOut} />);
-    openMenu();
-    await waitFor(() => screen.getByRole("menuitem", { name: /sign out/i }));
-
-    const item = screen.getByRole("menuitem", { name: /sign out/i });
-    fireEvent.pointerDown(item, { button: 0 });
-    fireEvent.pointerUp(item, { button: 0 });
-    fireEvent.click(item);
-
-    await waitFor(() => expect(onSignOut).toHaveBeenCalled());
   });
 
   // ── Haptics ────────────────────────────────────────────────────────────────

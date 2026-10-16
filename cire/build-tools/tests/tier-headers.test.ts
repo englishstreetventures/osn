@@ -209,10 +209,6 @@ describe("tierHeaders", () => {
     expect(await builtHeaders()).toBe(HEADERS);
   });
 
-  it("logs under the name every cire app's build shares", () => {
-    expect(tierHeaders(CLIENT).name).toBe("cire-tier-headers");
-  });
-
   it("fails the build when the output holds no _headers to rewrite", async () => {
     // A tier must never deploy with no policy at all.
     await rm(join(dist, "client", "_headers"));

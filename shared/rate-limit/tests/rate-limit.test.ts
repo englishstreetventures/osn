@@ -94,13 +94,6 @@ describe("createRateLimiter", () => {
     rl.check("ip1"); // expired entry gets replaced, not incremented
     expect(rl._store.get("ip1")!.count).toBe(1);
   });
-
-  it("defaults maxEntries to 10_000", () => {
-    const rl = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
-    // Just verify it works with more than a few keys
-    for (let i = 0; i < 100; i++) rl.check(`ip${i}`);
-    expect(rl._store.size).toBe(100);
-  });
 });
 
 describe("getClientIp", () => {

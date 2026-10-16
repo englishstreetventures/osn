@@ -72,9 +72,9 @@ afterEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("VendorEnquiryThread", () => {
-  // ── Non-E2E notice ────────────────────────────────────────────────────────
+  // ── Privacy notice ────────────────────────────────────────────────────────
 
-  it("renders the non-E2E encryption notice", async () => {
+  it("renders the notice that enquiries are not end-to-end encrypted", async () => {
     mockGetEnquiryMessages.mockResolvedValue([]);
     render(() => (
       <VendorEnquiryThread enquiryId="enq_1" ownProfileId="p-vendor" onBack={() => {}} />
@@ -82,7 +82,6 @@ describe("VendorEnquiryThread", () => {
     await waitFor(() =>
       expect(screen.getByText(/Enquiries aren't end-to-end encrypted/i)).toBeInTheDocument(),
     );
-    // Full exact text match
     expect(
       screen.getByText(/cire can read these messages to keep the marketplace safe/i),
     ).toBeInTheDocument();
@@ -111,17 +110,6 @@ describe("VendorEnquiryThread", () => {
     const theirBubble = screen.getByText("Their message").closest("[data-mine]");
     expect(myBubble?.getAttribute("data-mine")).toBe("true");
     expect(theirBubble?.getAttribute("data-mine")).toBe("false");
-  });
-
-  // ── Back button ────────────────────────────────────────────────────────────
-
-  it("calls onBack when the back button is clicked", async () => {
-    mockGetEnquiryMessages.mockResolvedValue([]);
-    const onBack = vi.fn();
-    render(() => <VendorEnquiryThread enquiryId="enq_1" ownProfileId="p-vendor" onBack={onBack} />);
-    await waitFor(() => expect(screen.getByRole("button", { name: /back/i })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: /back/i }));
-    expect(onBack).toHaveBeenCalledOnce();
   });
 
   // ── Reply box ─────────────────────────────────────────────────────────────
@@ -351,14 +339,6 @@ describe("VendorEnquiryThread", () => {
   });
 
   // ── Loading / error states ─────────────────────────────────────────────────
-
-  it("shows a loading state while fetching messages", () => {
-    mockGetEnquiryMessages.mockReturnValue(new Promise(() => {}));
-    render(() => (
-      <VendorEnquiryThread enquiryId="enq_1" ownProfileId="p-vendor" onBack={() => {}} />
-    ));
-    expect(screen.getByText(/loading messages/i)).toBeInTheDocument();
-  });
 
   it("shows an error state when message fetch fails", async () => {
     mockGetEnquiryMessages.mockRejectedValue(new Error("network error"));

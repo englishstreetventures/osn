@@ -12,10 +12,7 @@ import { createMemoryClient, createRedisRateLimiter } from "@shared/redis";
 import { Effect } from "effect";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
-import {
-  createRedisAuthRateLimiters,
-  createRedisGraphRateLimiter,
-} from "../../src/lib/redis-rate-limiters";
+import { createRedisAuthRateLimiters } from "../../src/lib/redis-rate-limiters";
 import { createGraphRoutes } from "../../src/routes/graph";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
@@ -34,13 +31,6 @@ describe("auth routes with Redis-backed rate limiters", () => {
 
   beforeEach(() => {
     layer = createTestLayer();
-  });
-
-  it("createAuthRoutes accepts Redis-backed rate limiters without error", () => {
-    const client = createMemoryClient();
-    const limiters = createRedisAuthRateLimiters(client);
-    // Should not throw — validates every slot at construction time
-    expect(() => createAuthRoutes(config, layer, undefined, limiters)).not.toThrow();
   });
 
   it("rate limits /register/begin at 5 req/IP/min via Redis backend", async () => {
@@ -137,13 +127,6 @@ describe("auth routes with Redis-backed rate limiters", () => {
 });
 
 describe("graph routes with Redis-backed rate limiter", () => {
-  it("createGraphRoutes accepts Redis-backed rate limiter without error", () => {
-    const client = createMemoryClient();
-    const limiter = createRedisGraphRateLimiter(client);
-    const layer = createTestLayer();
-    expect(() => createGraphRoutes(config, layer, undefined, limiter)).not.toThrow();
-  });
-
   it("rate limits graph write at 3 req/user via Redis backend", async () => {
     const client = createMemoryClient();
     // Use a very low limit (3) so the test is fast

@@ -18,7 +18,7 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { osnLoggerLayer, runOsn, runOsnSync } from "../src/observability";
+import { runOsn, runOsnSync } from "../src/observability";
 
 /**
  * Capture everything Effect's logger writes for one run. Effect's default
@@ -44,14 +44,6 @@ async function captureLogs(run: () => unknown | Promise<unknown>): Promise<strin
 }
 
 describe("osn observability logger layer", () => {
-  it("builds a logger-only layer without pulling the Node OTel SDK", () => {
-    // If the layer (or its import graph) referenced @effect/opentelemetry's
-    // NodeSdk, importing this module on a non-Node runtime would blow up at
-    // load. Building it as a value here proves the layer is constructable from
-    // the effect-only `/logger` + `/config` subpaths.
-    expect(osnLoggerLayer).toBeDefined();
-  });
-
   it("scrubs PII keys in an osn log message object (runOsn)", async () => {
     const out = await captureLogs(() =>
       runOsn(

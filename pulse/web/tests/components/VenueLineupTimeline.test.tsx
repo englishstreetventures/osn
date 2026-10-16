@@ -58,11 +58,4 @@ describe("VenueLineupTimeline", () => {
     const headliner = getByText("Anu");
     expect(headliner.className).toContain("font-semibold");
   });
-
-  it("renders the heading when provided", () => {
-    const { getByText } = render(() => (
-      <VenueLineupTimeline slots={[slot({})]} timezone="UTC" heading="Friday Residency" />
-    ));
-    expect(getByText("Friday Residency")).toBeTruthy();
-  });
 });

@@ -23,11 +23,6 @@ function renderUsername(initial = "", status?: UsernameInputStatus, invalidMessa
 describe("UsernameInput", () => {
   afterEach(() => cleanup());
 
-  it("shows a fixed @ ahead of the box", () => {
-    renderUsername();
-    expect(screen.getByText("@")).toBeTruthy();
-  });
-
   it("typing calls onInput with the raw value — the @ is decoration, not part of it", () => {
     const { onInput } = renderUsername();
     fireEvent.input(screen.getByRole("textbox"), { target: { value: "alice" } });

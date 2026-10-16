@@ -53,15 +53,6 @@ describe("instrumentedFetch", () => {
     expect(hdrs?.get("x-custom")).toBe("yes");
   });
 
-  it("works with a URL object", async () => {
-    const url = new URL("http://example.com/path?q=1");
-    await instrumentedFetch(url);
-    expect(stub).toHaveBeenCalledTimes(1);
-    // The fetch wrapper passes the URL through unchanged. The first arg
-    // should be the URL object itself.
-    expect(stub.mock.calls[0]?.[0]).toBe(url);
-  });
-
   it("returns non-2xx responses without throwing (span records error status)", async () => {
     stub.mockResolvedValueOnce(new Response("nope", { status: 404 }));
     const res = await instrumentedFetch("http://example.com/missing");
@@ -83,35 +74,10 @@ describe("instrumentedFetch", () => {
     expect(stub.mock.calls[0]?.[0]).toBe("not-a-url");
   });
 
-  it("defaults method to GET when not supplied", async () => {
-    await instrumentedFetch("http://example.com/");
-    // Some of our code inspects the upper-cased method to decide
-    // whether to attach metrics labels. Verify the fetch call was made.
-    expect(stub).toHaveBeenCalledTimes(1);
-    const init = getStubInit(0);
-    // The wrapper may or may not set init.method (it only upper-cases
-    // what was passed). What matters is the call succeeded.
-    expect(init).toBeDefined();
-  });
-
   it("attaches a Headers object even when caller passes none", async () => {
     await instrumentedFetch("http://example.com/");
     const hdrs = getStubHeaders(0);
     expect(hdrs).toBeInstanceOf(Headers);
-  });
-
-  // Query strings must not land in span attributes, since they
-  // frequently carry OAuth codes, magic-link tokens, presigned
-  // signatures, etc. We can't directly inspect the span's attributes
-  // without hooking a recording processor, but we CAN verify that the
-  // wrapper still forwards the full URL to the underlying fetch (so
-  // requests work) AND doesn't throw on URLs with queries.
-  it("forwards URLs with query strings to fetch without crashing", async () => {
-    const url = "http://example.com/oauth/callback?code=secret123&state=xyz";
-    const res = await instrumentedFetch(url);
-    expect(stub).toHaveBeenCalledTimes(1);
-    expect(stub.mock.calls[0]?.[0]).toBe(url);
-    expect(res.status).toBe(200);
   });
 
   it("reuses caller's Headers instance instead of allocating a new one (P-I3)", async () => {

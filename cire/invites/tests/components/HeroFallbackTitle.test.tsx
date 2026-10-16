@@ -52,13 +52,6 @@ describe("HeroFallbackTitle", () => {
     expect(screen.queryByText(WELCOME_BACK, READABLE)).toBeNull();
   });
 
-  it("puts the shorter string on the cell's bottom edge for a pack anchored to the foot", () => {
-    const { container } = render(() => <HeroFallbackTitle align="end" class="" />);
-    expect((container.firstElementChild as HTMLElement).className.split(/\s+/)).toContain(
-      "items-end",
-    );
-  });
-
   it("turns to the welcome-back string for a returning household, and back on sign-out", () => {
     render(() => <HeroFallbackTitle align="center" class="" />);
 

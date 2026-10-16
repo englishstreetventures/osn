@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
+import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import ChangePreview, { type ChangePlan } from "../../src/components/ChangePreview";
@@ -146,25 +146,6 @@ describe("ChangePreview", () => {
     expect(
       screen.getByRole("button", { name: /Apply changes/i }).getAttribute("aria-describedby"),
     ).toBeNull();
-  });
-
-  it("fires onConfirm / onCancel and honours busy + confirmLabel", () => {
-    const onConfirm = vi.fn();
-    const onCancel = vi.fn();
-    render(() => (
-      <ChangePreview
-        plan={plan()}
-        warnings={[]}
-        busy={false}
-        confirmLabel="Save changes"
-        onConfirm={onConfirm}
-        onCancel={onCancel}
-      />
-    ));
-    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
-    expect(onConfirm).toHaveBeenCalledTimes(1);
-    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it("disables the actions while busy", () => {

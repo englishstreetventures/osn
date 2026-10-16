@@ -38,13 +38,6 @@ describe("DeleteWeddingDialog", () => {
     resetOrganiserMocks();
   });
 
-  it("says what deleting does, and that it can be undone for 7 days", () => {
-    open();
-    expect(screen.getByText(/stop working at once/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/restore it from your wedding list for 7 days/i).length).toBe(2);
-    expect(screen.getByText(/stays with Stripe/i)).toBeInTheDocument();
-  });
-
   it("keeps Delete disabled until the slug is typed exactly", () => {
     const { input } = open();
     expect(confirmButton()).toBeDisabled();

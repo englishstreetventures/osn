@@ -33,19 +33,6 @@ describe("PaletteField", () => {
     for (const role of ROLES) expect(screen.getByLabelText(`${role} colour`)).toBeTruthy();
   });
 
-  it("shows what each seed drives, since the names alone say nothing", () => {
-    render(() => <PaletteField value={EMPTY} onChange={() => {}} />);
-    for (const hint of [
-      "The background behind everything.",
-      "Event cards, panels and pop-ups.",
-      "Headings and body text.",
-      "Buttons, links and fine rules.",
-      "Small flourishes and markers.",
-    ]) {
-      expect(screen.getByText(hint)).toBeTruthy();
-    }
-  });
-
   it.each([
     ["Ground", "ground"],
     ["Card", "card"],

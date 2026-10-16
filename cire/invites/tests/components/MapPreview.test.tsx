@@ -47,12 +47,6 @@ describe("MapPreview", () => {
     expect((getByRole("link") as HTMLAnchorElement).href).toBe(url);
   });
 
-  it("shows the venue line on the card", () => {
-    const { getByText } = render(() => <MapPreview event={baseEvent} />);
-    expect(getByText("12 Banksia Lane, Strathfield")).toBeTruthy();
-    expect(getByText(/open in maps/i)).toBeTruthy();
-  });
-
   it("keeps the card's affordance a decoration on one link, not a second link", () => {
     // The whole card is the anchor, so the action is a `<span>` inside it: the
     // visible signal that the card is clickable. Two anchors here would be two

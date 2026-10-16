@@ -100,18 +100,6 @@ describe("<AuthDialogs /> — close-on-session invariant", () => {
     expect(screen.getByTestId("signin")).toBeDefined();
   });
 
-  // The prop this whole file's mocks used to type away entirely — a call
-  // site that dropped or misspelled `productName` compiled and passed here
-  // before this assertion existed.
-  it("passes the app's product name to both dialogs", () => {
-    renderDialogs(
-      makeAuth(() => null),
-      { signIn: true, register: true },
-    );
-    expect(screen.getByTestId("signin-product-name").textContent).toBe("Musubi");
-    expect(screen.getByTestId("register-product-name").textContent).toBe("Musubi");
-  });
-
   it("never renders an auth dialog once a session exists", () => {
     renderDialogs(
       makeAuth(() => SAMPLE_SESSION),

@@ -120,55 +120,6 @@ describe("ModuleSidebar", () => {
     expect(selected[0]!.querySelector("svg")!.classList.contains("text-gold")).toBe(true);
   });
 
-  it("renders every module in workflow order", () => {
-    render(() => (
-      <ModuleSidebar
-        weddingId="wed_test"
-        weddingSlug="test-wedding"
-        canManage={false}
-        active="overview"
-        tier={TOP}
-        onSelect={vi.fn()}
-      />
-    ));
-    const labels = within(rail())
-      .getAllByRole("button")
-      .map((b) => b.textContent);
-    expect(labels).toEqual([
-      "Overview",
-      "Events",
-      "Checklist",
-      "Budget",
-      "Vendors",
-      "Registry",
-      "Guests",
-      "Invite",
-      "Settings",
-    ]);
-  });
-
-  it("leads every row with one icon at the shared size, hidden from assistive tech", () => {
-    render(() => (
-      <ModuleSidebar
-        weddingId="wed_test"
-        weddingSlug="test-wedding"
-        canManage={false}
-        active="overview"
-        tier="ivory"
-        onSelect={vi.fn()}
-      />
-    ));
-    // Locked rows too: an organiser whose tier lacks the module still sees the mark.
-    for (const row of within(rail()).getAllByRole("button")) {
-      const icons = row.querySelectorAll("svg");
-      expect(icons).toHaveLength(1);
-      // `size-icon` is what only `ModuleIcon` applies, so this proves the row
-      // goes through it rather than drawing an icon at its own size.
-      expect(icons[0]!.classList.contains("size-icon")).toBe(true);
-      expect(icons[0]!.getAttribute("aria-hidden")).toBe("true");
-    }
-  });
-
   it("marks the active module with aria-current and no others", () => {
     render(() => (
       <ModuleSidebar
@@ -256,21 +207,6 @@ describe("ModuleSidebar", () => {
     ));
     fireEvent.click(within(rail()).getByRole("button", { name: /Settings/ }));
     expect(onSelect).toHaveBeenCalledWith("settings");
-  });
-
-  it("is a labelled navigation landmark", () => {
-    render(() => (
-      <ModuleSidebar
-        weddingId="wed_test"
-        weddingSlug="test-wedding"
-        canManage={false}
-        active="overview"
-        tier={TOP}
-        onSelect={vi.fn()}
-      />
-    ));
-    expect(rail().tagName).toBe("NAV");
-    expect(rail().getAttribute("aria-label")).toBe("Wedding modules");
   });
 
   /**

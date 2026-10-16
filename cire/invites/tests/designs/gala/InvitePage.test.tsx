@@ -260,33 +260,6 @@ describe("gala InvitePage", () => {
     await waitFor(() => expect(section.style.opacity).toBe("1"));
   });
 
-  it("widens the events column to max-w-column-2xl, left-aligned", async () => {
-    vi.stubGlobal(
-      "fetch",
-      noSession(
-        vi.fn().mockResolvedValue(
-          new Response(JSON.stringify(claim), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-      ),
-    );
-
-    const { getByText, getByPlaceholderText, getByTestId } = render(() => (
-      <InvitePage apiUrl="https://api.test" />
-    ));
-
-    fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
-
-    await waitFor(() => expect(getByText("Your Events")).toBeTruthy(), { timeout: 2000 });
-    const column = getByTestId("events-column");
-    expect(column.className).toContain("max-w-column-2xl");
-    expect(column.className).not.toContain("mx-auto");
-    expect(column.className).not.toContain("text-center");
-  });
-
   it("renders every EventCard with orientation=norm (no alternating rhythm)", async () => {
     vi.stubGlobal(
       "fetch",

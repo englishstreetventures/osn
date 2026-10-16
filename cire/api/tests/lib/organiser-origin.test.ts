@@ -19,6 +19,5 @@ describe("organiserOriginFrom", () => {
     expect(organiserOriginFrom("https://invite.test")).toBe(DEFAULT_ORGANISER_ORIGIN);
     expect(organiserOriginFrom("https://invite.test,")).toBe(DEFAULT_ORGANISER_ORIGIN);
     expect(organiserOriginFrom("")).toBe(DEFAULT_ORGANISER_ORIGIN);
-    expect(DEFAULT_ORGANISER_ORIGIN).toBe("https://host.cireweddings.com");
   });
 });

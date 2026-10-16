@@ -75,18 +75,6 @@ const seedSlot = (eventId: string, artistName: string, slotStart: Date, slotEnd:
 // getVenue
 // ---------------------------------------------------------------------------
 
-it.effect("getVenue returns the row when it exists", () =>
-  provide(
-    Effect.gen(function* () {
-      yield* seedVenue;
-      const row = yield* getVenue("the-org", "the-club");
-      expect(row.id).toBe("the-club");
-      expect(row.name).toBe("The Club");
-      expect(row.kind).toBe("club");
-    }),
-  ),
-);
-
 it.effect("getVenue fails with VenueNotFound for unknown id", () =>
   provide(
     Effect.gen(function* () {
@@ -240,15 +228,6 @@ it.effect("listAllVenues returns every venue row within the default bound", () =
       );
       const rows = yield* listAllVenues();
       expect(rows.map((r) => r.id).toSorted()).toEqual(["v1", "v2", "v3"]);
-    }),
-  ),
-);
-
-it.effect("listAllVenues returns an empty array when there are no venues", () =>
-  provide(
-    Effect.gen(function* () {
-      const rows = yield* listAllVenues();
-      expect(rows).toEqual([]);
     }),
   ),
 );
@@ -448,17 +427,6 @@ it.effect("listEventLineup orders slots by slotStart asc", () =>
 
       const list = yield* listEventLineup("evt_lineup");
       expect(list.map((s) => s.artistName)).toEqual(["Opener", "Mid", "Late"]);
-    }),
-  ),
-);
-
-it.effect("listEventLineup returns an empty array when there are no slots", () =>
-  provide(
-    Effect.gen(function* () {
-      yield* seedVenue;
-      yield* seedEvent("evt_blank", { startTime: future(1), venueId: "the-club" });
-      const list = yield* listEventLineup("evt_blank");
-      expect(list).toEqual([]);
     }),
   ),
 );

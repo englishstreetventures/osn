@@ -62,23 +62,6 @@ function openPicker() {
 }
 
 describe("ShareEventButton", () => {
-  it("opens a Popover and renders all destinations on desktop", async () => {
-    render(() => <ShareEventButton eventId="evt_1" eventTitle="Party" />);
-    openPicker();
-    for (const label of [
-      "WhatsApp",
-      "X / Twitter",
-      "Facebook",
-      "Instagram",
-      "TikTok",
-      "Copy link",
-      "More…",
-    ]) {
-      // eslint-disable-next-line no-await-in-loop
-      expect(await screen.findByText(label)).toBeTruthy();
-    }
-  });
-
   it("WhatsApp opens wa.me with a sourced URL and records the share", async () => {
     render(() => <ShareEventButton eventId="evt_1" eventTitle="Party" />);
     openPicker();

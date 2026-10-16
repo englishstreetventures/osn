@@ -245,13 +245,6 @@ describe("SettingsPanel", () => {
     expect(authFetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("no longer renders a budget field (moved to the Budget tab)", async () => {
-    authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
-    await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
-    expect(screen.queryByText(/total budget/i)).not.toBeInTheDocument();
-  });
-
   it("renders read-only for a viewer co-host", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
     render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage={false} />);

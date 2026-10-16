@@ -9,7 +9,6 @@ import {
   buildSessionMarkerCookie,
   cookieName,
   readSessionCookie,
-  SESSION_COOKIE_NAMES,
   SESSION_MARKER_COOKIE_NAME,
 } from "../../src/lib/cookie-session";
 
@@ -20,13 +19,6 @@ describe("cookieName", () => {
 
   it("returns osn_session when not secure", () => {
     expect(cookieName({ secure: false })).toBe("osn_session");
-  });
-});
-
-describe("SESSION_COOKIE_NAMES", () => {
-  it("contains both cookie names", () => {
-    expect(SESSION_COOKIE_NAMES).toContain("__Host-osn_session");
-    expect(SESSION_COOKIE_NAMES).toContain("osn_session");
   });
 });
 

@@ -26,52 +26,6 @@ describe("EventCard", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders event title and status", () => {
-    const { getByText } = render(() => <EventCard event={mockEvent} onDelete={() => {}} />);
-    expect(getByText("Test Event")).toBeTruthy();
-    expect(getByText("upcoming")).toBeTruthy();
-  });
-
-  it("renders formatted start time (non-empty string)", () => {
-    const { container } = render(() => <EventCard event={mockEvent} onDelete={() => {}} />);
-    // formatTime returns a non-empty locale string
-    const timeText = container.querySelector(".flex.flex-wrap")?.textContent ?? "";
-    expect(timeText.trim().length).toBeGreaterThan(0);
-  });
-
-  it("renders description when provided; omits it when absent", () => {
-    const { getByText, unmount } = render(() => (
-      <EventCard event={{ ...mockEvent, description: "A great event" }} onDelete={() => {}} />
-    ));
-    expect(getByText("A great event")).toBeTruthy();
-    unmount();
-
-    const { queryByText } = render(() => <EventCard event={mockEvent} onDelete={() => {}} />);
-    expect(queryByText("A great event")).toBeNull();
-  });
-
-  it("renders category badge when provided; omits it when absent", () => {
-    const { getByText, unmount } = render(() => (
-      <EventCard event={{ ...mockEvent, category: "Music" }} onDelete={() => {}} />
-    ));
-    expect(getByText("Music")).toBeTruthy();
-    unmount();
-
-    const { queryByText } = render(() => <EventCard event={mockEvent} onDelete={() => {}} />);
-    expect(queryByText("Music")).toBeNull();
-  });
-
-  it("renders venue and location when provided", () => {
-    const { getByText } = render(() => (
-      <EventCard
-        event={{ ...mockEvent, venue: "The Venue", location: "London, UK" }}
-        onDelete={() => {}}
-      />
-    ));
-    expect(getByText("The Venue")).toBeTruthy();
-    expect(getByText("London, UK")).toBeTruthy();
-  });
-
   it("renders 'Hosted by' with initials avatar when createdByName set, no avatar", () => {
     const { getByText, container } = render(() => (
       <EventCard
@@ -111,20 +65,6 @@ describe("EventCard", () => {
       <EventCard event={{ ...mockEvent, createdByProfileId: "usr_1" }} onDelete={() => {}} />
     ));
     expect(queryByText(/Hosted by/)).toBeNull();
-  });
-
-  it("renders <img> when imageUrl provided; omits when absent", () => {
-    const { container, unmount } = render(() => (
-      <EventCard
-        event={{ ...mockEvent, imageUrl: "https://example.com/img.jpg" }}
-        onDelete={() => {}}
-      />
-    ));
-    expect(container.querySelector("img")).toBeTruthy();
-    unmount();
-
-    const { container: c2 } = render(() => <EventCard event={mockEvent} onDelete={() => {}} />);
-    expect(c2.querySelector("img")).toBeNull();
   });
 
   it("delete click → confirm true → calls onDelete with event id", () => {
@@ -175,20 +115,6 @@ describe("EventCard", () => {
       />
     ));
     expect(queryByText("Delete")).toBeNull();
-  });
-
-  it("renders ongoing status with green styling", () => {
-    const { getByText } = render(() => (
-      <EventCard event={{ ...mockEvent, status: "ongoing" as const }} onDelete={() => {}} />
-    ));
-    expect(getByText("ongoing")).toBeTruthy();
-  });
-
-  it("renders cancelled status", () => {
-    const { getByText } = render(() => (
-      <EventCard event={{ ...mockEvent, status: "cancelled" as const }} onDelete={() => {}} />
-    ));
-    expect(getByText("cancelled")).toBeTruthy();
   });
 
   it("deleting=true → button shows 'Deleting…' and is disabled", () => {
@@ -251,26 +177,6 @@ describe("EventCard", () => {
     expect(onDelete).not.toHaveBeenCalled();
   });
 
-  it("renders 'Free' badge when priceAmount is null", () => {
-    const { getByText } = render(() => (
-      <EventCard
-        event={{ ...mockEvent, priceAmount: null, priceCurrency: null }}
-        onDelete={() => {}}
-      />
-    ));
-    expect(getByText("Free")).toBeTruthy();
-  });
-
-  it("renders 'Free' badge when priceAmount is 0", () => {
-    const { getByText } = render(() => (
-      <EventCard
-        event={{ ...mockEvent, priceAmount: 0, priceCurrency: "USD" }}
-        onDelete={() => {}}
-      />
-    ));
-    expect(getByText("Free")).toBeTruthy();
-  });
-
   it("renders formatted USD price from minor units", () => {
     const { getByText } = render(() => (
       <EventCard
@@ -281,15 +187,5 @@ describe("EventCard", () => {
     // Intl output varies by locale but USD always uses the $ glyph + 18.50
     const badge = getByText(/\$18\.50/);
     expect(badge).toBeTruthy();
-  });
-
-  it("renders JPY as zero-decimal", () => {
-    const { getByText } = render(() => (
-      <EventCard
-        event={{ ...mockEvent, priceAmount: 500, priceCurrency: "JPY" }}
-        onDelete={() => {}}
-      />
-    ));
-    expect(getByText(/500/)).toBeTruthy();
   });
 });

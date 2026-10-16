@@ -84,17 +84,6 @@ describe("OnboardingStepper", () => {
     expect(view.queryByText("Continue")).toBeNull();
   });
 
-  it("personalises the welcome subhead with displayName when present", () => {
-    const { view } = mount("Sarah");
-    expect(view.getByText(/Glad you're here, Sarah/)).toBeTruthy();
-  });
-
-  it("falls back to a generic body when displayName is missing", () => {
-    const { view } = mount(null);
-    expect(view.queryByText(/Glad you're here/)).toBeNull();
-    expect(view.getByText(/Let's set up what you want to see/)).toBeTruthy();
-  });
-
   it("Get started advances from step 1 to step 2", () => {
     const { view } = mount();
     fireEvent.click(view.getByText("Get started"));

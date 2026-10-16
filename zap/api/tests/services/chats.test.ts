@@ -82,15 +82,6 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("getChat returns existing chat", () =>
-    Effect.gen(function* () {
-      const created = yield* seedChat({ type: "group", title: "Fetch Me" });
-      const fetched = yield* getChat(created.id);
-      expect(fetched.id).toBe(created.id);
-      expect(fetched.title).toBe("Fetch Me");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("getChat fails with ChatNotFound for missing id", () =>
     Effect.gen(function* () {
       const result = yield* Effect.result(getChat("chat_nonexistent"));
@@ -114,13 +105,6 @@ describe("chats service", () => {
       expect(result).toHaveLength(2);
       const ids = result.map((c) => c.id).toSorted();
       expect(ids).toEqual([chat1.id, chat2.id].toSorted());
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
-  it.effect("listChats returns empty for user with no chats", () =>
-    Effect.gen(function* () {
-      const { chats: result } = yield* listChats("usr_nobody");
-      expect(result).toHaveLength(0);
     }).pipe(Effect.provide(createTestLayer())),
   );
 

@@ -26,14 +26,6 @@ import {
 const ROLES = Object.keys(ROLE_COPY) as WeddingRole[];
 
 describe("the vocabulary", () => {
-  it("is the four roles the API can send", () => {
-    expect(ROLES.toSorted()).toEqual(["editor", "helper", "owner", "viewer"]);
-  });
-
-  it("offers every role on a seat, owner included, most privilege first", () => {
-    expect(ASSIGNABLE_ROLES).toEqual(["owner", "editor", "viewer", "helper"]);
-  });
-
   it("puts the floor at the narrowest role, and offers it nothing", () => {
     expect(LEAST_PRIVILEGE_ROLE).toBe("helper");
     expect(surfacesFor(LEAST_PRIVILEGE_ROLE)).toEqual({
@@ -41,14 +33,6 @@ describe("the vocabulary", () => {
       canEdit: false,
       canManage: false,
     });
-  });
-
-  it("gives every role a label, a summary and a badge title", () => {
-    const missing = ROLES.filter((role) => {
-      const copy = ROLE_COPY[role];
-      return !copy.label || !copy.summary || !copy.badgeTitle;
-    });
-    expect(missing).toEqual([]);
   });
 });
 

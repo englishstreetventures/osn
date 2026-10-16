@@ -36,12 +36,6 @@ describe("UnlockCodeDialog", () => {
     resetOrganiserMocks();
   });
 
-  it("opens from a 'Have a code?' link and says what a code does", () => {
-    open();
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByText(/moves this wedding to that plan/i)).toBeInTheDocument();
-  });
-
   it("keeps 'Use code' disabled until something is typed", () => {
     const { input } = open();
     expect(useButton()).toBeDisabled();

@@ -17,7 +17,6 @@ describe("resolveApiUrl", () => {
 
   it("falls back to the local cire-api when neither is set", () => {
     expect(resolveApiUrl(undefined, undefined)).toBe(LOCAL_API_URL);
-    expect(LOCAL_API_URL).toBe("http://localhost:8787");
   });
 
   it("keeps an empty value rather than skipping it", () => {

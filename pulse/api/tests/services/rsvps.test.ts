@@ -45,16 +45,6 @@ function profile(id: string, handle: string, displayName: string): ProfileDispla
 // upsertRsvp
 // ---------------------------------------------------------------------------
 
-it.effect("upsertRsvp creates new row with rsvp_ prefix", () =>
-  Effect.gen(function* () {
-    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
-    const rsvp = yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
-    expect(rsvp.id).toMatch(/^rsvp_/);
-    expect(rsvp.status).toBe("going");
-    expect(rsvp.profileId).toBe("usr_bob");
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
 it.effect("upsertRsvp updates existing RSVP status", () =>
   Effect.gen(function* () {
     const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });

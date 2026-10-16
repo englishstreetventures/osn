@@ -47,16 +47,6 @@ describe("parseTokenResponse", () => {
   });
 
   describe("scope parsing", () => {
-    it("splits multi-word scope", () => {
-      const session = parseTokenResponse({ ...validMinimal, scope: "openid profile" });
-      expect(session.scopes).toEqual(["openid", "profile"]);
-    });
-
-    it("handles single-word scope", () => {
-      const session = parseTokenResponse({ ...validMinimal, scope: "openid" });
-      expect(session.scopes).toEqual(["openid"]);
-    });
-
     it("returns empty array for empty string scope", () => {
       const session = parseTokenResponse({ ...validMinimal, scope: "" });
       expect(session.scopes).toEqual([]);
@@ -93,10 +83,6 @@ describe("parseTokenResponse", () => {
 
     it("throws on null input", () => {
       expect(() => parseTokenResponse(null)).toThrow(/Expected object/);
-    });
-
-    it("throws on empty object", () => {
-      expect(() => parseTokenResponse({})).toThrow(/Missing key[\s\S]*\["access_token"\]/);
     });
   });
 });

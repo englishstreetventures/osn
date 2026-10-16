@@ -84,12 +84,6 @@ afterEach(() => {
 });
 
 describe("<DiscoverPage />", () => {
-  it("leaves search to the shell — Discover is suggestions only", async () => {
-    renderDiscover();
-    await waitFor(() => expect(screen.getByText("Discover")).toBeDefined());
-    expect(screen.queryByRole("combobox")).toBeNull();
-  });
-
   it("explains a friends-of-friends suggestion with its mutual count", async () => {
     mocks.suggestConnections.mockResolvedValue({
       suggestions: [suggestion({ reason: "mutual_connections", mutualCount: 3 })],

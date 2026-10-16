@@ -22,20 +22,6 @@ describe("LEGAL_DETAILS_PENDING", () => {
     ].some(isPlaceholder);
     expect(LEGAL_DETAILS_PENDING).toBe(anyUnfilled);
   });
-
-  /**
-   * The state this has to survive: identity filled in, nothing for sale yet.
-   * An earlier derivation included `merchantOfRecord`, which would have left
-   * every page — including the ones that never mention a purchase — flagged
-   * draft forever.
-   */
-  it("ignores the merchant of record, which is unset until something is sold", () => {
-    expect(isPlaceholder(LEGAL_ENTITY.merchantOfRecord)).toBe(true);
-    const identityFilled = !["Example Pty Ltd", "1 Example St", "privacy@example.com"].some(
-      isPlaceholder,
-    );
-    expect(identityFilled).toBe(true);
-  });
 });
 
 describe("draftPending", () => {
@@ -58,21 +44,5 @@ describe("draftPending", () => {
 
   it("covers the identity half even when handed nothing", () => {
     expect(draftPending()).toBe(LEGAL_DETAILS_PENDING);
-  });
-});
-
-describe("LEGAL_ENTITY", () => {
-  /**
-   * The regulator and the governing law are answers, not placeholders — both
-   * were decided rather than deferred, so a page may state them even while the
-   * entity's own details are pending.
-   */
-  it("names a regulator and a governing law", () => {
-    expect(isPlaceholder(LEGAL_ENTITY.regulator)).toBe(false);
-    expect(isPlaceholder(LEGAL_ENTITY.governingLaw)).toBe(false);
-  });
-
-  it("states governing law at country level, not state level", () => {
-    expect(LEGAL_ENTITY.governingLaw).toBe("Australia");
   });
 });

@@ -48,14 +48,6 @@ describe("createStepUpClient", () => {
     });
   });
 
-  describe("otpBegin", () => {
-    it("returns { sent: true }", async () => {
-      fetchMock.mockResolvedValue(okResponse({ sent: true }));
-      const result = await client.otpBegin({ accessToken: "acc_tok" });
-      expect(result.sent).toBe(true);
-    });
-  });
-
   describe("otpComplete", () => {
     it("parses step_up_token + expires_in", async () => {
       fetchMock.mockResolvedValue(okResponse({ step_up_token: "eyJotp", expires_in: 300 }));

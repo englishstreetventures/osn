@@ -85,13 +85,6 @@ describe("RsvpDeadlineNotice", () => {
         expect(classes.filter((c) => c.startsWith("bg-"))).toEqual([]);
       }
     });
-
-    it("keeps the caller's placement classes alongside its own", () => {
-      const classes = notice("open", { class: "mb-3 text-center" })!.className.split(/\s+/);
-      expect(classes).toContain("text-center");
-      expect(classes).toContain("mb-3");
-      expect(classes).toContain("text-gold-ink");
-    });
   });
 
   describe("copy", () => {

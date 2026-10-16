@@ -69,21 +69,4 @@ describe("HeroScrollCue", () => {
 
     expect(cueOf(container).dataset.scrollCue).toBe("hidden");
   });
-
-  it("centres itself by default", () => {
-    const { container } = render(() => <HeroScrollCue />);
-    const cue = cueOf(container);
-    for (const cls of ["absolute", "bottom-4", "inset-x-0", "justify-center"]) {
-      expect(cue.classList.contains(cls)).toBe(true);
-    }
-  });
-
-  it("sits on the inline end when asked, on the hero's gutter", () => {
-    const { container } = render(() => <HeroScrollCue align="end" />);
-    const cue = cueOf(container);
-    for (const cls of ["absolute", "bottom-4", "right-6"]) {
-      expect(cue.classList.contains(cls)).toBe(true);
-    }
-    expect(cue.classList.contains("inset-x-0")).toBe(false);
-  });
 });

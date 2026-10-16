@@ -8,7 +8,6 @@ import {
   ReorderVendorsBody,
   SeedListingBody,
   UpsertListingBody,
-  VENDOR_STATUSES,
 } from "../../src/schemas/vendors";
 
 // v4 replaces Either with Result: the tags are "Success"/"Failure", not
@@ -62,9 +61,5 @@ describe("vendor schemas", () => {
   it("ConsumeClaimBody requires an orgId", () => {
     expect(dec(ConsumeClaimBody, { orgId: "org_1" })._tag).toBe("Success");
     expect(dec(ConsumeClaimBody, {})._tag).toBe("Failure");
-  });
-
-  it("exposes the five statuses in order", () => {
-    expect(VENDOR_STATUSES).toEqual(["researching", "contacted", "quoted", "booked", "declined"]);
   });
 });

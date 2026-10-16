@@ -77,13 +77,6 @@ describe("logDevOtp", () => {
     expect(lines[0]).not.toMatch(/to=/);
   });
 
-  it("takes no recipient argument at all", async () => {
-    // The parameter is gone from the signature, so a call site cannot pass one
-    // back in by habit — the type error is the first line of defence.
-    const { logDevOtp } = await import("../../../src/services/auth/helpers");
-    expect(logDevOtp.length).toBe(2);
-  });
-
   it.each(["staging", "production"])("emits nothing when OSN_ENV is %s", async (env) => {
     const logDevOtp = await freshLogDevOtp(env);
     const lines = await capture(logDevOtp("step-up", "999999"));

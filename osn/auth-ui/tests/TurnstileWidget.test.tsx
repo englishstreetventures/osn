@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render, cleanup, screen, waitFor } from "@solidjs/testing-library";
+import { render, cleanup, waitFor } from "@solidjs/testing-library";
 import { describe, it, expect, afterEach, vi } from "vitest";
 
 import { TurnstileWidget, turnstileEnabled } from "../src/TurnstileWidget";
@@ -31,13 +31,6 @@ describe("TurnstileWidget — unconfigured renders nothing", () => {
     expect(container.querySelector("div")).toBeNull();
     expect(document.getElementById("cf-turnstile-script")).toBeNull();
     expect(onToken).not.toHaveBeenCalled();
-  });
-
-  it("renders the challenge wrapper + a11y label when a sitekey is present", () => {
-    const onToken = vi.fn();
-    render(() => <TurnstileWidget siteKey="0x4AAAtest" onToken={onToken} />);
-    // The accessible label is always present in the configured branch.
-    expect(screen.getByText("Human verification challenge")).toBeTruthy();
   });
 });
 

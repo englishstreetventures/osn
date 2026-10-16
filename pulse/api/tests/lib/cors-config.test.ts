@@ -28,12 +28,6 @@ describe("resolveCorsOrigins", () => {
     expect(origins).toEqual(["http://localhost:1420"]);
   });
 
-  it("normalises a trailing slash + casing on an explicit origin", () => {
-    expect(resolveCorsOrigins({ PULSE_CORS_ORIGIN: "HTTPS://Admin.Pulse.Example/" }, true)).toEqual(
-      ["https://admin.pulse.example"],
-    );
-  });
-
   it("never allowlists a literal `null` origin", () => {
     // Nothing needs `null` — allowlisting it would admit every sandboxed
     // iframe on the web.

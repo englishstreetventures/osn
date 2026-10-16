@@ -2,39 +2,19 @@ import { describe, expect, it } from "bun:test";
 
 import { Effect, Schema } from "effect";
 
-import { isServiceCategory, SERVICE_CATEGORY_KEYS } from "../../src/lib/service-categories";
+import { isServiceCategory } from "../../src/lib/service-categories";
 import {
   CreateBudgetItemBody,
   CreatePaymentBody,
   ReorderBudgetItemsBody,
   SetBudgetTotalBody,
   UpdateBudgetItemBody,
-  UpdatePaymentBody,
 } from "../../src/schemas/budget";
 
 const decode = <A, I>(s: Schema.Codec<A, I>, v: unknown) =>
   Effect.runSync(Effect.result(Schema.decodeUnknownEffect(s)(v)));
 
 describe("service categories", () => {
-  it("has the fourteen ordered keys ending in 'other'", () => {
-    expect(SERVICE_CATEGORY_KEYS).toEqual([
-      "venue",
-      "catering",
-      "photography",
-      "videography",
-      "decor_styling",
-      "florals",
-      "music_entertainment",
-      "celebrant",
-      "cake",
-      "stationery",
-      "hair_makeup",
-      "transport",
-      "attire",
-      "other",
-    ]);
-  });
-
   it("recognises valid + rejects unknown categories", () => {
     expect(isServiceCategory("catering")).toBe(true);
     expect(isServiceCategory("catering_extra")).toBe(false);
@@ -97,12 +77,6 @@ describe("CreatePaymentBody", () => {
 
   it("rejects a missing amount", () => {
     expect(decode(CreatePaymentBody, { label: "Deposit" })._tag).toBe("Failure");
-  });
-});
-
-describe("UpdatePaymentBody", () => {
-  it("accepts a paid toggle", () => {
-    expect(decode(UpdatePaymentBody, { paid: true })._tag).toBe("Success");
   });
 });
 

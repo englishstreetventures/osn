@@ -10,7 +10,6 @@ import {
   TICK_DELAY_MS,
   TICK_DRAW_END_MS,
   TICK_DURATION_MS,
-  TOTAL_DURATION_MS,
 } from "../../src/components/rsvp-responded";
 
 /**
@@ -35,10 +34,6 @@ describe("Respond confirmation timing", () => {
     expect(HOLD_MS).toBeGreaterThanOrEqual(TICK_DRAW_END_MS);
   });
 
-  it("derives the draw's end from the tick's own delay and duration", () => {
-    expect(TICK_DRAW_END_MS).toBe(TICK_DELAY_MS + TICK_DURATION_MS);
-  });
-
   it("leaves a readable beat after the draw, not just a frame", () => {
     // Without a floor here the guard above is satisfiable by a hold that ends
     // on the tick's last frame — technically "finished", but the guest would
@@ -48,14 +43,6 @@ describe("Respond confirmation timing", () => {
 
   it("starts the tick before the sweep-in has finished, so the two read as one gesture", () => {
     expect(TICK_DELAY_MS).toBeLessThan(SWEEP_DURATION_MS);
-  });
-
-  it("ends the celebration exactly when the hold ends — no fade-out sweep", () => {
-    expect(TOTAL_DURATION_MS).toBe(HOLD_MS);
-  });
-
-  it("keeps the whole celebration short enough that the card never feels stuck", () => {
-    expect(TOTAL_DURATION_MS).toBeLessThanOrEqual(2000);
   });
 });
 

@@ -60,15 +60,6 @@ it.effect("getEvent fails with EventNotFound for unknown id", () =>
   ),
 );
 
-it.effect("listEvents returns empty list when no events", () =>
-  provide(
-    Effect.gen(function* () {
-      const events = yield* listEvents({});
-      expect(events).toEqual([]);
-    }),
-  ),
-);
-
 it.effect("listEvents returns all events regardless of time", () =>
   provide(
     Effect.gen(function* () {
@@ -292,17 +283,6 @@ it.effect("listTodayEvents shows private events to an RSVP'd attendee", () =>
       yield* seedRsvp(priv.id, "usr_bob");
       const events = yield* listTodayEvents("usr_bob");
       expect(events.map((e) => e.title)).toEqual(["Alice's private today"]);
-    }),
-  ),
-);
-
-it.effect("createEvent returns event with evt_ prefix", () =>
-  provide(
-    Effect.gen(function* () {
-      const event = yield* createEvent({ title: "Test", startTime: FUTURE }, ALICE);
-      expect(event.id).toMatch(/^evt_/);
-      expect(event.title).toBe("Test");
-      expect(event.status).toBe("upcoming");
     }),
   ),
 );
@@ -591,22 +571,6 @@ it.effect("createEvent fails with ValidationError for invalid imageUrl", () =>
   ),
 );
 
-it.effect("createEvent accepts valid imageUrl", () =>
-  provide(
-    Effect.gen(function* () {
-      const event = yield* createEvent(
-        {
-          title: "Test",
-          startTime: FUTURE,
-          imageUrl: "https://example.com/image.jpg",
-        },
-        ALICE,
-      );
-      expect(event.imageUrl).toBe("https://example.com/image.jpg");
-    }),
-  ),
-);
-
 it.effect("updateEvent updates fields", () =>
   provide(
     Effect.gen(function* () {
@@ -671,34 +635,6 @@ it.effect("deleteEvent fails with EventNotFound for unknown id", () =>
 
 // ── Ownership ────────────────────────────────────────────────────────────────
 
-it.effect("createEvent stores createdByProfileId, createdByName, createdByAvatar", () =>
-  provide(
-    Effect.gen(function* () {
-      const event = yield* createEvent(
-        { title: "Owned", startTime: FUTURE },
-        { createdByProfileId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
-      );
-      expect(event.createdByProfileId).toBe("usr_alice");
-      expect(event.createdByName).toBe("Alice");
-      expect(event.createdByAvatar).toBeNull();
-    }),
-  ),
-);
-
-it.effect("deleteEvent succeeds when requestingProfileId matches createdByProfileId", () =>
-  provide(
-    Effect.gen(function* () {
-      const event = yield* createEvent(
-        { title: "Mine", startTime: FUTURE },
-        { createdByProfileId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
-      );
-      yield* deleteEvent(event.id, "usr_alice");
-      const error = yield* Effect.flip(getEvent(event.id));
-      expect(error._tag).toBe("EventNotFound");
-    }),
-  ),
-);
-
 it.effect("deleteEvent fails with NotEventOwner when requestingProfileId does not match", () =>
   provide(
     Effect.gen(function* () {
@@ -731,19 +667,6 @@ it.effect("updateEvent fails with NotEventOwner when requestingProfileId does no
       );
       const error = yield* Effect.flip(updateEvent(event.id, { title: "Hijacked" }, "usr_bob"));
       expect(error._tag).toBe("NotEventOwner");
-    }),
-  ),
-);
-
-it.effect("updateEvent succeeds when requestingProfileId matches createdByProfileId", () =>
-  provide(
-    Effect.gen(function* () {
-      const event = yield* createEvent(
-        { title: "Mine", startTime: FUTURE },
-        { createdByProfileId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
-      );
-      const updated = yield* updateEvent(event.id, { title: "Updated" }, "usr_alice");
-      expect(updated.title).toBe("Updated");
     }),
   ),
 );

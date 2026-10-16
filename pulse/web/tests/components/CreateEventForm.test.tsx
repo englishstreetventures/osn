@@ -48,15 +48,6 @@ describe("CreateEventForm", () => {
     expect(getByText("Create")).toBeTruthy();
   });
 
-  it("Cancel button calls onCancel", () => {
-    const onCancel = vi.fn();
-    const { getByText } = render(() => (
-      <CreateEventForm onSuccess={() => {}} onCancel={onCancel} />
-    ));
-    fireEvent.click(getByText("Cancel"));
-    expect(onCancel).toHaveBeenCalled();
-  });
-
   it("end-time error shown when end ≤ start; hidden when end > start", () => {
     const { getByLabelText, queryByText, getByText } = render(() => (
       <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />

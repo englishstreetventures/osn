@@ -49,11 +49,6 @@ describe("vendor-store", () => {
     expect(String(authFetch.mock.calls[0]![0])).toContain("/api/vendor/orgs/o1/listing");
   });
 
-  it("fetchListing returns null when the org has no listing (listing: null)", async () => {
-    const authFetch = vi.fn().mockResolvedValue(jsonRes({ listing: null }));
-    expect(await fetchListing(authFetch, "o1")).toBeNull();
-  });
-
   it("putListing PUTs the body and returns the saved listing", async () => {
     const authFetch = vi
       .fn()

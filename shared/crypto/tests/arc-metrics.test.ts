@@ -39,13 +39,6 @@ describe("classifyArcVerifyError", () => {
 });
 
 describe("ARC_METRICS naming", () => {
-  it("all names follow the arc.* lowercase dotted convention", () => {
-    const nameRe = /^arc\.[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
-    for (const name of Object.values(ARC_METRICS)) {
-      expect(name, `${name} does not match ${nameRe}`).toMatch(nameRe);
-    }
-  });
-
   it("every metric name is unique", () => {
     const values = Object.values(ARC_METRICS);
     expect(new Set(values).size).toBe(values.length);

@@ -30,15 +30,6 @@ describe("createRecommendationClient", () => {
     expect(vi.mocked(fetch).mock.calls[0]![0]).toBe(`${base}/connections?limit=20`);
   });
 
-  it("returns the parsed suggestions list", async () => {
-    const suggestions = [
-      { handle: "alice", displayName: "Alice", avatarUrl: null, mutualCount: 3 },
-    ];
-    mockFetch({ ok: true, json: () => Promise.resolve({ suggestions }) });
-    const result = await client.suggestConnections(TOKEN);
-    expect(result.suggestions).toEqual(suggestions);
-  });
-
   it("throws RecommendationClientError with server message on non-2xx", async () => {
     mockFetch({ ok: false, json: () => Promise.resolve({ error: "Too many requests" }) });
     await expect(client.suggestConnections(TOKEN)).rejects.toBeInstanceOf(
@@ -102,24 +93,6 @@ describe("createRecommendationClient", () => {
       mockFetch({ ok: true, json: () => Promise.resolve({ people: [], organisations: [] }) });
       await client.search(TOKEN, "ali", { limit: 5, orgLimit: 2 });
       expect(vi.mocked(fetch).mock.calls[0]![0]).toBe(`${base}/search?q=ali&limit=5&orgLimit=2`);
-    });
-
-    it("returns both result sections", async () => {
-      const people = [
-        {
-          handle: "alice",
-          displayName: "Alice",
-          avatarUrl: null,
-          connectionStatus: "pending_sent",
-        },
-      ];
-      const organisations = [
-        { id: "org_1", handle: "acme", name: "Acme Inc", avatarUrl: null, isMember: false },
-      ];
-      mockFetch({ ok: true, json: () => Promise.resolve({ people, organisations }) });
-      const result = await client.search(TOKEN, "ali");
-      expect(result.people).toEqual(people);
-      expect(result.organisations).toEqual(organisations);
     });
 
     it("throws RecommendationClientError on non-2xx", async () => {

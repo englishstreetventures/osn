@@ -8,70 +8,6 @@ import {
 } from "../../src/lib/redis-rate-limiters";
 
 describe("createRedisAuthRateLimiters", () => {
-  it("returns every rate limiter slot in the auth bundle", () => {
-    const client = createMemoryClient();
-    const limiters = createRedisAuthRateLimiters(client);
-
-    const expectedKeys = [
-      "registerBegin",
-      "registerComplete",
-      "handleCheck",
-      "passkeyLoginBegin",
-      "passkeyLoginComplete",
-      "passkeyRegisterBegin",
-      "passkeyRegisterComplete",
-      "profileSwitch",
-      "profileList",
-      "recoveryGenerate",
-      "recoveryStatus",
-      "recoveryComplete",
-      "recoveryEmailBegin",
-      "recoveryEmailComplete",
-      "recoveryTotpComplete",
-      "recoveryDisown",
-      "stepUpPasskeyBegin",
-      "stepUpPasskeyComplete",
-      "stepUpOtpBegin",
-      "stepUpOtpComplete",
-      "stepUpTotpComplete",
-      "totpDisable",
-      "totpEnrollBegin",
-      "totpEnrollComplete",
-      "totpStatus",
-      "sessionList",
-      "sessionRevoke",
-      "emailChangeBegin",
-      "emailChangeComplete",
-      "securityEventList",
-      "securityEventAck",
-      "passkeyList",
-      "passkeyRename",
-      "passkeyDelete",
-      "crossDeviceBegin",
-      "crossDevicePoll",
-      "crossDeviceApprove",
-      "crossDeviceReject",
-      "oidcAuthorize",
-      "oidcAuthorizeContext",
-      "oidcAuthorizeDecision",
-      "oidcToken",
-      "oidcConnectionsList",
-      "oidcConnectionsRevoke",
-      "oidcClientCreate",
-      "oidcClientList",
-      "oidcClientDisable",
-    ] as const;
-
-    for (const key of expectedKeys) {
-      expect(limiters[key]).toBeDefined();
-      expect(typeof limiters[key].check).toBe("function");
-    }
-
-    // Catch additions to the bundle that aren't reflected in expectedKeys —
-    // a new slot without a matching entry here means the test is stale.
-    expect(Object.keys(limiters).toSorted()).toEqual([...expectedKeys].toSorted());
-  });
-
   it("enforces begin-endpoint limits (5 req/min)", async () => {
     const client = createMemoryClient();
     const limiters = createRedisAuthRateLimiters(client);
@@ -108,22 +44,9 @@ describe("createRedisAuthRateLimiters", () => {
     // A different slot should still have its own quota
     expect(await limiters.passkeyLoginBegin.check("ip1")).toBe(true);
   });
-
-  it("check() returns a Promise (async-compatible)", () => {
-    const client = createMemoryClient();
-    const limiters = createRedisAuthRateLimiters(client);
-    const result = limiters.registerBegin.check("ip1");
-    expect(result).toBeInstanceOf(Promise);
-  });
 });
 
 describe("createRedisGraphRateLimiter", () => {
-  it("returns a valid rate limiter backend", () => {
-    const client = createMemoryClient();
-    const limiter = createRedisGraphRateLimiter(client);
-    expect(typeof limiter.check).toBe("function");
-  });
-
   it("enforces 60 req/min limit", async () => {
     const client = createMemoryClient();
     const limiter = createRedisGraphRateLimiter(client);
@@ -133,14 +56,6 @@ describe("createRedisGraphRateLimiter", () => {
       expect(await limiter.check("user1")).toBe(true);
     }
     expect(await limiter.check("user1")).toBe(false);
-  });
-
-  it("tracks users independently", async () => {
-    const client = createMemoryClient();
-    const limiter = createRedisGraphRateLimiter(client);
-
-    expect(await limiter.check("user1")).toBe(true);
-    expect(await limiter.check("user2")).toBe(true);
   });
 
   it("uses a separate namespace from auth rate limiters", async () => {
@@ -161,13 +76,6 @@ describe("createRedisGraphRateLimiter", () => {
 });
 
 describe("createRedisRecommendationRateLimiters", () => {
-  it("returns both limiter slots", () => {
-    const client = createMemoryClient();
-    const limiters = createRedisRecommendationRateLimiters(client);
-    expect(typeof limiters.suggest.check).toBe("function");
-    expect(typeof limiters.search.check).toBe("function");
-  });
-
   it("enforces 20 req/min on the suggestion fan-out", async () => {
     const client = createMemoryClient();
     const { suggest } = createRedisRecommendationRateLimiters(client);

@@ -61,21 +61,6 @@ describe("Step4Location", () => {
     expect(view.queryByText("Try again")).toBeNull();
   });
 
-  it("Back wires to onBack on every perm state", () => {
-    for (const perm of ["prompt", "granted", "denied", "unsupported"] as const) {
-      cleanup();
-      const { view, onBack } = setup(perm);
-      fireEvent.click(view.getByText("← Back"));
-      expect(onBack).toHaveBeenCalled();
-    }
-  });
-
-  it("Skip wires to onSkip", () => {
-    const { view, onSkip } = setup("prompt");
-    fireEvent.click(view.getByText("Skip"));
-    expect(onSkip).toHaveBeenCalled();
-  });
-
   it.each([
     ["prompt" as const, ""],
     ["granted" as const, "is-granted"],

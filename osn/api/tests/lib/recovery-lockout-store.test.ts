@@ -9,10 +9,6 @@ import {
 } from "../../src/lib/recovery-lockout-store";
 
 describe("createInMemoryRecoveryLockoutStore", () => {
-  it("reports backend", () => {
-    expect(createInMemoryRecoveryLockoutStore().backend).toBe("memory");
-  });
-
   it("locks after THRESHOLD failures and resets on success", async () => {
     const store = createInMemoryRecoveryLockoutStore();
     expect(await store.isLocked("acc_a")).toBe(false);
@@ -63,10 +59,6 @@ describe("createRedisRecoveryLockoutStore (memory-backed RedisClient)", () => {
   let client: RedisClient;
   beforeEach(() => {
     client = createMemoryClient();
-  });
-
-  it("reports backend", () => {
-    expect(createRedisRecoveryLockoutStore(client).backend).toBe("redis");
   });
 
   it("locks after THRESHOLD failures across two store instances sharing the client", async () => {

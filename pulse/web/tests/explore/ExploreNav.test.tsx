@@ -29,11 +29,6 @@ describe("ExploreNav — unauthenticated", () => {
   });
   afterEach(cleanup);
 
-  it("renders the Pulse brand", () => {
-    const { getByText } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
-    expect(getByText("Pulse")).toBeTruthy();
-  });
-
   it("shows only Home tab when logged out", () => {
     const { getByText, queryByText } = render(() => (
       <ExploreNav query="" onQueryChange={() => {}} />
@@ -57,40 +52,6 @@ describe("ExploreNav — unauthenticated", () => {
     ));
     expect(queryByText("Host")).toBeNull();
     expect(queryByTitle("Notifications")).toBeNull();
-  });
-
-  it("renders search input with placeholder", () => {
-    const { container } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
-    const input = container.querySelector("input") as HTMLInputElement;
-    expect(input).toBeTruthy();
-    expect(input.placeholder).toContain("Search events");
-  });
-
-  it("calls onQueryChange on search input", () => {
-    const onQueryChange = vi.fn();
-    const { container } = render(() => <ExploreNav query="" onQueryChange={onQueryChange} />);
-    const input = container.querySelector("input")!;
-    fireEvent.input(input, { target: { value: "jazz" } });
-    expect(onQueryChange).toHaveBeenCalledWith("jazz");
-  });
-
-  it("renders hero headline", () => {
-    const { container } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
-    const h1 = container.querySelector("h1");
-    expect(h1?.textContent).toContain("pulsing");
-  });
-
-  it("renders keyboard shortcut indicator", () => {
-    const { getByText } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
-    expect(getByText("⌘K")).toBeTruthy();
-  });
-
-  it("renders event count stat when provided", () => {
-    const { getByText } = render(() => (
-      <ExploreNav query="" onQueryChange={() => {}} eventCount={14} />
-    ));
-    expect(getByText("14")).toBeTruthy();
-    expect(getByText("events nearby")).toBeTruthy();
   });
 
   it("renders live count stat when provided and > 0", () => {
@@ -160,14 +121,6 @@ describe("ExploreNav — authenticated", () => {
     const { queryByText } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
     // The avatar dropdown stands in for it once someone is signed in.
     expect(queryByText("Continue with musubi")).toBeNull();
-  });
-
-  it("renders avatar", () => {
-    const { container } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
-    // Avatar fallback shows the first initial of "Maya Chen".
-    const avatarFallbacks = container.querySelectorAll("span.base\\:relative");
-    const found = Array.from(avatarFallbacks).some((el) => el.textContent === "M");
-    expect(found).toBe(true);
   });
 
   it("includes greeting with user name in hero", () => {

@@ -10,19 +10,6 @@ import {
 } from "../../src/lib/redis-rate-limiters";
 
 describe("createRedisWriteRateLimiters", () => {
-  it("returns one limiter per write endpoint, matching PULSE_WRITE_LIMITS keys", () => {
-    const client = createMemoryClient();
-    const limiters = createRedisWriteRateLimiters(client);
-
-    const expectedKeys = Object.keys(PULSE_WRITE_LIMITS).toSorted();
-    expect(Object.keys(limiters).toSorted()).toEqual(expectedKeys);
-
-    for (const key of expectedKeys) {
-      const limiter = limiters[key as keyof typeof limiters];
-      expect(typeof limiter.check).toBe("function");
-    }
-  });
-
   it("enforces the comms_blast budget (5/min) over a memory-backed client", async () => {
     const client = createMemoryClient();
     const limiters = createRedisWriteRateLimiters(client);

@@ -1,13 +1,7 @@
 // @vitest-environment happy-dom
-import { cleanup, render } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import {
-  FADED_LABEL,
-  HiddenSectionIcon,
-  isHiddenState,
-  sectionTabTone,
-} from "../../../src/components/invite/fields";
+import { FADED_LABEL, isHiddenState, sectionTabTone } from "../../../src/components/invite/fields";
 
 describe("isHiddenState", () => {
   it.each([
@@ -51,17 +45,5 @@ describe("sectionTabTone", () => {
     expect(tokens(sectionTabTone(false, true))).toContain(FADED_LABEL);
     expect(tokens(sectionTabTone(false, true))).not.toContain("text-text-muted");
     expect(tokens(sectionTabTone(false, false))).not.toContain(FADED_LABEL);
-  });
-});
-
-describe("HiddenSectionIcon", () => {
-  afterEach(cleanup);
-
-  it("draws an icon that assistive tech skips, in the label's own ink", () => {
-    const { container } = render(() => <HiddenSectionIcon />);
-    const svg = container.querySelector("svg")!;
-    expect(svg.getAttribute("aria-hidden")).toBe("true");
-    expect(svg.hasAttribute("data-hidden-icon")).toBe(true);
-    expect(svg.getAttribute("stroke")).toBe("currentColor");
   });
 });

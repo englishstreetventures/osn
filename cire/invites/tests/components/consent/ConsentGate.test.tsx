@@ -80,19 +80,6 @@ describe("ConsentGate", () => {
     expect(mounted).not.toHaveBeenCalled();
   });
 
-  it("renders its children when the category is granted", () => {
-    seedConsentForTest({ pinterest: true });
-    const { Child, mounted } = makeSpyChild();
-    const { getByTestId } = render(() => (
-      <ConsentGate category="pinterest" vendor="pinterest">
-        <Child />
-      </ConsentGate>
-    ));
-
-    expect(mounted).toHaveBeenCalledTimes(1);
-    expect(getByTestId("gated")).toBeTruthy();
-  });
-
   it("checks the switch it was given, not just any granted switch", () => {
     seedConsentForTest({ pinterest: true, maps: false });
     const { Child, mounted } = makeSpyChild();

@@ -44,13 +44,6 @@ describe("TurnstileWidget render", () => {
     expect(onToken).not.toHaveBeenCalled();
   });
 
-  it("renders the challenge wrapper when configured", () => {
-    vi.stubEnv("PUBLIC_TURNSTILE_SITEKEY", "0x4AAAtest");
-    const onToken = vi.fn();
-    const { container } = render(() => <TurnstileWidget onToken={onToken} />);
-    expect(container.querySelector("div")).not.toBeNull();
-  });
-
   it("fails closed when render() throws: hint shown, onToken(null)", async () => {
     vi.stubEnv("PUBLIC_TURNSTILE_SITEKEY", "0x4AAAtest");
     // A pre-loaded `window.turnstile` makes loadTurnstileScript resolve

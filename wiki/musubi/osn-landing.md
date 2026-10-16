@@ -99,10 +99,7 @@ data:`), Google Fonts allowed in `style-src` / `font-src`, immutable cache on
 
 ## Tests
 
-`ConnectionsHero.test.tsx` renders the hero under jsdom (no canvas context) and
-asserts the headline + CTA targets — the reduced-motion / no-context path, so it
-passes regardless of canvas support. Run with
-`bun run --cwd musubi/landing test:run`.
+`tests/self-hosted-fonts.test.ts` asserts that no layout and no CSP reaches `fonts.googleapis.com` or `fonts.gstatic.com`; a re-added font `<link>` renders fine in dev and only leaks every visitor's IP to Google. The hero has no component test: it is static copy over a canvas animation, and a render check of its headline catches no bug. Run with `bun run --cwd musubi/landing test:run`.
 
 ## Deferred
 

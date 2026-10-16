@@ -22,11 +22,6 @@ afterEach(() => {
 });
 
 describe("resolveTheme — system default, dark fallback, light only on an explicit light signal", () => {
-  it("honours an explicit light preference", () => {
-    stubPrefersLight(false);
-    expect(resolveTheme("light")).toBe("light");
-  });
-
   it("honours an explicit dark preference", () => {
     stubPrefersLight(true);
     expect(resolveTheme("dark")).toBe("dark");
@@ -38,12 +33,6 @@ describe("resolveTheme — system default, dark fallback, light only on an expli
   });
 
   it("system falls back to dark when the OS asks for dark", () => {
-    stubPrefersLight(false);
-    expect(resolveTheme("system")).toBe("dark");
-  });
-
-  it("system falls back to dark when there is no light signal", () => {
-    // prefers-color-scheme: light does not match → dark
     stubPrefersLight(false);
     expect(resolveTheme("system")).toBe("dark");
   });

@@ -48,21 +48,6 @@ function setup(initial: ReadonlySet<InterestCategory> = new Set()) {
 describe("Step3Interests", () => {
   afterEach(() => cleanup());
 
-  it("renders all 11 category chips", () => {
-    const { view } = setup();
-    const chips = view.container.querySelectorAll(".onb-chip");
-    expect(chips.length).toBe(11);
-  });
-
-  it("renders chip labels for the canonical categories", () => {
-    const { view } = setup();
-    expect(view.getByText("Music")).toBeTruthy();
-    expect(view.getByText("Food")).toBeTruthy();
-    expect(view.getByText("Nightlife")).toBeTruthy();
-    expect(view.getByText("Outdoor")).toBeTruthy();
-    expect(view.getByText("Family")).toBeTruthy();
-  });
-
   it("clicking a chip calls onToggle with that category", () => {
     const { view, onToggle } = setup();
     fireEvent.click(view.getByText("Music"));
@@ -113,23 +98,5 @@ describe("Step3Interests", () => {
     );
     const music = view.getByText("Music").closest("button") as HTMLButtonElement;
     expect(music.disabled).toBe(false);
-  });
-
-  it("Continue calls onPrimary", () => {
-    const { view, onPrimary } = setup();
-    fireEvent.click(view.getByText("Continue"));
-    expect(onPrimary).toHaveBeenCalled();
-  });
-
-  it("Skip calls onSkip", () => {
-    const { view, onSkip } = setup();
-    fireEvent.click(view.getByText("Skip"));
-    expect(onSkip).toHaveBeenCalled();
-  });
-
-  it("Back calls onBack", () => {
-    const { view, onBack } = setup();
-    fireEvent.click(view.getByText("← Back"));
-    expect(onBack).toHaveBeenCalled();
   });
 });

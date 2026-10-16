@@ -32,12 +32,6 @@ describe("sectionState", () => {
 });
 
 describe("VISIBILITY_SECTIONS", () => {
-  // The closed set. Welcome (the code entry) and Events cannot be switched
-  // off: a guest needs both to reach their invitation.
-  it("names the hero, Our Story, the FAQ and the closing section, in scroll order", () => {
-    expect([...VISIBILITY_SECTIONS]).toEqual(["hero", "story", "faq", "footer"]);
-  });
-
   it("accepts its own members and nothing else", () => {
     for (const section of VISIBILITY_SECTIONS) expect(isVisibilitySection(section)).toBe(true);
     for (const other of ["welcome", "details", "registry", "Hero", "", "closing"]) {

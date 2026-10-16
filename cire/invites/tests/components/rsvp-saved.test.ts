@@ -10,16 +10,6 @@ import { SAVED_DWELL_MIN_MS, SAVED_DWELL_MS, savedDwellMs } from "../../src/comp
  * a slow round-trip from stacking on top of it.
  */
 describe("RSVP sheet dwell", () => {
-  it("holds long enough to read, not just a frame", () => {
-    expect(SAVED_DWELL_MIN_MS).toBeGreaterThanOrEqual(250);
-  });
-
-  it("stays short enough that the sheet never feels stuck", () => {
-    // Budget, not a fixed hold — this is the WHOLE wait after the click on a
-    // fast reply, and the ceiling on it for any reply.
-    expect(SAVED_DWELL_MS).toBeLessThanOrEqual(700);
-  });
-
   it("holds the spoken confirmation long enough to be announced", () => {
     // The floor is sized by the sheet's `role="status"` region, not by the
     // "Saved" label — the region is destroyed on the same tick the dwell

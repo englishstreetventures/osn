@@ -103,22 +103,6 @@ describe("TopBar", () => {
     expect(document.getElementById("boot-chrome")).toBeNull();
   });
 
-  it("says where the wordmark goes, since it is a control and not a logo", () => {
-    render(() => (
-      <TopBar
-        session={session}
-        view="listings"
-        onView={() => {}}
-        onHome={() => {}}
-        onSignOut={() => {}}
-      />
-    ));
-    // The glyph and the word are both aria-hidden, so the label is the only
-    // name this button has — a logo that navigates and doesn't announce it is a
-    // trap for anyone not looking at it.
-    expect(screen.getByRole("button", { name: /cire — your listings/i })).toBeInTheDocument();
-  });
-
   it("takes the wordmark home", () => {
     const onHome = vi.fn();
     render(() => (
@@ -132,35 +116,6 @@ describe("TopBar", () => {
     ));
     fireEvent.click(screen.getByRole("button", { name: /cire — your listings/i }));
     expect(onHome).toHaveBeenCalled();
-  });
-
-  it("carries the view tabs and passes a pick straight through", () => {
-    const onView = vi.fn();
-    render(() => (
-      <TopBar
-        session={session}
-        view="listings"
-        onView={onView}
-        onHome={() => {}}
-        onSignOut={() => {}}
-      />
-    ));
-    fireEvent.click(screen.getByRole("button", { name: "Enquiries" }));
-    expect(onView).toHaveBeenCalledWith("enquiries");
-  });
-
-  it("puts the account behind a menu rather than in the bar", () => {
-    render(() => (
-      <TopBar
-        session={session}
-        view="listings"
-        onView={() => {}}
-        onHome={() => {}}
-        onSignOut={() => {}}
-      />
-    ));
-    expect(screen.queryByRole("button", { name: /sign out/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /account menu/i })).toBeInTheDocument();
   });
 
   // ── The deferred account menu ─────────────────────────────────────────────

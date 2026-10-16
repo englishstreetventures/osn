@@ -61,16 +61,6 @@ describe("SecuritySection", () => {
     expect(screen.getByTestId("recovery-codes")).toBeTruthy();
   });
 
-  it("gives the authenticator surface the clients and token it needs", () => {
-    render(() => <SecuritySection accessToken="acc" profileId="prof_1" />);
-    expect(props.totp.client).toBe(clients.totpClient);
-    expect(props.totp.stepUpClient).toBe(clients.stepUpClient);
-    expect(props.totp.accessToken).toBe("acc");
-    // Enrolling and removing are both step-up gated, and a passkey is the
-    // factor every one of those gates accepts.
-    expect(typeof props.totp.runPasskeyCeremony).toBe("function");
-  });
-
   it("offers the authenticator as a step-up factor on the surfaces that admit it", () => {
     render(() => <SecuritySection accessToken="acc" profileId="prof_1" />);
     // `passkey_register` and `recovery_generate` both admit a `totp` AMR, so

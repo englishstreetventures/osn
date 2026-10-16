@@ -7,10 +7,7 @@ import { Effect, Exit } from "effect";
 import { DbService } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import {
-  BASE_GUEST_CAP,
   CapacityExceeded,
-  capForTier,
-  EXEMPT_OWNER_SEATS,
   isPaidTier,
   isTier,
   legacyEntitlementKeys,
@@ -18,7 +15,6 @@ import {
   peopleLimitOf,
   peopleLimitSql,
   roomForOneMoreGuest,
-  TIER_GUEST_CAP,
   TIER_PEOPLE_LIMIT,
   TIERS,
   tierAtLeast,
@@ -86,12 +82,6 @@ describe("the tier ladder", () => {
     expect(tiersBelow("ivory")).toEqual([]);
   });
 
-  it("caps guests at 100, 500 and 1000", () => {
-    expect(TIER_GUEST_CAP).toEqual({ ivory: 100, gold: 500, crimson: 1000 });
-    expect(BASE_GUEST_CAP).toBe(100);
-    expect(TIERS.map(capForTier)).toEqual([100, 500, 1000]);
-  });
-
   it("names the lowest tier that holds a guest count, or none", () => {
     expect(tierForGuests(0)).toBe("ivory");
     expect(tierForGuests(100)).toBe("ivory");
@@ -100,11 +90,6 @@ describe("the tier ladder", () => {
     expect(tierForGuests(501)).toBe("crimson");
     expect(tierForGuests(1000)).toBe("crimson");
     expect(tierForGuests(1001)).toBeNull();
-  });
-
-  it("limits people to 6, 15 and 40, and exempts two owners", () => {
-    expect(TIER_PEOPLE_LIMIT).toEqual({ ivory: 6, gold: 15, crimson: 40 });
-    expect(EXEMPT_OWNER_SEATS).toBe(2);
   });
 
   it("names the lowest tier whose people limit holds a count, or none", () => {

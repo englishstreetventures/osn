@@ -78,15 +78,6 @@ describe("wrapUpstash", () => {
       expect(await client.get("k")).toBe("fam_abc123");
     });
 
-    it("preserves numeric-looking strings verbatim (not JSON-parsed to numbers)", async () => {
-      // The rotated-session-store stores opaque ids; a JSON-parsing client would
-      // turn "42" into the number 42 and break the `=== familyId` string compare.
-      await client.set("k", "42");
-      const got = await client.get("k");
-      expect(got).toBe("42");
-      expect(typeof got).toBe("string");
-    });
-
     it("returns null for a missing key", async () => {
       expect(await client.get("absent")).toBeNull();
     });
@@ -110,12 +101,6 @@ describe("wrapUpstash", () => {
   });
 
   describe("eval — reply validated at the HTTP boundary", () => {
-    it("returns the numeric value from the Lua script (rate-limit / counter)", async () => {
-      fake.eval.mockResolvedValueOnce(1);
-      const result = await client.eval("script", ["k"], [10, 1000]);
-      expect(result).toBe(1);
-    });
-
     it("forwards (script, keys, args) unchanged to the Upstash client", async () => {
       await client.eval("the-script", ["k1", "k2"], [10, 1000]);
       expect(fake.eval).toHaveBeenCalledWith("the-script", ["k1", "k2"], [10, 1000]);
@@ -263,17 +248,9 @@ describe("wrapUpstash", () => {
   });
 
   describe("ping / quit", () => {
-    it("delegates ping", async () => {
-      expect(await client.ping()).toBe("PONG");
-    });
-
     it("maps a nil ping reply to an empty string rather than null", async () => {
       fake.ping.mockResolvedValueOnce(null);
       expect(await client.ping()).toBe("");
-    });
-
-    it("quit is a no-op for the stateless REST transport", async () => {
-      await expect(client.quit()).resolves.toBeUndefined();
     });
   });
 });

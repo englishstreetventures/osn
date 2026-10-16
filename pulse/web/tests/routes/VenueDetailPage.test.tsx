@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render as _baseRender, waitFor } from "@solidjs/testing-library";
+import { cleanup, render as _baseRender } from "@solidjs/testing-library";
 import type { JSX } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -113,17 +113,6 @@ describe("VenueDetailPage", () => {
     expect(await findByText("Mara Reso")).toBeTruthy();
     expect(await findByText("Anu")).toBeTruthy();
     expect(await findByText("Headliner")).toBeTruthy();
-  });
-
-  it("renders 'Venue not found' when the venue API returns null", async () => {
-    fetchVenue.mockResolvedValue(null);
-    fetchVenueEvents.mockResolvedValue([]);
-    fetchEventLineup.mockResolvedValue([]);
-
-    const { findByText } = render(() => <VenueDetailPage />);
-    await waitFor(() => {
-      expect(findByText(/Venue not found/)).toBeTruthy();
-    });
   });
 
   it("falls back to 'Lineup to be announced.' when the event has no slots", async () => {

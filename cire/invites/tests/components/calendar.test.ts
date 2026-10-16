@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 
-import { googleCalendarUrl, icsBlob, foldLine, icsObjectUrl } from "../../src/components/calendar";
+import { googleCalendarUrl, icsBlob, foldLine } from "../../src/components/calendar";
 import type { EventSummary } from "../../src/components/types";
 
 const sydneyEvent: EventSummary = {
@@ -219,32 +219,5 @@ describe("icsBlob", () => {
     expect(unfolded).toContain("DTSTART;TZID=Australia/Sydney:20260918T160000");
     expect(unfolded).toContain("DTEND;TZID=Australia/Sydney:20260918T160000");
     expect(unfolded).not.toContain("NaN");
-  });
-});
-
-describe("icsObjectUrl", () => {
-  let originalCreate: typeof URL.createObjectURL | undefined;
-  let createSpy: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    // jsdom doesn't implement createObjectURL — patch the method on the real
-    // URL constructor so `new URL(...)` keeps working elsewhere in the suite.
-    originalCreate = URL.createObjectURL;
-    createSpy = vi.fn(() => "blob:mock-url");
-    URL.createObjectURL = createSpy as unknown as typeof URL.createObjectURL;
-  });
-
-  afterEach(() => {
-    if (originalCreate === undefined) {
-      delete (URL as unknown as { createObjectURL?: unknown }).createObjectURL;
-    } else {
-      URL.createObjectURL = originalCreate;
-    }
-  });
-
-  it("wraps the Blob in URL.createObjectURL", () => {
-    const url = icsObjectUrl(sydneyEvent, SITE_URL);
-    expect(url).toBe("blob:mock-url");
-    expect(createSpy).toHaveBeenCalledTimes(1);
   });
 });

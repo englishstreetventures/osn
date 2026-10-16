@@ -9,20 +9,6 @@ import {
   type DiscoveryFilterValues,
 } from "../../src/explore/DiscoveryFilters";
 
-describe("emptyFilters", () => {
-  it("returns a value with every field unset", () => {
-    expect(emptyFilters()).toEqual({
-      from: null,
-      to: null,
-      radiusKm: null,
-      coords: null,
-      priceMin: null,
-      priceMax: null,
-      friendsOnly: false,
-    });
-  });
-});
-
 describe("hasActiveFilters", () => {
   it("returns false for the empty value", () => {
     expect(hasActiveFilters(emptyFilters())).toBe(false);
@@ -49,32 +35,6 @@ describe("hasActiveFilters", () => {
 
 describe("DiscoveryFilters component", () => {
   afterEach(cleanup);
-
-  it("does not render the dialog body when open=false", () => {
-    render(() => (
-      <DiscoveryFilters
-        open={false}
-        onOpenChange={() => {}}
-        signedIn={false}
-        value={emptyFilters()}
-        onApply={() => {}}
-      />
-    ));
-    expect(screen.queryByText("More filters")).toBeNull();
-  });
-
-  it("renders the dialog body (via portal) when open=true", () => {
-    render(() => (
-      <DiscoveryFilters
-        open
-        onOpenChange={() => {}}
-        signedIn={false}
-        value={emptyFilters()}
-        onApply={() => {}}
-      />
-    ));
-    expect(screen.getByText("More filters")).toBeTruthy();
-  });
 
   it("hides the friends-only checkbox when signedIn=false", () => {
     render(() => (

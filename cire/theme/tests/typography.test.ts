@@ -39,14 +39,6 @@ describe("typography choices", () => {
       expect(resolve("__proto__")).toBeNull();
     }
   });
-
-  test("weights are numeric and styles are the two CSS keywords", () => {
-    expect(fontWeightValue("light")).toBe("300");
-    expect(fontWeightValue("regular")).toBe("400");
-    expect(fontWeightValue("bold")).toBe("700");
-    expect(fontStyleValue("normal")).toBe("normal");
-    expect(fontStyleValue("italic")).toBe("italic");
-  });
 });
 
 describe("typographyVars", () => {

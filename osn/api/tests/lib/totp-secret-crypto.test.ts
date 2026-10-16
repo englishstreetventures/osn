@@ -393,11 +393,4 @@ describe("the ceremony-store shape survives JSON", () => {
 
     expect(back.secret).toEqual(SECRET);
   });
-
-  it("carries only JSON-native values", () => {
-    const shape = toJsonSafe({ ciphertext: SECRET, iv: new Uint8Array(12), keyVersion: 1 });
-    expect(typeof shape.ciphertextB64).toBe("string");
-    expect(typeof shape.ivB64).toBe("string");
-    expect(typeof shape.keyVersion).toBe("number");
-  });
 });

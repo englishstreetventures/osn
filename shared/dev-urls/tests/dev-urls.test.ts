@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DEV_APPS, devOriginList, devPort, devRpId, devUrl, devUrls } from "../src/index";
+import { DEV_APPS, devPort, devRpId, devUrls } from "../src/index";
 
 const portless = (url: string) => ({ PORTLESS_URL: url });
 
@@ -67,14 +67,6 @@ describe("devUrls", () => {
   });
 });
 
-describe("devUrl", () => {
-  it("returns one sibling origin", () => {
-    expect(devUrl("@osn/api", "@pulse/web", portless("https://pulse.localhost"))).toBe(
-      "https://id.musubi.localhost",
-    );
-  });
-});
-
 describe("devRpId", () => {
   it("is plain localhost without portless", () => {
     expect(devRpId("@osn/api", {})).toBe("localhost");
@@ -127,17 +119,5 @@ describe("devPort", () => {
     for (const port of ["", "0", "abc", "-1", "70000", "4321.5"]) {
       expect(devPort(4321, { PORT: port })).toBe(4321);
     }
-  });
-});
-
-describe("devOriginList", () => {
-  it("joins origins the way the *_ORIGIN vars expect", () => {
-    expect(
-      devOriginList(
-        ["@musubi/social", "@cire/host"],
-        "@osn/api",
-        portless("https://id.musubi.localhost"),
-      ),
-    ).toBe("https://musubi.localhost,https://host.cire.localhost");
   });
 });

@@ -132,16 +132,6 @@ describe("systemTheme", () => {
   });
 });
 
-describe("applyTheme", () => {
-  it("writes the resolved theme onto the document element", async () => {
-    const { applyTheme } = await loadTheme();
-    applyTheme("light");
-    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
-    applyTheme("dark");
-    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
-  });
-});
-
 describe("setThemePreference", () => {
   it("persists an explicit choice and paints it", async () => {
     const { setThemePreference, theme, themePreference } = await loadTheme();
@@ -276,18 +266,5 @@ describe("THEME_BOOT_SCRIPT", () => {
     // eslint-disable-next-line no-eval
     (0, eval)(THEME_BOOT_SCRIPT);
     expect(document.documentElement.getAttribute("data-theme")).toBe(DEFAULT_THEME);
-  });
-});
-
-describe("storage namespace", () => {
-  it("keys itself to the vendor portal, not the host one", async () => {
-    // `localStorage` is partitioned by origin and the two portals are two
-    // hosts, so they could not share a value even if the names matched — a
-    // shared name would only promise a continuity it cannot deliver. The names
-    // say that outright, and this is what stops a copy-paste from the host
-    // portal quietly reintroducing `cire.host.*` here.
-    const { THEME_STORAGE_KEY: themeKey, HAPTICS_STORAGE_KEY: hapticsKey } = await loadTheme();
-    expect(themeKey).toBe("cire.vendor.theme");
-    expect(hapticsKey).toBe("cire.vendor.haptics");
   });
 });

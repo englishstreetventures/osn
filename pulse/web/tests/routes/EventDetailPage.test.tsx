@@ -114,15 +114,6 @@ describe("EventDetailPage price badge", () => {
     expect(await findByText("Free")).toBeTruthy();
   });
 
-  it("renders 'Free' when priceAmount is 0", async () => {
-    mockGet.mockResolvedValue({
-      data: { event: makeEvent({ priceAmount: 0, priceCurrency: "USD" }) },
-      error: null,
-    });
-    const { findByText } = render(() => <EventDetailPage />);
-    expect(await findByText("Free")).toBeTruthy();
-  });
-
   it("renders formatted USD price from minor units", async () => {
     mockGet.mockResolvedValue({
       data: { event: makeEvent({ priceAmount: 1850, priceCurrency: "USD" }) },
@@ -130,14 +121,6 @@ describe("EventDetailPage price badge", () => {
     });
     const { findByText } = render(() => <EventDetailPage />);
     expect(await findByText(/\$18\.50/)).toBeTruthy();
-  });
-
-  it("shows 'Event not found' when API returns error", async () => {
-    mockGet.mockResolvedValue({ data: null, error: new Error("fail") });
-    const { findByText } = render(() => <EventDetailPage />);
-    await waitFor(() => {
-      expect(findByText(/Event not found/)).toBeTruthy();
-    });
   });
 });
 

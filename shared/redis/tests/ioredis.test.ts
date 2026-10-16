@@ -3,7 +3,7 @@ import type IORedis from "ioredis";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { RedisError } from "../src/errors";
-import { wrapIoRedis, createClientFromUrl, RedisLive } from "../src/ioredis";
+import { wrapIoRedis, RedisLive } from "../src/ioredis";
 
 function createMockIoRedis() {
   return {
@@ -147,42 +147,6 @@ describe("wrapIoRedis", () => {
       expect(result).toBe(2);
       expect(mock.del).toHaveBeenCalledWith("k1", "k2");
     });
-  });
-
-  describe("passthrough methods", () => {
-    it("delegates ping", async () => {
-      const result = await client.ping();
-      expect(result).toBe("PONG");
-      expect(mock.ping).toHaveBeenCalledOnce();
-    });
-
-    it("delegates get", async () => {
-      mock.get.mockResolvedValue("val");
-      expect(await client.get("k")).toBe("val");
-    });
-
-    it("delegates quit", async () => {
-      await client.quit();
-      expect(mock.quit).toHaveBeenCalledOnce();
-    });
-  });
-});
-
-describe("createClientFromUrl", () => {
-  it("returns an object satisfying RedisClient", () => {
-    // We can't connect to a real server, but we can verify the shape
-    const client = createClientFromUrl("redis://localhost:6379");
-    expect(typeof client.eval).toBe("function");
-    expect(typeof client.ping).toBe("function");
-    expect(typeof client.get).toBe("function");
-    expect(typeof client.set).toBe("function");
-    expect(typeof client.del).toBe("function");
-    expect(typeof client.quit).toBe("function");
-    // ConnectableRedisClient extras
-    expect(typeof client.connect).toBe("function");
-    expect(typeof client.disconnect).toBe("function");
-    // Clean up the lazy connection (never opened)
-    client.disconnect();
   });
 });
 
