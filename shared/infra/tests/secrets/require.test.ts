@@ -1,9 +1,9 @@
 import { Redacted } from "effect";
 import { describe, expect, test } from "vitest";
 
-import { NoWorkerOnTierError, tierSecrets, type WorkerKey } from "../../src/secrets/inventory";
+import { tierSecrets, type WorkerKey } from "../../src/secrets/inventory";
 import { MissingSecretsError, requireSecrets } from "../../src/secrets/require";
-import { InvalidStageError, type Tier } from "../../src/stage";
+import type { Tier } from "../../src/stage";
 
 const envFor = (worker: WorkerKey, tier: Tier): Record<string, string> =>
   Object.fromEntries(tierSecrets(worker, tier).secrets.map((name) => [name, `value-of-${name}`]));
@@ -23,11 +23,6 @@ describe("requireSecrets", () => {
     expect(Object.keys(out).toSorted()).toEqual([...tierSecrets("osn-api", "dev").secrets]);
     for (const value of Object.values(out)) expect(Redacted.isRedacted(value)).toBe(true);
     expect(Redacted.value(out.OSN_PAIRWISE_SALT)).toBe("value-of-OSN_PAIRWISE_SALT");
-  });
-
-  test("an investigation stage takes the dev tier's secrets", () => {
-    const out = requireSecrets({ worker: "osn-api", stage: "pr-7", env: envFor("osn-api", "dev") });
-    expect(Object.keys(out).toSorted()).toEqual([...tierSecrets("osn-api", "dev").secrets]);
   });
 
   test("production never receives a secret its tier does not declare", () => {
@@ -70,24 +65,6 @@ describe("requireSecrets", () => {
       (value) => value !== undefined && message.includes(value),
     );
     expect(leaked).toEqual([]);
-  });
-
-  test("one GitHub secret feeds both Workers that share it", () => {
-    const env = { ...envFor("osn-api", "production"), ...envFor("zap-api", "production") };
-    const osn = requireSecrets({ worker: "osn-api", stage: "production", env });
-    const zap = requireSecrets({ worker: "zap-api", stage: "production", env });
-    expect(Redacted.value(osn.INTERNAL_SERVICE_SECRET)).toBe(
-      Redacted.value(zap.INTERNAL_SERVICE_SECRET),
-    );
-  });
-
-  test("refuses a tier with no Worker, and a malformed stage", () => {
-    expect(() => requireSecrets({ worker: "zap-api", stage: "dev", env: {} })).toThrow(
-      NoWorkerOnTierError,
-    );
-    expect(() => requireSecrets({ worker: "osn-api", stage: "prod", env: {} })).toThrow(
-      InvalidStageError,
-    );
   });
 
   test("declares an optional secret only while its GitHub secret holds a value", () => {

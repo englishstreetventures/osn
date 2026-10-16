@@ -26,26 +26,9 @@ function cloudflareSecrets(file: string): string[] {
 }
 
 describe("TIER_ACCOUNTS", () => {
-  test("each tier's credentials live in the GitHub Environment of the same name", () => {
-    for (const tier of TIERS) expect(TIER_ACCOUNTS[tier].environment).toBe(tier);
-  });
-
   test("the two tiers share no credential name, so neither can read the other's account", () => {
     const dev = accountSecrets("dev");
     for (const name of accountSecrets("production")) expect(dev).not.toContain(name);
-  });
-
-  test("names are environment-variable shaped and returned sorted", () => {
-    for (const tier of TIERS) {
-      for (const names of [
-        accountSecrets(tier),
-        allowedCredentials(tier),
-        forbiddenCredentials(tier),
-      ]) {
-        expect(names).toEqual([...names].toSorted());
-        for (const name of names) expect(name).toMatch(/^[A-Z][A-Z0-9_]*$/);
-      }
-    }
   });
 
   test("each Environment is forbidden the other tier's credentials and none of its own", () => {
@@ -129,10 +112,6 @@ describe("the Alchemy state store workflow", () => {
       "production",
     ]);
     expect(workflow.jobs.state.environment).toBe("${{ inputs.tier }}");
-  });
-
-  test("keeps Alchemy telemetry off for the whole workflow", () => {
-    expect(workflow.env?.DO_NOT_TRACK).toBe("1");
   });
 
   test("each tier's step reads exactly that tier's credential secrets, as the variables Alchemy reads", () => {

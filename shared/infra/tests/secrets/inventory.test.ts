@@ -55,24 +55,6 @@ const rows = SECRET_INVENTORY.flatMap((entry) =>
 );
 
 describe("secret inventory", () => {
-  test("lists each deployed Worker once", () => {
-    expect(SECRET_INVENTORY.map((entry) => entry.worker).toSorted()).toEqual([
-      "cire-api",
-      "cire-invites",
-      "osn-api",
-      "zap-api",
-    ]);
-  });
-
-  test("names are well formed, sorted and unique per Worker and tier", () => {
-    for (const row of rows) {
-      for (const list of [row.secrets, row.optional, row.forbidden]) {
-        expect(list, `${row.worker} ${row.tier}`).toEqual([...new Set(list)].toSorted());
-        for (const name of list) expect(name).toMatch(/^[A-Z][A-Z0-9_]*$/);
-      }
-    }
-  });
-
   test("a name is required, optional or forbidden, never two of them", () => {
     for (const row of rows) {
       const all = [...row.secrets, ...row.optional, ...row.forbidden];

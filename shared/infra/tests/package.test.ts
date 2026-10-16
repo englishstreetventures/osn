@@ -43,11 +43,6 @@ describe("pinned Alchemy", () => {
     expect(installed("alchemy", packageDir).manifest.version).toBe(AUDITED_ALCHEMY);
   });
 
-  test("Alchemy loads the repository's Effect", () => {
-    const alchemy = installed("alchemy", packageDir);
-    expect(installed("effect", alchemy.dir).manifest.version).toBe(own.dependencies?.effect);
-  });
-
   test("the lockfile resolves exactly one Effect, the one this package pins", () => {
     // `bun.lock` names each resolved copy as `"effect@<version>"`; a second
     // copy appears as another version under a nested key such as

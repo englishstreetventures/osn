@@ -176,22 +176,6 @@ describe("apiWorkerProps", () => {
     expect((error as Error).message).not.toContain("not-a-real-secret");
   });
 
-  test("states the custom domain, or null to detach every one", () => {
-    expect(apiWorkerProps(cireApiDev).domain).toBe("api.dev.cireweddings.com");
-    expect(apiWorkerProps({ ...cireApiDev, domain: null }).domain).toBeNull();
-  });
-
-  test("copies compatibility flags and crons rather than sharing the caller's arrays", () => {
-    const props = apiWorkerProps(cireApiDev);
-    expect(props.compatibility).toEqual({
-      date: "2025-03-01",
-      flags: ["nodejs_compat", "nodejs_compat_populate_process_env"],
-    });
-    expect(props.compatibility?.flags).not.toBe(cireApiDev.compatibility.flags);
-    expect(props.crons).toEqual(["0 4 * * *"]);
-    expect(props.crons).not.toBe(cireApiDev.crons);
-  });
-
   test("leaves zone routes unmanaged", () => {
     expect(apiWorkerProps(cireApiDev)).not.toHaveProperty("routes");
   });

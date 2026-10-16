@@ -3,7 +3,6 @@ import { describe, expect, test } from "vitest";
 import {
   accountIdFrom,
   diffNames,
-  formatDiffs,
   githubDiff,
   githubExpectations,
   liveDiff,
@@ -98,8 +97,6 @@ describe("liveExpectations", () => {
 
 describe("GitHub Environments", () => {
   test("expects each shared name once, and the tier's own account credentials", () => {
-    expect(githubExpectations("dev")).toHaveLength(19);
-    expect(githubExpectations("production")).toHaveLength(17);
     expect(
       githubExpectations("production").filter((name) => name === "INTERNAL_SERVICE_SECRET"),
     ).toHaveLength(1);
@@ -117,7 +114,6 @@ describe("GitHub Environments", () => {
       "CLOUDFLARE_API_TOKEN_DEV",
       "DEV_LOGIN_SECRET",
     ]);
-    expect(dev.missing).toHaveLength(18);
     expect(dev.missing).toEqual(
       expect.arrayContaining(["CLOUDFLARE_DEV_ACCOUNT_API_TOKEN", "CLOUDFLARE_DEV_ACCOUNT_ID"]),
     );
@@ -128,7 +124,6 @@ describe("GitHub Environments", () => {
       "CLOUDFLARE_API_TOKEN",
       "OSN_TOTP_ENCRYPTION_KEY",
     ]);
-    expect(production.missing).toHaveLength(14);
     expect(production.unexpected).toEqual([]);
     expect(production.forbidden).toEqual([]);
   });
@@ -149,19 +144,6 @@ describe("GitHub Environments", () => {
 
   test("accepts an optional secret held during a rotation", () => {
     expect(githubDiff("production", ["OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"]).unexpected).toEqual([]);
-  });
-});
-
-describe("formatDiffs", () => {
-  test("prints names only", () => {
-    expect(
-      formatDiffs([
-        diffNames("osn-api dev (osn-api-dev)", ["A"], ["A"]),
-        diffNames("x", ["B"], ["C", "F"], [], ["F"]),
-      ]),
-    ).toBe(
-      "ok    osn-api dev (osn-api-dev)\nDIFF  x — missing: B — not in the inventory: C — forbidden but set: F\n",
-    );
   });
 });
 

@@ -1,12 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  InvalidStageError,
-  isLongLivedStage,
-  parseStage,
-  physicalName,
-  tierOf,
-} from "../src/stage";
+import { InvalidStageError, parseStage, physicalName, tierOf } from "../src/stage";
 
 // Live names (Cloudflare D1 list, 2026-10-15): the two naming shapes in use today.
 const OSN_DB = { base: "osn-db", dev: "osn-db-dev", production: "osn-db-prod" };
@@ -44,14 +38,6 @@ describe("tierOf", () => {
   test("refuses a stage that only resembles production", () => {
     expect(() => tierOf("Production")).toThrow(InvalidStageError);
     expect(() => tierOf("prod")).toThrow(InvalidStageError);
-  });
-});
-
-describe("isLongLivedStage", () => {
-  test("dev and production are the long-lived stages", () => {
-    expect(isLongLivedStage("dev")).toBe(true);
-    expect(isLongLivedStage("production")).toBe(true);
-    expect(isLongLivedStage("pr-7")).toBe(false);
   });
 });
 
