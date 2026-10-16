@@ -141,9 +141,9 @@ describe("the cire stack, evaluated offline", () => {
 
   test("K6: the dev buckets take production's settings; cire-db-dev takes production's read replication in oc, migrated from the flattened chain", () => {
     const resources = resourcesOf(dev);
-    // Production's cire-assets and cire-sheets, read 2026-10-17: Standard,
-    // default jurisdiction, ENAM, no CORS, no custom domains, r2.dev off, and
-    // one rule aborting incomplete multipart uploads after 7 days.
+    // Production's cire-assets and cire-sheets: Standard, default
+    // jurisdiction, ENAM, no CORS, no custom domains, r2.dev off, and one
+    // rule aborting incomplete multipart uploads after 7 days.
     for (const [logicalId, name] of [
       ["CireAssets", "cire-assets-dev"],
       ["CireSheets", "cire-sheets-dev"],

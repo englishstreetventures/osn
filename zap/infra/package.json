@@ -1,0 +1,30 @@
+{
+  "name": "@zap/infra",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bunx --bun vitest",
+    "test:run": "bunx --bun vitest run",
+    "plan:dev": "DO_NOT_TRACK=1 bun alchemy plan --stage dev",
+    "deploy:dev": "DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "4.0.3",
+    "@effect/platform-node": "4.0.3",
+    "@shared/infra": "workspace:*",
+    "alchemy": "2.0.0-beta.83",
+    "effect": "4.0.3"
+  },
+  "devDependencies": {
+    "@shared/typescript-config": "workspace:*",
+    "vitest": "5.0.3"
+  }
+}

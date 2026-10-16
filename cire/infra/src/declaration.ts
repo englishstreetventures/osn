@@ -88,10 +88,11 @@ const DEV_OBSERVABILITY: ApiWorkerObservability = {
 
 /**
  * Production's one lifecycle rule on `cire-assets` and `cire-sheets`: abort
- * incomplete multipart uploads after 7 days, every prefix. Alchemy's rule
- * type (alchemy src/Cloudflare/R2/Bucket.ts:66-102) sends `id`, `enabled`,
- * `prefix` as `conditions.prefix`, and the transition as it is
- * (`toLifecyclePutPayload`, :1630-1639), which is Cloudflare's own shape.
+ * incomplete multipart uploads after 7 days, every prefix. Alchemy's
+ * `BucketLifecycleRule` (alchemy src/Cloudflare/R2/Bucket.ts) takes `id`,
+ * `enabled` and `prefix`, and its `toLifecyclePutPayload` sends `prefix` as
+ * `conditions.prefix` and the transition as it is, which is Cloudflare's own
+ * shape.
  */
 const ABORT_INCOMPLETE_UPLOADS: NonNullable<Cloudflare.R2.BucketProps["lifecycleRules"]>[number] = {
   id: "Default Multipart Abort Rule",
