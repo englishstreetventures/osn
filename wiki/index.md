@@ -43,6 +43,7 @@ Applies to every product: architecture, platform systems, observability, deploys
 - [[database-environments]] — four DB environments (local bun:sqlite / dev·staging·prod D1), driver-agnostic Drizzle seam, D1 transaction caveat
 - [[dev-environment]] — the isolated cire + OSN dev tier: tier map, how a merge deploys dev, how a change reaches production, how to reset dev by hand
 - [[production-deploy]] — production runbook for osn-api + the cire stack (secret/var checklist, migrations, the daily production release and its one approval, smoke checks)
+- [[infrastructure-as-code]] — Alchemy and `@shared/infra`: the dev and production accounts, the Worker and storage builders, stage rules, the secret inventory and its checks, the state store, and the planned stack per product
 - [[free-tier-limits]] — provider free-tier ceilings (Upstash / Workers / D1 / Pages / Turnstile / WAF), what breaks at each cap, the unavailability playbook, and the Cloudflare security-hardening TODO
 - [[rate-limit-incident]] — false positives, tuning, Redis health
 - [[bun-1.4-migration]] — what Bun 1.4 is worth using here: adopted (`$` shell, `Bun.TOML` guard, bun-types), impossible (`Bun.Image` in the seed), and what is left
