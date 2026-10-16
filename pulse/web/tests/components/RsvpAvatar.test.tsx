@@ -85,11 +85,4 @@ describe("RsvpAvatar", () => {
       expect(wrapper.classList.contains(cls)).toBe(true);
     }
   });
-
-  it("uses the larger size when size='md' is passed", () => {
-    const { container } = render(() => <RsvpAvatar rsvp={baseRsvp} size="md" />);
-    const wrapper = avatarWrapper(container);
-    expect(wrapper.classList.contains("w-10")).toBe(true);
-    expect(wrapper.classList.contains("h-10")).toBe(true);
-  });
 });

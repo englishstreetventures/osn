@@ -31,13 +31,6 @@ describe("DemoRsvp", () => {
     vi.stubGlobal("fetch", vi.fn());
   });
 
-  it("renders the demo invitation with both events", () => {
-    const { getByText } = render(() => <DemoRsvp />);
-    expect(getByText("Amara & Sam")).toBeTruthy();
-    expect(getByText("The Ceremony")).toBeTruthy();
-    expect(getByText("The Reception")).toBeTruthy();
-  });
-
   it("opens an interactive RSVP modal that announces it won't be saved", async () => {
     const { getAllByText, getByText, getByRole } = render(() => <DemoRsvp />);
 

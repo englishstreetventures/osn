@@ -53,12 +53,6 @@ describe("getConnectionIds", () => {
     expect(result.has("usr_carol")).toBe(true);
   });
 
-  it("returns an empty Set when the API returns an empty list", async () => {
-    mockFetch({ connectionIds: [] });
-    const result = await Effect.runPromise(getConnectionIds("usr_alice"));
-    expect(result.size).toBe(0);
-  });
-
   it("calls the correct endpoint with profileId and limit encoded", async () => {
     const spy = mockFetch({ connectionIds: [] });
     await Effect.runPromise(getConnectionIds("usr_alice"));

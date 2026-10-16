@@ -85,7 +85,6 @@ vi.mock("../../src/lib/authClients", () => ({
 
 import { AuthorizeSignIn } from "../../src/components/AuthorizeSignIn";
 import { Sidebar } from "../../src/components/Sidebar";
-import { TURNSTILE_SITEKEY } from "../../src/lib/auth";
 
 /** A signed-out AuthContext — the state in which the auth dialogs render. */
 function signedOutAuth() {
@@ -127,10 +126,6 @@ afterAll(() => {
 });
 
 describe("TURNSTILE_SITEKEY", () => {
-  it("exposes the configured sitekey", () => {
-    expect(TURNSTILE_SITEKEY).toBe(SITEKEY);
-  });
-
   it.each([
     ["", "unset variable"],
     ["   ", "whitespace-only variable"],

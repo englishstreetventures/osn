@@ -1,8 +1,4 @@
-import {
-  createRateLimiter,
-  type RateLimiterBackend,
-  type WorkersRateLimitBinding,
-} from "@shared/rate-limit";
+import { createRateLimiter, type WorkersRateLimitBinding } from "@shared/rate-limit";
 import { describe, it, expect } from "vitest";
 
 import {
@@ -75,9 +71,6 @@ function fallbackBundle(): AuthRateLimiters {
     ).map((k) => [k, rl()]),
   ) as unknown as AuthRateLimiters;
 }
-
-/** An always-allowing native binding stub. */
-const mkBinding = (): WorkersRateLimitBinding => ({ limit: async () => ({ success: true }) });
 
 /** A stub native binding that records every key it was asked to limit. */
 function recordingBinding(success = true): {
@@ -206,19 +199,5 @@ describe("selectAuthRateLimiters — limiter routing", () => {
     };
     const selected = selectAuthRateLimiters(bindings, fallbackBundle());
     expect(await selected.registerBegin.check("1.2.3.4")).toBe(false);
-  });
-
-  it("every selected slot still satisfies the RateLimiterBackend contract", () => {
-    const bindings = {
-      RL_AUTH_IP_5_60: mkBinding(),
-      RL_AUTH_IP_10_60: mkBinding(),
-      RL_AUTH_IP_20_60: mkBinding(),
-      RL_AUTH_IP_30_60: mkBinding(),
-      RL_AUTH_IP_60_60: mkBinding(),
-    };
-    const selected = selectAuthRateLimiters(bindings, fallbackBundle());
-    for (const [, backend] of Object.entries(selected)) {
-      expect(typeof (backend as RateLimiterBackend).check).toBe("function");
-    }
   });
 });

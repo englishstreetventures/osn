@@ -70,51 +70,6 @@ describe("_headers", () => {
     expect(csp).toContain("report-to csp-endpoint");
   });
 
-  it("allowlists cire-api and nothing else for fetches", () => {
-    expect(csp).toContain("default-src 'self'");
-    expect(csp).toContain("connect-src 'self' https://api.cireweddings.com;");
-    // Sign-in redirects through cire/api's OIDC leg and account management
-    // links out to musubi — both navigations, neither a `connect-src` subject.
-    expect(csp).not.toContain("musubi.social");
-  });
-
-  it("allowlists no font or stylesheet origin — both faces are self-hosted", () => {
-    // `astro.config.mjs` downloads Schibsted Grotesk and Cormorant Garamond at
-    // build time via `fontProviders.google()`, so nothing links or fetches
-    // Google's origins any more. Re-adding a `<link>` to a page shell without
-    // re-adding the origin here would break the face under enforcement; this is
-    // what makes that a failing test rather than a silent fallback to Georgia.
-    expect(csp).toContain("style-src 'self' 'unsafe-inline'");
-    expect(csp).toContain("font-src 'self'");
-    expect(csp).not.toContain("fonts.googleapis.com");
-    expect(csp).not.toContain("fonts.gstatic.com");
-  });
-
-  it("keeps the inline theme-boot script running", () => {
-    // `THEME_BOOT_SCRIPT` is `is:inline` on all three shells so it resolves the
-    // theme before first paint. An inline script cannot be an external hashed
-    // file, so this source is load-bearing, not incidental.
-    expect(csp).toContain("script-src 'self' 'unsafe-inline'");
-    expect(csp).not.toContain("'unsafe-eval'");
-  });
-
-  it("denies framing, embedding and workers", () => {
-    for (const directive of [
-      "frame-ancestors 'none'",
-      "object-src 'none'",
-      "frame-src 'none'",
-      "worker-src 'none'",
-      "base-uri 'self'",
-      "form-action 'self'",
-    ]) {
-      expect(csp).toContain(directive);
-    }
-  });
-
-  it("allows images from cire-api and inline data URIs only", () => {
-    expect(csp).toContain("img-src 'self' data: https://api.cireweddings.com;");
-  });
-
   it("is the production policy: no other tier's API, no loopback", () => {
     // The build rewrites the production origin for each tier
     // (`src/lib/tier-headers.ts`), so a dev or local origin written here would

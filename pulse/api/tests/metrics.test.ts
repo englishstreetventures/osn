@@ -20,16 +20,4 @@ describe("PULSE_METRICS naming", () => {
     const values = Object.values(PULSE_METRICS);
     expect(new Set(values).size).toBe(values.length);
   });
-
-  it("covers the full Pulse domain surface (events + rsvps + comms + calendar + access + settings)", () => {
-    // Sanity check that we haven't accidentally dropped any of the
-    // domain groups when refactoring. Each group must contribute at
-    // least one metric.
-    const names = Object.values(PULSE_METRICS).join("\n");
-    expect(names).toMatch(/pulse\.events\./);
-    expect(names).toMatch(/pulse\.rsvps\./);
-    expect(names).toMatch(/pulse\.comms\./);
-    expect(names).toMatch(/pulse\.calendar\./);
-    expect(names).toMatch(/pulse\.settings\./);
-  });
 });

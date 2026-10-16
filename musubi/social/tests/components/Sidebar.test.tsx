@@ -95,32 +95,6 @@ afterEach(() => {
 });
 
 describe("<Sidebar /> — authenticated avatar menu", () => {
-  it("renders the avatar dropdown trigger without throwing", () => {
-    // Sanity-mount the authenticated sidebar end-to-end (AuthContext +
-    // MemoryRouter + Kobalte dropdown). Validates that the auth
-    // integration and nav scaffolding don't regress at render time. The
-    // full open-and-click interaction is not asserted here — Kobalte's
-    // trigger relies on pointer-capture semantics that happy-dom does
-    // not reproduce faithfully.
-    const result = renderSidebar();
-    // Two collapsed-popover buttons now exist (theme toggle + avatar menu);
-    // pick the avatar trigger by its profile-name content.
-    const trigger = result
-      .getAllByRole("button", { expanded: false })
-      .find((b) => b.textContent?.includes("Alice"));
-    expect(trigger).toBeDefined();
-    // The active profile's display name is rendered inside the trigger.
-    expect(trigger?.textContent).toContain("Alice");
-  });
-
-  it("renders the four primary nav links", () => {
-    const result = renderSidebar();
-    expect(result.getByText("Connections")).toBeDefined();
-    expect(result.getByText("Discover")).toBeDefined();
-    expect(result.getByText("Organisations")).toBeDefined();
-    expect(result.getByText("Settings")).toBeDefined();
-  });
-
   it("carries the shell search field, and no redundant Search nav link", () => {
     const result = renderSidebar();
     expect(result.getByRole("combobox")).toBeDefined();

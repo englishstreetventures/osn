@@ -374,10 +374,6 @@ describe("createAuthorizeClient", () => {
       }
     });
 
-    it("exposes the default deadline as a constant", () => {
-      expect(DEFAULT_AUTHORIZE_TIMEOUT_MS).toBe(10_000);
-    });
-
     // Aborting a fetch does not un-send it. `submitDecision` consumes the
     // parked request, writes the consent row and mints the code, so a
     // client-side deadline that fires mid-commit would surface a RETRYABLE

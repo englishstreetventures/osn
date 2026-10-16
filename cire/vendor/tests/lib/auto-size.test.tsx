@@ -204,11 +204,6 @@ describe("createAutoSize", () => {
     expect(size.height()).toBe(120);
   });
 
-  it("reports the measured height", () => {
-    const { size } = mount(96);
-    expect(size.height()).toBe(96);
-  });
-
   it("stops observing when the component goes away", () => {
     mount(120);
     cleanup();

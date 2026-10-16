@@ -18,10 +18,6 @@ describe("buildSrcSet (T-M1)", () => {
     const srcset = buildSrcSet("/img", ["thumb", "card"]);
     expect(srcset).toBe("/img?variant=thumb 320w, /img?variant=card 800w");
   });
-
-  it("emits the correct width descriptor for each named variant", () => {
-    expect(buildSrcSet("/x?v=1", ["hero"])).toBe("/x?v=1&variant=hero 1600w");
-  });
 });
 
 describe("variantSrc", () => {

@@ -211,24 +211,6 @@ describe("completeOnboarding", () => {
     mockMeOnboardingCompletePost.mockReset();
   });
 
-  it("returns the status payload on success", async () => {
-    const completedAt = new Date().toISOString();
-    mockMeOnboardingCompletePost.mockResolvedValueOnce({
-      data: {
-        completedAt,
-        interests: ["music"],
-        notificationsOptIn: true,
-        eventRemindersOptIn: false,
-        notificationsPerm: "granted",
-        locationPerm: "granted",
-      },
-      error: null,
-    });
-    const status = await completeOnboarding({ ...validPayload });
-    expect(status.completedAt).toBe(completedAt);
-    expect(status.interests).toEqual(["music"]);
-  });
-
   it("throws with the stringified server error when error.value is present", async () => {
     mockMeOnboardingCompletePost.mockResolvedValueOnce({
       data: null,

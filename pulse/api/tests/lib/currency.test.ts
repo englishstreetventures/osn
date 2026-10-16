@@ -3,7 +3,6 @@ import { describe, it, expect } from "vitest";
 import {
   MAX_PRICE_MAJOR,
   MAX_PRICE_MINOR,
-  SUPPORTED_CURRENCIES,
   currencyExponent,
   fromMinorUnits,
   isSupportedCurrency,
@@ -13,10 +12,6 @@ import {
 describe("toMinorUnits", () => {
   it("converts USD decimals to cents (integer)", () => {
     expect(toMinorUnits(18.5, "USD")).toBe(1850);
-  });
-
-  it("converts USD whole numbers to cents", () => {
-    expect(toMinorUnits(10, "USD")).toBe(1000);
   });
 
   it("treats JPY as zero-exponent (major === minor)", () => {
@@ -69,12 +64,6 @@ describe("currencyExponent", () => {
 });
 
 describe("isSupportedCurrency", () => {
-  it("accepts every code in SUPPORTED_CURRENCIES", () => {
-    for (const c of SUPPORTED_CURRENCIES) {
-      expect(isSupportedCurrency(c)).toBe(true);
-    }
-  });
-
   it("is case-sensitive (lowercase rejected)", () => {
     expect(isSupportedCurrency("usd")).toBe(false);
   });
@@ -92,10 +81,6 @@ describe("isSupportedCurrency", () => {
 });
 
 describe("price caps", () => {
-  it("MAX_PRICE_MAJOR × 100 === MAX_PRICE_MINOR (USD assumption)", () => {
-    expect(MAX_PRICE_MAJOR * 100).toBe(MAX_PRICE_MINOR);
-  });
-
   it("cap converted via toMinorUnits stays within MAX_PRICE_MINOR", () => {
     expect(toMinorUnits(MAX_PRICE_MAJOR, "USD")).toBe(MAX_PRICE_MINOR);
   });

@@ -62,15 +62,6 @@ afterEach(() => {
 });
 
 describe("EnquiryThread", () => {
-  it("renders the non-E2E notice text", () => {
-    render(() => <EnquiryThread {...base} />);
-    expect(
-      screen.getByText(
-        /Enquiries aren't end-to-end encrypted\. cire can read these messages to keep the marketplace safe/i,
-      ),
-    ).toBeInTheDocument();
-  });
-
   it("renders mine vs theirs bubbles with correct data-mine attribute", () => {
     render(() => <EnquiryThread {...base} />);
     const mineBubble = screen.getByText("Hello vendor").closest("[data-mine]");
@@ -127,13 +118,6 @@ describe("EnquiryThread", () => {
   it("shows an error block when error is set", () => {
     render(() => <EnquiryThread {...base} messages={[]} error="Something went wrong" />);
     expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
-  });
-
-  it("calls onBack when the back button is clicked", () => {
-    const onBack = vi.fn();
-    render(() => <EnquiryThread {...base} onBack={onBack} />);
-    fireEvent.click(screen.getByRole("button", { name: /back/i }));
-    expect(onBack).toHaveBeenCalledTimes(1);
   });
 
   it("send button is disabled when draft is empty", () => {

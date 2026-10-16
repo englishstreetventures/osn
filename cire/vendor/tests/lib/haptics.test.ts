@@ -49,12 +49,6 @@ describe("haptic", () => {
     expect(vibrate).not.toHaveBeenCalled();
   });
 
-  it("fires when the host has them on", async () => {
-    const { haptic } = await load();
-    haptic("commit");
-    expect(vibrate).toHaveBeenCalledTimes(1);
-  });
-
   it("gives each name its own pattern", async () => {
     const { haptic } = await load();
     const patterns = new Map<string, unknown>();

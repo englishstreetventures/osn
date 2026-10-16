@@ -13,12 +13,6 @@ describe("renderTemplate", () => {
     expect(out.html.startsWith("<!doctype html>")).toBe(true);
   });
 
-  it("renders step-up OTP with bounded framing", () => {
-    const out = renderTemplate("otp-step-up", { code: "123456", ttlMinutes: 5 });
-    expect(out.subject).toBe("Confirm a sensitive action");
-    expect(out.text).toContain("123456");
-  });
-
   it("renders email-change OTP with S-L5 somebody-asked framing", () => {
     const out = renderTemplate("otp-email-change", { code: "987654", ttlMinutes: 10 });
     expect(out.subject).toBe("Confirm your new OSN email");
@@ -53,17 +47,6 @@ describe("renderTemplate", () => {
     });
     expect(out.html).not.toContain("<script>");
     expect(out.html).toContain("&lt;script&gt;");
-  });
-
-  it("renders boundary TTL values without crashing", () => {
-    const zero = renderTemplate("otp-registration", { code: "000000", ttlMinutes: 0 });
-    expect(zero.text).toContain("0 minutes");
-
-    const fractional = renderTemplate("otp-step-up", { code: "000000", ttlMinutes: 0.5 });
-    expect(fractional.text).toContain("0.5 minutes");
-
-    const large = renderTemplate("otp-email-change", { code: "000000", ttlMinutes: 1440 });
-    expect(large.text).toContain("1440 minutes");
   });
 
   /**

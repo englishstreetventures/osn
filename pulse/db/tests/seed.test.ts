@@ -19,20 +19,6 @@ function createTestDb() {
 }
 
 describe("buildSeedEvents", () => {
-  it("returns 15 events", () => {
-    const rows = buildSeedEvents(new Date());
-    expect(rows).toHaveLength(15);
-  });
-
-  it("status distribution: 2 finished, 4 ongoing, 9 upcoming", () => {
-    const rows = buildSeedEvents(new Date());
-    const counts = { finished: 0, ongoing: 0, upcoming: 0, cancelled: 0 };
-    for (const r of rows) counts[r.status as keyof typeof counts]++;
-    expect(counts.finished).toBe(2);
-    expect(counts.ongoing).toBe(4);
-    expect(counts.upcoming).toBe(9);
-  });
-
   it("finished events: startTime and endTime are both in the past", () => {
     const now = new Date();
     const finished = buildSeedEvents(now).filter((r) => r.status === "finished");
@@ -58,45 +44,6 @@ describe("buildSeedEvents", () => {
       expect(r.startTime.getTime()).toBeGreaterThan(now.getTime());
     }
   });
-
-  it("all events have stable evt_seed_* IDs", () => {
-    const rows = buildSeedEvents(new Date());
-    for (const r of rows) {
-      expect(r.id).toMatch(/^evt_seed_/);
-    }
-  });
-
-  it("all events have latitude and longitude", () => {
-    const rows = buildSeedEvents(new Date());
-    for (const r of rows) {
-      expect(typeof r.latitude).toBe("number");
-      expect(typeof r.longitude).toBe("number");
-    }
-  });
-
-  it("all events have a category", () => {
-    const rows = buildSeedEvents(new Date());
-    const categories = rows.map((r) => r.category);
-    expect(categories.every(Boolean)).toBe(true);
-    // Covers the full spread of categories used for preference/discovery testing
-    expect(new Set(categories).size).toBeGreaterThanOrEqual(7);
-  });
-
-  it("all events have a createdByProfileId and createdByName", () => {
-    const rows = buildSeedEvents(new Date());
-    for (const r of rows) {
-      expect(typeof r.createdByProfileId).toBe("string");
-      expect(typeof r.createdByName).toBe("string");
-    }
-  });
-
-  it("seed user IDs use stable usr_seed_* prefix", () => {
-    const rows = buildSeedEvents(new Date());
-    const ids = rows.map((r) => r.createdByProfileId).filter(Boolean);
-    for (const id of ids) {
-      expect(id).toMatch(/^usr_seed_/);
-    }
-  });
 });
 
 describe("seed idempotency", () => {
@@ -111,16 +58,6 @@ describe("seed idempotency", () => {
     const rows = await db.select().from(schema.events);
     expect(rows).toHaveLength(15);
   });
-
-  it("second insert does not throw", async () => {
-    const db = createTestDb();
-    const seedData = buildSeedEvents(new Date());
-
-    await db.insert(schema.events).values(seedData).onConflictDoNothing();
-    await expect(
-      db.insert(schema.events).values(seedData).onConflictDoNothing(),
-    ).resolves.not.toThrow();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -128,17 +65,6 @@ describe("seed idempotency", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildSeedRsvps", () => {
-  it("returns 85 RSVPs (73 one-off + 12 series-instance)", () => {
-    const rsvps = buildSeedRsvps();
-    expect(rsvps).toHaveLength(85);
-  });
-
-  it("all IDs use rsvp_seed_ prefix", () => {
-    for (const r of buildSeedRsvps()) {
-      expect(r.id).toMatch(/^rsvp_seed_/);
-    }
-  });
-
   it("all eventIds reference a valid one-off event or series instance", () => {
     const now = new Date();
     const eventIds = new Set([
@@ -150,12 +76,6 @@ describe("buildSeedRsvps", () => {
     }
   });
 
-  it("all profileIds use usr_seed_ prefix", () => {
-    for (const r of buildSeedRsvps()) {
-      expect(r.profileId).toMatch(/^usr_seed_/);
-    }
-  });
-
   it("no duplicate (eventId, profileId) pairs", () => {
     const pairs = new Set<string>();
     for (const r of buildSeedRsvps()) {
@@ -163,18 +83,6 @@ describe("buildSeedRsvps", () => {
       expect(pairs.has(pair)).toBe(false);
       pairs.add(pair);
     }
-  });
-
-  it("status values are only 'going' or 'maybe'", () => {
-    for (const r of buildSeedRsvps()) {
-      expect(["going", "maybe"]).toContain(r.status);
-    }
-  });
-
-  it("has both going and maybe statuses", () => {
-    const rsvps = buildSeedRsvps();
-    expect(rsvps.some((r) => r.status === "going")).toBe(true);
-    expect(rsvps.some((r) => r.status === "maybe")).toBe(true);
   });
 });
 
@@ -199,42 +107,13 @@ describe("RSVP seed idempotency", () => {
 // buildSeedSeries + buildSeedSeriesInstances
 // ---------------------------------------------------------------------------
 
-describe("buildSeedSeries", () => {
-  it("returns 2 series with srs_seed_* ids", () => {
-    const series = buildSeedSeries(new Date());
-    expect(series).toHaveLength(2);
-    for (const s of series) expect(s.id).toMatch(/^srs_seed_/);
-  });
-
-  it("each series has a valid rrule and timezone", () => {
-    for (const s of buildSeedSeries(new Date())) {
-      expect(s.rrule.length).toBeGreaterThan(0);
-      expect((s.timezone ?? "").length).toBeGreaterThan(0);
-    }
-  });
-});
-
 describe("buildSeedSeriesInstances", () => {
-  it("produces 14 instances (8 yoga + 6 book club)", () => {
-    expect(buildSeedSeriesInstances(new Date())).toHaveLength(14);
-  });
-
   it("every instance has seriesId matching a seed series", () => {
     const now = new Date();
     const seriesIds = new Set(buildSeedSeries(now).map((s) => s.id));
     for (const i of buildSeedSeriesInstances(now)) {
       expect(seriesIds.has(i.seriesId!)).toBe(true);
     }
-  });
-
-  it("includes at least one overridden instance", () => {
-    const overridden = buildSeedSeriesInstances(new Date()).filter((i) => i.instanceOverride);
-    expect(overridden.length).toBeGreaterThan(0);
-  });
-
-  it("includes at least one cancelled instance", () => {
-    const cancelled = buildSeedSeriesInstances(new Date()).filter((i) => i.status === "cancelled");
-    expect(cancelled.length).toBeGreaterThan(0);
   });
 });
 

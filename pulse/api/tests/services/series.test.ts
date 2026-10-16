@@ -1,5 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import { events, eventSeries, type EventSeries } from "@pulse/db/schema";
+import { events, eventSeries } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -371,25 +371,6 @@ it.effect("patching a series instance flips instanceOverride=true", () =>
 // ---------------------------------------------------------------------------
 // Metadata smoke: series row is reachable and carries timezone + rrule
 // ---------------------------------------------------------------------------
-
-it.effect("getSeries returns metadata with rrule and timezone", () =>
-  provide(
-    Effect.gen(function* () {
-      const { series } = yield* createSeries(
-        {
-          title: "W",
-          rrule: "FREQ=WEEKLY;COUNT=2",
-          dtstart: futureIso(2),
-          timezone: "America/New_York",
-        },
-        ALICE,
-      );
-      const row: EventSeries = yield* getSeries(series.id);
-      expect(row.rrule).toBe("FREQ=WEEKLY;COUNT=2");
-      expect(row.timezone).toBe("America/New_York");
-    }),
-  ),
-);
 
 // Silence unused warning for eventSeries import (kept for type side-effect symmetry)
 void eventSeries;

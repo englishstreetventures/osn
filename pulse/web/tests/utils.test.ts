@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 
 import {
-  formatTime,
   toDatetimeLocal,
   composeLabel,
   isEndBeforeOrAtStart,
@@ -13,22 +12,6 @@ import {
 } from "../src/lib/utils";
 
 describe("toDatetimeLocal", () => {
-  it("leaves an already-rounded time unchanged (Math.ceil is idempotent at boundaries)", () => {
-    // Exactly on a minute boundary → Math.ceil keeps the same minute
-    const exact = new Date("2030-06-01T10:00:00.000Z");
-    const result = toDatetimeLocal(exact);
-    // Output must still be in YYYY-MM-DDTHH:mm format
-    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
-  });
-
-  it("rounds a non-rounded time up to the next full minute", () => {
-    // 10:00:30 → should become 10:01
-    const halfMinute = new Date("2030-06-01T10:00:30.000Z");
-    const result = toDatetimeLocal(halfMinute);
-    // Output must be in YYYY-MM-DDTHH:mm format
-    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
-  });
-
   it("output matches YYYY-MM-DDTHH:mm format", () => {
     const d = new Date("2030-06-15T14:37:00.000Z");
     expect(toDatetimeLocal(d)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
@@ -148,20 +131,6 @@ describe("safeAvatarUrl", () => {
   });
 });
 
-describe("formatTime", () => {
-  it("returns a non-empty string for a valid ISO date string", () => {
-    const result = formatTime("2030-06-01T10:00:00.000Z");
-    expect(typeof result).toBe("string");
-    expect(result.length).toBeGreaterThan(0);
-  });
-
-  it("returns a non-empty string for a Date object", () => {
-    const result = formatTime(new Date("2030-06-01T10:00:00.000Z"));
-    expect(typeof result).toBe("string");
-    expect(result.length).toBeGreaterThan(0);
-  });
-});
-
 describe("deriveEndFromDuration", () => {
   it("returns an empty string when start is empty", () => {
     expect(deriveEndFromDuration("", 2)).toBe("");
@@ -175,9 +144,5 @@ describe("deriveEndFromDuration", () => {
     const start = "2030-06-01T10:00";
     const expected = toDatetimeLocal(new Date(new Date(start).getTime() + 2 * 60 * 60 * 1000));
     expect(deriveEndFromDuration(start, 2)).toBe(expected);
-  });
-
-  it("matches YYYY-MM-DDTHH:mm format", () => {
-    expect(deriveEndFromDuration("2030-06-01T10:00", 4)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
   });
 });

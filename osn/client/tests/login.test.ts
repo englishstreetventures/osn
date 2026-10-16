@@ -82,10 +82,4 @@ describe("createLoginClient", () => {
       expect("refreshToken" in result.session).toBe(false);
     });
   });
-
-  describe("surface", () => {
-    it("only exposes passkey login methods", () => {
-      expect(new Set(Object.keys(client))).toEqual(new Set(["passkeyBegin", "passkeyComplete"]));
-    });
-  });
 });

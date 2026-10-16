@@ -575,25 +575,6 @@ describe("Register component", () => {
     });
   });
 
-  describe("product name", () => {
-    it("heads the dialog with the product it was given", () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />);
-      expect(screen.getByRole("heading", { name: "Create your Kumiho account" })).toBeTruthy();
-    });
-
-    it("names the product in the age gate and the WebAuthn fallback", () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />);
-      fillEmail("alice@example.com");
-      fillBirthdate("2020-01-01");
-      expect(screen.getByText("Kumiho is for users 13 and older")).toBeTruthy();
-
-      cleanup();
-      hoisted.webauthnSupported = false;
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />);
-      expect(screen.getByText(/Creating an account on Kumiho needs a passkey/)).toBeTruthy();
-    });
-  });
-
   describe("WebAuthn-unsupported environment", () => {
     it("blocks the flow at the start with an informational screen", async () => {
       hoisted.webauthnSupported = false;

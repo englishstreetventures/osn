@@ -37,23 +37,4 @@ describe("DemoModal", () => {
     expect(classes).toContain("absolute");
     expect(classes).toContain("z-10");
   });
-
-  it("keeps the close chip a child of the panel", () => {
-    // It is pinned to the panel's corner, so it has to be positioned against
-    // the panel rather than against anything the caller renders inside.
-    const { getByRole, getByLabelText } = mount();
-    const panel = getByRole("dialog", { hidden: true });
-    expect(panel.contains(getByLabelText("Close"))).toBe(true);
-  });
-
-  it("names the dialog through its caller's title", () => {
-    const { getByRole } = render(() => (
-      <DemoModal open={true} onClose={() => {}} labelledBy="demo-title">
-        <h2 id="demo-title">Respond</h2>
-      </DemoModal>
-    ));
-    expect(getByRole("dialog", { hidden: true }).getAttribute("aria-labelledby")).toBe(
-      "demo-title",
-    );
-  });
 });

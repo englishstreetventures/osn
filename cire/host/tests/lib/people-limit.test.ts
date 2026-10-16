@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   atPeopleLimit,
-  peopleCountLabel,
   peopleLimitMessage,
   readPeopleLimit,
   upgradeTierFor,
@@ -60,13 +59,6 @@ describe("upgradeTierFor", () => {
 
   it("offers nothing while the wedding has room", () => {
     expect(upgradeTierFor({ used: 2, limit: 15, tier: "gold" })).toBeNull();
-  });
-});
-
-describe("peopleCountLabel", () => {
-  it("reads as a count against the limit", () => {
-    expect(peopleCountLabel({ used: 4, limit: 6, tier: "ivory" })).toBe("4 of 6 people");
-    expect(peopleCountLabel({ used: 1, limit: 15, tier: "gold" })).toBe("1 of 15 people");
   });
 });
 

@@ -1,4 +1,4 @@
-import { render, cleanup, fireEvent, screen } from "@solidjs/testing-library";
+import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
@@ -43,25 +43,6 @@ describe("DetailsPanel", () => {
     expect(getByText(/Friday\s+18 September 2026/)).toBeTruthy();
     // Time range rendered in the event's own timezone (4pm–10pm Sydney).
     expect(getByText(/4:00\s*pm\s*–\s*10:00\s*pm/i)).toBeTruthy();
-  });
-
-  it("hosts the Add to Calendar control inside the details view", () => {
-    const { getByRole } = renderPanel(baseEvent);
-    const button = getByRole("button", { name: /add to calendar/i });
-    expect(button).toBeTruthy();
-
-    fireEvent.click(button);
-    // Opening it surfaces the calendar destinations (portalled to body).
-    expect(screen.getByText("Google Calendar")).toBeTruthy();
-    expect(screen.getByText("Apple / Outlook (.ics)")).toBeTruthy();
-  });
-
-  it("renders a map preview that opens the venue in maps", () => {
-    const { getByLabelText } = renderPanel(baseEvent);
-    const link = getByLabelText(/open .* in maps/i) as HTMLAnchorElement;
-    expect(link.href).toContain("https://www.google.com/maps/search/");
-    expect(link.href).toContain(encodeURIComponent("12 Banksia Lane, Strathfield"));
-    expect(link.target).toBe("_blank");
   });
 
   it("renders the description in an About section", () => {

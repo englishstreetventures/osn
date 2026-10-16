@@ -31,21 +31,4 @@ describe("initRedisClientFromEnv", () => {
     });
     expect(await client.ping()).toBe("PONG");
   });
-
-  it("constructs an Upstash-backed client when both bindings are present", () => {
-    // Upstash's constructor validates the URL/token shape but performs no I/O,
-    // so this exercises the selector branch without a network round-trip.
-    const client = initRedisClientFromEnv({
-      UPSTASH_REDIS_REST_URL: "https://example.upstash.io",
-      UPSTASH_REDIS_REST_TOKEN: "tok",
-    });
-    expect(typeof client.eval).toBe("function");
-    expect(typeof client.get).toBe("function");
-    expect(typeof client.set).toBe("function");
-    expect(typeof client.del).toBe("function");
-    expect(typeof client.ping).toBe("function");
-    expect(typeof client.quit).toBe("function");
-    // quit is a no-op for the stateless REST transport.
-    return expect(client.quit()).resolves.toBeUndefined();
-  });
 });

@@ -3,20 +3,6 @@ import { describe, expect, it } from "vitest";
 import { coerceShareSource, isShareSource, withShareSource } from "../../src/lib/shareSource";
 
 describe("isShareSource", () => {
-  it("accepts every canonical source", () => {
-    for (const source of [
-      "instagram",
-      "facebook",
-      "tiktok",
-      "x",
-      "whatsapp",
-      "copy_link",
-      "other",
-    ]) {
-      expect(isShareSource(source)).toBe(true);
-    }
-  });
-
   it("rejects unknown values", () => {
     expect(isShareSource("myspace")).toBe(false);
     expect(isShareSource("")).toBe(false);

@@ -33,40 +33,4 @@ describe("WT-S-L1 colour-validator identity", () => {
     // that write-side and render-side may diverge.
     expect(renderSideValidator).toBe(isSafeCssColor);
   });
-
-  it("render-side and write-side agree on every accepted colour (behavioural cross-check)", () => {
-    const accepted = [
-      "#fff",
-      "#aabbccff",
-      "#ffffff",
-      "#ffffffff",
-      "rgb(255, 0, 0)",
-      "rgba(255, 0, 0, 0.5)",
-      "hsl(120, 100%, 50%)",
-      "oklch(74.99% 0.0854 82.08)",
-      "oklch(22.7% 0.0275 152.78)",
-    ];
-    for (const color of accepted) {
-      expect(renderSideValidator(color), `render-side must accept ${color}`).toBe(true);
-      expect(isSafeCssColor(color), `write-side must accept ${color}`).toBe(true);
-    }
-  });
-
-  it("render-side and write-side agree on every rejected colour (no split allows/blocks)", () => {
-    const rejected = [
-      "red",
-      "rebeccapurple",
-      "var(--colour)",
-      "expression(alert(1))",
-      "url(https://evil.example/x.png)",
-      "",
-      "   ",
-    ];
-    for (const color of rejected) {
-      expect(renderSideValidator(color), `render-side must reject ${JSON.stringify(color)}`).toBe(
-        false,
-      );
-      expect(isSafeCssColor(color), `write-side must reject ${JSON.stringify(color)}`).toBe(false);
-    }
-  });
 });

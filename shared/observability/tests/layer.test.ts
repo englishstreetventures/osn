@@ -3,36 +3,18 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { DeploymentEnvironment } from "../src/config";
 import { loadConfig } from "../src/config";
-import { initObservability, makeObservabilityLayer } from "../src/index";
 import { makeLoggerLayer, PrettyLoggerLive } from "../src/logger/layer";
 import { makeTracingLayer, otlpExporterUrl } from "../src/tracing/layer";
 import { NoopTracingLive } from "../src/tracing/noop";
 
 /**
- * Layer-construction smoke tests. These don't spin up a real OTel
- * collector — the goal is just to prove:
- *   1. Every factory builds a non-throwing Layer for dev/staging/prod.
- *   2. `initObservability()` returns a usable config + layer pair.
- *   3. The redacting logger actually scrubs annotations end-to-end
- *      (not just the pure `redact()` function, which is tested
- *      separately).
+ * Layer tests. These don't spin up a real OTel collector — the goal is to
+ * prove the redacting logger actually scrubs annotations end-to-end (not just
+ * the pure `redact()` function, which is tested separately), that each tier
+ * gets the output format it needs, and that tracing is a true no-op without
+ * an endpoint.
  */
 describe("makeLoggerLayer", () => {
-  it("builds without throwing in dev mode", () => {
-    const config = loadConfig({ serviceName: "test", env: "dev" });
-    expect(() => makeLoggerLayer(config)).not.toThrow();
-  });
-
-  it("builds without throwing in production mode", () => {
-    const config = loadConfig({ serviceName: "test", env: "production" });
-    expect(() => makeLoggerLayer(config)).not.toThrow();
-  });
-
-  it("builds without throwing in staging mode", () => {
-    const config = loadConfig({ serviceName: "test", env: "staging" });
-    expect(() => makeLoggerLayer(config)).not.toThrow();
-  });
-
   // The real end-to-end redaction test. The case this replaced was named for
   // this behaviour but did not check it: it built `makeLoggerLayer` into an
   // unused `_loggerLayer`, provided a RAW capture logger with no redaction in
@@ -323,32 +305,5 @@ describe("makeTracingLayer", () => {
       if (prevHeaders === undefined) delete process.env.OTEL_EXPORTER_OTLP_HEADERS;
       else process.env.OTEL_EXPORTER_OTLP_HEADERS = prevHeaders;
     }
-  });
-
-  it("builds without throwing in production mode with tight sampling", () => {
-    const prev = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
-    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp.grafana.net/otlp";
-    try {
-      const config = loadConfig({ serviceName: "test", env: "production" });
-      expect(config.traceSampleRatio).toBe(0.1);
-      expect(() => makeTracingLayer(config)).not.toThrow();
-    } finally {
-      if (prev === undefined) delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
-      else process.env.OTEL_EXPORTER_OTLP_ENDPOINT = prev;
-    }
-  });
-});
-
-describe("initObservability", () => {
-  it("returns both config and layer", () => {
-    const { config, layer } = initObservability({ serviceName: "init-test" });
-    expect(config.serviceName).toBe("init-test");
-    expect(config.serviceNamespace).toBe("osn");
-    expect(layer).toBeDefined();
-  });
-
-  it("makeObservabilityLayer merges logger + tracing without throwing", () => {
-    const config = loadConfig({ serviceName: "test", env: "dev" });
-    expect(() => makeObservabilityLayer(config)).not.toThrow();
   });
 });

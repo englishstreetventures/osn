@@ -72,18 +72,6 @@ it.effect("addCloseFriend is idempotent — duplicate add leaves a single row", 
   }).pipe(Effect.provide(createTestLayer())),
 );
 
-it.effect("addCloseFriend ids carry the pcf_ prefix", () =>
-  Effect.gen(function* () {
-    vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set(["usr_bob"])));
-    yield* addCloseFriend("usr_alice", "usr_bob");
-    // Indirectly observe via the underlying row through listCloseFriendIds — we
-    // can't see the id here, but isCloseFriendOf+remove path proves the row
-    // exists with a valid id.
-    const exists = yield* isCloseFriendOf("usr_alice", "usr_bob");
-    expect(exists).toBe(true);
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
 // ---------------------------------------------------------------------------
 // removeCloseFriend
 // ---------------------------------------------------------------------------

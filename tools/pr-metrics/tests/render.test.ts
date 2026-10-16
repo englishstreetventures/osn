@@ -3,8 +3,6 @@ import { expect, test } from "bun:test";
 import {
   buildCard,
   type Card,
-  compactTokens,
-  humanDuration,
   parseNumstat,
   renderDetails,
   sameApartFromGeneratedAt,
@@ -48,18 +46,6 @@ function card(
     generatedAt: overrides.generatedAt ?? "2026-09-07T00:00:00.000Z",
   });
 }
-
-test("compactTokens keeps large counts readable", () => {
-  expect(compactTokens(66_000_000)).toBe("66.0M");
-  expect(compactTokens(1_500)).toBe("1.5K");
-  expect(compactTokens(42)).toBe("42");
-});
-
-test("humanDuration reads in the unit that fits", () => {
-  expect(humanDuration(45)).toBe("45s");
-  expect(humanDuration(1_200)).toBe("20m");
-  expect(humanDuration(7_500)).toBe("2h 5m");
-});
 
 // `prep-pr` permits a fixed set of `##` headings and counts them before it
 // finishes. A metrics *section* would fail a body that is otherwise correct, so

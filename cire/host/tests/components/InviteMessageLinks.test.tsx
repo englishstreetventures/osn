@@ -99,12 +99,6 @@ describe("InviteMessageLinks", () => {
     expect(text()).toContain("Invite → Codes (Owner only)");
   });
 
-  it("says the code style is chosen at creation and only changed in Codes", () => {
-    const { text } = renderLinks("households", "owner");
-
-    expect(text()).toContain("in the style chosen when the wedding was created; change it in");
-  });
-
   it("keeps the arrow out of the spoken name", () => {
     renderLinks("codes", "owner");
 

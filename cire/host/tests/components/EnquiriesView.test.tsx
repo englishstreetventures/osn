@@ -255,17 +255,6 @@ describe("EnquiriesView", () => {
     expect(String(url)).toMatch(/\/messages$/);
   });
 
-  it("shows the non-E2E notice in the thread view", async () => {
-    const EnquiriesView = await importComponent();
-    setCachedEnquiries("wed_1", [makeItem()]);
-    authFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ messages: [] }), { status: 200 }),
-    );
-    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
-    fireEvent.click(await screen.findByText("Blue Roses"));
-    expect(await screen.findByText(/Enquiries aren't end-to-end encrypted/i)).toBeInTheDocument();
-  });
-
   it("offers the detail-column placeholder until an enquiry is picked", async () => {
     const EnquiriesView = await importComponent();
     setCachedEnquiries("wed_1", [makeItem()]);

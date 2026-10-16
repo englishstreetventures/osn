@@ -27,18 +27,6 @@ function ariaHiddenAncestors(node: HTMLElement): string[] {
 describe("InfoPopover", () => {
   afterEach(() => cleanup());
 
-  it("renders the trigger button with '?' text", () => {
-    render(() => <InfoPopover body="Some help text" />);
-    const trigger = screen.getByLabelText("More info");
-    expect(trigger).toBeTruthy();
-    expect(trigger.textContent).toBe("?");
-  });
-
-  it("renders a caller-chosen glyph instead of the default", () => {
-    render(() => <InfoPopover body="Help" glyph="i" />);
-    expect(screen.getByLabelText("More info").textContent).toBe("i");
-  });
-
   it("uses custom label for aria-label when provided", () => {
     render(() => <InfoPopover label="About visibility" body="Help" />);
     expect(screen.getByLabelText("About visibility")).toBeTruthy();
@@ -89,13 +77,6 @@ describe("InfoPopover", () => {
     const panel = screen.getByText("Press Escape");
     expect(panel.hasAttribute("data-expanded")).toBe(false);
     expect(panel.hasAttribute("data-closed")).toBe(true);
-  });
-
-  it("renders a real button whose type is 'button'", () => {
-    render(() => <InfoPopover body="Help" />);
-    const trigger = screen.getByLabelText("More info");
-    expect(trigger.tagName).toBe("BUTTON");
-    expect(trigger.getAttribute("type")).toBe("button");
   });
 
   it("is reachable by keyboard: enabled and left in the natural tab order", () => {

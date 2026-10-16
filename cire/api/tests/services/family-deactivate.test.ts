@@ -6,7 +6,6 @@ import { Effect } from "effect";
 
 import type { Db } from "../../src/db";
 import { DbService } from "../../src/db";
-import { createDb, seedDb } from "../../src/db/setup";
 import { claimService, InvalidCredentials } from "../../src/services/claim";
 import { familyDeactivateService } from "../../src/services/family-deactivate";
 import { TestDbLayer } from "../db/test-layer";
@@ -183,25 +182,4 @@ describe("claimService.lookup rejects a deactivated family like an unknown code"
       }),
     ),
   );
-});
-
-// Touch createDb/seedDb so the explicit-db helper variants stay imported even if
-// a future refactor drops the TestDbLayer usages (keeps the lockstep DDL honest).
-describe("schema lockstep", () => {
-  it("createDb applies the deactivated_at column", () => {
-    const db = createDb(":memory:");
-    seedDb(db);
-    const fam = db
-      .select({ id: families.id, publicId: families.publicId })
-      .from(families)
-      .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
-      .all()[0];
-    if (!fam) throw new Error("no bootstrap family seeded");
-    const [row] = db
-      .select({ deactivatedAt: families.deactivatedAt })
-      .from(families)
-      .where(eq(families.id, fam.id))
-      .all();
-    expect(row!.deactivatedAt).toBeNull();
-  });
 });

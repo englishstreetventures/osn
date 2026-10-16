@@ -90,6 +90,8 @@ describe("SecurityEventsBanner", () => {
     expect(container.textContent?.trim()).toBe("");
   });
 
+  // S-H1: the takeover half of the threat model — gets its own headline so
+  // the user knows the codes were USED, not just regenerated.
   it("renders the recovery_code_generate headline with UA label", async () => {
     stub.list.mockResolvedValue({ events: [recoveryGenerateEvent] });
     render(() => (
@@ -106,8 +108,6 @@ describe("SecurityEventsBanner", () => {
     });
   });
 
-  // S-H1: the takeover half of the threat model — gets its own headline so
-  // the user knows the codes were USED, not just regenerated.
   it("renders the recovery_code_consume headline", async () => {
     stub.list.mockResolvedValue({ events: [recoveryConsumeEvent] });
     render(() => (

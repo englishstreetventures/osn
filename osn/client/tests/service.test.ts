@@ -11,14 +11,6 @@ function createTestLayer() {
   return createOsnAuthLive(config).pipe(Layer.provide(createEphemeralStorage()));
 }
 
-it.effect("getSession returns null before any login", () =>
-  Effect.gen(function* () {
-    const auth = yield* OsnAuth;
-    const session = yield* auth.getSession();
-    expect(session).toBeNull();
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
 it.effect("logout clears the persisted session", () =>
   Effect.gen(function* () {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
@@ -47,45 +39,6 @@ it.effect("refreshSession fails when there is no session", () =>
     // No session set — refreshSession should fail
     const error = yield* Effect.flip(auth.refreshSession());
     expect(error._tag).toBe("TokenRefreshError");
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
-it.effect("setSession persists a session that getSession can read back", () =>
-  Effect.gen(function* () {
-    const auth = yield* OsnAuth;
-    const fixture = {
-      accessToken: "acc_persisted",
-      idToken: null,
-      expiresAt: Date.now() + 60_000,
-      scopes: ["openid", "profile"],
-    };
-    yield* auth.setSession(fixture);
-
-    const stored = yield* auth.getSession();
-    expect(stored).not.toBeNull();
-    expect(stored?.accessToken).toBe("acc_persisted");
-    expect(stored?.scopes).toEqual(["openid", "profile"]);
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
-it.effect("setSession overwrites a previously persisted session", () =>
-  Effect.gen(function* () {
-    const auth = yield* OsnAuth;
-    yield* auth.setSession({
-      accessToken: "first",
-      idToken: null,
-      expiresAt: Date.now() + 60_000,
-      scopes: [],
-    });
-    yield* auth.setSession({
-      accessToken: "second",
-      idToken: null,
-      expiresAt: Date.now() + 60_000,
-      scopes: [],
-    });
-
-    const stored = yield* auth.getSession();
-    expect(stored?.accessToken).toBe("second");
   }).pipe(Effect.provide(createTestLayer())),
 );
 

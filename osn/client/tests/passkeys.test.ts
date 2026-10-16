@@ -208,21 +208,6 @@ describe("createPasskeysClient", () => {
         }),
       ).rejects.toBeInstanceOf(PasskeysError);
     });
-
-    // T-U1: locks the pass-through contract — `registerBegin` does not
-    // validate the WebAuthn options shape, it just forwards whatever the
-    // server returns on 2xx. If we ever tighten that into a shape check
-    // (e.g. require a `challenge` field), this test fails loudly and
-    // forces the change to be intentional.
-    it("passes an empty 2xx body through unchanged (pass-through contract)", async () => {
-      stubFetch(() => jsonResponse({}));
-      const result = await client.registerBegin({
-        accessToken: "t",
-        profileId: "prof",
-        stepUpToken: "s",
-      });
-      expect(result).toEqual({});
-    });
   });
 
   describe("registerComplete", () => {

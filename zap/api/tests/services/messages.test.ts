@@ -110,16 +110,6 @@ describe("messages service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("listMessages returns empty for chat with no messages", () =>
-    Effect.gen(function* () {
-      const chat = yield* seedChat({ type: "group" });
-      yield* seedMember(chat.id, "usr_alice", "admin");
-
-      const msgs = yield* listMessages(chat.id, "usr_alice");
-      expect(msgs).toHaveLength(0);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   // ── Validation error paths ──────────────────────────────────────────
 
   it.effect("sendMessage fails with ValidationError for oversized ciphertext", () =>

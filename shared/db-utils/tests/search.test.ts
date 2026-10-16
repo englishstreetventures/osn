@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
 
-// The barrel re-exports the same helpers for consumers that already pull the
-// drizzle/effect graph. Imported here under an alias so a dropped or misspelt
-// re-export fails a test rather than only failing whoever tries it next.
-import * as barrel from "../src";
 import {
   escapeLike,
   handlePrefixRange,
@@ -267,19 +263,5 @@ describe("tokensPrefixName", () => {
     expect(tokensPrefixName(undefined, ["rob"])).toBe(false);
     expect(tokensPrefixName("Roberta Smith", [])).toBe(false);
     expect(tokensPrefixName("!!!", ["rob"])).toBe(false);
-  });
-});
-
-describe("barrel re-exports", () => {
-  it("exposes the same search helpers as the subpath entry", () => {
-    expect(barrel.normaliseHandleQuery).toBe(normaliseHandleQuery);
-    expect(barrel.escapeLike).toBe(escapeLike);
-    expect(barrel.likeContains).toBe(likeContains);
-    expect(barrel.handlePrefixRange).toBe(handlePrefixRange);
-    expect(barrel.tokeniseQuery).toBe(tokeniseQuery);
-    expect(barrel.joinTokens).toBe(joinTokens);
-    expect(barrel.tokenContentLength).toBe(tokenContentLength);
-    expect(barrel.hasScanworthyToken).toBe(hasScanworthyToken);
-    expect(barrel.tokensPrefixName).toBe(tokensPrefixName);
   });
 });

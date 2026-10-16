@@ -43,12 +43,6 @@ describe("SettingsPage", () => {
     mockToastSuccess.mockReset();
   });
 
-  it("renders both attendance visibility options", () => {
-    const { getByText } = render(() => <SettingsPage />);
-    expect(getByText("My connections")).toBeTruthy();
-    expect(getByText("No one")).toBeTruthy();
-  });
-
   it("does NOT include the 'everyone' option (per the spec)", () => {
     const { queryByText } = render(() => <SettingsPage />);
     expect(queryByText("Everyone")).toBeNull();
@@ -91,7 +85,7 @@ describe("SettingsPage", () => {
     expect(queryByText("Save")).toBeNull();
   });
 
-  it("renders the warning copy about public guest lists overriding the setting", () => {
+  it("warns that a public guest list overrides the setting", () => {
     const { getByText } = render(() => <SettingsPage />);
     expect(getByText((content) => content.includes("public guest list"))).toBeTruthy();
   });

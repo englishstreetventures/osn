@@ -63,11 +63,6 @@ describe("WelcomePage", () => {
 
   afterEach(() => cleanup());
 
-  it("mounts the stepper when a session is present", () => {
-    const { getByTestId } = render(() => <WelcomePage />);
-    expect(getByTestId("stepper")).toBeTruthy();
-  });
-
   it("passes the session's displayName through to the stepper", () => {
     const { getByText } = render(() => <WelcomePage />);
     expect(getByText("stepper:Sarah")).toBeTruthy();

@@ -68,21 +68,6 @@ const baseProps = {
 };
 
 describe("EnquireDialog", () => {
-  it("renders nothing when open={false}", async () => {
-    const EnquireDialog = await importComponent();
-    render(() => <EnquireDialog {...baseProps} open={false} />);
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.queryByText(/enquire with/i)).not.toBeInTheDocument();
-  });
-
-  it("renders the dialog when open={true}", async () => {
-    const EnquireDialog = await importComponent();
-    render(() => <EnquireDialog {...baseProps} open={true} />);
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByText(/enquire with blue roses/i)).toBeInTheDocument();
-    expect(screen.getByRole("textbox")).toBeInTheDocument();
-  });
-
   it("Send is disabled when message is empty", async () => {
     const EnquireDialog = await importComponent();
     render(() => <EnquireDialog {...baseProps} open={true} />);
@@ -170,13 +155,5 @@ describe("EnquireDialog", () => {
 
     await waitFor(() => expect(redirectToLogin).toHaveBeenCalled());
     expect(onClose).not.toHaveBeenCalled();
-  });
-
-  it("Cancel button calls onClose", async () => {
-    const EnquireDialog = await importComponent();
-    const onClose = vi.fn();
-    render(() => <EnquireDialog {...baseProps} open={true} onClose={onClose} />);
-    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
-    expect(onClose).toHaveBeenCalled();
   });
 });

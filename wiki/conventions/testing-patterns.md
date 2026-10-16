@@ -12,6 +12,18 @@ last-reviewed: 2026-10-15
 
 # Testing Patterns
 
+## What to test, and when
+
+Three rules decide what kind of test a change gets. They come before every pattern on this page.
+
+1. **End-to-end tests first, and ideally only.** A complex feature is proved by an E2E test that drives the real stack the way a user or caller does: browser, API, database. Reach for nothing else unless the E2E test cannot reach the behaviour.
+2. **Every E2E test ends by producing an artifact.** It writes something a reviewer can check without rerunning the suite, and that comes out the same on every run: a Playwright trace, screenshots of the final state, or a JSON record of the requests and results. It runs against seeded data and a fixed clock, so a second run gives the same artifact. Name where the artifact lands in the PR test plan.
+3. **Isolated tests are written failure-modes first.** When a system must be tested on its own (a parser, a crypto routine, a rate-limit window, a state machine an E2E test cannot steer into every state), first write down every way it can fail. Put that list in `NEW-FEAT.md`, before any code exists. Write one test per entry, then the code that makes them pass. A test that maps to no listed failure does not get written.
+
+**Never write unit tests after the code.** A unit test written to cover code that already works describes what the code does, not what it must do. It goes green on the first run and stays green through the bugs that matter. Those tests are the low-signal kind this repo has deleted: constants asserted against themselves, mock echoes, "renders without crashing", snapshots of static markup, framework behaviour, types the compiler already checks.
+
+The bar for keeping any non-E2E test: **name the real bug it catches that no E2E test would.** No name, no test. One exception: a test that checks a refusal or a redaction (an authorisation gate, a permission table, a rate limit, a CSP, an input rejection, log redaction) stays unless a named, existing test checks the same refusal. "An E2E test could catch it" is not enough; one has to exist. [[#Assertions that cannot fail]] lists the shapes that fail that bar most often.
+
 ## Directory Layout
 
 Test files live in `tests/` at the package root and mirror the `src/` structure. **Every**
@@ -52,7 +64,6 @@ scripts/
 shared/ui/
   tests/
     test-support/browser-commands.ts # Vitest browser commands (emulateMedia)
-    lib/utils.test.ts                # clsx()
     ui/otp-input.test.tsx            # unit tier (happy-dom) -- DOM shape and class lists
     modal.browser.test.tsx           # browser tier (real Chromium) -- top layer, focus trap, ::backdrop
 osn/auth-ui/

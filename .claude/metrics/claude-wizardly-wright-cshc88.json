@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1529,
+    "branch": "claude/wizardly-wright-cshc88",
+    "base_sha": "be3335b371b26140d7ada5f0f84753cd192c7cb3",
+    "head_sha": "52f60de4a8e5b6fe5c4f33e1a37524662aa84382",
+    "generated_at": "2026-10-15T22:58:44.321Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1527,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops"
+    ]
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-15T16:22:25.930Z",
+    "last_ts": "2026-10-15T22:58:43.745Z",
+    "span_seconds": 23778,
+    "active_seconds": 3302,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 34.55955730000002,
+    "tokens": {
+      "input": 855,
+      "output": 42415,
+      "thinking": 6694,
+      "cache_write_5m": 786696,
+      "cache_write_1h": 383219,
+      "cache_read": 67345942
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 845,
+          "output": 42350,
+          "thinking": 6694,
+          "cache_write_5m": 715741,
+          "cache_write_1h": 383219,
+          "cache_read": 67087372
+        },
+        "usd_equivalent": 34.329785800000025,
+        "messages": 416
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 10,
+          "output": 65,
+          "thinking": 0,
+          "cache_write_5m": 70955,
+          "cache_write_1h": 0,
+          "cache_read": 258570
+        },
+        "usd_equivalent": 0.2297715,
+        "messages": 5
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 181,
+          "output": 39262,
+          "thinking": 6694,
+          "cache_write_5m": 0,
+          "cache_write_1h": 383219,
+          "cache_read": 13822261
+        },
+        "usd_equivalent": 9.3806204,
+        "messages": 85
+      },
+      "subagent": {
+        "tokens": {
+          "input": 674,
+          "output": 3153,
+          "thinking": 0,
+          "cache_write_5m": 786696,
+          "cache_write_1h": 0,
+          "cache_read": 53523681
+        },
+        "usd_equivalent": 25.178936899999993,
+        "messages": 337
+      }
+    },
+    "effort": {
+      "medium": 89,
+      "xhigh": 332
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 181,
+      "docs": 5,
+      "config": 1,
+      "source": 0
+    },
+    "loc": {
+      "generated": {
+        "added": 39,
+        "deleted": 0
+      },
+      "test": {
+        "added": 59,
+        "deleted": 5140
+      },
+      "docs": {
+        "added": 24,
+        "deleted": 6
+      },
+      "config": {
+        "added": 195,
+        "deleted": 0
+      },
+      "source": {
+        "added": 0,
+        "deleted": 0
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/build-tools",
+      "cire/host",
+      "cire/invite-designs",
+      "cire/invites",
+      "cire/landing",
+      "cire/theme",
+      "cire/ui",
+      "cire/vendor",
+      "osn/api",
+      "osn/auth-ui",
+      "osn/client",
+      "osn/db",
+      "pulse/api",
+      "pulse/db",
+      "pulse/landing",
+      "pulse/web",
+      "shared/crypto",
+      "shared/db-utils",
+      "shared/dev-urls",
+      "shared/email",
+      "shared/legal",
+      "shared/observability",
+      "shared/rate-limit",
+      "shared/redis",
+      "shared/ui",
+      "tools/pr-metrics",
+      "zap/api",
+      "zap/db"
+    ],
+    "touches_migration": false,
+    "commits": 6
+  },
+  "interaction": {
+    "user_turns": 10,
+    "corrective_turns": 9,
+    "tokens_before_first_edit": 413203,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 399,
+      "Skill": 7,
+      "Edit": 4,
+      "Agent": 4,
+      "SubagentHandback": 4,
+      "Read": 3,
+      "mcp__github__get_label": 2,
+      "mcp__github__issue_write": 2,
+      "Workflow": 1,
+      "ToolSearch": 1,
+      "mcp__github__search_issues": 1,
+      "mcp__github__create_pull_request": 1,
+      "mcp__claude-code-remote__subscribe_pr_activity": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 1
+    },
+    "skills": {
+      "workflow-authoring": 1,
+      "write-wiki": 1,
+      "prep-pr": 1,
+      "review-performance": 1,
+      "review-security": 1,
+      "review-tests": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "reviewer": 3,
+      "mechanic": 1
+    }
+  }
+}

@@ -160,12 +160,6 @@ describe("ImportPanel — CSV format help", () => {
       /csv format/i.test(d.querySelector("summary")?.textContent ?? ""),
     )!;
 
-  it("exposes the format help as a native disclosure (details/summary)", () => {
-    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
-    expect(helpDetails()).toBeTruthy();
-    expect(helpDetails().querySelector("summary")?.textContent ?? "").toMatch(/csv format/i);
-  });
-
   it("opens itself — and glows — the FIRST time an organiser meets it", () => {
     render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
     expect(helpDetails().open).toBe(true);
@@ -195,24 +189,6 @@ describe("ImportPanel — CSV format help", () => {
     render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
     fireEvent(helpDetails(), new Event("toggle"));
     expect(helpDetails().className).toContain("attention-glow");
-  });
-
-  it("leads with step 1 = New here? / download the template", () => {
-    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
-    // The first numbered step card heads with the "New here?" download prompt.
-    const firstStep = document.querySelector("ol > li");
-    expect(firstStep).toBeTruthy();
-    const text = (firstStep?.textContent ?? "").toLowerCase();
-    expect(text).toContain("1");
-    expect(text).toContain("new here?");
-    expect(text).toContain("download");
-  });
-
-  it("renders the mandatory-vs-optional key", () => {
-    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
-    const body = (document.body.textContent ?? "").toLowerCase();
-    expect(body).toContain("indicates mandatory fields");
-    expect(body).toContain("indicates optional fields");
   });
 
   it("renders the key exactly once", () => {
@@ -245,31 +221,6 @@ describe("ImportPanel — CSV format help", () => {
     )!;
     expect(optional.textContent).not.toContain("*");
     expect(optional.querySelector(".sr-only")).toBeNull();
-  });
-
-  it("documents the truthy invite cell values once the guests tips are open", () => {
-    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
-    const tips = [...document.querySelectorAll("details > summary")].find((s) =>
-      /formatting tips/i.test(s.textContent ?? ""),
-    );
-    expect(tips).toBeTruthy();
-    fireEvent.click(tips!);
-    const body = document.body.textContent ?? "";
-    expect(body).toMatch(/\btrue\b/);
-    expect(body).toMatch(/\byes\b/);
-  });
-
-  it("links the word IANA to the tz database list, opening in a new tab", () => {
-    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
-    const link = [...document.querySelectorAll("a")].find(
-      (a) => (a.textContent ?? "").trim() === "IANA",
-    );
-    expect(link).toBeTruthy();
-    expect(link?.getAttribute("href")).toBe(
-      "https://en.wikipedia.org/wiki/List_of_tz_database_time_zones",
-    );
-    expect(link?.getAttribute("target")).toBe("_blank");
-    expect(link?.getAttribute("rel")).toBe("noreferrer");
   });
 
   it("documents the events timestamp + dress-code palette formats", () => {

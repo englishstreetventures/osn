@@ -39,69 +39,6 @@ describe("events schema", () => {
     expect(row.startTime.toISOString()).toBe("2030-06-01T10:00:00.000Z");
   });
 
-  it("startTime round-trips as Date via timestamp mode", async () => {
-    const db = createTestDb();
-    const ts = new Date("2026-04-01T12:00:00.000Z");
-    const now = new Date();
-    await db.insert(schema.events).values({
-      id: "evt_ts",
-      title: "Timestamp Test",
-      startTime: ts,
-      createdByProfileId: "usr_alice",
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    const [row] = await db.select().from(schema.events).where(eq(schema.events.id, "evt_ts"));
-    expect(row!.startTime).toBeInstanceOf(Date);
-    expect(row!.startTime.getTime()).toBe(ts.getTime());
-  });
-
-  it("optional fields default to null", async () => {
-    const db = createTestDb();
-    const now = new Date();
-    await db.insert(schema.events).values({
-      id: "evt_nulls",
-      title: "Null Test",
-      startTime: now,
-      createdByProfileId: "usr_alice",
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    const [row] = await db.select().from(schema.events).where(eq(schema.events.id, "evt_nulls"));
-    expect(row!.description).toBeNull();
-    expect(row!.location).toBeNull();
-    expect(row!.venue).toBeNull();
-    expect(row!.category).toBeNull();
-    expect(row!.endTime).toBeNull();
-    expect(row!.imageUrl).toBeNull();
-    expect(row!.priceAmount).toBeNull();
-    expect(row!.priceCurrency).toBeNull();
-    expect(row!.latitude).toBeNull();
-    expect(row!.longitude).toBeNull();
-    expect(row!.createdByName).toBeNull();
-    expect(row!.createdByAvatar).toBeNull();
-  });
-
-  it("round-trips priceAmount + priceCurrency", async () => {
-    const db = createTestDb();
-    const now = new Date();
-    await db.insert(schema.events).values({
-      id: "evt_price",
-      title: "Paid Event",
-      startTime: now,
-      priceAmount: 1850,
-      priceCurrency: "USD",
-      createdByProfileId: "usr_alice",
-      createdAt: now,
-      updatedAt: now,
-    });
-    const [row] = await db.select().from(schema.events).where(eq(schema.events.id, "evt_price"));
-    expect(row!.priceAmount).toBe(1850);
-    expect(row!.priceCurrency).toBe("USD");
-  });
-
   it("visibility/guestListVisibility/joinPolicy/allowInterested/commsChannels default correctly", async () => {
     const db = createTestDb();
     const now = new Date();
@@ -134,33 +71,6 @@ describe("events schema", () => {
     // Bbox range-scan prefilter for radius search.
     expect(indexNames.has("events_lat_lng_idx")).toBe(true);
   });
-
-  it("stores non-default event visibility config", async () => {
-    const db = createTestDb();
-    const now = new Date();
-    await db.insert(schema.events).values({
-      id: "evt_cfg_custom",
-      title: "Private",
-      startTime: now,
-      visibility: "private",
-      guestListVisibility: "connections",
-      joinPolicy: "guest_list",
-      allowInterested: false,
-      commsChannels: '["sms","email"]',
-      createdByProfileId: "usr_alice",
-      createdAt: now,
-      updatedAt: now,
-    });
-    const [row] = await db
-      .select()
-      .from(schema.events)
-      .where(eq(schema.events.id, "evt_cfg_custom"));
-    expect(row!.visibility).toBe("private");
-    expect(row!.guestListVisibility).toBe("connections");
-    expect(row!.joinPolicy).toBe("guest_list");
-    expect(row!.allowInterested).toBe(false);
-    expect(row!.commsChannels).toBe('["sms","email"]');
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -180,30 +90,6 @@ describe("event_rsvps schema", () => {
     });
   }
 
-  it("inserts and retrieves an RSVP", async () => {
-    const db = createTestDb();
-    await seedEvent(db);
-    const now = new Date();
-    await db.insert(schema.eventRsvps).values({
-      id: "rsvp_test",
-      eventId: "evt_rsvp_test",
-      profileId: "usr_alice",
-      status: "going",
-      createdAt: now,
-    });
-
-    const rows = await db
-      .select()
-      .from(schema.eventRsvps)
-      .where(eq(schema.eventRsvps.id, "rsvp_test"));
-    expect(rows).toHaveLength(1);
-    const row = rows[0]!;
-    expect(row.eventId).toBe("evt_rsvp_test");
-    expect(row.profileId).toBe("usr_alice");
-    expect(row.status).toBe("going");
-    expect(row.createdAt).toBeInstanceOf(Date);
-  });
-
   it("defaults status to 'going'", async () => {
     const db = createTestDb();
     await seedEvent(db);
@@ -219,26 +105,6 @@ describe("event_rsvps schema", () => {
       .from(schema.eventRsvps)
       .where(eq(schema.eventRsvps.id, "rsvp_default"));
     expect(row!.status).toBe("going");
-  });
-
-  it("accepts invited status + invitedByProfileId", async () => {
-    const db = createTestDb();
-    await seedEvent(db);
-    const now = new Date();
-    await db.insert(schema.eventRsvps).values({
-      id: "rsvp_invited",
-      eventId: "evt_rsvp_test",
-      profileId: "usr_bob",
-      status: "invited",
-      invitedByProfileId: "usr_alice",
-      createdAt: now,
-    });
-    const [row] = await db
-      .select()
-      .from(schema.eventRsvps)
-      .where(eq(schema.eventRsvps.id, "rsvp_invited"));
-    expect(row!.status).toBe("invited");
-    expect(row!.invitedByProfileId).toBe("usr_alice");
   });
 
   it("declares the (event_id, status) composite index (P-I2)", () => {
@@ -300,69 +166,6 @@ describe("event_rsvps schema", () => {
     const rows = await db.select().from(schema.eventRsvps);
     expect(rows).toHaveLength(2);
   });
-
-  it("createdAt round-trips as Date via timestamp mode", async () => {
-    const db = createTestDb();
-    await seedEvent(db);
-    const ts = new Date("2030-01-15T08:00:00.000Z");
-    await db.insert(schema.eventRsvps).values({
-      id: "rsvp_ts",
-      eventId: "evt_rsvp_test",
-      profileId: "usr_ts",
-      createdAt: ts,
-    });
-    const [row] = await db
-      .select()
-      .from(schema.eventRsvps)
-      .where(eq(schema.eventRsvps.id, "rsvp_ts"));
-    expect(row!.createdAt).toBeInstanceOf(Date);
-    expect(row!.createdAt.getTime()).toBe(ts.getTime());
-  });
-
-  it("share-source columns default to null", async () => {
-    const db = createTestDb();
-    await seedEvent(db);
-    await db.insert(schema.eventRsvps).values({
-      id: "rsvp_no_share",
-      eventId: "evt_rsvp_test",
-      profileId: "usr_no_share",
-      createdAt: new Date(),
-    });
-    const [row] = await db
-      .select()
-      .from(schema.eventRsvps)
-      .where(eq(schema.eventRsvps.id, "rsvp_no_share"));
-    expect(row!.shareSourceFirst).toBeNull();
-    expect(row!.shareSourceFirstSeenAt).toBeNull();
-    expect(row!.shareSourceLast).toBeNull();
-    expect(row!.shareSourceLastSeenAt).toBeNull();
-  });
-
-  it("round-trips share-source attribution columns", async () => {
-    const db = createTestDb();
-    await seedEvent(db);
-    const firstSeen = new Date("2030-02-01T10:00:00.000Z");
-    const lastSeen = new Date("2030-02-05T14:30:00.000Z");
-    await db.insert(schema.eventRsvps).values({
-      id: "rsvp_with_share",
-      eventId: "evt_rsvp_test",
-      profileId: "usr_share",
-      shareSourceFirst: "instagram",
-      shareSourceFirstSeenAt: firstSeen,
-      shareSourceLast: "tiktok",
-      shareSourceLastSeenAt: lastSeen,
-      createdAt: new Date(),
-    });
-    const [row] = await db
-      .select()
-      .from(schema.eventRsvps)
-      .where(eq(schema.eventRsvps.id, "rsvp_with_share"));
-    expect(row!.shareSourceFirst).toBe("instagram");
-    expect(row!.shareSourceFirstSeenAt).toBeInstanceOf(Date);
-    expect(row!.shareSourceFirstSeenAt!.getTime()).toBe(firstSeen.getTime());
-    expect(row!.shareSourceLast).toBe("tiktok");
-    expect(row!.shareSourceLastSeenAt!.getTime()).toBe(lastSeen.getTime());
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -384,22 +187,6 @@ describe("pulse_users schema", () => {
       .where(eq(schema.pulseUsers.profileId, "usr_alice"));
     expect(row!.profileId).toBe("usr_alice");
     expect(row!.attendanceVisibility).toBe("connections");
-  });
-
-  it("accepts connections and no_one values", async () => {
-    const db = createTestDb();
-    const now = new Date();
-    await db.insert(schema.pulseUsers).values([
-      {
-        profileId: "usr_conn",
-        attendanceVisibility: "connections",
-        createdAt: now,
-        updatedAt: now,
-      },
-      { profileId: "usr_none", attendanceVisibility: "no_one", createdAt: now, updatedAt: now },
-    ]);
-    const rows = await db.select().from(schema.pulseUsers);
-    expect(rows.map((r) => r.attendanceVisibility).toSorted()).toEqual(["connections", "no_one"]);
   });
 });
 
@@ -491,23 +278,6 @@ describe("venues schema", () => {
     expect(row!.capacity).toBeNull();
   });
 
-  it("round-trips JSON hours", async () => {
-    const db = createTestDb();
-    const now = new Date();
-    const hours = JSON.stringify({ "5": { open: "22:00", close: "04:00" } });
-    await db.insert(schema.venues).values({
-      id: "v-hours",
-      orgHandle: "o1",
-      handle: "v-hours",
-      name: "V",
-      hours,
-      createdAt: now,
-      updatedAt: now,
-    });
-    const [row] = await db.select().from(schema.venues).where(eq(schema.venues.id, "v-hours"));
-    expect(row!.hours).toBe(hours);
-  });
-
   it("declares the bbox + kind indexes", () => {
     const { indexes } = getTableConfig(schema.venues);
     const indexNames = new Set(indexes.map((i) => i.config.name));
@@ -522,30 +292,6 @@ describe("venues schema", () => {
 // ---------------------------------------------------------------------------
 
 describe("events.venueId", () => {
-  it("links an event to a venue", async () => {
-    const db = createTestDb();
-    const now = new Date();
-    await db.insert(schema.venues).values({
-      id: "v-link",
-      orgHandle: "o1",
-      handle: "v-link",
-      name: "Linked Venue",
-      createdAt: now,
-      updatedAt: now,
-    });
-    await db.insert(schema.events).values({
-      id: "evt_linked",
-      title: "Linked",
-      startTime: now,
-      venueId: "v-link",
-      createdByProfileId: "usr_alice",
-      createdAt: now,
-      updatedAt: now,
-    });
-    const [row] = await db.select().from(schema.events).where(eq(schema.events.id, "evt_linked"));
-    expect(row!.venueId).toBe("v-link");
-  });
-
   it("declares the events_venue_id_idx", () => {
     const { indexes } = getTableConfig(schema.events);
     const indexNames = new Set(indexes.map((i) => i.config.name));
@@ -604,87 +350,9 @@ describe("event_lineup schema", () => {
     expect(row!.slotStart.getTime()).toBe(start.getTime());
   });
 
-  it("accepts a midnight-crossing slot (slotEnd > slotStart on the next day)", async () => {
-    const db = createTestDb();
-    await seedClubNight(db);
-    const start = new Date("2030-06-07T23:30:00.000Z");
-    const end = new Date("2030-06-08T01:00:00.000Z");
-    await db.insert(schema.eventLineup).values({
-      id: "lnp_xmid",
-      eventId: "evt_night",
-      artistName: "Closer",
-      role: "headliner",
-      slotStart: start,
-      slotEnd: end,
-      orderIndex: 3,
-      createdAt: new Date(),
-    });
-    const [row] = await db
-      .select()
-      .from(schema.eventLineup)
-      .where(eq(schema.eventLineup.id, "lnp_xmid"));
-    expect(row!.slotEnd.getTime()).toBeGreaterThan(row!.slotStart.getTime());
-    expect(row!.role).toBe("headliner");
-  });
-
   it("declares the event_id+slot_start lookup index", () => {
     const { indexes } = getTableConfig(schema.eventLineup);
     const indexNames = new Set(indexes.map((i) => i.config.name));
     expect(indexNames.has("event_lineup_event_id_idx")).toBe(true);
-  });
-});
-
-describe("event_comms schema", () => {
-  async function seedEvent(db: ReturnType<typeof createTestDb>) {
-    const now = new Date();
-    await db.insert(schema.events).values({
-      id: "evt_comms",
-      title: "Comms Event",
-      startTime: now,
-      createdByProfileId: "usr_alice",
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
-
-  it("inserts and retrieves a comms log row", async () => {
-    const db = createTestDb();
-    await seedEvent(db);
-    const now = new Date();
-    await db.insert(schema.eventComms).values({
-      id: "evtcomm_1",
-      eventId: "evt_comms",
-      channel: "sms",
-      body: "Hey everyone, see you tonight!",
-      sentByProfileId: "usr_alice",
-      sentAt: now,
-      createdAt: now,
-    });
-    const [row] = await db
-      .select()
-      .from(schema.eventComms)
-      .where(eq(schema.eventComms.id, "evtcomm_1"));
-    expect(row!.eventId).toBe("evt_comms");
-    expect(row!.channel).toBe("sms");
-    expect(row!.body).toContain("tonight");
-    expect(row!.sentAt).toBeInstanceOf(Date);
-  });
-
-  it("allows null sentAt (queued state)", async () => {
-    const db = createTestDb();
-    await seedEvent(db);
-    await db.insert(schema.eventComms).values({
-      id: "evtcomm_queued",
-      eventId: "evt_comms",
-      channel: "email",
-      body: "Queued blast",
-      sentByProfileId: "usr_alice",
-      createdAt: new Date(),
-    });
-    const [row] = await db
-      .select()
-      .from(schema.eventComms)
-      .where(eq(schema.eventComms.id, "evtcomm_queued"));
-    expect(row!.sentAt).toBeNull();
   });
 });
