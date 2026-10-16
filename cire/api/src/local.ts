@@ -10,7 +10,10 @@ import { createAssetsStub } from "./services/invite-assets";
 import { createR2Stub } from "./services/r2-imports";
 import { createStripeClientFromEnv } from "./services/stripe";
 
-const db = createDb(":memory:");
+// In memory unless CIRE_LOCAL_DB_PATH names a file, which lets another process
+// (the E2E suite) read the rows this server writes. The seed runs on every
+// boot, so the file must not exist yet.
+const db = createDb(process.env.CIRE_LOCAL_DB_PATH || ":memory:");
 await seedDb(db);
 
 // Dev convenience: the in-memory seed gives the sample wedding's owner seat to

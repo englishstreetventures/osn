@@ -42,7 +42,15 @@ export function OnboardingGate() {
     const s = status();
     // Resource still loading or no token — nothing to do.
     if (!s) return;
-    if (s.completedAt === null && location.pathname !== "/welcome") {
+    // The resolved hint is read here too, not only in `fetchKey`: it lives in
+    // sessionStorage, which nothing tracks, so the resource keeps its
+    // pre-skip value and the navigation home would otherwise bounce straight
+    // back to /welcome.
+    if (
+      s.completedAt === null &&
+      !isOnboardingResolvedThisSession() &&
+      location.pathname !== "/welcome"
+    ) {
       navigate("/welcome", { replace: true });
     }
   });
