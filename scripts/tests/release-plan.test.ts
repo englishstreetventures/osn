@@ -358,6 +358,71 @@ describe("dev still gates production", () => {
   });
 });
 
+// ── after a failed smoke check ──────────────────────────────────────────────
+//
+// scripts/smoke-check.ts fails the deploy job when the new Worker answers
+// wrongly, after rolling it back. GitHub then gives the job's Deployment
+// record a `failure` status where a deploy that stayed up gets `success`.
+// The statuses below are the sequence such a job leaves.
+
+describe("a surface whose smoke check failed", () => {
+  const SMOKE_FAILED = ["failure", "in_progress", "queued", "waiting"];
+
+  test("production rolled back: the next release ships the surface again, from the last good commit", async () => {
+    await withRepo(async (repo) => {
+      // A runs in production. The release of B deployed osn-api, its smoke
+      // check failed and the Worker went back to A. C changes only docs.
+      const a = await commit(repo, { "osn/api/src/index.ts": "1" });
+      const b = await commit(repo, { "osn/api/src/index.ts": "2" });
+      const c = await commit(repo, { "README.md": "docs" });
+      const github = fakeGitHub([
+        { environment: "production", sha: b, run: 2, job: prod("osn_api"), states: SMOKE_FAILED },
+        ...fullRun("production", a, 1),
+        { environment: "dev", sha: b, run: 2, job: dev("osn_api"), states: ["success"] },
+        ...fullRun("dev", a, 1),
+      ]);
+
+      const result = await runReleasePlan({ env: env(c), fetch: github.fetch, cwd: repo });
+      const outputs = parseOutputs(result.outputs);
+      expect(outputs.osn_api).toBe("true");
+      expect(outputs.any).toBe("true");
+      const osn = result.decisions.find((d) => d.key === "osn_api");
+      expect(osn?.production).toBe(a);
+      expect(osn?.reason).toContain("osn/api/src/index.ts changed");
+    });
+  });
+
+  test("dev rolled back: production holds the change back until dev deploys it and its check passes", async () => {
+    await withRepo(async (repo) => {
+      const a = await commit(repo, { "cire/api/src/index.ts": "1" });
+      const b = await commit(repo, { "cire/api/src/index.ts": "2" });
+      const records = [
+        ...fullRun("production", a, 1),
+        { environment: "dev" as const, sha: b, run: 2, job: dev("cire_api"), states: SMOKE_FAILED },
+        ...fullRun("dev", a, 1),
+      ];
+
+      const held = await runReleasePlan({
+        env: env(b),
+        fetch: fakeGitHub(records).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(held.outputs).cire_api).toBe("false");
+      expect(held.decisions.find((d) => d.key === "cire_api")?.status).toBe("held back");
+
+      const passed = await runReleasePlan({
+        env: env(b),
+        fetch: fakeGitHub([
+          { environment: "dev", sha: b, run: 3, job: dev("cire_api"), states: ["success"] },
+          ...records,
+        ]).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(passed.outputs).cire_api).toBe("true");
+    });
+  });
+});
+
 // ── reading Deployment records ──────────────────────────────────────────────
 
 describe("lastDeployed", () => {

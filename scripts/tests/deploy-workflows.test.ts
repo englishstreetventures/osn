@@ -1,7 +1,7 @@
 // Holds .github/workflows/deploy.yml (dev) and production-release.yml
 // (production) to the surface map in scripts/deploy-surfaces.ts.
 //
-// Three things here are load-bearing and invisible to every other gate:
+// Four things here are load-bearing and invisible to every other gate:
 //   - each deploy job gates on its own surface's output. A copy-paste slip
 //     that gates one surface on another's output passes actionlint and leaves
 //     a surface that never deploys;
@@ -9,13 +9,17 @@
 //     commit a surface last deployed by the name of the job that deployed it;
 //   - every production job needs exactly [plan, build], so they all reach the
 //     approval gate together and one review releases them. A job that reached
-//     the gate later would need a review of its own.
+//     the gate later would need a review of its own;
+//   - every Worker deploy is followed by scripts/smoke-check.ts for its own
+//     surface and tier, and that script's rollback targets the Worker the
+//     deploy step deployed — the same working directory and wrangler flags.
 
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { SURFACES, WORKFLOW_FILE } from "../deploy-surfaces";
+import { surface, SURFACES, type Tier, WORKFLOW_FILE } from "../deploy-surfaces";
+import { SMOKE_TARGETS, type WorkerSurface } from "../smoke-check";
 
 interface Step {
   readonly id?: string;
@@ -25,6 +29,9 @@ interface Step {
   readonly run?: string;
   readonly with?: Record<string, string | number | boolean>;
   readonly env?: Record<string, string>;
+  readonly "working-directory"?: string;
+  readonly "timeout-minutes"?: number;
+  readonly "continue-on-error"?: boolean | string;
 }
 
 interface Job {
@@ -186,6 +193,94 @@ describe("production-release.yml", () => {
         group: `deploy-production-${s.production.id.slice("deploy-".length)}`,
         "cancel-in-progress": false,
       });
+    },
+  );
+});
+
+describe("every Worker deploy is smoke-checked, and rolls back the Worker it deployed", () => {
+  const SMOKE_STEP = "Smoke check, rolling back on failure";
+  const workflowOf = (tier: Tier) => (tier === "production" ? production : dev);
+  const jobIdOf = (key: WorkerSurface, tier: Tier) => {
+    const job = tier === "production" ? surface(key).production : surface(key).dev;
+    if (job === undefined) throw new Error(`${key} has no ${tier} job`);
+    return job.id;
+  };
+  const targets = Object.entries(SMOKE_TARGETS).flatMap(([key, tiers]) =>
+    Object.entries(tiers).map(
+      ([tier, target]) => [`${key} ${tier}`, key as WorkerSurface, tier as Tier, target] as const,
+    ),
+  );
+
+  test("the jobs that run `wrangler deploy` are exactly the smoke targets' jobs", () => {
+    const deploying = (tier: Tier) =>
+      Object.entries(workflowOf(tier).jobs)
+        .filter(([, job]) => stepsOf(job).some((s) => /\bwrangler deploy\b/.test(s.run ?? "")))
+        .map(([id]) => `${tier} ${id}`);
+    const expected = targets.map(([, key, tier]) => `${tier} ${jobIdOf(key, tier)}`);
+    expect([...deploying("dev"), ...deploying("production")].toSorted()).toEqual(
+      expected.toSorted(),
+    );
+  });
+
+  test.each(targets)("%s", (_, key, tier, target) => {
+    const job = workflowOf(tier).jobs[jobIdOf(key, tier)]!;
+    expect(environmentOf(job)).toBe(tier);
+    const steps = stepsOf(job);
+    const deployAt = steps.findIndex((s) => /\bwrangler deploy\b/.test(s.run ?? ""));
+    const deploy = steps[deployAt]!;
+    // The rollback reads the same flags in the same directory, so it finds
+    // the same Worker the deploy step deployed.
+    expect(deploy.run).toBe(`bunx wrangler deploy ${target.wrangler.join(" ")}`);
+    expect(deploy["working-directory"]).toBe(target.cwd);
+
+    const smoke = steps[deployAt + 1];
+    expect(smoke?.name).toBe(SMOKE_STEP);
+    expect(smoke?.run).toBe(`bun run scripts/smoke-check.ts ${key} ${tier}`);
+    expect(smoke?.["working-directory"]).toBeUndefined();
+    expect(smoke?.if).toBe(deploy.if);
+    expect(smoke?.["timeout-minutes"]).toBe(5);
+    // The job's failure is what marks its Deployment record `failure`.
+    expect(smoke?.["continue-on-error"]).toBeUndefined();
+    expect(steps.length).toBe(deployAt + 2);
+
+    const env = smoke?.env ?? {};
+    if (tier === "dev") expect(env.SMOKE_FORCE_FAIL).toBe(`\${{ inputs.smoke_fail == '${key}' }}`);
+    else expect(env.SMOKE_FORCE_FAIL).toBeUndefined();
+    if (target.access) {
+      expect(env.CF_ACCESS_CLIENT_ID).toBe("${{ secrets.CF_ACCESS_CLIENT_ID }}");
+      expect(env.CF_ACCESS_CLIENT_SECRET).toBe("${{ secrets.CF_ACCESS_CLIENT_SECRET }}");
+    } else {
+      expect(Object.keys(env).filter((name) => name.startsWith("CF_ACCESS"))).toEqual([]);
+    }
+  });
+
+  test("deploy.yml's dispatch can force one dev Worker's check to fail", () => {
+    const dispatch = dev.on.workflow_dispatch as {
+      inputs: Record<string, { type: string; default: string; options: string[] }>;
+    };
+    const input = dispatch.inputs.smoke_fail;
+    expect(input?.type).toBe("choice");
+    expect(input?.default).toBe("none");
+    const devWorkers = targets.filter(([, , tier]) => tier === "dev").map(([, key]) => key);
+    expect(input?.options).toEqual(["none", ...devWorkers]);
+  });
+
+  test("production can never be forced to fail", () => {
+    const text = readFileSync(join(root, WORKFLOW_FILE.production), "utf8");
+    expect(text).not.toContain("SMOKE_FORCE_FAIL");
+    expect(text).not.toContain("smoke_fail");
+  });
+});
+
+describe("installs", () => {
+  test.each([WORKFLOW_FILE.dev, WORKFLOW_FILE.production])(
+    "%s installs from the lockfile and never rewrites it",
+    (path) => {
+      const installs = Object.values(load(path).jobs)
+        .flatMap((job) => stepsOf(job))
+        .filter((step) => /^bun install\b/.test(step.run ?? ""));
+      expect(installs.length).toBeGreaterThan(0);
+      for (const step of installs) expect(step.run).toBe("bun install --frozen-lockfile");
     },
   );
 });

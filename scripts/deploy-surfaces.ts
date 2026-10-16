@@ -17,7 +17,9 @@
  * patches, the lockfile, the root build config — redeploys everything, rather
  * than mapping each shared package to its consumers (a mapping that rots the
  * first time an import is added). So does the tier's own workflow file, and
- * this file.
+ * this file. On dev, so does scripts/smoke-check.ts, the check every Worker
+ * deploy runs: a change to it then runs on every dev Worker before a release
+ * runs it against production.
  *
  * The job ids and names are load-bearing. A GitHub Deployment record does not
  * say which surface it deployed; the name of the job that made it does, and
@@ -123,6 +125,13 @@ export const WORKFLOW_FILE = {
 /** This file. A change to the map redeploys both tiers, as a workflow change does. */
 const SURFACE_MAP_FILE = "scripts/deploy-surfaces.ts";
 
+/**
+ * The check every Worker deploy runs. A change to it redeploys dev only: it
+ * changes how a deploy is verified, not what is deployed, so production waits
+ * for a release that ships for its own reasons.
+ */
+const SMOKE_CHECK_FILE = "scripts/smoke-check.ts";
+
 /** What every surface is built from. */
 const SHARED_CONTENT =
   /^(shared\/|patches\/|bun\.lock$|package\.json$|turbo\.json$|tsconfig\.json$|\.browserslistrc$)/;
@@ -139,7 +148,12 @@ export function surface(key: SurfaceKey): Surface {
 
 /** Whether a change to `file` redeploys every surface on `tier`. */
 export function sharedPath(file: string, tier: Tier): boolean {
-  return SHARED_CONTENT.test(file) || file === WORKFLOW_FILE[tier] || file === SURFACE_MAP_FILE;
+  return (
+    SHARED_CONTENT.test(file) ||
+    file === WORKFLOW_FILE[tier] ||
+    file === SURFACE_MAP_FILE ||
+    (tier === "dev" && file === SMOKE_CHECK_FILE)
+  );
 }
 
 /**
