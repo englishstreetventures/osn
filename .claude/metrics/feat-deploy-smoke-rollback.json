@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1540,
+    "branch": "feat/deploy-smoke-rollback",
+    "base_sha": "2d428e2bc53abd649bb1799d04c30395fc29142d",
+    "head_sha": "de2aa272cbcd8f3f915bfe63f8ecd8bb7612389f",
+    "generated_at": "2026-10-16T02:23:22.729Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1513,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:3",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-15T16:46:19.283Z",
+    "last_ts": "2026-10-16T02:23:19.195Z",
+    "span_seconds": 34620,
+    "active_seconds": 5513,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 68.12484040000008,
+    "tokens": {
+      "input": 1356,
+      "output": 11301,
+      "thinking": 1912,
+      "cache_write_5m": 2932874,
+      "cache_write_1h": 0,
+      "cache_read": 133072566
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1356,
+          "output": 11301,
+          "thinking": 1912,
+          "cache_write_5m": 2932874,
+          "cache_write_1h": 0,
+          "cache_read": 133072566
+        },
+        "usd_equivalent": 68.12484040000008,
+        "messages": 673
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1356,
+          "output": 11301,
+          "thinking": 1912,
+          "cache_write_5m": 2932874,
+          "cache_write_1h": 0,
+          "cache_read": 133072566
+        },
+        "usd_equivalent": 68.12484040000008,
+        "messages": 674
+      }
+    },
+    "effort": {
+      "xhigh": 629,
+      "high": 44
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 0,
+      "test": 6,
+      "docs": 4,
+      "config": 2,
+      "source": 2
+    },
+    "loc": {
+      "generated": {
+        "added": 0,
+        "deleted": 0
+      },
+      "test": {
+        "added": 1537,
+        "deleted": 8
+      },
+      "docs": {
+        "added": 265,
+        "deleted": 40
+      },
+      "config": {
+        "added": 116,
+        "deleted": 9
+      },
+      "source": {
+        "added": 882,
+        "deleted": 2
+      }
+    },
+    "packages": [],
+    "touches_migration": false,
+    "commits": 6
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 563,
+      "Edit": 85,
+      "Read": 73,
+      "Skill": 14,
+      "Write": 13,
+      "SubagentHandback": 7,
+      "Agent": 6,
+      "ToolSearch": 3,
+      "mcp__claude_ai_Cloudflare_Developer_Platform__search_cloudflare_documentation": 1,
+      "mcp__claude_ai_Cloudflare_Developer_Platform__workers_list": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 10,
+      "max_edits_one_file": 26
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "superpowers:test-driven-development": 1,
+      "write-wiki": 2,
+      "obsidian:obsidian-markdown": 2,
+      "prep-pr": 1,
+      "review-docs": 1,
+      "review-tests": 1,
+      "review-security": 2,
+      "review-performance": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 5
+    }
+  }
+}

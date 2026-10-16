@@ -28,6 +28,18 @@ name: Production release
 # Environment. A job reaching the gate later would need a review of its own —
 # scripts/tests/deploy-workflows.test.ts holds the `needs:` lists equal.
 #
+# After each Worker deploy (cire-api, cire-invites, osn-api, zap-api),
+# scripts/smoke-check.ts asks the Worker's own hosts, for up to a minute,
+# whether the new version serves. One that answers wrongly is rolled back to
+# the version before it, through the Cloudflare API with the job's own token,
+# and its job fails, so GitHub marks the job's Deployment record `failure`: the
+# planner keeps counting the previous release as what production runs, and the
+# next release offers the surface again. A rollback restores the Worker's code
+# only — the D1 migrations the job applied stay — and never crosses a secret
+# change: Cloudflare refuses that, and the script leaves it to a person. Each
+# deploy step writes the version it deployed to WRANGLER_OUTPUT_FILE_PATH, and
+# the check rolls back only while that version is the newest deployment.
+#
 # The job names are load-bearing: the planner maps a Deployment record to a
 # surface by the name of the job that made it (scripts/deploy-surfaces.ts).
 # Rename a job there and here together, or the next release ships that
@@ -277,6 +289,17 @@ jobs:
       - name: Deploy cire/api Worker
         run: bunx wrangler deploy --env production
         working-directory: cire/api
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
+
+      # `wrangler deploy` succeeds when the upload does, not when the Worker
+      # serves. Asks api.cireweddings.com for up to a minute, and rolls the
+      # Worker back if it answers wrongly (scripts/smoke-check.ts).
+      - name: Smoke check, rolling back on failure
+        run: bun run scripts/smoke-check.ts cire_api production
+        timeout-minutes: 5
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
 
   # ── cire invites (Astro SSR → Cloudflare Worker) ─────────────────────────
   # The guest site is Astro SSR on Cloudflare (output: "server", the
@@ -385,6 +408,15 @@ jobs:
       - name: Deploy cire/invites (Worker)
         run: bunx wrangler deploy --config dist/server/wrangler.json
         working-directory: cire/invites
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
+
+      # Rolls back cire-invites, the Worker the generated config names.
+      - name: Smoke check, rolling back on failure
+        run: bun run scripts/smoke-check.ts cire_invites production
+        timeout-minutes: 5
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
 
   # ── cire host (Astro → Cloudflare Pages) ─────────────────────────────────
   # The organiser portal: a static Astro build in its own Pages project. Its
@@ -698,6 +730,16 @@ jobs:
       - name: Deploy osn/api Worker
         run: bunx wrangler deploy --env production
         working-directory: osn/api
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
+
+      # /health and /.well-known/jwks.json. A fail-closed secret the preflight
+      # above does not list answers 503 here, and the Worker is rolled back.
+      - name: Smoke check, rolling back on failure
+        run: bun run scripts/smoke-check.ts osn_api production
+        timeout-minutes: 5
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
 
   # ── musubi/social (Vite SPA → Cloudflare Pages) ──────────────────────────
   # The identity web app, including `/authorize`, the OIDC consent screen
@@ -849,3 +891,13 @@ jobs:
         if: steps.zapcheck.outputs.provisioned == 'true'
         run: bunx wrangler deploy --env production
         working-directory: zap/api
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
+
+      # Zap has no dev tier, so this is the first check its build ever gets.
+      - name: Smoke check, rolling back on failure
+        if: steps.zapcheck.outputs.provisioned == 'true'
+        run: bun run scripts/smoke-check.ts zap_api production
+        timeout-minutes: 5
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson

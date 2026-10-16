@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[review-findings]]"
   - "[[commands]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-16
 ---
 
 # Stacked PRs
@@ -138,6 +138,8 @@ git rebase --onto <bottom> <old-base> <middle> && git push --force-with-lease or
 ```
 
 `--force-with-lease`, never `--force`. After any rebase, re-assert the property the PR was opened for — resolving a conflict can drop a fix while the diff still reads correctly.
+
+After a rebase onto a newer `main`, run `bun install --frozen-lockfile` in the worktree before pushing. A workspace `main` added since the last install has no links in the worktree's `node_modules`, and the pre-push type check fails on it with `File '@shared/typescript-config/base.json' not found` — a fault in the install, not in the branch.
 
 `gh stack rebase` and `gh stack sync` do the cascade in one command, but only in a checkout with local stack tracking. In the worktree layout, do it by hand as above.
 

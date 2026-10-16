@@ -118,7 +118,8 @@ See [[musubi-identity-migration]] for why RP IDs behave this way.
    to `bun.lock`, root `package.json`/`turbo.json`/`tsconfig.json`,
    `.browserslistrc`, `deploy.yml` itself or the surface map also deploys
    everything, rather than maintaining a shared-package→consumer map that rots on
-   the first new import. The cire packages are the exception: each cire surface's
+   the first new import. A change to `scripts/smoke-check.ts` deploys the three dev
+   Workers that run it, so it runs on dev before a release runs it. The cire packages are the exception: each cire surface's
    paths list every `@cire/*` package it bundles (`cire/ui`, `cire/dietary`,
    `cire/theme`, …), and
    [`scripts/tests/deploy-surface-map.test.ts`](../../scripts/tests/deploy-surface-map.test.ts)
@@ -128,10 +129,45 @@ See [[musubi-identity-migration]] for why RP IDs behave this way.
 2. **`build`** — install, `bun run build`, `bun run test`, `bun run test:d1`.
    Everything below `needs:` it, so nothing ships from a broken tree.
 3. **`deploy-<surface>-dev`** — `environment: dev`, no reviewers, runs unattended.
+   Each Worker job (cire-api, cire-invites, osn-api) ends with the smoke check
+   production runs ([[production-deploy]] §7) against its dev host. A Worker that
+   answers wrongly is rolled back and the job fails, so its Deployment is marked
+   `failure` and the release planner's dev gate holds the change back from
+   production. The guest site's check needs the Access service token (§5) and is
+   skipped with a warning until the `dev` Environment holds it.
 
 Production is not in this workflow. `production-release.yml` ships it in releases
 ([[production-deploy]] §5.5),
 and `deploy-zap-api` lives there only — zap has no dev tier.
+
+### The dry run of the rollback path
+
+**Actions → Deploy → Run workflow** with `smoke_fail` set to `cire_api`,
+`cire_invites` or `osn_api` deploys every dev surface as usual, but that Worker's
+check also asks for `/smoke-check-forced-failure`, which every Worker answers 404.
+Its job should roll the Worker back and go red. Run it when no **Deploy** run is in
+progress: `deploy-cire-api-dev` cancels a run in progress, and a push whose cire-api
+deploy is cancelled leaves no successful dev record of its content, so the dev gate
+holds it back until dev deploys it again. The guest site's dry run needs the Access
+token; without it, Access answers and the job fails without a rollback.
+
+A dispatch leaves one Deployment record per job for the same commit, so find the
+forced job's record by the job its status links:
+
+```bash
+SHA=<the run's commit>; R=repos/englishstreetventures/osn
+for id in $(gh api "$R/deployments?environment=dev&sha=$SHA" --jq '.[].id'); do
+  gh api "$R/deployments/$id/statuses" \
+    --jq '.[0] | "\(.state) \(.log_url | capture("job/(?<j>[0-9]+)").j)"'
+done | while read -r state job; do
+  echo "$state $(gh api "$R/actions/jobs/$job" --jq .name)"
+done
+```
+
+The forced job's line reads `failure Deploy osn/api — dev` (or its surface's name).
+Afterwards, dispatch **Deploy** again with `smoke_fail: none`. Until a deploy goes out,
+the Worker's newest uploaded version is not the one serving, and `wrangler secret
+put` — the `set-osn-api-secret` workflow included — refuses on that Worker.
 
 ### Two Environments, two tokens
 
@@ -591,6 +627,29 @@ application.
 > CORS bug rather than an auth policy. Those two stay guarded by the CORS
 > allowlist and `origin-guard.ts`, exactly as production is.
 
+### The smoke check's service token
+
+The guest site's deploy check (§2) asks `invite.dev.cireweddings.com`, which Access
+answers with a login redirect. To let it through, the check sends a Cloudflare Access
+**service token** as the `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers.
+The check sends it to that host only, but an Access policy covers every host of its
+application: a token on the `cire dev tier` application opens all five dev browser
+hosts above to whoever holds it. Setting it up is a one-time owner step:
+
+1. Zero Trust → Access → Service credentials → create a service token for the deploy
+   check, with a fixed duration (one year), not "non-expiring". Copy the Client ID and
+   Client Secret; the secret is shown once. Note the expiry date where the owner keeps
+   renewal dates.
+2. On the `cire dev tier` application, add a policy with Action **Service Auth** that
+   includes that token. The email policy stays as it is.
+3. Store the two values as `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` on the
+   `dev` GitHub Environment.
+
+Without both secrets the check is skipped, with a warning on the run, and the job stays
+green — so the dev gate passes a guest site nobody checked. With them, a refused token
+— expired, revoked, or the policy gone — fails the job without a rollback, and the dev
+gate holds the guest site back from production until the token is fixed.
+
 ### The API docs are a dev-only surface
 
 `osn-api` and `pulse-api` mount `@elysiajs/openapi` — the Scalar UI at
@@ -730,6 +789,12 @@ an `Effect.logWarning` are the audit trail.
 A dev tier is only proven when a passkey ceremony completes end to end — a
 ceremony spans two requests, so it is what catches Redis being misconfigured.
 
+Every dev Worker deploy from CI already asks its Worker whether it answers (§2):
+osn-api's `/health` and JWKS, cire-api's `/api/auth/session`, and — once the `dev`
+Environment holds the Access service token (§5) — the guest site's `/` and an
+unknown-slug page. Steps 1 and 2 below go further by hand; steps 3 to 7 are what no
+machine checks.
+
 1. `cire-api` has **no health route** in any tier — `/health` is a 404 on dev and
    on production alike, so it proves nothing. Probe two real routes instead and
    read the status codes, not the bodies:
@@ -789,8 +854,11 @@ bun run --cwd cire/db db:seed:dev
 # Apply osn dev migrations without touching accounts
 bun run --cwd osn/db db:migrate:dev
 
-# Redeploy one Worker out of band
+# Redeploy one Worker out of band, then run the check CI runs after it (§2) from
+# the repository root. With CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
+# exported, it rolls the Worker back if it answers wrongly
 bunx wrangler deploy --env dev        # from cire/api or osn/api
+bun run scripts/smoke-check.ts cire_api dev   # or osn_api
 
 # Watch a dev Worker
 bunx wrangler tail cire-api-dev
@@ -828,7 +896,9 @@ production, and nothing here should ever grow one.
   `production-release.yml`.
 - **No staging.** `osn-db-staging` exists and stays unused; the dev tier is the
   single pre-production step by design.
-- **No automated rollback.** Reverting means merging a revert and approving the
-  release that ships it.
+- **Only Workers roll back on their own.** A Worker that answers its smoke check
+  wrongly is rolled back (§2); the Pages surfaces have no check and no automatic rollback, so
+  reverting one means merging a revert and approving the release that ships it. No
+  rollback undoes a D1 migration ([[production-deploy]] §4).
 - **Free-tier caps are account-wide.** Dev traffic draws on the same 100K Workers
   requests/day and the same D1 row budget as production. [[free-tier-limits]]
