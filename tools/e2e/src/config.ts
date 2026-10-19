@@ -99,6 +99,17 @@ export const CIRE_LATE_GUEST = {
   guestName: "Nori",
 } as const;
 
+/**
+ * The household for the part-answered flow: Sampleton, three members all
+ * invited to the Hindu ceremony. Only Bo answers, so "someone replied" and
+ * "everyone replied" disagree — the case no single-member household can show.
+ */
+export const CIRE_PART_GUEST = {
+  code: "TESTTWO-OAK-BB22",
+  answering: "Bo",
+  silent: ["Cleo", "Dot"],
+} as const;
+
 /** Identities the flows create. Fixed, so every run registers the same people. */
 export const PEOPLE = {
   musubi: { email: "ada@e2e.test", handle: "e2e_ada", name: "Ada E2E" },

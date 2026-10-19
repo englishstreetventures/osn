@@ -10,8 +10,17 @@
  * `cire/invites/tests/components/RsvpPanel.test.tsx`, not here.
  */
 
-import { CIRE_GUEST, CIRE_LATE_GUEST, CIRE_RSVP_CLOSED_ISO, ORIGINS } from "../../src/config";
-import { expect, test } from "../support/fixtures";
+import {
+  CIRE_GUEST,
+  CIRE_LATE_GUEST,
+  CIRE_RSVP_CLOSED_ISO,
+  DB_FILES,
+  ORIGINS,
+} from "../../src/config";
+import { expect, onSuiteClock, queryOne, test } from "../support/fixtures";
+
+/** The seeded Catholic ceremony (`cire/db/seed/data/events.ts`). */
+const CATHOLIC_ID = "9f7a2c14-1b3d-4e5f-8a01-000000000001";
 
 test("cire-rsvp-after-deadline", async ({ page, flow }) => {
   const card = (name: string) =>
@@ -49,6 +58,20 @@ test("cire-rsvp-after-deadline", async ({ page, flow }) => {
     await expect(catholic.getByRole("button", { name: "RSVP given" })).toBeVisible();
   });
 
+  // The reply the read-only view shows later is the one the server stored.
+  const row = queryOne<{ status: string; created_at: number }>(
+    DB_FILES.cire,
+    `SELECT r.status, r.created_at FROM rsvps r
+       JOIN guests g ON g.id = r.guest_id
+       JOIN families f ON f.id = g.family_id
+      WHERE f.public_id = ? AND g.first_name = ? AND r.event_id = ?`,
+    CIRE_LATE_GUEST.code,
+    CIRE_LATE_GUEST.guestName,
+    CATHOLIC_ID,
+  );
+  flow.check("rsvps row for Nori at the Catholic ceremony", "attending", row?.status ?? "missing");
+  flow.check("rsvps row written on the suite clock", true, onSuiteClock(row?.created_at));
+
   await flow.step("move the browser past the deadline and reload", async () => {
     await page.clock.setSystemTime(Date.parse(CIRE_RSVP_CLOSED_ISO));
     await page.reload();
@@ -82,9 +105,10 @@ test("cire-rsvp-after-deadline", async ({ page, flow }) => {
     await given.click();
     await expect(sheet).toBeVisible();
     await expect(sheet.getByText(/^RSVPs closed on /)).toBeVisible();
-    const attending = sheet.getByRole("button", { name: "Attending", exact: true });
-    await expect(attending).toHaveAttribute("aria-pressed", "true");
-    await expect(attending).toBeDisabled();
+    // The answer on file, written out where the answer buttons were.
+    await expect(
+      sheet.getByRole("group", { name: /Nori/ }).getByText("Attending", { exact: true }),
+    ).toBeVisible();
     // The action bar's one button; the sheet's "×" is also named Close.
     await expect(sheet.getByText("Close", { exact: true })).toBeVisible();
   });
@@ -93,6 +117,11 @@ test("cire-rsvp-after-deadline", async ({ page, flow }) => {
     "closed sheet has no Save",
     0,
     await sheet.getByRole("button", { name: "Save" }).count(),
+  );
+  flow.check(
+    "closed sheet has no answer buttons",
+    0,
+    await sheet.getByRole("button", { name: /^(Attending|Not attending)$/ }).count(),
   );
   // The sheet stays open: it is the flow's final screenshot.
 });
