@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   accountIdFrom,
   diffNames,
+  formatDiffs,
   githubDiff,
   githubExpectations,
   liveDiff,
@@ -64,6 +65,27 @@ describe("diffNames", () => {
       unexpected: [],
       forbidden: ["F"],
     });
+  });
+});
+
+describe("formatDiffs", () => {
+  test("prints ok only for a clean diff, and names every kind of difference", () => {
+    expect(
+      formatDiffs([
+        { where: "a", missing: [], unexpected: [], forbidden: [] },
+        { where: "b", missing: ["M1", "M2"], unexpected: ["U"], forbidden: ["F"] },
+        { where: "c", missing: [], unexpected: ["U"], forbidden: [] },
+        { where: "d", missing: [], unexpected: [], forbidden: ["F"] },
+      ]),
+    ).toBe(
+      [
+        "ok    a",
+        "DIFF  b — missing: M1, M2 — not in the inventory: U — forbidden but set: F",
+        "DIFF  c — not in the inventory: U",
+        "DIFF  d — forbidden but set: F",
+        "",
+      ].join("\n"),
+    );
   });
 });
 

@@ -114,16 +114,14 @@ export function githubDiff(tier: Tier, actual: readonly string[]): NameDiff {
   );
 }
 
+/** True when nothing is missing, unexpected or forbidden. */
+export const isClean = (diff: NameDiff): boolean =>
+  diff.missing.length === 0 && diff.unexpected.length === 0 && diff.forbidden.length === 0;
+
 export function formatDiffs(diffs: readonly NameDiff[]): string {
   return diffs
     .map((diff) => {
-      if (
-        diff.missing.length === 0 &&
-        diff.unexpected.length === 0 &&
-        diff.forbidden.length === 0
-      ) {
-        return `ok    ${diff.where}\n`;
-      }
+      if (isClean(diff)) return `ok    ${diff.where}\n`;
       const missing = diff.missing.length > 0 ? ` — missing: ${diff.missing.join(", ")}` : "";
       const unexpected =
         diff.unexpected.length > 0 ? ` — not in the inventory: ${diff.unexpected.join(", ")}` : "";

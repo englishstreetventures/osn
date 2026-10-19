@@ -3,35 +3,19 @@
  * Compares the secret inventory and the tier's account credentials with the
  * secret names in one tier's GitHub Environment:
  * `bun run secrets:check-github -- --tier <dev|production>`. Reads names
- * only. Needs a `gh` login that can list Environment secrets. Exits 0 when
- * nothing required is missing and the Environment holds none of the other
- * tier's credentials, 1 otherwise, 2 when the arguments or `gh` fail. A name
- * that is neither a Worker secret nor one of the tier's credentials is
- * printed but does not fail the check.
+ * only. Needs a `gh` login that can list Environment secrets, run inside the
+ * repository (or with GH_REPO set) so `gh` fills in `{owner}/{repo}`. Exits 0
+ * when nothing required is missing and the Environment holds none of the
+ * other tier's credentials, 1 otherwise, 2 when the arguments or `gh` fail. A
+ * name that is neither a Worker secret nor one of the tier's credentials is
+ * printed but does not fail the check. The rules are in
+ * `src/secrets/check.ts` (`checkGithub`).
  */
 import { spawnSync } from "node:child_process";
 
-import {
-  formatDiffs,
-  githubDiff,
-  parseTierArgument,
-  redactAccountIds,
-} from "../src/secrets/compare";
+import { checkGithub, githubSecretNamesArgs } from "../src/secrets/check";
+import { parseTierArgument } from "../src/secrets/compare";
 import type { Tier } from "../src/stage";
-
-function gh(args: readonly string[]): string {
-  const run = spawnSync("gh", args, { encoding: "utf8" });
-  if (run.error !== undefined || run.status !== 0) {
-    const command = `gh ${args.join(" ")}`;
-    process.stderr.write(
-      run.error === undefined
-        ? `${command} exited ${run.status}\n${redactAccountIds(run.stderr ?? "")}`
-        : `${command} did not run: ${redactAccountIds(run.error.message)}\n`,
-    );
-    process.exit(2);
-  }
-  return run.stdout;
-}
 
 let tier: Tier;
 try {
@@ -41,12 +25,19 @@ try {
   process.exit(2);
 }
 
-const repo = gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).trim();
-const diff = githubDiff(
-  tier,
-  gh(["api", "--paginate", `repos/${repo}/environments/${tier}/secrets`, "--jq", ".secrets[].name"])
-    .split("\n")
-    .filter((name) => name !== ""),
-);
-process.stdout.write(formatDiffs([diff]));
-process.exit(diff.missing.length === 0 && diff.forbidden.length === 0 ? 0 : 1);
+const outcome = await checkGithub(tier, () => {
+  const run = spawnSync("gh", githubSecretNamesArgs(tier), { encoding: "utf8" });
+  return Promise.resolve(
+    run.error === undefined && run.status !== null
+      ? { status: run.status, stdout: run.stdout ?? "", stderr: run.stderr ?? "" }
+      : {
+          status: null,
+          stdout: "",
+          stderr: "",
+          startError: run.error?.message ?? `killed by ${run.signal ?? "a signal"}`,
+        },
+  );
+});
+process.stdout.write(outcome.stdout);
+process.stderr.write(outcome.stderr);
+process.exit(outcome.exitCode);

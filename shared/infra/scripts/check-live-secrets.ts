@@ -7,21 +7,13 @@
  * Workers and is required; credentials come from a `wrangler login` or
  * CLOUDFLARE_API_TOKEN. Exits 0 when every Worker matches, 1 on any
  * difference (a forbidden name a Worker holds included), 2 when the
- * arguments, the account or wrangler fail.
+ * arguments, the account or wrangler fail. The rules are in
+ * `src/secrets/check.ts` (`checkLive`).
  */
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import {
-  accountIdFrom,
-  formatDiffs,
-  liveDiff,
-  liveExpectations,
-  parseTierArgument,
-  parseWranglerSecretList,
-  redactAccountIds,
-  type NameDiff,
-} from "../src/secrets/compare";
+import { checkLive, type ToolRun } from "../src/secrets/check";
+import { accountIdFrom, parseTierArgument } from "../src/secrets/compare";
 import type { Tier } from "../src/stage";
 
 /** The repository's own Wrangler, the version the root package.json pins. */
@@ -37,41 +29,30 @@ try {
   process.exit(2);
 }
 
-const diffs: NameDiff[] = [];
-for (const expected of liveExpectations(tier)) {
-  const run = spawnSync(
-    WRANGLER,
-    ["secret", "list", "--name", expected.scriptName, "--format", "json"],
-    {
-      encoding: "utf8",
-      env: { ...process.env, CLOUDFLARE_ACCOUNT_ID: accountId },
-    },
-  );
-  if (run.error !== undefined || run.status !== 0) {
-    const command = `wrangler secret list --name ${expected.scriptName}`;
-    process.stderr.write(
-      run.error === undefined
-        ? `${command} exited ${run.status}\n${redactAccountIds(run.stderr ?? "")}`
-        : `${command} did not run: ${redactAccountIds(run.error.message)}\n`,
-    );
-    process.exit(2);
-  }
+async function listSecrets(scriptName: string): Promise<ToolRun> {
   try {
-    diffs.push(liveDiff(expected, parseWranglerSecretList(run.stdout)));
+    const proc = Bun.spawn([WRANGLER, "secret", "list", "--name", scriptName, "--format", "json"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, CLOUDFLARE_ACCOUNT_ID: accountId },
+    });
+    const [stdout, stderr, status] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    return { status, stdout, stderr };
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    process.stderr.write(
-      `wrangler secret list --name ${expected.scriptName} printed output this check cannot read: ${redactAccountIds(reason)}\n`,
-    );
-    process.exit(2);
+    return {
+      status: null,
+      stdout: "",
+      stderr: "",
+      startError: error instanceof Error ? error.message : String(error),
+    };
   }
 }
-process.stdout.write(formatDiffs(diffs));
-process.exit(
-  diffs.every(
-    (diff) =>
-      diff.missing.length === 0 && diff.unexpected.length === 0 && diff.forbidden.length === 0,
-  )
-    ? 0
-    : 1,
-);
+
+const outcome = await checkLive(tier, listSecrets);
+process.stdout.write(outcome.stdout);
+process.stderr.write(outcome.stderr);
+process.exit(outcome.exitCode);
