@@ -2,7 +2,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { GiftMoneyPanel, giftMoneyMessage } from "./GiftMoneyPanel";
+import {
+  GiftMoneyPanel,
+  giftMoneyMessage,
+} from "../../../src/components/gift-registry/GiftMoneyPanel";
 
 /**
  * The "give money" panel.

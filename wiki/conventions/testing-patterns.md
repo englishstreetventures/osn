@@ -9,7 +9,7 @@ related:
   - "[[bundle-size-guards]]"
   - "[[devloop-urls]]"
   - "[[browser-tests]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-19
 ---
 
 # Testing Patterns
@@ -620,6 +620,7 @@ Reach for these before hand-rolling setup:
 | `cire/api/tests/test-helpers.ts` → `appRequest()` | Elysia requests with `cf-connecting-ip` + `Origin` pre-injected. |
 | `cire/host/tests/test-support/mocks.ts` | The `@shared/rp-auth/solid` + `@shared/toast` + `lib/api` mock trio, their spies, and `resetOrganiserMocks()`. |
 | `pulse/web/tests/helpers/toast.ts` → `toastMock()` | Same idea for the Pulse app. |
+| `cire/invites/tests/test-support/consent.ts` → `seedConsentForTest()` / `resetConsentForTest()` | A returning guest's consent cookie, written with the app's own record encoder under the http name `cire_consent` (an https origin reads only `__Host-cire_consent`, so it ignores the seed), and a reset that deletes both consent cookie names and returns the store to before hydration. For any `cire/invites` suite that renders a consent-gated component on the default http origin. See [[cire-consent]]. |
 | `cire/api/tests/test-helpers/metrics-harness.ts` → `counterValue()` | Reading a counter back in a `@cire/api` test. See [[#Asserting a metric]]. |
 
 Call `makeAccessTokenSigner()` once per suite in `beforeAll` — there is no reason to re-key per test.

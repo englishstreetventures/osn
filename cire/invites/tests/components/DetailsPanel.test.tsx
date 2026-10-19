@@ -4,7 +4,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
 import { DetailsPanel } from "../../src/components/DetailsPanel";
 import type { EventSummary } from "../../src/components/types";
-import { resetConsentForTest, seedConsentForTest } from "../../src/lib/consent/testing";
+import { resetConsentForTest, seedConsentForTest } from "../test-support/consent";
 
 vi.mock("motion", () => ({
   animate: vi.fn(() => ({ finished: Promise.resolve() })),
