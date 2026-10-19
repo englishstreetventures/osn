@@ -226,35 +226,86 @@ describe("osnSeedSql", () => {
     }
   });
 
-  test("S10: the key upsert leaves the key id owned by cire-api whatever held it before", () => {
-    const db = migratedDb();
-    db.exec(`INSERT INTO service_accounts (service_id, allowed_scopes, created_at, updated_at)
-      VALUES ('zap-api', 'graph:read', 1700000000, 1700000000)`);
-    db.exec(`INSERT INTO service_account_keys (key_id, service_id, public_key_jwk, registered_at, expires_at, revoked_at)
-      VALUES ('${ARC_KEY_ID}', 'zap-api', '{"kty":"EC"}', 1700000000, 1700000600, 1700000300)`);
+  describe("S10: re-importing the seed never undoes what an operator did in the database", () => {
+    const keyRow = (db: Database): KeyRow | null =>
+      db
+        .query<KeyRow, []>(`SELECT * FROM service_account_keys WHERE key_id = '${ARC_KEY_ID}'`)
+        .get();
+    const clientRow = (db: Database): ClientRow | null =>
+      db.query<ClientRow, []>("SELECT * FROM oauth_clients WHERE client_id = 'cid_cire'").get();
 
-    db.exec(sql);
-    db.exec(sql);
-
-    const key = db
-      .query<KeyRow, []>(`SELECT * FROM service_account_keys WHERE key_id = '${ARC_KEY_ID}'`)
-      .get();
-    expect(key).toEqual({
-      key_id: ARC_KEY_ID,
-      service_id: "cire-api",
-      public_key_jwk: arcPublicJwk(privateJwk),
-      registered_at: 1700000000,
-      expires_at: null,
-      revoked_at: null,
+    test("a fresh database gets the client, the service account and the key, live", () => {
+      const db = migratedDb();
+      db.exec(sql);
+      expect(clientRow(db)).toMatchObject({
+        sector_identifier: "cireweddings.com",
+        allowed_scopes: "openid profile email",
+        is_first_party: 1,
+        disabled_at: null,
+      });
+      expect(
+        db
+          .query<{ n: number }, []>(
+            "SELECT count(*) AS n FROM service_accounts WHERE service_id = 'cire-api'",
+          )
+          .get()?.n,
+      ).toBe(1);
+      expect(keyRow(db)).toEqual({
+        key_id: ARC_KEY_ID,
+        service_id: "cire-api",
+        public_key_jwk: arcPublicJwk(privateJwk),
+        // 2025-10-17T00:00:00Z, the instant every seeded row records.
+        registered_at: 1760659200,
+        expires_at: null,
+        revoked_at: null,
+      });
     });
-    const client = db
-      .query<ClientRow, []>("SELECT * FROM oauth_clients WHERE client_id = 'cid_cire'")
-      .get();
-    expect(client).toMatchObject({
-      sector_identifier: "cireweddings.com",
-      allowed_scopes: "openid profile email",
-      is_first_party: 1,
-      disabled_at: null,
+
+    test.each([
+      ["revoked_at", "revoked_at = 1700000300"],
+      ["expires_at", "expires_at = 1700000600"],
+    ])("a cire-api key with %s set keeps it after two imports", (_, change) => {
+      const db = migratedDb();
+      db.exec(sql);
+      db.exec(`UPDATE service_account_keys SET ${change} WHERE key_id = '${ARC_KEY_ID}'`);
+      const before = keyRow(db);
+      expect(before?.revoked_at ?? before?.expires_at).not.toBeNull();
+
+      db.exec(sql);
+      db.exec(sql);
+
+      expect(keyRow(db)).toEqual(before);
+    });
+
+    test("a disabled cid_cire stays disabled after two imports", () => {
+      const db = migratedDb();
+      db.exec(sql);
+      db.exec("UPDATE oauth_clients SET disabled_at = 1700000300 WHERE client_id = 'cid_cire'");
+
+      db.exec(sql);
+      db.exec(sql);
+
+      expect(clientRow(db)?.disabled_at).toBe(1700000300);
+    });
+
+    test("a key id another service holds stays that service's, its public key unchanged", () => {
+      const db = migratedDb();
+      db.exec(`INSERT INTO service_accounts (service_id, allowed_scopes, created_at, updated_at)
+        VALUES ('zap-api', 'graph:read', 1700000000, 1700000000)`);
+      db.exec(`INSERT INTO service_account_keys (key_id, service_id, public_key_jwk, registered_at, expires_at, revoked_at)
+        VALUES ('${ARC_KEY_ID}', 'zap-api', '{"kty":"EC"}', 1700000000, NULL, NULL)`);
+
+      db.exec(sql);
+      db.exec(sql);
+
+      expect(keyRow(db)).toEqual({
+        key_id: ARC_KEY_ID,
+        service_id: "zap-api",
+        public_key_jwk: '{"kty":"EC"}',
+        registered_at: 1700000000,
+        expires_at: null,
+        revoked_at: null,
+      });
     });
   });
 });
