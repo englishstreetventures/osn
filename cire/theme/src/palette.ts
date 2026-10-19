@@ -368,8 +368,43 @@ function semantic(hue: number, chroma: number, card: Oklch, darkStart = 0.72): s
   return formatOklch(ensureContrast(start, card, WCAG_TEXT_MIN));
 }
 
-const WHITE: Oklch = { l: 1, c: 0, h: 0, a: 1 };
-const BLACK: Oklch = { l: 0, c: 0, h: 0, a: 1 };
+/**
+ * Whether an OKLCH colour lies inside sRGB: its linear-light channels, before
+ * any clamping, all within [0, 1]. The converters `@shared/color` exports
+ * clamp, which hides exactly what this asks, so the OKLab → linear sRGB step
+ * (Björn Ottosson's matrices, as `oklchToRgb` uses) is written out here.
+ */
+function inSrgb({ l, c, h }: Oklch): boolean {
+  const a = c * Math.cos((h * Math.PI) / 180);
+  const b = c * Math.sin((h * Math.PI) / 180);
+  const L = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const M = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const S = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  const EPSILON = 1e-9;
+  return [
+    4.0767416621 * L - 3.3077115913 * M + 0.2309699292 * S,
+    -1.2684380046 * L + 2.6097574011 * M - 0.3413193965 * S,
+    -0.0041960863 * L - 0.7034186147 * M + 1.707614701 * S,
+  ].every((v) => v >= -EPSILON && v <= 1 + EPSILON);
+}
+
+/**
+ * The colour with its chroma lowered, if it must be, to the most its
+ * lightness and hue hold inside sRGB. A binary search: in-gamut chroma at a
+ * fixed lightness and hue is one unbroken range from zero. Floored to the four
+ * decimals `formatOklch` writes, so rounding the token cannot push it back out.
+ */
+function intoSrgb(colour: Oklch): Oklch {
+  if (inSrgb(colour)) return colour;
+  let inside = 0;
+  let outside = colour.c;
+  for (let i = 0; i < 20; i++) {
+    const c = (inside + outside) / 2;
+    if (inSrgb({ ...colour, c })) inside = c;
+    else outside = c;
+  }
+  return { ...colour, c: Math.floor(inside * 1e4) / 1e4 };
+}
 
 /**
  * The label colour for anything painted on the metal: every gold button, and
@@ -406,9 +441,11 @@ function onGoldInk(gilt: Oklch, ground: Oklch, ink: Oklch): Oklch {
   let label = start;
   for (let i = 1; i <= 50; i++) {
     const l = Math.min(1, Math.max(0, start.l + (lighter ? i : -i) * STEP));
-    // Ease chroma off toward the pole so the colour stays inside sRGB, as
-    // `ensureContrast` does.
-    label = { ...start, l, c: Math.min(start.c, (lighter ? 1 - l : l) * 0.6) };
+    // The start's own chroma where this lightness can hold it, less where it
+    // cannot: near either pole sRGB holds very little colour, and a label
+    // outside it would be painted as whatever the browser maps it to rather
+    // than the colour measured here.
+    label = intoSrgb({ ...start, l });
     if (reads(label)) break;
   }
   return label;

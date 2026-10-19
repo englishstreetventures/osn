@@ -9,7 +9,7 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 # Invite Builder
 
@@ -534,16 +534,19 @@ measuring both against the gold, not by the gold's lightness — garden's rose
 gold sits just past the midpoint, where `ensureContrast`'s "dark on light"
 rule reaches pure black at 4.47:1 while white gives 4.70. The stronger pole
 always clears at least 4.58:1 against any colour, so the walk always lands.
-The organiser's gold is never moved to make room:
+Each step keeps the starting colour's chroma where that lightness can hold it
+inside sRGB and lowers it where it cannot, so a walked label is a colour the
+browser paints as named; `palette.test.ts` checks that across 500 seeded
+schemes. The organiser's gold is never moved to make room:
 
 | Preset | `--color-on-gold` | On gold |
 |---|---|---|
 | evergreen, jewel | the page colour | 8.04, 9.17 |
 | fog | the page colour | 4.96 |
 | chapel | near-black, `oklch(14% 0.018 70)` | 4.60 |
-| garden | near-white, `oklch(99.5% 0.003 25)` | 4.63 |
+| garden | near-white, `oklch(99.5% 0.0023 25)` | 4.63 |
 
-*Measured 2026-10-19 — `derivePalette(PALETTE_PRESETS[key])` from `@cire/theme`, `contrastOklch` of `--color-on-gold` against `--color-gold`*
+*Measured 2026-10-20 — `derivePalette(PALETTE_PRESETS[key])` from `@cire/theme`, `contrastOklch` of `--color-on-gold` against `--color-gold`*
 
 Holding bloom to 4.5:1 rather than the UI floor is what lets the answered
 button's label be the page colour on every scheme. Garden's bloom seed sits at

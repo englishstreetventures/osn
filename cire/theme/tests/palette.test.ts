@@ -24,6 +24,29 @@ import {
   WCAG_UI_MIN,
 } from "../src/index";
 
+/**
+ * Whether an OKLCH colour lies inside sRGB: its linear-light channels, before
+ * any clamping, all within [0, 1]. Björn Ottosson's published OKLab → linear
+ * sRGB matrices, written out here rather than imported because every
+ * converter the package exports clamps, which is the step this check exists
+ * to see past. The tolerance absorbs the rounding `formatOklch` applies to the
+ * token string (lightness to 0.01%, chroma to 4 decimals).
+ */
+function inSrgb({ l, c, h }: { l: number; c: number; h: number }): boolean {
+  const a = c * Math.cos((h * Math.PI) / 180);
+  const b = c * Math.sin((h * Math.PI) / 180);
+  const L = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const M = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const S = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  const channels = [
+    4.0767416621 * L - 3.3077115913 * M + 0.2309699292 * S,
+    -1.2684380046 * L + 2.6097574011 * M - 0.3413193965 * S,
+    -0.0041960863 * L - 0.7034186147 * M + 1.707614701 * S,
+  ];
+  const TOLERANCE = 1e-3;
+  return channels.every((v) => v >= -TOLERANCE && v <= 1 + TOLERANCE);
+}
+
 describe("colour round-trip", () => {
   test("hex → oklch → rgb returns the original hex", () => {
     for (const hex of ["#d4af37", "#ffffff", "#000000", "#1b172a", "#c9a961"]) {
@@ -690,13 +713,17 @@ describe("residual contrast warnings", () => {
 
   test("the on-gold ink clears the text bar on any scheme an organiser can pick", () => {
     // The guarantee that leaves `label-on-gold` a backstop: whatever the five
-    // seeds, every gold button's label reads at 4.5:1. A fixed-seed sweep, so
-    // a failure names a scheme a rerun reproduces.
+    // seeds, every gold button's label reads at 4.5:1 — and a label the walk
+    // made is a real sRGB colour, so the browser paints the colour the token
+    // names rather than whatever it maps an out-of-gamut value to (the ratio
+    // above is measured after clamping, so it cannot see that). A fixed-seed
+    // sweep, so a failure names a scheme a rerun reproduces.
     let state = 0x2f6b_1a3d;
     const next = () => {
       state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
       return state.toString(16).padStart(8, "0").slice(0, 6);
     };
+    let walked = 0;
     for (let i = 0; i < 500; i++) {
       const seeds = {
         ground: `#${next()}`,
@@ -706,11 +733,23 @@ describe("residual contrast warnings", () => {
         bloom: `#${next()}`,
       };
       const v = derivePalette(seeds);
+      const onGold = v["--color-on-gold"]!;
       expect({
         seeds,
-        ok: contrastRatio(v["--color-on-gold"]!, v["--color-gold"]!)! >= WCAG_TEXT_MIN,
+        ok: contrastRatio(onGold, v["--color-gold"]!)! >= WCAG_TEXT_MIN,
       }).toEqual({ seeds, ok: true });
+      // The page colour and the ink are the organiser's own; only a walked
+      // label is ours to keep in gamut.
+      if (onGold === v["--color-bg"] || onGold === v["--color-text"]) continue;
+      walked++;
+      expect({ seeds, onGold, inSrgb: inSrgb(parseColor(onGold)!) }).toEqual({
+        seeds,
+        onGold,
+        inSrgb: true,
+      });
     }
+    // Enough walks for the gamut check to mean something.
+    expect(walked).toBeGreaterThan(300);
   });
 
   test("measures each pair against the surface its message names", () => {
