@@ -17,7 +17,7 @@
     "./solid": "./src/client/solid.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit && tsc --noEmit -p tsconfig.client.json && tsc --noEmit -p tests/tsconfig.json",
+    "check": "tsc --noEmit && tsc --noEmit -p src/client && tsc --noEmit -p tests && tsc --noEmit -p tests/client",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",
     "test:d1": "bun test tests/d1/"
