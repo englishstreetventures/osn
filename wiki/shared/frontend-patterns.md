@@ -20,6 +20,7 @@ related:
   - "[[cire-development]]"
   - "[[cire-invite-designs]]"
 packages:
+  - "@cire/host"
   - "@pulse/web"
   - "@shared/ui"
 last-reviewed: 2026-10-19
@@ -116,7 +117,7 @@ Every one of these cost a real bug. They were all found in cire, but none of the
 is cire-specific — they are properties of Tailwind's scanner, Solid's reactivity,
 Motion One's finish behaviour and the CSS spec, so they apply to `@pulse/web` and
 `@musubi/social` the same way. What unites them is that **the fast test tier cannot
-see any of them**: jsdom and happy-dom compute no styles and no layout, so a
+fully see any of them**: jsdom and happy-dom compute no styles and no layout, so a
 green unit suite proves nothing here. Pin the class contract in the fast tier and
 measure the real thing in the browser tier ([[browser-tests]]).
 
@@ -293,18 +294,36 @@ is the label — rather than only the symptom. A scroll-offset assertion passes 
 soon as *any* fix is in place, including a `clip` on an ancestor, so it cannot
 tell you the cause came back.
 
-### A `title` reaches only the mouse, and `text-transform` reaches the screen reader
+### Chrome exposes a `title` as a description, and carries `text-transform` into the text
 
 Two facts decide how a short badge explains itself:
 
-- A `title` shows on mouse hover and nowhere else, so a keyboard or touch user
-  never gets it. Chrome also exposes it as the element's description, so a
-  `title` beside visible or `sr-only` text hands a screen reader the same words
-  twice. Put the explanation in `sr-only` text inside the badge, and drop the
-  `title`.
+- A `title` shows on mouse hover only; keyboard and touch users never see it.
+  A table cell's accessible name comes from the text inside the cell, so a
+  `title` on a badge that has a word of its own is not part of it: Chrome
+  exposes the `title` as the badge's description instead. A `title` that
+  repeats text inside the element hands a screen reader the same words twice,
+  once as text and once as the description. So put the explanation in `sr-only`
+  text inside the badge and drop the `title`. Sighted users, mouse users
+  included, then see only the badge's word; an explanation they need has to be
+  visible text.
 - Chrome carries `text-transform` into the text it exposes, so `sr-only` text
-  inside an `uppercase` badge reaches a screen reader in capitals. Give the
-  hidden text `normal-case`.
+  inside an `uppercase` badge reaches a screen reader in capitals. Some screen
+  readers can be set to announce capitals, or read a word in capitals letter by
+  letter, and a sentence is meant to be read as written. A one-word label can
+  stay `uppercase`, as the badges' own words do; give a hidden sentence
+  `normal-case`.
+
+  *Unverified — no screen reader was run; what was measured is the text in
+  Chrome's accessibility tree.*
+
+The hidden text is not focusable, so the focus scroll in the section above
+cannot fire, and the badge needs no `relative`.
+
+The fast tier sees the `title` half: a unit test can assert no `[title]` and
+find the explanation in the cell's accessible name
+(`cire/host/tests/components/RsvpView.test.tsx`). Only the browser tier sees the
+description Chrome builds and the case it exposes.
 
 The RSVP table's badges in `cire/host/src/components/RsvpView.tsx` follow both.
 How to check what Chrome exposes, and the measurement behind these two facts,

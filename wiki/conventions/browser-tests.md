@@ -92,8 +92,8 @@ have lived in the fast tier and didn't is a tax on every CI run.
 Good reasons: computed style from a real stylesheet, real geometry
 (`getBoundingClientRect`, `elementFromPoint`), paint/stacking order, sticky or
 scroll behaviour, media-query emulation, focus behaviour that depends on real
-layout, and what Chrome's accessibility tree exposes once CSS has applied
-([[#Chrome's accessibility tree]]).
+layout, and what Chrome's accessibility tree exposes, which both CSS and
+Chrome's own mapping of HTML change ([[#Chrome's accessibility tree]]).
 
 Not reasons: component logic, props, ARIA attributes, event handlers, class
 strings. Those all belong in the fast tier — and a class-contract assertion
@@ -222,11 +222,12 @@ different number.
 ### Chrome's accessibility tree
 
 Testing Library and the `page` locators compute accessible names in JavaScript,
-from the DOM. They cannot say what Chrome itself hands a screen reader, and CSS
-changes that: Chrome carries a `text-transform` into the text it exposes, so
-text inside an `uppercase` badge reaches a screen reader in capitals, and it
+from the DOM. They cannot say what Chrome itself hands a screen reader, and two
+things change it: Chrome carries a `text-transform` into the text it exposes,
+so text inside an `uppercase` badge reaches a screen reader in capitals, and it
 exposes a `title` on a plain `<span>` as that span's description, on top of any
-text inside it.
+text inside it. Capitals matter for a hidden sentence, not a one-word label;
+the badge section of [[frontend-patterns]] says why.
 
 *Measured 2026-10-19 — `bun run --cwd cire/host test:browser tests/components/RsvpView.badges.browser.test.tsx`, once with a badge's `normal-case` removed and once with a `title` added back*
 

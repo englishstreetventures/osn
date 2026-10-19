@@ -554,9 +554,10 @@ export default function RsvpView(props: RsvpViewProps) {
                                   {row.firstName} {row.lastName}
                                   {/* Each badge explains itself in visually
                                       hidden text inside it, not in a `title`:
-                                      a title reaches mouse hover only, and
-                                      beside the text Chrome would hand it to a
-                                      screen reader a second time, as the
+                                      a title shows on mouse hover only and is
+                                      not part of the cell's accessible name,
+                                      and beside the text Chrome would hand it
+                                      to a screen reader a second time, as the
                                       badge's description. `normal-case`
                                       because the badge's `uppercase` would
                                       otherwise reach a screen reader as
