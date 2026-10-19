@@ -271,6 +271,15 @@ describe("apiWorkerProps", () => {
     const error = thrown(() => apiWorkerProps({ ...cireApiDev, secrets: asSecret }));
     expect(error).toBeInstanceOf(UndeclaredSecretsError);
     expect(error).toMatchObject({ unexpected: ["OSN_API_URL"] });
+    // The dev row lists it as a plain var, so the var passes there, and only
+    // as a var: a binding of that name is still refused.
+    const asVar = { ...cireApiDev.vars, OSN_API_URL: "https://id.musubi.example.test" };
+    expect(apiWorkerProps({ ...cireApiDev, vars: asVar }).env).toMatchObject({
+      OSN_API_URL: "https://id.musubi.example.test",
+    });
+    expect(() => apiWorkerProps({ ...cireApiDev, bindings: { OSN_API_URL: {} as never } })).toThrow(
+      SecretAsPlainBindingError,
+    );
     expect(() =>
       apiWorkerProps({
         ...cireApiProduction,

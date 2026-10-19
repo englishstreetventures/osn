@@ -52,7 +52,7 @@ Two checks enforce these names:
 
 The credentials a run carries choose the account; `assertDevDeployTarget()` makes the stack check them against the stage before anything is declared ([[#How a stack run starts]]).
 
-A token can reach more than one account: one created with "All accounts" by a member of both reaches production from the `dev` Environment, which has no reviewer. So before Alchemy runs, `bun run --cwd shared/infra token:check` ([`scripts/check-token-reach.ts`](../../shared/infra/scripts/check-token-reach.ts)) lists the accounts `CLOUDFLARE_API_TOKEN` reaches (`GET /accounts`) and stops the run unless it is exactly the one `CLOUDFLARE_ACCOUNT_ID` names: exit 1 when it reaches another account or none, 2 when it cannot list them. It prints no account id. A job that runs Alchemy runs it first; today those are the two tier steps of `alchemy-state.yml`.
+A token can reach more than one account: one created with "All accounts" by a member of both reaches production from the `dev` Environment, which has no reviewer. So before Alchemy runs, `bun run --cwd shared/infra token:check` ([`scripts/check-token-reach.ts`](../../shared/infra/scripts/check-token-reach.ts)) lists the accounts `CLOUDFLARE_API_TOKEN` reaches (`GET /accounts`) and stops the run unless it is exactly the one `CLOUDFLARE_ACCOUNT_ID` names: exit 1 when it reaches another account or none, 2 when it cannot list them. It prints no account id. A job that runs Alchemy runs it first: the two tier steps of `alchemy-state.yml`, and each stack job of `deploy.yml` before its first step that holds the dev token (W12 in `shared/infra/tests/workflow-secrets.test.ts`).
 
 ## The building blocks
 
@@ -86,7 +86,7 @@ Each refusal is a `Data.TaggedError`. Every one names secret names, never values
 |---|---|---|
 | `UndeclaredSecretsError` | `apiWorkerProps()` | `secrets` leaves out a name the inventory requires of that Worker on the stage's tier, or passes a name the inventory does not declare there |
 | `BindingNameClashError` | `apiWorkerProps()` | One name appears in two of vars, bindings and secrets, or starts with `ALCHEMY_` |
-| `SecretAsPlainBindingError` | `apiWorkerProps()` | A var or binding takes a name the inventory lists for that Worker on either tier (required, optional or forbidden). A var reaches the Worker as plain text that `wrangler secret list` never shows |
+| `SecretAsPlainBindingError` | `apiWorkerProps()` | A var or binding takes a name the inventory lists for that Worker on either tier (required, optional or forbidden), unless it is a var the stage's own tier lists in `plainVars`. A var reaches the Worker as plain text that `wrangler secret list` never shows |
 | `ProductionPreviewUrlsError` | `apiWorkerProps()`, `siteWorkerProps()` | `previewUrls` is true on production. Each version's preview URL is a public `workers.dev` host outside any Access gate |
 | `ProductionObservabilityError` | `apiWorkerProps()` | On production, query strings are not redacted or native traces are on ([[#Production observability]]) |
 | `AdoptedLocationHintError` | `retainedD1Props()`, `retainedBucketProps()` | A location hint is declared on production, where the storage is adopted |
@@ -220,13 +220,14 @@ build ────┘
 
 1. Refuse `force` together with `expect_no_change`.
 2. Install with `--frozen-lockfile`, run `dev-hosts`, and build the stack's sites against those hosts. No install or build step holds a credential or a Worker secret; the invites build reads `ASTRO_KEY` alone.
-3. **Snapshot**: `scripts/worker-deployments.ts snapshot` records each Worker's newest deployment, and writes `force=true` when any Worker's newest deployment carries the smoke check's rollback message.
-4. Refuse `expect_no_change` while the snapshot says `force`.
-5. **Deploy**: `bun run deploy:dev` in the stack directory, with `--force` when dispatched with `force` or when the snapshot says so. Its env holds the dev credentials, `OSN_DEPLOY_TIER: dev`, `DEV_DOMAIN`, `DO_NOT_TRACK: "1"` and exactly the dev inventory secrets of the stack's Workers plus `STACK_STEP_SECRETS`; the cire step also reads the `CIRE_DEV_OWNER_PROFILE_ID` variable.
-6. **Plan summary**: `plan-summary` appends the plan's change counts and the stack name to the run summary, never a line of Alchemy's output. With `expect_no_change` it fails unless the plan was `no changes`.
-7. **Compare**: `scripts/worker-deployments.ts compare` names, per Worker, the deployment the deploy made, or `unchanged`, or `unknown` when it cannot read the Worker.
-8. **One smoke check per surface**, `scripts/smoke-check.ts <surface> dev`, with `SMOKE_ORIGIN` from `dev-hosts` and `SMOKE_DEPLOYMENT` from the compare step. A failed check rolls back only the deployment this run made, and only while it is still the newest ([[production-deploy#7. Post-deploy verification (smoke checks)]]).
-9. Fail the job when any check failed or the compare step failed.
+3. **Token check**: `token:check` stops the job unless the dev token reaches the dev account and no other ([[#Accounts]]). No earlier step holds the token.
+4. **Snapshot**: `scripts/worker-deployments.ts snapshot` records each Worker's newest deployment, and writes `force=true` when any Worker's newest deployment carries the smoke check's rollback message.
+5. Refuse `expect_no_change` while the snapshot says `force`.
+6. **Deploy**: `bun run deploy:dev` in the stack directory, with `--force` when dispatched with `force` or when the snapshot says so. Its env holds the dev credentials, `OSN_DEPLOY_TIER: dev`, `DEV_DOMAIN`, `DO_NOT_TRACK: "1"` and exactly the dev inventory secrets of the stack's Workers plus `STACK_STEP_SECRETS`; the cire step also reads the `CIRE_DEV_OWNER_PROFILE_ID` variable.
+7. **Plan summary**: `plan-summary` appends the plan's change counts and the stack name to the run summary, never a line of Alchemy's output. With `expect_no_change` it fails unless the plan was `no changes`.
+8. **Compare**: `scripts/worker-deployments.ts compare` names, per Worker, the deployment the deploy made, or `unchanged`, or `unknown` when it cannot read the Worker.
+9. **One smoke check per surface**, `scripts/smoke-check.ts <surface> dev`, with `SMOKE_ORIGIN` from `dev-hosts` and `SMOKE_DEPLOYMENT` from the compare step. A failed check rolls back only the deployment this run made, and only while it is still the newest ([[production-deploy#7. Post-deploy verification (smoke checks)]]).
+10. Fail the job when any check failed or the compare step failed.
 
 **Rollback is judged by deployment id.** Alchemy reports no version id for a normal deploy, and it plans against its own state, not the live Worker. So the smoke check never rolls back an `unchanged` Worker, and after a rollback the stack's state still names the code the rollback removed: the next run's snapshot sees the rollback message, deploys with `--force`, and re-uploads what the commit declares. An `unchanged` Worker whose newest deployment is a rollback fails its check at once, so a failed heal never records success. Roll a dev Worker back only through the smoke check: a rollback made by hand carries no rollback message, so no run sees it and dev keeps serving it.
 
@@ -254,6 +255,7 @@ A dispatch deploys every stack. A stack job builds every site of its stack befor
 | `secrets` | Required names, sorted. Declared on every deploy; a missing value fails it |
 | `optional` | Names declared only while their GitHub secret holds a value. Today only osn-api's `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS`, set while a TOTP key rotation drains |
 | `forbidden` | Names that must never be set on that Worker on that tier |
+| `plainVars` | Names this tier holds as plain-text vars although another tier holds them as secrets. Only cire-api's dev `OSN_API_URL`, osn-api's dev origin derived from the dev domain |
 
 Alchemy uploads a Worker with exactly the secrets its stack declares and drops the rest. A Worker therefore starts holding a new secret only through an inventory change in a reviewed pull request: setting a GitHub secret alone deploys nothing, and a live secret the inventory lacks is deleted by that Worker's next Alchemy deploy. `shared/infra/tests/secrets/inventory.test.ts` checks that each Worker's code reads every required and optional name declared for it. It also reads its expectations from the files that set them: osn-api requires every secret `osn/api/wrangler.toml` marks `REQUIRED non-local` and every name the production preflight requires, and production forbids every name a production preflight in `production-release.yml` refuses.
 
@@ -349,13 +351,13 @@ Rehearse it on the dev account before production's store holds secrets (englishs
 
 `alchemy` stays on an exact pin, and `shared/infra/tests/package.test.ts` fails on any other version. Repeat this review on every bump.
 
-The CI lint, OpenAPI-freshness and E2E jobs and every product deploy job in `production-release.yml` never load `@shared/infra`, so they install with `--filter '!@shared/infra'`: the full tree minus about 100 Alchemy-only packages. The jobs that build, test or type-check it keep the full install, and so do `deploy.yml`'s stack jobs, which run Alchemy; `alchemy-state.yml` installs `--filter @shared/infra` alone. `scripts/tests/deploy-workflows.test.ts` accepts either install form in the two deploy workflows.
+The CI lint, OpenAPI-freshness and E2E jobs and every product deploy job in `production-release.yml` never load the Alchemy tree, so they install with `--filter '!@*/infra'`, which leaves out `@shared/infra` and every `@<product>/infra` stack: each stack depends on `alchemy` itself, so leaving out `@shared/infra` alone installs the whole tree anyway. The jobs that build, test or type-check those packages keep the full install, and so do `deploy.yml`'s stack jobs, which run Alchemy; `alchemy-state.yml` installs `--filter @shared/infra` alone. `scripts/tests/deploy-workflows.test.ts` accepts either install form in the two deploy workflows.
 
-*Measured 2026-10-19 on Bun 1.4.2, darwin-arm64, in a scratch copy of the tree — the filtered install equals the full one minus 102 packages, leaves `bun.lock` unchanged, and `bun run lint` reports the same 878 warnings*
+*Measured 2026-10-19 on Bun 1.4.2, darwin-arm64, in scratch copies of the tree with the four stacks — `--filter '!@*/infra'` leaves 962 entries in `node_modules/.bun` against 1064 for the full install and for `--filter '!@shared/infra'`, and installs no `alchemy`*
 
 ## Testing
 
-`@shared/infra`'s tests are two vitest projects ([`vitest.config.ts`](../../shared/infra/vitest.config.ts)). `repo` holds the three files that read outside the package (the Worker sources, `osn/api/wrangler.toml`, `bun.lock` and the workflows) and runs as the turbo task `test:repo`, whose inputs name those files. `package` holds the rest and runs as `test`, cached on the package's own files and run after `test:repo`. `bun run --cwd shared/infra test:run` runs both.
+`@shared/infra`'s tests are two vitest projects ([`vitest.config.ts`](../../shared/infra/vitest.config.ts)). `repo` holds the five files that read outside the package (the Worker sources, `osn/api/wrangler.toml`, `bun.lock`, the root `turbo.json` and the workflows) and runs as the turbo task `test:repo`, whose inputs name those files. `package` holds the rest and runs as `test`, cached on the package's own files and run after `test:repo`. `bun run --cwd shared/infra test:run` runs both.
 
 ## Merging an infra change
 

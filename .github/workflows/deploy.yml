@@ -301,6 +301,16 @@ jobs:
           SITE: ${{ steps.hosts.outputs.musubi_landing_origin }}
           PUBLIC_APP_URL: ${{ steps.hosts.outputs.musubi_social_origin }}
 
+      # The dev token must reach the dev account and no other: a token created
+      # with "All accounts" by a member of both would reach production too.
+      # Every step below that holds it runs only after this passes.
+      - name: Check the token reaches only the dev account
+        id: token
+        run: bun run --cwd shared/infra token:check
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
       - name: Record each Worker's newest deployment
         id: snapshot
         run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" osn_api osn_social musubi_landing
@@ -596,6 +606,16 @@ jobs:
       - name: Guard cire/landing bundle size
         run: ./scripts/guard-bundle-size.sh cire/landing
 
+      # The dev token must reach the dev account and no other: a token created
+      # with "All accounts" by a member of both would reach production too.
+      # Every step below that holds it runs only after this passes.
+      - name: Check the token reaches only the dev account
+        id: token
+        run: bun run --cwd shared/infra token:check
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
       - name: Record each Worker's newest deployment
         id: snapshot
         run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" cire_api cire_invites cire_host cire_vendor cire_landing
@@ -848,6 +868,16 @@ jobs:
         env:
           DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
 
+      # The dev token must reach the dev account and no other: a token created
+      # with "All accounts" by a member of both would reach production too.
+      # Every step below that holds it runs only after this passes.
+      - name: Check the token reaches only the dev account
+        id: token
+        run: bun run --cwd shared/infra token:check
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
       - name: Record each Worker's newest deployment
         id: snapshot
         run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" zap_api
@@ -1006,6 +1036,16 @@ jobs:
         run: bun run build --filter=@pulse/landing
         env:
           SITE: ${{ steps.hosts.outputs.pulse_landing_origin }}
+
+      # The dev token must reach the dev account and no other: a token created
+      # with "All accounts" by a member of both would reach production too.
+      # Every step below that holds it runs only after this passes.
+      - name: Check the token reaches only the dev account
+        id: token
+        run: bun run --cwd shared/infra token:check
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
       - name: Record each Worker's newest deployment
         id: snapshot

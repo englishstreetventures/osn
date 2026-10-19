@@ -60,6 +60,9 @@ export function zapDeclaration(input: {
       domain: hosts.zapApi,
       crons: [],
       workersDev: false,
+      // Off until per-pull-request previews (P4): each version's preview URL
+      // is a public workers.dev host that no Access application covers.
+      previewUrls: false,
       // Exactly the names production's Wrangler config sets. OSN_ISSUER_URL
       // must equal osn-api's own issuer byte for byte, or every
       // authenticated request is refused.

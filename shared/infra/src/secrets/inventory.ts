@@ -28,6 +28,12 @@ export interface TierSecrets {
   readonly optional: readonly string[];
   /** Names that must never be set on this Worker on this tier. */
   readonly forbidden: readonly string[];
+  /**
+   * Names this tier holds as plain-text vars although another tier holds them
+   * as secrets: values that name no secret, such as a host derived from the
+   * dev domain. `apiWorker()` lets a var, and only a var, take one on this tier.
+   */
+  readonly plainVars?: readonly string[];
 }
 
 export interface WorkerSecrets {
@@ -89,13 +95,14 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "CIRE_API_ARC_KEY_ID",
           "CIRE_API_ARC_PRIVATE_KEY",
           "CIRE_OIDC_CLIENT_SECRET",
-          // OSN_API_URL is a var on dev, derived from the dev domain.
           "STRIPE_PLATFORM_WEBHOOK_SECRET",
           "STRIPE_SECRET_KEY",
           "STRIPE_WEBHOOK_SECRET",
         ],
         optional: [],
         forbidden: ["RESEND_API_URL"],
+        // osn-api's dev origin, derived from the dev domain; a secret on production.
+        plainVars: ["OSN_API_URL"],
       },
       production: {
         scriptName: "cire-api-production",

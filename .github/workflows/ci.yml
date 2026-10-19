@@ -54,11 +54,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      # @shared/infra's Alchemy tree is about 100 packages and over 1 GB
-      # unpacked, and only a job that builds, tests or type-checks that
-      # package loads it; every other job installs without it.
-      - name: Install dependencies except @shared/infra
-        run: bun install --filter '!@shared/infra'
+      # The Alchemy tree (@shared/infra and the @<product>/infra stacks) is
+      # about 100 packages and over 1 GB unpacked, and only a job that builds,
+      # tests or type-checks those packages loads it; every other job installs
+      # without them.
+      - name: Install dependencies except the infra packages
+        run: bun install --filter '!@*/infra'
 
       - name: Lint
         run: bun run lint
@@ -527,8 +528,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Install dependencies except @shared/infra
-        run: bun install --filter '!@shared/infra'
+      - name: Install dependencies except the infra packages
+        run: bun install --filter '!@*/infra'
 
       - name: Regenerate OpenAPI documents
         run: |
@@ -571,8 +572,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
+      - name: Install dependencies except the infra packages
+        run: bun install --frozen-lockfile --filter '!@*/infra'
 
       # The same cache and the same two bounded halves as the browser tier in
       # `build-test`, for the same reasons (see the comments there). Run from

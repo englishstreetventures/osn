@@ -16,8 +16,10 @@ import { STACK_KEYS, STACK_STEP_SECRETS, STACK_WORKERS, type StackKey } from "..
 interface Step {
   readonly id?: string;
   readonly name?: string;
+  readonly if?: string;
   readonly run?: string;
   readonly env?: Readonly<Record<string, string>>;
+  readonly "continue-on-error"?: boolean;
 }
 
 interface Job {
@@ -117,7 +119,9 @@ describe("W3: no install or build step holds a secret", () => {
   test("only the deploy, the deployment snapshot and compare, the smoke checks and the guest site's build read a secret", () => {
     // The deploy step and the guest site's build are held exactly above.
     const mayRead = (step: Step): readonly string[] => {
-      if (step.id === "snapshot" || step.id === "deployments") return accountSecrets("dev");
+      if (step.id === "token" || step.id === "snapshot" || step.id === "deployments") {
+        return accountSecrets("dev");
+      }
       if (step.id?.startsWith("smoke_") === true) {
         return accountSecrets("dev").concat(["CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"]);
       }
@@ -132,6 +136,21 @@ describe("W3: no install or build step holds a secret", () => {
     );
     expect(strays).toEqual([]);
   });
+});
+
+describe("W12: each stack job checks its token before any step uses it", () => {
+  test.each(STACK_KEYS.map((key) => [key] as const))(
+    "%s: the first step holding the token is token:check, on the dev pair alone",
+    (key) => {
+      const steps = stackJob(key).steps ?? [];
+      const first = steps.find((step) => Object.hasOwn(step.env ?? {}, "CLOUDFLARE_API_TOKEN"));
+      expect(first?.id).toBe("token");
+      expect(first?.run).toBe("bun run --cwd shared/infra token:check");
+      expect(first?.["continue-on-error"]).toBeUndefined();
+      expect(first?.if).toBeUndefined();
+      expect(secretsRead(first)).toEqual([...accountSecrets("dev")]);
+    },
+  );
 });
 
 describe("W8: deploy.yml reaches the dev account and no other", () => {

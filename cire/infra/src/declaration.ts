@@ -133,6 +133,9 @@ const site = (
   entry: null,
   domain,
   workersDev: false,
+  // Off until per-pull-request previews (P4): each version's preview URL
+  // is a public workers.dev host that no Access application covers.
+  previewUrls: false,
   htmlHandling: "auto-trailing-slash",
   notFoundHandling: "none",
   issues: true,
@@ -175,6 +178,9 @@ export function cireDeclaration(input: {
       domain: hosts.cireApi,
       crons: ["0 4 * * *"],
       workersDev: false,
+      // Off until per-pull-request previews (P4): each version's preview URL
+      // is a public workers.dev host that no Access application covers.
+      previewUrls: false,
       vars: {
         OSN_ENV: "dev",
         // cire-api reads the entries by position: guest site, organiser
@@ -249,6 +255,9 @@ export function cireDeclaration(input: {
       domain: hosts.cireInvites,
       crons: [],
       workersDev: false,
+      // Off until per-pull-request previews (P4): each version's preview URL
+      // is a public workers.dev host that no Access application covers.
+      previewUrls: false,
       vars: {},
       bindings: {},
       observability: DEV_OBSERVABILITY,

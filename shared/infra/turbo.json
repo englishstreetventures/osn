@@ -18,6 +18,7 @@
         "$TURBO_ROOT$/cire/invites/src/**",
         "$TURBO_ROOT$/osn/api/wrangler.toml",
         "$TURBO_ROOT$/bun.lock",
+        "$TURBO_ROOT$/turbo.json",
         "$TURBO_ROOT$/.github/workflows/**"
       ]
     }

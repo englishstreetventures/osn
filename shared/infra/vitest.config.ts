@@ -10,6 +10,8 @@ const READS_REPO = [
   "tests/accounts.test.ts",
   "tests/package.test.ts",
   "tests/secrets/inventory.test.ts",
+  "tests/workflow-hosts.test.ts",
+  "tests/workflow-secrets.test.ts",
 ];
 
 export default defineConfig({

@@ -185,7 +185,8 @@ function previewsEnabled(name: string, stage: string, previewUrls: boolean): boo
  * A var reaches the Worker as plain text that `wrangler secret list` never
  * shows, and a binding is no secret either, so neither may take a name the
  * inventory lists for the Worker on any tier: required, optional or
- * forbidden.
+ * forbidden. The one exception is a var the stage's own tier lists in
+ * `plainVars`.
  */
 function checkPlainBindings(input: ApiWorkerInput): void {
   const entry = SECRET_INVENTORY.find((candidate) => candidate.worker === input.worker);
@@ -196,7 +197,11 @@ function checkPlainBindings(input: ApiWorkerInput): void {
       if (name !== undefined) listed.add(name);
     }
   }
-  const names = [...Object.keys(input.vars), ...Object.keys(input.bindings)]
+  const plainVars = new Set(entry?.tiers[tierOf(input.stage)].plainVars ?? []);
+  const names = [
+    ...Object.keys(input.vars).filter((name) => !plainVars.has(name)),
+    ...Object.keys(input.bindings),
+  ]
     .filter((name) => listed.has(name))
     .toSorted();
   if (names.length > 0) {

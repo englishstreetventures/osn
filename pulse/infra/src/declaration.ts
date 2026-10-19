@@ -46,6 +46,9 @@ export function pulseDeclaration(input: {
       },
       domain: hosts.pulseLanding,
       workersDev: false,
+      // Off until per-pull-request previews (P4): each version's preview URL
+      // is a public workers.dev host that no Access application covers.
+      previewUrls: false,
       htmlHandling: "auto-trailing-slash",
       // pulse/landing builds no 404.html (its pages are index, privacy and
       // terms), so an unknown path is a plain 404.

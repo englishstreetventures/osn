@@ -825,9 +825,12 @@ describe("installs", () => {
         .filter((step) => /\bbun install\b/.test(step.run ?? ""));
       expect(installs.length).toBeGreaterThan(0);
       for (const step of installs) {
+        // The filtered form leaves out every `@<product>/infra` workspace:
+        // each depends on Alchemy, so leaving out @shared/infra alone still
+        // installs the Alchemy tree through the stacks.
         expect([
           "bun install --frozen-lockfile",
-          "bun install --frozen-lockfile --filter '!@shared/infra'",
+          "bun install --frozen-lockfile --filter '!@*/infra'",
         ]).toContain(step.run ?? "");
       }
     },

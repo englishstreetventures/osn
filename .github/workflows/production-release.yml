@@ -248,11 +248,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      # @shared/infra's Alchemy tree is about 100 packages and over 1 GB
-      # unpacked, and only a job that builds, tests or type-checks that
-      # package loads it; every other job installs without it.
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
+      # The Alchemy tree (@shared/infra and the @<product>/infra stacks) is
+      # about 100 packages and over 1 GB unpacked, and only a job that builds,
+      # tests or type-checks those packages loads it; every other job installs
+      # without them.
+      - name: Install dependencies except the infra packages
+        run: bun install --frozen-lockfile --filter '!@*/infra'
 
       # Fail the deploy if cire/api/wrangler.toml still carries the placeholder
       # (or empty) D1 database_id — deploying against a non-existent DB would
@@ -351,8 +352,8 @@ jobs:
             ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-turbo-build-
 
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
+      - name: Install dependencies except the infra packages
+        run: bun install --frozen-lockfile --filter '!@*/infra'
 
       #   PUBLIC_GOOGLE_MAPS_EMBED_KEY is an optional referrer-restricted Embed
       #   key. PUBLIC_TURNSTILE_SITEKEY is the optional Cloudflare Turnstile
@@ -477,8 +478,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-astro-fonts-
 
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
+      - name: Install dependencies except the infra packages
+        run: bun install --frozen-lockfile --filter '!@*/infra'
 
       - name: Build cire/host
         run: bun run build --filter=@cire/host
@@ -551,8 +552,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-astro-fonts-
 
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
+      - name: Install dependencies except the infra packages
+        run: bun install --frozen-lockfile --filter '!@*/infra'
 
       - name: Build cire/vendor
         run: bun run build --filter=@cire/vendor
@@ -621,8 +622,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-astro-fonts-
 
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
+      - name: Install dependencies except the infra packages
+        run: bun install --frozen-lockfile --filter '!@*/infra'
 
       # Build-time PUBLIC_* vars (all baked in by Vite):
       #   PUBLIC_ORGANISER_URL — target of the primary "Create your invitation"
@@ -677,8 +678,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
+      - name: Install dependencies except the infra packages
+        run: bun install --frozen-lockfile --filter '!@*/infra'
 
       # Apply pending migrations to the remote prod osn D1 (`osn-db-prod`, the
       # `[env.production].d1_databases` binding) BEFORE the new Worker serves.
@@ -790,8 +791,8 @@ jobs:
             ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-turbo-build-
 
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
+      - name: Install dependencies except the infra packages
+        run: bun install --frozen-lockfile --filter '!@*/infra'
 
       # VITE_TURNSTILE_SITEKEY is the client half of the Turnstile gate, and is
       # not optional here: osn-api holds TURNSTILE_SECRET_KEY, so
@@ -869,8 +870,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
+      - name: Install dependencies except the infra packages
+        run: bun install --frozen-lockfile --filter '!@*/infra'
 
       - name: Detect zap prod provisioning
         id: zapcheck

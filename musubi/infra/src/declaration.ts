@@ -91,6 +91,9 @@ export function musubiDeclaration(input: {
       domain: hosts.osnApi,
       crons: ["0 */6 * * *"],
       workersDev: false,
+      // Off until per-pull-request previews (P4): each version's preview URL
+      // is a public workers.dev host that no Access application covers.
+      previewUrls: false,
       vars: {
         OSN_ENV: "dev",
         // The app's host: a WebAuthn ceremony runs only on an origin same-site with it.
@@ -153,6 +156,9 @@ export function musubiDeclaration(input: {
       entry: null,
       domain: hosts.musubiSocial,
       workersDev: false,
+      // Off until per-pull-request previews (P4): each version's preview URL
+      // is a public workers.dev host that no Access application covers.
+      previewUrls: false,
       htmlHandling: "auto-trailing-slash",
       notFoundHandling: "single-page-application",
       issues: true,
@@ -169,6 +175,9 @@ export function musubiDeclaration(input: {
       entry: null,
       domain: hosts.musubiLanding,
       workersDev: false,
+      // Off until per-pull-request previews (P4): each version's preview URL
+      // is a public workers.dev host that no Access application covers.
+      previewUrls: false,
       htmlHandling: "auto-trailing-slash",
       // musubi/landing builds no 404.html (its pages are index, privacy and
       // terms), so an unknown path is a plain 404.

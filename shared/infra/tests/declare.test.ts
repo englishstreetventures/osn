@@ -49,6 +49,8 @@ const api = (stage: string) =>
     name: `cire-api-${stage}`,
     stage,
     main: "../../cire/api/src/index.ts",
+    bundle: true,
+    assets: null,
     compatibility: { date: "2025-03-01", flags: ["nodejs_compat"] },
     domain: null,
     crons: [],
@@ -75,6 +77,8 @@ const site = (stage: string) =>
     name: `cire-landing-${stage}`,
     stage,
     directory: "../../cire/landing/dist",
+    redirectsFile: true,
+    entry: null,
     domain: null,
     workersDev: false,
     previewUrls: false,
@@ -91,6 +95,7 @@ const database = (stage: string) =>
     jurisdiction: "default",
     locationHint: "oc",
     migrations: null,
+    importFiles: [],
   });
 
 const bucket = (stage: string) =>

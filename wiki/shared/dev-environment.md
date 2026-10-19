@@ -439,9 +439,10 @@ Things to know when building it:
   refuses a sixth destination with *"You've added the maximum number of
   hostnames per application allowed."* Seven browser hosts need two
   applications.
-- **Every dev Worker also answers on `*.workers.dev` version preview URLs**,
-  which an application over the custom hosts does not cover. Add the Workers'
-  preview hosts to an application, or turn previews off on dev.
+- **Version preview URLs are off on every dev Worker** (`previewUrls: false` in
+  each stack, K11 in each stack's `tests/declaration.test.ts`): each would be a
+  public `*.workers.dev` host that no application over the custom hosts covers.
+  Per-pull-request previews come with P4.
 - Admit people with a reusable policy (Action `Allow`, `Emails` and
   `Emails ending in` rules); add someone by adding their email to that policy,
   never by adding an application.
