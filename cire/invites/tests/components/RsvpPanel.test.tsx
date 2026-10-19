@@ -1468,9 +1468,39 @@ describe("RsvpPanel", () => {
     expect(queryOwnBox()).toBeNull();
     expect(queryAttestBox()).toBeNull();
     const line = screen.getByText(/Dietary requirements on file are shared with the caterers/);
+    expect(line.textContent).toBe(
+      "Dietary requirements on file are shared with the caterers for this wedding. See our privacy notice.",
+    );
     expect(within(line).getByRole("link", { name: "privacy notice" }).getAttribute("href")).toBe(
       "/privacy",
     );
+  });
+
+  it.each([
+    ["only the household's own members", "guest-bo", "guest-sam"],
+    ["only a plus-one", "guest-sam", "guest-bo"],
+  ])("states it once closed when %s have dietary data on file", (_, withData, without) => {
+    const row = (guestId: string, dietary: string) => ({
+      guestId,
+      eventId: "event-1",
+      status: "attending" as const,
+      dietary,
+      dietaryPresets: [],
+      dietaryConsentCurrent: true,
+    });
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[bo, sam]}
+        existingRsvps={[row(withData, "No nuts"), row(without, "")]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+    expect(screen.getByText(/Dietary requirements on file are shared/)).toBeTruthy();
+    expect(queryOwnBox()).toBeNull();
+    expect(queryAttestBox()).toBeNull();
   });
 
   it("says nothing about dietary data once closed when none is on file", () => {
