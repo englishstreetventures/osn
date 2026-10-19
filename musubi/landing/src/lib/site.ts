@@ -15,7 +15,7 @@ export const APP_URL = import.meta.env.PUBLIC_APP_URL ?? "http://localhost:1422"
  * best-effort link — swap for a real docs site when one exists.
  */
 export const DOCS_URL =
-  import.meta.env.PUBLIC_DOCS_URL ?? "https://github.com/osn-social/osn#readme";
+  import.meta.env.PUBLIC_DOCS_URL ?? "https://github.com/englishstreetventures/osn#readme";
 
 export const SITE_NAME = "Musubi";
 export const SITE_TAGLINE = "Your social graph, your control";

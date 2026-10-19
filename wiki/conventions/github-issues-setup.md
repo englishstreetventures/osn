@@ -5,7 +5,7 @@ related:
   - "[[review-findings]]"
   - "[[agent-tooling]]"
   - "[[index]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-19
 ---
 
 # GitHub Issues setup
@@ -197,14 +197,13 @@ Project → the **⋯** menu, top right → **Workflows**. Each one is Edit, fil
 then **Save and turn on workflow**.
 
 1. **Auto-add to project** — filter `is:issue is:open`, one repo per workflow.
-   **`englishstreetventures` is on GitHub Free, and Free allows one auto-add workflow per
-   project.** Two repos feed this board, so one of them gets it and the other
-   is swept by hand. Put it on `englishstreetventures/osn-tracker`: findings arrive in bursts
-   at the end of a review and are the easy ones to forget, while a product
-   issue is opened deliberately. Sweeping the other repo is one command —
-   see the backfill below — and the choice is one edit to reverse.
-2. **Item added to project** — set `Status` = `Backlog`. This one is off; turn
-   it on whether or not auto-add is.
+   **`englishstreetventures` is on GitHub Team, which allows five auto-add
+   workflows per project** (Free allows one; GitHub Docs, *Adding items
+   automatically*). Two repos feed this board, so each gets its own workflow:
+   set one up, then **⋯** beside it → **Duplicate workflow** → **Edit**, and
+   pick the other repository under **Filters**.
+2. **Item added to project** — set `Status` = `Backlog`, and turn it on
+   whether or not auto-add is.
 
 **Auto-add sub-issues to project** is already on, so a sub-issue opened under
 an epic that is on the board joins it too.
@@ -235,8 +234,9 @@ It took three runs to clear the whole board — see §Rate limits worth knowing 
 why, and expect the same of any later bulk add. The dry run now reports
 `676 issues, 676 on the board, 0 to add`.
 
-It stays useful after the migration: auto-add covers one repo, so run the dry
-run over the other now and then and `--apply` when it finds anything.
+It stays useful after the migration: an auto-add workflow fires only on issues
+opened after it is turned on, so run the dry run whenever one is added or
+changed, and `--apply` when it finds anything.
 
 ## 7. Views (UI only)
 
@@ -286,7 +286,7 @@ still run:
 | File | Why it stays |
 |---|---|
 | `labels.sh` | Recreates the label set in both repos, any time (§3) |
-| `backfill-project.ts` | Puts issues on the board until auto-add is enabled (§6) |
+| `backfill-project.ts` | Puts on the board any issue opened before its repo's auto-add workflow was on (§6) |
 | `throttle.ts` | The rate-limit gap the backfill uses |
 
 Everything else — the parser, the classifier, the link rewriter, the renderer,
