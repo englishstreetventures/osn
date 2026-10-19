@@ -1395,6 +1395,119 @@ describe("RsvpPanel", () => {
     expect(openOtherText(fs).disabled).toBe(true);
   });
 
+  it("shows a plus-one's reply and both households' dietary answers read-only once closed", () => {
+    // "RSVP given" opens this view after the deadline, so everything a
+    // household sent has to be on it and none of it editable: the plus-one's
+    // fieldset, the dietary picks and text, and both consent boxes.
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[bo, sam]}
+        existingRsvps={[
+          {
+            guestId: "guest-bo",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: ["vegan"],
+            dietaryConsentCurrent: true,
+          },
+          {
+            guestId: "guest-sam",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "No shellfish",
+            dietaryPresets: ["other"],
+            dietaryConsentCurrent: true,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+
+    for (const name of ["Bo", "Sam"]) {
+      const fs = fieldsetFor(name);
+      const attending = within(fs).getByText("Attending") as HTMLButtonElement;
+      expect({ name, pressed: attending.getAttribute("aria-pressed") }).toEqual({
+        name,
+        pressed: "true",
+      });
+      expect({ name, disabled: attending.disabled }).toEqual({ name, disabled: true });
+      const boxes = within(fs).getAllByRole("checkbox") as HTMLInputElement[];
+      expect({ name, enabled: boxes.filter((b) => !b.disabled).map((b) => b.value) }).toEqual({
+        name,
+        enabled: [],
+      });
+    }
+    expect(
+      (within(fieldsetFor("Bo")).getByRole("checkbox", { name: /vegan/i }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    const samText = within(fieldsetFor("Sam")).getByPlaceholderText(/onion/i) as HTMLInputElement;
+    expect(samText.value).toBe("No shellfish");
+    expect(samText.disabled).toBe(true);
+    expect(ownBox().disabled).toBe(true);
+    expect(attestBox().disabled).toBe(true);
+    expect(document.querySelector("button[type='submit']")).toBeNull();
+  });
+
+  it("says “Not decided” for a member whose reply on file is maybe, once closed", () => {
+    // The sheet's buttons are binary, so a stored "maybe" opens with neither
+    // pressed. Past the deadline that would read as "no answer" on a sheet
+    // the guest opened from "RSVP given"; the line says what is on file.
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya, raj]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "maybe",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+          {
+            guestId: "guest-raj",
+            eventId: "event-1",
+            status: "declined",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+
+    const priyaSet = fieldsetFor("Priya");
+    expect(within(priyaSet).getByText("Not decided")).toBeTruthy();
+    expect(within(priyaSet).queryByRole("button", { name: "Attending" })).toBeNull();
+    // A decided member keeps the frozen pair.
+    const rajDeclined = within(fieldsetFor("Raj")).getByText("Not attending") as HTMLButtonElement;
+    expect(rajDeclined.getAttribute("aria-pressed")).toBe("true");
+    expect(within(fieldsetFor("Raj")).queryByText("Not decided")).toBeNull();
+  });
+
+  it("titles the closed sheet as the household's RSVP rather than asking for one", () => {
+    const { getByRole, queryByRole } = render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+    expect(getByRole("heading", { name: "Your RSVP, Mehndi" })).toBeTruthy();
+    expect(queryByRole("heading", { name: "Respond, Mehndi" })).toBeNull();
+  });
+
   it("never POSTs from a closed sheet, even on a form-level submit", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);

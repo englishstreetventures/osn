@@ -36,11 +36,14 @@ export interface RsvpPanelProps {
   /**
    * The wedding's RSVP deadline has passed — the sheet becomes a read-only view
    * of whatever this household already answered: every control is disabled and
-   * the submit button is gone, so there is nothing to send. The events section
-   * disables "Respond" and the details panel offers no way here once it has
-   * passed, so this normally can't be opened; it exists because the deadline
-   * can pass with the sheet ALREADY open, and because the server would refuse
-   * the write anyway (403 `rsvp_closed`).
+   * the submit button is gone, so there is nothing to send. Its title reads
+   * "Your RSVP" rather than "Respond", and a stored "maybe", which the binary
+   * buttons cannot show, reads "Not decided".
+   *
+   * A household with a reply on file reaches it on purpose, from the event
+   * card's "RSVP given" or the details panel's "View your RSVP". It is also
+   * what a sheet already open becomes when the deadline passes under it. The
+   * server refuses a write past the deadline regardless (403 `rsvp_closed`).
    */
   closed?: boolean;
   /** The deadline day in words, for the closed banner ("RSVPs closed on …"). */
@@ -251,6 +254,13 @@ export function RsvpPanel(props: RsvpPanelProps) {
   }
 
   const [responses, setResponses] = createSignal<Record<string, MemberState>>(initialResponses());
+
+  /** The member's reply on file is "maybe" and nothing has been picked over it here. */
+  const undecidedOnFile = (guestId: string) =>
+    responses()[guestId]?.attending == null &&
+    priorRsvps.some(
+      (r) => r.guestId === guestId && r.eventId === props.event.id && r.status === "maybe",
+    );
   /**
    * Which attending members are offering dietary data on this submission.
    *
@@ -656,8 +666,9 @@ export function RsvpPanel(props: RsvpPanelProps) {
         {/* The eyebrow is part of the heading, not a paragraph above it. The
             sheet moves focus here when the guest switches panels, and both
             panels' titles are the event's name — so "Respond" is what tells a
-            screen-reader user which panel they have arrived on. The comma is
-            for the ear only. */}
+            screen-reader user which panel they have arrived on. Past the
+            deadline there is nothing to respond to, so it names what the
+            panel shows instead. The comma is for the ear only. */}
         <h3
           id={titleId}
           ref={(el) => props.headingRef?.(el)}
@@ -665,7 +676,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
           class="font-display text-text text-ui-xl font-light italic"
         >
           <span class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 block leading-normal [font-weight:var(--invite-body-weight,400)] uppercase [font-style:var(--invite-body-style,normal)]">
-            Respond
+            {props.closed ? "Your RSVP" : "Respond"}
             <span class="sr-only">,</span>
           </span>{" "}
           {props.event.name}
@@ -747,38 +758,51 @@ export function RsvpPanel(props: RsvpPanelProps) {
                   </Show>
                 </legend>
 
-                <div class="flex gap-2">
-                  <button
-                    type="button"
-                    class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
-                    classList={{
-                      "border-gold text-gold-ink bg-gold/8":
-                        responses()[guestId]?.attending === "attending",
-                      "border-border text-text-muted hover:border-gold-dim hover:text-text":
-                        responses()[guestId]?.attending !== "attending",
-                    }}
-                    aria-pressed={responses()[guestId]?.attending === "attending"}
-                    onClick={() => setAttending(guestId, "attending")}
-                    disabled={locked()}
-                  >
-                    Attending
-                  </button>
-                  <button
-                    type="button"
-                    class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
-                    classList={{
-                      "border-gold text-gold-ink bg-gold/8":
-                        responses()[guestId]?.attending === "declined",
-                      "border-border text-text-muted hover:border-gold-dim hover:text-text":
-                        responses()[guestId]?.attending !== "declined",
-                    }}
-                    aria-pressed={responses()[guestId]?.attending === "declined"}
-                    onClick={() => setAttending(guestId, "declined")}
-                    disabled={locked()}
-                  >
-                    Not attending
-                  </button>
-                </div>
+                {/* A stored "maybe" opens with neither button pressed, which
+                    past the deadline reads as no answer at all. The sheet can
+                    no longer take one, so it says what is on file instead, in
+                    the box the pair would fill. */}
+                <Show
+                  when={!(props.closed && undecidedOnFile(guestId))}
+                  fallback={
+                    <p class="font-body text-ui-sm tracking-ui-wide border-border text-text-muted rounded-sm border px-3 py-2.5 text-center uppercase">
+                      Not decided
+                    </p>
+                  }
+                >
+                  <div class="flex gap-2">
+                    <button
+                      type="button"
+                      class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
+                      classList={{
+                        "border-gold text-gold-ink bg-gold/8":
+                          responses()[guestId]?.attending === "attending",
+                        "border-border text-text-muted hover:border-gold-dim hover:text-text":
+                          responses()[guestId]?.attending !== "attending",
+                      }}
+                      aria-pressed={responses()[guestId]?.attending === "attending"}
+                      onClick={() => setAttending(guestId, "attending")}
+                      disabled={locked()}
+                    >
+                      Attending
+                    </button>
+                    <button
+                      type="button"
+                      class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
+                      classList={{
+                        "border-gold text-gold-ink bg-gold/8":
+                          responses()[guestId]?.attending === "declined",
+                        "border-border text-text-muted hover:border-gold-dim hover:text-text":
+                          responses()[guestId]?.attending !== "declined",
+                      }}
+                      aria-pressed={responses()[guestId]?.attending === "declined"}
+                      onClick={() => setAttending(guestId, "declined")}
+                      disabled={locked()}
+                    >
+                      Not attending
+                    </button>
+                  </div>
+                </Show>
 
                 <Show when={responses()[guestId]?.attending === "attending"}>
                   <div class="mt-3">

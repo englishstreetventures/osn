@@ -8,7 +8,7 @@
  * where the platform puts focus on close. `EventSheet.browser.test.tsx` holds
  * those. What this tier can hold is the state behind them.
  */
-import { render, cleanup, fireEvent, waitFor, within } from "@solidjs/testing-library";
+import { render, cleanup, fireEvent, screen, waitFor, within } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
@@ -222,6 +222,41 @@ describe("EventSheet", () => {
 
       expect(queryByRole("button", { name: "RSVP for this event" })).toBeNull();
       expect(getByRole("status").textContent).toBe("RSVPs closed on Sunday 1 September 2999.");
+    });
+
+    it("takes a household that replied from the details to its reply, read-only", () => {
+      render(() => (
+        <EventSheet
+          event={event}
+          panel="details"
+          siteUrl="https://invite.example.com/abc"
+          members={[priya]}
+          existingRsvps={[
+            {
+              guestId: "guest-priya",
+              eventId: "event-1",
+              status: "declined",
+              dietary: "",
+              dietaryPresets: [],
+              dietaryConsentCurrent: false,
+            },
+          ]}
+          apiUrl="https://api.test"
+          closed
+          replied
+          closedOn="Sunday 1 September 2999"
+          onClose={() => {}}
+        />
+      ));
+
+      fireEvent.click(screen.getByRole("button", { name: "View your RSVP" }));
+      expect(screen.getByRole("heading", { name: "Your RSVP, Mehndi" })).toBeTruthy();
+
+      const fs = fieldsetFor("Priya");
+      const declined = within(fs).getByText("Not attending") as HTMLButtonElement;
+      expect(declined.getAttribute("aria-pressed")).toBe("true");
+      expect(declined.disabled).toBe(true);
+      expect(document.querySelector("button[type='submit']")).toBeNull();
     });
 
     it("says nothing in that line while the replies are open", () => {
