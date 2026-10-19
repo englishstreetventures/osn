@@ -28,6 +28,7 @@ import {
   type TaskRow,
   tasksAccessor,
 } from "../lib/tasks-store";
+import ChecklistStarter from "./ChecklistStarter";
 import ReorderControls from "./ReorderControls";
 /** A bucket with nothing in it. One shared array, so `sameRows` sees an empty
  *  bucket as unchanged from one write to the next. */
@@ -42,6 +43,8 @@ interface ChecklistViewProps {
   weddingId: string;
   /** Owner/editor may add, edit, complete, reorder; a viewer sees a read-only list. */
   canEdit?: boolean;
+  /** Owner? Decides how the starter checklist asks for a missing wedding date. */
+  canManage?: boolean;
 }
 
 export default function ChecklistView(props: ChecklistViewProps) {
@@ -227,6 +230,14 @@ export default function ChecklistView(props: ChecklistViewProps) {
         <Notice tone="danger" alert>
           {error()}
         </Notice>
+      </Show>
+
+      <Show when={props.canEdit}>
+        <ChecklistStarter
+          weddingId={props.weddingId}
+          canManage={props.canManage ?? false}
+          taskCount={tasks()?.length ?? null}
+        />
       </Show>
 
       <Show when={props.canEdit}>

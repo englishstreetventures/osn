@@ -27,8 +27,6 @@ export const CHECKLIST_TEMPLATES = {
 
 export type ChecklistTemplateId = keyof typeof CHECKLIST_TEMPLATES;
 
-export const CHECKLIST_TEMPLATE_IDS = Object.keys(CHECKLIST_TEMPLATES) as ChecklistTemplateId[];
-
 export function isChecklistTemplateId(value: string): value is ChecklistTemplateId {
   return Object.hasOwn(CHECKLIST_TEMPLATES, value);
 }
