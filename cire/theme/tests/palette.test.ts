@@ -32,7 +32,7 @@ import {
  * to see past. The tolerance absorbs the rounding `formatOklch` applies to the
  * token string (lightness to 0.01%, chroma to 4 decimals).
  */
-function inSrgb({ l, c, h }: { l: number; c: number; h: number }): boolean {
+function inSrgb({ l, c, h }: { l: number; c: number; h: number }, tolerance = 1e-3): boolean {
   const a = c * Math.cos((h * Math.PI) / 180);
   const b = c * Math.sin((h * Math.PI) / 180);
   const L = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
@@ -43,8 +43,7 @@ function inSrgb({ l, c, h }: { l: number; c: number; h: number }): boolean {
     -1.2684380046 * L + 2.6097574011 * M - 0.3413193965 * S,
     -0.0041960863 * L - 0.7034186147 * M + 1.707614701 * S,
   ];
-  const TOLERANCE = 1e-3;
-  return channels.every((v) => v >= -TOLERANCE && v <= 1 + TOLERANCE);
+  return channels.every((v) => v >= -tolerance && v <= 1 + tolerance);
 }
 
 describe("colour round-trip", () => {
@@ -742,10 +741,19 @@ describe("residual contrast warnings", () => {
       // label is ours to keep in gamut.
       if (onGold === v["--color-bg"] || onGold === v["--color-text"]) continue;
       walked++;
-      expect({ seeds, onGold, inSrgb: inSrgb(parseColor(onGold)!) }).toEqual({
+      const label = parseColor(onGold)!;
+      // …and keeps as much of its source's colour as sRGB allows: either all
+      // of the chroma it started with (the page's or the ink's), or so much
+      // that a little more would leave sRGB. Losing the scheme's tint for
+      // nothing would pass the gamut check and fail this.
+      const sources = [v["--color-bg"]!, v["--color-text"]!].map((s) => parseColor(s)!.c);
+      const keptAll = sources.some((c) => Math.abs(label.c - c) < 1e-4);
+      const atEdge = !inSrgb({ ...label, c: label.c + 0.002 }, 0);
+      expect({ seeds, onGold, inSrgb: inSrgb(label), kept: keptAll || atEdge }).toEqual({
         seeds,
         onGold,
         inSrgb: true,
+        kept: true,
       });
     }
     // Enough walks for the gamut check to mean something.
