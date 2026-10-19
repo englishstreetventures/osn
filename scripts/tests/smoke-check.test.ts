@@ -346,6 +346,31 @@ describe("judge", () => {
     expect(reasonOf(outcome)).not.toContain("meta=");
   });
 
+  test("AC1: the Access probe passes only on a 301, 302, 303 or 307 to a cloudflareaccess.com host; anything else is open, never wrong", async () => {
+    const gate = probe("https://invite.cire.example.test/", { kind: "access" });
+    const login =
+      "https://wispy-sun-215a.cloudflareaccess.com/cdn-cgi/access/login/x?meta=secretish";
+    for (const status of [301, 302, 303, 307]) {
+      expect(await verdict(gate, redirect(login, status), true)).toEqual({ kind: "pass" });
+    }
+    const open = [
+      redirect(login, 308),
+      html(200),
+      redirect("https://cire.example.test/"),
+      redirect("https://cloudflareaccess.com.evil.example/login"),
+      redirect("/cdn-cgi/access/login"),
+      new Response("Forbidden", { status: 403 }),
+      new Response("error code: 1027", { status: 429 }),
+    ];
+    for (const response of open) {
+      const outcome = await verdict(gate, response, true);
+      expect(outcome.kind).toBe("open");
+      expect(reasonOf(outcome)).toContain("Cloudflare Access");
+    }
+    // Only an origin is reported, never a login URL's query.
+    expect(reasonOf(await verdict(gate, redirect(`${login}`, 308), true))).not.toContain("meta=");
+  });
+
   test("a 401 or 403 is Access on an Access-protected host, and a wrong answer elsewhere", async () => {
     const page = probe("https://invite.dev.cireweddings.com/", {
       kind: "redirect",
@@ -964,6 +989,19 @@ describe("a dev site behind Cloudflare Access", () => {
   const TOKEN_ENV = { CF_ACCESS_CLIENT_ID: "id.access", CF_ACCESS_CLIENT_SECRET: "s3cret" };
   const login = () =>
     redirect("https://wispy-sun-215a.cloudflareaccess.com/cdn-cgi/access/login/x");
+  const hasToken = (init: RequestInit | undefined) =>
+    new Headers(init?.headers).has("cf-access-client-id");
+  /** A host Access guards: the Worker answers a request with the service token, Access any other. */
+  const guarded =
+    (worker: () => Response): Answer =>
+    (_, init) =>
+      hasToken(init) ? worker() : login();
+  /** The guest site's two routes, healthy, with `/` as `root` answers it. */
+  const invites = (root: Answer): Record<string, Answer> => ({
+    [`${INVITES_DEV}/`]: root,
+    [`${INVITES_DEV}/smoke-check-no-such-wedding`]: guarded(() => html(404)),
+  });
+  const workerRoot = () => redirect(`${CIRE_LANDING_DEV}/`);
 
   test.each([
     ["no service token", {}],
@@ -994,17 +1032,21 @@ describe("a dev site behind Cloudflare Access", () => {
     },
   );
 
-  test("with a service token every probe carries it, and a healthy Worker passes", async () => {
-    const result = await smoke(
-      ["cire_invites", "dev"],
-      {
-        [`${INVITES_DEV}/`]: redirect(`${CIRE_LANDING_DEV}/`),
-        [`${INVITES_DEV}/smoke-check-no-such-wedding`]: html(404),
-      },
-      { env: INVITES_ENV(TOKEN_ENV) },
-    );
+  test("with a service token every Worker probe carries it, the Access probe of / does not, and a healthy guarded Worker passes", async () => {
+    const result = await smoke(["cire_invites", "dev"], invites(guarded(workerRoot)), {
+      env: INVITES_ENV(TOKEN_ENV),
+    });
     expect(result.code).toBe(0);
-    for (const call of result.calls) {
+    // Two rounds of the guest site's two probes, and the Access probe in each.
+    const bare = result.calls.filter((call) => !hasToken(call.init));
+    expect(bare.map((call) => call.url)).toEqual([`${INVITES_DEV}/`, `${INVITES_DEV}/`]);
+    for (const call of bare) {
+      expect(new Headers(call.init?.headers).has("cf-access-client-secret")).toBe(false);
+      expect(call.init?.redirect).toBe("manual");
+    }
+    const tokened = result.calls.filter((call) => hasToken(call.init));
+    expect(tokened).toHaveLength(4);
+    for (const call of tokened) {
       const headers = new Headers(call.init?.headers);
       expect(headers.get("cf-access-client-id")).toBe("id.access");
       expect(headers.get("cf-access-client-secret")).toBe("s3cret");
@@ -1013,6 +1055,72 @@ describe("a dev site behind Cloudflare Access", () => {
       expect(new Headers(call.init?.headers).has("cf-access-client-secret")).toBe(false);
     }
     expect(result.output).not.toContain("s3cret");
+  });
+
+  test.each([
+    ["the Worker's own answer", workerRoot],
+    ["a redirect to a host that is not Access", () => redirect("https://login.example.com/")],
+    ["a 308 to Access", () => redirect("https://wispy-sun-215a.cloudflareaccess.com/x", 308)],
+  ])(
+    "AC1: / answering a request with no service token with %s fails the check, naming Access, and rolls nothing back",
+    async (_, root) => {
+      const result = await smoke(
+        ["cire_invites", "dev"],
+        invites((call, init) => (hasToken(init) ? workerRoot() : root())),
+        { env: INVITES_ENV(TOKEN_ENV) },
+      );
+      expect(result.code).toBe(1);
+      expect(result.posts).toEqual([]);
+      expect(result.apiCalls.every((call) => call.init?.method !== "POST")).toBe(true);
+      expect(result.output).toContain("::error title=Cloudflare Access::");
+      expect(result.output).toContain("not rolling back");
+      expect(result.output).not.toContain("rolling the Worker back");
+      expect(result.output).not.toContain("s3cret");
+    },
+  );
+
+  test("AC1: a Worker that answers wrongly is still rolled back when Access is missing too, and the restored version is judged on its own probes", async () => {
+    const result = await smoke(
+      ["cire_invites", "dev"],
+      {
+        // Access is missing: every request reaches the Worker. The guest
+        // site's unknown-slug page fails until the rollback, then recovers.
+        [`${INVITES_DEV}/`]: workerRoot,
+        [`${INVITES_DEV}/smoke-check-no-such-wedding`]: (call) =>
+          call <= 7 ? html(500) : html(404),
+      },
+      { env: INVITES_ENV(TOKEN_ENV) },
+    );
+    expect(result.code).toBe(1);
+    expect(result.posts).toHaveLength(1);
+    expect(result.output).toContain("::error title=Cloudflare Access::");
+    expect(result.output).toContain("the restored version answers healthy");
+  });
+
+  test("AC1: a dev target with no Access makes no Access probe", async () => {
+    for (const [surface, origin, answers] of [
+      [
+        "cire_api",
+        CIRE_API_DEV,
+        { [`${CIRE_API_DEV}/api/auth/session`]: json({ signedIn: false }) },
+      ],
+      [
+        "osn_api",
+        OSN_API_DEV,
+        { [`${OSN_API_DEV}/health`]: HEALTHY, [`${OSN_API_DEV}/.well-known/jwks.json`]: JWKS },
+      ],
+      [
+        "zap_api",
+        "https://zap.cire.example.test",
+        { "https://zap.cire.example.test/health": json({ status: "ok", service: "zap-api" }) },
+      ],
+    ] as const) {
+      expect(devTarget(surface)?.access).toBe(false);
+      const result = await smoke([surface, "dev"], answers, { env: devEnv(origin, TOKEN_ENV) });
+      expect({ surface, code: result.code }).toEqual({ surface, code: 0 });
+      expect(result.calls.map((call) => call.url)).not.toContain(`${origin}/`);
+      expect(new Set(result.calls.map((call) => call.url))).toEqual(new Set(Object.keys(answers)));
+    }
   });
 
   test.each([401, 403])(

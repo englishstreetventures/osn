@@ -110,7 +110,7 @@ describe("the guest site", () => {
   });
 });
 
-test("only the dev browser hosts, which may sit behind Cloudflare Access, send the Access token", () => {
+test("only the dev browser hosts, which sit behind Cloudflare Access, send the Access token", () => {
   const behindAccess = [
     ...SURFACES.filter((s) => devTarget(s.key)?.access === true).map((s) => `${s.key} dev`),
     ...SURFACES.filter((s) => productionTarget(s.key)?.access === true).map(

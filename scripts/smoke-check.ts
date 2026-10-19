@@ -49,6 +49,13 @@
  * a rollback restores code, and code is not what failed. The step fails all
  * the same.
  *
+ * On dev, a browser host sits behind Cloudflare Access, and each round also
+ * asks its `/` once with no service token. Only Access's redirect to its
+ * sign-in, a 301, 302, 303 or 307 to a `*.cloudflareaccess.com` host, passes.
+ * Any other answer means Access does not guard the host, and fails the check
+ * with an annotation naming Access. That failure never rolls back: the Worker
+ * is not what failed.
+ *
  * A rollback restores the Worker's code, not its D1 database: the migrations
  * the job applied before deploying stay applied. That is why a migration must
  * keep working with the Worker version before it.
@@ -65,10 +72,10 @@
  *                       path. Dev only.
  *   CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET
  *                       a Cloudflare Access service token, sent only to a
- *                       target that may sit behind Access (the dev sites), and
- *                       only when both are set. Without them the check probes
- *                       anyway, and Access answering fails it, rolling nothing
- *                       back.
+ *                       target behind Access (the dev sites), and only when
+ *                       both are set, on every probe but the one that asks
+ *                       without it. Without them the check probes anyway,
+ *                       and Access answering fails it, rolling nothing back.
  *   GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT
  *                       name the run in the rollback message.
  *   GITHUB_STEP_SUMMARY receives a line when the check fails.
@@ -114,7 +121,13 @@ export type Expectation =
   /** 200, an HTML page. */
   | { readonly kind: "html" }
   /** 200, a body that parses to a JSON object. */
-  | { readonly kind: "jsonObject" };
+  | { readonly kind: "jsonObject" }
+  /**
+   * Asked with no service token: a 301, 302, 303 or 307 to a
+   * `*.cloudflareaccess.com` host, Cloudflare Access sending the caller to
+   * its sign-in. Never the Worker's own answer.
+   */
+  | { readonly kind: "access" };
 
 export interface Probe {
   readonly url: string;
@@ -143,7 +156,10 @@ export interface DevOrigins {
 export interface DevSmokeTarget {
   /** The Worker's dev script name, which a rollback acts on. */
   readonly worker: string;
-  /** A browser host, which may sit behind Cloudflare Access; never an API host. */
+  /**
+   * A browser host behind Cloudflare Access; never an API host. Its check
+   * sends the service token, and also asks `/` without it to see Access answer.
+   */
   readonly access: boolean;
   readonly probes: (origins: DevOrigins) => readonly Probe[];
   /** The probes need SMOKE_MARKETING_ORIGIN as well as SMOKE_ORIGIN. */
@@ -187,6 +203,12 @@ const guestSite = (origin: string, marketing: string): readonly Probe[] => [
 const sitePage = (origin: string, path: string): Probe => ({
   url: `${origin}${path}`,
   expects: { kind: "html" },
+});
+
+/** `/` asked with no service token, which Access must answer on a host it guards. */
+const accessGate = (origin: string): Probe => ({
+  url: `${origin}/`,
+  expects: { kind: "access" },
 });
 
 /** The marketing origin; runSmokeCheck refuses a guest-site check without one. */
@@ -342,7 +364,9 @@ export type Outcome =
   /** No answer: DNS, TLS, the connection, the timeout, or a body cut off. */
   | { readonly kind: "unreachable"; readonly reason: string }
   /** Cloudflare answered in the Worker's place: Access, a bot challenge, a 429. */
-  | { readonly kind: "blocked"; readonly reason: string };
+  | { readonly kind: "blocked"; readonly reason: string }
+  /** Access did not answer a request without the service token: the host may be open to anyone. */
+  | { readonly kind: "open"; readonly reason: string };
 
 const PASS: Outcome = { kind: "pass" };
 
@@ -361,6 +385,9 @@ function locationOf(response: Response, base: string): URL | undefined {
 }
 
 const isRedirect = (status: number) => [301, 302, 303, 307, 308].includes(status);
+
+/** The redirects Access answers a caller without a session or token with. */
+const isAccessRedirect = (status: number) => [301, 302, 303, 307].includes(status);
 
 /** A JSON body's top-level fields that hold a string or a boolean. */
 type ScalarFields = ReadonlyMap<string, string | boolean>;
@@ -427,6 +454,15 @@ const isEs256 = (key: Jwk) => key.kty === "EC" && key.crv === "P-256" && key.alg
 export function judge(probe: Probe, response: Response, body: string, access: boolean): Outcome {
   const { status } = response;
   const location = locationOf(response, probe.url);
+  const { expects } = probe;
+  if (expects.kind === "access") {
+    return isAccessRedirect(status) && location?.hostname.endsWith(".cloudflareaccess.com") === true
+      ? PASS
+      : {
+          kind: "open",
+          reason: `answered ${status}${location === undefined ? "" : ` to ${location.origin}`} to a request with no service token, where Cloudflare Access redirects to its sign-in on a cloudflareaccess.com host`,
+        };
+  }
   if (isRedirect(status) && location?.hostname.endsWith(".cloudflareaccess.com")) {
     return {
       kind: "blocked",
@@ -458,7 +494,6 @@ export function judge(probe: Probe, response: Response, body: string, access: bo
     kind: "wrong",
     reason: `answered ${status}, expected ${expected}${body === "" ? "" : `: ${oneLine(body)}`}`,
   });
-  const { expects } = probe;
   switch (expects.kind) {
     case "json": {
       const want = `200 with ${JSON.stringify(expects.fields)}`;
@@ -869,6 +904,8 @@ interface Checked {
   readonly worker: string;
   readonly probes: readonly Probe[];
   readonly access: boolean;
+  /** On dev, a host behind Access: `/` asked without the service token. */
+  readonly gate: Probe | undefined;
 }
 
 type Round = readonly Outcome[];
@@ -918,7 +955,12 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
     if (forced) {
       return usage("SMOKE_FORCE_FAIL is for dev; the dry run never rolls production back");
     }
-    checked = { worker: target.worker, probes: target.probes, access: target.access === true };
+    checked = {
+      worker: target.worker,
+      probes: target.probes,
+      access: target.access === true,
+      gate: undefined,
+    };
   } else {
     const target = devTarget(surface);
     if (target === undefined) return usage(`${surface} has no dev Worker`);
@@ -939,6 +981,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
         marketing === undefined ? { origin: devOrigin } : { origin: devOrigin, marketing },
       ),
       access: target.access,
+      gate: target.access ? accessGate(devOrigin) : undefined,
     };
   }
 
@@ -1024,21 +1067,23 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
     }
   }
 
-  const probes: readonly Probe[] = forced
-    ? [
-        ...checked.probes,
-        {
-          url: new URL(FORCED_FAILURE_PATH, checked.probes[0]?.url).href,
-          expects: { kind: "json", fields: { status: "ok" } },
-        },
-      ]
-    : checked.probes;
+  // The Worker's own probes come first: the round after a rollback judges
+  // the restored version on those alone.
+  const probes: Probe[] = [...checked.probes];
+  if (checked.gate !== undefined) probes.push(checked.gate);
+  if (forced) {
+    probes.push({
+      url: new URL(FORCED_FAILURE_PATH, checked.probes[0]?.url).href,
+      expects: { kind: "json", fields: { status: "ok" } },
+    });
+  }
   const ask = (): Promise<Round> =>
     Promise.all(
       probes.map((probe) =>
         probeOnce(probe, {
           fetch: input.fetch,
-          headers,
+          // The Access probe asks without the token, as any visitor would.
+          headers: probe.expects.kind === "access" ? {} : headers,
           access: checked.access,
           timeoutMs: TIMING.requestMs,
         }),
@@ -1091,15 +1136,32 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
     );
   }
 
-  if (!failures.some(({ outcome }) => outcome.kind === "wrong")) {
+  if (failures.some(({ outcome }) => outcome.kind === "open")) {
     out(
       annotation(
         "error",
-        `${label} did not answer as a working Worker does within ${TIMING.budgetMs / 1000} s, but the Worker never answered wrongly — not rolling back. See the probes above.`,
+        `${label}: ${checked.gate?.url ?? "/"} answered a request with no service token without Cloudflare Access's sign-in, so the host may be open to anyone. Check that a dev Access application covers this host. The Worker is not what failed, so this never rolls it back.`,
+        "Cloudflare Access",
+      ),
+    );
+  }
+
+  if (!failures.some(({ outcome }) => outcome.kind === "wrong")) {
+    const accessOnly = failures.every(({ outcome }) => outcome.kind === "open");
+    out(
+      annotation(
+        "error",
+        accessOnly
+          ? `${label}: the Worker answers as a working one does, but Cloudflare Access does not guard its host — not rolling back.`
+          : `${label} did not answer as a working Worker does within ${TIMING.budgetMs / 1000} s, but the Worker never answered wrongly — not rolling back. See the probes above.`,
         "Smoke check failed",
       ),
     );
-    summary("smoke check failed without a wrong answer from the Worker; not rolled back.");
+    summary(
+      accessOnly
+        ? "the Worker answers as it should, but Cloudflare Access does not guard its host; not rolled back."
+        : "smoke check failed without a wrong answer from the Worker; not rolled back.",
+    );
     return 1;
   }
 

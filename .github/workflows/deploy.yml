@@ -413,9 +413,10 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
-      # The browser hosts may sit behind Cloudflare Access; the check sends
-      # the service token when both values are set, and fails without
-      # rolling back when Access answers in the Worker's place.
+      # The browser hosts sit behind Cloudflare Access. The check sends the
+      # service token when both values are set, and fails without rolling
+      # back when Access answers in the Worker's place, or when `/` asked
+      # without the token gets anything but Access's sign-in redirect.
       - name: Smoke check musubi/social, rolling back on failure
         id: smoke_osn_social
         if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
@@ -716,10 +717,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
       # The guest site's `/` redirects to the marketing site, which the check
-      # needs the origin of. The browser hosts may sit behind Cloudflare
-      # Access; the check sends the service token when both values are set,
-      # and fails without rolling back when Access answers in the Worker's
-      # place.
+      # needs the origin of. The browser hosts sit behind Cloudflare Access.
+      # The check sends the service token when both values are set, and fails
+      # without rolling back when Access answers in the Worker's place, or
+      # when `/` asked without the token gets anything but Access's sign-in
+      # redirect.
       - name: Smoke check cire/invites, rolling back on failure
         id: smoke_cire_invites
         if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
@@ -1127,9 +1129,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
       # `/` from the assets and /api/geo from the Worker's own code. The host
-      # may sit behind Cloudflare Access; the check sends the service token
-      # when both values are set, and fails without rolling back when Access
-      # answers in the Worker's place.
+      # sits behind Cloudflare Access. The check sends the service token when
+      # both values are set, and fails without rolling back when Access
+      # answers in the Worker's place, or when `/` asked without the token
+      # gets anything but Access's sign-in redirect.
       - name: Smoke check pulse/landing, rolling back on failure
         id: smoke_pulse_landing
         if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
