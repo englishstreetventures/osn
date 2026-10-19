@@ -54,7 +54,7 @@ interface PickedRow {
   item: string;
   title: string;
   bucket: string;
-  offset: number | null;
+  offset: number;
   /** Position among the picked items in the same bucket. */
   rank: number;
 }
@@ -96,10 +96,7 @@ export const taskTemplatesService = {
         key: item.key,
         title: item.title,
         timeframeBucket: item.timeframeBucket,
-        dueAt:
-          weddingDate !== null && item.offsetDays !== null
-            ? addDays(weddingDate, item.offsetDays)
-            : null,
+        dueAt: weddingDate === null ? null : addDays(weddingDate, item.offsetDays),
         state: added.has(item.key) ? "added" : removed.has(item.key) ? "removed" : "new",
       }));
       return { templateId, weddingDate, items };
@@ -130,17 +127,6 @@ export const taskTemplatesService = {
       // Template order, so a bucket's new tasks keep the order the template
       // lists them in.
       const chosen = CHECKLIST_TEMPLATES[templateId].filter((item) => wanted.has(item.key));
-
-      const listQuery = db
-        .select()
-        .from(tasks)
-        .where(eq(tasks.weddingId, weddingId))
-        .orderBy(asc(tasks.timeframeBucket), asc(tasks.sortOrder));
-
-      if (chosen.length === 0) {
-        const rows = yield* dbQuery(() => listQuery.all());
-        return { added: 0, tasks: (rows as TaskRow[]).map(toDto) };
-      }
 
       const rows = pickedRows(chosen);
       const results = yield* dbQuery(() =>
@@ -180,7 +166,7 @@ export const taskTemplatesService = {
                   completedAt: sql`NULL`.as("completed_at"),
                   templateId: bound(templateId, tasks.templateId),
                   templateItem: sql<string>`${picked("item")}`.as("template_item"),
-                  dueOffsetDays: sql<number | null>`${picked("offset")}`.as("due_offset_days"),
+                  dueOffsetDays: sql<number>`${picked("offset")}`.as("due_offset_days"),
                   dueSource: bound("template", tasks.dueSource),
                 })
                 .from(sql`json_each(${JSON.stringify(rows)}) AS picked`)
@@ -192,11 +178,15 @@ export const taskTemplatesService = {
                 ),
             )
             .onConflictDoNothing(),
-          listQuery,
+          db
+            .select()
+            .from(tasks)
+            .where(eq(tasks.weddingId, weddingId))
+            .orderBy(asc(tasks.timeframeBucket), asc(tasks.sortOrder)),
         ]),
       );
       const added = rowsChanged(results[1]);
-      if (added > 0) metricChecklistTemplateApplied(templateId, added);
+      metricChecklistTemplateApplied(templateId, added);
       return { added, tasks: (results[2] as TaskRow[]).map(toDto) };
     }).pipe(Effect.withSpan("cire.tasks.template_apply"));
   },

@@ -8,13 +8,15 @@ import {
   weddingHosts,
   weddings,
 } from "@cire/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { CHECKLIST_TEMPLATES } from "../../src/lib/checklist-templates";
+import { CIRE_METRICS } from "../../src/metrics";
 import { appRequest, jsonBody, setTier } from "../test-helpers";
+import { counterValue } from "../test-helpers/metrics-harness";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { insertWedding } from "../test-helpers/wedding";
@@ -186,14 +188,18 @@ const anchored = (key: string, date: string): string => {
 };
 
 describe("applying the starter checklist", () => {
-  it("adds each item once, however many times it is applied", async () => {
+  it("adds each item once, however many times it is applied, and counts what it added", async () => {
     const { app } = build();
+    const applied = () =>
+      counterValue(CIRE_METRICS.checklistTemplateApplied, { template: "starter" });
+    const before = await applied();
     const first = await apply(app);
     expect(first.added).toBe(ALL_KEYS.length);
     const second = await apply(app);
     expect(second.added).toBe(0);
     expect(second.tasks.length).toBe(ALL_KEYS.length);
     expect((await list(app)).length).toBe(ALL_KEYS.length);
+    expect((await applied()) - before).toBe(ALL_KEYS.length);
   });
 
   it("refuses a second task for the same template item at the database", () => {
@@ -339,6 +345,23 @@ describe("moving the wedding date", () => {
     await setWeddingDate(app, "2027-09-04");
     const reopened = await patchTask(app, task.id, { status: "open" });
     expect(reopened.dueAt).toBe(anchored("book-venues", "2027-09-04"));
+  });
+
+  it("keeps the date a reopen sends with it", async () => {
+    const { app, rows } = await seededWedding();
+    const task = seeded(rows, "book-venues");
+    await patchTask(app, task.id, { status: "done" });
+    const reopened = await patchTask(app, task.id, { status: "open", dueAt: "2026-12-01" });
+    expect([reopened.dueAt, reopened.dueSource]).toEqual(["2026-12-01", "manual"]);
+  });
+
+  it("leaves a done task's date alone when it is marked done again", async () => {
+    const { app, rows } = await seededWedding();
+    const task = seeded(rows, "book-venues");
+    await patchTask(app, task.id, { status: "done" });
+    await setWeddingDate(app, "2027-09-04");
+    const again = await patchTask(app, task.id, { status: "done" });
+    expect(again.dueAt).toBe(anchored("book-venues", "2027-06-05"));
   });
 
   it("leaves a due date the couple set themselves", async () => {
@@ -516,6 +539,16 @@ describe("who may preview and apply the starter", () => {
     }
   });
 
+  it("answers a database failure with a bare 500, telling the caller nothing more", async () => {
+    const { app, db } = build();
+    db.run(sql`DROP TABLE task_template_dismissals`);
+    for (const method of ["GET", "POST"]) {
+      const res = await req(app, method, starterPath(), EDITOR, { items: ALL_KEYS });
+      expect(res.status, method).toBe(500);
+      expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+    }
+  });
+
   it("refuses an item the template does not have, and a malformed body", async () => {
     const { app } = build();
     for (const body of [
@@ -526,6 +559,7 @@ describe("who may preview and apply the starter", () => {
     ]) {
       const res = await req(app, "POST", starterPath(), EDITOR, body);
       expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
     }
     expect(await list(app)).toEqual([]);
   });

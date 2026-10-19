@@ -11,9 +11,8 @@ export interface ChecklistTemplateItem {
   readonly key: string;
   readonly title: string;
   readonly timeframeBucket: TimeframeBucket;
-  /** Days from the wedding date to the item's due date (negative = before).
-   *  Null for an item with no date of its own. */
-  readonly offsetDays: number | null;
+  /** Days from the wedding date to the item's due date (negative = before). */
+  readonly offsetDays: number;
 }
 
 export const CHECKLIST_TEMPLATES = {
