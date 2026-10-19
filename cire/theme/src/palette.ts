@@ -127,7 +127,11 @@ export const PALETTE_PRESETS = {
     card: "oklch(98.8% 0.006 25)",
     ink: "oklch(30% 0.052 350)",
     gilt: "oklch(57% 0.101 15)",
-    bloom: "oklch(58% 0.068 128)",
+    // 50% rather than a lighter olive: bloom carries the "RSVP given" label in
+    // the page colour, so it has to clear 4.5:1 against this blush ground
+    // (4.81 here). A lighter seed would be walked darker by `derivePalette`,
+    // and the swatch the builder shows would stop matching what guests see.
+    bloom: "oklch(50% 0.068 128)",
   },
 } as const satisfies Record<string, PaletteSeeds>;
 
@@ -251,6 +255,7 @@ export const DERIVED_TOKENS = [
   "--color-gold",
   "--color-gold-dim",
   "--color-gold-ink",
+  "--color-on-gold",
   "--color-bloom",
   "--color-bloom-dim",
   "--color-error",
@@ -361,6 +366,53 @@ function semantic(hue: number, chroma: number, card: Oklch, darkStart = 0.72): s
   return formatOklch(ensureContrast(start, card, WCAG_TEXT_MIN));
 }
 
+const WHITE: Oklch = { l: 1, c: 0, h: 0, a: 1 };
+const BLACK: Oklch = { l: 0, c: 0, h: 0, a: 1 };
+
+/**
+ * The label colour for anything painted on the metal: every gold button, and
+ * the open RSVP button on an event card.
+ *
+ * The page colour first, then the ink — the two colours the invite already
+ * uses, so a scheme whose gold reads under either keeps its look. When neither
+ * reaches 4.5:1 (a mid-tone brass between a cream page and a dark ink), one of
+ * them is walked toward black or white, whichever pole contrasts more with the
+ * gold. The direction comes from that measurement, not from the gold's
+ * lightness: a gold just past the midpoint can sit closer in contrast to black
+ * than to white, and `ensureContrast`'s "dark text on a light backdrop" rule
+ * then walks to pure black and still misses the bar. The organiser's gold is
+ * never moved to make room.
+ */
+function onGoldInk(gilt: Oklch, ground: Oklch, ink: Oklch): Oklch {
+  for (const colour of [ground, ink]) {
+    if (contrastOklch(colour, gilt) >= WCAG_TEXT_MIN) return colour;
+  }
+  const lighter = contrastOklch(WHITE, gilt) >= contrastOklch(BLACK, gilt);
+  // Start from whichever of the two already sits on that pole's side of the
+  // gold, so each step only adds contrast. Neither does only on a scheme whose
+  // page and ink both sit on one side of its gold; the gold itself is the
+  // start then.
+  const onSide = [ground, ink].filter((colour) =>
+    lighter ? colour.l > gilt.l : colour.l < gilt.l,
+  );
+  const start =
+    onSide.reduce<Oklch | undefined>(
+      (best, colour) =>
+        best && contrastOklch(best, gilt) >= contrastOklch(colour, gilt) ? best : colour,
+      undefined,
+    ) ?? gilt;
+  const STEP = 0.02;
+  let best = start;
+  for (let i = 1; i <= 50; i++) {
+    const l = Math.min(1, Math.max(0, start.l + (lighter ? i : -i) * STEP));
+    // Ease chroma off toward the pole so the colour stays inside sRGB, as
+    // `ensureContrast` does.
+    best = { ...start, l, c: Math.min(start.c, (lighter ? 1 - l : l) * 0.6) };
+    if (contrastOklch(best, gilt) >= WCAG_TEXT_MIN || l === 0 || l === 1) break;
+  }
+  return best;
+}
+
 /**
  * Derive the full token set from a scheme: five seeds laid over the preset they
  * were chosen from.
@@ -426,10 +478,12 @@ export function derivePalette(
   // minimum rather than the text minimum so a genuinely gold gold survives
   // instead of being bleached into a cream.
   const gilt = ensureContrast(giltSeed, ground, WCAG_UI_MIN);
-  // Bloom carries the RSVP confirmation button's sweep fill and its
-  // permanent tick — a filled background and an icon glyph, not prose — so
-  // it gets the same UI floor as gilt rather than the text minimum.
-  const bloom = ensureContrast(bloomSeed, ground, WCAG_UI_MIN);
+  // Bloom fills the answered RSVP button, and the button's label and tick are
+  // written on it in `--color-bg`. That label is normal-size text, so bloom is
+  // held to the text minimum against the page colour — the pair the label
+  // actually makes. A page too close to the midpoint for any bloom to get
+  // there is reported by `label-on-bloom` in `RESIDUAL_PAIRS`.
+  const bloom = ensureContrast(bloomSeed, ground, WCAG_TEXT_MIN);
 
   // Gold that is READ rather than seen. The 3:1 floor above is the right bar
   // for a rule, a border or a display heading, and the wrong one for a
@@ -464,6 +518,7 @@ export function derivePalette(
     // The built-in dim gold is gold at 0.35 alpha; keep that exact relationship.
     "--color-gold-dim": formatOklch(withAlpha(gilt, 0.35)),
     "--color-gold-ink": formatOklch(giltInk),
+    "--color-on-gold": formatOklch(onGoldInk(gilt, ground, ink)),
     "--color-bloom": formatOklch(bloom),
     "--color-bloom-dim": formatOklch(withAlpha(bloom, 0.3)),
     "--color-error": semantic(21.48, 0.1401, card),
@@ -548,8 +603,8 @@ export function paletteAdjustments(
   }
 
   const bloomSeed = seed(seeds?.bloom, "bloom", base);
-  if (contrastOklch(bloomSeed, ground) < WCAG_UI_MIN) {
-    out.push({ token: "bloom", reason: "Adjusted so accents stay visible on the page." });
+  if (contrastOklch(bloomSeed, ground) < WCAG_TEXT_MIN) {
+    out.push({ token: "bloom", reason: "Adjusted so the RSVP button's label stays readable." });
   }
 
   return out;
@@ -598,10 +653,18 @@ export function paletteAdjustments(
  *     land on any of the three surfaces — which is why both prose tokens are
  *     walked against all three rather than against this one.
  *
- *   - `--color-bloom` on `--color-surface-raised` — the RSVP confirmation
- *     button's sweep fill and its permanent tick, both on `EventCard`. Held
- *     to the UI floor like `gilt-on-raised` below it: the fill is a filled
- *     background and the tick is an icon glyph, neither is prose.
+ *   - `--color-bloom` on `--color-surface-raised` — the answered RSVP button's
+ *     fill against the event card it sits on. Held to the UI floor like
+ *     `gilt-on-raised` below it: here the fill is the shape of a control.
+ *
+ * Two pairs measure a label on its fill rather than a colour on a surface:
+ *
+ *   - `--color-bg` on `--color-bloom` — the "RSVP given" label and its tick.
+ *     Bloom is walked against the page at the text minimum, so this fires only
+ *     where that walk runs out of range: a page close to the lightness midpoint.
+ *   - `--color-on-gold` on `--color-gold` — every gold button's label. The
+ *     on-gold ink is walked to the text minimum against the gold toward the
+ *     stronger pole, so this fires only where neither pole reaches it.
  */
 const RESIDUAL_PAIRS: {
   id: string;
@@ -652,16 +715,29 @@ const RESIDUAL_PAIRS: {
     message: "Buttons and rules are hard to see on event cards.",
   },
   {
-    // `bloom` is derived the same way `gilt` is — walked against `ground`
-    // only, at the UI floor — so it can miss the same way on the same
-    // straddling schemes. Its one render site, the RSVP confirmation
-    // button's sweep fill and permanent tick, lives on `EventCard`, i.e.
+    // `bloom` is walked against `ground` only, like `gilt`, so it can miss the
+    // same way on the same straddling schemes. Its one render site, the
+    // answered RSVP button's fill, lives on `EventCard`, i.e.
     // `--color-surface-raised`.
     id: "bloom-on-raised",
     fg: "--color-bloom",
     bg: "--color-surface-raised",
     min: WCAG_UI_MIN,
     message: "The RSVP confirmation fill and tick are hard to see on event cards.",
+  },
+  {
+    id: "label-on-bloom",
+    fg: "--color-bg",
+    bg: "--color-bloom",
+    min: WCAG_TEXT_MIN,
+    message: "The “RSVP given” label is hard to read on its button.",
+  },
+  {
+    id: "label-on-gold",
+    fg: "--color-on-gold",
+    bg: "--color-gold",
+    min: WCAG_TEXT_MIN,
+    message: "Labels on gold buttons are hard to read.",
   },
   {
     // The pair the first cut of this table missed. The walk is sequential and

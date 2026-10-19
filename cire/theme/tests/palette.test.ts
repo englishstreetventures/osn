@@ -130,6 +130,11 @@ describe("contrast is enforced, not advised", () => {
     ["--color-gold-ink", "--color-bg"],
     ["--color-gold-ink", "--color-surface"],
     ["--color-gold-ink", "--color-surface-raised"],
+    // The answered RSVP button's label ("RSVP given") is `--color-bg` on a
+    // bloom fill, and the tick beside it is the same ink — normal-size text.
+    ["--color-bg", "--color-bloom"],
+    // Every gold button's label: the derived on-gold ink on the metal.
+    ["--color-on-gold", "--color-gold"],
   ] as const;
   const uiPairs = [
     ["--color-text-muted", "--color-surface"],
@@ -139,7 +144,7 @@ describe("contrast is enforced, not advised", () => {
     ["--color-text-muted", "--color-surface-raised"],
     ["--color-gold", "--color-surface-raised"],
     ["--color-gold", "--color-bg"],
-    ["--color-bloom", "--color-bg"],
+    ["--color-bloom", "--color-surface-raised"],
     ["--invite-focus", "--color-bg"],
     ["--color-error", "--color-surface"],
     ["--color-success", "--color-surface"],
@@ -272,6 +277,75 @@ describe("contrast is enforced, not advised", () => {
     expect(paletteContrastWarnings(v)).toEqual([]);
   });
 
+  test("no curated preset reports an adjusted seed", () => {
+    // The builder shows an adjustment as "we changed your colour". A preset is
+    // our own pick, so it must already clear every bar the derivation holds —
+    // bloom's text bar included — or picking it would greet the organiser
+    // with a notice about a colour they never chose.
+    for (const key of PALETTE_PRESET_KEYS) {
+      expect({ key, adjustments: paletteAdjustments(PALETTE_PRESETS[key]) }).toEqual({
+        key,
+        adjustments: [],
+      });
+    }
+  });
+
+  test("garden's bloom paints exactly as the preset names it", () => {
+    // The swatch the builder shows for a preset is the seed itself, so a
+    // seed the derivation still has to walk would show one colour and paint
+    // another.
+    const v = derivePalette(PALETTE_PRESETS.garden);
+    expect(v["--color-bloom"]).toBe(formatOklch(parseColor(PALETTE_PRESETS.garden.bloom)!));
+  });
+
+  test("on-gold ink keeps the page colour when it already reads on the metal", () => {
+    // Evergreen's dark ground clears 4.5:1 on its gold, so every gold button
+    // keeps the near-black label it has always had.
+    const v = derivePalette(PALETTE_PRESETS.evergreen);
+    expect(v["--color-on-gold"]).toBe(v["--color-bg"]);
+  });
+
+  test("on-gold ink walks toward black when black is the stronger pole (chapel)", () => {
+    // Chapel's mid-tone brass reads neither the cream page (3.69) nor the
+    // dark ink (3.38) at 4.5, and black beats white against it. The label
+    // ends darker than the metal and at the text bar — the organiser's gold
+    // itself is untouched.
+    const v = derivePalette(PALETTE_PRESETS.chapel);
+    const onGold = parseColor(v["--color-on-gold"]!)!;
+    const gold = parseColor(v["--color-gold"]!)!;
+    expect(contrastOklch(onGold, gold)).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
+    expect(onGold.l).toBeLessThan(gold.l);
+    expect(v["--color-gold"]).toBe(formatOklch(parseColor(PALETTE_PRESETS.chapel.gilt)!));
+  });
+
+  test("on-gold ink walks toward white when white is the stronger pole (garden)", () => {
+    // Garden's rose gold measures 4.70 against white and only 4.47 against
+    // black: a walk that picked its direction from the metal's lightness
+    // (dark text on anything past the midpoint) reaches black and still
+    // misses the bar. The label must head for white instead.
+    const v = derivePalette(PALETTE_PRESETS.garden);
+    const onGold = parseColor(v["--color-on-gold"]!)!;
+    const gold = parseColor(v["--color-gold"]!)!;
+    expect(contrastOklch(onGold, gold)).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
+    expect(onGold.l).toBeGreaterThan(gold.l);
+  });
+
+  test("on-gold ink clears the text bar on the muted field schemes too", () => {
+    // Both schemes off the live wedding that added `--color-gold-ink`. Their
+    // metal sits near the midpoint, where white is the only pole that reaches
+    // 4.5:1 (5.21 and 5.19; black stops near 4.0).
+    for (const seeds of [
+      { ground: "#CEC6B6", card: "#D6CFC2", ink: "#242218", gilt: "#938976", bloom: "#C7D1D5" },
+      { ground: "#d6cfc2", card: "#e4ded3", ink: "#2b2721", gilt: "#756c59" },
+    ]) {
+      const v = derivePalette(seeds);
+      expect(
+        contrastRatio(v["--color-on-gold"]!, v["--color-gold"]!),
+        seeds.ground,
+      ).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
+    }
+  });
+
   test("reports which seeds it had to move, and stays quiet when it moved none", () => {
     expect(paletteAdjustments(PALETTE_PRESETS.evergreen)).toEqual([]);
     const reports = paletteAdjustments({
@@ -362,9 +436,10 @@ describe("residual contrast warnings", () => {
     // happened AND a real problem survived it, so both notices are true at
     // once. The prose tokens are NOT among the survivors: every surface here
     // sits on the same side of the midpoint, which is the case their
-    // three-surface walk settles. `gilt` and `bloom` are walked identically
-    // (against `ground` only, at the UI floor), so a near-white seed for
-    // either lands the same way on `raised`.
+    // three-surface walk settles. `gilt` is walked against `ground` only, at
+    // the UI floor, so a near-white seed lands just short on `raised` too.
+    // Bloom is not among them: it is walked to the TEXT bar against the page,
+    // which leaves it dark enough to clear the UI floor on `raised` as well.
     const warnings = paletteContrastWarnings(
       derivePalette({
         ground: "#ffffff",
@@ -374,13 +449,28 @@ describe("residual contrast warnings", () => {
         bloom: "#fdfdfd",
       }),
     );
-    expect(warnings.map((w) => w.id)).toEqual([
-      "text-on-raised",
-      "gilt-on-raised",
-      "bloom-on-raised",
-    ]);
+    expect(warnings.map((w) => w.id)).toEqual(["text-on-raised", "gilt-on-raised"]);
     for (const warning of warnings) expect(warning.ratio).toBeLessThan(warning.required);
     expect(warnings.find((w) => w.id === "text-on-raised")!.ratio).toBeLessThan(WCAG_TEXT_MIN);
+  });
+
+  test("a mid-tone page that no bloom can label is warned about, at the text bar", () => {
+    // Bloom is walked to 4.5:1 against the page because the page colour is the
+    // answered button's label. A page just past the lightness midpoint sends
+    // the walk toward black, which tops out under 4.5:1 there, so the walk
+    // returns its best effort and the builder must say the "RSVP given" label
+    // is hard to read rather than show a clean palette.
+    const v = derivePalette({
+      ground: "oklch(52% 0 0)",
+      card: "oklch(56% 0 0)",
+      ink: "#ffffff",
+      gilt: "#828282",
+      bloom: "#858585",
+    });
+    const warning = paletteContrastWarnings(v).find((w) => w.id === "label-on-bloom");
+    expect(warning?.required).toBe(WCAG_TEXT_MIN);
+    expect(warning?.ratio).toBeLessThan(WCAG_TEXT_MIN);
+    expect(warning?.ratio).toBeCloseTo(contrastRatio(v["--color-bg"]!, v["--color-bloom"]!)!, 1);
   });
 
   test("holds secondary text to the TEXT minimum, not the UI floor", () => {
@@ -474,10 +564,11 @@ describe("residual contrast warnings", () => {
     // assertions when this branch rewrote the two tests that happened to
     // mention it, leaving an entry nothing pinned — after which deleting it, or
     // changing its bar or message, would go unnoticed. Asserting the FULL id
-    // set on a scheme that fires everything keeps every pair covered as the
-    // table grows, instead of relying on which ids a neighbouring test happens
-    // to name.
-    const all = paletteContrastWarnings(
+    // set across a few schemes that fire everything between them keeps every
+    // pair covered as the table grows, instead of relying on which ids a
+    // neighbouring test happens to name.
+    const schemes = [
+      // A mid-tone purple page fires the prose pairs and the bloom label.
       derivePalette({
         ground: "#8a57ac",
         card: "#b13f6c",
@@ -485,8 +576,29 @@ describe("residual contrast warnings", () => {
         gilt: "#179033",
         bloom: "#07cc84",
       }),
-    ).map((w) => w.id);
-    expect(all.toSorted()).toEqual(
+      // Near-black page under near-white cards: bloom is lightened to label
+      // the page and then sits on a near-white card.
+      derivePalette({
+        ground: "#101010",
+        card: "#f2f2f2",
+        ink: "#eeeeee",
+        gilt: "#d4af37",
+        bloom: "#e74c3c",
+      }),
+      // No derived palette can fire `label-on-gold`: the stronger of black
+      // and white always clears 4.5:1 on any colour (the worst case is
+      // 4.58), and the on-gold walk ends at that pole. The pair is a backstop
+      // against a change to that walk, so it is pinned on a token map whose
+      // on-gold ink has been put back on the metal by hand.
+      {
+        ...derivePalette(PALETTE_PRESETS.chapel),
+        "--color-on-gold": derivePalette(PALETTE_PRESETS.chapel)["--color-bg"],
+      },
+    ];
+    const all = new Set(
+      schemes.flatMap((tokens) => paletteContrastWarnings(tokens).map((w) => w.id)),
+    );
+    expect([...all].toSorted()).toEqual(
       [
         "text-on-raised",
         "muted-on-raised",
@@ -494,10 +606,37 @@ describe("residual contrast warnings", () => {
         "muted-on-surface",
         "gilt-on-raised",
         "bloom-on-raised",
+        "label-on-bloom",
+        "label-on-gold",
         "gilt-ink-on-raised",
         "gilt-ink-on-surface",
       ].toSorted(),
     );
+  });
+
+  test("the on-gold ink clears the text bar on any scheme an organiser can pick", () => {
+    // The guarantee that leaves `label-on-gold` a backstop: whatever the five
+    // seeds, every gold button's label reads at 4.5:1. A fixed-seed sweep, so
+    // a failure names a scheme a rerun reproduces.
+    let state = 0x2f6b_1a3d;
+    const next = () => {
+      state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+      return state.toString(16).padStart(8, "0").slice(0, 6);
+    };
+    for (let i = 0; i < 500; i++) {
+      const seeds = {
+        ground: `#${next()}`,
+        card: `#${next()}`,
+        ink: `#${next()}`,
+        gilt: `#${next()}`,
+        bloom: `#${next()}`,
+      };
+      const v = derivePalette(seeds);
+      expect({
+        seeds,
+        ok: contrastRatio(v["--color-on-gold"]!, v["--color-gold"]!)! >= WCAG_TEXT_MIN,
+      }).toEqual({ seeds, ok: true });
+    }
   });
 
   test("measures each pair against the surface its message names", () => {
@@ -529,10 +668,9 @@ describe("residual contrast warnings", () => {
   });
 
   test("warns about bloom on the card surface it actually paints", () => {
-    // `--color-bloom` paints the RSVP confirmation button's sweep fill and
-    // permanent tick, both on `EventCard` (`--color-surface-raised`). It is
-    // derived the same way `gilt` is — walked against `ground` only, at the
-    // UI floor — so the same `raisedOnly` scheme that catches `gilt-on-raised`
+    // `--color-bloom` fills the answered RSVP button on `EventCard`
+    // (`--color-surface-raised`). Like `gilt`, it is walked against `ground`
+    // only, so the same `raisedOnly` scheme that catches `gilt-on-raised`
     // above should catch `bloom-on-raised` too.
     const raisedOnly = derivePalette({
       ground: "#101010",
