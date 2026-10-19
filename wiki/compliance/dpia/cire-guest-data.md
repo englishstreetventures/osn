@@ -449,7 +449,7 @@ household itself authenticated, the payload is unchanged in content (no new
 field, no new recipient class — see C-L1 in [[data-map]]), and the scope is one
 household. Art. 36 prior consultation is not triggered.
 
-**Mitigations in place on the branch.**
+**Mitigations in place.**
 
 - The payload is `Cache-Control: no-store` + `Vary: Origin, Cookie`, so no
   shared cache can retain or replay it to another household (S-H1).
@@ -459,14 +459,17 @@ household. Art. 36 prior consultation is not triggered.
 - Deactivating a family still deletes its sessions in the same commit, and the
   restore re-checks `deactivated_at` independently.
 
-**Outstanding mitigation — required.**
-There is no guest sign-out: `sessionService.revoke` exists but is wired to no
-guest-facing route, and the guest site offers no session control at all. A
-credential that auto-exercises itself needs a user-controlled way to stop it.
-The planned fix is `POST /api/claim/signout` plus a "Not the <name> family?"
-control on the restored invite. Until it ships, the only ways to end a session
-are organiser-initiated (deactivate / remint) or 30-day expiry. Whether 30 days
-remains the right TTL for an auto-exercised cookie should be decided alongside it.
+**Guest sign-out — in place since 2026-08-09.** A credential that exercises
+itself needs a way for the guest to stop it. `POST /api/claim/signout`
+(`cire/api/src/routes/claim.ts`) clears the household cookie, revokes the
+session as a best effort, and always answers 204, so a stale cookie is cleared
+too. The restored invite shows a "Not the <name> family? Sign out" control
+(`cire/invites/src/components/LoginSection.tsx`). An organiser can still end a
+session by deactivating or reminting the family.
+
+**Open question.** Whether 30 days (`SESSION_TTL_SECONDS` in
+`cire/api/src/routes/claim.ts`) is the right lifetime for a cookie that
+exercises itself on every visit.
 
 ## 5. Consultation
 

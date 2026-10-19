@@ -40,16 +40,6 @@ holds from registration to deletion:
   which unmounted the flow mid-registration and skipped enrolment entirely
   (fixed 2026-08-15). Anything that publishes a session before the first
   credential breaks this invariant, whatever the UI claims.
-  **Known hole:** `/register/complete` sets the refresh cookie, so a user who
-  abandons at the passkey step and reloads is signed in to a passkey-less
-  account and never re-prompted. Reloading is not the only way there — Cancel
-  is live on the passkey step, the shell unmounts when the viewport crosses the
-  `md` breakpoint, and the enrolment access token dies after 5 minutes with no
-  refresh path. That session also satisfies `/authorize`, so a credential-less
-  account can be federated to a relying party. Closing the hole properly needs a
-  server-side registration-incomplete state that gates `/authorize` and `/token`
-  as well as app routes; a client-side `logout()` on the walk-away paths is a
-  worthwhile partial, since `POST /logout` needs only the cookie.
 - **Deletion.** `deletePasskey` refuses unconditionally if the delete would
   drop the account below 1 passkey (`osn/api/src/services/auth/passkey-management.ts`). Recovery
   codes are NOT a substitute credential — they are the "my device is gone"

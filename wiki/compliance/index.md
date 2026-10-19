@@ -13,7 +13,7 @@ related:
   - "[[data-map]]"
   - "[[subprocessors]]"
   - "[[cire]]"
-last-reviewed: 2026-09-11
+last-reviewed: 2026-10-19
 ---
 
 # Compliance
@@ -90,4 +90,4 @@ compliance" surface looks like.
   for new collection, etc.
 - **Triaging a finding?** Compliance findings use the `C-` prefix (see
   `[[review-findings]]`) and are filed in the private `englishstreetventures/osn-tracker`
-  under `label:compliance` — never in the public `englishstreetventures/osn`.
+  under `area:compliance` — never in the public `englishstreetventures/osn`.

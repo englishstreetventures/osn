@@ -12,7 +12,7 @@ related:
   - "[[observability-setup]]"
   - "[[cire-auth]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-19
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -484,7 +484,7 @@ guard, auth middleware).
 
 > When these are done, tick them off here and note the date. Until then they are
 > open hardening items — file them in `englishstreetventures/osn-tracker` under
-> `label:security` if they should be visible there.
+> `area:security` if they should be visible there.
 
 ## Related
 

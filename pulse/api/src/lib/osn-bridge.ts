@@ -68,7 +68,8 @@ export const verifyStepUp = (
  * in the request lifecycle.
  *
  * Residual risk: a compromised Pulse instance can call this with arbitrary
- * accountIds. Mitigations: the ARC key's bounded TTL (5 min) and audit logs.
+ * accountIds. Mitigations: each ARC token lives 5 minutes, the signing key 24
+ * hours by default (`PULSE_LEAVE_ARC_KEY_TTL_HOURS`), and audit logs.
  */
 export const notifyAppLeft = (
   accountId: string,

@@ -372,7 +372,7 @@ the judge's reasoning rather than scenario totals.
 **The `prep-pr` leak: fixed.** `no_private_tracker_detail_in_public_body` went
 0.17 → 0.67 with the skill (baseline 0.25 → 0.33), and the judge's words are the
 wording that was added: "references unfixed findings only by number and finding
-ID (e.g. `englishstreetventures/osn-tracker#601 — S-M1`)". It is a 1-point binary item, so
+ID (e.g. `englishstventures/osn-tracker#601 — S-M1`)". It is a 1-point binary item, so
 three samples have a standard error near 0.3 and a move of half a point is
 signal. The defect was never a missing rule — it was stated three times — but a
 **contradiction**: the Out of scope template asked for "what was found", which is

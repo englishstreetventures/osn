@@ -1,8 +1,8 @@
 /**
  * Put already-created issues on the Project board.
  *
- * The Project's "auto-add" workflow only fires for issues opened after it is
- * enabled, and this migration created its issues first -- creating the Project
+ * The Project's "auto-add" workflow only adds issues created or updated after
+ * it is enabled, and this migration created its issues first -- creating the Project
  * needs the `project` OAuth scope, and `gh auth refresh` is interactive. So the
  * issues that went in ahead of the board are added here, once.
  *

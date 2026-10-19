@@ -1435,9 +1435,10 @@ rhythm down the page is visible while editing. Both layers share
 guest consumes (`derivePalette` + `typographyVars` from `@cire/theme`,
 resolved once in the `previewTokens` memo — and shared into `PaletteField`
 via its `tokens`/`adjustments` props, so the whole builder derives exactly
-once per colour-drag frame). Both layers stay permanently mounted with a
-CSS-only container-query switch — a deliberate trade (one markup source, no
-`ResizeObserver`). The
+once per colour-drag frame). A `ResizeObserver` on the builder container
+picks which layer to mount (`previewLayer`: `narrow`, `wide` or `unknown`;
+`unknown` mounts both), and each layer keeps its container-query classes as
+the visual authority, so the two never show at once. The
 `url("…")` sink both layers' crop rendering shares (`cropBackgroundStyle`,
 lockstep organiser + guest copies) escapes its URL argument at the sink.
 The hero preview is **crop-aware** (saved rectangles render via the

@@ -11,7 +11,7 @@ related:
   - "[[subprocessors]]"
   - "[[identity-model]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-10-19
 ---
 
 # GDPR + UK GDPR
@@ -55,7 +55,7 @@ becomes the controller; we process on its instruction).
 
 ## Project changes required
 
-Tracked with `C-` IDs in `englishstreetventures/osn-tracker` under `label:compliance`. The
+Tracked with `C-` IDs in `englishstreetventures/osn-tracker` under `area:compliance`. The
 high-impact ones, in priority order:
 
 1. **Account-level data export endpoint** — `GET /account/export` (auth + step-up gated). JSON bundle including: account row, all profiles, social-graph edges, blocks, RSVPs (via Pulse ARC fan-out), chat membership (via Zap ARC fan-out), security events, sessions metadata, recovery-code usage history. Streaming JSON (multi-MB plausible). Rate-limited 1/day/account. ID: **C-H1**. Owner: Identity team.

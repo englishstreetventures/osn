@@ -22,8 +22,9 @@ Two repos and one Project:
 | `OSN Platform` (org Project, **private**) | Both repos' issues in one board |
 
 Findings are split off because `englishstreetventures/osn` is public and an open finding is a
-disclosure. See `[[review-findings]]` for what may be said in a public issue
-about a finding that exists (the ID, nothing else).
+disclosure. A public issue or pull request carries a tracker issue only as a
+bare `englishstreetventures/osn-tracker#<n>` reference — see
+[[review-findings#Where a finding ID may appear]].
 
 ## 1. Token scopes
 
@@ -197,11 +198,14 @@ Project → the **⋯** menu, top right → **Workflows**. Each one is Edit, fil
 then **Save and turn on workflow**.
 
 1. **Auto-add to project** — filter `is:issue is:open`, one repo per workflow.
-   **`englishstreetventures` is on GitHub Team, which allows five auto-add
-   workflows per project** (Free allows one; GitHub Docs, *Adding items
-   automatically*). Two repos feed this board, so each gets its own workflow:
-   set one up, then **⋯** beside it → **Duplicate workflow** → **Edit**, and
-   pick the other repository under **Filters**.
+   **The board has one, on `englishstreetventures/osn-tracker`**: findings
+   arrive in bursts at the end of a review and are the easy ones to forget,
+   while a public issue is opened deliberately and `write-issue` adds it with
+   `gh project item-add`. `englishstreetventures` is on GitHub Team, which
+   allows five auto-add workflows (Free allows one; GitHub Docs, *Adding items
+   automatically*), so the public repo can have its own: **⋯** beside the
+   existing one → **Duplicate workflow** → **Edit**, and pick
+   `englishstreetventures/osn` under **Filters**.
 2. **Item added to project** — set `Status` = `Backlog`, and turn it on
    whether or not auto-add is.
 
@@ -214,9 +218,9 @@ migration cost zero Project API calls.
 **It did not happen that way on the first run.** Creating the Project needs the
 `project` scope, and `gh auth refresh` cannot be run by an agent — it is
 interactive. Rather than stall the whole migration on one token grant, the
-issues were created first and the Project comes second. Auto-add only fires on
-issues opened *after* the workflow is enabled, so everything created before it
-has to be backfilled:
+issues were created first and the Project comes second. Auto-add adds an issue
+only when it is created or updated *after* the workflow is enabled, so
+everything created before it has to be backfilled:
 
 ```bash
 bun run scripts/todo-to-issues/backfill-project.ts $N          # dry run, prints the plan
@@ -234,8 +238,9 @@ It took three runs to clear the whole board — see §Rate limits worth knowing 
 why, and expect the same of any later bulk add. The dry run now reports
 `676 issues, 676 on the board, 0 to add`.
 
-It stays useful after the migration: an auto-add workflow fires only on issues
-opened after it is turned on, so run the dry run whenever one is added or
+It stays useful after the migration: auto-add covers only the tracker, and
+skips any issue that existed before its workflow was turned on until someone
+edits it. Run the dry run now and then, and whenever a workflow is added or
 changed, and `--apply` when it finds anything.
 
 ## 7. Views (UI only)
@@ -286,7 +291,7 @@ still run:
 | File | Why it stays |
 |---|---|
 | `labels.sh` | Recreates the label set in both repos, any time (§3) |
-| `backfill-project.ts` | Puts on the board any issue opened before its repo's auto-add workflow was on (§6) |
+| `backfill-project.ts` | Puts on the board any issue no auto-add workflow added (§6) |
 | `throttle.ts` | The rate-limit gap the backfill uses |
 
 Everything else — the parser, the classifier, the link rewriter, the renderer,

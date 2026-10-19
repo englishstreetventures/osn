@@ -12,7 +12,7 @@ related:
   - "[[identity-model]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-19
 ---
 
 # OSN and Musubi
@@ -81,10 +81,10 @@ rebuilding those ceremonies would rebuild these screens too.
 `@shared/rp-auth` is a relying-party helper that works against any OSN issuer,
 so it is not Musubi's either, and sits under `shared/` for the same reason.
 
-The repository is still called `englishstreetventures/osn` and the Cloudflare Pages projects
-are still called `osn-social`, `osn-social-dev` and `osn-landing`. Neither is
-observable by a third party, and renaming a Pages project attached to a live
-apex is a deploy operation rather than a rename.
+The repository is still named `osn` (`englishstreetventures/osn`), and the
+Cloudflare Pages projects are still `osn-social`, `osn-social-dev` and
+`osn-landing`. Renaming a Pages project attached to a live apex is a deploy
+operation, not a rename.
 
 > [!warning] `osn-social` is not `osn/social`
 > One character apart, different things. `osn-social` is a Cloudflare Pages
