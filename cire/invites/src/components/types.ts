@@ -247,8 +247,8 @@ export interface ClaimResult {
   householdReplied?: unknown;
   /**
    * Which household member this session says it is, exactly as it arrived.
-   * Present only while the member step is on for the household; `null` until
-   * chosen. Unproven, like `accountLink`: read it only through `readMember`,
+   * Present for every guest household and absent on a host preview; `null`
+   * until chosen. Unproven, like `accountLink`: read it only through `readMember`,
    * which answers "no member step" for anything absent or malformed.
    */
   member?: unknown;

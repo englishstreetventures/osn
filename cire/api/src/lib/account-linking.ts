@@ -3,12 +3,13 @@ import type { FeatureFlags, ForRequestOptions } from "@shared/feature-flags";
 import type { OsnAccountResolver } from "../services/osn-bridge";
 
 /**
- * Feature flag gating the whole OSN ("Pulse") account-linking surface, and
- * with it the household member step. Off ⇒ the link POST answers 503, the
- * claim and restore responses report the household's linking as disabled and
- * carry no member, so the guest site draws no account-link box and no "Who
- * are you?" step, and an RSVP needs no member. Default off (the `FLAGS`
- * registry in `@shared/feature-flags`).
+ * Feature flag gating the whole OSN ("Pulse") account-linking surface. Off ⇒
+ * the link POST answers 503, the claim, restore and member-choice responses
+ * report the household's linking as disabled, so the guest site draws no
+ * account-link box, and no reply is marked as sent through a linked account.
+ * The household member step ("Who are you?", reply attribution,
+ * `member_required`) does not read it: it is on for every guest household.
+ * Default off (the `FLAGS` registry in `@shared/feature-flags`).
  */
 export const ACCOUNT_LINKING_FLAG = "cire.account-linking" as const;
 

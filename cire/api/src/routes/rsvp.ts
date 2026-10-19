@@ -24,7 +24,7 @@ import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
 import { BulkRsvpBody } from "../schemas/rsvp";
 import { accountLinkService } from "../services/account-link";
-import { rsvpService, withoutSubmitter } from "../services/rsvp";
+import { rsvpService } from "../services/rsvp";
 import type { RsvpInput } from "../services/rsvp";
 import { classifyRsvpChanges, pairKey, type PriorReply } from "../services/rsvp-changes";
 
@@ -74,9 +74,11 @@ export interface RsvpRouteOptions {
    */
   limiter: RateLimiterBackend;
   /**
-   * Decides whether the household member step is on for the household. On,
-   * a household of two or more choosable members must have chosen one, and
-   * each reply records who sent it. Absent ⇒ off.
+   * Decides whether a reply can be marked as sent through a linked musubi
+   * account (`submitted_via_link`): only while `cire.account-linking` is on
+   * for the household, like the link box. Absent ⇒ never. The member step
+   * itself reads no flag: a household of two or more choosable members must
+   * have chosen one, and each reply records who sent it.
    */
   accountLinking?: AccountLinking;
 }
@@ -108,12 +110,11 @@ export const createRsvpRoutes = (
           }
         }
 
-        // The same answer the claim payload gave (stale-ok, via `waitUntil`),
-        // so the page and this write agree whenever the payload's flag read
-        // finished in time. When it did not, the page met no "Who are you?"
-        // step; the 409 below brings it up (`member_required`). Started here
-        // so it overlaps the body read and the Turnstile check.
-        const memberStepRead =
+        // Whether linking is on for the household, the stale-ok answer the
+        // claim payload gives (via `waitUntil`). It decides only whether the
+        // musubi sign-in may vouch for the reply. Started here so it overlaps
+        // the body read and the Turnstile check.
+        const linkingRead =
           accountLinking === undefined
             ? Promise.resolve(false)
             : isAccountLinkingOn(accountLinking, familyId, getWaitUntil(request));
@@ -129,7 +130,7 @@ export const createRsvpRoutes = (
           return { error: tsErr.error };
         }
 
-        const memberStep = await memberStepRead;
+        const linkingOn = await linkingRead;
 
         return runCire(
           Effect.gen(function* () {
@@ -150,14 +151,16 @@ export const createRsvpRoutes = (
             // covers the family/guest join's WHERE, and guest_events' primary key
             // (guest_id, event_id) covers the LEFT JOIN probe.
             // Whether this request also carries the musubi sign-in the
-            // chosen member is linked to. Needs nothing the reads below
-            // return, so it runs beside them.
+            // chosen member is linked to — asked only while linking is on for
+            // the household, since a link it can neither see nor manage must
+            // not vouch. Needs nothing the reads below return, so it runs
+            // beside them.
             // The member only ever names a non-plus-one of this household
             // (`POST /api/claim/member` checks, and a deleted guest nulls it);
             // the write checks again below rather than trust that.
-            const submittedByGuestId = memberStep ? memberGuestId : null;
+            const submittedByGuestId = memberGuestId;
             const matchRead =
-              submittedByGuestId === null
+              submittedByGuestId === null || !linkingOn
                 ? Effect.succeed(false)
                 : accountLinkService
                     .memberMatch(
@@ -276,10 +279,10 @@ export const createRsvpRoutes = (
               return { error: "member_required" };
             }
 
-            // With the member step on, a household of two or more must say who
-            // is answering before it answers: each reply records its sender.
-            // A one-member household is chosen for on claim and restore.
-            if (memberStep && memberGuestId === null) {
+            // A household of two or more must say who is answering before it
+            // answers: each reply records its sender. A one-member household
+            // is chosen for on claim and restore.
+            if (memberGuestId === null) {
               const choosable = new Set(
                 familyGuestEvents.filter((row) => row.plusOneOf === null).map((row) => row.guestId),
               );
@@ -438,11 +441,8 @@ export const createRsvpRoutes = (
               }
             });
 
-            // "Answered by" rides the member step: off, the rows keep the
-            // shape they had before it.
-            return {
-              rsvps: memberStep ? updatedRsvps : updatedRsvps.map(withoutSubmitter),
-            };
+            // Each row carries its sender, for "Answered by".
+            return { rsvps: updatedRsvps };
           }).pipe(
             Effect.provideService(DbService, db),
             Effect.catchTag("SchemaError", () =>

@@ -20,7 +20,7 @@ import { sessionAuth } from "../middleware/auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
-import { ChooseMemberBody, ClaimBody } from "../schemas/claim";
+import { type AccountLinkState, ChooseMemberBody, ClaimBody } from "../schemas/claim";
 import { accountLinkService } from "../services/account-link";
 import { type AccountLinkGate, claimService } from "../services/claim";
 import { inviteService } from "../services/invite";
@@ -350,9 +350,11 @@ export const createClaimSessionRoutes = (
 export interface ClaimMemberRouteOptions {
   /** Per-IP limiter. Shares the restore route's page-load-sized budget. */
   limiter: RateLimiterBackend;
-  /** Decides whether the member step is on for the household. */
+  /** Decides whether the answer carries the household's account-link state. */
   accountLinking: AccountLinking;
 }
+
+const LINKING_OFF: AccountLinkState = { enabled: false };
 
 /** The guest named is not a member of the session's household. */
 class NotHouseholdMember extends Data.TaggedError("NotHouseholdMember") {}
@@ -371,12 +373,14 @@ class PlusOneSeat extends Data.TaggedError("PlusOneSeat") {}
  * household trust model the claim has always had. Only a member of the
  * session's own household may be named, and never a plus-one.
  *
- * `POST` checks the flag with the enforcing (uncached) read, as the link POST
- * does: a household the step is off for gets 404. It answers 200 with the
+ * The step is on for every guest household. `POST` answers 200 with the
  * member and the household's account-link state for that member, since only
  * the server can tell whether this browser's sign-in is the account the member
- * is linked to. `DELETE` is idempotent and always 204. Both are behind
- * `originGuard` (mounted after it in `app.ts`).
+ * is linked to. While `cire.account-linking` is off for the household that
+ * state is `{ enabled: false }`, naming no musubi account. The flag read is
+ * the stale-ok one the claim payload makes: it only shapes the answer, and the
+ * link POST enforces the flag itself. `DELETE` is idempotent and always 204.
+ * Both are behind `originGuard` (mounted after it in `app.ts`).
  */
 export const createClaimMemberRoutes = (
   db: Db,
@@ -400,11 +404,9 @@ export const createClaimMemberRoutes = (
           set.status = 401;
           return { error: "Unauthorized" };
         }
-        const on = await isAccountLinkingOn(accountLinking, familyId);
-        if (!on) {
-          set.status = 404;
-          return { error: "Not found" };
-        }
+        // Started here so it overlaps the body read and the member lookup.
+        // Never rejects.
+        const linkingRead = isAccountLinkingOn(accountLinking, familyId, getWaitUntil(request));
         const raw: unknown = await request.json().catch(() => null);
         return runCire(
           Effect.gen(function* () {
@@ -420,25 +422,27 @@ export const createClaimMemberRoutes = (
             );
             if (!row || row.kind !== "guest") return yield* Effect.fail(new NotHouseholdMember());
             if (row.plusOneOf !== null) return yield* Effect.fail(new PlusOneSeat());
+            const linkingOn = yield* Effect.promise(() => linkingRead);
+            const linkState: Effect.Effect<AccountLinkState, never, DbService> = linkingOn
+              ? accountLinkService
+                  .householdState(
+                    familyId,
+                    parseOrganiserSessionToken(request.headers.get("cookie")),
+                    {
+                      guestId,
+                      resolveAccountId: accountLinking.resolveAccountId,
+                      avatarOrigins: accountLinking.avatarOrigins,
+                    },
+                  )
+                  .pipe(Effect.map(({ match: _match, ...state }) => state))
+              : Effect.succeed(LINKING_OFF);
             // The write and the link state for the new member need nothing
             // from each other, so they run together.
-            const [, state] = yield* Effect.all(
-              [
-                sessionService.setMember(token, familyId, guestId),
-                accountLinkService.householdState(
-                  familyId,
-                  parseOrganiserSessionToken(request.headers.get("cookie")),
-                  {
-                    guestId,
-                    resolveAccountId: accountLinking.resolveAccountId,
-                    avatarOrigins: accountLinking.avatarOrigins,
-                  },
-                ),
-              ],
+            const [, accountLink] = yield* Effect.all(
+              [sessionService.setMember(token, familyId, guestId), linkState],
               { concurrency: "unbounded" },
             );
             yield* Effect.sync(() => metricHouseholdMemberChosen("picked"));
-            const { match: _match, ...accountLink } = state;
             return { member: { guestId }, accountLink };
           }).pipe(
             Effect.provideService(DbService, db),

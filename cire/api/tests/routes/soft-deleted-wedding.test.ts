@@ -283,8 +283,8 @@ const REQUESTS: Record<string, Row> = {
     live: status(200),
     deleted: UNAUTHORIZED,
   },
-  // "Who are you?" — the member step's flag is off on this app, so the POST
-  // answers 404 past the session gate; the gate is what a deleted wedding meets.
+  // "Who are you?" — past the session gate the POST records the member; the
+  // gate is what a deleted wedding meets.
   "POST /api/claim/member": {
     request: (f) =>
       send(f, "POST", "/api/claim/member", { cookie: true, body: { guestId: GUEST } }),

@@ -239,8 +239,8 @@ function buildRsvpUpsertStatements(
 }
 
 /**
- * A reply without its "Answered by" — the shape it has while the member step
- * is off for the household.
+ * A reply without its "Answered by" — the shape a host preview's claim payload
+ * carries, since a host is not a guest seat and has no member step.
  */
 export function withoutSubmitter<T extends { submittedBy?: unknown }>(
   row: T,

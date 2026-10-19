@@ -159,22 +159,26 @@ function linkRow(db: TestDb, guest: string, profileId: string) {
 }
 
 describe("claim payload", () => {
-  it("names no member for a household of several, and the one member of a household of one", async () => {
-    const { db, app } = buildApp();
-    const several = await claim(app, SAMPLETON);
-    expect((several.body as { member: unknown }).member).toBeNull();
-    const one = await claim(app, TESTFAMILY);
-    expect((one.body as { member: unknown }).member).toEqual({ guestId: guestId(db, "Ada") });
-    // The session starts with that member.
-    const rows = db.select({ member: sessions.memberGuestId }).from(sessions).all();
-    expect(rows.map((r) => r.member)).toContain(guestId(db, "Ada"));
-  });
-
-  it("leaves the payload as it was with the flag off", async () => {
-    const { app } = buildApp(false);
-    const { body } = await claim(app, TESTFAMILY);
-    expect(body).not.toHaveProperty("member");
-  });
+  // The member step is on for every guest household; the flag decides only
+  // the link box, even where the deployment could complete a link.
+  it.each([
+    ["on", true],
+    ["off", false],
+  ])(
+    "names no member for a household of several, and the one member of a household of one, with the flag %s",
+    async (_, flagOn) => {
+      const { db, app } = buildApp(flagOn);
+      const several = await claim(app, SAMPLETON);
+      const body = several.body as { member: unknown; accountLink: { enabled: boolean } };
+      expect(body.member).toBeNull();
+      expect(body.accountLink.enabled).toBe(flagOn);
+      const one = await claim(app, TESTFAMILY);
+      expect((one.body as { member: unknown }).member).toEqual({ guestId: guestId(db, "Ada") });
+      // The session starts with that member.
+      const rows = db.select({ member: sessions.memberGuestId }).from(sessions).all();
+      expect(rows.map((r) => r.member)).toContain(guestId(db, "Ada"));
+    },
+  );
 
   it("chooses the one member on restore when the session has none", async () => {
     const { db, app } = buildApp();
@@ -254,13 +258,24 @@ describe("POST / DELETE /api/claim/member", () => {
     );
   });
 
-  it("answers 404 with the flag off", async () => {
+  it("records the member with the flag off, and names no musubi account while the box is off", async () => {
     const { db, app } = buildApp(false);
     const { cookie } = await claim(app, SAMPLETON);
-    const res = await call(app, "POST", "/api/claim/member", cookie, {
+    const org = await signIn(db, "usr_alice");
+    const res = await call(app, "POST", "/api/claim/member", `${cookie}; ${org}`, {
       guestId: guestId(db, "Bo"),
     });
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({
+      member: { guestId: guestId(db, "Bo") },
+      accountLink: { enabled: false },
+    });
+    const restored = (await jsonBody(await restore(app, `${cookie}; ${org}`))) as {
+      member: unknown;
+      accountLink: unknown;
+    };
+    expect(restored.member).toEqual({ guestId: guestId(db, "Bo") });
+    expect(restored.accountLink).toEqual({ enabled: false });
   });
 
   it("clears the choice, idempotently, and keeps the household claimed", async () => {
@@ -311,6 +326,29 @@ describe("return visit: the account the box may show", () => {
       avatarUrl: "https://id.musubi.test/avatars/alice.png",
       matchesMember: false,
     });
+  });
+
+  it("shows it in the answer to the choice, and for the member a household of one is chosen for", async () => {
+    const { db, app } = buildApp();
+    const org = await signIn(db, "usr_alice");
+    const alice = {
+      displayName: "Alice A",
+      handle: "alice",
+      avatarUrl: "https://id.musubi.test/avatars/alice.png",
+      matchesMember: false,
+    };
+    const several = await claim(app, SAMPLETON);
+    const chosen = await call(app, "POST", "/api/claim/member", `${several.cookie}; ${org}`, {
+      guestId: guestId(db, "Bo"),
+    });
+    expect(((await jsonBody(chosen)) as { accountLink: Link }).accountLink.account).toEqual(alice);
+    // A restore whose session has no member chooses Ada after the link read.
+    const one = await claim(app, TESTFAMILY);
+    db.update(sessions)
+      .set({ memberGuestId: null })
+      .where(eq(sessions.familyId, familyOf(db, guestId(db, "Ada"))))
+      .run();
+    expect((await linkState(app, `${one.cookie}; ${org}`)).account).toEqual(alice);
   });
 
   it("drops a picture from any host but musubi's own", async () => {
@@ -443,15 +481,21 @@ describe("POST /api/rsvp and the member step", () => {
     ],
   });
 
-  it("refuses a household of several that has chosen no one (409 member_required)", async () => {
-    const { db, app } = buildApp();
-    const { cookie } = await claim(app, SAMPLETON);
-    const bo = guestId(db, "Bo");
-    const res = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo)));
-    expect(res.status).toBe(409);
-    expect(await jsonBody(res)).toEqual({ error: "member_required" });
-    expect(db.select().from(rsvps).all()).toHaveLength(0);
-  });
+  it.each([
+    ["on", true],
+    ["off", false],
+  ])(
+    "refuses a household of several that has chosen no one (409 member_required), with the flag %s",
+    async (_, flagOn) => {
+      const { db, app } = buildApp(flagOn);
+      const { cookie } = await claim(app, SAMPLETON);
+      const bo = guestId(db, "Bo");
+      const res = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo)));
+      expect(res.status).toBe(409);
+      expect(await jsonBody(res)).toEqual({ error: "member_required" });
+      expect(db.select().from(rsvps).all()).toHaveLength(0);
+    },
+  );
 
   it("asks no choice of one member who brought a plus-one", async () => {
     const { db, app } = buildApp();
@@ -522,15 +566,26 @@ describe("POST /api/rsvp and the member step", () => {
     expect(db.select().from(rsvps).get()?.submittedViaLink).toBe(false);
   });
 
-  it("asks for no member, and stamps none, with the flag off", async () => {
+  it("lets no link vouch for a reply with the flag off, though it stamps the sender", async () => {
+    // A link made while the flag was on stays in the table; with the box off
+    // the household can neither see nor manage it, so it claims nothing.
     const { db, app } = buildApp(false);
     const { cookie } = await claim(app, SAMPLETON);
     const bo = guestId(db, "Bo");
-    const res = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo)));
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: bo });
+    linkRow(db, bo, "usr_alice");
+    const org = await signIn(db, "usr_alice");
+    const res = await call(
+      app,
+      "POST",
+      "/api/rsvp",
+      `${cookie}; ${org}`,
+      reply(bo, firstEventOf(db, bo)),
+    );
     expect(res.status).toBe(200);
-    const body = (await jsonBody(res)) as { rsvps: object[] };
-    expect(body.rsvps[0]).not.toHaveProperty("submittedBy");
-    expect(db.select().from(rsvps).get()?.submittedByGuestId).toBeNull();
+    const row = db.select().from(rsvps).get();
+    expect(row?.submittedByGuestId).toBe(bo);
+    expect(row?.submittedViaLink).toBe(false);
   });
 
   it("lets an organiser's write replace a member's stamp", async () => {

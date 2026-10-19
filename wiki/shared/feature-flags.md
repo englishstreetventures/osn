@@ -4,7 +4,7 @@ tags: [systems, cire, feature-flags, growthbook]
 related:
   - "[[cire-organiser]]"
   - "[[cire-workerd]]"
-last-reviewed: 2026-09-30
+last-reviewed: 2026-10-20
 ---
 # Feature flags — GrowthBook
 
@@ -66,9 +66,12 @@ with explicit values and no network.
 
 ## First gate — OSN account linking
 
-`cire.account-linking` (default **off**) gates the whole guest "Link your Pulse
-account" surface. cire-api evaluates it per household
-(`flags.forRequest({ id: familyId })`) in two places:
+`cire.account-linking` (default **off**) gates the whole guest "Link your
+musubi account" surface. It does **not** gate the household member step
+("Who are you?", reply attribution, `member_required`, "Answered by"), which
+every guest household gets whatever the flag says ([[cire-auth]]). cire-api
+evaluates it per household (`flags.forRequest({ id: familyId })`) in these
+places:
 
 - **The claim payload.** `POST /api/claim` and `GET /api/claim/session` report
   `accountLink: { enabled: false }` while the flag is off, and the guest site
@@ -79,10 +82,18 @@ account" surface. cire-api evaluates it per household
   `cire/api/src/services/claim.ts`). The check passes the request's
   `waitUntil`, so an isolate with a recent payload answers at once; only an
   in-line fetch can run past 250 ms, which hides the box for that one response
-  rather than holding the invite back.
+  rather than holding the invite back. A slow or failing flag never hides the
+  member step: the payload carries `member` either way.
+- **`POST /api/claim/member`** (`routes/claim.ts`) records the member whatever
+  the flag says, and answers `accountLink: { enabled: false }` while it is
+  off. The same stale-ok read as the payload.
+- **`POST /api/rsvp`** (`routes/rsvp.ts`) stamps the sender on every reply,
+  and sets `submitted_via_link` only while the flag is on. The same stale-ok
+  read as the payload.
 - **`POST /api/account/link`** (`routes/account-link.ts`) answers **503**
   ("disabled") while the flag is off, as defence in depth: a crafted request
   can't link. It passes no `waitUntil`, so it never acts on a stale payload.
+
 Turn the flag on in the GrowthBook dashboard (feature key `cire.account-linking`)
 to reveal it. Add further flags to the registry + the dashboard as features land.
 

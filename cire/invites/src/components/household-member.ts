@@ -5,7 +5,8 @@ import { readAccountLink, readMember } from "./utils";
 // The household member step: a claim code proves a household, not a person,
 // so the invite asks which member is at the keyboard. Replies and the musubi
 // link then hang off that choice. The step is on only when the claim payload
-// carries `member` (cire-api sends it while `cire.account-linking` is on).
+// carries `member`: cire-api sends it for every guest household, never for a
+// host preview. The link box alone waits on `cire.account-linking`.
 
 /** Whether the member step is on for this household. */
 export function hasMemberStep(result: ClaimResult | null): boolean {

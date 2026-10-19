@@ -50,11 +50,13 @@ test("cire-rsvp", async ({ page, context, flow }) => {
     await expect(page.getByRole("button", { name: "Saved" })).toBeVisible();
   });
 
-  const row = queryOne<{ status: string; created_at: number }>(
+  // The sender by first name: the local seed mints fresh guest ids on every boot.
+  const row = queryOne<{ status: string; created_at: number; sender: string | null }>(
     DB_FILES.cire,
-    `SELECT r.status, r.created_at FROM rsvps r
+    `SELECT r.status, r.created_at, s.first_name AS sender FROM rsvps r
        JOIN guests g ON g.id = r.guest_id
        JOIN families f ON f.id = g.family_id
+       LEFT JOIN guests s ON s.id = r.submitted_by_guest_id
       WHERE f.public_id = ? AND g.first_name = ? AND r.event_id = ?`,
     CIRE_GUEST.code,
     CIRE_GUEST.guestName,
@@ -62,4 +64,6 @@ test("cire-rsvp", async ({ page, context, flow }) => {
   );
   flow.check("rsvps row for Ada at the ceremony", "attending", row?.status ?? "missing");
   flow.check("rsvps row written on the suite clock", true, onSuiteClock(row?.created_at));
+  // A one-guest household is chosen for on claim, so its reply is Ada's own.
+  flow.check("rsvps row recorded as sent by Ada", "Ada", row?.sender ?? "none");
 });

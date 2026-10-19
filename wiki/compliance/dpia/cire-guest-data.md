@@ -11,7 +11,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # DPIA — Cire guest data
@@ -47,18 +47,20 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   closed sixteen-entry vocabulary the guest picks from, and `rsvps.dietary`,
   free text for anything the vocabulary has no key for. See [[data-map]] for
   the full field list and [[cire-auth]] for the two-auth model.
-- **Member attribution (migration 0075, behind `cire.account-linking`).** A
-  claim code proves a household, not a person. After a claim the invite asks
-  "Who are you?" and the session records the member
-  (`sessions.member_guest_id`); every reply records the member who sent it
-  (`rsvps.submitted_by_guest_id`, plus `submitted_via_link` when sent while
-  signed in to that member's linked musubi account) and every change-log row
-  its actor (`rsvp_changes.actor_guest_id`). The household sees "Answered by
+- **Member attribution (migration 0075, every guest household).** A claim
+  code proves a household, not a person. After a claim the invite asks "Who
+  are you?" (a household of one is chosen for) and the session records the
+  member (`sessions.member_guest_id`); every reply records the member who sent
+  it (`rsvps.submitted_by_guest_id`, plus `submitted_via_link` when sent while
+  signed in to that member's linked musubi account, only where
+  `cire.account-linking` is on) and every change-log row its actor
+  (`rsvp_changes.actor_guest_id`). The household sees "Answered by
   {first name}" under each reply; the organisers see the same rows they see
   today. Ids only, kept as long as the row they sit on, nulled when the member
   is deleted. Basis Art. 6(1)(f), wedding administration, as `rsvps.status`.
   The choice is the guest's word, backed by the household code: the household
-  trust model the claim has always had.
+  trust model the claim has always had. The guest privacy notice lists it
+  ("Which of you sent each reply").
 - **Relayed dietary consent.** A household member often answers for others,
   and the sheet asks for consent once per submission. The record now shows
   which member ticked the box for whom, which makes visible a gap that already
@@ -347,7 +349,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
 | Cross-DB deletion orphan — OSN-account deletion does not erase cire guest data | Medium | Medium | No fan-out; orphan-tolerance documented in [[dsar]] (C-M1). |
 | A guest's gift amount and day outlive the year in the couple's record | Medium | Low | Kept unnamed, with no note or Stripe identifier, a day rather than a time, at most 200 lines a wedding; read only by the wedding's members and mailed to its owners. The couple can still match a line to the payer in their own Stripe account — but they were the recipients and hold that record anyway, so the residual is that cire keeps a copy past the year. Guests are told in the privacy notice; the record goes when the couple delete the wedding. |
 | A plus-one's name and reply held on another guest's word, and they may never see the notice | Medium | Low–Medium | The household names the plus-one; the plus-one never holds the claim code. Mitigated: dietary data on a plus-one's reply is stored only under an attestation that speaks of the plus-one — the household's, or the organiser's for a phone or paper reply — each in its own box and wording, pinned by its own version and to the name the plus-one carries now; a household rename clears the plus-one's dietary answers; the capture copy asks the household to pass on the privacy notice, which has a section for them; an editor can correct the name at any time; the household can remove the plus-one until the RSVP deadline and the organiser at any time (permission off with the remove flag); swept with the household at 1 year ([[retention]]). |
-| A member's reply attributed to the wrong person on a shared device | Low | Low | Anyone holding the household code can pick any member's name — the household trust model the claim has always had. Mitigated by "Not you?" (clears the member and ends the browser's musubi sign-in), by the invite naming the member answering, and by musubi always showing the signed-in account before a link (`prompt=select_account`). `submitted_via_link` lets the organisers tell "signed in as" from "picked from a list". |
+| A member's reply attributed to the wrong person on a shared device | Low | Low | Anyone holding the household code can pick any member's name — the household trust model the claim has always had. Mitigated by "Not you?" (clears the member and ends the browser's musubi sign-in), by the invite naming the member answering, and, where account linking is on, by musubi always showing the signed-in account before a link (`prompt=select_account`). There `submitted_via_link` lets the organisers tell "signed in as" from "picked from a list"; where it is off, every attribution is "picked from a list". |
 | One household member relays another adult's dietary consent | Medium | Medium | Existing gap, now visible in the record (which member ticked the box for whom). Accepted: the consent gate is unchanged and the household relays consent on its own word; revisit on request. |
 | Guest claim code (`public_id`) leaking — it is a credential | Low–Medium | Medium | Rate-limited claim endpoint; redacted in logs (C-M2). Still a shared, low-entropy-looking string. |
 | Guest data in operator logs | Low | Medium | `@cire/api` has no redacted logger yet (C-M2); deny-list is the interim guard for cross-service logs only. |

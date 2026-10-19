@@ -270,28 +270,31 @@ function buildClaimResponse(
   }).pipe(
     Effect.flatMap(([invite, { state: linkState, facts }]) =>
       Effect.gen(function* () {
-        // The member step rides the same flag answer as the link box, so the
-        // two can never disagree within one payload. Off: the payload keeps
-        // the shape it had before the step existed.
-        if (!linkState.enabled || !gate) {
+        // A host preview is not a guest seat: no member step, and no "Answered
+        // by" on the replies it shows.
+        if (family.kind === "host") {
           return {
             ...invite,
             rsvps: invite.rsvps.map(withoutSubmitter),
             accountLink: linkState,
           };
         }
+        // The member step is on for every guest household. The flag decides
+        // only the link box beside it, so a flag that is off, slow or failing
+        // never costs the household the step.
         let state = linkState;
-        let member = gate.memberGuestId ?? null;
+        let member = gate?.memberGuestId ?? null;
         // A one-member household has nobody to choose between, so the server
         // chooses for it. The caller writes the choice to the session.
         if (member === null) {
-          const only = singleChoosableMember(invite.members);
-          if (only !== null && facts !== null) {
-            member = only;
+          member = singleChoosableMember(invite.members);
+          // The link state was read before the member was known. `facts` is
+          // null whenever linking is off, and then there is nothing to redo.
+          if (member !== null && facts !== null) {
             state = yield* linkStateFor(facts, {
               guestId: member,
-              resolveAccountId: gate.resolveAccountId,
-              avatarOrigins: gate.avatarOrigins,
+              resolveAccountId: gate?.resolveAccountId,
+              avatarOrigins: gate?.avatarOrigins,
             });
           }
         }
@@ -586,8 +589,9 @@ function buildInvite(
 export const claimService = {
   /**
    * Resolve a claim code to its household's invite. `gate` supplies the
-   * account-link state; without one (service tests, the D1 tier) the payload
-   * reports linking as off.
+   * account-link state and the session's member; without one (service tests,
+   * the D1 tier) the payload reports linking as off and names no member but
+   * the one of a one-member household.
    */
   lookup(
     publicId: string,

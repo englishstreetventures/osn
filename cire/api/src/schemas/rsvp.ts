@@ -114,7 +114,7 @@ export type OrganiserRsvpBody = Schema.Schema.Type<typeof OrganiserRsvpBody>;
 
 /**
  * The household member whose session sent a reply, for "Answered by" on the
- * invite. Sent only while the member step is on for the household.
+ * invite. Sent to every guest household; never on a host preview.
  */
 export const ReplySubmitter = Schema.Struct({
   guestId: Schema.String,
@@ -142,7 +142,7 @@ export const RsvpRecord = Schema.Struct({
   // "when this guest last recorded dietary data" off a credential the whole
   // household shares.
   dietaryConsentCurrent: Schema.Boolean,
-  // Who sent the reply ("Answered by"); only while the member step is on.
+  // Who sent the reply ("Answered by"); absent on a host preview.
   submittedBy: Schema.optional(Schema.NullOr(ReplySubmitter)),
 });
 export type RsvpRecord = Schema.Schema.Type<typeof RsvpRecord>;

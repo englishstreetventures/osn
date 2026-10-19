@@ -109,8 +109,9 @@ export interface RsvpPanelProps {
   memberRequired?: boolean;
   /**
    * The server refused the save with 409 `member_required`: the page shows
-   * the member step. Only reached when the payload's flag read and the
-   * write's disagreed.
+   * the member step. Reached when the session lost its member after the page
+   * read it ("Not you?" in another tab, or the organiser removed that guest),
+   * or the page was loaded before the API sent `member` at all.
    */
   onMemberRequired?: () => void;
 }
