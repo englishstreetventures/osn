@@ -11,6 +11,9 @@
 **Spec:** `docs/superpowers/specs/2026-09-26-realtime-push-design.md`, §"Per product" and §"cire (first consumer)".
 **Depends on:** phase 1, `docs/superpowers/plans/2026-09-26-realtime-phase1-shared-package.md`. It must be merged, or this branch stacked on it (`wiki/conventions/stacked-prs.md`). Every `@shared/realtime` name used below is defined there.
 
+> [!note] Written against phase 1 as planned
+> The `@shared/realtime` that shipped differs from the phase-1 plan; `wiki/shared/realtime.md` is current. Changes that reach this plan: `subscribe()` requires an `allowDaily` limiter beside `allow`; the subject `authenticate` returns must match `[A-Za-z0-9_-]{1,200}`; `publish()` takes `revokeSubjects` beside `evictSubjects` (1008, the client stops) and the hub stub's `publish` takes `{ evict, revoke }`; and the subscribe route must sit behind the product's per-IP limiter, since it runs before the framework.
+
 ## Global Constraints
 
 Every task's requirements include this section.

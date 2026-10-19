@@ -9,7 +9,7 @@ related:
   - "[[tracing]]"
   - "[[feature-checklist]]"
 packages: ["@shared/observability", "@osn/api", "@pulse/api", "@shared/crypto", "@shared/realtime"]
-last-reviewed: 2026-09-27
+last-reviewed: 2026-10-20
 ---
 # Metrics
 

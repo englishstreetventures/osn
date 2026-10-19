@@ -1,7 +1,7 @@
 ---
 title: Free-Tier Limits & Unavailability Runbook
-description: Our provider free-tier ceilings (Upstash, Cloudflare Workers / D1 / Pages / Turnstile / WAF), what breaks when each is exceeded, how to detect it, the immediate mitigation, and the upgrade trigger/cost. Plus a per-dependency unavailability playbook keyed to the actual fail-open/fail-closed posture in code.
-tags: [runbook, ops, free-tier, limits, cloudflare, upstash, d1, redis, observability, incident]
+description: Our provider free-tier ceilings (Upstash, Cloudflare Workers / Durable Objects / D1 / Pages / Turnstile / WAF), what breaks when each is exceeded, how to detect it, the immediate mitigation, and the upgrade trigger/cost. Plus a per-dependency unavailability playbook keyed to the actual fail-open/fail-closed posture in code.
+tags: [runbook, ops, free-tier, limits, cloudflare, upstash, d1, durable-objects, redis, observability, incident]
 severity: high
 related:
   - "[[production-deploy]]"
@@ -13,14 +13,14 @@ related:
   - "[[cire-auth]]"
   - "[[dev-environment]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-20
 ---
 
 # Free-Tier Limits & Unavailability Runbook
 
 > Scope: **every provider is on its free tier except Upstash** — Cloudflare Free
-> zone + Workers Free, Cloudflare D1, Cloudflare Pages and Cloudflare Turnstile
-> cost nothing; **Upstash Redis has been a paid $10/month plan since 2026-08-14**,
+> zone + Workers Free, Cloudflare Durable Objects, Cloudflare D1, Cloudflare
+> Pages and Cloudflare Turnstile cost nothing; **Upstash Redis has been a paid $10/month plan since 2026-08-14**,
 > because the dev tier needs a second database and the free plan allows one.
 > This runbook records every ceiling, what
 > breaks when we hit it, how to detect it, the immediate mitigation, and the
@@ -42,6 +42,7 @@ last-reviewed: 2026-10-16
 | **Upstash Redis** | `@osn/api` (rate limiters + the stateful auth stores: step-up JTI, rotated-session, recovery lockout, ceremonies) when `REDIS_URL` / `UPSTASH_*` is set | **cire-api** (no Redis at all — see below), Pulse/Zap client apps |
 | **Cloudflare Workers** | `osn-api`, **cire-api** (both are Workers) | static Pages sites |
 | **Cloudflare D1** | `osn-db-prod` (osn-api), `cire-db` (cire-api) | — |
+| **Cloudflare Durable Objects** | nothing deployed yet: `@shared/realtime`'s `TopicHub` is the one class the repo defines, and no Worker binds it (cire's adoption is englishstventures/osn#1249) | every deployed Worker today |
 | **Cloudflare Pages** | `cire/invites` (guest), `cire/host`, `@musubi/social`, `@musubi/landing` | the Worker APIs |
 | **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter) | osn-api (uses Upstash) |
 | **Turnstile** (widget live; the cire gate is inert — see the 2026-07-20 incident below) | osn-api register + passkey-login, cire-api guest claim + RSVP — gated only while the Worker secret is set | — |
@@ -184,7 +185,7 @@ once both APIs are in production. Re-verify pricing.
 
 **Source:** [DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) · [DO limits](https://developers.cloudflare.com/durable-objects/platform/limits/) · [state API](https://developers.cloudflare.com/durable-objects/api/state/) · [lifecycle](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/) — re-verify.
 
-Durable Objects run on Workers Free since 2025-04-07, **SQLite storage backend only**. `@shared/realtime`'s `TopicHub` is the one class we run ([[realtime]]).
+Durable Objects run on Workers Free since 2025-04-07, **SQLite storage backend only**. `@shared/realtime`'s `TopicHub` is the one class the repo defines ([[realtime]]). No Worker binds it yet; the figures below are what the first product to bind it (cire, englishstventures/osn#1249) runs within.
 
 | Limit | Free value (re-verify) |
 |---|---|
@@ -200,13 +201,13 @@ Durable Objects run on Workers Free since 2025-04-07, **SQLite storage backend o
 
 The client's `ping` is an application text frame, not a protocol ping. The page says only this about it: "Application level auto-response messages handled by state.setWebSocketAutoResponse() will not incur additional wall-clock time, and so they will not be charged". It does not say whether that sentence covers the request count. The 20:1 ratio for incoming messages is stated "for compute requests billing-only", and the page does not say whether it applies on Free.
 
-So a tab's pings cost somewhere between nothing and one request each. At the client's 25 s interval, a visible tab open for 8 hours sends 1,152 pings. That is 0 requests, 58 at 20:1, or 1,152 at 1:1. Measure it on the dev tier before relying on any of the three.
+So a visible tab's pings cost somewhere between nothing and one request each. At the client's 25 s interval, a visible tab open for 8 hours sends 1,152 pings. That is 0 requests, 58 at 20:1, or 1,152 at 1:1. A hidden tab sends none: the client closes its socket after two ping intervals hidden and reopens it when the tab is shown. Which of the three holds is measured on the dev tier before a production hub relies on it: englishstventures/osn#1585.
 
-**What keeps an object awake.** A pending `setTimeout`/`setInterval` stops hibernation. An object with no WebSocket and no work is evicted after 70–140 s. One with hibernatable sockets hibernates after 10 s of inactivity. `TopicHub` holds no timer, alarm or storage write.
+**What keeps an object awake.** A pending `setTimeout`/`setInterval`, pending I/O or a request in flight stops hibernation. An idle object that meets the hibernation conditions hibernates after 10 s and is not billed for duration, even in those 10 s. One that does not meet them stays in memory, billed, until it is evicted 70–140 s after its last request. `TopicHub` holds no timer, alarm or storage write, so it is billed only while a handler runs.
 
 **What happens at the cap.** "Further operations of that type will fail with an error" until the reset at **00:00 UTC**. A subscribe then answers 503 and the client falls back. A publish logs and counts an error, and the write that called it succeeds. The docs do not say which error a WebSocket upgrade sees.
 
-**How to detect:** CF dashboard → Workers & Pages → Durable Objects → the namespace's requests and duration against the daily lines. The allowance is account-wide, so the dev tier's hubs spend it too. `scripts/check-free-tier-ceilings.ts` does not watch Durable Objects yet. (`realtime.subscribe.attempts{outcome="unavailable"}` would show it, but metrics are not exported from workerd today.)
+**How to detect:** CF dashboard → Workers & Pages → Durable Objects → the namespace's requests and duration against the daily lines. The allowance is account-wide, so a dev tier's hubs spend it as much as production's. Adding Durable Objects to `scripts/check-free-tier-ceilings.ts` is englishstventures/osn#1256. A spent allowance shows in the product's logs as `realtime subscribe failed` at step `hub` and `realtime publish failed`; the realtime counters record nothing on workerd until englishstventures/osn#501 lands.
 
 **Upgrade path:** Workers Paid ($5/mo) lifts these to paid allowances with no code change.
 
@@ -423,7 +424,7 @@ fail-open vs fail-closed split is NOT uniform — read this table, don't guess.*
 | **D1** down / over daily rows quota | cire-api + osn-api | **fail-CLOSED** — cire `index.ts` returns **503** on absent/erroring `env.DB` | App-wide 503 on DB routes | CF D1 metrics vs daily line; 503 in Workers Logs | Wait for UTC reset, free storage, or upgrade to Workers Paid (D1 paid tier). |
 | **A Worker** over daily request quota | osn-api / cire-api | CF edge **429** before handler runs | Site-wide 429 (resets UTC midnight) | account Requests metric vs 100K | Upgrade to **Workers Paid** ($5/mo). |
 | **Pages** build cap | static sites | already-deployed site keeps serving; new deploys queue/fail | stale deploys, build failures | Pages build history | Wait for month reset or Pages Pro. |
-| **Durable Objects** over daily quota | realtime push (`@shared/realtime`) | **fail-SOFT** — `subscribe()` answers 503, `publish()` logs and counts `result="error"` (`shared/realtime/src/server/subscribe.ts`, `publish.ts`) | Tabs stop receiving push and refetch on focus or next request, as before push existed | DO requests/duration vs the daily line in the dashboard (the realtime counters are not exported from workerd yet) | Wait for the UTC reset, or upgrade to Workers Paid. |
+| **Durable Objects** over daily quota | realtime push (`@shared/realtime`), once a product binds the hub | **fail-SOFT** — `subscribe()` answers 503, `publish()` logs and counts `result="error"` (`shared/realtime/src/server/subscribe.ts`, `publish.ts`) | Tabs stop receiving push and refetch on focus or next request, as before push existed | DO requests/duration vs the daily line in the dashboard; `realtime subscribe failed` and `realtime publish failed` in the product's logs | Wait for the UTC reset, or upgrade to Workers Paid. |
 
 > The Upstash split above matters: **rate limiters + step-up JTI +
 > ceremonies fail closed; rotated-session + recovery lockout fail OPEN.** If you
@@ -465,6 +466,9 @@ allowance yet — englishstventures/osn#1505.
   - **Workers requests** approaching **100K/day** (account-wide) → upgrade soon.
   - **D1 rows-read / rows-written** approaching the daily lines (5M / 100K) →
     investigate a hot query path or upgrade.
+  - **Durable Object requests** approaching **100K/day** (account-wide), once a
+    product binds the realtime hub → check the subscribe limits and the ping
+    cost, or upgrade.
   - **`osn.auth.rate_limited`** spiking without a traffic spike → likely an
     Upstash command-cap / outage failing the limiters closed (see playbook).
   - **Ceremony/step-up store error logs** → Upstash degraded; expect login
@@ -531,3 +535,4 @@ guard, auth middleware).
 - [[database-environments]] — the four DB environments (D1 in dev/staging/prod)
 - [[observability-setup]] — Grafana Cloud + OTEL wiring
 - [[cire-auth]] — cire's two-system auth (what degrades when D1 is down)
+- [[realtime]] — the realtime hub, the one Durable Object class

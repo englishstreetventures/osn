@@ -2,6 +2,9 @@
 
 Date: 2026-09-26 · Status: approved in conversation, awaiting written-spec review
 
+> [!note] The design as approved, not a description of the code
+> `@shared/realtime` departs from this record in detail. `wiki/shared/realtime.md` and `shared/realtime/src/` say what is true. Where they differ from what follows: hubs are addressed with `getByName(topic)`, not `idFromName`; sockets are tagged with the admitted subject, not the topic; `subscribe()` checks for a bound hub before authenticating, and runs a short-window and a daily limiter before membership; publish failures are counted as `result="error"` on `realtime.signal.published`, not a separate counter; and the client records no fallback metric of its own (englishstventures/osn#1242).
+
 ## Goal
 
 When a membership fact changes on the server — a cire co-host is removed or has their role changed, a musubi organisation member is removed or re-roled — every open browser tab that shows the affected wedding or organisation learns of it within seconds and re-reads through its normal API. Today an idle, visible tab keeps the rows it loaded until its next request or until it regains focus, which can be hours.

@@ -8,6 +8,9 @@
 
 **Tech Stack:** TypeScript, Cloudflare Workers Durable Objects (`cloudflare:workers`), Effect v4 (`4.0.0-rc.112`, server half only), `@shared/observability` metrics, SolidJS (wrapper only), Vitest 4 under Bun, Miniflare 4 (`bun:test`) for the hub on real workerd.
 
+> [!note] The plan as written, not a description of the code
+> The package that shipped departs from this plan. `wiki/shared/realtime.md` and `shared/realtime/src/` say what is true. Where they differ from what follows: at the member cap the hub closes the member's own least recently seen socket instead of refusing the newcomer; the client resets its failure count when the hub first answers, not when the socket opens; the client pauses in a hidden tab and remembers a fallback per origin; the hub refuses a subject that is not an opaque id, closes sockets past a maximum age at publish, can revoke as well as evict, and names a hit cap on its 101; `subscribe()` takes a required `allowDaily` limiter; the package is on `effect` 4.0.3 and `vitest` 5.0.3; and the client half's tsconfig lives in `src/client/` and `tests/client/`.
+
 **Spec:** `docs/superpowers/specs/2026-09-26-realtime-push-design.md`. Read it before any task. This plan covers rollout step 1 only. Step 2 (cire) is `docs/superpowers/plans/2026-09-26-realtime-phase2-cire.md`, and step 3 (osn/musubi) is not planned yet.
 
 ## Global Constraints
