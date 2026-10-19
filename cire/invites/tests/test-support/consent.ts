@@ -37,6 +37,10 @@ export function resetConsentForTest(): void {
  * Simulate a returning guest who already decided: write a real consent cookie
  * and reset the store so the next mount hydrates from it, exactly as a fresh
  * page load would.
+ *
+ * It writes the http name, `cire_consent`. An https origin reads only
+ * `__Host-cire_consent`, so inside `onSecureOriginWithJar` the seed is ignored
+ * and the store stays undecided.
  */
 export function seedConsentForTest(granted: Partial<Record<ConsentCategory, boolean>>): void {
   const grants: ConsentGrants = { ...defaultGrants(), ...granted };

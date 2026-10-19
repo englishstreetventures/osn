@@ -7,7 +7,7 @@ related:
   - "[[cire-invite-designs]]"
 last-reviewed: 2026-10-19
 ---
-# Site-wide consent framework
+# Cire site-wide consent framework
 
 Where the guest site's cookie/third-party consent lives, what it governs, and
 the rules for adding a vendor to it. Code: `cire/invites/src/lib/consent/` (logic)
@@ -241,7 +241,7 @@ The preferences dialog states this plainly rather than leaving it implicit — a
 silent reload the guest didn't expect is its own kind of surprising — and says
 the page "may" reload, because condition 2 means it does not always happen:
 "Turning something off takes effect at once; the page may reload." It also
-says "Data already sent can't be recalled.": neither the unmount nor the
+says "Data already sent to that company can't be recalled.": neither the unmount nor the
 reload takes back what a vendor received or stored. That is the short form;
 `/privacy` states it in full, naming the company and when the data left.
 `ConsentBanner.test.tsx` pins both sentences.
@@ -329,7 +329,7 @@ mounted first.
   `SiteFooter.astro` on every page, plus a copy on `/privacy`.
 - **The consent dialogs reach above the details sheet.** The sheet is a
   `showModal()` dialog, so it renders in the **top layer**, which no `z-index`
-  reaches — see [[wiki/shared/component-library]] §What has to sit above a
+  reaches — see [[component-library]] §What has to sit above a
   modal, and [[top-layer-over-z-index-stack]] for why the guest site's scale
   ranks nothing against a sheet. The first-layer prompt and the preferences
   dialog are `showModal()` dialogs too, and carry no `z-index` because they
