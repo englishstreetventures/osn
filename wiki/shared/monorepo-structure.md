@@ -27,12 +27,15 @@ packages:
   - "@shared/ui"
   - "@musubi/landing"
   - "@musubi/social"
+  - "@musubi/infra"
   - "@pulse/web"
   - "@pulse/api"
   - "@pulse/db"
   - "@pulse/landing"
+  - "@pulse/infra"
   - "@zap/api"
   - "@zap/db"
+  - "@zap/infra"
   - "@cire/api"
   - "@cire/db"
   - "@cire/landing"
@@ -44,6 +47,7 @@ packages:
   - "@cire/ui"
   - "@cire/dietary"
   - "@cire/build-tools"
+  - "@cire/infra"
   - "@shared/color"
   - "@shared/crypto"
   - "@shared/db-utils"
@@ -68,7 +72,7 @@ packages:
   - "@tools/metrics"
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-19
 ---
 
 # Monorepo Structure
@@ -99,16 +103,19 @@ osn/                   # OSN the system — headless, plus the views of its own 
 musubi/                # Musubi — our implementation of OSN
   social/              # @musubi/social — SolidJS web app for identity + graph management (port 1422; prod musubi.social)
   landing/             # @musubi/landing — Astro + Solid marketing site (port 4324)
+  infra/               # @musubi/infra — the Alchemy stack `musubi`: osn-api, its D1 and seed, musubi social, musubi landing (dev only today)
 pulse/
   web/                 # @pulse/web — SolidStart app, client-rendered
     src/               #   SolidJS frontend
   api/                 # @pulse/api — Elysia + Eden events server (port 3001)
   db/                  # @pulse/db — Drizzle + SQLite (events, RSVPs)
-  landing/             # @pulse/landing — Astro + Solid marketing site (port 4325)
+  landing/             # @pulse/landing — Astro + Solid marketing site (port 4325); worker/ serves /api/geo beside its assets on dev
+  infra/               # @pulse/infra — the Alchemy stack `pulse`: pulse landing (dev only today)
   ios/                 # Pulse iOS app target
 zap/
   api/                 # @zap/api — Elysia messaging server (port 3002) — M0 scaffolded; M1+ in flight (see the `product:zap` issues)
   db/                  # @zap/db — Drizzle schema (chats, messages, group state)
+  infra/               # @zap/infra — the Alchemy stack `zap`: zap-api and its D1 (dev only today)
                        # @zap/app — planned (SolidJS messaging client)
 cire/
   invites/             # @cire/invites — Astro + SolidJS guest invite site (port 4321; prod invite.cireweddings.com)
@@ -122,6 +129,7 @@ cire/
   dietary/             # @cire/dietary — the dietary-requirement vocabulary shared by cire-api and @cire/ui; no dependencies
   build-tools/         # @cire/build-tools — build-only code for the Astro apps: the integration that points each build's `_headers` CSP at its own cire-api
   landing/             # @cire/landing — Astro + Solid marketing site for the apex (port 4323; prod cireweddings.com)
+  infra/               # @cire/infra — the Alchemy stack `cire`: cire-api with its D1, buckets and seeds, cire-invites, the three cire sites (dev only today)
 shared/
   color/               # @shared/color — OKLCH parsing / conversion / contrast maths, lifted out of @cire/theme so no @shared/* depends on a @cire/* one
   crypto/              # @shared/crypto — ARC tokens (S2S), recovery codes, RFC 6238 TOTP; Signal Protocol pending
@@ -130,7 +138,7 @@ shared/
   dev-urls/            # @shared/dev-urls — the dev-env launcher: derives every sibling app's origin from this app's own PORTLESS_URL
   email/               # @shared/email — EmailService Tag: Resend / Cloudflare / Log / Noop transports
   feature-flags/       # @shared/feature-flags — key-optional, fail-safe GrowthBook flag client
-  infra/               # @shared/infra — pinned Alchemy, the Worker and storage builders, the secret inventory
+  infra/               # @shared/infra — pinned Alchemy, the Worker and storage builders, the secret inventory, the dev host layout, the dev-hosts and plan-summary CLIs
   legal/               # @shared/legal — the operator identity every published legal page must state
   observability/       # @shared/observability — OTel logger / tracer / metric helpers, Elysia plugin, instrumentedFetch
   openapi-tools/       # @shared/openapi-tools — OpenAPI spec generation and normalisation (specs land in shared/openapi/)

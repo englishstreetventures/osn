@@ -14,8 +14,7 @@ const READ = /\benv\??\.([A-Z][A-Z0-9_]*)\b|\benv\[\s*["']([A-Z][A-Z0-9_]*)["']\
 
 /**
  * Names osn-api's source reads that the dev stack deliberately leaves unset,
- * each with why. Built by running this test, and each reason checked at the
- * read site.
+ * each with why, checked at the read site.
  */
 const UNSET_ON_DEV: Readonly<Record<string, string>> = {
   CLOUDFLARE_ACCOUNT_ID:

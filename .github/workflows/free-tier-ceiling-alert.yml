@@ -79,9 +79,9 @@ jobs:
       # `d1AnalyticsAdaptiveGroups` and `workersInvocationsAdaptive` GraphQL sets
       # need — and no write right of any kind. It is not a deploy token. The
       # deploy tokens live only on the `dev` and `production` Environments, and
-      # since 2026-09-13 repository scope holds no credential that can write to
-      # Cloudflare at all. See `wiki/shared/dev-environment.md`
-      # §"Two Environments, two tokens".
+      # repository scope holds no credential that can write to Cloudflare at
+      # all. See `wiki/shared/dev-environment.md` §"Two accounts, two
+      # Environments".
       #
       # The env var below keeps the plain name because
       # `check-free-tier-ceilings.ts` reads `CLOUDFLARE_API_TOKEN`, the name

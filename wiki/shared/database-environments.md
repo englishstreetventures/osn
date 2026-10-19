@@ -17,7 +17,8 @@ related:
   - "[[dev-environment]]"
   - "[[d1-read-replication]]"
   - "[[cire-development]]"
-last-reviewed: 2026-09-25
+  - "[[infrastructure-as-code]]"
+last-reviewed: 2026-10-19
 ---
 
 # Database Environments
@@ -28,7 +29,7 @@ drivers** behind a single driver-agnostic Drizzle type:
 | Environment | Driver | Where it runs | How |
 |---|---|---|---|
 | `local` | **bun:sqlite** | Dev machine | `bun run dev` (Bun.serve) + in-memory unit tests |
-| `dev` | **Cloudflare D1** | Locally *or* deployed | `wrangler dev --env dev` (miniflare local D1) or `wrangler deploy --env dev` |
+| `dev` | **Cloudflare D1** | Deployed, in the dev account (zap and pulse also run a local `wrangler dev --env dev`) | the Alchemy stacks, from `deploy.yml` ([[infrastructure-as-code]]) |
 | `staging` | **Cloudflare D1** | Deployed | `wrangler deploy --env staging` |
 | `production` | **Cloudflare D1** | Deployed | `wrangler deploy --env production` |
 
@@ -80,16 +81,24 @@ codegen) plus two entry points:
 - `src/index.ts` — Workers `fetch` handler that builds the app once per isolate
   over `makeDbD1Live(env.DB)`, failing closed with a 503 when `DB` is missing.
 
-`wrangler.toml` declares one `[[env.<name>.d1_databases]]` binding per D1
-environment. The db package's `db:migrate:*` scripts apply Drizzle-generated
-migrations to each:
+`wrangler.toml` declares one `[[env.<name>.d1_databases]]` binding per
+Wrangler environment: the local one and production (and staging, unused). The db
+package's `db:migrate:*` scripts apply Drizzle-generated migrations to each:
 
 ```bash
 bun run --cwd zap/db db:migrate:local     # miniflare local D1 (for `wrangler dev`)
-bun run --cwd zap/db db:migrate:dev       # remote dev D1
 bun run --cwd zap/db db:migrate:staging
 bun run --cwd zap/db db:migrate:prod
 ```
+
+The **dev tier's** databases are not in any `wrangler.toml` and no package
+script migrates them. They live in the dev Cloudflare account, and each product's
+Alchemy stack creates its database, applies the migrations through the D1
+resource's `migrations` prop and imports the seeds after them, on every dev
+deploy: `osn-db-dev` (musubi stack, seeded with the cire OIDC client and
+cire-api's ARC key), `cire-db-dev` (cire stack, seeded with the sample wedding)
+and `zap-db-dev` (zap stack, no seed). Alchemy is their only migrator, and it
+keeps its own ledger, `__alchemy_migrations`. See [[infrastructure-as-code#Migrations]].
 
 ## ⚠️ D1 has no interactive transactions
 
@@ -128,7 +137,7 @@ Three rewrite shapes recur:
 **`@osn/api` on Workers — done.** The old caveat here (ioredis and module-top-level
 JWT key loading, neither of which runs on workerd) was resolved by the Upstash REST
 client and request-scoped key loading. osn-api has been a deployed Worker since
-2026-07-27 — `id.musubi.social` in production, `id.dev.musubi.social` on dev — and
+2026-07-27 — `id.musubi.social` in production, `id.musubi.<DEV_DOMAIN>` on dev — and
 CI deploys it. See [[musubi-identity-migration]] and [[dev-environment]].
 
 **Databases and region.** All D1 databases are in **`oc` (Oceania / Sydney)** and
@@ -138,24 +147,29 @@ request served from a colo outside Oceania pays a round trip to Sydney for every
 query it makes, which is what read replication and the D1 Sessions API address —
 see [[d1-read-replication]].
 
+Production account:
+
 | Database | Environment | Id |
 |---|---|---|
 | `cire-db` | cire prod | `6e835474-e0a7-4db9-8883-3247c3c891cd` |
-| `cire-db-dev` | cire dev | `bf0510eb-6998-4ee3-b5a0-833c646ef855` |
 | `osn-db-prod` | osn prod | `767a9ac1-129b-4efa-9fcf-f68ed7a48c38` |
-| `osn-db-dev` | osn dev | `1c1425e1-bb9f-4760-b090-763ccf61eb83` |
 | `osn-db-staging` | unused | `eb71428e-8540-4a30-815f-fb9cd4ae97ea` |
 | `osn-db` | unused (pre-split) | `a1dfceb8-2e7a-48eb-a161-ad428f3ddff5` |
 | `zap-db-prod` | zap prod | `9b75f81a-7439-412a-9aad-cf47836bca07` |
 
-The account holds **7 of the free plan's 10** D1 databases. `staging` is declared
-in wrangler but not part of any pipeline — the dev tier is the only step before
-production. See [[free-tier-limits]].
+Dev account: `cire-db-dev`, `osn-db-dev` and `zap-db-dev`, created by the stacks.
+No file holds their ids; Alchemy binds each by resource. Each is declared with its
+production database's settings: in `oc`, with read replication `auto` for
+`cire-db-dev` and `disabled` for the other two.
 
-The `dev` row above is a **deployed, isolated tier**, not the "run it locally"
-sense of the word used in the table at the top of this page. Both meanings are
-live: `wrangler dev --env dev` still points a local miniflare D1 at the same
-config block.
+The two accounts have separate free plans, each with its own 10-database limit
+and daily row budgets. `staging` is declared in wrangler but not part of any
+pipeline — the dev tier is the only step before production. See [[free-tier-limits]].
+
+The dev databases are a **deployed, isolated tier**, not the "run it locally"
+sense of the word used in the table at the top of this page. zap and pulse keep
+an `[env.dev]` block in their `wrangler.toml` for local `wrangler dev`; it names
+no deployed database.
 
 ## Worker bundling: keep `bun:sqlite` out of the Worker
 
@@ -171,6 +185,13 @@ the path itself. The code runs only on Bun (the dev servers and seeds, through
 `makeDbLive`) and never executes on Workers, so `makeDbLive` builds its layer
 asynchronously. Guard this with the Worker build: `bun run --cwd <pkg> build`
 (= `wrangler deploy --dry-run`).
+
+Alchemy's bundler, rolldown, which builds the dev tier's API Workers, does resolve
+the indirect specifier and would fold `drizzle-orm/bun-sqlite` into a chunk that
+imports `bun:sqlite`. So `apiWorker()` marks it external (`BUN_ONLY_MODULES` in
+`shared/infra/src/worker.ts`), and each stack's tests bundle its API Worker
+offline and fail when a module names `bun:sqlite`
+([[infrastructure-as-code#The building blocks]]).
 
 The same file must not name `bun:sqlite` in a **type** either, for a second
 reason: `cire/api` type-checks its Worker source with Workers types only (see

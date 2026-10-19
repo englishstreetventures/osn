@@ -21,7 +21,7 @@ related:
   - "[[observability-setup]]"
 packages:
   - "@cire/api"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-10-19
 ---
 
 # D1 Read Replication and the Sessions API
@@ -223,10 +223,13 @@ so they compare directly. The difference between them is the extra distance to
 the primary. What a replica near the Worker would answer in cannot be measured
 here, since nothing in cire opens a session any other way; the Sydney row, a
 Worker next to its database, stands in for it. `cire-db-dev` has its primary in
-Oceania, like `cire-db`, and read replication off, so the dev tier serves every
-query from the primary.
+Oceania, like `cire-db`, and both arms' `SELECT` is a session's first query,
+which goes to the primary whatever the replication setting. The dev account's
+`cire-db-dev` is declared with production's read replication, `auto`
+([[infrastructure-as-code]]); the Sydney row was measured against the old dev
+database, in the production account, which had replication off.
 
-*Measured 2026-09-25 — `bunx --bun wrangler d1 info cire-db-dev --json` from `cire/api`: `running_in_region: "OC"`, `read_replication.mode: "disabled"`*
+*Measured 2026-09-25 — `bunx --bun wrangler d1 info cire-db-dev --json` from `cire/api` (the old dev database): `running_in_region: "OC"`, `read_replication.mode: "disabled"`*
 
 ### Running the probe
 
@@ -239,22 +242,26 @@ gh workflow run cire-d1-latency-probe.yml -R englishstventures/osn -f samples=10
 ```
 
 From any other machine, at the repository root:
-`bun --no-install cire/api/scripts/d1-latency-probe.ts`, with `SAMPLES` from 25
-to 100 to change the pair count.
+`CIRE_API_ORIGIN=https://api.cire.<DEV_DOMAIN> bun --no-install cire/api/scripts/d1-latency-probe.ts`,
+with `SAMPLES` from 25 to 100 to change the pair count. The workflow runs in the
+`dev` Environment and takes the origin from its `dev-hosts` step
+([[infrastructure-as-code#Dev hosts]]). The script refuses an origin that is not a
+bare https origin, and any host `[[env.production.routes]]` in
+`cire/api/wrangler.toml` names, so it cannot be pointed at production.
 
 - **Where it ran.** GitHub picks the runner's region, so a run cannot ask for
   Europe. The report records the Cloudflare colo from each response's `cf-ray`,
   which is where the Worker and its D1 client ran, and the region the runner
   reports about itself.
-- **When.** Not while a dev deploy or the nightly dev D1 rebuild
-  (`cire-dev-db-rebuild.yml`, 14:00 UTC) is running: migrations and freshly
-  deployed isolates both inflate the timings. The job has its own concurrency
-  group rather than the deploy's, because joining `deploy-dev-cire-api` would
-  let a probe cancel a queued dev deploy. So nothing stops an overlap; the
-  report prints the run's window, and a run that overlapped either job is
+- **When.** Not while a dev deploy of the cire stack is running: migrations and
+  freshly deployed isolates both inflate the timings. The job has its own
+  concurrency group rather than the deploy's, because joining `deploy-dev-cire`
+  would let a probe cancel a queued dev deploy. So nothing stops an overlap; the
+  report prints the run's window, and a run that overlapped a deploy is
   discarded and repeated.
-- **Pacing.** Requests are spaced from the dev `CLAIM_SESSION_RATE_LIMITER`
-  budget in `cire/api/wrangler.toml`, at two thirds of it. Any answer but 401
+- **Pacing.** Requests are spaced from the top-level `CLAIM_SESSION_RATE_LIMITER`
+  budget in `cire/api/wrangler.toml`, which the cire stack gives the dev Worker
+  as well, at two thirds of it. Any answer but 401
   stops the run with nothing recorded.
 - **A result too small to be real.** The run fails, after printing its report,
   when the cost comes out under 5 ms. No D1 round trip has ever measured that

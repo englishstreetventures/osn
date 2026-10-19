@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-19
 ---
 
 # Cire development guide
@@ -328,7 +328,7 @@ the Resend emulator and set `RESEND_API_KEY` and `RESEND_API_URL` in
 ### Adding a column
 
 Generating a migration here is `db:generate`, not `db:migrate` — cire is the one
-`*/db` package where `db:migrate:local|dev|prod` *applies* a migration to a tier
+`*/db` package where `db:migrate:local|prod` *applies* a migration to a tier
 rather than emitting one:
 
 ```bash
@@ -429,7 +429,7 @@ nothing else. After `astro build`, an Astro integration rewrites the copy in
 | Build | The policy in `dist/_headers` names |
 |---|---|
 | Production (`production-release.yml` sets `https://api.cireweddings.com`) | The committed file, byte for byte |
-| Dev (`deploy.yml` sets `https://api.dev.cireweddings.com`) | The dev API and the dev API's CSP report collector |
+| Dev (`deploy.yml`'s cire stack job sets the dev cire-api origin its `dev-hosts` step derives) | The dev API and the dev API's CSP report collector |
 | Local, env unset | `http://localhost:8787`, for `wrangler pages dev dist` |
 
 All three cire Astro apps share that integration: `tierHeaders` in
@@ -520,9 +520,9 @@ committed file names only the production API and no loopback origin:
    - `@cire/vendor`: sign-in, the claim link, the enquiry list, the listing
      editor and the organisation picker.
 
-   Watch the dev collector while you walk: `bunx wrangler tail --env dev
-   --search "csp violation report"` from `cire/api/`, or Workers Logs for
-   `cire-api-dev`. Each line carries the directive, the blocked origin, the
+   Watch the dev collector while you walk: `bunx wrangler tail cire-api-dev
+   --search "csp violation report"` with the dev account's credentials
+   ([[dev-environment]] §7), or Workers Logs for `cire-api-dev`. Each line carries the directive, the blocked origin, the
    document's origin and path, the site and the disposition.
 
 The walk passes when no line names anything but an avatar origin under
@@ -530,8 +530,8 @@ The walk passes when no line names anything but an avatar origin under
 a report-only policy. The log is harder to read than it looks:
 
 - `site` is `invites`, `host` or `vendor` when the document's origin is that
-  entry of cire-api's `WEB_ORIGIN`, and `other` for anything else: a Pages
-  `*.pages.dev` alias, or a blank document such as the invite preview window
+  entry of cire-api's `WEB_ORIGIN`, and `other` for anything else: a Worker's
+  `*.workers.dev` preview URL, or a blank document such as the invite preview window
   before it loads (its `documentOrigin` is empty).
 - `disposition` is `unknown` when the browser left the field out. `site` still
   tells the modes apart: the guest site reports only, and the portals enforce.
@@ -550,7 +550,7 @@ a report-only policy. The log is harder to read than it looks:
 
 Two kinds of report come from the dev tier only, and neither is a policy gap: a
 Cloudflare Web Analytics beacon (`script-src`, `static.cloudflareinsights.com`)
-if the dev Pages project injects one, and `script-src-elem` reports for
+if Web Analytics is on for a dev host, and `script-src-elem` reports for
 same-origin chunks once the Access session expires.
 
 Hold production until the walk passes. A merge deploys the dev tier at once;
@@ -582,7 +582,7 @@ publicly as Static Assets — see the source-map warning below.
 `cire/invites/package.json`'s `build` script chains it on
 (`… && ../../scripts/guard-bundle-size.sh .`), so it fires wherever the build
 actually executes: the by-hand deploy above, and any local build. `ci.yml` and
-both deploy jobs (dev in `deploy.yml`, production in `production-release.yml`) also invoke it as their own step ([[bundle-size-guards]]
+both deploy workflows (dev in `deploy.yml`'s cire stack job, production in `production-release.yml`) also invoke it as their own step ([[bundle-size-guards]]
 has the reason — a Turborepo cache replay of `build` never runs the chained
 script). The mode and threshold are no longer arguments anywhere — every
 caller looks its app up by name in `scripts/bundle-size-budgets.txt`, the one
@@ -628,12 +628,12 @@ Three tracker follow-ups (#618, #616, #617) to the original size audit
   with `sourcemap: true` set **through the same `astro:build:setup` hook** as
   `minify`, plus `upload_source_maps: true` in `cire/invites/wrangler.jsonc` —
   the adapter never sets that key itself, so it has to come from the checked-in
-  config the generated `dist/server/wrangler.json` extends. Neither CI rewrite
-  step that touches that generated file removes it: production's (in
-  `production-release.yml`) only deletes `legacy_env`, and dev's (in
-  `deploy.yml`) also sets `name`, `routes` and the `observability` block, which
-  leaves top-level keys alone. So the key survives into the deployed config
-  untouched.
+  config the generated `dist/server/wrangler.json` extends. Production's CI
+  rewrite of that generated file (in `production-release.yml`) only deletes
+  `legacy_env`, so the key survives into the deployed config untouched. The dev
+  tier does not read that file: the cire stack uploads `dist/server/entry.mjs`
+  as a prebuilt Worker, which leaves out `*.js.map`, so dev serves no source maps
+  ([[infrastructure-as-code#Bundling and the module registry]]).
 
   > [!warning] Never set `sourcemap` as a plain `vite.build` value here.
   > Unlike `minify`, it is not overridden — it reaches the top level *and* the

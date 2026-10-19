@@ -7,7 +7,7 @@ interface PulseHeroProps {
   howHref: string;
 }
 
-/** Coarse, IP-derived location from the `/api/geo` Pages Function. */
+/** Coarse, IP-derived location from `/api/geo` (`src/lib/geo.ts`). */
 interface Geo {
   city: string | null;
   region: string | null;
@@ -31,10 +31,10 @@ const CHIPS = [
  *
  * All content is server-rendered visible (the entrance is a pure-CSS animation,
  * `.pulse-rise`), so the hero never depends on JS to appear. Hydration only
- * *enhances* it: a one-shot fetch to the `/api/geo` Pages Function turns the
+ * *enhances* it: a one-shot fetch to the `/api/geo` endpoint turns the
  * generic line + CTA into a location-aware "{n} events around {region}" hook
  * that sends the visitor to their nearest city. No geo (no JS, fetch fails, or
- * the function is absent) → the generic "near you" copy simply stays.
+ * the endpoint is absent) → the generic "near you" copy simply stays.
  */
 export function PulseHero(props: PulseHeroProps) {
   const [geo, setGeo] = createSignal<Geo | null>(null);

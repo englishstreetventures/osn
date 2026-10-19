@@ -11,7 +11,7 @@ related:
   - "[[cire-landing]]"
   - "[[venues]]"
   - "[[design-tokens]]"
-last-reviewed: 2026-09-18
+last-reviewed: 2026-10-19
 ---
 
 # Pulse Landing
@@ -78,16 +78,22 @@ entrance only) and contain no `console.*`.
 ### Location-aware hero (`/api/geo`)
 
 The hero deliberately shows **no account-specific stats** (we don't know the
-visitor yet). Instead a Cloudflare **Pages Function** at
-`pulse/landing/functions/api/geo.ts` reads the visitor's coarse, IP-derived
-location from `request.cf` (city / region / country) and returns it as JSON.
+visitor yet). Instead `GET /api/geo` reads the visitor's coarse, IP-derived
+location from `request.cf` (city / region / country) and returns it as JSON,
+with `cache-control: private, max-age=300`. One
+handler, `pulse/landing/src/lib/geo.ts`, serves it in two places: the Pages
+Function `pulse/landing/functions/api/geo.ts` on the Pages preview project, and
+the Worker entry `pulse/landing/worker/index.ts` on dev, where pulse landing is a
+static-assets Worker (`pulse-landing-dev`, the pulse stack) that runs the entry
+for `/api/*` and hands every other path to its assets
+([[infrastructure-as-code#Sites]]).
 `PulseHero` fetches `/api/geo` on mount and upgrades:
 
 - the "near you" line → `"{n} events around {region} right now"`, and
 - the primary CTA → `"What's on in {city}"` linking to `${APP_URL}?near={city}`.
 
 Same-origin, so the tight CSP (`connect-src 'self'`) is untouched. Fully
-progressive: no JS / fetch failure / function absent → the generic "near you"
+progressive: no JS / fetch failure / endpoint absent → the generic "near you"
 copy + plain `Find events` CTA remain (the hero is never blank). `wrangler pages
 deploy` bundles the function automatically from the `functions/` directory. **The event count is an illustrative placeholder**
 (deterministic per place) until the real Pulse events API is wired; the region
@@ -128,7 +134,8 @@ deliberately allows the same-origin `/api/geo` fetch (the only network call).
 
 The site is otherwise pure-static, but the `functions/` directory makes the Pages
 deploy a hybrid (static assets + one Pages Function); `wrangler pages deploy dist`
-bundles it automatically.
+bundles it automatically. The dev Worker gets the same split from its entry module,
+and the dev smoke check asks `/api/geo` for a JSON object ([[production-deploy]] §7).
 
 ## Tests
 

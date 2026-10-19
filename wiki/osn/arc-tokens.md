@@ -20,7 +20,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-19
 ---
 # ARC Tokens (S2S Auth)
 
@@ -192,6 +192,27 @@ Env vars: `INTERNAL_SERVICE_SECRET`, `KEY_TTL_HOURS` (default 24), `KEY_ROTATION
 # Both env files need:
 INTERNAL_SERVICE_SECRET=<shared-random-string>
 ```
+
+### A fixed key registered once (cire-api)
+
+cire-api does not self-register. It signs with a fixed ES256 key held as two
+Worker secrets, `CIRE_API_ARC_PRIVATE_KEY` (a raw JWK string) and
+`CIRE_API_ARC_KEY_ID` (a UUID), and its public half is registered under
+`serviceId` `cire-api` with the four scopes the `ARC_*_SCOPE` constants of
+`cire/api/src/services/osn-bridge.ts` request: `graph:read`,
+`graph:resolve-account`, `org:read` and `account:email-read`.
+
+- **Production:** registered by hand with `POST /graph/internal/register-service`
+  ([[production-deploy]] §6.2). Re-run it whenever the scope list changes: a
+  registration holds exactly the scopes its last call listed.
+- **Dev:** the musubi stack writes the `service_accounts` and
+  `service_account_keys` rows straight into `osn-db-dev` on every dev deploy,
+  deriving the public JWK from the `dev` Environment's private key
+  ([[infrastructure-as-code#Seeds and the ARC registration]]). The seed owns its
+  key id: it assigns it to `cire-api` even if another service's row held it. The
+  route refuses that case (409 `kid_serviceid_mismatch`) to stop a holder of the
+  shared secret moving a key between services; a deploy that holds every secret
+  is not that caller.
 
 ### osn-api as issuer — outbound key registration (deletion fan-out)
 

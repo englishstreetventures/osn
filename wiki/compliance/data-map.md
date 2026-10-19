@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-19
 ---
 
 # Data Map
@@ -279,7 +279,7 @@ no gate of its own until then. Light-touch by design.
 | `owner_notice_budget` (`key` = `wedding:<id>` or `actor:<OSN profile id>`, `day`, `sent`; migration 0081) | Count owner-notice emails per wedding and per acting owner per UTC day, so the cap holds across Worker isolates | Art. 6(1)(f) — keeping the shared mail allowance for sign-in codes | Until the next notice after the day ends: each notice deletes every earlier day's rows | `@cire/api` only. Holds an OSN profile id (pseudonymous) and a count, nothing else |
 | Outbound email — cire vendor-claim reminder (the operator's address from the `CIRE_OPS_EMAIL` Worker secret, the number of claims waiting, the age in days of the oldest) | Tell the operator, once a day and only while a vendor claim waits for review, that one is waiting | Art. 6(1)(f) — cire's interest in reviewing claims promptly; the recipient is cire's own operator, and the email names no vendor, claimant or couple | Resend retains delivery logs per their DPA | **Resend (US)**. Counts only. The address lives in the Worker's secrets, never in the repository or D1. See [[cire-vendors]] |
 | Geocoder query (Pulse) | Convert typed address → coordinates | Currently no consent — **outstanding compliance gap (S-M13)** | Not retained by us; Photon retains per their policy | Photon (Komoot, Germany) |
-| Visitor IP-derived coarse location — `request.cf` city/region/country (Pulse **marketing** site) | Show the visitor's approximate "what's on near you" area on the `@pulse/landing` hero + route its CTA to the nearest city | Art. 6(1)(f) — legit interest in a relevant landing page (coarse, city-level only) | **Not retained** — computed per request at the Cloudflare edge, never stored, no cookies | `@pulse/landing` Pages Function (`/api/geo`) → the visitor's own browser only; no third party. See [[pulse-landing]] |
+| Visitor IP-derived coarse location — `request.cf` city/region/country (Pulse **marketing** site) | Show the visitor's approximate "what's on near you" area on the `@pulse/landing` hero + route its CTA to the nearest city | Art. 6(1)(f) — legit interest in a relevant landing page (coarse, city-level only) | **Not retained** — computed per request at the Cloudflare edge, never stored, no cookies | `@pulse/landing` `/api/geo` (a Pages Function on the preview project, the Worker entry on dev; one handler) → the visitor's own browser only; no third party. See [[pulse-landing]] |
 
 ## Things we explicitly do NOT collect
 

@@ -8,7 +8,7 @@ related:
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
   - "[[subprocessors]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-19
 ---
 
 # Stripe webhooks (cire-api)
@@ -68,7 +68,7 @@ and a revoked account is never noticed.
 
 1. Workbench → Webhooks → **Create new destination**.
 2. URL:
-   - dev — `https://api.dev.cireweddings.com/api/stripe/webhook`
+   - dev — `https://api.cire.<DEV_DOMAIN>/api/stripe/webhook`, the dev cire-api host derived from the `dev` Environment's `DEV_DOMAIN` ([[infrastructure-as-code#Dev hosts]]); every dev stack run prints it in its summary as `stripe_webhook_url`
    - production — `https://api.cireweddings.com/api/stripe/webhook`
 3. Events from: **Connected accounts**. This is the whole point of this
    endpoint; an account-scoped one hears nothing a couple's account does.
@@ -88,12 +88,15 @@ and a revoked account is never noticed.
    | `charge.dispute.created` | a guest's bank pulled a gift back |
    | `charge.dispute.closed` | how the dispute went, in `status` |
 
-5. Copy that endpoint's signing secret, then:
+5. Copy that endpoint's signing secret, then, on dev, put it in the `dev`
+   Environment and dispatch **Deploy**; the cire stack uploads it:
 
    ```bash
-   cd cire/api
-   bunx wrangler secret put STRIPE_WEBHOOK_SECRET --env dev
+   printf '%s' "$SECRET" | gh secret set STRIPE_WEBHOOK_SECRET --env dev --repo englishstreetventures/osn
    ```
+
+   On production, `cd cire/api && bunx wrangler secret put STRIPE_WEBHOOK_SECRET --env production`,
+   once the paperwork gate allows it ([[access-control]]).
 
 The Connect **platform** side also has to exist before any of this does
 anything: Connect enabled on the account, and the platform profile complete
@@ -107,7 +110,7 @@ not one a couple can change later.
 
 1. Workbench → Webhooks → **Create new destination**.
 2. URL:
-   - dev — `https://api.dev.cireweddings.com/api/stripe/platform-webhook`
+   - dev — `https://api.cire.<DEV_DOMAIN>/api/stripe/platform-webhook` (`stripe_platform_webhook_url` in the run summary)
    - production — `https://api.cireweddings.com/api/stripe/platform-webhook`
 3. Events from: **Your account**. Not connected accounts.
 4. Subscribe to exactly three:
@@ -118,20 +121,21 @@ not one a couple can change later.
    | `checkout.session.expired` | closes the pending purchase so the tier can be bought again |
    | `checkout.session.async_payment_failed` | the same, for a debit that bounced |
 
-5. Copy **that** endpoint's secret — not the Connect one:
+5. Copy **that** endpoint's secret — not the Connect one — and set it the same
+   way:
 
    ```bash
-   cd cire/api
-   bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env dev
+   printf '%s' "$SECRET" | gh secret set STRIPE_PLATFORM_WEBHOOK_SECRET --env dev --repo englishstreetventures/osn
    ```
 
 The upgrade path also needs **three Prices**, or nothing is for sale: one
 product per paid tier, each with a one-off Price, plus a second Price on the
 Crimson product for a wedding upgrading from Gold. Test-mode Prices for dev,
 live-mode for production; a test id in production fails at checkout. They are
-ordinary vars, in `wrangler.toml` under each tier's own `[env.<env>.vars]` —
-named envs inherit no vars — and they sit there commented out until the Prices
-exist:
+ordinary vars: production's in `cire/api/wrangler.toml` under
+`[env.production.vars]`, commented out until the Prices exist, and dev's in the
+cire stack's declaration (`cire/infra/src/declaration.ts`), which sets none
+until then:
 
 ```toml
 STRIPE_UPGRADE_PRICE_GOLD              = "price_..."
@@ -145,12 +149,10 @@ move is in [[cire-upgrades]] §Pricing.
 
 ## After either secret changes
 
-`wrangler secret put` does not cycle warm isolates. Redeploy, or the old value
-keeps serving:
-
-```bash
-cd cire/api && bunx wrangler deploy --env dev
-```
+On dev, the **Deploy** run that uploads the new value is the redeploy. On
+production, `wrangler secret put` does not cycle warm isolates, so redeploy, or
+the old value keeps serving: dispatch a release with `surfaces: cire_api` and
+`force` ([[production-deploy]] §5.5).
 
 ---
 
@@ -200,14 +202,18 @@ mounted, so the secret is unset.
 ## Verify a deployed tier
 
 Work down this list; each step rules out the failure the next one would
-otherwise be blamed for.
+otherwise be blamed for. The commands below check dev: `<D>` is the `dev`
+Environment's `DEV_DOMAIN`, and every `wrangler` command needs the dev account's
+credentials exported as `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`
+([[dev-environment]] §7). On dev the cire stack uploads the Stripe secrets from
+the `dev` Environment, so set or rotate one there and dispatch **Deploy**.
 
 **1. The routes exist.** An unmounted route 404s, and a mounted one refuses an
 unsigned body with a 400. That difference is the whole check:
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' -X POST \
-  https://api.dev.cireweddings.com/api/stripe/platform-webhook -d '{}'
+  https://api.cire.<D>/api/stripe/platform-webhook -d '{}'
 # 400 ⇒ mounted, signature refused (correct)
 # 404 ⇒ STRIPE_PLATFORM_WEBHOOK_SECRET is unset, or the deploy has not cycled
 ```
@@ -216,7 +222,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST \
 show here, and this is the first thing to read rather than the last:
 
 ```bash
-cd cire/api && bunx wrangler tail --env dev --format pretty
+bunx wrangler tail cire-api-dev --format pretty
 ```
 
 **3. Buy something.** As a wedding **owner** on Ivory, open a locked module's
@@ -230,14 +236,13 @@ from Stripe only polls; nothing in the query string can grant. So check the
 rows:
 
 ```bash
-cd cire/api
-bunx wrangler d1 execute cire-db-dev --env dev --remote --command \
+bunx wrangler d1 execute cire-db-dev --remote --command \
   "SELECT id, tier, tier_source, tier_granted_by FROM weddings WHERE tier_source = 'purchase'"
 
-bunx wrangler d1 execute cire-db-dev --env dev --remote --command \
+bunx wrangler d1 execute cire-db-dev --remote --command \
   "SELECT id, entitlement, from_tier, status, checkout_session_id, price_amount_minor, amount_minor, currency FROM wedding_upgrade_purchases ORDER BY created_at DESC LIMIT 5"
 
-bunx wrangler d1 execute cire-db-dev --env dev --remote --command \
+bunx wrangler d1 execute cire-db-dev --remote --command \
   "SELECT purchase_id, entitlement, amount_minor, currency FROM platform_sales ORDER BY settled_at DESC LIMIT 5"
 ```
 
@@ -259,7 +264,7 @@ successful test payment means the Connect endpoint is missing, scoped to the
 platform by mistake, or holding the wrong secret:
 
 ```bash
-bunx wrangler d1 execute cire-db-dev --env dev --remote --command \
+bunx wrangler d1 execute cire-db-dev --remote --command \
   "SELECT id, status, stripe_payment_intent_id FROM registry_contributions ORDER BY created_at DESC LIMIT 5"
 ```
 

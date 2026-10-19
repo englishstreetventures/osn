@@ -7,7 +7,7 @@ related:
   - "[[passkey-primary]]"
   - "[[oidc-provider]]"
   - "[[account-recovery-factors]]"
-last-reviewed: 2026-09-10
+last-reviewed: 2026-10-19
 ---
 
 # Session introspection + revocation
@@ -64,7 +64,7 @@ Design points worth keeping:
 - **No `document` ⇒ no gate.** iOS (Keychain transport) and SSR keep the old behaviour.
 - **One-off migration cost:** a user holding a live cookie but no local account at deploy time is bounced to sign-in once, since no marker exists yet.
 
-Local dev leaves `OSN_COOKIE_DOMAIN` unset — localhost is one host, so a host-only marker works. Dev sets `dev.musubi.social`, not the `musubi.social` parent: a marker set by the dev issuer must not reach production hosts. The value is validated against a bare-hostname pattern before it reaches the header (S-L2) and drops to host-only if it fails, so a bad var costs a cold-start sign-in rather than a spliced `Set-Cookie`.
+Local dev leaves `OSN_COOKIE_DOMAIN` unset — localhost is one host, so a host-only marker works. Dev sets the dev musubi social host, `musubi.<DEV_DOMAIN>`, which the musubi stack derives from the `DEV_DOMAIN` variable ([[infrastructure-as-code#Dev hosts]]); the dev domain is never a production zone, so a marker set by the dev issuer cannot reach production hosts. The value is validated against a bare-hostname pattern before it reaches the header (S-L2) and drops to host-only if it fails, so a bad var costs a cold-start sign-in rather than a spliced `Set-Cookie`.
 
 **Standing constraint (S-L1):** the marker is readable by every host under `OSN_COOKIE_DOMAIN`. That is accepted — the bit is not a secret — but it means a `*.musubi.social` subdomain must never be delegated to a party that shouldn't learn whether a visitor holds an OSN session. Keep subdomain delegation in-house.
 

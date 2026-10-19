@@ -10,7 +10,7 @@ related:
   - "[[social-graph]]"
   - "[[arc-tokens]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-19
 ---
 
 # Zap
@@ -97,7 +97,7 @@ This split is by design: c2b body content is server-visible, user-attributed dat
 
 ### CI pipeline
 
-`deploy-zap-api` in `.github/workflows/production-release.yml` is **live**. It was written to stay dormant until the production D1 existed, and that condition is met: `[[env.production.d1_databases]]` in `zap/api/wrangler.toml` carries a real `database_id`, so the job's `zapcheck` step sets `provisioned=true` and deploys instead of skipping. Only dev and staging still hold `placeholder-replace-after-d1-create`, which the check ignores on purpose. It runs in a production release that finds `zap/` changed since zap-api last deployed, and waits on that release's one approval of the `production` GitHub Environment — see [[production-deploy]] §5.5. Zap has no dev tier, so the release's dev check does not apply to it.
+`deploy-zap-api` in `.github/workflows/production-release.yml` is **live**. It was written to stay dormant until the production D1 existed, and that condition is met: `[[env.production.d1_databases]]` in `zap/api/wrangler.toml` carries a real `database_id`, so the job's `zapcheck` step sets `provisioned=true` and deploys instead of skipping. Only `[env.dev]` (local `wrangler dev` only) and staging still hold `placeholder-replace-after-d1-create`, which the check ignores on purpose. It runs in a production release that finds `zap/` changed since zap-api last deployed, and waits on that release's one approval of the `production` GitHub Environment — see [[production-deploy]] §5.5. On dev, the zap stack (`zap/infra`) deploys `zap-api-dev` and its database `zap-db-dev` in the dev account on every merge that touches zap; the release ships zap-api only once a dev deploy of the same content passed its smoke check, as it does every surface ([[dev-environment]]). `[env.dev]` in `zap/api/wrangler.toml` is the local `wrangler dev` posture and deploys nothing.
 
 ## Authentication & authorization
 

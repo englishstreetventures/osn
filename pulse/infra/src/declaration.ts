@@ -36,9 +36,9 @@ export function pulseDeclaration(input: {
       // A built `_redirects` would apply; the site ships none.
       redirectsFile: true,
       // `/api/*` reaches the entry module, which answers `/api/geo` and hands
-      // every other path to the assets. A new Worker, so it takes Alchemy's
-      // defaults: no compatibility flags, and the module registry Alchemy
-      // gives a bundled Worker.
+      // every other path to the assets. No Wrangler config to match, so it
+      // takes Alchemy's defaults: no compatibility flags, and the module
+      // registry Alchemy gives a bundled Worker.
       entry: {
         main: "../landing/worker/index.ts",
         compatibility: { date: "2026-08-31", flags: [] },

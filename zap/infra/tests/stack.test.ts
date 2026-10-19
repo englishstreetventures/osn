@@ -69,7 +69,7 @@ describe("the zap stack, evaluated offline", () => {
 
   test("K6: zap-db-dev takes production's read replication in oc, migrated from the flattened chain, with nothing imported", () => {
     const props = resourcesOf(dev).ZapDb?.Props;
-    // Production's zap-db-prod: read replication disabled, region OC, no jurisdiction.
+    // Production's zap-db-prod: read replication disabled, region OC, the default jurisdiction.
     expect(props?.readReplication).toEqual({ mode: "disabled" });
     expect(props?.jurisdiction).toBe("default");
     expect(props?.primaryLocationHint).toBe("oc");
