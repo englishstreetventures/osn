@@ -91,29 +91,17 @@ describe("checkZoneReach", () => {
     expect(printed(outcome)).not.toContain(OURS);
   });
 
-  test("Z6: a production token's own production zones pass", () => {
+  test("Z1: a zone on another account exits 1, printing no account id", () => {
     const pages = [
       zonePage([
-        ["cireweddings.com", OURS],
-        ["musubi.social", OURS],
+        [DEV_DOMAIN, OURS],
+        ["other.example", OTHER],
       ]),
     ];
-    expect(checkZoneReach(OURS, null, pages).exitCode).toBe(0);
-  });
-
-  test("Z1: a zone on another account exits 1 on either tier, printing no account id", () => {
-    for (const devDomain of [DEV_DOMAIN, null]) {
-      const pages = [
-        zonePage([
-          [DEV_DOMAIN, OURS],
-          ["other.example", OTHER],
-        ]),
-      ];
-      const outcome = checkZoneReach(OURS, devDomain, pages);
-      expect(outcome.exitCode).toBe(1);
-      expect(printed(outcome)).not.toContain(OURS);
-      expect(printed(outcome)).not.toContain(OTHER);
-    }
+    const outcome = checkZoneReach(OURS, DEV_DOMAIN, pages);
+    expect(outcome.exitCode).toBe(1);
+    expect(printed(outcome)).not.toContain(OURS);
+    expect(printed(outcome)).not.toContain(OTHER);
   });
 
   test.each([["musubi.social"], ["id.musubi.social"], ["cireweddings.com"]])(

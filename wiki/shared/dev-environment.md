@@ -512,7 +512,10 @@ Setting up the token:
    Client ID and Client Secret; the secret is shown once. Note the expiry date
    where the owner keeps renewal dates.
 2. On each application, add a policy with Action **Service Auth** that includes
-   that token. The email policy stays as it is.
+   that token. The email policy stays as it is. Leave the application's
+   "Return 401 Response for Service Auth policies" setting off: with it on,
+   Access answers the tokenless request with a 401 instead of its sign-in
+   redirect, and every check of that application's hosts fails.
 3. Store the two values as `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` on
    the `dev` Environment.
 

@@ -428,7 +428,6 @@ describe("each stack job builds, deploys and checks its whole stack", () => {
         "restore-keys": [
           `\${{ runner.os }}-turbo-dev-${key}-${lock}-`,
           `\${{ runner.os }}-turbo-dev-${key}-`,
-          "${{ runner.os }}-turbo-build-",
           "",
         ].join("\n"),
       });

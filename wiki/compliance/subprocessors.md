@@ -93,7 +93,7 @@ the merge.
 4. **Confirm the transfer basis** on the accepted DPA (SCCs / DPF for
    EEA-UK data; APP 8 posture for the AU entity) and update the SCC
    cell; file `wiki/compliance/dtia/stripe.md` if the analysis warrants
-   one. File the Stripe erasure gap in `englishstventures/osn-tracker`.
+   one. File any gap the DPA review finds in the private tracker.
 5. **Update the published notices before Checkout is live**: the guest
    site `/privacy` names Stripe as the recipient of gift payments and
    what it collects (done 2026-10-15); the organiser-facing copy must

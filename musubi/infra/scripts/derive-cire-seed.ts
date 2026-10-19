@@ -16,11 +16,13 @@
  *                         osn-api's `hashClientSecret` computes it.
  *
  * Each goes to $GITHUB_OUTPUT on one line, checked first so no value can
- * start a line of its own. Nothing goes to stdout; a refusal names the
- * variable on stderr, never its value, and writes no output.
+ * start a line of its own. The one line on stdout is `::add-mask::` for the
+ * hash, so the job's log never shows it; a refusal names the variable on
+ * stderr, never its value, and writes no output.
  *
- * Imports only node built-ins, so CI runs it with `bun --no-install` and no
- * package code runs beside the secrets.
+ * Imports only node built-ins, which DV6 in
+ * `tests/scripts/derive-cire-seed.test.ts` holds, so no package code runs
+ * beside the secrets.
  */
 
 import { createHash } from "node:crypto";
@@ -127,6 +129,10 @@ function main(env: Readonly<Record<string, string | undefined>>): number {
         "GITHUB_OUTPUT is not set; this runs as deploy.yml's cire_seed step.",
       );
     }
+    // Actions prints a step's env in its log and masks only secret values, so
+    // the hash, which the deploy step reads as env, is masked before it exists.
+    const hash = outputs.find(([name]) => name === "client_secret_sha256")?.[1] ?? "";
+    process.stdout.write(`::add-mask::${hash}\n`);
     appendFileSync(target, outputs.map(([name, value]) => `${name}=${value}\n`).join(""));
     return 0;
   } catch (error) {

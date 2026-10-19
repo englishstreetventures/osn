@@ -29,11 +29,14 @@ name: Deploy
 # cire sites), zap/infra (zap-api), pulse/infra (pulse landing). In order, it
 #   1. derives every dev host from the dev Environment's DEV_DOMAIN variable
 #      (`dev-hosts`) and builds the stack's sites against those hosts;
-#   2. checks that the dev token reaches the dev account, and of zones only
-#      the dev domain's (`token:check`), before any other step holds it;
+#   2. checks that the dev token reaches the dev account alone, acts on no
+#      zone of another account and no production zone, and acts on the
+#      DEV_DOMAIN zone (`token:check`), before any other step holds it;
 #   3. records each Worker's newest deployment (scripts/worker-deployments.ts
-#      snapshot), deploys the stack, then names the deployment the deploy made
-#      for each Worker, or `unchanged` when it uploaded none (compare);
+#      snapshot); in the musubi job, derives osn-api's cire seed values from
+#      three cire-api secrets (the `cire_seed` step); deploys the stack, then
+#      names the deployment the deploy made for each Worker, or `unchanged`
+#      when it uploaded none (compare);
 #   4. runs scripts/smoke-check.ts for every surface of the stack. A failing
 #      check rolls back the deployment this run made, never one it did not,
 #      and the job fails once every surface has been checked.
@@ -51,9 +54,11 @@ name: Deploy
 # Credentials: the dev account's id and token (CLOUDFLARE_DEV_ACCOUNT_ID,
 # CLOUDFLARE_DEV_ACCOUNT_API_TOKEN, `dev` Environment secrets) reach the token
 # check, the deploy step and the steps that read or roll back deployments:
-# snapshot, compare and the smoke checks. Worker secrets reach the deploy step alone. No install or
-# build step holds either; the guest site's build reads ASTRO_KEY, which is
-# neither. shared/infra/tests/workflow-secrets.test.ts holds this.
+# snapshot, compare and the smoke checks. Worker secrets reach the deploy step
+# alone, except the three cire-api secrets the musubi job's `cire_seed` step
+# derives its seed values from. No install or build step holds either; the
+# guest site's build reads ASTRO_KEY, which is neither.
+# shared/infra/tests/workflow-secrets.test.ts holds this.
 # See [[wiki/shared/dev-environment]].
 on:
   push:
@@ -262,7 +267,8 @@ jobs:
       # `build` job's cache never holds a dev build. This stack's own cache
       # does: a site whose files and dev values are unchanged replays its
       # last build instead of building again. Keyed on the commit so each run
-      # saves, falling back to this stack's newest, then the `build` job's.
+      # saves, falling back to this stack's newest only, so it never carries
+      # the `build` job's whole cache forward.
       - name: Cache turbo
         uses: actions/cache@v4
         with:
@@ -271,7 +277,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-turbo-dev-musubi-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-turbo-dev-musubi-
-            ${{ runner.os }}-turbo-build-
 
       # musubi landing fetches its font metadata at build time; keyed, as
       # ci.yml's cache is, on the config that names the families.
@@ -342,9 +347,10 @@ jobs:
       # osn-api's seed stores only the SHA-256 of cire's OIDC client secret
       # and the public half of cire-api's ARC key. This step is the only one
       # that holds those secrets: it writes the hash, the public key and the
-      # key id as outputs and prints nothing else. It imports only node
-      # built-ins; `--no-install` makes a stray package import fail here
-      # rather than be fetched and run beside the secrets.
+      # key id as outputs, and masks the hash in this job's log. It imports
+      # node built-ins alone (DV6 in
+      # musubi/infra/tests/scripts/derive-cire-seed.test.ts), so no package
+      # code runs beside the secrets.
       - name: Derive osn-api's cire seed values
         id: cire_seed
         run: bun --no-install musubi/infra/scripts/derive-cire-seed.ts
@@ -551,7 +557,7 @@ jobs:
       # last build instead of building again. The guest site is the
       # exception: its build holds ASTRO_KEY and runs with the cache off.
       # Keyed on the commit so each run saves, falling back to this stack's
-      # newest, then the `build` job's.
+      # newest only, so it never carries the `build` job's whole cache forward.
       - name: Cache turbo
         uses: actions/cache@v4
         with:
@@ -560,7 +566,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-turbo-dev-cire-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-turbo-dev-cire-
-            ${{ runner.os }}-turbo-build-
 
       # The same key and paths as the `build` job's, so this restores the font
       # metadata that job fetched and the three Astro builds below never call
@@ -1051,7 +1056,8 @@ jobs:
       # `build` job's cache never holds a dev build. This stack's own cache
       # does: a site whose files and dev values are unchanged replays its
       # last build instead of building again. Keyed on the commit so each run
-      # saves, falling back to this stack's newest, then the `build` job's.
+      # saves, falling back to this stack's newest only, so it never carries
+      # the `build` job's whole cache forward.
       - name: Cache turbo
         uses: actions/cache@v4
         with:
@@ -1060,7 +1066,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-turbo-dev-pulse-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-turbo-dev-pulse-
-            ${{ runner.os }}-turbo-build-
 
       # Pulse landing fetches its font metadata at build time; keyed, as
       # ci.yml's cache is, on the config that names the families.

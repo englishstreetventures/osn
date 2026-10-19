@@ -132,12 +132,23 @@ describe("derive-cire-seed", () => {
     );
     expect(key.type).toBe("public");
 
-    // The step prints nothing, and no output carries either secret.
-    expect(run.stdout).toBe("");
+    // The step prints only the command that masks the hash in the job's log,
+    // since the deploy step's env shows it; no output carries either secret.
+    expect(run.stdout).toBe(`::add-mask::${outputs.client_secret_sha256}\n`);
     expect(run.stderr).toBe("");
     expect(run.output).not.toContain(CLIENT_SECRET);
     expect(run.output).not.toContain(parsedPrivate.d);
     expect(run.output).not.toContain('"d"');
+  });
+
+  test("DV6: the script imports node built-ins alone, so no package code runs beside the secrets", () => {
+    const source = readFileSync(join(repoRoot, "musubi/infra/scripts/derive-cire-seed.ts"), "utf8");
+    const imports = [...source.matchAll(/^\s*import\b[^;]*?from\s+["']([^"']+)["']/gm)].map(
+      (match) => match[1],
+    );
+    expect(imports.length).toBeGreaterThan(0);
+    expect(imports.filter((specifier) => !specifier?.startsWith("node:"))).toEqual([]);
+    expect(source).not.toMatch(/\bimport\s*\(|\brequire\s*\(/);
   });
 
   test.each(["CIRE_OIDC_CLIENT_SECRET", "CIRE_API_ARC_KEY_ID", "CIRE_API_ARC_PRIVATE_KEY"])(

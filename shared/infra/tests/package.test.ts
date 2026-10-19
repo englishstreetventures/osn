@@ -90,7 +90,7 @@ describe("the vitest projects", () => {
     const climbing = files.filter((file) => {
       const source = readFileSync(join(packageDir, file), "utf8");
       const depth = file.split("/").length - 1;
-      const ups = [...source.matchAll(/new URL\(\s*"((?:\.\.\/)+)/g)].map(
+      const ups = [...source.matchAll(/new URL\(\s*["'`]((?:\.\.\/)+)/g)].map(
         (match) => (match[1] ?? "").length / 3,
       );
       return ups.some((up) => up > depth) || /join\(packageDir,\s*"\.\.",\s*"\.\."/.test(source);

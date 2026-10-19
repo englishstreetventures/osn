@@ -62,7 +62,8 @@ jobs:
             ${{ runner.os }}-bun-shared-infra-
 
       # dev-hosts runs from the @shared/infra workspace, and nothing else this
-      # job runs needs a package.
+      # job runs needs a package. @shared/infra depends on alchemy, so this
+      # still installs the Alchemy tree; the cache above keeps that cheap.
       - name: Install @shared/infra
         run: bun install --frozen-lockfile --filter @shared/infra
 

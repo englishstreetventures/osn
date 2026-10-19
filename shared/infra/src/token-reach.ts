@@ -101,17 +101,17 @@ const underProduction = (name: string): string | undefined =>
 /**
  * A token scopes zones apart from accounts, so a grant on another account's
  * zone need not show in `GET /accounts`. This reads every page of
- * `GET /zones` the token can act on: each zone must belong to the account
- * `accountId` names. On dev (`devDomain` set) no zone may be a production zone
- * or under one, and the dev domain's own zone must be listed, which also
- * refuses an account id that names production. Exits 1 on any of those; 2
+ * `GET /zones` a dev token can act on: each zone must belong to the account
+ * `accountId` names, none may be a production zone or under one, and the dev
+ * domain's own zone must be listed, which also refuses an account id that
+ * names production. `token:check` runs it on dev only. Exits 1 on any of those; 2
  * when a page fails or cannot be read, or the pages hold fewer zones than the
  * first one's `total_count`.
  * Prints no account id.
  */
 export function checkZoneReach(
   accountId: string,
-  devDomain: string | null,
+  devDomain: string,
   pages: readonly AccountListing[],
 ): CheckOutcome {
   const zones: { readonly name: string; readonly account: unknown }[] = [];
@@ -154,20 +154,18 @@ export function checkZoneReach(
       `This token can act on zones outside the account CLOUDFLARE_ACCOUNT_ID names: ${foreign.join(", ")}.`,
     );
   }
-  if (devDomain !== null) {
-    const production = zones.map((zone) => zone.name).filter((name) => underProduction(name));
-    if (production.length > 0) {
-      return refused(
-        1,
-        `A dev token can act on production zones: ${production.join(", ")}. A dev token reaches the dev zone alone.`,
-      );
-    }
-    if (!zones.some((zone) => zone.name === devDomain)) {
-      return refused(
-        1,
-        `This token cannot act on the zone ${devDomain} that DEV_DOMAIN names, so CLOUDFLARE_ACCOUNT_ID may not name the dev account.`,
-      );
-    }
+  const production = zones.map((zone) => zone.name).filter((name) => underProduction(name));
+  if (production.length > 0) {
+    return refused(
+      1,
+      `A dev token can act on production zones: ${production.join(", ")}. A dev token acts on no production zone.`,
+    );
+  }
+  if (!zones.some((zone) => zone.name === devDomain)) {
+    return refused(
+      1,
+      `This token cannot act on the zone ${devDomain} that DEV_DOMAIN names: the token lacks Zone Read on it, or CLOUDFLARE_ACCOUNT_ID does not name the dev account.`,
+    );
   }
   return {
     exitCode: 0,
