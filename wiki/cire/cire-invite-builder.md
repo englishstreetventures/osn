@@ -527,8 +527,9 @@ text minimum against the fill the label is written on:
 | `--color-on-gold` | the label on every gold fill — the open RSVP button, `@cire/ui` primary and cta hover (`--ui-on-accent`), the hand-written gold hovers | gold @ 4.5:1 |
 
 `--color-on-gold` is derived, never picked: the page colour when it reads on
-the gold, else the ink, else whichever of the two sits on the stronger pole's
-side, walked toward black or white until it clears. The pole is chosen by
+the gold, else the ink, else whichever of the two is nearer the stronger pole,
+walked toward it only until it clears — so the label keeps the scheme's own
+tint rather than becoming bare black or white. The pole is chosen by
 measuring both against the gold, not by the gold's lightness — garden's rose
 gold sits just past the midpoint, where `ensureContrast`'s "dark on light"
 rule reaches pure black at 4.47:1 while white gives 4.70. The stronger pole
