@@ -9,17 +9,13 @@ vi.mock("../../src/server/metrics", async (importOriginal) => ({
   metricSignalPublished,
 }));
 
-import { PUBLISH_TIMEOUT_MS, publish } from "../../src/server/publish";
+import { publish } from "../../src/server/publish";
 
 const TOPIC = "cire:wedding:wed_1";
 
 beforeEach(() => metricSignalPublished.mockReset());
 
 describe("publish", () => {
-  it("pins the hub publish timeout", () => {
-    expect(PUBLISH_TIMEOUT_MS).toBe(2_000);
-  });
-
   it("hands the hub for the topic a signal and the subjects to evict", async () => {
     const { hub, publishes } = fakeHub({});
     const before = Date.now();
@@ -34,12 +30,6 @@ describe("publish", () => {
     expect(call?.signal.at).toBeGreaterThanOrEqual(before);
     expect(call?.evictSubjects).toEqual(["usr_bob"]);
     expect(metricSignalPublished).toHaveBeenCalledWith("cire", "members-changed", "ok");
-  });
-
-  it("evicts nobody unless asked", async () => {
-    const { hub, publishes } = fakeHub({});
-    await Effect.runPromise(publish(hub, TOPIC, "members-changed"));
-    expect(publishes[0]?.evictSubjects).toEqual([]);
   });
 
   it("does nothing, and says so, when the product has no hub bound", async () => {

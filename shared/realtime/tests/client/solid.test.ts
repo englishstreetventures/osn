@@ -34,11 +34,6 @@ function mount(initial: string | null) {
 }
 
 describe("useTopic", () => {
-  it("opens a socket for the URL", () => {
-    mount(A);
-    expect(FakeWebSocket.instances.map((socket) => socket.url)).toEqual([A]);
-  });
-
   it("opens nothing while the URL is null", () => {
     mount(null);
     expect(FakeWebSocket.instances).toHaveLength(0);

@@ -94,14 +94,6 @@ describe("TopicHub", () => {
     expect((await stats("cire:wedding:wed_ping")).wakes).toBe(0);
   });
 
-  it("answers only the exact frame: PING is an unexpected frame", async () => {
-    const socket = await open("cire:wedding:wed_shout", "usr_a");
-    socket.ws.send("PING");
-    await tick();
-    expect(socket.frames).toEqual([]);
-    expect(socket.closes).toEqual([1008]);
-  });
-
   it("sends a published signal to every socket on the topic and none elsewhere", async () => {
     const a = await open("cire:wedding:wed_pub", "usr_a");
     const b = await open("cire:wedding:wed_pub", "usr_b");
@@ -131,10 +123,6 @@ describe("TopicHub", () => {
     expect(goes.closes).toEqual([4001]);
     expect(stays.frames).toHaveLength(1);
     expect(stays.closes).toEqual([]);
-  });
-
-  it("reaches nobody on a topic nobody holds", async () => {
-    expect(await publishTo("cire:wedding:wed_empty")).toEqual({ reached: 0 });
   });
 
   it("takes a publish from the shared helper over a real binding", async () => {

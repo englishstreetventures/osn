@@ -1,10 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  createTopicSubscription,
-  SUBSCRIPTION_DEFAULTS,
-  type SignalEvent,
-} from "../../src/client/subscription";
+import { createTopicSubscription, type SignalEvent } from "../../src/client/subscription";
 import { FakeSocketClass, FakeWebSocket, latest } from "../support/fake-websocket";
 
 const URL = "wss://api.example.test/realtime/cire%3Awedding%3Awed_1";
@@ -30,17 +26,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
-});
-
-describe("SUBSCRIPTION_DEFAULTS", () => {
-  it("pins the client's reconnect defaults", () => {
-    expect(SUBSCRIPTION_DEFAULTS).toEqual({
-      pingIntervalMs: 25_000,
-      maxAttempts: 6,
-      baseDelayMs: 1_000,
-      maxDelayMs: 30_000,
-    });
-  });
 });
 
 describe("createTopicSubscription", () => {

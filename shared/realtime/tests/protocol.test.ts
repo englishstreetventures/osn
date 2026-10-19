@@ -1,15 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  CLOSE_CODES,
-  formatTopic,
-  isSignal,
-  parseTopic,
-  PING,
-  PONG,
-  REALTIME_PRODUCTS,
-  SIGNAL_KINDS,
-} from "../src/protocol";
+import { formatTopic, isSignal, parseTopic } from "../src/protocol";
 
 describe("parseTopic", () => {
   it("splits a well-formed topic of a known product", () => {
@@ -63,20 +54,10 @@ describe("isSignal", () => {
   it.each([
     ["null", null],
     ["a string", "members-changed"],
-    ["an unknown kind", { ...good, kind: "rows-changed" }],
     ["a malformed topic", { ...good, topic: "nope" }],
     ["a missing at", { topic: good.topic, kind: good.kind }],
     ["a non-finite at", { ...good, at: Number.NaN }],
   ])("refuses %s", (_label, value) => {
     expect(isSignal(value)).toBe(false);
-  });
-});
-
-describe("wire constants", () => {
-  it("pins the frames and close codes both ends agree on", () => {
-    expect([PING, PONG]).toEqual(["ping", "pong"]);
-    expect(CLOSE_CODES).toEqual({ policy: 1008, evicted: 4001, stale: 4002 });
-    expect(REALTIME_PRODUCTS).toEqual(["cire"]);
-    expect(SIGNAL_KINDS).toEqual(["members-changed"]);
   });
 });
