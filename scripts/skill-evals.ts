@@ -3,8 +3,8 @@
  * The inner loop for the agent skills in `.claude/skills/`.
  *
  * A full `tessl eval run` over every scenario, both variants, three runs each,
- * is six agent solves per scenario — most of a working day and hundreds of
- * credits.
+ * is six agent solves per scenario, and across the suite that is most of a
+ * working day and hundreds of credits.
  * Almost none of that work is needed to answer the question a skill edit
  * actually asks, which is "did this scenario move". These subcommands narrow
  * the run to the skills the diff touched, and keep a committed scoreboard so
