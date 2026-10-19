@@ -1,0 +1,194 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1565,
+    "branch": "chore/org-name-references",
+    "base_sha": "3321751c3ff0eca36f290b16c58d29168351ce41",
+    "head_sha": "8933b4ac75c9dc66bf271d4d5ff4fa16128fda64",
+    "generated_at": "2026-10-19T06:58:49.232Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1546,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:2",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 4,
+    "first_ts": "2026-10-19T06:40:40.120Z",
+    "last_ts": "2026-10-19T06:58:11.836Z",
+    "span_seconds": 1052,
+    "active_seconds": 619,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 3.5880692000000005,
+    "tokens": {
+      "input": 146,
+      "output": 1577,
+      "thinking": 258,
+      "cache_write_5m": 168128,
+      "cache_write_1h": 0,
+      "cache_read": 6788263
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 146,
+          "output": 1577,
+          "thinking": 258,
+          "cache_write_5m": 168128,
+          "cache_write_1h": 0,
+          "cache_read": 6788263
+        },
+        "usd_equivalent": 3.5880692000000005,
+        "messages": 73
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 14,
+          "output": 933,
+          "thinking": 258,
+          "cache_write_5m": 21184,
+          "cache_write_1h": 0,
+          "cache_read": 73249
+        },
+        "usd_equivalent": 0.1539356,
+        "messages": 7
+      },
+      "subagent": {
+        "tokens": {
+          "input": 132,
+          "output": 644,
+          "thinking": 0,
+          "cache_write_5m": 146944,
+          "cache_write_1h": 0,
+          "cache_read": 6715014
+        },
+        "usd_equivalent": 3.4341336000000005,
+        "messages": 66
+      }
+    },
+    "effort": {
+      "medium": 7,
+      "xhigh": 66
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 19,
+      "test": 12,
+      "docs": 94,
+      "config": 79,
+      "source": 32
+    },
+    "loc": {
+      "generated": {
+        "added": 85,
+        "deleted": 22
+      },
+      "test": {
+        "added": 27,
+        "deleted": 25
+      },
+      "docs": {
+        "added": 378,
+        "deleted": 389
+      },
+      "config": {
+        "added": 88,
+        "deleted": 89
+      },
+      "source": {
+        "added": 51,
+        "deleted": 58
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/build-tools",
+      "cire/db",
+      "cire/dietary",
+      "cire/host",
+      "cire/invite-designs",
+      "cire/invites",
+      "cire/landing",
+      "cire/theme",
+      "cire/ui",
+      "cire/vendor",
+      "osn/api",
+      "osn/auth-ui",
+      "osn/client",
+      "osn/db",
+      "pulse/api",
+      "pulse/db",
+      "pulse/landing",
+      "pulse/web",
+      "shared/color",
+      "shared/crypto",
+      "shared/db-utils",
+      "shared/design-tokens",
+      "shared/dev-urls",
+      "shared/email",
+      "shared/feature-flags",
+      "shared/legal",
+      "shared/observability",
+      "shared/openapi-tools",
+      "shared/osn-auth-client",
+      "shared/rate-limit",
+      "shared/redis",
+      "shared/rp-auth",
+      "shared/sortable",
+      "shared/toast",
+      "shared/turnstile",
+      "shared/typescript-config",
+      "shared/ui",
+      "tools/e2e",
+      "tools/lab",
+      "tools/metrics",
+      "tools/oxlint",
+      "tools/pr-metrics",
+      "tools/stryker",
+      "zap/README.md",
+      "zap/api",
+      "zap/db"
+    ],
+    "touches_migration": false,
+    "commits": 8
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 65,
+      "Read": 4,
+      "StructuredOutput": 3,
+      "Skill": 1,
+      "SubagentHandback": 1,
+      "Grep": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {
+      "review-docs": 1
+    },
+    "subagents": {}
+  }
+}
