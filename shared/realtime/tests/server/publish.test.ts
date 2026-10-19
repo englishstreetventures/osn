@@ -16,11 +16,16 @@ const TOPIC = "cire:wedding:wed_1";
 beforeEach(() => metricSignalPublished.mockReset());
 
 describe("publish", () => {
-  it("hands the hub for the topic a signal and the subjects to evict", async () => {
+  it("hands the hub for the topic a signal and the subjects to evict and revoke", async () => {
     const { hub, publishes } = fakeHub({});
     const before = Date.now();
 
-    await Effect.runPromise(publish(hub, TOPIC, "members-changed", { evictSubjects: ["usr_bob"] }));
+    await Effect.runPromise(
+      publish(hub, TOPIC, "members-changed", {
+        evictSubjects: ["usr_bob"],
+        revokeSubjects: ["usr_eve"],
+      }),
+    );
 
     expect(publishes).toHaveLength(1);
     const [call] = publishes;
@@ -28,7 +33,7 @@ describe("publish", () => {
     expect(call?.signal.topic).toBe(TOPIC);
     expect(call?.signal.kind).toBe("members-changed");
     expect(call?.signal.at).toBeGreaterThanOrEqual(before);
-    expect(call?.evictSubjects).toEqual(["usr_bob"]);
+    expect(call?.targets).toEqual({ evict: ["usr_bob"], revoke: ["usr_eve"] });
     expect(metricSignalPublished).toHaveBeenCalledWith("cire", "members-changed", "ok");
   });
 

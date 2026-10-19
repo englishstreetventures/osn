@@ -4,10 +4,7 @@
  * agree on. It imports nothing, so server, hub and client can all depend on it.
  */
 
-/**
- * Products that own topics. A topic's first segment must be one of these. A
- * product joins the list when it adopts realtime push.
- */
+/** Products that own topics. A topic's first segment must be one of these. */
 export const REALTIME_PRODUCTS = ["cire"] as const;
 export type RealtimeProduct = (typeof REALTIME_PRODUCTS)[number];
 
@@ -78,13 +75,23 @@ export const PING = "ping";
 export const PONG = "pong";
 
 /**
+ * How often the client sends `PING`. The hub counts a socket as stale after
+ * three of these, so both ends read this one value.
+ */
+export const PING_INTERVAL_MS = 25_000;
+
+/**
  * Close codes the hub sends. The client treats `policy` as final and every
  * other close as a loss to recover from.
  */
 export const CLOSE_CODES = {
-  /** The topic is full, or the client sent a frame the protocol does not allow. */
+  /**
+   * Final: the topic is full; the member's newer socket took this one's place
+   * at their own cap; the product revoked the member's access; or the client
+   * sent a frame the protocol does not allow.
+   */
   policy: 1008,
-  /** The subject's membership changed: reconnect so it is checked again. */
+  /** Reconnect so the subject is checked again: their access changed, or the socket outlived its maximum age. */
   evicted: 4001,
   /** The hub needed room and this socket had not pinged lately: reconnect if still wanted. */
   stale: 4002,

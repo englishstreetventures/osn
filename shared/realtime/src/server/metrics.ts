@@ -8,6 +8,7 @@
 import { createCounter } from "@shared/observability/metrics";
 
 import type { RealtimeProduct, SignalKind } from "../protocol";
+import type { HubCapacity } from "./headers";
 
 export const REALTIME_METRICS = {
   subscribeAttempts: "realtime.subscribe.attempts",
@@ -16,12 +17,14 @@ export const REALTIME_METRICS = {
 } as const;
 
 /**
- * How one subscribe request ended. Every outcome but `accepted` answers with a
- * plain HTTP status and never upgrades. `accepted` means the hub admitted the
- * socket; the hub may still close it right away if a cap is still exceeded.
+ * How one subscribe request ended. `accepted` and `topic_full` answer with the
+ * hub's 101; `topic_full` means the hub closed the newcomer with 1008 at once
+ * because the topic was at its cap. Every other outcome answers with a plain
+ * HTTP status and never upgrades.
  */
 export type SubscribeOutcome =
   | "accepted"
+  | "topic_full"
   | "not_upgrade"
   | "bad_origin"
   | "bad_topic"
@@ -49,10 +52,10 @@ const signalPublished = createCounter<{
   unit: "{signal}",
 });
 
-const hubCapacityRefused = createCounter<{ product: RealtimeProduct }>({
+const hubCapacityRefused = createCounter<{ product: RealtimeProduct; cap: HubCapacity }>({
   name: REALTIME_METRICS.hubCapacityRefused,
   description:
-    "Sockets a hub refused at the topic's socket cap, or closed at a member's own subject cap",
+    "Sockets a hub closed at a cap: the newcomer at the topic's cap, or a member's own least recently seen socket at theirs",
   unit: "{socket}",
 });
 
@@ -65,5 +68,5 @@ export const metricSignalPublished = (
   result: PublishResult,
 ): void => signalPublished.inc({ product, kind, result });
 
-export const metricHubCapacityRefused = (product: RealtimeProduct): void =>
-  hubCapacityRefused.inc({ product });
+export const metricHubCapacityRefused = (product: RealtimeProduct, cap: HubCapacity): void =>
+  hubCapacityRefused.inc({ product, cap });

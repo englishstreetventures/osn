@@ -1,16 +1,24 @@
 import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ParsedTopic } from "../../src/protocol";
+import type { ParsedTopic, RealtimeProduct } from "../../src/protocol";
 import { fakeHub } from "../support/fake-hub";
 
-const { metricSubscribe } = vi.hoisted(() => ({ metricSubscribe: vi.fn() }));
+const { metricSubscribe, metricHubCapacityRefused } = vi.hoisted(() => ({
+  metricSubscribe: vi.fn(),
+  metricHubCapacityRefused: vi.fn(),
+}));
 vi.mock("../../src/server/metrics", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/server/metrics")>()),
   metricSubscribe,
+  metricHubCapacityRefused,
 }));
 
-import { HUB_SUBJECT_HEADER, HUB_TOPIC_HEADER } from "../../src/server/headers";
+import {
+  HUB_CAPACITY_HEADER,
+  HUB_SUBJECT_HEADER,
+  HUB_TOPIC_HEADER,
+} from "../../src/server/headers";
 import type { HubNamespace } from "../../src/server/hub-namespace";
 import { subscribe, type SubscribeOptions } from "../../src/server/subscribe";
 
@@ -33,6 +41,7 @@ function options(overrides: Partial<SubscribeOptions> = {}, hub?: HubNamespace):
     acceptsTopic: (topic: ParsedTopic) => topic.entity === "wedding",
     authenticate: async () => "usr_alice",
     allow: async () => true,
+    allowDaily: async () => true,
     authorize: async () => true,
     ...overrides,
   };
@@ -41,7 +50,10 @@ function options(overrides: Partial<SubscribeOptions> = {}, hub?: HubNamespace):
 const run = (request: Request, raw: string, opts: SubscribeOptions) =>
   Effect.runPromise(subscribe(request, raw, opts));
 
-beforeEach(() => metricSubscribe.mockReset());
+beforeEach(() => {
+  metricSubscribe.mockReset();
+  metricHubCapacityRefused.mockReset();
+});
 
 describe("subscribe — admitted", () => {
   it("returns the hub's own 101 response, untouched", async () => {
@@ -65,6 +77,34 @@ describe("subscribe — admitted", () => {
     expect(forwarded?.headers.get(HUB_SUBJECT_HEADER)).toBe("usr_alice");
     expect(forwarded?.headers.get("cookie")).toBeNull();
     expect(forwarded?.headers.get("origin")).toBeNull();
+  });
+
+  it("counts a newcomer the hub closed at the topic cap as topic_full, not accepted", async () => {
+    const hubResponse = new Response(null, {
+      status: 101,
+      headers: { [HUB_CAPACITY_HEADER]: "topic" },
+    });
+    const { hub } = fakeHub({ fetch: async () => hubResponse });
+
+    const res = await run(upgradeRequest(), RAW, options({}, hub));
+
+    expect(res).toBe(hubResponse);
+    expect(metricSubscribe).toHaveBeenCalledWith("cire", "topic_full");
+    expect(metricSubscribe).not.toHaveBeenCalledWith("cire", "accepted");
+    expect(metricHubCapacityRefused).toHaveBeenCalledWith("cire", "topic");
+  });
+
+  it("counts a member's own socket closed at their cap, and admits the newcomer", async () => {
+    const hubResponse = new Response(null, {
+      status: 101,
+      headers: { [HUB_CAPACITY_HEADER]: "subject" },
+    });
+    const { hub } = fakeHub({ fetch: async () => hubResponse });
+
+    await run(upgradeRequest(), RAW, options({}, hub));
+
+    expect(metricSubscribe).toHaveBeenCalledWith("cire", "accepted");
+    expect(metricHubCapacityRefused).toHaveBeenCalledWith("cire", "subject");
   });
 });
 
@@ -98,7 +138,7 @@ describe("subscribe — refused before anything costly", () => {
     ["a malformed topic", upgradeRequest(), encodeURIComponent("cire:wedding:"), 404, "bad_topic"],
     ["a broken percent escape", upgradeRequest(), "cire%3Awedding%3A%E0%A4%A", 404, "bad_topic"],
     [
-      "another product's topic",
+      "a product that has not adopted realtime",
       upgradeRequest(),
       encodeURIComponent("osn:org:org_1"),
       404,
@@ -119,6 +159,21 @@ describe("subscribe — refused before anything costly", () => {
     expect(authenticate).not.toHaveBeenCalled();
     expect(fetches).toHaveLength(0);
     expect(metricSubscribe).toHaveBeenCalledWith("cire", outcome);
+  });
+
+  it("refuses another adopted product's topic before authenticating", async () => {
+    const authenticate = vi.fn(async () => "usr_alice");
+    const { hub, fetches } = fakeHub({});
+    // One product has adopted realtime so far; a second is the only way to
+    // build a topic that parses but belongs to someone else.
+    const res = await run(
+      upgradeRequest(),
+      RAW,
+      options({ product: "pulse" as RealtimeProduct, authenticate }, hub),
+    );
+    expect(res.status).toBe(404);
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(fetches).toHaveLength(0);
   });
 
   it("answers 503 without authenticating when no hub is bound", async () => {
@@ -146,10 +201,26 @@ describe("subscribe — refused by the product", () => {
     expect(metricSubscribe).toHaveBeenCalledWith("cire", "rate_limited");
   });
 
-  it("keys the rate limit on the subject", async () => {
+  it("429s a caller over their daily ceiling before checking membership", async () => {
+    const authorize = vi.fn(async () => true);
+    const { hub, fetches } = fakeHub({});
+    const res = await run(
+      upgradeRequest(),
+      RAW,
+      options({ allowDaily: async () => false, authorize }, hub),
+    );
+    expect(res.status).toBe(429);
+    expect(authorize).not.toHaveBeenCalled();
+    expect(fetches).toHaveLength(0);
+    expect(metricSubscribe).toHaveBeenCalledWith("cire", "rate_limited");
+  });
+
+  it("keys both rate limits on the subject", async () => {
     const allow = vi.fn(async () => true);
-    await run(upgradeRequest(), RAW, options({ allow }));
+    const allowDaily = vi.fn(async () => true);
+    await run(upgradeRequest(), RAW, options({ allow, allowDaily }));
     expect(allow).toHaveBeenCalledWith("usr_alice");
+    expect(allowDaily).toHaveBeenCalledWith("usr_alice");
   });
 
   it("403s a caller who is not a member, and never reaches the hub", async () => {
@@ -175,6 +246,10 @@ describe("subscribe — failures answer 503 and never throw", () => {
   it.each([
     ["authenticate throws", { authenticate: async () => Promise.reject(new Error("d1 down")) }],
     ["the limiter throws", { allow: async () => Promise.reject(new Error("binding gone")) }],
+    [
+      "the daily limiter throws",
+      { allowDaily: async () => Promise.reject(new Error("binding gone")) },
+    ],
     [
       "the membership check throws",
       { authorize: async () => Promise.reject(new Error("d1 down")) },

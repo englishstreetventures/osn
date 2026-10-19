@@ -1,10 +1,10 @@
 import type { Signal } from "../../src/protocol";
-import type { HubNamespace } from "../../src/server/hub-namespace";
+import type { CloseTargets, HubNamespace } from "../../src/server/hub-namespace";
 
 export interface PublishCall {
   readonly name: string;
   readonly signal: Signal;
-  readonly evictSubjects: readonly string[];
+  readonly targets: CloseTargets;
 }
 
 export interface FetchCall {
@@ -24,8 +24,8 @@ export function fakeHub(handlers: {
   const fetches: FetchCall[] = [];
   const hub: HubNamespace = {
     getByName: (name) => ({
-      publish: (signal, evictSubjects) => {
-        const call = { name, signal, evictSubjects };
+      publish: (signal, targets) => {
+        const call = { name, signal, targets };
         publishes.push(call);
         return handlers.publish ? handlers.publish(call) : Promise.resolve(0);
       },

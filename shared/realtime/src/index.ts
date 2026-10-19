@@ -4,6 +4,7 @@ export {
   isSignal,
   parseTopic,
   PING,
+  PING_INTERVAL_MS,
   PONG,
   REALTIME_PRODUCTS,
   SIGNAL_KINDS,

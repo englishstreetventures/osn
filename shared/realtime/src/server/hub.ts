@@ -1,19 +1,22 @@
 import { DurableObject } from "cloudflare:workers";
 
-import {
-  CLOSE_CODES,
-  parseTopic,
-  PING,
-  PONG,
-  type RealtimeProduct,
-  type Signal,
-} from "../protocol";
+import { CLOSE_CODES, parseTopic, PING, PING_INTERVAL_MS, PONG, type Signal } from "../protocol";
 import { replyCloseCode } from "./close-reply";
-import { HUB_SUBJECT_HEADER, HUB_TOPIC_HEADER } from "./headers";
-import { metricHubCapacityRefused } from "./metrics";
+import {
+  HUB_CAPACITY_HEADER,
+  HUB_SUBJECT_HEADER,
+  HUB_TOPIC_HEADER,
+  type HubCapacity,
+} from "./headers";
+import type { CloseTargets } from "./hub-namespace";
 
-/** The runtime caps a socket tag at 256 characters; the tag is `subject:` plus this. */
-const MAX_SUBJECT_LENGTH = 200;
+/**
+ * An opaque member id: the runtime caps a socket tag at 256 characters, and
+ * the tag is `subject:` plus this. A handle, email or display name does not
+ * match, so a product that passes one fails at once rather than tagging
+ * sockets with personal data that two members may share.
+ */
+const SUBJECT_PATTERN = /^[A-Za-z0-9_-]{1,200}$/;
 
 const subjectTag = (subject: string): string => `subject:${subject}`;
 
@@ -43,33 +46,37 @@ function acceptedAt(ws: WebSocket): number {
  * no alarm, no timer — so between signals it sleeps and is not billed for
  * duration. The client's `ping` is answered by the runtime's auto-response
  * without waking it. Signals carry no data: a woken hub only forwards
- * "something changed" to every socket on its topic.
+ * "something changed" to every socket on its topic. Caps and close codes are
+ * described in `wiki/shared/realtime.md`.
  */
 export class TopicHub extends DurableObject<unknown> {
   /** Open sockets one topic may hold. A subclass may lower it; the tests do. */
   static socketCap = 50;
   /**
-   * Open sockets one subject may hold on a topic. A member still over this
-   * cap after stale sockets are closed does not get refused: the hub closes
-   * that member's own least recently seen other socket with 1008 instead, so
-   * a member's own dead sockets (a laptop or phone that changed network)
-   * cannot lock out their live tab.
+   * Open sockets one subject may hold on a topic. Over it, the hub closes that
+   * member's least recently seen other socket with 1008 and keeps the newcomer.
    */
   static subjectCap = 5;
   /**
    * A socket that has not pinged for this long (or, never having pinged, was
-   * accepted this long ago) gives up its place at either cap, before a member's
-   * own socket is closed or the topic refuses a newcomer. This assumes the
-   * client's default 25 s `pingIntervalMs` (three intervals) and must grow if
-   * that interval does. A hidden Chromium tab is throttled but still fires its
-   * timers roughly once a minute; only a frozen or discarded tab stops
-   * outright, and that socket reconnects once it is live again.
+   * accepted this long ago) gives up its place at either cap. Three ping
+   * intervals, so a live tab never counts as stale.
    */
-  static staleAfterMs = 75_000;
+  static staleAfterMs = 3 * PING_INTERVAL_MS;
+  /**
+   * A socket accepted longer ago than this is closed with 4001 at the next
+   * publish instead of being sent the signal, so it reconnects and its session
+   * and membership are checked again before it hears anything more.
+   */
+  static maxSocketAgeMs = 60 * 60_000;
 
   constructor(ctx: DurableObjectState, env: unknown) {
     super(ctx, env);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
+  }
+
+  private get limits(): typeof TopicHub {
+    return this.constructor as typeof TopicHub;
   }
 
   /**
@@ -77,8 +84,8 @@ export class TopicHub extends DurableObject<unknown> {
    * admitted subject in headers only a product Worker can set. At either cap
    * it first closes sockets stale for `staleAfterMs`; if the subject is still
    * over its cap it closes that subject's own least recently seen other
-   * socket (never the newcomer); if the topic is still over its cap it
-   * refuses the newcomer instead.
+   * socket (never the newcomer); if the topic is still over its cap it closes
+   * the newcomer instead. The 101 names the cap that was hit, if any.
    */
   override fetch(request: Request): Response {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
@@ -86,34 +93,58 @@ export class TopicHub extends DurableObject<unknown> {
     }
     const parsed = parseTopic(request.headers.get(HUB_TOPIC_HEADER) ?? "");
     const subject = request.headers.get(HUB_SUBJECT_HEADER) ?? "";
-    if (!parsed || subject.length === 0 || subject.length > MAX_SUBJECT_LENGTH) {
+    if (!parsed || !SUBJECT_PATTERN.test(subject)) {
       return new Response(null, { status: 400 });
     }
 
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
-    this.ctx.acceptWebSocket(server, [subjectTag(subject)]);
+    const tag = subjectTag(subject);
+    this.ctx.acceptWebSocket(server, [tag]);
     server.serializeAttachment({ acceptedAt: Date.now() });
-    if (this.overSubjectCap(subject) || this.overTopicCap()) {
-      this.closeStale(server);
-      const subjectSockets = this.open(subjectTag(subject));
-      if (subjectSockets.length > (this.constructor as typeof TopicHub).subjectCap)
-        this.evictLeastRecentlySeen(subjectSockets, server, parsed.product);
-      if (this.overTopicCap()) this.refuse(server, parsed.product);
+
+    let capacity: HubCapacity | undefined;
+    let subjectSockets = this.open(tag);
+    let topicSockets = this.open().length;
+    if (subjectSockets.length > this.limits.subjectCap || topicSockets > this.limits.socketCap) {
+      topicSockets = this.closeStale(server);
+      subjectSockets = this.open(tag);
+      if (
+        subjectSockets.length > this.limits.subjectCap &&
+        this.closeLeastRecentlySeen(subjectSockets, server)
+      ) {
+        topicSockets -= 1;
+        capacity = "subject";
+      }
+      if (topicSockets > this.limits.socketCap) {
+        closeQuietly(server, CLOSE_CODES.policy, "topic full");
+        capacity = "topic";
+      }
     }
-    return new Response(null, { status: 101, webSocket: client });
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+      headers: capacity ? { [HUB_CAPACITY_HEADER]: capacity } : undefined,
+    });
   }
 
   /**
-   * Send `signal` to every socket on the topic, then close each evicted
-   * subject's sockets so they reconnect and are checked again. A socket that
-   * cannot be written to is closed. Returns how many sockets the signal reached.
+   * Send `signal` to every open socket on the topic, then close the named
+   * subjects' sockets (see {@link CloseTargets}). A socket older than
+   * `maxSocketAgeMs` is closed with 4001 first and is not sent the signal. A
+   * socket that cannot be written to is closed. Returns how many sockets the
+   * signal reached.
    */
-  publish(signal: Signal, evictSubjects: readonly string[] = []): number {
+  publish(signal: Signal, targets: CloseTargets = {}): number {
     const frame = JSON.stringify(signal);
+    const expiredBefore = Date.now() - this.limits.maxSocketAgeMs;
     let reached = 0;
-    for (const ws of this.ctx.getWebSockets()) {
+    for (const ws of this.open()) {
+      if (acceptedAt(ws) < expiredBefore) {
+        closeQuietly(ws, CLOSE_CODES.evicted, "expired");
+        continue;
+      }
       try {
         ws.send(frame);
         reached += 1;
@@ -121,11 +152,8 @@ export class TopicHub extends DurableObject<unknown> {
         closeQuietly(ws, 1011, "send failed");
       }
     }
-    for (const subject of evictSubjects) {
-      for (const ws of this.ctx.getWebSockets(subjectTag(subject))) {
-        closeQuietly(ws, CLOSE_CODES.evicted, "membership changed");
-      }
-    }
+    this.closeSubjects(targets.evict, CLOSE_CODES.evicted, "membership changed");
+    this.closeSubjects(targets.revoke, CLOSE_CODES.policy, "access revoked");
     return reached;
   }
 
@@ -151,14 +179,14 @@ export class TopicHub extends DurableObject<unknown> {
     return this.ctx.getWebSockets(tag).filter((ws) => ws.readyState === WebSocket.OPEN);
   }
 
-  private overSubjectCap(subject: string): boolean {
-    const hub = this.constructor as typeof TopicHub;
-    return this.open(subjectTag(subject)).length > hub.subjectCap;
-  }
-
-  private overTopicCap(): boolean {
-    const hub = this.constructor as typeof TopicHub;
-    return this.open().length > hub.socketCap;
+  private closeSubjects(
+    subjects: readonly string[] | undefined,
+    code: number,
+    reason: string,
+  ): void {
+    for (const subject of subjects ?? []) {
+      for (const ws of this.ctx.getWebSockets(subjectTag(subject))) closeQuietly(ws, code, reason);
+    }
   }
 
   /** When the runtime last answered `ws`'s ping, or when it was accepted if it never pinged. */
@@ -166,26 +194,29 @@ export class TopicHub extends DurableObject<unknown> {
     return this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? acceptedAt(ws);
   }
 
-  /** Close every socket but `keep` that has not pinged within `staleAfterMs`. */
-  private closeStale(keep: WebSocket): void {
-    const staleBefore = Date.now() - (this.constructor as typeof TopicHub).staleAfterMs;
+  /**
+   * Close every socket but `keep` that has not pinged within `staleAfterMs`.
+   * Returns how many open sockets the topic holds afterwards, `keep` included.
+   */
+  private closeStale(keep: WebSocket): number {
+    const staleBefore = Date.now() - this.limits.staleAfterMs;
+    let left = 0;
     for (const ws of this.open()) {
-      if (ws === keep) continue;
-      if (this.lastSeen(ws) < staleBefore) closeQuietly(ws, CLOSE_CODES.stale, "stale");
+      if (ws !== keep && this.lastSeen(ws) < staleBefore) {
+        closeQuietly(ws, CLOSE_CODES.stale, "stale");
+      } else {
+        left += 1;
+      }
     }
+    return left;
   }
 
   /**
    * Close the least recently seen socket in `subjectSockets` other than
-   * `keep`, so a member over their cap loses a dead socket rather than the
-   * newcomer. `subjectSockets` is the subject's open sockets as of one fetch
-   * the caller already made, and each candidate's `lastSeen` is read once.
+   * `keep`, so a member over their cap loses an idle socket rather than the
+   * newcomer. Returns whether it closed one.
    */
-  private evictLeastRecentlySeen(
-    subjectSockets: readonly WebSocket[],
-    keep: WebSocket,
-    product: RealtimeProduct,
-  ): void {
+  private closeLeastRecentlySeen(subjectSockets: readonly WebSocket[], keep: WebSocket): boolean {
     let oldest: WebSocket | undefined;
     let oldestSeen = Number.POSITIVE_INFINITY;
     for (const ws of subjectSockets) {
@@ -196,13 +227,8 @@ export class TopicHub extends DurableObject<unknown> {
         oldestSeen = seen;
       }
     }
-    if (!oldest) return;
-    metricHubCapacityRefused(product);
+    if (!oldest) return false;
     closeQuietly(oldest, CLOSE_CODES.policy, "subject full");
-  }
-
-  private refuse(ws: WebSocket, product: RealtimeProduct): void {
-    metricHubCapacityRefused(product);
-    closeQuietly(ws, CLOSE_CODES.policy, "topic full");
+    return true;
   }
 }
