@@ -1,3 +1,5 @@
+import { gzipSync } from "node:zlib";
+
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { getCompatibility } from "alchemy/Cloudflare/Workers/Compatibility";
 import { WorkerBundle } from "alchemy/Cloudflare/Workers/Sources/Rolldown";
@@ -14,8 +16,11 @@ import {
 
 afterAll(removeEvaluations);
 
+/** Workers Free's limit on a Worker's compressed size: 3 MiB. */
+const FREE_LIMIT = 3 * 1024 * 1024;
+
 describe("osn-api's bundle", () => {
-  test("K10: bundled offline through Alchemy's rolldown path with the stack's build options, no module names bun:sqlite", async () => {
+  test("K10: bundled offline through Alchemy's rolldown path with the stack's build options, no module names bun:sqlite, and every file gzips to 3 MiB or less in total", async () => {
     const evaluation = await evaluateMusubi({
       stage: "dev",
       env: stackEnv(await generateArcPublicJwk()),
@@ -51,5 +56,13 @@ describe("osn-api's bundle", () => {
       )
       .map((file) => file.path);
     expect(naming).toEqual([]);
+
+    // Workers Free refuses a Worker over 3 MiB compressed, and Alchemy
+    // uploads every file the bundle holds, source maps included.
+    const gzipBytes = bundle.files.reduce(
+      (sum, file) => sum + gzipSync(file.content).byteLength,
+      0,
+    );
+    expect(gzipBytes, `${gzipBytes} bytes gzip, maps included`).toBeLessThanOrEqual(FREE_LIMIT);
   });
 });
