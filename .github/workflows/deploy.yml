@@ -258,16 +258,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      # The dev builds set PUBLIC_* and VITE_* values the `build` job does not,
-      # and turbo hashes those, so each build here misses turbo's cache and
-      # really runs; the restore still serves every unchanged dependency.
-      - name: Restore turbo cache
-        uses: actions/cache/restore@v4
+      # turbo hashes each dev build's PUBLIC_*, VITE_* and SITE values, so the
+      # `build` job's cache never holds a dev build. This stack's own cache
+      # does: a site whose files and dev values are unchanged replays its
+      # last build instead of building again. Keyed on the commit so each run
+      # saves, falling back to this stack's newest, then the `build` job's.
+      - name: Cache turbo
+        uses: actions/cache@v4
         with:
           path: .turbo
-          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          key: ${{ runner.os }}-turbo-dev-musubi-${{ hashFiles('bun.lock') }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-dev-musubi-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-dev-musubi-
             ${{ runner.os }}-turbo-build-
 
       # musubi landing fetches its font metadata at build time; keyed, as
@@ -536,16 +539,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      # The dev builds set PUBLIC_* values the `build` job does not, and turbo
-      # hashes those, so each build here misses turbo's cache and really runs;
-      # the restore still serves every unchanged dependency.
-      - name: Restore turbo cache
-        uses: actions/cache/restore@v4
+      # turbo hashes each dev build's PUBLIC_*, VITE_* and SITE values, so the
+      # `build` job's cache never holds a dev build. This stack's own cache
+      # does: a site whose files and dev values are unchanged replays its
+      # last build instead of building again. Keyed on the commit so each run
+      # saves, falling back to this stack's newest, then the `build` job's.
+      - name: Cache turbo
+        uses: actions/cache@v4
         with:
           path: .turbo
-          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          key: ${{ runner.os }}-turbo-dev-cire-${{ hashFiles('bun.lock') }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-dev-cire-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-dev-cire-
             ${{ runner.os }}-turbo-build-
 
       # The same key and paths as the `build` job's, so this restores the font
@@ -1029,16 +1035,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      # The dev build sets a SITE the `build` job does not, and turbo hashes
-      # it, so the build here misses turbo's cache and really runs; the
-      # restore still serves every unchanged dependency.
-      - name: Restore turbo cache
-        uses: actions/cache/restore@v4
+      # turbo hashes each dev build's PUBLIC_*, VITE_* and SITE values, so the
+      # `build` job's cache never holds a dev build. This stack's own cache
+      # does: a site whose files and dev values are unchanged replays its
+      # last build instead of building again. Keyed on the commit so each run
+      # saves, falling back to this stack's newest, then the `build` job's.
+      - name: Cache turbo
+        uses: actions/cache@v4
         with:
           path: .turbo
-          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          key: ${{ runner.os }}-turbo-dev-pulse-${{ hashFiles('bun.lock') }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-dev-pulse-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-dev-pulse-
             ${{ runner.os }}-turbo-build-
 
       # Pulse landing fetches its font metadata at build time; keyed, as

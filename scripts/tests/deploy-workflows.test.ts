@@ -405,6 +405,57 @@ describe("each stack job builds, deploys and checks its whole stack", () => {
     },
   );
 
+  // turbo hashes each dev build's PUBLIC_*, VITE_* and SITE values, so the
+  // build job's cache never holds a dev build: an unchanged site replays only
+  // from a cache its own stack job saved.
+  test.each(STACKS.map((s) => [s.key] as const))(
+    "%s: saves a turbo cache of its own, restored before its first build",
+    (key) => {
+      const job = stackJobOf(key);
+      const steps = stepsOf(job);
+      const turbo = steps.filter((step) => step.with?.path === ".turbo");
+      if (DEV_BUILDS[key].length === 0) {
+        expect(turbo).toEqual([]);
+        return;
+      }
+      expect(turbo).toHaveLength(1);
+      const [cache] = turbo;
+      const lock = "${{ hashFiles('bun.lock') }}";
+      expect(cache?.uses).toBe("actions/cache@v4");
+      expect(cache?.with).toEqual({
+        path: ".turbo",
+        key: `\${{ runner.os }}-turbo-dev-${key}-${lock}-\${{ github.sha }}`,
+        "restore-keys": [
+          `\${{ runner.os }}-turbo-dev-${key}-${lock}-`,
+          `\${{ runner.os }}-turbo-dev-${key}-`,
+          "${{ runner.os }}-turbo-build-",
+          "",
+        ].join("\n"),
+      });
+      const firstBuild = Math.min(...buildsOf(job).map((build) => steps.indexOf(build)));
+      expect(steps.indexOf(cache!)).toBeLessThan(firstBuild);
+    },
+  );
+
+  // A value turbo does not hash would let a cache hit replay a site built for
+  // other hosts; strict env mode hides any value it is not told about.
+  test("turbo hashes every value a dev build sets, bar ASTRO_KEY, which it passes through unhashed", () => {
+    const build = (
+      Bun.JSONC.parse(readFileSync(join(root, "turbo.json"), "utf8")) as {
+        tasks: { build: { env?: string[]; passThroughEnv?: string[] } };
+      }
+    ).tasks.build;
+    const hashed = (build.env ?? []).map((pattern) => new Bun.Glob(pattern));
+    const isHashed = (name: string) => hashed.some((glob) => glob.match(name));
+    const names = STACKS.flatMap((s) => buildsOf(stackJobOf(s.key))).flatMap((step) =>
+      Object.keys(step.env ?? {}),
+    );
+    expect(names.length).toBeGreaterThan(0);
+    expect(names.filter((name) => name !== "ASTRO_KEY" && !isHashed(name))).toEqual([]);
+    expect(build.passThroughEnv).toContain("ASTRO_KEY");
+    expect(isHashed("ASTRO_KEY")).toBe(false);
+  });
+
   test("the guest site's build refuses to run without ASTRO_KEY, naming it", () => {
     const build = buildsOf(stackJobOf("cire")).find((step) =>
       step.run?.includes("--filter=@cire/invites"),
