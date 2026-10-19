@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTopicSubscription, type SignalEvent } from "../../src/client/subscription";
+import { FakeVisibility } from "../support/fake-visibility";
 import { FakeSocketClass, FakeWebSocket, latest } from "../support/fake-websocket";
 
 const URL = "wss://api.example.test/realtime/cire%3Awedding%3Awed_1";
@@ -13,6 +14,10 @@ const base = {
   maxDelayMs: 1_000,
   maxAttempts: 3,
   random: () => 0.5,
+  // Each test gets its own, so one test's fallback never shortens another's.
+  get fallbackMemory() {
+    return new Map<string, number>();
+  },
 };
 
 let events: SignalEvent[];
@@ -77,7 +82,8 @@ describe("createTopicSubscription", () => {
     first.serverOpen();
     vi.advanceTimersByTime(1_000); // ping sent
     vi.advanceTimersByTime(1_000); // still unanswered: dead
-    expect(first.closedWith).not.toBeNull();
+    // With a code: a code-less close reaches the hub as 1005, which it cannot echo.
+    expect(first.closedWith?.code).toBe(1000);
     expect(events).toEqual([{ reason: "dropped" }]);
 
     first.serverClose(1006); // the late close of the abandoned socket changes nothing
@@ -197,6 +203,18 @@ describe("createTopicSubscription", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("survives an onFallback that throws, even on the first, synchronous attempt", () => {
+    const onFallback = vi.fn(() => {
+      throw new Error("product bug");
+    });
+    FakeWebSocket.throwOnConstruct = true;
+    expect(() =>
+      createTopicSubscription(URL, onSignal, { ...base, maxAttempts: 1, onFallback }),
+    ).not.toThrow();
+    expect(onFallback).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("close() cancels its timers and closes the socket with 1000", () => {
     const subscription = createTopicSubscription(URL, onSignal, base);
     const socket = latest();
@@ -289,5 +307,179 @@ describe("createTopicSubscription", () => {
     latest().serverClose(1006); // failure 3 post-reset = maxAttempts
     expect(onFallback).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("createTopicSubscription in a hidden tab", () => {
+  it("closes the socket and stops pinging once the tab has been hidden for two ping intervals", () => {
+    const visibility = new FakeVisibility();
+    const onFallback = vi.fn();
+    createTopicSubscription(URL, onSignal, { ...base, visibility, onFallback });
+    const socket = latest();
+    socket.serverOpen();
+    visibility.hide();
+
+    vi.advanceTimersByTime(1_000);
+    socket.serverSend("pong");
+    vi.advanceTimersByTime(999);
+    expect(socket.closedWith).toBeNull();
+    vi.advanceTimersByTime(1);
+    expect(socket.closedWith?.code).toBe(1000);
+    const pings = socket.sent.length;
+
+    vi.advanceTimersByTime(60_000);
+    expect(socket.sent).toHaveLength(pings);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(events).toEqual([]);
+    expect(onFallback).not.toHaveBeenCalled();
+  });
+
+  it("keeps the socket while the tab is hidden for less than that", () => {
+    const visibility = new FakeVisibility();
+    createTopicSubscription(URL, onSignal, { ...base, visibility });
+    const socket = latest();
+    socket.serverOpen();
+    visibility.hide();
+    vi.advanceTimersByTime(1_000);
+    socket.serverSend("pong");
+    vi.advanceTimersByTime(500);
+    visibility.show();
+    vi.advanceTimersByTime(500);
+    socket.serverSend("pong");
+    vi.advanceTimersByTime(1_000);
+    expect(socket.closedWith).toBeNull();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it("reconnects when the tab is shown again, and prompts a re-read", () => {
+    const visibility = new FakeVisibility();
+    createTopicSubscription(URL, onSignal, { ...base, visibility });
+    latest().serverOpen();
+    latest().serverSend("pong");
+    visibility.hide();
+    vi.advanceTimersByTime(2_000);
+    latest().serverSend("pong");
+    vi.advanceTimersByTime(2_000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    visibility.show();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    latest().serverOpen();
+    expect(events).toEqual([{ reason: "reconnected" }]);
+  });
+
+  it("prompts a re-read on return even when no socket had opened before the pause", () => {
+    const visibility = new FakeVisibility("hidden");
+    createTopicSubscription(URL, onSignal, { ...base, visibility });
+    vi.advanceTimersByTime(2_000);
+    expect(latest().closedWith?.code).toBe(1000);
+
+    visibility.show();
+    latest().serverOpen();
+    expect(events).toEqual([{ reason: "reconnected" }]);
+  });
+
+  it("does not count a pause as a failed attempt", () => {
+    const visibility = new FakeVisibility();
+    const onFallback = vi.fn();
+    createTopicSubscription(URL, onSignal, { ...base, maxAttempts: 1, visibility, onFallback });
+    latest().serverOpen();
+    visibility.hide();
+    vi.advanceTimersByTime(1_000);
+    latest().serverSend("pong");
+    vi.advanceTimersByTime(1_000);
+    visibility.show();
+    expect(onFallback).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it("keeps pinging in a hidden tab when told not to pause", () => {
+    const visibility = new FakeVisibility();
+    createTopicSubscription(URL, onSignal, { ...base, visibility, pauseWhenHidden: false });
+    const socket = latest();
+    socket.serverOpen();
+    visibility.hide();
+    for (let tick = 0; tick < 5; tick += 1) {
+      vi.advanceTimersByTime(1_000);
+      socket.serverSend("pong");
+    }
+    expect(socket.closedWith).toBeNull();
+    expect(socket.sent).toHaveLength(5);
+  });
+
+  it("close() while a pause is pending leaves no timer and ignores the tab's return", () => {
+    const visibility = new FakeVisibility();
+    const subscription = createTopicSubscription(URL, onSignal, { ...base, visibility });
+    latest().serverOpen();
+    visibility.hide();
+    subscription.close();
+    expect(vi.getTimerCount()).toBe(0);
+    visibility.show();
+    vi.advanceTimersByTime(10_000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+});
+
+describe("createTopicSubscription after a fallback in the same tab", () => {
+  const OTHER = "wss://api.example.test/realtime/cire%3Awedding%3Awed_2";
+
+  /** Refuse every attempt (never open) until `onFallback` fires. */
+  function exhaust(fallbackMemory: Map<string, number>) {
+    const onFallback = vi.fn();
+    createTopicSubscription(URL, onSignal, { ...base, fallbackMemory, onFallback });
+    for (let attempt = 0; attempt < base.maxAttempts; attempt += 1) {
+      latest().serverClose(1006);
+      vi.advanceTimersByTime(1_000);
+    }
+    expect(onFallback).toHaveBeenCalledTimes(1);
+  }
+
+  it("makes one attempt, not maxAttempts, at the same origin within the window", () => {
+    const fallbackMemory = new Map<string, number>();
+    exhaust(fallbackMemory);
+    const before = FakeWebSocket.instances.length;
+
+    const onFallback = vi.fn();
+    createTopicSubscription(OTHER, onSignal, { ...base, fallbackMemory, onFallback });
+    latest().serverClose(1006);
+    expect(onFallback).toHaveBeenCalledTimes(1);
+    expect(FakeWebSocket.instances).toHaveLength(before + 1);
+  });
+
+  it("forgets the fallback once its window has passed", () => {
+    const fallbackMemory = new Map<string, number>();
+    exhaust(fallbackMemory);
+    vi.advanceTimersByTime(5 * 60_000 + 1);
+
+    const onFallback = vi.fn();
+    createTopicSubscription(OTHER, onSignal, { ...base, fallbackMemory, onFallback });
+    latest().serverClose(1006);
+    expect(onFallback).not.toHaveBeenCalled();
+  });
+
+  it("keeps the full budget after a fallback from a socket that had opened", () => {
+    const fallbackMemory = new Map<string, number>();
+    createTopicSubscription(URL, onSignal, { ...base, fallbackMemory });
+    latest().serverOpen();
+    latest().serverClose(1008);
+
+    const onFallback = vi.fn();
+    createTopicSubscription(OTHER, onSignal, { ...base, fallbackMemory, onFallback });
+    latest().serverClose(1006);
+    expect(onFallback).not.toHaveBeenCalled();
+  });
+
+  it("forgets the fallback once a socket at that origin answers", () => {
+    const fallbackMemory = new Map<string, number>();
+    exhaust(fallbackMemory);
+    createTopicSubscription(OTHER, onSignal, { ...base, fallbackMemory });
+    latest().serverOpen();
+    latest().serverSend("pong");
+
+    const onFallback = vi.fn();
+    createTopicSubscription(URL, onSignal, { ...base, fallbackMemory, onFallback });
+    latest().serverClose(1006);
+    expect(onFallback).not.toHaveBeenCalled();
   });
 });
