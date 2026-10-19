@@ -1,6 +1,6 @@
 ---
 name: setup-osn
-description: Use when setting up or repairing a development environment for this repository on a machine — Bun at the pinned version, the GitHub CLI and its auth, SSH commit signing and the recommended git config, workspace dependencies, lefthook hooks and the portless dev proxy — and verifying it with the type-check, lint and format gates. Also the place to start when bun, gh, turbo or a hook is missing or the wrong version.
+description: Use when setting up or repairing a development environment for this repository on a machine — Bun at the pinned version, the GitHub CLI and its auth, SSH commit signing and the recommended git config, workspace dependencies, lefthook hooks, the TypeScript language server agents use and the portless dev proxy — and verifying it with the type-check, lint and format gates. Also the place to start when bun, gh, turbo or a hook is missing or the wrong version.
 ---
 
 Set up the development environment for this repository: check each requirement in order, install or configure what is missing, verify with the three gates, and report every requirement's state.
@@ -96,6 +96,17 @@ The bootstrap step is the one that changes something outside the checkout. Where
 
 `bunfig.toml` sets a three-day `minimumReleaseAge`, so a package published yesterday will not install; that is the gate working, not a network fault.
 
+**The TypeScript language server for agents.** Claude Code's `LSP` tool comes from the `typescript-lsp` plugin, which starts the `typescript-language-server` binary from `PATH` and uses the workspace's own `typescript`, so it works only after `bun install`. Both install at user scope and so need a yes:
+
+```bash
+brew install typescript-language-server                     # macOS; pulls in node
+npm install -g --before="$(date -d '3 days ago' +%F)" typescript-language-server   # elsewhere; needs node
+typescript-language-server --version
+claude plugin install typescript-lsp@claude-plugins-official
+```
+
+`--before` gives the npm install the same three-day soak `bunfig.toml` gives the workspace, since a global install is outside it. Do not add the plugin to `.claude/settings.json`: a project-scope `enabledPlugins` entry turns a plugin on without installing it. Cloud sessions never start plugin language servers, so on the remote environment record this row as not applicable. When and when not to trust what `LSP` returns: `wiki/conventions/agent-tooling.md` §Code search.
+
 If a gate fails, paste the shortest decisive lines into the table and keep going — a failing type check on a clean checkout of `main` is a finding for the user, not a reason to stop the setup.
 
 ## Step 8 — The dev proxy (optional, needs sudo)
@@ -111,4 +122,4 @@ That CA can intercept TLS for every host the machine talks to, which is why `por
 
 ## Step 9 — Report
 
-The table, then one line: ready, or what is still blocked. One row is not about this machine's toolchain: **bare-root guard** — created, merged, unchanged, refused or nothing to do, in the words `bootstrap-bare-root` printed. Homebrew dependencies for reference: `bun` (everything), `gh` (`prep-pr`, `new-feat`), Xcode CLT (Swift and iOS only).
+The table, then one line: ready, or what is still blocked. One row is not about this machine's toolchain: **bare-root guard** — created, merged, unchanged, refused or nothing to do, in the words `bootstrap-bare-root` printed. Homebrew dependencies for reference: `bun` (everything), `gh` (`prep-pr`, `new-feat`), `typescript-language-server` (agents' `LSP` tool), Xcode CLT (Swift and iOS only).

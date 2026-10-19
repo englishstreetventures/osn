@@ -1,13 +1,13 @@
 ---
 title: Agent tooling
-description: How this repository configures coding agents — where sessions start, skills and their evals, third-party skills, subagent definitions, committed settings, and the vendored trees agents must not edit
+description: How this repository configures coding agents — where sessions start, code search with LSP and git grep, skills and their evals, third-party skills, subagent definitions, committed settings, and the vendored trees agents must not edit
 tags: [convention, agents, tooling]
 related:
   - "[[house-lint-rules]]"
   - "[[session-metrics]]"
   - "[[contributing]]"
   - "[[wiki-search]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-19
 ---
 
 # Agent tooling
@@ -27,6 +27,36 @@ Locally the repository is the bare `~/.work/osn.git`, and every worktree — `ma
 ## Subagents
 
 `.claude/agents/*.md` defines one agent per role — `implementer`, `designer`, `mechanic`, `design-mechanic`, `reviewer`, `explorer`, `shepherd`, `attacker` — each with a `model` and an `effort`. `designer` and `design-mechanic` are the `implementer` and `mechanic` tiers for work that changes how a screen looks. Both load the `design-system` skill, which maps each frontend to the `DESIGN.md` or wiki page that governs its look, ranks that document above any design skill, and says which skill fits which task and which must never touch a surface with a design system. Skills and wiki pages name the agent and read its file, so a model change touches one line. That holds only while dispatches pass no `model` or `effort`: the Agent call takes both, and either overrides the definition. A `general-purpose` dispatch skips the definitions altogether and runs at its parent's settings, so review, plan-attack and whole-task work never go there, apart from the one plugin exception `pick-agent` names. The `pick-agent` skill maps a task and its `complexity:` label to one. Two code-writing agents in one worktree corrupt each other's branches: give each its own worktree.
+
+## Code search
+
+Agents search with two tools that fail in different ways. Claude Code's `LSP` tool asks the TypeScript language server, which knows what a name refers to. `git grep` reads text, so it finds every mention but cannot tell a call from a comment.
+
+| Question | Tool |
+|---|---|
+| Where is this symbol defined? | `LSP` `goToDefinition` |
+| What type is this? | `LSP` `hover`, instead of reading the file |
+| Who calls this, inside one package? | `LSP` `incomingCalls`, which names each caller's function |
+| What implements this interface? | `LSP` `goToImplementation` |
+| What is in this file? | `LSP` `documentSymbol` |
+| Who uses this anywhere? Across packages? | `git grep -lw <name>`, whatever `LSP` said |
+| Where is this route, env var, config key, SQL or doc text? | `git grep -nw` |
+
+The language server searches only the packages it has loaded, and gives no sign of what it skipped:
+
+- Its first answer after start-up can be the declaration alone. `findReferences` on `forkBackground` returned 1 reference, then 25 in 9 files when asked again a minute later.
+- A package nobody has opened is skipped. `findReferences` on `healthRoutes` in `@shared/observability` returned 5 files and missed `pulse/api/src/app.ts` and `zap/api/src/app.ts`, which `git grep -lw healthRoutes` found.
+
+*Measured 2026-10-19 — `LSP` `findReferences` on [background.ts:110](../../osn/api/src/lib/background.ts) and [health.ts:35](../../shared/observability/src/elysia/health.ts), against `git grep -lw` on the same commit.*
+
+So a plausible `LSP` list can still be half the answer. Two rules follow:
+
+1. **"Who uses X" across packages comes from `git grep -lw`.** Grep over-counts — 13 files for `forkBackground`, 4 of them only in comments — so it is the upper bound and a warm `LSP` answer the lower. Read the hits before reporting a count.
+2. **Before renaming, deleting or changing the signature of an export, `git grep -w` its name across the whole repository.** `LSP` alone is never enough there.
+
+`LSP` needs the worktree's `node_modules`: in a fresh worktree, run `bun install --frozen-lockfile` before trusting any answer. Its streamed diagnostics stay untrusted either way (`.claude/skills/orchestrate/references/gotchas.md`).
+
+The tool comes from the `typescript-lsp@claude-plugins-official` plugin, which starts the `typescript-language-server` binary. The `setup-osn` skill installs both at user scope. `.claude/settings.json` does not enable the plugin: a project-scope `enabledPlugins` entry turns a plugin on without installing it. Cloud sessions and CI agents have no `LSP` at all — cloud sessions ignore project plugins and never start plugin language servers — so there grep is the only tool. `explorer` and `reviewer` list `LSP` in their `tools:`; `implementer` inherits every tool.
 
 ## Skills and their evals
 
