@@ -307,6 +307,15 @@ describe("the cire stack, evaluated offline", () => {
     }
   });
 
+  test("RQ2: cire-api and cire-invites redact query strings, since an OIDC code and a guest's claim code arrive in one", () => {
+    const resources = resourcesOf(dev);
+    for (const logicalId of ["CireApi", "CireInvites"]) {
+      expect({
+        [logicalId]: resources[logicalId]?.Props.observability?.redactQueryString,
+      }).toEqual({ [logicalId]: true });
+    }
+  });
+
   test("K5: every resource the dev stage keeps is retained on destroy and replacement", () => {
     const resources = resourcesOf(dev);
     expect(

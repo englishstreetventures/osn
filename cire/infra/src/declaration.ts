@@ -85,12 +85,13 @@ const RATE_LIMITS: readonly {
 
 /**
  * Request paths on cire-api and cire-invites carry wedding slugs and names,
- * so invocation logs stay off; dev traces every request with query strings
- * kept, since its data is synthetic.
+ * so invocation logs stay off. Dev traces every request with query strings
+ * redacted: cire-api's OIDC callback takes its code in one, and the guest
+ * site takes a claim code in one.
  */
 const DEV_OBSERVABILITY: ApiWorkerObservability = {
   headSamplingRate: 1,
-  redactQueryString: false,
+  redactQueryString: true,
   traces: { enabled: true, headSamplingRate: 1 },
   invocationLogs: false,
   issues: true,
