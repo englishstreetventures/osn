@@ -1174,12 +1174,15 @@ describe("gala InvitePage", () => {
   });
 
   describe("RSVP deadline", () => {
-    async function claimWithDeadline(rsvpDeadline: ClaimResult["rsvpDeadline"]) {
+    async function claimWithDeadline(
+      rsvpDeadline: ClaimResult["rsvpDeadline"],
+      extra: Partial<ClaimResult> = {},
+    ) {
       vi.stubGlobal(
         "fetch",
         noSession(
           vi.fn().mockResolvedValue(
-            new Response(JSON.stringify({ ...claim, preview: true, rsvpDeadline }), {
+            new Response(JSON.stringify({ ...claim, preview: true, rsvpDeadline, ...extra }), {
               status: 200,
               headers: { "Content-Type": "application/json" },
             }),
@@ -1435,6 +1438,42 @@ describe("gala InvitePage", () => {
       fireEvent.click(detailsButtonFor(container, "Reception"));
       await waitFor(() => expect(capturedProps.value?.panel).toBe("details"));
       expect(capturedProps.value!.replied).toBe(false);
+    });
+
+    it("keeps a part-answered event viewable after the deadline, unmarked", async () => {
+      // Two members invited to Mehndi, one reply on file: "someone replied"
+      // and "everyone replied" disagree, which is the case that tells the
+      // any-reply wiring from the all-replies one.
+      const { container } = await claimWithDeadline(
+        {
+          date: "2020-09-01",
+          timezone: "Australia/Sydney",
+          closesAt: "2020-09-01T13:59:59.999Z",
+          closed: true,
+        },
+        {
+          members: [
+            claim.members[0]!,
+            {
+              guestId: "guest-2",
+              firstName: "Raj",
+              lastName: "Sharma",
+              nickname: null,
+              eventIds: ["event-1"],
+            },
+          ],
+        },
+      );
+
+      const given = respondButtonFor(container, "Mehndi");
+      expect(given.textContent).toBe("RSVP given");
+      // The fill and tick mean everyone answered; Raj has not.
+      expect(given.hasAttribute("data-rsvp-confirmed")).toBe(false);
+      expect(given.querySelector("svg")).toBeNull();
+
+      fireEvent.click(detailsButtonFor(container, "Mehndi"));
+      await waitFor(() => expect(capturedProps.value?.panel).toBe("details"));
+      expect(capturedProps.value!.replied).toBe(true);
     });
   });
 
