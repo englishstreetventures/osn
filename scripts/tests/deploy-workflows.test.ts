@@ -302,7 +302,12 @@ describe("installs", () => {
         .flatMap((job) => stepsOf(job))
         .filter((step) => /^bun install\b/.test(step.run ?? ""));
       expect(installs.length).toBeGreaterThan(0);
-      for (const step of installs) expect(step.run).toBe("bun install --frozen-lockfile");
+      for (const step of installs) {
+        expect([
+          "bun install --frozen-lockfile",
+          "bun install --frozen-lockfile --filter '!@shared/infra'",
+        ]).toContain(step.run ?? "");
+      }
     },
   );
 });
