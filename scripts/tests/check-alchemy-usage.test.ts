@@ -125,6 +125,13 @@ describe("checkStackSource", () => {
     "const s = Cloudflare.state;",
     "const s = postgresState({ url });",
     'import { state } from "alchemy/Cloudflare";',
+    "const s = Layer.effect(State, makeHttpStateStore({ url, authToken }));",
+    "const s = Layer.effect(State, makeLocalState());",
+    "const s = makePostgresState(options);",
+    "const s = InMemoryService(records);",
+    'import { State } from "alchemy/State";',
+    'import { makePostgresState } from "alchemy/State/PostgresState";',
+    'const S = await import("alchemy/State");',
   ])("refuses %j in a stack file", (code) => {
     expect(checkStackSource("cire/infra/alchemy.run.ts", code)).toHaveLength(1);
   });
@@ -223,8 +230,20 @@ describe("commands that print a token or delete a long-lived stage", () => {
     "DO_NOT_TRACK=1 bun alchemy destroy --stage production",
     "DO_NOT_TRACK=1 bun alchemy destroy --stage=dev",
     "DO_NOT_TRACK=1 bun alchemy --stage dev destroy --yes",
+    "DO_NOT_TRACK=1 ALCHEMY_STAGE=production bun alchemy destroy --yes",
+    "ALCHEMY_STAGE=dev DO_NOT_TRACK=1 bun alchemy destroy",
+    "DO_NOT_TRACK=1 bun alchemy destroy --env-file .env.production",
   ])("refuses %j", (script) => {
     expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
+  });
+
+  test.each([
+    'env:\n  ALCHEMY_STAGE: production\n  DO_NOT_TRACK: "1"',
+    'env:\n  DO_NOT_TRACK: "1"',
+  ])("refuses a workflow destroy that leaves the stage to the environment, %j", (env) => {
+    expect(checkWorkflow("w", blockWorkflow(env, "", ["bunx alchemy destroy --yes"]))).toHaveLength(
+      1,
+    );
   });
 
   test("passes destroying an investigation stage", () => {
@@ -254,6 +273,25 @@ jobs:
   test.each(["0", "true"])("flags the value %j at the package-script prefix", (value) => {
     expect(
       checkPackageScripts("p", manifest({ x: `DO_NOT_TRACK=${value} bun alchemy deploy` })),
+    ).toHaveLength(1);
+  });
+
+  test.each([
+    "DO_NOT_TRACK=1 DO_NOT_TRACK=0 bun alchemy deploy",
+    "DO_NOT_TRACK=1 X=1 DO_NOT_TRACK= bun alchemy deploy",
+  ])("flags %j, whose last assignment turns telemetry on", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
+  });
+
+  test("passes when the last assignment turns telemetry off", () => {
+    expect(
+      checkPackageScripts("p", manifest({ x: "DO_NOT_TRACK=0 DO_NOT_TRACK=1 bun alchemy deploy" })),
+    ).toEqual([]);
+  });
+
+  test("flags an inline value that turns telemetry back on under a workflow env of 1", () => {
+    expect(
+      checkWorkflow("w", blockWorkflow(TRACK_OFF, "", ["DO_NOT_TRACK=0 bunx alchemy deploy"])),
     ).toHaveLength(1);
   });
 

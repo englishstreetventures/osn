@@ -8,20 +8,28 @@
  *    into segments on `&&`, `||`, `;`, `|` and a background `&` (not the `&`
  *    of a redirection such as `2>&1`); each segment is checked alone.
  *  - package.json scripts: every segment that runs Alchemy starts with
- *    `DO_NOT_TRACK=1 `.
+ *    `DO_NOT_TRACK=1 `; when the leading assignments set it more than once,
+ *    the last one decides.
  *  - workflows: a step that runs Alchemy has `DO_NOT_TRACK: "1"` in its own
  *    `env` or, when the step sets none, in the job or workflow `env`; a
- *    different value there turns telemetry on. Otherwise each Alchemy segment
- *    carries the inline prefix. Composite actions: on the step or the segment.
+ *    different value there turns telemetry on. A segment's own leading
+ *    `DO_NOT_TRACK=` overrides the env, and must then be `1`; with no env
+ *    value, each Alchemy segment carries the inline prefix. Composite
+ *    actions: on the step or the segment.
  *  - all three: `alchemy state ls`/`list` is the only `state` command allowed
  *    (bare `state` opens an explorer that reads records; `provider cloudflare
  *    state logs` reads the store's logs), and never `nuke`, `drift … --repair`,
- *    `teardown`, `provider cloudflare token` (it prints the token it creates)
- *    or `destroy` with `--stage dev` or `--stage production`, in any flag order.
+ *    `teardown`, `provider cloudflare token` (it prints the token it creates),
+ *    `destroy` with `--stage dev` or `--stage production` in any flag order,
+ *    or `destroy` with no `--stage` (the stage then comes from
+ *    `ALCHEMY_STAGE` in the environment, `--env-file` or `.env`).
  *  - stack files (`*\/infra/**\/*.ts`, `*alchemy.run.ts`, tests excluded): no
- *    state constructor, no `state` import from `alchemy/Cloudflare`, and no
- *    `.state(` call in a file that names `alchemy/Cloudflare` or `alchemy/AWS`
- *    as a module in any import form; `shared/infra/src/stack.ts` alone calls
+ *    state constructor (`localState`, `inMemoryState`, `postgresState`,
+ *    `makeLocalState`, `makePostgresState`, `makeHttpStateStore`,
+ *    `InMemoryService`), no `alchemy/State` module in any import form, no
+ *    `state` import from `alchemy/Cloudflare`, and no `.state(` call in a
+ *    file that names `alchemy/Cloudflare` or `alchemy/AWS` as a module in any
+ *    import form; `shared/infra/src/stack.ts` alone calls
  *    `Cloudflare.state()`.
  *
  * Tests: scripts/tests/check-alchemy-usage.test.ts (the checks) and
@@ -75,10 +83,17 @@ const FORBIDDEN: readonly { readonly pattern: RegExp; readonly why: string }[] =
     ),
     why: "`destroy` on dev or production deletes every resource and state row of a long-lived stage",
   },
+  {
+    pattern: new RegExp(String.raw`${INVOCATION}(?=[^\n]*\bdestroy\b)(?![^\n]*--stage\b)`),
+    why: "`destroy` must name its stage with --stage; without it ALCHEMY_STAGE or .env picks the stage, which may be dev or production",
+  },
 ];
 
 const STATE_CONSTRUCTOR =
-  /\b(?:localState|inMemoryState|postgresState)\s*\(|\bCloudflare\.state\b|\bimport\s*\{[^}]*\bstate\b[^}]*\}\s*from\s*["']alchemy\/Cloudflare["']/;
+  /\b(?:localState|inMemoryState|postgresState|makeLocalState|makePostgresState|makeHttpStateStore|InMemoryService)\s*\(|\bCloudflare\.state\b|\bimport\s*\{[^}]*\bstate\b[^}]*\}\s*from\s*["']alchemy\/Cloudflare["']/;
+
+/** `alchemy/State` or a path under it, quoted as a module specifier: every state store and the `State` service live there. */
+const STATE_MODULE = /["']alchemy\/State(?:\/[^"'\n]*)?["']/;
 
 /** `alchemy/Cloudflare` or `alchemy/AWS`, or a path under either, quoted as a module specifier: each exports a `state()`. */
 const STATE_PROVIDER_MODULE = /["']alchemy\/(?:Cloudflare|AWS)(?:\/[^"'\n]*)?["']/;
@@ -98,7 +113,14 @@ const alchemySegments = (command: string): string[] =>
     .flatMap((line) => line.split(COMMAND_SEPARATOR))
     .filter((segment) => ALCHEMY_COMMAND.test(segment));
 
-const INLINE_TELEMETRY_OFF = /^\s*(?:[A-Za-z_]\w*=\S*\s+)*DO_NOT_TRACK=1\s/;
+/** The `NAME=value` assignments a command segment starts with. */
+const LEADING_ASSIGNMENTS = /^\s*((?:[A-Za-z_]\w*=\S*\s+)*)/;
+
+/** The value a segment's own leading assignments give DO_NOT_TRACK (the last one wins), or undefined when they set none. */
+const inlineTelemetry = (segment: string): string | undefined =>
+  [...(LEADING_ASSIGNMENTS.exec(segment)?.[1] ?? "").matchAll(/(?:^|\s)DO_NOT_TRACK=(\S*)/g)]
+    .map((match) => match[1])
+    .at(-1);
 
 function forbidden(where: string, segment: string): Finding[] {
   return FORBIDDEN.filter(({ pattern }) => pattern.test(segment)).map(({ why }) => ({
@@ -117,7 +139,7 @@ export function checkPackageScripts(where: string, manifestText: string): Findin
   for (const [name, value] of Object.entries(manifest.scripts ?? {})) {
     const at = `${where} scripts.${name}`;
     for (const segment of alchemySegments(value)) {
-      if (!INLINE_TELEMETRY_OFF.test(segment)) {
+      if (inlineTelemetry(segment) !== "1") {
         findings.push({ where: at, problem: "an Alchemy command must start with DO_NOT_TRACK=1" });
       }
       findings.push(...forbidden(at, segment));
@@ -163,7 +185,11 @@ function checkSteps(
     if (segments.length === 0) continue;
     const at = `${where}.steps[${index}]`;
     const off = telemetryOff(step.env, ...outer);
-    if (!off && !segments.every((segment) => INLINE_TELEMETRY_OFF.test(segment))) {
+    const segmentOff = (segment: string): boolean => {
+      const inline = inlineTelemetry(segment);
+      return inline === undefined ? off : inline === "1";
+    };
+    if (!segments.every(segmentOff)) {
       findings.push({ where: at, problem: 'an Alchemy step needs DO_NOT_TRACK: "1" in its env' });
     }
     for (const segment of segments) findings.push(...forbidden(at, segment));
@@ -185,7 +211,9 @@ export function checkCompositeAction(where: string, yamlText: string): Finding[]
 
 export function checkStackSource(where: string, text: string): Finding[] {
   const choosesState =
-    STATE_CONSTRUCTOR.test(text) || (STATE_PROVIDER_MODULE.test(text) && STATE_CALL.test(text));
+    STATE_CONSTRUCTOR.test(text) ||
+    STATE_MODULE.test(text) ||
+    (STATE_PROVIDER_MODULE.test(text) && STATE_CALL.test(text));
   return choosesState
     ? [{ where, problem: `a stack takes its state from stackOptions() (${STATE_STORE_FILE})` }]
     : [];
