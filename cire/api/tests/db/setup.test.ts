@@ -11,6 +11,7 @@ import {
   DEV_OWNER_SEAT_ID,
   repointDevOwnerSeat,
   seedDb,
+  applyE2eRsvpDeadline,
   setSampleRsvpDeadline,
   type TestDb,
 } from "../../src/db/setup";
@@ -312,5 +313,22 @@ describe("setSampleRsvpDeadline", () => {
       expect(() => setSampleRsvpDeadline(db, bad)).toThrow();
     }
     expect(deadlineOf(db)).toEqual({ date: null, timezone: null });
+  });
+
+  it("leaves RSVPs open when the dev server boots without CIRE_E2E_RSVP_DEADLINE", () => {
+    // Every `bun run dev` outside the E2E suite: no variable, or an empty one.
+    for (const env of [{}, { CIRE_E2E_RSVP_DEADLINE: "" }]) {
+      const db = createDb();
+      seedDb(db);
+      applyE2eRsvpDeadline(db, env);
+      expect(deadlineOf(db)).toEqual({ date: null, timezone: null });
+    }
+  });
+
+  it("gives the sample wedding the deadline the E2E suite names, in UTC", () => {
+    const db = createDb();
+    seedDb(db);
+    applyE2eRsvpDeadline(db, { CIRE_E2E_RSVP_DEADLINE: "2099-01-01" });
+    expect(deadlineOf(db)).toEqual({ date: "2099-01-01", timezone: "UTC" });
   });
 });

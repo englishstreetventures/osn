@@ -748,3 +748,17 @@ export function setSampleRsvpDeadline(db: TestDb, date: string): void {
     .where(eq(schema.weddings.id, schema.BOOTSTRAP_WEDDING_ID))
     .run();
 }
+
+/**
+ * The local dev server's reading of `CIRE_E2E_RSVP_DEADLINE`: set, it gives the
+ * sample wedding that deadline (`setSampleRsvpDeadline`); unset or empty, the
+ * seed's open RSVPs stand, which is what every `bun run dev` without the E2E
+ * suite gets.
+ */
+export function applyE2eRsvpDeadline(
+  db: TestDb,
+  env: Readonly<Record<string, string | undefined>>,
+): void {
+  const date = env.CIRE_E2E_RSVP_DEADLINE;
+  if (date) setSampleRsvpDeadline(db, date);
+}
