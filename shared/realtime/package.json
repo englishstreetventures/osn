@@ -3,6 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstventures/osn.git"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./server": "./src/server/index.ts",
@@ -18,7 +24,7 @@
   },
   "dependencies": {
     "@shared/observability": "workspace:*",
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
@@ -28,7 +34,7 @@
     "solid-js": "^1.9.15",
     "vite": "^8.2.2",
     "vite-plugin-solid": "^2.11.14",
-    "vitest": "^4.1.11"
+    "vitest": "5.0.3"
   },
   "peerDependencies": {
     "solid-js": "^1.9.15"
