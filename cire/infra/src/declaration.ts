@@ -6,6 +6,7 @@ import {
   refuseProductionTier,
   type ApiWorkerInput,
   type ApiWorkerObservability,
+  type PrebuiltSite,
   type RetainedBucketInput,
   type RetainedD1Input,
   type SiteWorkerInput,
@@ -50,7 +51,16 @@ export interface CireDeclaration {
   readonly cireLanding: SiteWorkerInput;
   /** Where the stack writes each generated seed file. */
   readonly seeds: { readonly ownerSeat: string };
+  /** Each site directory the stack uploads as built, and the origins its build for `stage` holds. */
+  readonly prebuilt: readonly PrebuiltSite[];
 }
+
+// The Astro adapter's output for the guest site: the Worker's server modules and its assets.
+const INVITES_SERVER = "../invites/dist/server";
+const INVITES_CLIENT = "../invites/dist/client";
+const HOST_DIST = "../host/dist";
+const VENDOR_DIST = "../vendor/dist";
+const LANDING_DIST = "../landing/dist";
 
 /** cire/db's dev seed, imported after the migrations on every tier but production. */
 const DEV_SEED = "../db/seed/dev-seed.sql";
@@ -158,6 +168,7 @@ export function cireDeclaration(input: {
   const { stage, hosts, generatedDir } = input;
   refuseProductionTier(stage);
   const issuer = origin(hosts.osnApi);
+  const api = origin(hosts.cireApi);
   const ownerSeat = join(generatedDir, "seeds", "cire-owner-seat.sql");
   return {
     cireApi: {
@@ -239,7 +250,7 @@ export function cireDeclaration(input: {
       stage,
       // The Astro adapter's build, uploaded as it is: the stack job builds
       // it with the dev site values and a fixed ASTRO_KEY before the deploy.
-      main: "../invites/dist/server/entry.mjs",
+      main: `${INVITES_SERVER}/entry.mjs`,
       bundle: false,
       // The adapter's generated `dist/server/wrangler.json` declares only
       // `"assets": { "binding": "ASSETS", "directory": "../client" }`, so
@@ -247,7 +258,7 @@ export function cireDeclaration(input: {
       // `404.html`. The adapter's `dist/client/.assetsignore` (`wrangler.json`,
       // `.dev.vars`) applies under Alchemy as under Wrangler.
       assets: {
-        directory: "../invites/dist/client",
+        directory: INVITES_CLIENT,
         htmlHandling: "auto-trailing-slash",
         notFoundHandling: "none",
         runWorkerFirst: false,
@@ -268,21 +279,47 @@ export function cireDeclaration(input: {
     cireHost: site(
       { base: "cire-host", dev: "cire-host-dev", production: "cire-host" },
       stage,
-      "../host/dist",
+      HOST_DIST,
       hosts.cireHost,
     ),
     cireVendor: site(
       { base: "cire-vendor", dev: "cire-vendor-dev", production: "cire-vendor" },
       stage,
-      "../vendor/dist",
+      VENDOR_DIST,
       hosts.cireVendor,
     ),
     cireLanding: site(
       { base: "cire-landing", dev: "cire-landing-dev", production: "cire-landing" },
       stage,
-      "../landing/dist",
+      LANDING_DIST,
       hosts.cireLanding,
     ),
     seeds: { ownerSeat },
+    // Each site's build bakes in what deploy.yml's build step sets. The
+    // guest site's client output names cire-api only in its `_headers` CSP;
+    // its server output names cire-api, itself and the marketing site
+    // (PUBLIC_API_URL, PUBLIC_SITE_URL, PUBLIC_MARKETING_URL). The organiser
+    // portal names cire-api, the account app and the guest site; the vendor
+    // portal cire-api and the account app; the marketing site itself (SITE)
+    // and the organiser portal (PUBLIC_ORGANISER_URL).
+    prebuilt: [
+      { site: "@cire/invites client", directory: INVITES_CLIENT, origins: [api] },
+      {
+        site: "@cire/invites server",
+        directory: INVITES_SERVER,
+        origins: [api, origin(hosts.cireInvites), origin(hosts.cireLanding)],
+      },
+      {
+        site: "@cire/host",
+        directory: HOST_DIST,
+        origins: [api, origin(hosts.musubiSocial), origin(hosts.cireInvites)],
+      },
+      { site: "@cire/vendor", directory: VENDOR_DIST, origins: [api, origin(hosts.musubiSocial)] },
+      {
+        site: "@cire/landing",
+        directory: LANDING_DIST,
+        origins: [origin(hosts.cireLanding), origin(hosts.cireHost)],
+      },
+    ],
   };
 }

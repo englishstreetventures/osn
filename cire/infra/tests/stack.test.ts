@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { SiteBuildError } from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { ownerSeatSql, SeedInputError } from "../src/seeds";
@@ -13,6 +14,7 @@ import {
   resourcesOf,
   stackEnv,
   type Evaluation,
+  type SiteFixtures,
 } from "./evaluate";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -22,6 +24,55 @@ const DEV_SEED = "../db/seed/dev-seed.sql";
 
 const WORKERS = ["CireApi", "CireInvites", "CireHost", "CireVendor", "CireLanding"];
 const STORAGE = ["CireDb", "CireAssets", "CireSheets"];
+
+/**
+ * The origins each cire site's dev build bakes in, under `cire/`: found by
+ * building each with deploy.yml's dev values for example.test and searching
+ * its output. The guest site's client output names cire-api only in its
+ * `_headers` CSP; its server output names cire-api, itself and the marketing
+ * site. The organiser portal names cire-api, the account app and the guest
+ * site; the vendor portal cire-api and the account app; the marketing site
+ * itself (SITE) and the organiser portal.
+ */
+const SITE_ORIGINS = [
+  {
+    site: "@cire/invites client",
+    directory: "invites/dist/client",
+    origins: [`https://api.cire.${DEV_DOMAIN}`],
+  },
+  {
+    site: "@cire/invites server",
+    directory: "invites/dist/server",
+    origins: [
+      `https://api.cire.${DEV_DOMAIN}`,
+      `https://invite.cire.${DEV_DOMAIN}`,
+      `https://cire.${DEV_DOMAIN}`,
+    ],
+  },
+  {
+    site: "@cire/host",
+    directory: "host/dist",
+    origins: [
+      `https://api.cire.${DEV_DOMAIN}`,
+      `https://musubi.${DEV_DOMAIN}`,
+      `https://invite.cire.${DEV_DOMAIN}`,
+    ],
+  },
+  {
+    site: "@cire/vendor",
+    directory: "vendor/dist",
+    origins: [`https://api.cire.${DEV_DOMAIN}`, `https://musubi.${DEV_DOMAIN}`],
+  },
+  {
+    site: "@cire/landing",
+    directory: "landing/dist",
+    origins: [`https://cire.${DEV_DOMAIN}`, `https://host.cire.${DEV_DOMAIN}`],
+  },
+] as const;
+
+const fixtures = (
+  edit: (entry: (typeof SITE_ORIGINS)[number]) => readonly string[] = (entry) => entry.origins,
+): SiteFixtures => Object.fromEntries(SITE_ORIGINS.map((entry) => [entry.directory, edit(entry)]));
 
 let dev: Evaluation;
 
@@ -224,5 +275,43 @@ describe("the cire stack, evaluated offline", () => {
     const seat = join(seeded.generatedDir, "seeds", "cire-owner-seat.sql");
     expect(resourcesOf(seeded).CireDb?.Props.importFiles).toEqual([DEV_SEED, seat]);
     expect(readFileSync(seat, "utf8")).toBe(ownerSeatSql(profileId));
+  });
+
+  test("SB9: site output holding exactly the origins each dev build bakes in is accepted", async () => {
+    const accepted = await evaluateCire({ stage: "dev", env: stackEnv(), sites: fixtures() });
+    expect(Object.keys(resourcesOf(accepted)).toSorted()).toEqual(
+      [...WORKERS, ...STORAGE].toSorted(),
+    );
+    expect(accepted.fetches).toEqual([]);
+  });
+
+  test("SB9: site output built for other hosts, or none, refuses the run before it writes or calls anything", async () => {
+    const otherHosts = fixtures((entry) =>
+      entry.origins.map((value) => value.replace(DEV_DOMAIN, "other.test")),
+    );
+    for (const sites of [otherHosts, {}]) {
+      const refused = await evaluateCire({ stage: "dev", env: stackEnv(), sites });
+      expect(failureOf(refused)).toBeInstanceOf(SiteBuildError);
+      expect(failureOf(refused)).toMatchObject({
+        site: "@cire/invites client",
+        missing: [`https://api.cire.${DEV_DOMAIN}`],
+      });
+      expect(existsSync(refused.generatedDir)).toBe(false);
+      expect(refused.fetches).toEqual([]);
+    }
+    // Every origin counts: output lacking any one is refused, naming its site.
+    for (const entry of SITE_ORIGINS) {
+      for (const lacking of entry.origins) {
+        const refused = await evaluateCire({
+          stage: "dev",
+          env: stackEnv(),
+          sites: fixtures((other) =>
+            other === entry ? other.origins.filter((value) => value !== lacking) : other.origins,
+          ),
+        });
+        expect(failureOf(refused)).toMatchObject({ site: entry.site, missing: [lacking] });
+        expect(existsSync(refused.generatedDir)).toBe(false);
+      }
+    }
   });
 });

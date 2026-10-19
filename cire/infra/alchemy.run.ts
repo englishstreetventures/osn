@@ -1,9 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   apiWorker,
   assertDevDeployTarget,
+  assertSiteBuiltFor,
   assertStackRetained,
   flattenMigrations,
   readDevDomain,
@@ -80,13 +81,17 @@ function writeSeed(path: string, sql: string): void {
 /**
  * The cire stack: cire-api with its database, buckets and seeds,
  * cire-invites from its prebuilt Astro output, and the host, vendor and
- * landing sites. Every value is read and checked before anything is written
- * or declared, so a refused run writes nothing. Paths are relative to the
- * working directory, `cire/infra`.
+ * landing sites. Every value is read and checked, and each prebuilt site is
+ * checked to be built for the stage's hosts, before anything is written or
+ * declared, so a refused run writes nothing. Paths are relative to the
+ * working directory, `cire/infra`; `siteRoot` is the directory the site
+ * paths resolve from for that check, the working directory when the CLI
+ * runs the stack.
  */
 export const cireStack = (input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly generatedDir: string;
+  readonly siteRoot: string;
 }) =>
   Effect.gen(function* () {
     const { env, generatedDir } = input;
@@ -101,6 +106,9 @@ export const cireStack = (input: {
       generatedDir,
       ownerSeat: ownerSeat !== null,
     });
+    for (const site of declared.prebuilt) {
+      assertSiteBuiltFor({ ...site, directory: join(input.siteRoot, site.directory) });
+    }
     const apiSecrets = requireSecrets({ worker: "cire-api", stage, env });
     const invitesSecrets = requireSecrets({ worker: "cire-invites", stage, env });
 
@@ -143,5 +151,5 @@ export const cireStack = (input: {
 export default Alchemy.Stack(
   "cire",
   stackOptions(),
-  cireStack({ env: process.env, generatedDir: ".generated" }),
+  cireStack({ env: process.env, generatedDir: ".generated", siteRoot: process.cwd() }),
 );

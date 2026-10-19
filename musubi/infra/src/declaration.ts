@@ -5,6 +5,7 @@ import {
   physicalName,
   refuseProductionTier,
   type ApiWorkerInput,
+  type PrebuiltSite,
   type RetainedD1Input,
   type SiteWorkerInput,
   type StageHosts,
@@ -37,7 +38,12 @@ export interface MusubiDeclaration {
   readonly musubiLanding: SiteWorkerInput;
   /** Where the stack writes each generated seed file. */
   readonly seeds: { readonly osn: string };
+  /** Each site directory the stack uploads as built, and the origins its build for `stage` holds. */
+  readonly prebuilt: readonly PrebuiltSite[];
 }
+
+const SOCIAL_DIST = "../social/dist";
+const LANDING_DIST = "../landing/dist";
 
 /**
  * osn-api's per-IP auth limiters, one per request budget, each over 60
@@ -151,7 +157,7 @@ export function musubiDeclaration(input: {
         stage,
       ),
       stage,
-      directory: "../social/dist",
+      directory: SOCIAL_DIST,
       // The built `_redirects` sends every path to index.html for Pages; on a
       // Worker the single-page fallback below serves deep links instead.
       redirectsFile: false,
@@ -172,7 +178,7 @@ export function musubiDeclaration(input: {
         stage,
       ),
       stage,
-      directory: "../landing/dist",
+      directory: LANDING_DIST,
       // A built `_redirects` would apply; the site ships none.
       redirectsFile: true,
       entry: null,
@@ -189,5 +195,16 @@ export function musubiDeclaration(input: {
       issues: true,
     },
     seeds: { osn: osnSeed },
+    // Each site's build bakes in what deploy.yml's build step sets: musubi
+    // social osn-api's origin (VITE_OSN_ISSUER_URL), musubi landing the app's
+    // (PUBLIC_APP_URL) and its own (SITE).
+    prebuilt: [
+      { site: "@musubi/social", directory: SOCIAL_DIST, origins: [origin(hosts.osnApi)] },
+      {
+        site: "@musubi/landing",
+        directory: LANDING_DIST,
+        origins: [app, origin(hosts.musubiLanding)],
+      },
+    ],
   };
 }

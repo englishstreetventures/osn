@@ -2,7 +2,13 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { origin, SeedValueError, STACK_STEP_SECRETS, stageHosts } from "@shared/infra";
+import {
+  origin,
+  SeedValueError,
+  SiteBuildError,
+  STACK_STEP_SECRETS,
+  stageHosts,
+} from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { osnSeedSql } from "../src/seeds";
@@ -17,9 +23,33 @@ import {
   resourcesOf,
   stackEnv,
   type Evaluation,
+  type SiteFixtures,
 } from "./evaluate";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
+/**
+ * The origins each musubi site's dev build bakes in, under `musubi/`: found by
+ * building each with deploy.yml's dev values for example.test and searching
+ * its output. musubi social holds osn-api's (VITE_OSN_ISSUER_URL); musubi
+ * landing holds the app's (PUBLIC_APP_URL) and its own (SITE).
+ */
+const SITE_ORIGINS = [
+  {
+    site: "@musubi/social",
+    directory: "social/dist",
+    origins: [`https://id.musubi.${DEV_DOMAIN}`],
+  },
+  {
+    site: "@musubi/landing",
+    directory: "landing/dist",
+    origins: [`https://musubi.${DEV_DOMAIN}`, `https://www.musubi.${DEV_DOMAIN}`],
+  },
+] as const;
+
+const fixtures = (
+  edit: (entry: (typeof SITE_ORIGINS)[number]) => readonly string[] = (entry) => entry.origins,
+): SiteFixtures => Object.fromEntries(SITE_ORIGINS.map((entry) => [entry.directory, edit(entry)]));
 
 let arcPublicJwk = "";
 let dev: Evaluation;
@@ -155,6 +185,46 @@ describe("the musubi stack, evaluated offline", () => {
         expect(failure).toMatchObject({ variable: name });
         // The message names the variable, never its value.
         expect(String((failure as SeedValueError).message)).not.toContain(`${name}-padded`);
+        expect(existsSync(refused.generatedDir)).toBe(false);
+      }
+    }
+  });
+
+  test("SB9: site output holding exactly the origins each dev build bakes in is accepted", async () => {
+    const accepted = await evaluateMusubi({
+      stage: "dev",
+      env: stackEnv(arcPublicJwk),
+      sites: fixtures(),
+    });
+    expect(Object.keys(resourcesOf(accepted))).toContain("MusubiSocial");
+    expect(accepted.fetches).toEqual([]);
+  });
+
+  test("SB9: site output built for other hosts, or none, refuses the run before it writes or calls anything", async () => {
+    const otherHosts = fixtures((entry) =>
+      entry.origins.map((value) => value.replace(DEV_DOMAIN, "other.test")),
+    );
+    for (const sites of [otherHosts, {}]) {
+      const refused = await evaluateMusubi({ stage: "dev", env: stackEnv(arcPublicJwk), sites });
+      expect(failureOf(refused)).toBeInstanceOf(SiteBuildError);
+      expect(failureOf(refused)).toMatchObject({
+        site: "@musubi/social",
+        missing: [`https://id.musubi.${DEV_DOMAIN}`],
+      });
+      expect(existsSync(refused.generatedDir)).toBe(false);
+      expect(refused.fetches).toEqual([]);
+    }
+    // Every origin counts: output lacking any one is refused, naming its site.
+    for (const entry of SITE_ORIGINS) {
+      for (const lacking of entry.origins) {
+        const refused = await evaluateMusubi({
+          stage: "dev",
+          env: stackEnv(arcPublicJwk),
+          sites: fixtures((other) =>
+            other === entry ? other.origins.filter((value) => value !== lacking) : other.origins,
+          ),
+        });
+        expect(failureOf(refused)).toMatchObject({ site: entry.site, missing: [lacking] });
         expect(existsSync(refused.generatedDir)).toBe(false);
       }
     }

@@ -1,9 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   apiWorker,
   assertDevDeployTarget,
+  assertSiteBuiltFor,
   assertStackRetained,
   flattenMigrations,
   origin,
@@ -67,13 +68,17 @@ function writeSeed(path: string, sql: string): void {
 
 /**
  * The musubi stack: osn-api with its database and seed, musubi social and
- * musubi landing. Every value is read and checked before anything is
- * written or declared, so a refused run writes nothing. Paths are relative
- * to the working directory, `musubi/infra`.
+ * musubi landing. Every value is read and checked, and each prebuilt site
+ * is checked to be built for the stage's hosts, before anything is written
+ * or declared, so a refused run writes nothing. Paths are relative to the
+ * working directory, `musubi/infra`; `siteRoot` is the directory the site
+ * paths resolve from for that check, the working directory when the CLI
+ * runs the stack.
  */
 export const musubiStack = (input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly generatedDir: string;
+  readonly siteRoot: string;
 }) =>
   Effect.gen(function* () {
     const { env, generatedDir } = input;
@@ -81,6 +86,9 @@ export const musubiStack = (input: {
     const stage = assertDevDeployTarget(yield* Alchemy.Stage, env);
     const hosts = stageHosts(readDevDomain(env), stage);
     const declared = musubiDeclaration({ stage, hosts, generatedDir });
+    for (const site of declared.prebuilt) {
+      assertSiteBuiltFor({ ...site, directory: join(input.siteRoot, site.directory) });
+    }
     const secrets = requireSecrets({ worker: "osn-api", stage, env });
     const seed = osnSeedSql({
       cireApiOrigin: origin(hosts.cireApi),
@@ -113,5 +121,5 @@ export const musubiStack = (input: {
 export default Alchemy.Stack(
   "musubi",
   stackOptions(),
-  musubiStack({ env: process.env, generatedDir: ".generated" }),
+  musubiStack({ env: process.env, generatedDir: ".generated", siteRoot: process.cwd() }),
 );

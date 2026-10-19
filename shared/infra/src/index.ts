@@ -5,6 +5,7 @@ export * from "./migrations";
 export * from "./removal";
 export * from "./secrets/inventory";
 export * from "./secrets/require";
+export * from "./sites";
 export * from "./stack";
 export * from "./stacks";
 export * from "./stage";

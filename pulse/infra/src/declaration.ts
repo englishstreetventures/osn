@@ -1,13 +1,19 @@
 import {
+  origin,
   physicalName,
   refuseProductionTier,
+  type PrebuiltSite,
   type SiteWorkerInput,
   type StageHosts,
 } from "@shared/infra";
 
 export interface PulseDeclaration {
   readonly pulseLanding: SiteWorkerInput;
+  /** The site directory the stack uploads as built, and the origin its build for `stage` holds. */
+  readonly prebuilt: readonly PrebuiltSite[];
 }
+
+const LANDING_DIST = "../landing/dist";
 
 /**
  * Every name, domain and setting the pulse stack declares at `stage`: pulse
@@ -32,7 +38,7 @@ export function pulseDeclaration(input: {
         stage,
       ),
       stage,
-      directory: "../landing/dist",
+      directory: LANDING_DIST,
       // A built `_redirects` would apply; the site ships none.
       redirectsFile: true,
       // `/api/*` reaches the entry module, which answers `/api/geo` and hands
@@ -56,5 +62,9 @@ export function pulseDeclaration(input: {
       notFoundHandling: "none",
       issues: true,
     },
+    // The build bakes in its own origin (SITE, the page's canonical link).
+    prebuilt: [
+      { site: "@pulse/landing", directory: LANDING_DIST, origins: [origin(hosts.pulseLanding)] },
+    ],
   };
 }
