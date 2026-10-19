@@ -22,7 +22,7 @@ related:
 packages:
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-19
 ---
 
 # Frontend Patterns
@@ -292,6 +292,23 @@ answers the chip when it is right and the pill when it is not.
 is the label — rather than only the symptom. A scroll-offset assertion passes as
 soon as *any* fix is in place, including a `clip` on an ancestor, so it cannot
 tell you the cause came back.
+
+### A `title` reaches only the mouse, and `text-transform` reaches the screen reader
+
+Two facts decide how a short badge explains itself:
+
+- A `title` shows on mouse hover and nowhere else, so a keyboard or touch user
+  never gets it. Chrome also exposes it as the element's description, so a
+  `title` beside visible or `sr-only` text hands a screen reader the same words
+  twice. Put the explanation in `sr-only` text inside the badge, and drop the
+  `title`.
+- Chrome carries `text-transform` into the text it exposes, so `sr-only` text
+  inside an `uppercase` badge reaches a screen reader in capitals. Give the
+  hidden text `normal-case`.
+
+The RSVP table's badges in `cire/host/src/components/RsvpView.tsx` follow both.
+How to check what Chrome exposes, and the measurement behind these two facts,
+is in [[browser-tests#Chrome's accessibility tree]].
 
 ### `overflow: hidden` is still a scroll container; `overflow: clip` is not
 
