@@ -255,9 +255,8 @@ export function RsvpPanel(props: RsvpPanelProps) {
 
   const [responses, setResponses] = createSignal<Record<string, MemberState>>(initialResponses());
 
-  /** The member's reply on file is "maybe" and nothing has been picked over it here. */
+  /** The member's reply on file for this event is "maybe". */
   const undecidedOnFile = (guestId: string) =>
-    responses()[guestId]?.attending == null &&
     priorRsvps.some(
       (r) => r.guestId === guestId && r.eventId === props.event.id && r.status === "maybe",
     );

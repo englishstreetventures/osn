@@ -367,6 +367,26 @@ describe("EventCard", () => {
       }
     });
 
+    it("takes no focus when a closed, unanswered card first renders", () => {
+      // A closed invite loads with no answer button on this card. Nothing was
+      // lost, so nothing is rescued: focus stays wherever the page put it.
+      const before = document.activeElement;
+      render(() => <EventCard event={baseEvent} rsvpClosed onRespond={noop} onDetails={noop} />);
+      expect(document.activeElement).toBe(before);
+    });
+
+    it("leaves focus to the sheet when it closes over an answer button that is still there", () => {
+      // The ordinary close: the dialog hands focus back to the button that
+      // opened it, so the card must not pull it to Event Details first.
+      const [covered, setCovered] = createSignal(true);
+      render(() => (
+        <EventCard event={baseEvent} covered={covered()} onRespond={noop} onDetails={noop} />
+      ));
+      expect(document.activeElement).toBe(document.body);
+      setCovered(false);
+      expect(document.activeElement).toBe(document.body);
+    });
+
     it("leaves focus alone when the guest is somewhere else on the page", () => {
       const [closed, setClosed] = createSignal(false);
       const elsewhere = document.createElement("button");

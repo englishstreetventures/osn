@@ -110,6 +110,18 @@ describe("EventSheet", () => {
     document.body.style.overflow = "";
   });
 
+  it("hands the details its site origin, for the calendar invite's link", () => {
+    // `siteUrl` is one of the sheet's own props, split off before the rest go
+    // to the form. Lost in that split, the calendar entry would say
+    // "Invite: undefined".
+    const { getByRole, getByText } = open("details");
+    fireEvent.click(getByRole("button", { name: /add to calendar/i }));
+    const google = getByText("Google Calendar") as HTMLAnchorElement;
+    expect(new URL(google.href).searchParams.get("details")).toContain(
+      "Invite: https://invite.example.com/abc",
+    );
+  });
+
   it("opens on the details when asked, and mounts nothing of the RSVP form", () => {
     const { getByRole, queryByRole } = open("details");
 

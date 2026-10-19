@@ -1494,6 +1494,45 @@ describe("RsvpPanel", () => {
     expect(within(fieldsetFor("Raj")).queryByText("Not decided")).toBeNull();
   });
 
+  it("says “Not decided” only for that member's own maybe on this event", () => {
+    // Raj has no reply to this event — only a stray "maybe" on another one —
+    // and Priya's "maybe" here is hers, not his. His fieldset keeps the frozen
+    // pair, neither pressed: nothing is on file for him.
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya, raj]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "maybe",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+          {
+            guestId: "guest-raj",
+            eventId: "event-2",
+            status: "maybe",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+
+    const rajSet = fieldsetFor("Raj");
+    expect(within(rajSet).queryByText("Not decided")).toBeNull();
+    const attending = within(rajSet).getByText("Attending") as HTMLButtonElement;
+    expect(attending.getAttribute("aria-pressed")).toBe("false");
+    expect(attending.disabled).toBe(true);
+  });
+
   it("titles the closed sheet as the household's RSVP rather than asking for one", () => {
     const { getByRole, queryByRole } = render(() => (
       <RsvpPanel
