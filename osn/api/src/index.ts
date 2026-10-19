@@ -111,7 +111,8 @@ export interface Env {
   // Passkey-less dev sign-in (`GET /dev/login`). Mounted ONLY when the tier is
   // local/dev AND this is set; unset ⇒ the route is a 404. Never set it on
   // staging or production — the tier gate would ignore it, but do not rely on
-  // that. `wrangler secret put DEV_LOGIN_SECRET --env dev`.
+  // that. Deployed dev reads the `dev` GitHub Environment's DEV_LOGIN_SECRET,
+  // which the musubi stack (musubi/infra) uploads on every dev deploy.
   DEV_LOGIN_SECRET?: string;
   // Comma-separated origins a dev-login `return_to` may redirect to. Unset ⇒
   // no redirect target is accepted (400). A plain var, not a secret.

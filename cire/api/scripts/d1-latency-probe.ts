@@ -22,9 +22,9 @@
  *
  * The target is `CIRE_API_ORIGIN`, the dev cire-api origin: the workflow
  * takes it from `dev-hosts`, which derives it from the dev Environment's
- * `DEV_DOMAIN`. It must be a bare https origin, and a host that
- * `[[env.production.routes]]` in `wrangler.toml` names is refused, so the
- * variable cannot point it at production. Requests are spaced from the
+ * `DEV_DOMAIN`. It must be a bare https origin, and a host under a production
+ * zone, or one `[[env.production.routes]]` in `wrangler.toml` names, is
+ * refused, so the variable cannot point it at production. Requests are spaced from the
  * `CLAIM_SESSION_RATE_LIMITER` budget in the top-level `[[unsafe.bindings]]`
  * of the same file, which the cire stack gives the dev Worker as well.
  *
@@ -124,6 +124,12 @@ type ProbeConfig = {
   };
 };
 
+/**
+ * The zones production serves from, as `@shared/infra`'s `PRODUCTION_ZONES`
+ * lists them; repeated here because this script imports only built-ins.
+ */
+const PRODUCTION_ZONES = ["cireweddings.com", "musubi.social", "pulse.events"];
+
 const isPositiveInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value > 0;
 
@@ -143,6 +149,12 @@ export function readDevTarget(origin: string | undefined, toml: string): DevTarg
   }
   if (url.origin !== origin.replace(/\/$/, "")) {
     throw new Error(`CIRE_API_ORIGIN must be a bare origin, got ${origin}`);
+  }
+  const zone = PRODUCTION_ZONES.find(
+    (name) => url.hostname === name || url.hostname.endsWith(`.${name}`),
+  );
+  if (zone !== undefined) {
+    throw new Error(`${url.host} is under the production zone ${zone}; refusing production`);
   }
   const production = (config.env?.production?.routes ?? []).some(
     (route) => route.pattern === url.host,

@@ -29,7 +29,7 @@ const UNSET_ON_DEV: Readonly<Record<string, string>> = {
     "read only by src/local.ts; the Worker sweeps on its cron instead",
   OSN_REFRESH_TOKEN_TTL: "defaults to 30 days (build-deps.ts); production sets none either",
   PORT: "read only by src/local.ts, the Bun dev server",
-  PULSE_API_URL: "a deletion fan-out target; production sets none either",
+  PULSE_API_URL: "a deletion fan-out target; dev runs no pulse-api",
   REDIS_REQUIRED: "read only by src/local.ts; the Worker reads Upstash's REST pair instead",
   REDIS_URL: "read only by src/local.ts; the Worker reads Upstash's REST pair instead",
   RESEND_API_URL:
@@ -37,7 +37,7 @@ const UNSET_ON_DEV: Readonly<Record<string, string>> = {
   TRUSTED_PROXY_COUNT:
     "ignored on Workers, which key per-IP limits on cf-connecting-ip (build-deps.ts)",
   TURNSTILE_SECRET_KEY: "dev does not enforce Turnstile; osn-api is key-optional",
-  ZAP_API_URL: "a deletion fan-out target; production sets none either",
+  ZAP_API_URL: "a deletion fan-out target; the dev stack sets none",
 };
 
 function sourceFiles(dir: string): string[] {

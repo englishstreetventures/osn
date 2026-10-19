@@ -133,7 +133,7 @@ The stack name equals the directory name. It keys Alchemy's state rows and becom
 
 **Every stack refuses the production tier.** Each declaration throws `StageNotDeclaredError`, naming phase P3 of englishstreetventures/osn#1490, for any stage `tierOf()` calls production. Investigation stages are accepted: their names come from `physicalName()` and their hosts from `stageHosts()`.
 
-**What the tests hold.** Each stack's tests check its names against the old dev tier's (K1), its bindings, vars and secret names against Wrangler's `[env.production]` with every difference listed and given a reason (K2), compatibility date, flags and crons (K3), invocation logs off on cire-api and cire-invites (K4), every storage resource retained (K5), production's storage settings (K6), no literal host in stack source (K7), a production stage refused (K8), every `env.NAME` each API Worker's source reads declared or listed as deliberately unset on dev (K9), and an offline rolldown bundle of each API Worker that names no `bun:sqlite` (K10). The musubi and cire stacks are also evaluated offline through Alchemy with an in-memory state and a `fetch` that throws (`tests/stack.test.ts`).
+**What the tests hold.** Each stack's tests check its names against the old dev tier's (K1), its bindings, vars and secret names against Wrangler's `[env.production]` with every difference listed and given a reason (K2), compatibility date, flags and crons (K3), invocation logs off on cire-api and cire-invites (K4), every storage resource retained (K5), production's storage settings (K6), no literal host in stack source (K7), a production stage refused (K8), every `env.NAME` each API Worker's source reads declared or listed as deliberately unset on dev (K9), and an offline rolldown bundle of each API Worker that names no `bun:sqlite` (K10). Every stack is also evaluated offline through Alchemy with an in-memory state and a `fetch` that throws (`tests/stack.test.ts`).
 
 ### How a stack run starts
 
@@ -230,7 +230,7 @@ build ────┘
 
 **Rollback is judged by deployment id.** Alchemy reports no version id for a normal deploy, and it plans against its own state, not the live Worker. So the smoke check never rolls back an `unchanged` Worker, and after a rollback the stack's state still names the code the rollback removed: the next run's snapshot sees the rollback message, deploys with `--force`, and re-uploads what the commit declares. An `unchanged` Worker whose newest deployment is a rollback fails its check at once, so a failed heal never records success. Roll a dev Worker back only through the smoke check: a rollback made by hand carries no rollback message, so no run sees it and dev keeps serving it.
 
-**One record job per surface** keeps the job id and name the release planner reads (`deploy-cire-api-dev`, "Deploy cire/api — dev", …). It runs in the `dev` Environment when its stack job's deploy step succeeded and its own surface's check passed, and does nothing else: it leaves that surface's dev Deployment record. `scripts/tests/deploy-workflows.test.ts` holds the stack jobs, record jobs and smoke steps to the surface map.
+**One record job per surface** keeps the job id and name the release planner reads (`deploy-cire-api-dev`, "Deploy cire/api — dev", …). It runs in the `dev` Environment when its stack job's deploy step succeeded, its compare step read every Worker, and its own surface's check passed, and does nothing else: it leaves that surface's dev Deployment record. `scripts/tests/deploy-workflows.test.ts` holds the stack jobs, record jobs and smoke steps to the surface map.
 
 **Dispatch inputs:**
 
@@ -259,7 +259,7 @@ Alchemy uploads a Worker with exactly the secrets its stack declares and drops t
 
 On dev, cire-api's `OSN_API_URL` is a var derived from the dev domain, not a secret; passing it as a dev secret throws `UndeclaredSecretsError`. Production keeps it as a secret. zap-api's dev Worker requires `INTERNAL_SERVICE_SECRET`.
 
-Forbidden today: `DEV_LOGIN_SECRET` on osn-api production, `RESEND_API_URL` on osn-api and cire-api on both tiers, and `GROWTHBOOK_CLIENT_KEY` on zap-api production. No zap code reads that key; it stays live until zap-api's first production Alchemy deploy deletes it (englishstreetventures/osn#1532). cire-api production keeps its own `GROWTHBOOK_CLIENT_KEY`.
+Forbidden today: `DEV_LOGIN_SECRET` on osn-api production, `RESEND_API_URL` on osn-api and cire-api on both tiers, and `GROWTHBOOK_CLIENT_KEY` on zap-api on both tiers. No zap code reads that key; it stays live on production until zap-api's first production Alchemy deploy deletes it (englishstreetventures/osn#1532). cire-api production keeps its own `GROWTHBOOK_CLIENT_KEY`.
 
 ### GitHub Environment secrets
 

@@ -9,7 +9,7 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-19
 ---
 # Invite Builder
 
@@ -769,8 +769,7 @@ The FAQ entries are their own table, `wedding_faqs` (`0064_invite_faq.sql`):
 `sort_order` convention, and a `(wedding_id, sort_order, id)` index, so every
 read — `WHERE wedding_id = ? ORDER BY sort_order, id` — walks the index without
 a sort. A delete leaves a gap in `sort_order`; the next reorder writes it dense
-again. Mirrored in `cire/api/src/db/setup.ts` and `cire/db/seed/dev-reset.sql`
-(generated); the dev seed carries three entries.
+again. Mirrored in `cire/api/src/db/setup.ts`; the dev seed carries three entries.
 
 Images live in a dedicated **`cire-assets`** R2 bucket (binding `ASSETS`),
 separate from the text-only CSV-import `SHEETS` bucket — different lifecycle

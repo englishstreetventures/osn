@@ -75,8 +75,24 @@ describe("readDevTarget", () => {
     const hosts = production.env.production.routes.map((route) => route.pattern);
     expect(hosts.length).toBeGreaterThan(0);
     for (const host of hosts) {
-      expect(() => readDevTarget(`https://${host}`, toml)).toThrow("[[env.production.routes]]");
+      expect(() => readDevTarget(`https://${host}`, toml)).toThrow("refusing production");
     }
+  });
+
+  it("L4: refuses any host under a production zone, routed or not", () => {
+    for (const origin of [
+      "https://api.cireweddings.com",
+      "https://staging.cireweddings.com",
+      "https://cireweddings.com",
+      "https://id.musubi.social",
+      "https://pulse.events",
+    ]) {
+      expect(() => readDevTarget(origin, configToml())).toThrow("production zone");
+    }
+    // A dev zone that merely ends in the same letters is not under one.
+    expect(readDevTarget("https://api.notcireweddings.com", configToml()).origin).toBe(
+      "https://api.notcireweddings.com",
+    );
   });
 
   it("accepts a dev origin and paces by the top-level limiter", () => {

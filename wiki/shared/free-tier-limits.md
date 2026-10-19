@@ -205,12 +205,11 @@ dev account holds `cire-db-dev`, `osn-db-dev` and `zap-db-dev`. Each account has
 its own 10-database limit and its own daily row counts, so dev's D1 use never
 spends production's.
 
-**A rebuild from zero is the expensive thing.** When the dev tier shared the
-production account, every merge touching cire dropped `cire-db-dev`, replayed
-the then 57 migrations from `0001` and re-seeded it: **8,007 rows written and
-about 22,630 read per deploy**. Thirteen merges on 2026-09-09 spent 104,091 rows
-written and went over the 100K/day ceiling, as did 2026-08-30, while production
-wrote between 3 and 116 rows a day.
+**A rebuild from zero is the expensive thing.** Replaying the cire chain from
+`0001` (then 57 migrations) and re-seeding cost **8,007 rows written and about
+22,630 read**. Run on every merge, thirteen merges on 2026-09-09 spent 104,091
+rows written and went over the 100K/day ceiling, as did 2026-08-30, while
+production wrote between 3 and 116 rows a day.
 
 *Measured 2026-09-10 — per-day, per-database totals from the Cloudflare GraphQL
 `d1AnalyticsAdaptiveGroups` dataset, dimensions `databaseId` and `date`, summing
@@ -227,10 +226,10 @@ data at all. Of the 200 heaviest queries on `cire-db-dev` in the week to
 
 *Measured 2026-09-10 — `bunx wrangler d1 insights cire-db-dev --time-period=7d --sort-by=writes`, and the same with `--sort-by=reads`.*
 
-No job rebuilds a database from zero any more. The dev stacks migrate each dev
-database forward, as production does, and import a seed only when its file
-changes; a fresh dev database replays the squashed baseline once, on the dev
-account's first deploy ([[dev-environment]]).
+No job rebuilds a database from zero. The dev stacks migrate each dev database
+forward, as production does, and import a seed only when its file changes; a
+fresh dev database replays the squashed baseline once, on the dev account's
+first deploy ([[dev-environment]]).
 
 **The number to watch is per-deploy, not per-day.** Any job that rebuilds a
 database from zero costs rows in proportion to the *number of migrations*, not

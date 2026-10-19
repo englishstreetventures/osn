@@ -142,7 +142,8 @@ unset, each with its reason.
    that answers wrongly is rolled back, if this run uploaded it, and the job
    fails once every surface has been checked.
 4. **`deploy-<surface>-dev`** — one record job per surface, run only when its
-   stack job deployed and its own check passed. It leaves the surface's dev
+   stack job deployed, read every Worker's new deployment, and its own check
+   passed. It leaves the surface's dev
    Deployment record, which the release planner's dev gate reads by job name.
 
 Production is not in this workflow. `production-release.yml` ships it in releases
@@ -170,8 +171,9 @@ The next plain dispatch sees the rollback and deploys that stack with `--force`,
 re-uploading what the commit declares, and goes green: the self-heal. Until
 then the Worker serves the version the rollback restored.
 
-A dispatch leaves one Deployment record per record job for the same commit; a
-surface whose check failed has no record. To list them:
+A run leaves one Deployment record per stack job and one per record job, all for
+the same commit; a surface whose check failed has no record job, so its stack
+job's record is the only one that names it. To list them:
 
 ```bash
 SHA=<the run's commit>; R=repos/englishstreetventures/osn
@@ -391,6 +393,9 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
    action: bootstrap`, then `action: check`.
 8. **The first deploys**, on `main`:
    1. The merge deploys every stack; the first deploy creates every resource.
+      Each custom domain waits about two minutes for its certificate, longer
+      than the smoke check tries, so this run may go red with "unreachable" or
+      TLS failures and no rollback. That is provisioning: go on to step 2.
    2. Dispatch **Deploy** with `expect_no_change: true`: every stack job must
       report `Plan: no changes`.
    3. Dispatch **Deploy** with `force: true` and `smoke_fail: osn_social`:

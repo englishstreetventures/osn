@@ -20,10 +20,9 @@ cire/db/
     │   ├── guests.ts     # sample families + guests (stable UUIDs)
     │   ├── wedding.ts    # bootstrap wedding row + DEV_OWNER_PROFILE_ID
     │   └── index.ts      # re-export — `@cire/db/seed`
-    ├── generate.ts       # derives dev-seed.sql from ./data + dev-reset.sql from schema.ts
-    ├── seed.test.ts      # fails CI if either generated .sql drifts from its source
-    ├── dev-seed.sql      # GENERATED dev seed (events + families + guests)
-    └── dev-reset.sql     # GENERATED DROP of every table incl. d1_migrations; no script applies it
+    ├── generate.ts       # derives dev-seed.sql from ./data
+    ├── seed.test.ts      # fails CI if the generated .sql drifts from its source
+    └── dev-seed.sql      # GENERATED dev seed (events + families + guests)
 ```
 
 ## Scripts
@@ -44,12 +43,13 @@ it stops rather than fetch another version.
 | `db:seed`          | Apply `seed/dev-seed.sql` to the local D1 (idempotent — uses `INSERT OR IGNORE`)                  |
 | `db:reset`         | Wipe local D1 state, re-run migrations + seed. Destructive — local only.                          |
 | `db:studio`        | Launch Drizzle Studio for browsing the schema / writing one-off queries                           |
-| `seed:generate`    | Regenerate `seed/dev-seed.sql` and `seed/dev-reset.sql` from `seed/data/` + `src/schema.ts`       |
-| `test`             | Run the seed sync tests (`bun test`) — fail if either generated `.sql` is out of sync             |
+| `seed:generate`    | Regenerate `seed/dev-seed.sql` from `seed/data/`                                                  |
+| `test`             | Run the seed sync test (`bun test`) — fails if the generated `.sql` is out of sync                |
 
 The remote script names its target database explicitly **and** passes `--env`.
 Neither is optional: without `--env`, wrangler resolves the name against the
-top-level config, which is the local database's.
+top-level config, the local `wrangler dev` binding, whose `cire-db` block
+carries the production database id.
 
 The dev tier's database is not migrated or seeded from here: the cire stack
 (`cire/infra`) creates it in the dev account, applies the migrations and

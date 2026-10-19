@@ -728,9 +728,10 @@ bun run --cwd cire/db db:migrate:prod
 
 > `--env production` is not optional. Without it wrangler resolves `cire-db`
 > against the top-level config, which is the local devloop's binding set. The
-> `db:migrate:local|dev|prod` scripts each name their database **and** their
-> env, and the wrapper refuses a call that names neither `--local` nor
-> `--remote`. See `cire/db/README.md`.
+> `db:migrate:local|prod` scripts each name their database **and** their env,
+> and the wrapper refuses a call that names neither `--local` nor `--remote`.
+> The dev database is migrated by the cire stack, not by these scripts. See
+> `cire/db/README.md`.
 
 > ✅ **No bootstrap-owner step.** cire-api needs **no** `BOOTSTRAP_OWNER_PROFILE_ID`
 > and no seeded owner. **Every authenticated OSN user is a first-class
@@ -809,9 +810,14 @@ access can create a record, so the planner checks each one against its run.
    or the root build config.
 3. **`held back` is the dev gate.** The surface changed, but no recent successful dev
    deploy of it was built from the release commit's content: dev's deploy of the change
-   failed, its smoke check failed, or it has not finished. This does not heal by
-   itself — dev only redeploys a stack on a push that touches it. Dispatch **Deploy**
-   (which deploys every dev stack); the next release then ships it.
+   failed, its smoke check failed, or it has not finished. "Recent" means within the
+   newest 300 Deployment records of the `dev` Environment, across every job that runs
+   in it: each dev run leaves one per stack job and one per record job, and the
+   free-tier alert's dev job, the latency probe and the state-store workflow leave
+   theirs. A surface whose last dev record is older than that is held too. This does
+   not heal by itself — dev only redeploys a stack on a push that touches it. Dispatch
+   **Deploy** (which deploys every dev stack and leaves a fresh record for every
+   surface that passes); the next release then ships it.
 4. **`production is newer`** means production already runs a commit that contains the
    release commit: an older release was re-run in full. A release never ships an older
    commit; only a `force` dispatch does. The one automatic step back is a failed smoke
@@ -896,8 +902,8 @@ Which job owns which surface:
 
 The job names are how the planner ties a Deployment record to a surface; rename a job
 only together with its entry in `scripts/deploy-surfaces.ts`. A dev job here is the
-surface's record job, which runs only when its stack job deployed and its smoke check
-passed ([[infrastructure-as-code#The dev deploy]]). Every production surface has one,
+surface's record job, which runs only when its stack job deployed, its compare step
+read every Worker, and its smoke check passed ([[infrastructure-as-code#The dev deploy]]). Every production surface has one,
 so the dev gate applies to all eight, zap-api included. Musubi landing and pulse
 landing deploy to dev only; the planner never offers them to production.
 
@@ -1506,7 +1512,7 @@ How it decides:
 | cire ARC bridge (account-linking) | `cire/api/src/services/osn-bridge.ts`, env `cire/api/src/index.ts:25-27,80-85` |
 | Drop orphaned demo wedding (`wed_bootstrap`) | `cire/db/migrations-archive/0015_drop_bootstrap_wedding.sql` (applied; squashed out of the live set 2026-09-10) |
 | Organiser open access (any OSN user; no boot gate) | list/create `cire/api/src/routes/organiser-weddings.ts`; per-wedding authz `cire/api/src/middleware/wedding-owner.ts`, `wedding-member.ts` |
-| cire migrate scripts | `cire/db/package.json` (`db:migrate:local|dev|prod`) |
+| cire migrate scripts | `cire/db/package.json` (`db:migrate:local|prod`); the dev database: `cire/infra` |
 | cire seed (local; the dev tier imports it through the cire stack) | `cire/db/seed/dev-seed.sql`; `scripts/cire-db-seed.sh`; `cire/infra/src/declaration.ts` |
 | Dev deploys per push | `.github/workflows/deploy.yml` (`changes` → `stack-<stack>-dev` → `deploy-<surface>-dev`); the stacks under `*/infra/` ([[infrastructure-as-code]]) |
 | Production releases (daily or by hand, one approval) | `.github/workflows/production-release.yml` (`plan` → `build` → `deploy-<surface>`); planner `scripts/release-plan.ts`; surface map `scripts/deploy-surfaces.ts` |
