@@ -321,9 +321,22 @@ CREATE TABLE IF NOT EXISTS tasks (
   status TEXT NOT NULL DEFAULT 'open',
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
-  completed_at INTEGER
+  completed_at INTEGER,
+  template_id TEXT,
+  template_item TEXT,
+  due_offset_days INTEGER,
+  due_source TEXT NOT NULL DEFAULT 'manual'
 );
 CREATE INDEX IF NOT EXISTS tasks_wedding_bucket_sort_idx ON tasks(wedding_id, timeframe_bucket, sort_order);
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_wedding_template_item_unique ON tasks(wedding_id, template_id, template_item);
+
+CREATE TABLE IF NOT EXISTS task_template_dismissals (
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  template_id TEXT NOT NULL,
+  template_item TEXT NOT NULL,
+  dismissed_at INTEGER NOT NULL,
+  PRIMARY KEY (wedding_id, template_id, template_item)
+);
 
 CREATE TABLE IF NOT EXISTS budget_items (
   id TEXT PRIMARY KEY,

@@ -43,3 +43,14 @@ export const ReorderTasksBody = Schema.Struct({
   orderedIds: Schema.Array(Schema.NonEmptyString).check(Schema.isMaxLength(500)),
 });
 export type ReorderTasksBody = Schema.Schema.Type<typeof ReorderTasksBody>;
+
+// Apply a checklist template: the keys of the items the couple ticked. A key
+// the couple removed earlier is their confirmation to bring it back. Bounded
+// well past any template's length; the route checks each key is the
+// template's.
+export const ApplyTemplateBody = Schema.Struct({
+  items: Schema.Array(Schema.NonEmptyString.check(Schema.isMaxLength(64))).check(
+    Schema.isMaxLength(100),
+  ),
+});
+export type ApplyTemplateBody = Schema.Schema.Type<typeof ApplyTemplateBody>;

@@ -29,6 +29,7 @@ DROP TABLE IF EXISTS host_rsvp_notices;
 DROP TABLE IF EXISTS imports;
 DROP TABLE IF EXISTS registry_items;
 DROP TABLE IF EXISTS registry_settings;
+DROP TABLE IF EXISTS task_template_dismissals;
 DROP TABLE IF EXISTS tasks;
 DROP TABLE IF EXISTS unlock_code_redemptions;
 DROP TABLE IF EXISTS vendor_claims;

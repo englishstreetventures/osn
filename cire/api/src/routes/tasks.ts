@@ -3,13 +3,20 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import { CHECKLIST_TEMPLATES, isChecklistTemplateId } from "../lib/checklist-templates";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingTier } from "../middleware/wedding-tier";
 import { runCire } from "../observability";
-import { CreateTaskBody, ReorderTasksBody, UpdateTaskBody } from "../schemas/tasks";
+import {
+  ApplyTemplateBody,
+  CreateTaskBody,
+  ReorderTasksBody,
+  UpdateTaskBody,
+} from "../schemas/tasks";
+import { taskTemplatesService } from "../services/task-templates";
 import { tasksService } from "../services/tasks";
 
 // Sentinel parse hook — same idiom as the other organiser write routes: the
@@ -62,8 +69,13 @@ export const createTaskReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
  *
  *   POST   /api/organiser/weddings/:weddingId/tasks           (weddingEditor)
  *   PATCH  /api/organiser/weddings/:weddingId/tasks/reorder   (weddingEditor)
+ *   GET    /api/organiser/weddings/:weddingId/tasks/templates/:templateId (weddingEditor)
+ *   POST   /api/organiser/weddings/:weddingId/tasks/templates/:templateId (weddingEditor)
  *   PATCH  /api/organiser/weddings/:weddingId/tasks/:taskId   (weddingEditor)
  *   DELETE /api/organiser/weddings/:weddingId/tasks/:taskId   (weddingEditor)
+ *
+ * The template preview is a read, but it sits here: it shows what applying
+ * would add, which only someone who may apply has a use for.
  *
  * A viewer gets 403 `read_only_role`; a wedding below Gold gets 402
  * `payment_required`. The service re-scopes every write by
@@ -130,6 +142,74 @@ export const createTaskWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
                 const body = yield* Schema.decodeUnknownEffect(ReorderTasksBody)(raw);
                 yield* tasksService.reorder(weddingId, body.timeframeBucket, body.orderedIds);
                 return { ok: true as const };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("SchemaError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
+                Effect.catchDefect(() =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
+              ),
+            );
+          },
+          manualParse,
+        )
+        .get("/tasks/templates/:templateId", async ({ weddingId, params, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          const { templateId } = params;
+          if (!isChecklistTemplateId(templateId)) {
+            set.status = 404;
+            return { error: "template_not_found" };
+          }
+          return runCire(
+            taskTemplatesService.preview(weddingId, templateId).pipe(
+              Effect.map((preview) => ({ preview })),
+              Effect.provideService(DbService, db),
+              Effect.catchDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        })
+        .post(
+          "/tasks/templates/:templateId",
+          async ({ weddingId, params, request, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const { templateId } = params;
+            if (!isChecklistTemplateId(templateId)) {
+              set.status = 404;
+              return { error: "template_not_found" };
+            }
+            const raw: unknown = await request.json().catch(() => null);
+            const known = new Set(CHECKLIST_TEMPLATES[templateId].map((item) => item.key));
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknownEffect(ApplyTemplateBody)(raw);
+                if (!body.items.every((key) => known.has(key))) {
+                  set.status = 400;
+                  return { error: "Missing or invalid fields" };
+                }
+                return yield* taskTemplatesService.apply({
+                  weddingId,
+                  templateId,
+                  keys: body.items,
+                });
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () =>

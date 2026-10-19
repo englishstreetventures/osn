@@ -19,6 +19,7 @@ import {
   registrySettings,
   rsvpChanges,
   rsvps,
+  taskTemplateDismissals,
   tasks,
   unlockCodeRedemptions,
   unlockCodes,
@@ -50,6 +51,7 @@ import {
 import { commitBatch, createD1Db, DbService } from "../../src/db/index";
 import type { Db } from "../../src/db/index";
 import { DDL } from "../../src/db/setup";
+import { CHECKLIST_TEMPLATES } from "../../src/lib/checklist-templates";
 import { decodeEnquiryCursor, type EnquiryCursor } from "../../src/lib/enquiry-page";
 import { isDirectoryDuplicate } from "../../src/routes/vendor-directory";
 import type { ImportPlan } from "../../src/schemas/import";
@@ -102,6 +104,7 @@ import {
   type SheetsBucket,
 } from "../../src/services/sheet-reconcile";
 import type { StripeClient } from "../../src/services/stripe";
+import { taskTemplatesService } from "../../src/services/task-templates";
 import { tasksService } from "../../src/services/tasks";
 import { BASE_GUEST_CAP, TIER_PEOPLE_LIMIT, tierService } from "../../src/services/tiers";
 import { unlockCodeService } from "../../src/services/unlock-codes";
@@ -342,6 +345,7 @@ beforeEach(async () => {
     guests,
     families,
     events,
+    taskTemplateDismissals,
     tasks,
     registrySettings,
     weddingFaqs,
@@ -872,6 +876,99 @@ describe("cire/api over real D1 (Miniflare)", () => {
 
       const persisted = await db.select().from(rsvps).where(eq(rsvps.guestId, GUEST_1));
       expect(persisted).toHaveLength(50);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "the starter checklist seeds, skips, remembers a removal and follows the wedding date over D1",
+    async () => {
+      // The statements only D1 can judge: the INSERT … SELECT FROM json_each …
+      // ON CONFLICT DO NOTHING (bound-parameter cap, parsing), the
+      // tombstone-and-delete batch, and the settings save batched with the
+      // re-dating UPDATE.
+      const keys = CHECKLIST_TEMPLATES.starter.map((item) => item.key);
+      await run(
+        weddingSettingsService.update(
+          BOOTSTRAP_WEDDING_ID,
+          { weddingDate: "2027-06-05" },
+          "usr_d1",
+        ),
+      );
+      await run(
+        tasksService.create({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title: "Ours first",
+          timeframeBucket: "12m",
+          notes: null,
+          dueAt: null,
+        }),
+      );
+
+      const first = await run(
+        taskTemplatesService.apply({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          templateId: "starter",
+          keys,
+        }),
+      );
+      expect(first.added).toBe(keys.length);
+      const twelve = first.tasks
+        .filter((t) => t.timeframeBucket === "12m")
+        .toSorted((a, b) => a.sortOrder - b.sortOrder)
+        .map((t) => [t.templateItem, t.sortOrder]);
+      expect(twelve).toEqual([
+        [null, 0],
+        ["agree-budget", 1],
+        ["draft-guest-list", 2],
+        ["book-venues", 3],
+      ]);
+      expect(first.tasks.find((t) => t.templateItem === "agree-budget")?.dueAt).toBe("2026-06-05");
+
+      const again = await run(
+        taskTemplatesService.apply({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          templateId: "starter",
+          keys,
+        }),
+      );
+      expect(again.added).toBe(0);
+      expect(again.tasks.length).toBe(keys.length + 1);
+
+      const outfits = first.tasks.find((t) => t.templateItem === "plan-outfits")!;
+      await run(tasksService.remove(BOOTSTRAP_WEDDING_ID, outfits.id));
+      const shown = await run(taskTemplatesService.preview(BOOTSTRAP_WEDDING_ID, "starter"));
+      expect(shown.items.find((i) => i.key === "plan-outfits")?.state).toBe("removed");
+      expect(shown.items.find((i) => i.key === "agree-budget")?.state).toBe("added");
+      const unpicked = await run(
+        taskTemplatesService.apply({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          templateId: "starter",
+          keys: keys.filter((k) => k !== "plan-outfits"),
+        }),
+      );
+      expect(unpicked.added).toBe(0);
+      const picked = await run(
+        taskTemplatesService.apply({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          templateId: "starter",
+          keys: ["plan-outfits"],
+        }),
+      );
+      expect(picked.added).toBe(1);
+
+      await run(
+        weddingSettingsService.update(
+          BOOTSTRAP_WEDDING_ID,
+          { weddingDate: "2027-09-04" },
+          "usr_d1",
+        ),
+      );
+      const moved = await db
+        .select({ item: tasks.templateItem, dueAt: tasks.dueAt })
+        .from(tasks)
+        .where(eq(tasks.templateItem, "agree-budget"));
+      expect(moved).toEqual([{ item: "agree-budget", dueAt: "2026-09-04" }]);
     },
     MF_TIMEOUT_MS,
   );
