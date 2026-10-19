@@ -12,7 +12,7 @@ related:
   - "[[observability-setup]]"
   - "[[cire-auth]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -82,10 +82,10 @@ Unavailability Playbook below for the exact fail-open vs fail-closed split —
 
 - **Rate limiters (auth per-IP, graph/org-write per-user) → fail CLOSED.**
   `createRedisRateLimiter().check()` returns `false` on any Redis error
-  (`shared/redis/src/rate-limiter.ts`, S-M36), so auth + graph/org writes
+  (`shared/redis/src/rate-limiter.ts`), so auth + graph/org writes
   degrade to **HTTP 429**.
 - **Step-up JTI store → fails CLOSED** (`osn/api/src/lib/step-up-jti-store.ts`,
-  default `failClosedOnError = true`, S-H1): step-up-gated actions (recovery
+  default `failClosedOnError = true`): step-up-gated actions (recovery
   generate, email change complete, security-event ack, passkey rename/delete)
   start **rejecting** the ceremony.
 - **Ceremony store → conservative → ceremony fails CLOSED at complete**
@@ -94,8 +94,7 @@ Unavailability Playbook below for the exact fail-open vs fail-closed split —
 - **Rotated-session store → fails OPEN** (`osn/api/src/lib/rotated-session-store.ts`):
   reuse detection silently no-ops, so a refresh **still works** but the
   reuse-revocation safety net is temporarily off.
-- **Recovery lockout store → fails OPEN** (`osn/api/src/lib/recovery-lockout-store.ts`,
-  S-H1): the per-account recovery brute-force ceiling stops enforcing — the
+- **Recovery lockout store → fails OPEN** (`osn/api/src/lib/recovery-lockout-store.ts`): the per-account recovery brute-force ceiling stops enforcing — the
   per-IP limiter is the only remaining brake.
 
 **User-visible symptom:** users can't log in / register (ceremony complete
@@ -151,6 +150,21 @@ go. [[dev-environment]]
 | CPU time | **10 ms / invocation** |
 | External subrequests | **50 / invocation** |
 | Subrequests to CF services (D1/R2/KV) | **1,000 / invocation** |
+| Worker size | **3 MB / Worker, compressed** |
+
+**Worker size.** An upload over the limit is refused, so the Worker keeps its
+last version. Alchemy uploads every file a bundled Worker's bundle holds, source
+maps included, so each stack's K10 test bundles its API Worker offline and fails
+when those files gzip to more than 3 MiB, 3,145,728 bytes
+([[infrastructure-as-code#The stacks]]):
+
+| Worker | Bundle, gzip, maps included |
+|---|---|
+| osn-api | 2,406,920 B |
+| cire-api | 2,307,998 B |
+| zap-api | 1,108,319 B |
+
+*Measured 2026-10-20 at commit 0d483b3b — the sum each stack's K10 test computes (`node:zlib` gzip at its default level, file by file, maps included). The test prints it only when it fails, so run an untracked copy of `<stack>/infra/tests/bundle.test.ts` that prints `gzipBytes` in place of its last `expect`, with `bunx --bun vitest run tests/<copy>.test.ts` in `<stack>/infra`.*
 
 **What happens at the cap.** Past 100K requests/day the account's Workers
 (osn-api **and** cire-api **and** zap-api **and** cire-invites together: the
@@ -179,7 +193,7 @@ once both APIs are in production. Re-verify pricing.
 
 ## Cloudflare D1 (Free)
 
-**Source:** [d1 pricing](https://developers.cloudflare.com/d1/platform/pricing/) · [limits](https://developers.cloudflare.com/d1/platform/limits/) — re-verify. Applies to every database on the account: `osn-db-prod`, `cire-db`, `zap-db-prod`, the two dev databases, and the two unused ones.
+**Source:** [d1 pricing](https://developers.cloudflare.com/d1/platform/pricing/) · [limits](https://developers.cloudflare.com/d1/platform/limits/) — re-verify. Applies per account. Production: `osn-db-prod`, `cire-db`, `zap-db-prod` and the unused `osn-db-staging` and `osn-db`. Dev: `cire-db-dev`, `osn-db-dev` and `zap-db-dev`.
 
 | Limit | Free value (re-verify) |
 |---|---|
@@ -187,7 +201,7 @@ once both APIs are in production. Re-verify pricing.
 | Rows written | **100,000 / day** |
 | Storage | **5 GB / account total** |
 | Max DB size | **500 MB** |
-| Databases | **10 / account** — **7 used** (see below) |
+| Databases | **10 / account** — production 5 (7 until the old dev tier's two databases are deleted, [[dev-environment#Retiring the old dev tier]], englishstreetventures/osn#1579), dev 3 (see below) |
 | Queries per Worker invocation | **50** |
 | Max row size | **2 MB** |
 
@@ -379,11 +393,11 @@ fail-open vs fail-closed split is NOT uniform — read this table, don't guess.*
 
 | Dependency down / over-quota | Subsystem | Posture (verified) | Effect | Detect | Action |
 |---|---|---|---|---|---|
-| **Upstash** (osn-api) | Auth + graph/org rate limiters | **fail-CLOSED** — `rate-limiter.ts` `check()` returns `false` on error (S-M36) | 429 on auth + graph/org writes | `osn.auth.rate_limited` spike, store error logs | Wait out blip; if quota → upgrade Upstash. **Do not** flip to fail-open. |
-| **Upstash** (osn-api) | Step-up JTI store | **fail-CLOSED** — `step-up-jti-store.ts` `failClosedOnError ?? true` (S-H1) | Step-up-gated actions rejected | step-up error logs, `osn.auth.step_up.verified` drop | Same — security posture is intentional. |
+| **Upstash** (osn-api) | Auth + graph/org rate limiters | **fail-CLOSED** — `rate-limiter.ts` `check()` returns `false` on error | 429 on auth + graph/org writes | `osn.auth.rate_limited` spike, store error logs | Wait out blip; if quota → upgrade Upstash. **Do not** flip to fail-open. |
+| **Upstash** (osn-api) | Step-up JTI store | **fail-CLOSED** — `step-up-jti-store.ts` `failClosedOnError ?? true` | Step-up-gated actions rejected | step-up error logs, `osn.auth.step_up.verified` drop | Same — security posture is intentional. |
 | **Upstash** (osn-api) | Ceremony store | **conservative → ceremony fails CLOSED at complete** — `ceremony-store.ts` (`get`→null) | Login/registration `complete` fails | `osn.auth.ceremony_store.operations`, error logs | Restore Redis / upgrade; this is the user-facing one. |
 | **Upstash** (osn-api) | Rotated-session store | **fail-OPEN** — `rotated-session-store.ts` (`check`→null, `track` logs+continues) | Refresh still works; **reuse-revocation off** | reuse-store error logs, `osn.auth.session.reuse_detected` flat | Restore promptly — a safety net is down, but no user breakage. |
-| **Upstash** (osn-api) | Recovery lockout store | **fail-OPEN** — `recovery-lockout-store.ts` (`isLocked`→false, `recordFailure`→0) (S-H1) | Per-account recovery brute-force ceiling off; per-IP limiter still applies | `osn.auth.recovery.lockout` flat, error logs | Restore promptly — brute-force ceiling is the protection that's down. |
+| **Upstash** (osn-api) | Recovery lockout store | **fail-OPEN** — `recovery-lockout-store.ts` (`isLocked`→false, `recordFailure`→0) | Per-account recovery brute-force ceiling off; per-IP limiter still applies | `osn.auth.recovery.lockout` flat, error logs | Restore promptly — brute-force ceiling is the protection that's down. |
 | **D1** down / over daily rows quota | cire-api + osn-api | **fail-CLOSED** — cire `index.ts` returns **503** on absent/erroring `env.DB` | App-wide 503 on DB routes | CF D1 metrics vs daily line; 503 in Workers Logs | Wait for UTC reset, free storage, or upgrade to Workers Paid (D1 paid tier). |
 | **A Worker** over daily request quota | osn-api / cire-api | CF edge **429** before handler runs | Site-wide 429 (resets UTC midnight) | account Requests metric vs 100K | Upgrade to **Workers Paid** ($5/mo). |
 | **Pages** build cap | static sites | already-deployed site keeps serving; new deploys queue/fail | stale deploys, build failures | Pages build history | Wait for month reset or Pages Pro. |
@@ -405,9 +419,10 @@ osn-api. Both cire Workers (cire-api in every env, cire-invites) set
 and the public cire routes carry the wedding slug. Logs are viewable in the CF
 dashboard.
 
-**Native traces** sample every request on each Worker's dev tier and on the
-production `cire-invites` Worker; Cloudflare keeps them for **7 days**. The
-production API Workers keep them off ([[tracing]]).
+**Native traces** sample every request on each dev API Worker and the dev
+`cire-invites`, and on the production `cire-invites` Worker; Cloudflare keeps
+them for **7 days**. The dev static sites and the production API Workers keep
+them off ([[tracing]]).
 
 **From 2026-12-01 the ceiling changes shape.** The Free plan's 200,000 log
 events a day becomes one **0.5 GB a day** ingestion allowance for the whole

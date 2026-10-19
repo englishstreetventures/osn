@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # Dev environment (cire + OSN identity)
@@ -31,8 +31,14 @@ build ────┘        Alchemy, automatic     record jobs
 The dev tier runs in **its own Cloudflare account**, built by four Alchemy stacks
 ([[infrastructure-as-code]]): its own Workers, D1 databases, R2 buckets, zone,
 Upstash database and OSN identity origin. No dev request reads or writes a byte
-of live-wedding data, no dev credential reaches the production account, and a
-dev account is not a production account.
+of live-wedding data, no dev credential the deploys read reaches the production
+account, and a dev account is not a production account. The `dev` Environment
+still holds two old credentials that do reach production, which no workflow
+reads. Tests, not the Environment, keep it so: W8 in
+`shared/infra/tests/workflow-secrets.test.ts` holds `deploy.yml` to the dev
+account's credentials, and `shared/infra/tests/accounts.test.ts` holds
+`alchemy-state.yml` and the free-tier alert to theirs. Deleting the two is
+englishstreetventures/osn#1579 ([[#Retiring the old dev tier]]).
 
 ---
 
@@ -255,6 +261,9 @@ dietary notes are invented and deterministic. The seed is `INSERT OR IGNORE`,
 so it never overwrites a row a tester changed.
 
 The osn seed holds the cire OIDC client row and cire-api's ARC key, nothing else.
+A re-import never re-enables a client or a key someone disabled or revoked in
+the database, so a revoked key is replaced under a new `CIRE_API_ARC_KEY_ID`
+([[infrastructure-as-code#Seeds and the ARC registration]]).
 
 **The migration chain is still tested from zero.** `cire/api/tests/db/ddl-lockstep.test.ts`
 applies the whole chain to an in-memory database on every pull request, and
@@ -272,8 +281,9 @@ introduces it.
 
 ### Re-setting the sample wedding's owner
 
-The seed gives the wedding's owner seat to `usr_dev_bootstrap_owner`, an id no
-account holds. To own it from your account:
+The seed gives the wedding's owner seat to `usr_dev_bootstrap_owner`, the
+dev-login principal (§5): `/dev/login` opens it. To own it from your own passkey
+account instead:
 
 1. Sign in on the dev musubi social host with a passkey, and copy your profile
    id (`usr_…`).
@@ -294,8 +304,9 @@ a broken image on every guest page. Upload the images once, by hand, with the de
 account's credentials:
 
 ```bash
-CLOUDFLARE_ACCOUNT_ID=<dev account id> CLOUDFLARE_API_TOKEN=<dev token> \
-  bun run --cwd cire/db assets:seed:dev   # 8 generated PNGs -> cire-assets-dev
+export CLOUDFLARE_ACCOUNT_ID=<dev account id> CLOUDFLARE_API_TOKEN=<dev token> DEV_DOMAIN=<dev domain>
+bun run --cwd shared/infra token:check -- --tier dev   # go on only when it exits 0
+bun run --cwd cire/db assets:seed:dev                  # 8 generated PNGs -> cire-assets-dev
 ```
 
 It writes the hero, story and footer slots plus one image per event, by bucket
@@ -355,23 +366,36 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
    `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY` (`Account Settings: Read`,
    `D1: Read`, `Account Analytics: Read`).
 4. **Worker secrets**, new values made for the dev account, never production's:
-   - osn-api: `DEV_LOGIN_SECRET`, `INTERNAL_SERVICE_SECRET` (zap-api reads the
-     same one), `OSN_JWT_PRIVATE_KEY`, `OSN_JWT_PUBLIC_KEY`, `OSN_PAIRWISE_SALT`,
-     `OSN_SESSION_IP_PEPPER`, `OSN_TOTP_ENCRYPTION_KEY`, `RESEND_API_KEY`,
-     `UPSTASH_REDIS_REST_TOKEN`, `UPSTASH_REDIS_REST_URL`.
+   - osn-api: `DEV_LOGIN_SECRET` (at least 32 characters), `INTERNAL_SERVICE_SECRET`
+     (zap-api reads the same one), `OSN_JWT_PRIVATE_KEY`, `OSN_JWT_PUBLIC_KEY`,
+     `OSN_PAIRWISE_SALT`, `OSN_SESSION_IP_PEPPER`, `OSN_TOTP_ENCRYPTION_KEY`,
+     `RESEND_API_KEY`, `UPSTASH_REDIS_REST_TOKEN`, `UPSTASH_REDIS_REST_URL`.
    - cire-api: `CIRE_API_ARC_KEY_ID` (a UUID), `CIRE_API_ARC_PRIVATE_KEY` (a
-     **raw** ES256 JWK), `CIRE_OIDC_CLIENT_SECRET`, `STRIPE_SECRET_KEY`,
-     `STRIPE_WEBHOOK_SECRET`, `STRIPE_PLATFORM_WEBHOOK_SECRET`. The musubi stack
-     reads the first three too, to seed the OIDC client's hash and the ARC
-     public key.
+     **raw** ES256 JWK), `CIRE_OIDC_CLIENT_SECRET`, `STRIPE_SECRET_KEY` (a
+     test-mode key, starting `sk_test_` or `rk_test_`), `STRIPE_WEBHOOK_SECRET`,
+     `STRIPE_PLATFORM_WEBHOOK_SECRET`. The musubi stack job's `cire_seed` step
+     reads the first three too, to derive the OIDC client's hash and the ARC
+     public key for osn-api's seed; the step that deploys the musubi stack holds
+     none of them ([[infrastructure-as-code#Seeds and the ARC registration]]).
    - The guest site's build: `ASTRO_KEY`, from `bunx --bun astro create-key` in
-     `cire/invites`, fixed so two builds of one commit match.
+     `cire/invites`, fixed so two builds of one commit match. Root `turbo.json`
+     passes it to the build without hashing it, and that build runs with turbo's
+     cache off, so the key never reaches a cache.
    - The smoke check behind Access: `CF_ACCESS_CLIENT_ID`,
      `CF_ACCESS_CLIENT_SECRET` (§5).
 
-   `secrets:check-github -- --tier dev` lists what is missing
-   ([[infrastructure-as-code#Checking the inventory]]). The OSN JWT keys are
-   **base64-encoded** JWK JSON; the ARC key is a **raw** JWK string.
+   The cire and musubi stacks refuse to deploy while a value breaks its dev
+   rule: a `STRIPE_SECRET_KEY` that is not a test-mode key, or a
+   `DEV_LOGIN_SECRET` shorter than 32 characters
+   ([[infrastructure-as-code#GitHub Environment secrets]]).
+
+   `secrets:check-github -- --tier dev` lists any missing Worker secret or
+   account credential ([[infrastructure-as-code#Checking the inventory]]). It
+   does not check `ASTRO_KEY`, the `CF_ACCESS_*` pair, the read-only token or
+   `DEV_DOMAIN`, and prints `ASTRO_KEY` and the `CF_ACCESS_*` pair, when set,
+   as not in the inventory, which does not fail it. Check those by eye with
+   `gh secret list --env dev` and `gh variable list --env dev`. The OSN JWT keys
+   are **base64-encoded** JWK JSON; the ARC key is a **raw** JWK string.
 
    > [!warning] Never rotate the dev `OSN_PAIRWISE_SALT`
    > Rotation changes every pairwise `sub`, so every dev relying party sees its
@@ -383,7 +407,11 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
    > `openssl rand -base64 32`, and keep your copy: rotating it needs the old
    > value ([[production-deploy#10. Rotating OSN_TOTP_ENCRYPTION_KEY]]).
 5. **Cloudflare Access and its service token** (§5), and the **Turnstile**
-   hostnames (§5).
+   hostnames (§5). Access must cover every browser host before the first
+   deploy: each browser host's smoke check asks `/` without the token and fails,
+   with no rollback, unless Access answers with its sign-in. A failed check
+   leaves no dev record, so the dev gate holds that surface's production
+   releases.
 6. **Stripe, test mode.** Two webhook endpoints, `https://api.cire.<D>/api/stripe/webhook`
    and `https://api.cire.<D>/api/stripe/platform-webhook` (each stack run's
    summary prints both as `stripe_webhook_url` and `stripe_platform_webhook_url`);
@@ -420,7 +448,8 @@ Workers `osn-api-dev`, `cire-api-dev`, `cire-invites-dev`; D1 `osn-db-dev`,
 dev DNS records on `cireweddings.com` and `musubi.social`; and the Access
 application `cire dev tier`. Then delete `CLOUDFLARE_ACCOUNT_ID` and
 `CLOUDFLARE_API_TOKEN_DEV` from the `dev` Environment: both reach the production
-account, and no workflow reads them.
+account, and no workflow reads them. englishstreetventures/osn#1579 tracks this
+step.
 
 ---
 
@@ -439,9 +468,11 @@ Things to know when building it:
   refuses a sixth destination with *"You've added the maximum number of
   hostnames per application allowed."* Seven browser hosts need two
   applications.
-- **Version preview URLs are off on every dev Worker** (`previewUrls: false` in
-  each stack, K11 in each stack's `tests/declaration.test.ts`): each would be a
-  public `*.workers.dev` host that no application over the custom hosts covers.
+- **Version preview URLs and `workers.dev` hosts are off on every dev Worker**
+  (`previewUrls: false` and `workersDev: false` in each stack, K11 in each
+  stack's `tests/stack.test.ts`, which checks the evaluated Workers): each would
+  be a public `*.workers.dev` host that no application over the custom hosts
+  covers.
   englishstreetventures/osn#1578 turns them on for per-pull-request previews.
 - Admit people with a reusable policy (Action `Allow`, `Emails` and
   `Emails ending in` rules); add someone by adding their email to that policy,
@@ -461,11 +492,20 @@ Things to know when building it:
 
 ### The smoke check's service token
 
-The checks of the seven browser hosts ask hosts Access may answer with a login
+The checks of the seven browser hosts ask hosts Access answers with a login
 redirect. To let them through, the check sends a Cloudflare Access **service
 token** as the `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers, to
 those hosts only. An Access policy covers every host of its application, so a
-token on an application opens all of its hosts to whoever holds it. Setting it up:
+token on an application opens all of its hosts to whoever holds it.
+
+Each round of a browser host's check also asks its `/` once with no token,
+following no redirect, to prove Access guards the host. Only Access's sign-in
+passes: a 301, 302, 303 or 307 to a `*.cloudflareaccess.com` host. Any other
+answer fails the check, with an annotation titled `Cloudflare Access` and no
+rollback, since the Worker is not what failed. Like any failed check, it leaves
+no dev record, so the dev gate holds that surface's next production release.
+
+Setting up the token:
 
 1. Zero Trust → Access → Service credentials → create a service token for the
    deploy check, with a fixed duration (one year), not "non-expiring". Copy the
@@ -567,7 +607,8 @@ than a 401 that would admit the surface exists.
 open "https://id.musubi.localhost/dev/login?secret=$SECRET&return_to=https://host.cire.localhost/dashboard"
 
 # deployed dev: the value is the dev Environment's DEV_LOGIN_SECRET, which the
-# musubi stack uploads on every deploy. Set or rotate it there, then dispatch Deploy.
+# musubi stack uploads on every deploy and refuses under 32 characters. Set or
+# rotate it there, then dispatch Deploy.
 printf '%s' "$SECRET" | gh secret set DEV_LOGIN_SECRET --env dev --repo englishstreetventures/osn
 open "https://id.musubi.<D>/dev/login?secret=$SECRET&return_to=https://host.cire.<D>/dashboard"
 ```
@@ -627,8 +668,10 @@ ceremony spans two requests, so it is what catches Redis being misconfigured.
 Every stack job already asks each of its surfaces whether it answers (§2):
 osn-api's `/health` and JWKS, cire-api's `/api/auth/session`, zap-api's
 `/health`, the guest site's `/` and an unknown-slug page, each site's `/`,
-musubi social's deep-link fallback and pulse landing's `/api/geo`. Steps 1 and 2
-below go further by hand; steps 3 to 6 are what no machine checks.
+musubi social's deep-link fallback and pulse landing's `/api/geo`, and on each
+browser host `/` without the Access token (§5). Steps 1 and 2 below go further
+by hand; steps 3 to 5 are what no machine checks; step 6 repeats by hand what
+the checks already ask.
 
 1. `cire-api` has **no health route** in any tier — `/health` is a 404 on dev and
    on production alike, so it proves nothing. Probe two real routes instead and
@@ -657,7 +700,9 @@ below go further by hand; steps 3 to 6 are what no machine checks.
 5. Claim the seeded code `TESTFOR-JOY-DD44` on `https://invite.cire.<D>` and
    submit an RSVP. Proves the guest session cookie, the `WEB_ORIGIN` ordering and
    the D1 seed: the reply lands in `rsvps` with `status = 'attending'`.
-6. Every browser host prompts for Access; the three API hosts do not. `curl -sI`
+6. Every browser host prompts for Access; the three API hosts do not. Each
+   browser host's smoke check fails when Access does not answer `/`, and an API
+   host's fails when Access answers in its place. By hand, `curl -sI`
    each one: a browser host answers 302 to `…cloudflareaccess.com/cdn-cgi/access/login/<host>`,
    `https://api.cire.<D>/api/claim/session` 401, and
    `https://id.musubi.<D>/.well-known/openid-configuration` 200. A 302 on an API
@@ -669,17 +714,26 @@ below go further by hand; steps 3 to 6 are what no machine checks.
 ## 7. Working on dev by hand
 
 Every command below needs the dev account's credentials exported as
-`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, never production's.
+`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, never production's, and
+`DEV_DOMAIN`. Run the token check first, and go on only when it exits 0: no
+stack and no `wrangler` command checks which account a token reaches.
 
 ```bash
+# First, every time: the token reaches the dev account alone
+bun run --cwd shared/infra token:check -- --tier dev
+
 # Watch a dev Worker
 bunx wrangler tail cire-api-dev
 bunx wrangler tail osn-api-dev
 
-# Plan a stack against dev without deploying, from its directory, with
-# OSN_DEPLOY_TIER=dev, DEV_DOMAIN and the stack's secrets set
+# Plan a stack against dev without deploying, with OSN_DEPLOY_TIER=dev, the
+# stack's secrets, and its sites built for the dev hosts
 bun run --cwd musubi/infra plan:dev
 ```
+
+A plan evaluates the whole stack, so it needs what a deploy needs: the sites
+built with the dev hosts, and for the musubi stack the three seed values
+([[infrastructure-as-code#How a stack run starts]] lists each step).
 
 Redeploy by dispatching **Deploy**, not by hand: a stack job builds the sites
 against the dev hosts, deploys, and runs every smoke check. `wrangler deploy` and

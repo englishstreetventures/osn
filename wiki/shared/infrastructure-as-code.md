@@ -16,7 +16,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[database-environments]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # Infrastructure as code (Alchemy)
@@ -50,9 +50,9 @@ Two checks enforce these names:
 - `shared/infra/tests/accounts.test.ts` reads every `.github/workflows/*.yml`. It fails when a workflow reads a Cloudflare credential `accounts.ts` does not classify, and when any workflow but `alchemy-state.yml`, `deploy.yml` and `free-tier-ceiling-alert.yml` reaches the dev account.
 - `secrets:check-github` (below) fails when an Environment holds the other tier's credential (`forbiddenCredentials()`): `dev` must not hold `CLOUDFLARE_API_TOKEN`; `production` must not hold `CLOUDFLARE_API_TOKEN_DEV`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY` or `CLOUDFLARE_DEV_ACCOUNT_ID`.
 
-The credentials a run carries choose the account; `assertDevDeployTarget()` makes the stack check them against the stage before anything is declared ([[#How a stack run starts]]).
+The credentials a run carries choose the account, and no stack checks which account that is. `assertDevDeployTarget()` checks only that `OSN_DEPLOY_TIER` names the stage's tier and that both credentials are set ([[#How a stack run starts]]); `token:check`, below, is the one check that ties a token to its tier, and only a run that calls it first gets it. So the Environment a job runs in, or the credentials a person exports, must match the stage.
 
-A token can reach more than one account: one created with "All accounts" by a member of both reaches production from the `dev` Environment, which has no reviewer. So before Alchemy runs, `bun run --cwd shared/infra token:check` ([`scripts/check-token-reach.ts`](../../shared/infra/scripts/check-token-reach.ts)) lists the accounts `CLOUDFLARE_API_TOKEN` reaches (`GET /accounts`) and stops the run unless it is exactly the one `CLOUDFLARE_ACCOUNT_ID` names: exit 1 when it reaches another account or none, 2 when it cannot list them. It prints no account id. A job that runs Alchemy runs it first: the two tier steps of `alchemy-state.yml`, and each stack job of `deploy.yml` before its first step that holds the dev token (W12 in `shared/infra/tests/workflow-secrets.test.ts`).
+A token can reach more than one account: one created with "All accounts" by a member of both reaches production from the `dev` Environment, which has no reviewer. A token also holds zone grants apart from its accounts, so a grant on another account's zone need not show in its account list. So before Alchemy runs, `bun run --cwd shared/infra token:check -- --tier <dev|production>` ([`scripts/check-token-reach.ts`](../../shared/infra/scripts/check-token-reach.ts)) lists the accounts `CLOUDFLARE_API_TOKEN` reaches (`GET /accounts`) and stops the run unless it is exactly the one `CLOUDFLARE_ACCOUNT_ID` names. With `--tier dev` it needs `DEV_DOMAIN` too, reads every page of the zones the token can act on (`GET /zones`), and refuses a zone of another account, a production zone or a name under one, and a token that cannot act on the `DEV_DOMAIN` zone; the last also refuses an account id that names production. It exits 1 on any of those, 2 when an argument or variable is missing or a listing fails, and prints no account id. Every CI job that runs Alchemy runs it first: the two tier steps of `alchemy-state.yml` (`--tier dev` with `DEV_DOMAIN`, and `--tier production`), and each stack job of `deploy.yml` before its first step that holds the dev token (W12 in `shared/infra/tests/workflow-secrets.test.ts`). No stack and no package script runs it, so a run by hand runs it first ([[#How a stack run starts]]).
 
 ## The building blocks
 
@@ -65,14 +65,15 @@ Every builder takes each setting where Alchemy's default differs from today's Wr
 | `retainedD1()`, `retainedD1Props()` | A D1 database kept on destroy: name, read replication and jurisdiction. `migrations` only once Alchemy is the database's migrator. `importFiles`, SQL files imported after the migrations, re-imported only when a file's hash changes, refused on production. A location hint only on a stage that creates the database. | Removal policy `destroy`; a declared `primaryLocationHint` that differs from live replaces the database |
 | `retainedBucket()`, `retainedBucketProps()` | An R2 bucket kept on destroy: storage class, jurisdiction, public access, lifecycle rules, CORS and custom domains all required; `forceDestroy: false`; object locks left unmanaged. The same location-hint rule as D1. | Removal policy `destroy`; omitted lifecycle rules, CORS or custom domains are cleared; a changed location hint replaces the bucket |
 | `flattenMigrations()` | Copies the top-level `*.sql` files of a migrations directory, names and bytes unchanged, into a target it empties first ([[#Migrations]]). Throws `MigrationsSourceError` when the source holds no `.sql` file or the target is inside it. | Alchemy refuses a directory holding `meta/_journal.json` |
-| `requireSecrets()` | Reads every secret the inventory names for a Worker's tier from `env` and returns them `Redacted`, and refuses before anything uploads ([[#Secrets]]). | An upload keeps only the secrets the stack declares and drops every other secret the Worker holds |
-| `requireSeedSecret()` | Reads one value a seed is built from; throws `SeedSecretError`, naming the variable and never its value, when it is unset, blank or padded. | — |
+| `requireSecrets()` | Reads every secret the inventory names for a Worker's tier from `env` and returns them `Redacted`, and refuses before anything uploads: a required value unset or blank, a value with leading or trailing whitespace, or a value that breaks a rule its tier sets ([[#Secrets]]). | An upload keeps only the secrets the stack declares and drops every other secret the Worker holds |
+| `requireSeedValue()` | Reads one value a stack builds its own seed from, which no Worker receives; throws `SeedValueError`, naming the variable and never its value, when it is unset, blank or padded. | — |
+| `assertSiteBuiltFor()`, `PrebuiltSite` | Refuses a prebuilt site directory that is missing, or whose text files, taken together, lack an origin the site's build bakes in for the stage ([[#Sites]]). | Alchemy uploads whatever the directory holds |
 | `stackOptions()` | The providers and state store every stack passes to `Alchemy.Stack`: `Cloudflare.providers()` and `Cloudflare.state()` ([[#State store]]). | — |
 | `removalFor()`, `assertRetained()`, `assertStackRetained()` | Storage is always retained; a Worker on `dev` or `production` is retained, because deleting it deletes its secrets; an investigation stage's Workers are destroyed with it. Every stack ends with `assertStackRetained({ stage, storage, workers })`, which asserts its storage always and its Workers where `removalFor()` retains them, so a lost `retain()` fails the plan rather than a destroy. | Workers, D1 databases and R2 buckets default to removal policy `destroy` |
 | `parseStage()`, `tierOf()`, `isLongLivedStage()`, `physicalName()` | The stage rules ([[#Stages]]). | Alchemy's generated `${app}-${stage}-${id}` names: a long-lived resource always passes its name |
 | `parseDevDomain()`, `readDevDomain()`, `stageHosts()`, `origin()`, `devHostOutputs()` | The dev host layout ([[#Dev hosts]]). | — |
 | `assertDevDeployTarget()`, `refuseDotEnvFiles()`, `refuseProductionTier()` | The checks a stack makes before it declares anything ([[#How a stack run starts]]). | Credentials from a stored profile when either variable is unset; `.env` files loaded into `process.env` |
-| `STACK_KEYS`, `STACK_WORKERS`, `STACK_STEP_SECRETS` | The four stacks in deploy order, the inventory Workers each deploys, and the secrets a stack's deploy step reads besides its Workers' own (the musubi stack's seed inputs). `shared/infra/tests/workflow-secrets.test.ts` holds each deploy step in `deploy.yml` to them. | — |
+| `STACK_KEYS`, `STACK_WORKERS`, `STACK_STEP_SECRETS` | The four stacks in deploy order, the inventory Workers each deploys, and the secrets a stack job reads besides its Workers' own, each with the step that reads it: `deploy`, which runs Alchemy, or `cire_seed`, the musubi job's step that derives osn-api's seed values ([[#Seeds and the ARC registration]]). Only the musubi stack has any, and `cire_seed` reads all three. `shared/infra/tests/workflow-secrets.test.ts` holds each stack job in `deploy.yml` to them. | — |
 | `TIER_ACCOUNTS`, `accountSecrets()`, `allowedCredentials()`, `forbiddenCredentials()`, `knownCredentials()` | Credential names per tier ([[#Accounts]]). | — |
 | `SECRET_INVENTORY`, `tierSecrets()`, `SHARED_SECRET_VALUES`, `DEPLOY_ENVIRONMENT` | The secret inventory ([[#Secrets]]). `DEPLOY_ENVIRONMENT` lists the names a deploy job sets itself (`CI`, `DO_NOT_TRACK` and every credential), which no Worker secret may share. | — |
 
@@ -90,12 +91,13 @@ Each refusal is a `Data.TaggedError`. Every one names secret names, never values
 | `ProductionPreviewUrlsError` | `apiWorkerProps()`, `siteWorkerProps()` | `previewUrls` is true on production. Each version's preview URL is a public `workers.dev` host outside any Access gate |
 | `ProductionObservabilityError` | `apiWorkerProps()` | On production, query strings are not redacted or native traces are on ([[#Production observability]]) |
 | `AdoptedLocationHintError` | `retainedD1Props()`, `retainedBucketProps()` | A location hint is declared on production, where the storage is adopted |
-| `MissingSecretsError` | `requireSecrets()` | A required secret is unset, empty or only whitespace, or any value has leading or trailing whitespace |
+| `MissingSecretsError` | `requireSecrets()` | A required secret is unset, empty or only whitespace (`missing`), any value has leading or trailing whitespace (`malformed`), or a value breaks a rule its tier sets (`breaksRule`): on dev, `STRIPE_SECRET_KEY` must start `sk_test_` or `rk_test_`, and `DEV_LOGIN_SECRET` must be at least 32 characters |
 | `NoWorkerOnTierError` | `tierSecrets()` | The Worker has no deployed script on that tier |
 | `UnretainedResourceError` | `assertRetained()`, `assertStackRetained()` | A resource a long-lived stage keeps would be deleted on destroy or replacement |
 | `ProductionSeedError` | `retainedD1Props()` | `importFiles` on production, whose data no seed may touch |
 | `MigrationsSourceError` | `flattenMigrations()` | The source holds no `.sql` file, or the target is inside it |
-| `SeedSecretError` | `requireSeedSecret()` | A seed input is unset, blank or padded |
+| `SeedValueError` | `requireSeedValue()` | A seed value is unset, blank or padded |
+| `SiteBuildError` | `assertSiteBuiltFor()` | A prebuilt site's directory is missing, or lacks an origin its build bakes in for the stage. It names the site, the directory and each missing origin |
 | `StageNotDeclaredError` | `refuseProductionTier()`, `assertDevDeployTarget()`, `stageHosts()` and every stack declaration | The stage is the production tier, which the stacks declare from P3 |
 | `DeployTargetError` | `assertDevDeployTarget()`, `refuseDotEnvFiles()` | `OSN_DEPLOY_TIER` does not name the stage's tier, a Cloudflare credential is unset or blank, or the stack directory holds a `.env` file Bun would load ([[#How a stack run starts]]) |
 | `MissingDevDomainError` | `readDevDomain()` | `DEV_DOMAIN` is unset or empty |
@@ -133,21 +135,41 @@ The stack name equals the directory name. It keys Alchemy's state rows and becom
 
 **Every stack refuses the production tier.** Each declaration throws `StageNotDeclaredError`, naming phase P3 of englishstreetventures/osn#1490, for any stage `tierOf()` calls production. Investigation stages are accepted: their names come from `physicalName()` and their hosts from `stageHosts()`.
 
-**What the tests hold.** Each stack's tests check its names against the old dev tier's (K1), its bindings, vars and secret names against Wrangler's `[env.production]` with every difference listed and given a reason (K2), compatibility date, flags and crons (K3), invocation logs off on cire-api and cire-invites (K4), every storage resource retained (K5), production's storage settings (K6), no literal host in stack source (K7), a production stage refused (K8), every `env.NAME` each API Worker's source reads declared or listed as deliberately unset on dev (K9), and an offline rolldown bundle of each API Worker that names no `bun:sqlite` (K10). Every stack is also evaluated offline through Alchemy with an in-memory state and a `fetch` that throws (`tests/stack.test.ts`).
+**What the tests hold.** Each label below begins a test's name, so a search finds it. Each stack's tests check its names against the old dev tier's (K1), its bindings, vars and secret names against Wrangler's `[env.production]` with every difference listed and given a reason (K2), compatibility date, flags and crons (K3), invocation logs off on cire-api and cire-invites (K4), every storage resource retained (K5), production's storage settings (K6), no literal host in stack source (K7), a production stage refused (K8), every `env.NAME` each API Worker's source reads declared or listed as deliberately unset on dev (K9), and an offline rolldown bundle of each API Worker that names no `bun:sqlite` and whose files, source maps included, gzip to 3 MiB or less, the Workers Free limit (K10; the measured sizes are in [[free-tier-limits]]).
+
+Every stack is also evaluated offline through Alchemy with an in-memory state and a `fetch` that throws (`tests/stack.test.ts`). The evaluation holds:
+
+- no Worker serving a `workers.dev` host or version preview URLs, each a public host outside Access (K11). englishstreetventures/osn#1578 turns preview URLs on for per-pull-request previews;
+- every refusal made before the stack writes a file or calls Cloudflare: `OSN_DEPLOY_TIER` unset or naming production, a blank credential, a production zone as `DEV_DOMAIN`, the production stage, a `.env` file in the working directory, and every required secret blank (K12);
+- each dev surface's smoke target naming the Worker the stack deploys for it (K13);
+- each cire site uploading its build as it is: the guest site Astro's server entry, unbundled, with its client output as assets, and the others their output alone (K14);
+- a prebuilt site accepted when its output holds the origins its dev build bakes in, and refused when built for other hosts or none (SB9).
+
+The helpers every stack's tests share live in `shared/infra/tests/support/`: `literal-hosts.ts` (the K7 scanner), `evaluate-stack.ts` (the offline evaluation) and `refused-targets.ts` (the K12 table).
 
 ### How a stack run starts
 
 `alchemy.run.ts` reads and checks every input before it writes a file or declares a resource, so a refused run writes nothing:
 
-1. `refuseDotEnvFiles(process.cwd())` refuses a stack directory holding any of the eight `.env` files Bun loads (`.env`, `.env.local`, and the `.development`, `.production` and `.test` pairs). Alchemy's CLI hands off to Bun, which would load one into `process.env` and so into the stack.
-2. `assertDevDeployTarget(stage, env)` requires `OSN_DEPLOY_TIER` equal to the stage's tier and both `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` non-blank. Alchemy takes the account from the environment only when both are set; otherwise it loads a stored profile, whose account may be production's. The deploy step sets `OSN_DEPLOY_TIER: dev` beside the dev credentials.
+Each stack body takes its working directory as an input, `workingDir`; `alchemy.run.ts` passes `process.cwd()`.
+
+1. `refuseDotEnvFiles(workingDir)` refuses a stack directory holding any of the eight `.env` files Bun loads (`.env`, `.env.local`, and the `.development`, `.production` and `.test` pairs). Alchemy's CLI hands off to Bun, which would load one into `process.env` and so into the stack.
+2. `assertDevDeployTarget(stage, env)` requires `OSN_DEPLOY_TIER` equal to the stage's tier and both `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` non-blank. Alchemy takes the account from the environment only when both are set; otherwise it loads a stored profile, whose account may be production's. The deploy step sets `OSN_DEPLOY_TIER: dev` beside the dev credentials. It does not check which account the credentials reach ([[#Accounts]]).
 3. `readDevDomain(env)` and `stageHosts()` derive every host ([[#Dev hosts]]).
-4. `requireSecrets()` and `requireSeedSecret()` read every Worker secret and seed input.
-5. Only then: `flattenMigrations()`, the generated seed files, the resources, and `assertStackRetained()`.
+4. `assertSiteBuiltFor()` checks each prebuilt site directory, resolved from `workingDir`, against the stage's hosts ([[#Sites]]). The musubi, cire and pulse stacks have prebuilt sites; zap has none.
+5. `requireSecrets()` reads every Worker secret, and the musubi stack's `requireSeedValue()` the three seed values its job's `cire_seed` step derives ([[#Seeds and the ARC registration]]).
+6. Only then: `flattenMigrations()`, the generated seed files, the resources, and `assertStackRetained()`.
 
 Generated files go under `<product>/infra/.generated/` (git-ignored, `*/infra/.generated/`).
 
-Run a stack from its directory with the dev credentials, `OSN_DEPLOY_TIER=dev`, `DEV_DOMAIN` and the stack's secrets set: `bun run plan:dev` or `bun run deploy:dev` (each sets `DO_NOT_TRACK=1`). An investigation stage runs the same command with its own stage, `DO_NOT_TRACK=1 bun alchemy deploy --stage <name>`.
+**Running a stack by hand.** Export the dev credentials as `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, and `DEV_DOMAIN`, then:
+
+1. `bun run --cwd shared/infra token:check -- --tier dev`. Go on only when it exits 0: nothing in the stack checks which account the token reaches.
+2. Build the stack's sites with that stage's hosts: `bun run --cwd shared/infra dev-hosts -- --stage <stage>` prints them, and each build takes the values its stack job in `deploy.yml` passes. A site built for other hosts, or not built, fails the site check before anything is written.
+3. For the musubi stack, set `CIRE_API_ARC_KEY_ID`, `CIRE_API_ARC_PUBLIC_JWK` and `CIRE_OIDC_CLIENT_SECRET_SHA256`: `GITHUB_OUTPUT=<file> bun --no-install musubi/infra/scripts/derive-cire-seed.ts`, with the three cire secrets set, writes them to `<file>` as `key_id`, `public_jwk` and `client_secret_sha256`.
+4. From the stack's directory, with `OSN_DEPLOY_TIER=dev` and the stack's secrets set: `bun run plan:dev` or `bun run deploy:dev` (each sets `DO_NOT_TRACK=1`).
+
+An investigation stage runs the same steps with its own stage, `DO_NOT_TRACK=1 bun alchemy deploy --stage <name>`, its sites built for that stage's hosts.
 
 ### Dev hosts
 
@@ -182,9 +204,11 @@ Seeds reach a dev database through the D1 resource's `importFiles`, which run af
 
 - **musubi** generates one file for `osn-db-dev` ([`musubi/infra/src/seeds.ts`](../../musubi/infra/src/seeds.ts)):
   - an upsert of the `cid_cire` OIDC client row ([[oidc-provider]]), its redirect URI `${origin(cireApi)}/api/auth/oidc/callback` and its hash the SHA-256 hex of `CIRE_OIDC_CLIENT_SECRET`, as osn-api's own check computes it;
-  - an upsert of cire-api's ARC service account and key ([[arc-tokens]]), the public JWK derived from `CIRE_API_ARC_PRIVATE_KEY` under `CIRE_API_ARC_KEY_ID`, with the four scopes cire-api requests (`graph:read`, `graph:resolve-account`, `org:read`, `account:email-read`). The seed owns its key id: it assigns it to `cire-api` whatever row held it before.
+  - an upsert of cire-api's ARC service account and key ([[arc-tokens]]), the public JWK of `CIRE_API_ARC_PRIVATE_KEY` under `CIRE_API_ARC_KEY_ID`, with the four scopes cire-api requests (`graph:read`, `graph:resolve-account`, `org:read`, `account:email-read`).
 
-  So the musubi stack's deploy step reads those three cire secrets (`STACK_STEP_SECRETS`); the SQL carries the hash and the public key, never the client secret or the private key's `d`.
+  A re-import never undoes what an operator did in the database. It leaves a disabled client disabled and a revoked or expired key so, because the upserts never write `disabled_at`, `revoked_at` or `expires_at`; and it leaves a key id that another service holds to that service. So replacing a revoked or expired key takes a new `CIRE_API_ARC_KEY_ID`.
+
+  The stack takes no cire secret. The musubi job's `cire_seed` step, "Derive osn-api's cire seed values", alone holds `CIRE_OIDC_CLIENT_SECRET`, `CIRE_API_ARC_KEY_ID` and `CIRE_API_ARC_PRIVATE_KEY` (`STACK_STEP_SECRETS`). It runs [`musubi/infra/scripts/derive-cire-seed.ts`](../../musubi/infra/scripts/derive-cire-seed.ts) with `bun --no-install`, so no package code runs beside them, and writes three step outputs: `key_id`, `public_jwk` (`kty`, `crv`, `x` and `y`, never `d`) and `client_secret_sha256`. The deploy step reads them as `CIRE_API_ARC_KEY_ID`, `CIRE_API_ARC_PUBLIC_JWK` and `CIRE_OIDC_CLIENT_SECRET_SHA256`, through `requireSeedValue()`, and the stack refuses a public key that carries `d`. The SQL carries the hash and the public key, never the client secret or the private key.
 - **cire** imports `cire/db/seed/dev-seed.sql`, then, when the `dev` Environment variable `CIRE_DEV_OWNER_PROFILE_ID` is set, a generated file that gives the seeded wedding's owner seat to that profile. The value must match `^usr_[A-Za-z0-9_-]+$`; empty means no file. `cire/infra/tests/seeds.test.ts` holds the statements equal to the local seed's in `scripts/cire-db-seed.sh`.
 - **zap** imports nothing.
 
@@ -196,13 +220,28 @@ The dev asset bucket is filled once by hand ([[dev-environment]]).
 
 Alchemy bundles osn-api, cire-api and zap-api from their `src/index.ts` with rolldown (`bundle: true`). Each declares Wrangler's flags plus `legacy_module_registry`, so it keeps the module registry Wrangler deploys it with; without that flag a bundled Worker gets the new registry. Moving to the new registry is a later change, on both tiers at once.
 
-cire-invites keeps its Astro build on dev: the stack uploads `cire/invites/dist/server/entry.mjs` as a prebuilt Worker (`bundle: false`) with `dist/client` as its assets, and passes its flags verbatim (`["nodejs_compat"]`). A prebuilt upload leaves out `*.js.map`, so its source maps do not reach dev. Its dev build takes `ASTRO_KEY` from a `dev` Environment secret so two builds of one commit are byte-identical and a second deploy plans no change; root `turbo.json` passes `ASTRO_KEY` through to the build (`passThroughEnv`) without hashing it.
+cire-invites keeps its Astro build on dev: the stack uploads `cire/invites/dist/server/entry.mjs` as a prebuilt Worker (`bundle: false`) with `dist/client` as its assets, and passes its flags verbatim (`["nodejs_compat"]`). A prebuilt upload leaves out `*.js.map`, so its source maps do not reach dev. Its dev build takes `ASTRO_KEY` from a `dev` Environment secret so two builds of one commit are byte-identical and a second deploy plans no change; root `turbo.json` passes `ASTRO_KEY` through to the build (`passThroughEnv`) without hashing it. Astro writes the key into the server output's manifest, so the cire stack job builds `@cire/invites` with turbo's cache off (`--cache=local:,remote:`): it never replays a build made with another key, and never leaves the key in `.turbo`, which the job saves to a cache other runs restore. No cache key is made from a secret (`scripts/tests/deploy-workflows.test.ts`).
 
 ### Sites
 
 Every dev site is a Workers static-assets site, not a Pages project. Each applies its built `_headers` and `_redirects`, except musubi social: its `_redirects` (`/* /index.html 200`) stays for production's Pages project, and on the Worker the stack sends an empty redirect list and serves deep links through `notFoundHandling: "single-page-application"`. The other sites build no `404.html`, so their not-found handling is `none`: an unknown path answers 404 where Pages served `index.html`. The organiser and vendor portals route in the URL hash, so no deep link reaches the server.
 
-Pulse landing's `GET /api/geo`, a Pages Function in production, is served on dev by the Worker's own entry ([`pulse/landing/worker/index.ts`](../../pulse/landing/worker/index.ts)), which runs only for that path; the Pages Function and the Worker share one handler (`pulse/landing/src/lib/geo.ts`).
+The stack uploads each site's build output as it is, so before it writes or declares anything it checks each prebuilt directory with `assertSiteBuiltFor()`: the directory must exist, and its text files (`.html`, `.js`, `.mjs`, `.css`, `.json`, `.xml`, `.txt`, `_headers`, `_redirects`), taken together, must hold every origin the site's build bakes in for the stage, each as a whole origin. Output that lacks one was built for other hosts, or none, and would call the wrong API. `SiteBuildError` names the site, the directory and each missing origin.
+
+| Site | Origins its dev build must hold |
+|---|---|
+| musubi social | osn-api |
+| musubi landing | musubi social, musubi landing |
+| cire-invites, client output | cire-api |
+| cire-invites, server output | cire-api, cire-invites, cire landing |
+| cire host | cire-api, musubi social, cire-invites |
+| cire vendor | cire-api, musubi social |
+| cire landing | cire landing, cire host |
+| pulse landing | pulse landing |
+
+So any run that evaluates a stack with sites — `plan`, `deploy` or `destroy`, on `dev` or an investigation stage — needs those sites built with that stage's hosts first.
+
+Pulse landing's `GET /api/geo`, a Pages Function on the Pages preview project, is served on dev by the Worker's own entry ([`pulse/landing/worker/index.ts`](../../pulse/landing/worker/index.ts)), which runs for `/api/*` (`runWorkerFirst`) and hands every path but `/api/geo` to the assets; the Pages Function and the Worker share one handler (`pulse/landing/src/lib/geo.ts`).
 
 ## The dev deploy
 
@@ -214,20 +253,23 @@ changes ──┐
 build ────┘
 ```
 
-`changes` writes one output per dev surface and one per stack (`stack_<key>`) from [`scripts/deploy-surfaces.ts`](../../scripts/deploy-surfaces.ts). A change under a stack's own `infra/` directory, or under `shared/infra/`, runs that stack and offers no production surface.
+`changes` writes one output per dev surface and one per stack (`stack_<key>`) from [`scripts/deploy-surfaces.ts`](../../scripts/deploy-surfaces.ts). A change under a stack's own `infra/` directory runs that stack; one under `shared/infra/` runs every stack. Neither offers a production surface.
 
 **One stack job per stack** (`stack-musubi-dev`, `stack-cire-dev`, `stack-zap-dev`, `stack-pulse-dev`, "Alchemy <stack> stack — dev") deploys the whole stack, in the `dev` Environment, in its own concurrency group `deploy-dev-<stack>` that never cancels. In order:
 
 1. Refuse `force` together with `expect_no_change`.
-2. Install with `--frozen-lockfile`, run `dev-hosts`, and build the stack's sites against those hosts. No install or build step holds a credential or a Worker secret; the invites build reads `ASTRO_KEY` alone.
-3. **Token check**: `token:check` stops the job unless the dev token reaches the dev account and no other ([[#Accounts]]). No earlier step holds the token.
+2. Install with `--frozen-lockfile`, run `dev-hosts`, and build the stack's sites against those hosts. No install or build step holds a credential or a Worker secret; the invites build reads `ASTRO_KEY` alone. The cire job then runs `scripts/guard-bundle-size.sh` on each of its four sites ([[bundle-size-guards]]).
+3. **Token check**: `token:check -- --tier dev` stops the job unless the dev token reaches the dev account and no other, and acts on the `DEV_DOMAIN` zone and no production zone ([[#Accounts]]). No earlier step holds the token.
 4. **Snapshot**: `scripts/worker-deployments.ts snapshot` records each Worker's newest deployment, and writes `force=true` when any Worker's newest deployment carries the smoke check's rollback message.
 5. Refuse `expect_no_change` while the snapshot says `force`.
-6. **Deploy**: `bun run deploy:dev` in the stack directory, with `--force` when dispatched with `force` or when the snapshot says so. Its env holds the dev credentials, `OSN_DEPLOY_TIER: dev`, `DEV_DOMAIN`, `DO_NOT_TRACK: "1"` and exactly the dev inventory secrets of the stack's Workers plus `STACK_STEP_SECRETS`; the cire step also reads the `CIRE_DEV_OWNER_PROFILE_ID` variable.
-7. **Plan summary**: `plan-summary` appends the plan's change counts and the stack name to the run summary, never a line of Alchemy's output. With `expect_no_change` it fails unless the plan was `no changes`.
-8. **Compare**: `scripts/worker-deployments.ts compare` names, per Worker, the deployment the deploy made, or `unchanged`, or `unknown` when it cannot read the Worker.
-9. **One smoke check per surface**, `scripts/smoke-check.ts <surface> dev`, with `SMOKE_ORIGIN` from `dev-hosts` and `SMOKE_DEPLOYMENT` from the compare step. A failed check rolls back only the deployment this run made, and only while it is still the newest ([[production-deploy#7. Post-deploy verification (smoke checks)]]).
-10. Fail the job when any check failed or the compare step failed.
+6. **Seed values** (musubi only): the `cire_seed` step derives osn-api's seed values from the three cire secrets it alone holds ([[#Seeds and the ARC registration]]).
+7. **Deploy**: `bun run deploy:dev` in the stack directory, with `--force` when dispatched with `force` or when the snapshot says so. Its env holds the dev credentials, `OSN_DEPLOY_TIER: dev`, `DEV_DOMAIN`, `DO_NOT_TRACK: "1"` and exactly the dev inventory secrets of the stack's Workers; the musubi step also reads the `cire_seed` step's three outputs, and the cire step the `CIRE_DEV_OWNER_PROFILE_ID` variable.
+8. **Plan summary**: `plan-summary` appends the plan's change counts and the stack name to the run summary, never a line of Alchemy's output. With `expect_no_change` it fails unless the plan was `no changes`.
+9. **Compare**: `scripts/worker-deployments.ts compare` names, per Worker, the deployment the deploy made, or `unchanged`, or `unknown` when it cannot read the Worker. Snapshot and compare try each read of a Worker's deployments up to three times, 1 s then 2 s apart, after a network error, a timeout, a 429 or a 5xx; `unknown` means all three failed, or the Worker has no deployment after the deploy.
+10. **One smoke check per surface**, `scripts/smoke-check.ts <surface> dev`, with `SMOKE_ORIGIN` from `dev-hosts` and `SMOKE_DEPLOYMENT` from the compare step. A failed check rolls back only the deployment this run made, and only while it is still the newest. A browser host's check also fails, with no rollback, when Cloudflare Access does not guard it ([[production-deploy#7. Post-deploy verification (smoke checks)]]).
+11. Fail the job when any check failed or the compare step failed.
+
+**Build caches.** The musubi, cire and pulse jobs each keep a turbo cache of their own, since turbo hashes each dev build's `PUBLIC_*`, `VITE_*` and `SITE` values and the `build` job's cache never holds a dev build. Each saves `.turbo` under `<os>-turbo-dev-<stack>-<bun.lock hash>-<commit>`. With no cache under that key, it restores the newest cache under the first of these prefixes that has one: `<os>-turbo-dev-<stack>-<bun.lock hash>-`, `<os>-turbo-dev-<stack>-`, then the `build` job's `<os>-turbo-build-`. zap builds nothing and keeps none. The guest site always builds with the cache off ([[#Bundling and the module registry]]).
 
 **Rollback is judged by deployment id.** Alchemy reports no version id for a normal deploy, and it plans against its own state, not the live Worker. So the smoke check never rolls back an `unchanged` Worker, and after a rollback the stack's state still names the code the rollback removed: the next run's snapshot sees the rollback message, deploys with `--force`, and re-uploads what the commit declares. An `unchanged` Worker whose newest deployment is a rollback fails its check at once, so a failed heal never records success. Roll a dev Worker back only through the smoke check: a rollback made by hand carries no rollback message, so no run sees it and dev keeps serving it.
 
@@ -282,7 +324,16 @@ printf '%s' "$VALUE" | gh secret set NAME --env <dev|production> --repo englishs
 
 `requireSecrets()` refuses a value with leading or trailing whitespace rather than trimming it: the run fails and names the secret, never its value. A required name that is unset, empty or only whitespace fails the same way. An optional name is left out only when it is unset or empty; one holding only whitespace, such as a pasted newline, fails as malformed, because leaving it out would delete the live secret — during a TOTP key rotation, the outgoing key.
 
-`requireSecrets()` runs in the stack body, which Alchemy evaluates for `plan` and `destroy` as well as `deploy`. Every Alchemy run for a stage therefore needs that stage's secrets: a production plan job runs in the `production` Environment, and tearing down an investigation stage needs the `dev` Environment's.
+A tier can also set a rule for a value, which `requireSecrets()` checks after the whitespace rules. Each rule is a prefix or a length, so it cannot refuse a correct value. On dev:
+
+| Secret | Rule | Why |
+|---|---|---|
+| `STRIPE_SECRET_KEY` | starts `sk_test_` or `rk_test_` | A test-mode key only, so no dev deploy can move real money |
+| `DEV_LOGIN_SECRET` | at least 32 characters | It alone stands between a public route and the seeded owner's session ([[dev-environment#Passkey-less sign-in on local and dev]]) |
+
+Production sets no rule. A value that breaks one fails the run, naming the secret and its rule, never the value.
+
+`requireSecrets()` runs in the stack body, which Alchemy evaluates for `plan` and `destroy` as well as `deploy`. Every Alchemy run for a stage therefore needs that stage's secrets, and its sites built for that stage's hosts ([[#Sites]]): a production plan job runs in the `production` Environment, and tearing down an investigation stage needs the `dev` Environment's.
 
 ### Checking the inventory
 
@@ -328,7 +379,7 @@ A committed `destroy` passes only when it names exactly one stage with a literal
 
 The bearer token cannot be rotated in place, so a leaked token, or a leaver who ran `state:check` or `state:bootstrap` on their own machine, means replacing the whole store. A token that read the store also read every secret value in its state, so replacing the store alone does not end the exposure. The owner runs these by hand on their own machine with the tier's token, never in CI; the guard refuses `teardown` in committed commands for that reason.
 
-1. Hold every Alchemy run and release on that account.
+1. Hold every Alchemy run and release on that account, and run `bun run --cwd shared/infra token:check -- --tier <tier>` with the tier's credentials (and `DEV_DOMAIN` for dev). Go on only when it exits 0.
 2. Set a new value for every Worker secret the account's stacks declare, in the tier's GitHub Environment ([[#GitHub Environment secrets]]). Never rotate `OSN_PAIRWISE_SALT` (see the warning there).
 3. `DO_NOT_TRACK=1 bun alchemy provider cloudflare teardown --yes` in `shared/infra`. It deletes the store Worker, the state it holds, and its token and encryption key; it touches no stack resource.
 4. Run the **Alchemy state store** workflow with `action: bootstrap`. The new store has a new token and key, and no state.
@@ -343,6 +394,8 @@ Rehearse it on the dev account before production's store holds secrets (englishs
 
 `siteWorker()` keeps query strings redacted and native traces off on every stage. cire-invites, the guest Worker, runs production with native traces on (`cire/invites/wrangler.jsonc`), so on production it cannot be built with `apiWorker()`, which refuses native traces there. On dev the cire stack builds it with `apiWorker()` as a prebuilt Worker ([[#Bundling and the module registry]]); its production deploy moves to Alchemy's Astro path in P2 (the rollout spec), with observability settings of its own.
 
+On dev every API Worker traces every request. osn-api, cire-api and cire-invites redact query strings: dev sign-in takes its secret in one, cire-api's OIDC callback its code, and the guest site a claim code. zap-api keeps them. Invocation logs are on for osn-api and zap-api, and off for cire-api and cire-invites, whose request paths carry wedding slugs.
+
 ## Dependency review
 
 `alchemy` runs with each tier's deploy token, so its tree was reviewed before it was pinned. All 23 `alchemy`, `@alchemy.run/*` and `@distilled.cloud/*` versions in `bun.lock` were published by GitHub Actions with SLSA v1 provenance, from the `alchemy-run` repositories, by the same three npm maintainers (`sam-goodwin`, `pear-alchemy`, `blankparticle`). Loading `alchemy` and `alchemy/Cloudflare` pulls in seven of them: `@alchemy.run/cloudflare-runtime`, `@alchemy.run/node-utils`, `@alchemy.run/sigil` (an alpha), `@distilled.cloud/aws`, `@distilled.cloud/cloudflare`, `@distilled.cloud/core` and `@distilled.cloud/iceberg`. The rest of the tree, the other `@distilled.cloud/*` provider SDKs included, installs but does not load on that path.
@@ -351,7 +404,9 @@ Rehearse it on the dev account before production's store holds secrets (englishs
 
 `alchemy` stays on an exact pin, and `shared/infra/tests/package.test.ts` fails on any other version. Repeat this review on every bump.
 
-The CI lint, OpenAPI-freshness and E2E jobs and every product deploy job in `production-release.yml` never load the Alchemy tree, so they install with `--filter '!@*/infra'`, which leaves out `@shared/infra` and every `@<product>/infra` stack: each stack depends on `alchemy` itself, so leaving out `@shared/infra` alone installs the whole tree anyway. The jobs that build, test or type-check those packages keep the full install, and so do `deploy.yml`'s stack jobs, which run Alchemy; `alchemy-state.yml` installs `--filter @shared/infra` alone. `scripts/tests/deploy-workflows.test.ts` accepts either install form in the two deploy workflows.
+The CI lint, OpenAPI-freshness and E2E jobs and every product deploy job in `production-release.yml` never load the Alchemy tree, so they install with `--filter '!@*/infra'`, which leaves out `@shared/infra` and every `@<product>/infra` stack: each stack depends on `alchemy` itself, so leaving out `@shared/infra` alone installs the whole tree anyway. The jobs that build, test or type-check those packages keep the full install, and so do `deploy.yml`'s stack jobs, which run Alchemy. `alchemy-state.yml` and the D1 latency probe (`cire-d1-latency-probe.yml`) install `--filter @shared/infra` alone; the probe then runs its script with `bun --no-install`. `scripts/tests/deploy-workflows.test.ts` accepts either install form in the two deploy workflows.
+
+A job that caches bun's store keys the cache on its install form: `<os>-bun-noinfra-<bun.lock hash>` for `--filter '!@*/infra'`, `<os>-bun-shared-infra-<bun.lock hash>` for `--filter @shared/infra`, and `<os>-bun-<bun.lock hash>` for a full install. GitHub saves a key once, from the first job that misses it, so a filtered install that saved the full install's key would leave every full install fetching the Alchemy tree. `scripts/tests/deploy-workflows.test.ts` holds every workflow's bun cache key to the install its job runs.
 
 *Measured 2026-10-19 on Bun 1.4.2, darwin-arm64, in scratch copies of the tree with the four stacks — `bun install --frozen-lockfile --filter '!@*/infra'` leaves 962 entries in `node_modules/.bun` against 1064 for the full install and for `--filter '!@shared/infra'`, installs no `alchemy`, leaves `bun.lock` unchanged, and `bash scripts/guard-lint-warnings.sh --count` reports the same 870 warnings as on the full install*
 

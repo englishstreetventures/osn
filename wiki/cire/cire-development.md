@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # Cire development guide
@@ -530,9 +530,9 @@ The walk passes when no line names anything but an avatar origin under
 a report-only policy. The log is harder to read than it looks:
 
 - `site` is `invites`, `host` or `vendor` when the document's origin is that
-  entry of cire-api's `WEB_ORIGIN`, and `other` for anything else: a Worker's
-  `*.workers.dev` preview URL, or a blank document such as the invite preview window
-  before it loads (its `documentOrigin` is empty).
+  entry of cire-api's `WEB_ORIGIN`, and `other` for anything else: a document on
+  a host outside cire-api's `WEB_ORIGIN`, or a blank document such as the invite
+  preview window before it loads (its `documentOrigin` is empty).
 - `disposition` is `unknown` when the browser left the field out. `site` still
   tells the modes apart: the guest site reports only, and the portals enforce.
 - A line records what a report claims. The collector cannot tell a browser

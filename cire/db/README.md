@@ -52,8 +52,9 @@ top-level config, the local `wrangler dev` binding, whose `cire-db` block
 carries the production database id.
 
 The dev tier's database is not migrated or seeded from here: the cire stack
-(`cire/infra`) creates it in the dev account, applies the migrations and
-imports `seed/dev-seed.sql` on every dev deploy.
+(`cire/infra`) creates it in the dev account, applies the migrations, and
+imports `seed/dev-seed.sql` on the first dev deploy and again whenever the file
+changes.
 
 Production is never reset and never seeded — no script here can do either.
 

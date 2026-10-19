@@ -9,15 +9,20 @@ related:
   - "[[metrics]]"
   - "[[arc-tokens]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-20
 ---
 # Tracing
 
 ## Native Workers traces
 
-The deployed Worker projects configure Cloudflare's automatic traces in Wrangler.
-Local and dev tiers trace requests without URL redaction. Staging and production
-tiers remove query strings from request URLs in Cloudflare logs and native traces.
+Production Workers configure Cloudflare's automatic traces in Wrangler; dev
+Workers take theirs from their Alchemy stack
+([[infrastructure-as-code#Production observability]]). The local Wrangler
+configs trace requests without URL redaction. On dev every API Worker and the
+guest site trace every request: osn-api, cire-api and cire-invites remove query
+strings, zap-api keeps them, and the static sites trace nothing. Staging and
+production tiers remove query strings from request URLs in Cloudflare logs and
+native traces.
 The production Cire guest Worker traces both existing `/<slug>` links and new
 `/cire/invite?slug=…` and `/cire/registry?slug=…` links. Existing slug paths and
 their outbound API URLs appear in native traces. New links use fixed paths and
@@ -82,7 +87,7 @@ See [[overview]] and [[observability-setup]] for the full env list.
 
 **Propagate trace context across services via the shared `fetch` wrapper.** Any outbound HTTP from our code goes through `instrumentedFetch` from `@shared/observability/fetch` -- it injects `traceparent` + (if configured) the ARC token header. Never use raw `fetch()` for service-to-service calls.
 
-## Inbound traceparent trust boundary (S-H18)
+## Inbound traceparent trust boundary
 
 **Inbound `traceparent` is only trusted from ARC-authenticated callers.** The Elysia plugin extracts upstream trace context when -- and only when -- the request presents `Authorization: ARC ...`. Anonymous/public requests start fresh root spans to prevent external attackers from forcing sampling decisions or injecting chosen trace IDs into our internal traces.
 

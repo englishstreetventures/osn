@@ -8,7 +8,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[shared/observability/logging]]"
   - "[[shared/observability/tracing]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-20
 ---
 
 # Observability Setup Runbook
@@ -26,7 +26,7 @@ The OTLP pipeline described below runs on the **Bun** entries only. `@osn/api` a
 | **Bun** (`src/local.ts`) | local `@osn/api`, `@pulse/api`, `@zap/api` | redacting logger, through `initObservability()` | full OTLP export to Grafana Cloud |
 | **Workers** (`src/index.ts`) | deployed API Workers and the Cire invites Worker | redacting application logger; Cloudflare Workers Logs where enabled | native traces in local and dev, and in production on the Cire invites Worker; optional OTLP/HTTP application spans in OSN and Cire APIs |
 
-For a deployed Worker, Cloudflare Workers Logs currently retain three days on the Free plan. Cire keeps invocation logs off because existing request paths contain the current wedding's slug. Native traces are enabled in local and dev without URL redaction. Production redacts query strings and traces the Cire guest Worker; existing path slugs and outbound API URLs appear in those traces. Production API Workers keep native traces off. See [[free-tier-limits]] → Monitoring and [[tracing]]. Steps 1–3 below apply to a Bun service; steps 4–6 apply to whichever surface actually exports.
+For a deployed Worker, Cloudflare Workers Logs currently retain three days on the Free plan. Cire keeps invocation logs off because existing request paths contain the current wedding's slug. Native traces are enabled in the local Wrangler configs without URL redaction, and on every dev API Worker and the dev guest site, where only zap-api keeps query strings. Production redacts query strings and traces the Cire guest Worker; existing path slugs and outbound API URLs appear in those traces. Production API Workers keep native traces off. See [[free-tier-limits]] → Monitoring and [[tracing]]. Steps 1–3 below apply to a Bun service; steps 4–6 apply to whichever surface actually exports.
 
 ### Grafana Cloud Free Tier Limits
 
@@ -153,7 +153,7 @@ Then add domain-specific metrics:
 echo -n "<instance-id>:<api-token>" | base64
 ```
 
-### Environment Not Classified Correctly (S-L20)
+### Environment Not Classified Correctly
 
 **Symptom:** Dev and production data mixed in dashboards.
 
@@ -184,7 +184,7 @@ echo -n "<instance-id>:<api-token>" | base64
 
 **Symptom:** External requests show up with attacker-controlled trace IDs in internal traces.
 
-**Cause:** An inbound `traceparent` is trustworthy only from an ARC-authenticated caller (S-H13).
+**Cause:** An inbound `traceparent` is trustworthy only from an ARC-authenticated caller.
 
 **Fix:** The Elysia plugin only extracts upstream trace context when the request presents `Authorization: ARC ...`. Anonymous/public requests start fresh root spans. The Workers entries run without that plugin, so they neither extract nor emit trace context at all.
 

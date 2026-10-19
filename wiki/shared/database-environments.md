@@ -18,7 +18,7 @@ related:
   - "[[d1-read-replication]]"
   - "[[cire-development]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # Database Environments
@@ -93,9 +93,10 @@ bun run --cwd zap/db db:migrate:prod
 
 The **dev tier's** databases are not in any `wrangler.toml` and no package
 script migrates them. They live in the dev Cloudflare account, and each product's
-Alchemy stack creates its database, applies the migrations through the D1
-resource's `migrations` prop and imports the seeds after them, on every dev
-deploy: `osn-db-dev` (musubi stack, seeded with the cire OIDC client and
+Alchemy stack creates its database, applies on each dev deploy any migration
+it has not recorded, through the D1 resource's `migrations` prop, and imports
+each seed after them on the first dev deploy and again whenever the seed's file
+changes: `osn-db-dev` (musubi stack, seeded with the cire OIDC client and
 cire-api's ARC key), `cire-db-dev` (cire stack, seeded with the sample wedding)
 and `zap-db-dev` (zap stack, no seed). Alchemy is their only migrator, and it
 keeps its own ledger, `__alchemy_migrations`. See [[infrastructure-as-code#Migrations]].
@@ -119,7 +120,7 @@ Three rewrite shapes recur:
    subject (a profile/account being deleted) can't change between read and batch.
 3. **Check-then-insert under a constraint** (handle/email uniqueness) → pre-check
    for a friendly error, then rely on the **UNIQUE constraint** as the
-   authoritative race-safe guard (S-H1/S-M2 preserved), mapping the violation to
+   authoritative race-safe guard, mapping the violation to
    a clean error. Count caps with no backing constraint (maxProfiles, passkey
    cap) become best-effort with a documented benign over-by-one race; the
    last-passkey invariant is kept race-safe with a **count-guarded conditional

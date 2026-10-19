@@ -8,7 +8,7 @@ related:
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
   - "[[subprocessors]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # Stripe webhooks (cire-api)
@@ -95,8 +95,13 @@ and a revoked account is never noticed.
    printf '%s' "$SECRET" | gh secret set STRIPE_WEBHOOK_SECRET --env dev --repo englishstreetventures/osn
    ```
 
-   On production, `cd cire/api && bunx wrangler secret put STRIPE_WEBHOOK_SECRET --env production`,
-   once the paperwork gate allows it ([[access-control]]).
+   On production, once the paperwork gate allows it, follow the order in
+   [[access-control]]: add the name to cire-api's production row in
+   `shared/infra/src/secrets/inventory.ts`, set it in the `production`
+   Environment, then `cd cire/api && bunx wrangler secret put STRIPE_WEBHOOK_SECRET --env production`
+   and redeploy. A live secret the inventory lacks is deleted by cire-api's first
+   Alchemy deploy, and with it `POST /api/stripe/webhook`
+   ([[infrastructure-as-code#Secrets]]).
 
 The Connect **platform** side also has to exist before any of this does
 anything: Connect enabled on the account, and the platform profile complete
@@ -122,11 +127,16 @@ not one a couple can change later.
    | `checkout.session.async_payment_failed` | the same, for a debit that bounced |
 
 5. Copy **that** endpoint's secret — not the Connect one — and set it the same
-   way:
+   way. On dev:
 
    ```bash
    printf '%s' "$SECRET" | gh secret set STRIPE_PLATFORM_WEBHOOK_SECRET --env dev --repo englishstreetventures/osn
    ```
+
+   On production, in the same order as the Connect secret: the inventory row
+   first, then the `production` Environment, then
+   `bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production` and
+   a redeploy.
 
 The upgrade path also needs **three Prices**, or nothing is for sale: one
 product per paid tier, each with a one-off Price, plus a second Price on the

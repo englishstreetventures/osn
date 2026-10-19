@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-20
 ---
 
 # Guards that gate on a number
@@ -140,14 +140,20 @@ touching a threshold. In short:
 Every app's own `build` script chains the guard on with `&&` (`astro build &&
 … guard-bundle-size.sh .`) — that is what runs it on a local build and the
 by-hand cire/invites deploy. It ALSO runs as its own step in `ci.yml`'s
-`build-test` job (one `--all` step covering every app) and in every deploy
-job — dev in `deploy.yml`, production in `production-release.yml` — that builds a
-guarded app (one `guard-bundle-size.sh <app>` step each — each deploy job builds
-one app, so there is no `--all` there). That is not a redundant belt-and-suspenders: a
-Turborepo cache replay of `build` replays its logged output without executing
-the script, so the chained invocation never runs on a cache hit — the explicit
-workflow step is what still checks the artifact that IS on disk in that case.
-Both invocations matter; neither one alone covers both paths.
+`build-test` job (one `--all` step covering every app), in every production
+deploy job in `production-release.yml` that builds a guarded app (one
+`guard-bundle-size.sh <app>` step; each such job builds one app), and in the cire
+stack job in `deploy.yml`, which builds four guarded apps and runs one step for
+each: `cire/invites`, `cire/host`, `cire/vendor` and `cire/landing`. That is not
+redundant: a Turborepo cache replay of `build` replays its logged output
+without executing the script, so the chained invocation never runs on a cache
+hit — the explicit workflow step is what still checks the artifact that IS on
+disk in that case. Both invocations matter; neither one alone covers both paths.
+
+The musubi and pulse stack jobs in `deploy.yml` build `musubi/landing` and
+`pulse/landing` and run no explicit guard step. Each keeps a turbo cache of its
+own ([[infrastructure-as-code#The dev deploy]]), so when that cache replays a
+landing build, the guard does not run on what dev uploads.
 
 `musubi/landing` and `pulse/landing` also deploy from
 `.github/workflows/deploy-osn-pulse-landing.yml` (a feature-branch preview,
@@ -626,5 +632,4 @@ Three test files, for the three things that can go wrong independently:
 - [[cire-development]] — cire/invites' own bundle history (#618 sessions off,
   #616 SSR minification, #617 why `zod` stays)
 - [[frontend-patterns]] — general Astro/Solid patterns
-- [[review-findings]] — P-I8 (tracker #619) is where this convention traces
-  back to
+- [[review-findings]] — how a review finding is filed and routed

@@ -10,7 +10,7 @@ related:
   - "[[social-graph]]"
   - "[[arc-tokens]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # Zap
@@ -151,11 +151,17 @@ add-member) when the two share a permitted OSN social-graph relationship.
 (comma-separated), falling back to the local dev ports only in a local env and
 **failing closed** (throwing at boot) if a non-local deploy leaves it unset.
 
+On dev the zap stack sets two vars production's Wrangler config does not:
+`OSN_ENV=dev`, which marks a deployed tier, so zap-api runs its non-local
+checks on the JWKS URL, the issuer and this CORS list; and `ZAP_CORS_ORIGIN`,
+set to the dev musubi social origin, the one dev browser origin that calls it
+([[infrastructure-as-code#Dev hosts]]). K2 in `zap/infra/tests/parity.test.ts`
+lists both as the dev tier's differences from production.
+
 ### Deferred
 
-- **Z7** — inbound ARC surface (`/internal/chats*` for c2b): **shipped** in the c2b PR (see [[#c2b-consumer-to-business-chats]] above). Pulse-driven event group chats remain a separate PR.
-- **S-M6** — widen the 48-bit UUID-slice IDs (`chat_`/`cmem_`/`msg_`): separate
-  PR.
+- **Z7** — inbound ARC surface (`/internal/chats*` for c2b): **shipped** in the c2b PR (see [[#c2b (consumer-to-business) chats]] above). Pulse-driven event group chats remain a separate PR.
+- Widen the 48-bit UUID-slice IDs (`chat_`/`cmem_`/`msg_`): separate PR.
 
 ## Observability
 

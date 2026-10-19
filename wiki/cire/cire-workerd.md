@@ -5,7 +5,7 @@ related:
   - "[[shared/observability/overview]]"
   - "[[cire]]"
   - "[[decisions/deferred-decisions]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-20
 ---
 # Observability Overview
 
@@ -23,7 +23,7 @@ cire/api is an Elysia app on workerd; cire uses Effect.ts only in the service + 
 
 ### Application export
 
-`cire/api` exports application spans through a workerd-safe OTLP/HTTP exporter when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. The Worker flushes after each request through `ctx.waitUntil`; without the endpoint, the exporter is inert. Application metrics still need a workerd export path; see `[[decisions/deferred-decisions]]`. Cloudflare's native tracing is separate: local and dev tiers enable it without URL redaction. The production `cire-invites` Worker traces both existing `/<slug>` guest links and new fixed-path links at `/cire/invite?slug=…` and `/cire/registry?slug=…`. Existing path slugs and outbound API URLs appear in traces; new fixed-path pages resolve invitations through a fixed API URL with the slug in the request body. The production API Worker keeps native traces off while path-bearing URLs are reviewed. Production query strings are redacted in Cloudflare logs and native traces. See [[shared/observability/tracing]].
+`cire/api` exports application spans through a workerd-safe OTLP/HTTP exporter when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. The Worker flushes after each request through `ctx.waitUntil`; without the endpoint, the exporter is inert. Application metrics still need a workerd export path; see `[[decisions/deferred-decisions]]`. Cloudflare's native tracing is separate: the local Wrangler config enables it without URL redaction, and dev enables it with query strings redacted on cire-api and cire-invites. The production `cire-invites` Worker traces both existing `/<slug>` guest links and new fixed-path links at `/cire/invite?slug=…` and `/cire/registry?slug=…`. Existing path slugs and outbound API URLs appear in traces; new fixed-path pages resolve invitations through a fixed API URL with the slug in the request body. The production API Worker keeps native traces off while path-bearing URLs are reviewed. Production query strings are redacted in Cloudflare logs and native traces. See [[shared/observability/tracing]].
 
 ## Three Rules
 

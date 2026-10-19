@@ -21,7 +21,7 @@ related:
   - "[[observability-setup]]"
 packages:
   - "@cire/api"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # D1 Read Replication and the Sessions API
@@ -242,12 +242,19 @@ gh workflow run cire-d1-latency-probe.yml -R englishstventures/osn -f samples=10
 ```
 
 From any other machine, at the repository root:
-`CIRE_API_ORIGIN=https://api.cire.<DEV_DOMAIN> bun --no-install cire/api/scripts/d1-latency-probe.ts`,
+`DEV_DOMAIN=<DEV_DOMAIN> CIRE_API_ORIGIN=https://api.cire.<DEV_DOMAIN> bun --no-install cire/api/scripts/d1-latency-probe.ts`,
 with `SAMPLES` from 25 to 100 to change the pair count. The workflow runs in the
-`dev` Environment and takes the origin from its `dev-hosts` step
-([[infrastructure-as-code#Dev hosts]]). The script refuses an origin that is not a
-bare https origin, and any host `[[env.production.routes]]` in
-`cire/api/wrangler.toml` names, so it cannot be pointed at production.
+`dev` Environment, passes its `DEV_DOMAIN` variable, and takes the origin from
+its `dev-hosts` step ([[infrastructure-as-code#Dev hosts]]). Its job installs
+`@shared/infra` alone, which `dev-hosts` runs from, with bun's store cached
+under a key of its own; the probe itself imports no package and runs with
+`bun --no-install`.
+
+The probe runs only against a dev host. It refuses a `DEV_DOMAIN` that is unset,
+not a bare lower-case domain, or a production zone or a name under one, and an
+origin that is not a bare https origin whose host is `DEV_DOMAIN` or a name
+under it, written without a trailing dot. A production host can match neither,
+however it is spelt.
 
 - **Where it ran.** GitHub picks the runner's region, so a run cannot ask for
   Europe. The report records the Cloudflare colo from each response's `cf-ray`,
