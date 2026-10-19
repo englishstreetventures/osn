@@ -3,15 +3,15 @@
   "pr": {
     "number": 1244,
     "branch": "feat/realtime-phase1",
-    "base_sha": "1dceca3506469d57f3c3195f6d32fce002e1aa8f",
-    "head_sha": "3d5dd9f809a6c0422c1602cd82910a1992520684",
-    "generated_at": "2026-09-27T03:52:09.572Z",
+    "base_sha": "263599f251e63750e639c548265f6ae7b124cb12",
+    "head_sha": "2f61792f9af39336cdcd2cb6dc69fc20e4fc28f6",
+    "generated_at": "2026-10-19T16:26:00.049Z",
     "merged_at": null,
     "phase": "at-open"
   },
   "issue": {
     "number": 1241,
-    "type": "Feature",
+    "type": null,
     "labels": [
       "product:shared",
       "complexity:5",
@@ -23,35 +23,47 @@
     "method": "unconfirmed"
   },
   "window": {
-    "sessions": 15,
+    "sessions": 23,
     "first_ts": "2026-09-26T15:27:36.140Z",
-    "last_ts": "2026-09-27T03:52:07.610Z",
-    "span_seconds": 44671,
-    "active_seconds": 10126,
+    "last_ts": "2026-10-19T16:25:53.952Z",
+    "span_seconds": 1990698,
+    "active_seconds": 13679,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 58.91272094999998,
+    "usd_equivalent": 112.30374039999994,
     "tokens": {
-      "input": 1828,
-      "output": 73010,
-      "thinking": 314,
-      "cache_write_5m": 6359779,
+      "input": 2865,
+      "output": 85232,
+      "thinking": 4107,
+      "cache_write_5m": 9113315,
       "cache_write_1h": 0,
-      "cache_read": 96995661
+      "cache_read": 195371365
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 160,
-          "output": 55192,
+          "input": 169,
+          "output": 55903,
           "thinking": 0,
-          "cache_write_5m": 392127,
+          "cache_write_5m": 401276,
           "cache_write_1h": 0,
-          "cache_read": 2702167
+          "cache_read": 2796863
         },
-        "usd_equivalent": 5.182477250000001,
-        "messages": 90
+        "usd_equivalent": 5.304826500000001,
+        "messages": 94
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1672,
+          "output": 20092,
+          "thinking": 4083,
+          "cache_write_5m": 6446495,
+          "cache_write_1h": 0,
+          "cache_read": 150710138
+        },
+        "usd_equivalent": 92.92505820000011,
+        "messages": 795
       },
       "<synthetic>": {
         "tokens": {
@@ -88,79 +100,67 @@
         },
         "usd_equivalent": 14.016560600000005,
         "messages": 494
-      },
-      "claude-opus-5-5": {
-        "tokens": {
-          "input": 644,
-          "output": 8581,
-          "thinking": 290,
-          "cache_write_5m": 3702108,
-          "cache_write_1h": 0,
-          "cache_read": 52429130
-        },
-        "usd_equivalent": 39.656388000000014,
-        "messages": 292
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 160,
-          "output": 55192,
-          "thinking": 0,
-          "cache_write_5m": 392127,
+          "input": 193,
+          "output": 61278,
+          "thinking": 3638,
+          "cache_write_5m": 484112,
           "cache_write_1h": 0,
-          "cache_read": 2702167
+          "cache_read": 2914552
         },
-        "usd_equivalent": 5.182477250000001,
-        "messages": 91
+        "usd_equivalent": 5.8736781,
+        "messages": 107
       },
       "subagent": {
         "tokens": {
-          "input": 1668,
-          "output": 17818,
-          "thinking": 314,
-          "cache_write_5m": 5967652,
+          "input": 2672,
+          "output": 23954,
+          "thinking": 469,
+          "cache_write_5m": 8629203,
           "cache_write_1h": 0,
-          "cache_read": 94293494
+          "cache_read": 192456813
         },
-        "usd_equivalent": 53.730243699999995,
-        "messages": 794
+        "usd_equivalent": 106.43006229999996,
+        "messages": 1285
       }
     },
     "effort": {
-      "medium": 368,
-      "xhigh": 418
+      "medium": 380,
+      "xhigh": 909
     },
     "unpriced_models": []
   },
   "diff": {
     "files": {
       "generated": 2,
-      "test": 12,
-      "docs": 6,
-      "config": 4,
+      "test": 14,
+      "docs": 9,
+      "config": 6,
       "source": 14
     },
     "loc": {
       "generated": {
-        "added": 47,
+        "added": 50,
         "deleted": 0
       },
       "test": {
-        "added": 1246,
+        "added": 1815,
         "deleted": 0
       },
       "docs": {
-        "added": 127,
-        "deleted": 12
+        "added": 5460,
+        "deleted": 17
       },
       "config": {
-        "added": 79,
+        "added": 469,
         "deleted": 10
       },
       "source": {
-        "added": 877,
+        "added": 1105,
         "deleted": 0
       }
     },
@@ -168,7 +168,7 @@
       "shared/realtime"
     ],
     "touches_migration": false,
-    "commits": 17
+    "commits": 28
   },
   "interaction": {
     "user_turns": 0,
@@ -176,36 +176,42 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 513,
-      "Read": 236,
-      "Edit": 82,
-      "Write": 47,
-      "SubagentHandback": 29,
-      "Agent": 28,
-      "Skill": 11,
-      "Grep": 11,
-      "StructuredOutput": 11,
+      "Bash": 966,
+      "Read": 277,
+      "Edit": 93,
+      "Write": 59,
+      "SubagentHandback": 36,
+      "Agent": 34,
+      "Skill": 19,
+      "StructuredOutput": 18,
+      "Grep": 12,
       "SendMessage": 6,
-      "ToolSearch": 4,
+      "ToolSearch": 5,
+      "TaskStop": 4,
+      "Monitor": 3,
       "Glob": 2
     },
     "edit_churn": {
-      "files_edited_3plus": 13,
-      "max_edits_one_file": 21
+      "files_edited_3plus": 15,
+      "max_edits_one_file": 23
     },
     "skills": {
       "superpowers:subagent-driven-development": 1,
-      "write-wiki": 2,
-      "obsidian:obsidian-markdown": 2,
+      "write-wiki": 3,
+      "obsidian:obsidian-markdown": 3,
       "prep-pr": 1,
-      "review-tests": 1,
-      "review-security": 1,
-      "review-performance": 2,
-      "retro-v2": 1
+      "review-tests": 2,
+      "review-security": 2,
+      "review-performance": 3,
+      "retro-v2": 1,
+      "review-pr": 1,
+      "review-docs": 1,
+      "retro": 1
     },
     "subagents": {
       "mechanic": 10,
-      "general-purpose": 18
+      "general-purpose": 18,
+      "reviewer": 6
     }
   }
 }
