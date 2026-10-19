@@ -15,6 +15,7 @@ import { alias } from "drizzle-orm/sqlite-core";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { memberStepOn } from "../lib/account-linking";
 import { resolveRsvpDeadline } from "../lib/rsvp-deadline";
 import {
   measureClaimLookup,
@@ -175,6 +176,8 @@ export interface AccountLinkGate {
   resolveAccountId?: OsnAccountResolver;
   /** Hosts a profile picture may load from. */
   avatarOrigins?: readonly string[];
+  /** Weddings whose member step rides the linking flag (`memberStepOn`). */
+  memberStepExcludedWeddings?: ReadonlySet<string>;
 }
 
 const LINKING_OFF: AccountLinkState = { enabled: false };
@@ -270,18 +273,21 @@ function buildClaimResponse(
   }).pipe(
     Effect.flatMap(([invite, { state: linkState, facts }]) =>
       Effect.gen(function* () {
-        // A host preview is not a guest seat: no member step, and no "Answered
-        // by" on the replies it shows.
-        if (family.kind === "host") {
+        // No member step, and no "Answered by" on the replies shown: a host
+        // preview is not a guest seat, and an excluded wedding's household
+        // gets the step only with the link box.
+        if (
+          family.kind === "host" ||
+          !memberStepOn(gate?.memberStepExcludedWeddings, family.weddingId, linkState.enabled)
+        ) {
           return {
             ...invite,
             rsvps: invite.rsvps.map(withoutSubmitter),
             accountLink: linkState,
           };
         }
-        // The member step is on for every guest household. The flag decides
-        // only the link box beside it, so a flag that is off, slow or failing
-        // never costs the household the step.
+        // Everywhere else the flag decides only the link box beside the step,
+        // so a flag that is off, slow or failing never costs a household it.
         let state = linkState;
         let member = gate?.memberGuestId ?? null;
         // A one-member household has nobody to choose between, so the server

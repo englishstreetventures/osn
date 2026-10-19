@@ -41,7 +41,11 @@ const ownAccount: OsnAccountResolver = async (profileId) => ({
   accountId: `acc_${profileId}`,
 });
 
-function buildApp(flagOn = true, resolver: OsnAccountResolver = ownAccount) {
+function buildApp(
+  flagOn = true,
+  resolver: OsnAccountResolver = ownAccount,
+  memberStepExcludedWeddings?: ReadonlySet<string>,
+) {
   const db = createDb(":memory:");
   seedDb(db);
   const limiter = () => createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 });
@@ -54,9 +58,13 @@ function buildApp(flagOn = true, resolver: OsnAccountResolver = ownAccount) {
     resolveOsnAccountId: resolver,
     osnIssuerUrl: "https://id.musubi.test",
     flags: createStaticFlags({ "cire.account-linking": flagOn }),
+    memberStepExcludedWeddings,
   });
   return { db, app };
 }
+
+/** The seeded wedding excluded from the member step, beside one that is not seeded. */
+const EXCLUDED = new Set(["wed_not_seeded", BOOTSTRAP_WEDDING_ID]);
 
 type App = ReturnType<typeof createApp>;
 
@@ -655,5 +663,83 @@ describe("plus-one changes record their actor", () => {
     });
     expect(res.status).toBe(200);
     expect(db.select().from(rsvpChanges).get()?.actorGuestId).toBe(bo);
+  });
+});
+
+describe("a wedding excluded from the member step", () => {
+  const reply = (guest: string, eventId: string) => ({
+    rsvps: [
+      {
+        guestId: guest,
+        eventId,
+        status: "attending",
+        dietary: "",
+        dietaryPresets: [],
+        dietaryConsent: false,
+      },
+    ],
+  });
+
+  it("keeps the step off while the flag is off, and a list without the wedding does not", async () => {
+    const { app } = buildApp(false, ownAccount, EXCLUDED);
+    expect((await claim(app, SAMPLETON)).body).not.toHaveProperty("member");
+    expect((await claim(app, TESTFAMILY)).body).not.toHaveProperty("member");
+
+    const other = buildApp(false, ownAccount, new Set(["wed_not_seeded"]));
+    expect((await claim(other.app, SAMPLETON)).body).toHaveProperty("member", null);
+  });
+
+  it("refuses a member choice while the flag is off, and records none", async () => {
+    const { db, app } = buildApp(false, ownAccount, EXCLUDED);
+    const { cookie } = await claim(app, SAMPLETON);
+    const res = await call(app, "POST", "/api/claim/member", cookie, {
+      guestId: guestId(db, "Bo"),
+    });
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "Not found" });
+    expect(db.select({ member: sessions.memberGuestId }).from(sessions).get()?.member).toBeNull();
+  });
+
+  it("takes a household's reply with no member while the flag is off, and stamps no sender", async () => {
+    const { db, app } = buildApp(false, ownAccount, EXCLUDED);
+    const { cookie } = await claim(app, SAMPLETON);
+    const bo = guestId(db, "Bo");
+    const res = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo)));
+    expect(res.status).toBe(200);
+    const body = (await jsonBody(res)) as { rsvps: object[] };
+    expect(body.rsvps[0]).not.toHaveProperty("submittedBy");
+    expect(db.select().from(rsvps).get()?.submittedByGuestId).toBeNull();
+    const restored = (await jsonBody(await restore(app, cookie))) as { rsvps: object[] };
+    expect(restored).not.toHaveProperty("member");
+    expect(restored.rsvps[0]).not.toHaveProperty("submittedBy");
+  });
+
+  it("stamps no sender even for a session that chose a member while the flag was on", async () => {
+    const { db, app } = buildApp(false, ownAccount, EXCLUDED);
+    const { cookie } = await claim(app, SAMPLETON);
+    const bo = guestId(db, "Bo");
+    // The choice a flag-on visit left on the session.
+    db.update(sessions).set({ memberGuestId: bo }).run();
+    const res = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo)));
+    expect(res.status).toBe(200);
+    const body = (await jsonBody(res)) as { rsvps: object[] };
+    expect(body.rsvps[0]).not.toHaveProperty("submittedBy");
+    expect(db.select().from(rsvps).get()?.submittedByGuestId).toBeNull();
+    expect(db.select().from(rsvpChanges).get()?.actorGuestId).toBeNull();
+    expect((await jsonBody(await restore(app, cookie))) as object).not.toHaveProperty("member");
+  });
+
+  it("gets the step while the flag is on, as every household does", async () => {
+    const { db, app } = buildApp(true, ownAccount, EXCLUDED);
+    const { cookie, body } = await claim(app, SAMPLETON);
+    expect(body).toHaveProperty("member", null);
+    const bo = guestId(db, "Bo");
+    const refused = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo)));
+    expect(refused.status).toBe(409);
+    const chosen = await call(app, "POST", "/api/claim/member", cookie, { guestId: bo });
+    expect(chosen.status).toBe(200);
+    const res = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo)));
+    expect(res.status).toBe(200);
+    expect(db.select().from(rsvps).get()?.submittedByGuestId).toBe(bo);
   });
 });

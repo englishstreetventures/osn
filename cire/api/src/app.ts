@@ -473,6 +473,12 @@ export interface AppOptions {
    */
   resolveOsnAccountId?: OsnAccountResolver;
   /**
+   * Weddings whose households get the member step only while
+   * `cire.account-linking` is on for them (`index.ts` reads
+   * `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS`). Omitted ⇒ every guest household.
+   */
+  memberStepExcludedWeddings?: ReadonlySet<string>;
+  /**
    * Resolves an OSN handle to a profile id (server-to-server, ARC) for the
    * add-co-host POST. When omitted, the add-host endpoint answers 503 — adding
    * hosts by handle is additive, so a deployment without an ARC key simply
@@ -815,6 +821,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     // musubi serves profile pictures from its own identity host, the OIDC
     // issuer; no other avatar host is shown on the guest site.
     avatarOrigins: originOf(osnIssuerUrl),
+    memberStepExcludedWeddings: options.memberStepExcludedWeddings,
   };
 
   // Capture the chain so we can conditionally mount the payment webhook below.

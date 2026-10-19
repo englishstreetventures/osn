@@ -96,6 +96,20 @@ ZAP_API_URL = "http://localhost:3002"
 # Absent (or no RESEND_API_KEY) ⇒ no reminder or alert; the cron's log lines
 # remain.
 #
+# CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS — comma-separated wedding ids whose
+# households get the household member step ("Who are you?", reply attribution,
+# member_required, "Answered by") only while `cire.account-linking` is on for
+# them (src/lib/account-linking.ts `memberStepOn`). A SECRET, never a committed
+# var: a wedding id is the couple's, not this public repo's — and a name
+# declared here could not also be a secret. Unset or empty ⇒ every guest
+# household gets the step. In a deployed tier:
+#   bunx wrangler secret put CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS --env production
+# An isolate reads it once, when it builds the app, and logs the number of ids
+# ("member step exclusion loaded", never the ids). Set it before the release
+# that deploys the code reading it; a later change needs a redeploy — a run of
+# production-release.yml with `force` and surface `cire_api`. Local dev
+# (`bun run dev`, src/local.ts) never reads it: every household gets the step.
+#
 # RESEND_API_URL — NEVER set in any tier here, as a var or a secret. It points
 # Resend mail at a local emulator and belongs in `.dev.vars` / `.env` only. A
 # deployed tier refuses it: mail stops and the Worker logs
@@ -350,6 +364,9 @@ CIRE_OIDC_CLIENT_ID = "cid_cire"
 # CIRE_OPS_EMAIL (secret, see the top-level [vars] note) sends the daily
 # vendor-claim reminder from this tier when set:
 #   bunx wrangler secret put CIRE_OPS_EMAIL --env dev
+# CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS (secret, see the top-level [vars] note)
+# is unset here, so every dev household gets the member step:
+#   bunx wrangler secret put CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS --env dev
 GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
 # GROWTHBOOK_CLIENT_KEY unset ⇒ every flag serves its coded default with zero
 # network, which is the honest dev posture until a dev GrowthBook environment
@@ -502,6 +519,9 @@ ZAP_API_URL = "https://zap.cireweddings.com"
 # Operator address for the daily vendor-claim reminder (secret, see the
 # top-level [vars] note). Absent ⇒ no reminder, only the cron's log line:
 #   bunx wrangler secret put CIRE_OPS_EMAIL --env production
+# Weddings kept off the household member step unless `cire.account-linking` is
+# on for them (secret, see the top-level [vars] note). Absent ⇒ every household:
+#   bunx wrangler secret put CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS --env production
 # GrowthBook feature flags (KEY-OPTIONAL) — see the top-level [vars] note. Named
 # envs do NOT inherit top-level [vars], so GROWTHBOOK_API_HOST is redeclared
 # here; set GROWTHBOOK_CLIENT_KEY (var or `wrangler secret put ... --env

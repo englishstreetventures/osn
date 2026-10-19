@@ -69,9 +69,12 @@ with explicit values and no network.
 `cire.account-linking` (default **off**) gates the whole guest "Link your
 musubi account" surface. It does **not** gate the household member step
 ("Who are you?", reply attribution, `member_required`, "Answered by"), which
-every guest household gets whatever the flag says ([[cire-auth]]). cire-api
-evaluates it per household (`flags.forRequest({ id: familyId })`) in these
-places:
+every guest household gets whatever the flag says ([[cire-auth]]) — except in
+a wedding listed in the `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` secret, whose
+households get the step only while linking is on for them: the flag on *and*
+the ARC bridge configured, as `isAccountLinkingOn` reads it
+([[production-deploy]]). cire-api evaluates it per household
+(`flags.forRequest({ id: familyId })`) in these places:
 
 - **The claim payload.** `POST /api/claim` and `GET /api/claim/session` report
   `accountLink: { enabled: false }` while the flag is off, and the guest site
@@ -83,13 +86,16 @@ places:
   `waitUntil`, so an isolate with a recent payload answers at once; only an
   in-line fetch can run past 250 ms, which hides the box for that one response
   rather than holding the invite back. A slow or failing flag never hides the
-  member step: the payload carries `member` either way.
+  member step: the payload carries `member` either way, except for an excluded
+  wedding, whose step rides the same answer as its box.
 - **`POST /api/claim/member`** (`routes/claim.ts`) records the member whatever
   the flag says, and answers `accountLink: { enabled: false }` while it is
-  off. The same stale-ok read as the payload.
-- **`POST /api/rsvp`** (`routes/rsvp.ts`) stamps the sender on every reply,
-  and sets `submitted_via_link` only while the flag is on. The same stale-ok
-  read as the payload.
+  off; for an excluded wedding with the flag off it answers 404. The same
+  stale-ok read as the payload.
+- **`POST /api/rsvp`** (`routes/rsvp.ts`) stamps the sender on every reply
+  (none for an excluded wedding with the flag off), and sets
+  `submitted_via_link` only while the flag is on. The same stale-ok read as
+  the payload.
 - **`POST /api/account/link`** (`routes/account-link.ts`) answers **503**
   ("disabled") while the flag is off, as defence in depth: a crafted request
   can't link. It passes no `waitUntil`, so it never acts on a stale payload.

@@ -47,7 +47,9 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   closed sixteen-entry vocabulary the guest picks from, and `rsvps.dietary`,
   free text for anything the vocabulary has no key for. See [[data-map]] for
   the full field list and [[cire-auth]] for the two-auth model.
-- **Member attribution (migration 0075, every guest household).** A claim
+- **Member attribution (migration 0075, every guest household but a wedding
+  listed in `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS`, where it stays behind
+  `cire.account-linking`).** A claim
   code proves a household, not a person. After a claim the invite asks "Who
   are you?" (a household of one is chosen for) and the session records the
   member (`sessions.member_guest_id`); every reply records the member who sent

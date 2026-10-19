@@ -7,7 +7,7 @@ import { Elysia } from "elysia";
 
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
-import { type AccountLinking, isAccountLinkingOn } from "../lib/account-linking";
+import { type AccountLinking, isAccountLinkingOn, memberStepOn } from "../lib/account-linking";
 import {
   buildSessionCookie,
   clearSessionCookie,
@@ -61,6 +61,7 @@ function accountLinkGate(
     memberGuestId,
     resolveAccountId: linking.resolveAccountId,
     avatarOrigins: linking.avatarOrigins,
+    memberStepExcludedWeddings: linking.memberStepExcludedWeddings,
   };
 }
 
@@ -360,6 +361,8 @@ const LINKING_OFF: AccountLinkState = { enabled: false };
 class NotHouseholdMember extends Data.TaggedError("NotHouseholdMember") {}
 /** The guest named is a plus-one, whose row another guest typed in. */
 class PlusOneSeat extends Data.TaggedError("PlusOneSeat") {}
+/** The household's wedding is excluded from the member step and linking is off. */
+class MemberStepOff extends Data.TaggedError("MemberStepOff") {}
 
 /**
  * `POST` / `DELETE /api/claim/member` — "Who are you?".
@@ -373,7 +376,10 @@ class PlusOneSeat extends Data.TaggedError("PlusOneSeat") {}
  * household trust model the claim has always had. Only a member of the
  * session's own household may be named, and never a plus-one.
  *
- * The step is on for every guest household. `POST` answers 200 with the
+ * The step is on for every guest household but those of a wedding listed in
+ * `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS`, where it is on only while
+ * `cire.account-linking` is: off, `POST` answers 404 and records nothing.
+ * Otherwise `POST` answers 200 with the
  * member and the household's account-link state for that member, since only
  * the server can tell whether this browser's sign-in is the account the member
  * is linked to. While `cire.account-linking` is off for the household that
@@ -414,7 +420,11 @@ export const createClaimMemberRoutes = (
             const database = yield* DbService;
             const [row] = yield* dbQuery(() =>
               database
-                .select({ plusOneOf: guests.plusOneOfGuestId, kind: families.kind })
+                .select({
+                  plusOneOf: guests.plusOneOfGuestId,
+                  kind: families.kind,
+                  weddingId: families.weddingId,
+                })
                 .from(guests)
                 .innerJoin(families, eq(families.id, guests.familyId))
                 .where(and(eq(guests.id, guestId), eq(guests.familyId, familyId)))
@@ -423,6 +433,11 @@ export const createClaimMemberRoutes = (
             if (!row || row.kind !== "guest") return yield* Effect.fail(new NotHouseholdMember());
             if (row.plusOneOf !== null) return yield* Effect.fail(new PlusOneSeat());
             const linkingOn = yield* Effect.promise(() => linkingRead);
+            if (
+              !memberStepOn(accountLinking.memberStepExcludedWeddings, row.weddingId, linkingOn)
+            ) {
+              return yield* Effect.fail(new MemberStepOff());
+            }
             const linkState: Effect.Effect<AccountLinkState, never, DbService> = linkingOn
               ? accountLinkService
                   .householdState(
@@ -462,6 +477,11 @@ export const createClaimMemberRoutes = (
                 Effect.sync(() => {
                   set.status = 403;
                   return { error: "plus_one_seat" };
+                }),
+              MemberStepOff: () =>
+                Effect.sync(() => {
+                  set.status = 404;
+                  return { error: "Not found" };
                 }),
               SessionWriteError: () =>
                 Effect.sync(() => {

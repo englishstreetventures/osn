@@ -8,7 +8,7 @@ import { Elysia } from "elysia";
 
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
-import { type AccountLinking, isAccountLinkingOn } from "../lib/account-linking";
+import { type AccountLinking, isAccountLinkingOn, memberStepOn } from "../lib/account-linking";
 import { parseOrganiserSessionToken } from "../lib/cookie";
 import { getWaitUntil } from "../lib/execution-ctx";
 import { isRsvpClosed } from "../lib/rsvp-deadline";
@@ -24,7 +24,7 @@ import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
 import { BulkRsvpBody } from "../schemas/rsvp";
 import { accountLinkService } from "../services/account-link";
-import { rsvpService } from "../services/rsvp";
+import { rsvpService, withoutSubmitter } from "../services/rsvp";
 import type { RsvpInput } from "../services/rsvp";
 import { classifyRsvpChanges, pairKey, type PriorReply } from "../services/rsvp-changes";
 
@@ -76,9 +76,10 @@ export interface RsvpRouteOptions {
   /**
    * Decides whether a reply can be marked as sent through a linked musubi
    * account (`submitted_via_link`): only while `cire.account-linking` is on
-   * for the household, like the link box. Absent ⇒ never. The member step
-   * itself reads no flag: a household of two or more choosable members must
-   * have chosen one, and each reply records who sent it.
+   * for the household, like the link box. Absent ⇒ never. With the member
+   * step on (`memberStepOn`: every guest household, but in an excluded
+   * wedding only while the flag is), a household of two or more choosable
+   * members must have chosen one, and each reply records who sent it.
    */
   accountLinking?: AccountLinking;
 }
@@ -155,16 +156,14 @@ export const createRsvpRoutes = (
             // the household, since a link it can neither see nor manage must
             // not vouch. Needs nothing the reads below return, so it runs
             // beside them.
-            // The member only ever names a non-plus-one of this household
-            // (`POST /api/claim/member` checks, and a deleted guest nulls it);
-            // the write checks again below rather than trust that.
-            const submittedByGuestId = memberGuestId;
+            // With linking on the member step is on too (`memberStepOn`), so
+            // this reads the member the write stamps.
             const matchRead =
-              submittedByGuestId === null || !linkingOn
+              memberGuestId === null || !linkingOn
                 ? Effect.succeed(false)
                 : accountLinkService
                     .memberMatch(
-                      submittedByGuestId,
+                      memberGuestId,
                       parseOrganiserSessionToken(request.headers.get("cookie")),
                       accountLinking?.resolveAccountIdFresh,
                     )
@@ -266,6 +265,19 @@ export const createRsvpRoutes = (
             // (a guest with no invitations still belongs to the family).
             const familyGuestIds = new Set(familyGuestEvents.map((row) => row.guestId));
 
+            // Every guest household has the member step, except in a wedding
+            // listed in `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS`, where it rides
+            // the linking flag: off, a reply needs no member and records none.
+            const memberStep = memberStepOn(
+              accountLinking?.memberStepExcludedWeddings,
+              family.weddingId,
+              linkingOn,
+            );
+            // The member only ever names a non-plus-one of this household
+            // (`POST /api/claim/member` checks, and a deleted guest nulls it);
+            // the check below repeats that rather than trust it.
+            const submittedByGuestId = memberStep ? memberGuestId : null;
+
             // A session member that is not one of this household's own
             // members is never stamped.
             if (
@@ -279,10 +291,10 @@ export const createRsvpRoutes = (
               return { error: "member_required" };
             }
 
-            // A household of two or more must say who is answering before it
-            // answers: each reply records its sender. A one-member household
-            // is chosen for on claim and restore.
-            if (memberGuestId === null) {
+            // With the step on, a household of two or more must say who is
+            // answering before it answers: each reply records its sender. A
+            // one-member household is chosen for on claim and restore.
+            if (memberStep && memberGuestId === null) {
               const choosable = new Set(
                 familyGuestEvents.filter((row) => row.plusOneOf === null).map((row) => row.guestId),
               );
@@ -441,8 +453,8 @@ export const createRsvpRoutes = (
               }
             });
 
-            // Each row carries its sender, for "Answered by".
-            return { rsvps: updatedRsvps };
+            // With the step on, each row carries its sender, for "Answered by".
+            return { rsvps: memberStep ? updatedRsvps : updatedRsvps.map(withoutSubmitter) };
           }).pipe(
             Effect.provideService(DbService, db),
             Effect.catchTag("SchemaError", () =>

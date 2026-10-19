@@ -8,8 +8,10 @@ import type { OsnAccountResolver } from "../services/osn-bridge";
  * report the household's linking as disabled, so the guest site draws no
  * account-link box, and no reply is marked as sent through a linked account.
  * The household member step ("Who are you?", reply attribution,
- * `member_required`) does not read it: it is on for every guest household.
- * Default off (the `FLAGS` registry in `@shared/feature-flags`).
+ * `member_required`) is on for every guest household whatever the flag says,
+ * except in a wedding listed in `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS`
+ * ({@link memberStepOn}). Default off (the `FLAGS` registry in
+ * `@shared/feature-flags`).
  */
 export const ACCOUNT_LINKING_FLAG = "cire.account-linking" as const;
 
@@ -36,6 +38,59 @@ export interface AccountLinking {
    * other avatar URL is dropped, and the box shows the account's initial.
    */
   avatarOrigins?: readonly string[];
+  /**
+   * Weddings whose households get the member step only while
+   * `cire.account-linking` is on for them, from the
+   * `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` secret. Absent or empty ⇒ every
+   * guest household gets it. See {@link memberStepOn}.
+   */
+  memberStepExcludedWeddings?: ReadonlySet<string>;
+}
+
+/** A wedding id as `weddingsService` mints it, or the reserved bootstrap one. */
+const WEDDING_ID = /^wed_(?:[0-9a-f]{32}|bootstrap)$/;
+
+/** The parsed `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS`. */
+export interface WeddingIdList {
+  weddings: ReadonlySet<string>;
+  /**
+   * Entries that are not the shape of a wedding id, so match no wedding: a
+   * typo, a quoted id, a name. A value that is not text at all counts as one.
+   */
+  malformed: number;
+}
+
+/**
+ * The wedding ids in `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS`: comma-separated,
+ * each trimmed, blanks dropped. Unset ⇒ none. Typed `unknown` because a
+ * dashboard value reaches the binding with its own type; one that is not text
+ * reads as none rather than failing the app built from it.
+ */
+export function parseWeddingIdList(raw: unknown): WeddingIdList {
+  if (raw === undefined) return { weddings: new Set(), malformed: 0 };
+  if (typeof raw !== "string") return { weddings: new Set(), malformed: 1 };
+  const weddings = new Set(
+    raw
+      .split(",")
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0),
+  );
+  const malformed = [...weddings].filter((id) => !WEDDING_ID.test(id)).length;
+  return { weddings, malformed };
+}
+
+/**
+ * Whether a household of `weddingId` gets the member step ("Who are you?",
+ * reply attribution, `member_required`, "Answered by"). Every guest household
+ * does, except in a wedding listed in `excluded`, where the step rides the
+ * account-linking flag: on only while `linkingOn` is.
+ */
+export function memberStepOn(
+  excluded: ReadonlySet<string> | undefined,
+  weddingId: string,
+  linkingOn: boolean,
+): boolean {
+  return linkingOn || excluded?.has(weddingId) !== true;
 }
 
 /**
