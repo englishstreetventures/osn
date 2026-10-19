@@ -117,14 +117,33 @@ describe("SQL builders", () => {
     expect(() => rejectSql("dv_a", "org_a; DROP TABLE x")).toThrow();
   });
 
-  test("target each tier's database, and never --remote without --env", () => {
+  test("target each tier's database, and never --remote on a name the top-level block holds", () => {
     expect(targetArgs("cire", "production")).toEqual([
       "cire-db",
       "--env",
       "production",
       "--remote",
     ]);
-    expect(targetArgs("cire", "dev")).toEqual(["cire-db-dev", "--env", "dev", "--remote"]);
+    // Dev's databases live in the dev account and in no wrangler.toml, so
+    // wrangler finds them by name through the API, in the account the
+    // exported credentials name. No `--env dev`: neither config declares one.
+    expect(targetArgs("cire", "dev")).toEqual(["cire-db-dev", "--remote"]);
+    expect(targetArgs("osn", "dev")).toEqual(["osn-db-dev", "--remote"]);
+    // A `--remote` name the top-level block holds would resolve to that block's
+    // database_id, which is production's.
+    for (const [db, config] of [
+      ["cire", "cire/api/wrangler.toml"],
+      ["osn", "osn/api/wrangler.toml"],
+    ] as const) {
+      const parsed = Bun.TOML.parse(readFileSync(join(ROOT, config), "utf8")) as {
+        d1_databases?: { binding?: string; database_name?: string }[];
+        env?: Record<string, unknown>;
+      };
+      const topLevel = (parsed.d1_databases ?? []).flatMap((d) => [d.binding, d.database_name]);
+      expect(topLevel.length).toBeGreaterThan(0);
+      expect(topLevel).not.toContain(targetArgs(db, "dev")[0]);
+      expect(Object.keys(parsed.env ?? {})).not.toContain("dev");
+    }
     expect(targetArgs("cire", "local")).toEqual(["cire-db", "--local"]);
     expect(targetArgs("osn", "production")).toEqual([
       "osn-db-prod",

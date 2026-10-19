@@ -12,16 +12,15 @@ compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 
 # No top-level binding on purpose: the `local` environment runs on bun:sqlite via
 # `bun run dev` (src/local.ts), not on Workers. The D1-backed environments are
-# named below. `dev` is runnable BOTH locally (`wrangler dev --env dev`, miniflare
-# local D1) and deployed (`wrangler deploy --env dev`).
+# named below. `dev` here is the local `wrangler dev --env dev` posture
+# (miniflare local D1). The deployed dev zap-api is the zap stack's
+# (zap/infra), which uploads it with Alchemy; nothing here deploys dev.
 
 # ── dev ────────────────────────────────────────────────────────────────────
-# `dev` is runnable locally (`wrangler dev --env dev`) as well as deployed, so
-# these point at a local osn-api — the same posture, and the same reasoning, as
-# `pulse/api/wrangler.toml`'s dev block. `ZAP_ENV` is deliberately NOT set:
-# setting it would flip `isNonLocalEnv` and fail-close CORS, breaking the local
-# run. Point both at the deployed dev origin in the same commit that gives this
-# env real https origins.
+# The local `wrangler dev --env dev` run, so these point at a local osn-api —
+# the same posture, and the same reasoning, as `pulse/api/wrangler.toml`'s dev
+# block. `ZAP_ENV` is deliberately NOT set: setting it would flip
+# `isNonLocalEnv` and fail-close CORS, breaking the local run.
 #
 # They are here at all because access-token verification now pins the issuer.
 # An env block with no vars used to mean "no expected issuer", which the
@@ -105,6 +104,5 @@ enabled = false
 
 # OSN_JWT_SECRET is sensitive — set it per environment as a Worker secret, not a
 # plaintext var:
-#   bunx wrangler secret put OSN_JWT_SECRET --env dev
 #   bunx wrangler secret put OSN_JWT_SECRET --env staging
 #   bunx wrangler secret put OSN_JWT_SECRET --env production

@@ -18,6 +18,9 @@
  * member of it.
  *
  * `--env` has no default: `local` (wrangler's local D1), `dev` or `production`.
+ * `dev` reaches the dev account's databases, which no wrangler.toml declares:
+ * run it with that account's `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`
+ * exported.
  * Confirm and reject are dry runs unless `--apply` is given; a dry run reads
  * the claim, runs every check and prints the SQL it would send.
  *
@@ -89,10 +92,13 @@ export function parseArgs(argv: readonly string[]): Args | { error: string } {
 export type Db = "cire" | "osn";
 
 /**
- * The wrangler arguments that point `d1 execute` at one tier's database, as
- * `cire/api/wrangler.toml` and `osn/api/wrangler.toml` name them. `local`
- * names no env and passes `--local`: the top-level block in both files carries
- * the production database id, so `--remote` without `--env` would reach it.
+ * The wrangler arguments that point `d1 execute` at one tier's database.
+ * `local` names no env and passes `--local`: the top-level block in both
+ * `cire/api/wrangler.toml` and `osn/api/wrangler.toml` carries the production
+ * database id, so `--remote` on a name it holds would reach production.
+ * `production` passes `--env production`. `dev` passes the dev database's own
+ * name with `--remote` and no env: neither file declares it, so wrangler looks
+ * it up by name through the API, in the account the credentials name.
  */
 export function targetArgs(db: Db, env: Env): string[] {
   const names =
@@ -100,7 +106,8 @@ export function targetArgs(db: Db, env: Env): string[] {
       ? { local: "cire-db", dev: "cire-db-dev", production: "cire-db" }
       : { local: "osn-db", dev: "osn-db-dev", production: "osn-db-prod" };
   if (env === "local") return [names.local, "--local"];
-  return [names[env], "--env", env, "--remote"];
+  if (env === "dev") return [names.dev, "--remote"];
+  return [names.production, "--env", "production", "--remote"];
 }
 
 const quote = (id: string): string => {

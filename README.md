@@ -197,7 +197,7 @@ Four environments, two drivers, one Drizzle type:
 | Environment | Driver | Where |
 |---|---|---|
 | `local` | bun:sqlite | Dev machine — `bun run dev` and in-memory tests |
-| `dev` | Cloudflare D1 | `wrangler dev --env dev` (miniflare) or deployed |
+| `dev` | Cloudflare D1 | deployed in the dev account by the Alchemy stacks; zap and pulse also run `wrangler dev --env dev` (miniflare) locally |
 | `staging` | Cloudflare D1 | Deployed |
 | `production` | Cloudflare D1 | Deployed |
 

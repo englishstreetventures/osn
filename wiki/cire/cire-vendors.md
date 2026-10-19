@@ -6,7 +6,7 @@ related:
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
   - "[[access-control]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-19
 ---
 # Vendors — directory, CRM, and email-verification claim
 
@@ -143,17 +143,18 @@ While a claim waits, the listing is `draft` with no owner. The claimant's portal
 
 The same address receives the R2 orphan reconcilers' alerts (`r2-reconcile-alert`): at most three a day, and only while a reconciler is held or stopped or the tier has them disabled ([[backup-dr]]).
 
-`CIRE_OPS_EMAIL` is a secret, not a `[vars]` entry, because the repository is public and the address is a person's. Set it once per tier:
+`CIRE_OPS_EMAIL` is a secret, not a `[vars]` entry, because the repository is public and the address is a person's. Set it on production:
 
 ```bash
 cd cire/api
 bunx wrangler secret put CIRE_OPS_EMAIL --env production
-bunx wrangler secret put CIRE_OPS_EMAIL --env dev
 ```
+
+The dev Worker holds no `CIRE_OPS_EMAIL`: the cire stack uploads only the secrets the secret inventory declares, and the inventory declares this one on neither tier ([[infrastructure-as-code#Secrets]]), so dev sends no reminder.
 
 Unset, no reminder is sent and the log line is the only signal.
 
-**Confirm or reject** with `scripts/cire-vendor-claim-review.ts`. It runs SQL on the cire D1 through `wrangler d1 execute`, under the operator's own Cloudflare login, using the wrangler installed in `cire/api`. `--env` (`local`, `dev` or `production`) has no default, and confirm and reject are dry runs until `--apply`:
+**Confirm or reject** with `scripts/cire-vendor-claim-review.ts`. It runs SQL on the cire D1 through `wrangler d1 execute`, under the operator's own Cloudflare login, using the wrangler installed in `cire/api`. `--env` (`local`, `dev` or `production`) has no default, and confirm and reject are dry runs until `--apply`. `dev` reaches the dev account's databases by name through the API, so run it with that account's `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` exported:
 
 ```bash
 bun scripts/cire-vendor-claim-review.ts list    --env production
