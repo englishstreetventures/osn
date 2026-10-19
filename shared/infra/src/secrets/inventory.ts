@@ -31,7 +31,8 @@ export interface TierSecrets {
   /**
    * Names this tier holds as plain-text vars although another tier holds them
    * as secrets: values that name no secret, such as a host derived from the
-   * dev domain. `apiWorker()` lets a var, and only a var, take one on this tier.
+   * dev domain. `apiWorkerProps()` lets a var, and only a var, take one on
+   * this tier.
    */
   readonly plainVars?: readonly string[];
 }

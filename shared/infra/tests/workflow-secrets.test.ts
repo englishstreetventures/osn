@@ -116,7 +116,7 @@ describe("W3: no install or build step holds a secret", () => {
     }
   });
 
-  test("only the deploy, the deployment snapshot and compare, the smoke checks and the guest site's build read a secret", () => {
+  test("only the token check, the deploy, the deployment snapshot and compare, the smoke checks and the guest site's build read a secret", () => {
     // The deploy step and the guest site's build are held exactly above.
     const mayRead = (step: Step): readonly string[] => {
       if (step.id === "token" || step.id === "snapshot" || step.id === "deployments") {
@@ -140,10 +140,12 @@ describe("W3: no install or build step holds a secret", () => {
 
 describe("W12: each stack job checks its token before any step uses it", () => {
   test.each(STACK_KEYS.map((key) => [key] as const))(
-    "%s: the first step holding the token is token:check, on the dev pair alone",
+    "%s: the first step reading the dev token is token:check, on the dev pair alone",
     (key) => {
       const steps = stackJob(key).steps ?? [];
-      const first = steps.find((step) => Object.hasOwn(step.env ?? {}, "CLOUDFLARE_API_TOKEN"));
+      const first = steps.find((step) =>
+        secretsRead(step).includes(TIER_ACCOUNTS.dev.apiTokenSecret),
+      );
       expect(first?.id).toBe("token");
       expect(first?.run).toBe("bun run --cwd shared/infra token:check");
       expect(first?.["continue-on-error"]).toBeUndefined();

@@ -3,8 +3,9 @@
   "extends": ["//"],
   "tasks": {
     // The `package` project reads only this package's files; the `repo`
-    // project (vitest.config.ts) also reads the Worker sources, the lockfile
-    // and the workflows, so only it reruns when one of those changes.
+    // project (vitest.config.ts) also reads the Worker sources, the lockfile,
+    // the root turbo.json and the workflows, so only it reruns when one of
+    // those changes.
     "test": {
       "dependsOn": ["^build", "test:repo"]
     },

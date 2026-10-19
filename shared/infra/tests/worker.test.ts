@@ -280,6 +280,16 @@ describe("apiWorkerProps", () => {
     expect(() => apiWorkerProps({ ...cireApiDev, bindings: { OSN_API_URL: {} as never } })).toThrow(
       SecretAsPlainBindingError,
     );
+    // The exemption covers the names the dev row lists and no other: beside
+    // OSN_API_URL, a dev var named like a production secret is still refused.
+    const withSecretName = { ...asVar, GROWTHBOOK_CLIENT_KEY: "not-a-real-key" };
+    const refused = thrown(() => apiWorkerProps({ ...cireApiDev, vars: withSecretName }));
+    expect(refused).toBeInstanceOf(SecretAsPlainBindingError);
+    expect(refused).toMatchObject({ worker: "cire-api", names: ["GROWTHBOOK_CLIENT_KEY"] });
+    // Production lists OSN_API_URL as a required secret, so a var of that name
+    // meets the secret check or the clash check before the plain-var check
+    // could exempt it; the inventory test pins that every plain var is a
+    // required secret on the other tier.
     expect(() =>
       apiWorkerProps({
         ...cireApiProduction,

@@ -53,7 +53,10 @@ export interface ApiWorkerInput {
   readonly workersDev: boolean;
   /** Serve each version at its own workers.dev preview URL; refused on production. */
   readonly previewUrls: boolean;
-  /** Plain-text values. Never a name the secret inventory lists for this Worker. */
+  /**
+   * Plain-text values. Never a name the secret inventory lists for this
+   * Worker, except one the stage's own tier lists in `plainVars`.
+   */
   readonly vars: Readonly<Record<string, string>>;
   readonly bindings: Cloudflare.WorkerBindingProps;
   readonly secrets: Readonly<Record<string, Redacted.Redacted<string>>>;

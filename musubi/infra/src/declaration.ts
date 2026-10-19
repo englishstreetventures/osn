@@ -91,8 +91,9 @@ export function musubiDeclaration(input: {
       domain: hosts.osnApi,
       crons: ["0 */6 * * *"],
       workersDev: false,
-      // Off until per-pull-request previews (P4): each version's preview URL
-      // is a public workers.dev host that no Access application covers.
+      // Off until per-pull-request previews (englishstreetventures/osn#1578):
+      // each version's preview URL is a public workers.dev host that no
+      // Access application covers.
       previewUrls: false,
       vars: {
         OSN_ENV: "dev",
@@ -156,8 +157,9 @@ export function musubiDeclaration(input: {
       entry: null,
       domain: hosts.musubiSocial,
       workersDev: false,
-      // Off until per-pull-request previews (P4): each version's preview URL
-      // is a public workers.dev host that no Access application covers.
+      // Off until per-pull-request previews (englishstreetventures/osn#1578):
+      // each version's preview URL is a public workers.dev host that no
+      // Access application covers.
       previewUrls: false,
       htmlHandling: "auto-trailing-slash",
       notFoundHandling: "single-page-application",
@@ -175,8 +177,9 @@ export function musubiDeclaration(input: {
       entry: null,
       domain: hosts.musubiLanding,
       workersDev: false,
-      // Off until per-pull-request previews (P4): each version's preview URL
-      // is a public workers.dev host that no Access application covers.
+      // Off until per-pull-request previews (englishstreetventures/osn#1578):
+      // each version's preview URL is a public workers.dev host that no
+      // Access application covers.
       previewUrls: false,
       htmlHandling: "auto-trailing-slash",
       // musubi/landing builds no 404.html (its pages are index, privacy and

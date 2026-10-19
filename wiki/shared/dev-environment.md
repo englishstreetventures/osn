@@ -442,7 +442,7 @@ Things to know when building it:
 - **Version preview URLs are off on every dev Worker** (`previewUrls: false` in
   each stack, K11 in each stack's `tests/declaration.test.ts`): each would be a
   public `*.workers.dev` host that no application over the custom hosts covers.
-  Per-pull-request previews come with P4.
+  englishstreetventures/osn#1578 turns them on for per-pull-request previews.
 - Admit people with a reusable policy (Action `Allow`, `Emails` and
   `Emails ending in` rules); add someone by adding their email to that policy,
   never by adding an application.

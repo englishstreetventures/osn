@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
 
+import { READS_REPO } from "../vitest.config";
+
 /** The Alchemy release whose source this package's builders were checked against. */
 const AUDITED_ALCHEMY = "2.0.0-beta.83";
 
@@ -74,5 +76,25 @@ describe("pinned Alchemy", () => {
         });
       }
     }
+  });
+});
+
+describe("the vitest projects", () => {
+  test("the repo project holds exactly the test files whose paths climb above this package", () => {
+    // A file in the package project is cached on this package's files alone,
+    // so one that read a workflow or another package from there would pass
+    // from the cache after that file changed.
+    const files = readdirSync(join(packageDir, "tests"), { recursive: true, encoding: "utf8" })
+      .filter((path) => path.endsWith(".test.ts"))
+      .map((path) => `tests/${path}`);
+    const climbing = files.filter((file) => {
+      const source = readFileSync(join(packageDir, file), "utf8");
+      const depth = file.split("/").length - 1;
+      const ups = [...source.matchAll(/new URL\(\s*"((?:\.\.\/)+)/g)].map(
+        (match) => (match[1] ?? "").length / 3,
+      );
+      return ups.some((up) => up > depth) || /join\(packageDir,\s*"\.\.",\s*"\.\."/.test(source);
+    });
+    expect(climbing.toSorted()).toEqual(READS_REPO.toSorted());
   });
 });

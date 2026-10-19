@@ -29,10 +29,12 @@ name: Deploy
 # cire sites), zap/infra (zap-api), pulse/infra (pulse landing). In order, it
 #   1. derives every dev host from the dev Environment's DEV_DOMAIN variable
 #      (`dev-hosts`) and builds the stack's sites against those hosts;
-#   2. records each Worker's newest deployment (scripts/worker-deployments.ts
+#   2. checks that the dev token reaches the dev account and no other
+#      (`token:check`), before any other step holds it;
+#   3. records each Worker's newest deployment (scripts/worker-deployments.ts
 #      snapshot), deploys the stack, then names the deployment the deploy made
 #      for each Worker, or `unchanged` when it uploaded none (compare);
-#   3. runs scripts/smoke-check.ts for every surface of the stack. A failing
+#   4. runs scripts/smoke-check.ts for every surface of the stack. A failing
 #      check rolls back the deployment this run made, never one it did not,
 #      and the job fails once every surface has been checked.
 # A Worker a smoke check rolled back still matches Alchemy's state, so the next
@@ -47,9 +49,9 @@ name: Deploy
 # names; scripts/tests/deploy-workflows.test.ts holds this file to it.
 #
 # Credentials: the dev account's id and token (CLOUDFLARE_DEV_ACCOUNT_ID,
-# CLOUDFLARE_DEV_ACCOUNT_API_TOKEN, `dev` Environment secrets) reach the deploy
-# step and the steps that read or roll back deployments: snapshot, compare and
-# the smoke checks. Worker secrets reach the deploy step alone. No install or
+# CLOUDFLARE_DEV_ACCOUNT_API_TOKEN, `dev` Environment secrets) reach the token
+# check, the deploy step and the steps that read or roll back deployments:
+# snapshot, compare and the smoke checks. Worker secrets reach the deploy step alone. No install or
 # build step holds either; the guest site's build reads ASTRO_KEY, which is
 # neither. shared/infra/tests/workflow-secrets.test.ts holds this.
 # See [[wiki/shared/dev-environment]].

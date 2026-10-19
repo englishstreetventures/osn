@@ -835,6 +835,42 @@ describe("installs", () => {
       }
     },
   );
+
+  test("ci.yml's filtered installs leave out the infra packages, in the same form", () => {
+    const filtered = Object.values(load(".github/workflows/ci.yml").jobs)
+      .flatMap((job) => stepsOf(job))
+      .map((step) => step.run ?? "")
+      .filter((run) => /\bbun install\b/.test(run) && run.includes("--filter"));
+    expect(filtered.length).toBeGreaterThan(0);
+    for (const run of filtered) {
+      expect(run).toMatch(/^bun install (--frozen-lockfile )?--filter '!@\*\/infra'$/);
+    }
+  });
+
+  test("'!@*/infra' leaves out every workspace that depends on alchemy", () => {
+    // The filtered installs exist to keep the Alchemy tree out; a workspace
+    // that depends on it under any other name would bring the tree back.
+    const patterns = (
+      JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { workspaces: string[] }
+    ).workspaces;
+    const manifests = patterns.flatMap((pattern) =>
+      Array.from(new Bun.Glob(`${pattern}/package.json`).scanSync({ cwd: root })),
+    );
+    const onAlchemy = manifests
+      .map(
+        (path) =>
+          JSON.parse(readFileSync(join(root, path), "utf8")) as {
+            name: string;
+            dependencies?: Record<string, string>;
+            devDependencies?: Record<string, string>;
+          },
+      )
+      .filter((manifest) => "alchemy" in { ...manifest.dependencies, ...manifest.devDependencies })
+      .map((manifest) => manifest.name);
+    expect(onAlchemy.length).toBeGreaterThan(0);
+    const infra = new Bun.Glob("@*/infra");
+    expect(onAlchemy.filter((name) => !infra.match(name))).toEqual([]);
+  });
 });
 
 describe("every other workflow", () => {
