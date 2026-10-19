@@ -7,6 +7,7 @@
         "$TURBO_DEFAULT$",
         "!**/*.md",
         "$TURBO_ROOT$/shared/*/src/**",
+        "$TURBO_ROOT$/shared/infra/tests/support/**",
         "$TURBO_ROOT$/zap/api/wrangler.toml",
         "$TURBO_ROOT$/zap/api/src/**",
         "$TURBO_ROOT$/zap/db/src/**",
