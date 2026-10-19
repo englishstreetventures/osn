@@ -47,11 +47,11 @@ The language server searches only the packages it has loaded, and gives no sign 
 - Its first answer after start-up can be the declaration alone. `findReferences` on `forkBackground` returned 1 reference, then 25 in 9 files when asked again a minute later.
 - A package nobody has opened is skipped. `findReferences` on `healthRoutes` in `@shared/observability` returned 5 files and missed `pulse/api/src/app.ts` and `zap/api/src/app.ts`, which `git grep -lw healthRoutes` found.
 
-*Measured 2026-10-19 — `LSP` `findReferences` on [background.ts:110](../../osn/api/src/lib/background.ts) and [health.ts:35](../../shared/observability/src/elysia/health.ts), against `git grep -lw` on the same commit.*
+*Measured 2026-10-19 — `LSP` `findReferences` on [background.ts:110](../../osn/api/src/lib/background.ts) and [health.ts:35](../../shared/observability/src/elysia/health.ts), against `git grep -lw <name> -- '*.ts'` on the same commit.*
 
 So a plausible `LSP` list can still be half the answer. Two rules follow:
 
-1. **"Who uses X" across packages comes from `git grep -lw`.** Grep over-counts — 13 files for `forkBackground`, 4 of them only in comments — so it is the upper bound and a warm `LSP` answer the lower. Read the hits before reporting a count.
+1. **"Who uses X" across packages comes from `git grep -lw`.** Grep over-counts — `git grep -lw forkBackground -- '*.ts'` lists 13 files, 4 of them naming it only in comments or strings, and without the `*.ts` filter it adds changelogs and wiki pages — so it is the upper bound and a warm `LSP` answer the lower. Read the hits before reporting a count.
 2. **Before renaming, deleting or changing the signature of an export, `git grep -w` its name across the whole repository.** `LSP` alone is never enough there.
 
 `LSP` needs the worktree's `node_modules`: in a fresh worktree, run `bun install --frozen-lockfile` before trusting any answer. Its streamed diagnostics stay untrusted either way (`.claude/skills/orchestrate/references/gotchas.md`).

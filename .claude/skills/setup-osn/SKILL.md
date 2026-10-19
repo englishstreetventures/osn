@@ -103,7 +103,10 @@ brew install typescript-language-server                     # macOS; pulls in no
 npm install -g --before="$(date -d '3 days ago' +%F)" typescript-language-server   # elsewhere; needs node
 typescript-language-server --version
 claude plugin install typescript-lsp@claude-plugins-official
+claude plugin list                                          # must show typescript-lsp@claude-plugins-official enabled
 ```
+
+The row is done only when both checks pass: with the binary and no enabled plugin, every agent runs without `LSP` and nothing says so.
 
 `--before` gives the npm install the same three-day soak `bunfig.toml` gives the workspace, since a global install is outside it. Do not add the plugin to `.claude/settings.json`: a project-scope `enabledPlugins` entry turns a plugin on without installing it. Cloud sessions never start plugin language servers, so on the remote environment record this row as not applicable. When and when not to trust what `LSP` returns: `wiki/conventions/agent-tooling.md` §Code search.
 
