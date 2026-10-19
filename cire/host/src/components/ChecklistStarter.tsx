@@ -30,7 +30,7 @@ interface Preview {
 interface ChecklistStarterProps {
   weddingId: string;
   /** Owner? Only an owner can set the wedding date the due dates count from. */
-  canManage: boolean;
+  canManage?: boolean;
   /** Tasks on the checklist, or null before they load. An empty checklist gets
    *  the full offer; a full one a quiet button. */
   taskCount: number | null;
@@ -98,18 +98,16 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
     setPicked(next);
   }
 
+  const items = () => preview()?.items ?? [];
   // The items still to add, under their buckets in the checklist's order.
-  const groups = createMemo(() => {
-    const items = preview()?.items ?? [];
-    return TIMEFRAME_BUCKETS.map((bucket) => ({
+  const groups = createMemo(() =>
+    TIMEFRAME_BUCKETS.map((bucket) => ({
       label: bucket.label,
-      items: items.filter((i) => i.state === "new" && i.timeframeBucket === bucket.key),
-    })).filter((group) => group.items.length > 0);
-  });
-  const removed = createMemo(() => (preview()?.items ?? []).filter((i) => i.state === "removed"));
-  const addedCount = createMemo(
-    () => (preview()?.items ?? []).filter((i) => i.state === "added").length,
+      items: items().filter((i) => i.state === "new" && i.timeframeBucket === bucket.key),
+    })).filter((group) => group.items.length > 0),
   );
+  const removed = createMemo(() => items().filter((i) => i.state === "removed"));
+  const addedCount = createMemo(() => items().filter((i) => i.state === "added").length);
   const count = () => picked().size;
 
   async function apply() {

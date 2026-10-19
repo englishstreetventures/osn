@@ -235,7 +235,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
       <Show when={props.canEdit}>
         <ChecklistStarter
           weddingId={props.weddingId}
-          canManage={props.canManage ?? false}
+          canManage={props.canManage}
           taskCount={tasks()?.length ?? null}
         />
       </Show>
