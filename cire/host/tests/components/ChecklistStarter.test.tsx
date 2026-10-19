@@ -204,9 +204,15 @@ describe("the starter's preview", () => {
     expect(dialog.queryByText(/couldn't load the starter checklist/i)).not.toBeInTheDocument();
   });
 
-  it("sends a signed-out organiser to sign in", async () => {
+  it.each([
+    ["answers 401", () => authFetchMock.mockResolvedValueOnce(json({}, 401))],
+    [
+      "finds the session expired",
+      () => authFetchMock.mockRejectedValueOnce(new Error("AuthExpiredError")),
+    ],
+  ])("sends an organiser to sign in when the preview %s", async (_case, arrange) => {
     setCachedTasks("wed_1", []);
-    authFetchMock.mockResolvedValueOnce(json({}, 401));
+    arrange();
     renderChecklist();
     await openPreview();
     await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
@@ -317,6 +323,7 @@ describe("the starter with a wedding date", () => {
     renderChecklist();
     const dialog = await openPreview();
     fireEvent.click(await dialog.findByRole("checkbox", { name: /send your invitations/i }));
+    expect(dialog.getByRole("button", { name: "Add 1 task" })).toBeEnabled();
     fireEvent.click(dialog.getByRole("checkbox", { name: /confirm final guest numbers/i }));
     expect(dialog.getByRole("button", { name: "Add 0 tasks" })).toBeDisabled();
   });
@@ -388,10 +395,16 @@ describe("the starter with a wedding date", () => {
     expect(dialog.queryByText(/couldn't add those tasks/i)).not.toBeInTheDocument();
   });
 
-  it("sends a signed-out organiser to sign in from the apply", async () => {
+  it.each([
+    ["answers 401", () => authFetchMock.mockResolvedValueOnce(json({}, 401))],
+    [
+      "finds the session expired",
+      () => authFetchMock.mockRejectedValueOnce(new Error("AuthExpiredError")),
+    ],
+  ])("sends an organiser to sign in when the apply %s", async (_case, arrange) => {
     setCachedTasks("wed_1", []);
     authFetchMock.mockResolvedValueOnce(preview("2027-06-05", ITEMS));
-    authFetchMock.mockResolvedValueOnce(json({}, 401));
+    arrange();
     renderChecklist();
     const dialog = await openPreview();
     fireEvent.click(await dialog.findByRole("button", { name: "Add 2 tasks" }));
