@@ -30,6 +30,7 @@ export type SubscribeOutcome =
   | "bad_topic"
   | "unauthenticated"
   | "rate_limited"
+  | "daily_limited"
   | "denied"
   | "unavailable";
 

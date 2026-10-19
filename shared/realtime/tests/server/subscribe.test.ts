@@ -192,11 +192,17 @@ describe("subscribe — refused by the product", () => {
     expect(metricSubscribe).toHaveBeenCalledWith("cire", "unauthenticated");
   });
 
-  it("429s a rate-limited caller before checking membership", async () => {
+  it("429s a rate-limited caller before the daily ceiling or membership", async () => {
+    const allowDaily = vi.fn(async () => true);
     const authorize = vi.fn(async () => true);
-    const res = await run(upgradeRequest(), RAW, options({ allow: async () => false, authorize }));
+    const res = await run(
+      upgradeRequest(),
+      RAW,
+      options({ allow: async () => false, allowDaily, authorize }),
+    );
     expect(res.status).toBe(429);
     expect(res.headers.get("retry-after")).toBe("60");
+    expect(allowDaily).not.toHaveBeenCalled();
     expect(authorize).not.toHaveBeenCalled();
     expect(metricSubscribe).toHaveBeenCalledWith("cire", "rate_limited");
   });
@@ -212,7 +218,7 @@ describe("subscribe — refused by the product", () => {
     expect(res.status).toBe(429);
     expect(authorize).not.toHaveBeenCalled();
     expect(fetches).toHaveLength(0);
-    expect(metricSubscribe).toHaveBeenCalledWith("cire", "rate_limited");
+    expect(metricSubscribe).toHaveBeenCalledWith("cire", "daily_limited");
   });
 
   it("keys both rate limits on the subject", async () => {

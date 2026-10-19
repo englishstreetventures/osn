@@ -68,7 +68,7 @@ When a cap closed a socket, the hub's 101 says which in the `x-realtime-capacity
    | `acceptsTopic` | its rule for entity and id, applied after the shared pattern |
    | `authenticate` | the caller's subject from its normal session auth, or `null`. The subject must be the member's unique, unchanging, opaque id — the id its membership rows key on — never a handle, email or per-session id |
    | `allow` | its short-window limiter, keyed on the subject |
-   | `allowDaily` | a daily ceiling, keyed on the subject. Every admitted subscribe is a Durable Object request against an allowance the whole account shares ([[free-tier-limits]]), so size it from that allowance, not from the short window |
+   | `allowDaily` | a daily ceiling, keyed on the subject. Every admitted subscribe is a Durable Object request against an allowance the whole account shares ([[free-tier-limits]]), so size it from that allowance, not from the short window. An honest member spends it on each mount, each return to a tab hidden for more than two ping intervals, each eviction, each hourly expiry on a topic that publishes, and each deploy; a ceiling too tight for that stops push for a member who switches tabs often |
    | `authorize` | its membership check for the topic's entity |
 
    `subscribe()` checks in this order, and nothing after a refusal runs:
@@ -81,12 +81,12 @@ When a cap closed a socket, the hub's 101 says which in the `x-realtime-capacity
    | a hub is bound | 503 | `unavailable` |
    | `authenticate` returns a subject | 401 | `unauthenticated` |
    | `allow` | 429, `Retry-After: 60` | `rate_limited` |
-   | `allowDaily` | 429 | `rate_limited` |
+   | `allowDaily` | 429 | `daily_limited` |
    | `authorize` | 403 | `denied` |
    | the hub answers 101 | 503 | `unavailable` |
 
    A callback that throws, or a defect, also answers 503. On success the hub's own 101 comes back, counted as `accepted`, or as `topic_full` when the hub closed the newcomer at the topic cap. A browser sees none of these statuses: a refused upgrade reaches the client as close 1006.
-4. **Publish after each write commits, in the background.** Hand `runtime.runPromise(publish(hub, topic, kind, { evictSubjects, revokeSubjects }))` to the request's `ctx.waitUntil`, so the write's response never waits on the hub (up to `PUBLISH_TIMEOUT_MS`, 2 s). Run it inline only where no execution context exists (tests). Name the members whose access changed: `evictSubjects` for a member who may still have access (their socket reconnects and is checked again), `revokeSubjects` for one who lost it (their socket is closed with 1008 and the client stops, so it makes no refused reconnects). Each entry must be exactly the subject `authenticate` returned for that member, since the hub tags sockets with it; any other string closes nothing. Publish only when the write changed something, because every publish is a billed Durable Object request.
+4. **Publish after each write commits, in the background.** Hand `runtime.runPromise(publish(hub, topic, kind, { evictSubjects, revokeSubjects }))` to the request's `ctx.waitUntil`, so the write's response never waits on the hub (up to `PUBLISH_TIMEOUT_MS`, 2 s). Run it inline only where no execution context exists (tests). Name the members whose access changed: `evictSubjects` for a member who may still have access (their socket reconnects and is checked again), `revokeSubjects` for one who lost it (their open sockets are closed with 1008 and the client stops, so they make no refused reconnects). A subject in both lists is revoked. Each entry must be exactly the subject `authenticate` returned for that member, since the hub tags sockets with it; any other string closes nothing. A revoked member's tab that was paused or closed when the publish ran has no socket to close: when it returns it reconnects, is refused, and stops after its failed attempts. Publish only when the write changed something, because every publish is a billed Durable Object request.
 5. **Subscribe in the client** with `useTopic(() => url, onSignal)`, and treat every event as "re-read now".
 6. **Allow `wss:` in the portal's CSP.** Chromium 151 blocks a `wss://api.example` socket when `connect-src` lists only `https://api.example`, and opens it once `wss://api.example` is listed. So did the `ws:`/`http:` pair.
 
@@ -105,8 +105,8 @@ When a cap closed a socket, the hub's 101 says which in the `x-realtime-capacity
 
 - **Backoff.** Retries wait a random time up to 1 s, doubling per failure up to 30 s. An attempt counts as failed when its socket closes before the hub has answered anything on it, so a socket that opens and is cut at once does not reset the count.
 - **Giving up.** After 6 consecutive failed attempts (at most 1 + 2 + 4 + 8 + 16 = 31 s of waiting, plus connect time), or at once on 1008, it stops, emits `stopped` if a socket had been open, and calls `onFallback`. The product's existing refetch triggers remain.
-- **After giving up with no socket ever open**, every later subscription to the same origin in that page makes a single attempt for 5 minutes. A socket that answers clears it.
-- **Hidden tabs.** Once the tab has been hidden for two ping intervals, it closes its socket with 1000 and stops pinging, which counts as no failure. When the tab is shown it reconnects and emits `reconnected`. `pauseWhenHidden: false` turns this off.
+- **After giving up with no socket ever open**, every later subscription to the same origin in that page makes a single attempt for 5 minutes. A socket that answers clears it, and a subscription that has connected before keeps its full budget when it resumes from a pause.
+- **Hidden tabs.** Once the tab has been hidden for two ping intervals, it closes its socket with 1000 and stops pinging, which counts as no failure; a hidden tab sends at most two pings before that. When the tab is shown it reconnects with its full attempt budget and emits `reconnected`, so each return costs a new subscribe: one Worker request, one Durable Object request and the product's checks. `pauseWhenHidden: false` turns this off.
 
 ## When push is unavailable
 
@@ -120,7 +120,7 @@ When a cap closed a socket, the hub's 101 says which in the `x-realtime-capacity
 
 Nothing about access control depends on a signal arriving.
 
-For one change, a member who keeps access and is evicted gets three signals: the message, the eviction's `dropped`, and `reconnected`. A revoked member gets the message and `stopped`. The others on the topic get the message. Each prompts a re-read.
+For one change, a member who keeps access and is evicted gets three signals: the message, the eviction's `dropped`, and `reconnected`. A revoked member gets the message and `stopped`, or only `stopped` when their socket was past its maximum age. The others on the topic get the message. Each prompts a re-read.
 
 ## Observability
 
@@ -130,7 +130,7 @@ Counters in [metrics.ts](../../shared/realtime/src/server/metrics.ts) — see [[
 - `realtime.signal.published`, by `product`, `kind` and `result` (`ok`, `error`, `disabled`)
 - `realtime.hub.capacity_refused`, by `product` and `cap` (`topic`: the newcomer was closed; `subject`: the member's own least recently seen socket was)
 
-Spans are `realtime.publish` and `realtime.subscribe`; the subscribe span carries `realtime.outcome`. Logs: `realtime subscribe refused` (warning, for `bad_origin` and `rate_limited`), `realtime topic at its socket cap` (warning), `realtime subscribe failed` with the failing step, `realtime hub refused an admitted upgrade`, and `realtime publish failed` (errors). None carries a subject; only the publish failure carries the topic. The browser client records no metric of its own until [englishstventures/osn#1242](https://github.com/englishstventures/osn/issues/1242) lands. It exposes `onFallback`, which is where a product hooks one.
+Spans are `realtime.publish` and `realtime.subscribe`; the subscribe span carries `realtime.outcome`. Logs: `realtime subscribe refused` (warning, for `bad_origin`, `rate_limited` and `daily_limited`), `realtime topic at its socket cap` (warning), `realtime subscribe failed` with the failing step, `realtime hub refused an admitted upgrade`, and `realtime publish failed` (errors). None carries a subject; only the publish failure carries the topic. The browser client records no metric of its own until [englishstventures/osn#1242](https://github.com/englishstventures/osn/issues/1242) lands. It exposes `onFallback`, which is where a product hooks one.
 
 ## Tests
 

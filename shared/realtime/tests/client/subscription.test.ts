@@ -326,6 +326,7 @@ describe("createTopicSubscription in a hidden tab", () => {
     vi.advanceTimersByTime(1);
     expect(socket.closedWith?.code).toBe(1000);
     const pings = socket.sent.length;
+    socket.serverClose(1000); // the paused socket's own close arrives later
 
     vi.advanceTimersByTime(60_000);
     expect(socket.sent).toHaveLength(pings);
@@ -380,18 +381,54 @@ describe("createTopicSubscription in a hidden tab", () => {
     expect(events).toEqual([{ reason: "reconnected" }]);
   });
 
-  it("does not count a pause as a failed attempt", () => {
+  it("treats the paused socket's late close as no loss: no event, no retry while hidden", () => {
     const visibility = new FakeVisibility();
     const onFallback = vi.fn();
     createTopicSubscription(URL, onSignal, { ...base, maxAttempts: 1, visibility, onFallback });
-    latest().serverOpen();
+    const paused = latest();
+    paused.serverOpen();
     visibility.hide();
     vi.advanceTimersByTime(1_000);
-    latest().serverSend("pong");
+    paused.serverSend("pong");
     vi.advanceTimersByTime(1_000);
+    paused.serverClose(1006);
+    expect(events).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
     visibility.show();
     expect(onFallback).not.toHaveBeenCalled();
     expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it("resumes with its full budget, whatever another subscription on the page remembered", () => {
+    const fallbackMemory = new Map<string, number>();
+    const visibility = new FakeVisibility();
+    const onFallback = vi.fn();
+    createTopicSubscription(URL, onSignal, { ...base, fallbackMemory, visibility, onFallback });
+    latest().serverOpen();
+    latest().serverSend("pong");
+    visibility.hide();
+    vi.advanceTimersByTime(1_000);
+    latest().serverSend("pong");
+    vi.advanceTimersByTime(1_000); // paused
+
+    // Another topic on the same origin gives up without ever connecting.
+    createTopicSubscription("wss://api.example.test/realtime/cire%3Awedding%3Awed_9", onSignal, {
+      ...base,
+      fallbackMemory,
+    });
+    for (let attempt = 0; attempt < base.maxAttempts; attempt += 1) {
+      latest().serverClose(1006);
+      vi.advanceTimersByTime(1_000);
+    }
+
+    visibility.show();
+    const instances = FakeWebSocket.instances.length;
+    latest().serverClose(1006); // the first attempt after waking fails
+    expect(onFallback).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1_000);
+    expect(FakeWebSocket.instances).toHaveLength(instances + 1);
   });
 
   it("keeps pinging in a hidden tab when told not to pause", () => {

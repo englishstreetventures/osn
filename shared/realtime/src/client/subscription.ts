@@ -222,7 +222,9 @@ export function createTopicSubscription(
     if (!paused) return;
     paused = false;
     resumed = true;
-    failures = startingFailures();
+    // A subscription that has connected on this page has shown the origin is
+    // reachable, so another one's remembered fallback does not shorten it.
+    failures = everOpened ? 0 : startingFailures();
     connect();
   }
 

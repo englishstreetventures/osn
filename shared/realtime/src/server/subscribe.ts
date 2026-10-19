@@ -18,12 +18,17 @@ const REFUSAL_STATUS = {
   bad_topic: 404,
   unauthenticated: 401,
   rate_limited: 429,
+  daily_limited: 429,
   denied: 403,
   unavailable: 503,
 } as const satisfies Record<Refusal, number>;
 
 /** Refusals that point at an abuser rather than a stale tab, so each is logged. */
-const LOGGED_REFUSALS: ReadonlySet<Refusal> = new Set(["bad_origin", "rate_limited"]);
+const LOGGED_REFUSALS: ReadonlySet<Refusal> = new Set([
+  "bad_origin",
+  "rate_limited",
+  "daily_limited",
+]);
 
 export interface SubscribeOptions {
   /** The product serving this route. A topic of any other product is refused. */
@@ -131,7 +136,7 @@ export const subscribe = (
     const allowed = yield* step("rate_limit", () => options.allow(subject));
     if (!allowed) return yield* refuse("rate_limited", 60);
     const allowedToday = yield* step("daily_limit", () => options.allowDaily(subject));
-    if (!allowedToday) return yield* refuse("rate_limited");
+    if (!allowedToday) return yield* refuse("daily_limited");
     const member = yield* step("authorize", () => options.authorize(subject, parsed));
     if (!member) return yield* refuse("denied");
 

@@ -39,6 +39,8 @@ beforeAll(async () => {
       STALE_HUB: { className: "StaleHub", useSQLite: true },
       SUBJECT_HUB: { className: "SubjectHub", useSQLite: true },
       AGED_HUB: { className: "AgedHub", useSQLite: true },
+      CROWDED_HUB: { className: "CrowdedHub", useSQLite: true },
+      STALE_SUBJECT_HUB: { className: "StaleSubjectHub", useSQLite: true },
     },
   });
 }, HOOK_TIMEOUT_MS);
@@ -206,6 +208,35 @@ describe("TopicHub", () => {
   );
 
   it(
+    "revokes with 1008 a subject also named for eviction",
+    async () => {
+      const both = await open("cire:wedding:wed_both", "usr_both");
+
+      await publishTo("cire:wedding:wed_both", "?evict=usr_both&revoke=usr_both");
+      await closed(both, "both");
+      expect(both.frames).toHaveLength(1);
+      expect(both.closes).toEqual([1008]);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "revokes with 1008, and without the signal, a subject whose socket is past its maximum age",
+    async () => {
+      const old = await open("cire:wedding:wed_aged_revoke", "usr_old", "?hub=aged");
+      await elapse(400); // AgedHub's maxSocketAgeMs is 300
+      const fresh = await open("cire:wedding:wed_aged_revoke", "usr_fresh", "?hub=aged");
+
+      await publishTo("cire:wedding:wed_aged_revoke", "?hub=aged&revoke=usr_old");
+      await closed(old, "old");
+      expect(old.closes).toEqual([1008]);
+      expect(old.frames).toEqual([]);
+      await framed(fresh, 1, "fresh");
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
     "still sends and evicts when a socket it has just closed is on the topic",
     async () => {
       const gone = await open("cire:wedding:wed_closing", "usr_closed");
@@ -307,6 +338,43 @@ describe("TopicHub", () => {
         await framed(socket, 1, name);
         expect(socket.closes).toEqual([]);
       }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "on a full topic, a member at their own cap loses only their oldest socket, not the newcomer",
+    async () => {
+      const other = await open("cire:wedding:wed_crowded", "usr_other", "?hub=crowded");
+      const first = await open("cire:wedding:wed_crowded", "usr_member", "?hub=crowded");
+      await elapse(5);
+      const second = await open("cire:wedding:wed_crowded", "usr_member", "?hub=crowded");
+      expect(second.capacity).toBe("subject");
+      await closed(first, "first");
+      expect(first.closes).toEqual([1008]);
+
+      await publishTo("cire:wedding:wed_crowded", "?hub=crowded");
+      await framed(other, 1, "other");
+      await framed(second, 1, "second");
+      expect(other.closes).toEqual([]);
+      expect(second.closes).toEqual([]);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "culls a member's own stale socket at their cap with 4002, leaving no cap hit",
+    async () => {
+      const quiet = await open("cire:wedding:wed_own_stale", "usr_member", "?hub=stale-subject");
+      await elapse(1_200); // StaleSubjectHub's staleAfterMs is 1 000
+      const fresh = await open("cire:wedding:wed_own_stale", "usr_member", "?hub=stale-subject");
+      expect(fresh.capacity).toBeNull();
+      await closed(quiet, "quiet");
+      expect(quiet.closes).toEqual([4002]);
+
+      await publishTo("cire:wedding:wed_own_stale", "?hub=stale-subject");
+      await framed(fresh, 1, "fresh");
+      expect(fresh.closes).toEqual([]);
     },
     TEST_TIMEOUT_MS,
   );

@@ -18,7 +18,8 @@ import type { CloseTargets } from "./hub-namespace";
  */
 const SUBJECT_PATTERN = /^[A-Za-z0-9_-]{1,200}$/;
 
-const subjectTag = (subject: string): string => `subject:${subject}`;
+const SUBJECT_TAG_PREFIX = "subject:";
+const subjectTag = (subject: string): string => `${SUBJECT_TAG_PREFIX}${subject}`;
 
 function closeQuietly(ws: WebSocket, code: number, reason: string): void {
   try {
@@ -130,30 +131,37 @@ export class TopicHub extends DurableObject<unknown> {
   }
 
   /**
-   * Send `signal` to every open socket on the topic, then close the named
-   * subjects' sockets (see {@link CloseTargets}). A socket older than
-   * `maxSocketAgeMs` is closed with 4001 first and is not sent the signal. A
-   * socket that cannot be written to is closed. Returns how many sockets the
-   * signal reached.
+   * Send `signal` to every open socket on the topic and close the named
+   * subjects' sockets after it (see {@link CloseTargets}). A socket older than
+   * `maxSocketAgeMs` is not sent the signal and is closed with 4001. A revoked
+   * subject's socket is closed with 1008 whatever else applies, so its client
+   * stops rather than reconnecting. Returns how many sockets the signal reached.
    */
   publish(signal: Signal, targets: CloseTargets = {}): number {
     const frame = JSON.stringify(signal);
     const expiredBefore = Date.now() - this.limits.maxSocketAgeMs;
+    const evict = new Set(targets.evict);
+    const revoke = new Set(targets.revoke);
     let reached = 0;
     for (const ws of this.open()) {
-      if (acceptedAt(ws) < expiredBefore) {
-        closeQuietly(ws, CLOSE_CODES.evicted, "expired");
-        continue;
+      const subject = this.subjectOf(ws);
+      const revoked = subject !== undefined && revoke.has(subject);
+      const expired = acceptedAt(ws) < expiredBefore;
+      if (!expired) {
+        try {
+          ws.send(frame);
+          reached += 1;
+        } catch {
+          closeQuietly(ws, revoked ? CLOSE_CODES.policy : 1011, "send failed");
+          continue;
+        }
       }
-      try {
-        ws.send(frame);
-        reached += 1;
-      } catch {
-        closeQuietly(ws, 1011, "send failed");
+      if (revoked) closeQuietly(ws, CLOSE_CODES.policy, "access revoked");
+      else if (expired) closeQuietly(ws, CLOSE_CODES.evicted, "expired");
+      else if (subject !== undefined && evict.has(subject)) {
+        closeQuietly(ws, CLOSE_CODES.evicted, "membership changed");
       }
     }
-    this.closeSubjects(targets.evict, CLOSE_CODES.evicted, "membership changed");
-    this.closeSubjects(targets.revoke, CLOSE_CODES.policy, "access revoked");
     return reached;
   }
 
@@ -179,14 +187,10 @@ export class TopicHub extends DurableObject<unknown> {
     return this.ctx.getWebSockets(tag).filter((ws) => ws.readyState === WebSocket.OPEN);
   }
 
-  private closeSubjects(
-    subjects: readonly string[] | undefined,
-    code: number,
-    reason: string,
-  ): void {
-    for (const subject of subjects ?? []) {
-      for (const ws of this.ctx.getWebSockets(subjectTag(subject))) closeQuietly(ws, code, reason);
-    }
+  /** The subject `fetch` tagged `ws` with. */
+  private subjectOf(ws: WebSocket): string | undefined {
+    const tag = this.ctx.getTags(ws).find((t) => t.startsWith(SUBJECT_TAG_PREFIX));
+    return tag?.slice(SUBJECT_TAG_PREFIX.length);
   }
 
   /** When the runtime last answered `ws`'s ping, or when it was accepted if it never pinged. */

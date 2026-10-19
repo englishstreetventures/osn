@@ -52,12 +52,26 @@ export class AgedHub extends ObservedHub {
   static override maxSocketAgeMs = 300;
 }
 
+/** Two sockets per topic and one per subject, so both caps can be hit at once. */
+export class CrowdedHub extends ObservedHub {
+  static override socketCap = 2;
+  static override subjectCap = 1;
+}
+
+/** One socket per subject, and a socket goes stale after 1 s without a ping. */
+export class StaleSubjectHub extends ObservedHub {
+  static override subjectCap = 1;
+  static override staleAfterMs = 1_000;
+}
+
 interface Env {
   HUB: DurableObjectNamespace<ObservedHub>;
   SMALL_HUB: DurableObjectNamespace<SmallHub>;
   STALE_HUB: DurableObjectNamespace<StaleHub>;
   SUBJECT_HUB: DurableObjectNamespace<SubjectHub>;
   AGED_HUB: DurableObjectNamespace<AgedHub>;
+  CROWDED_HUB: DurableObjectNamespace<CrowdedHub>;
+  STALE_SUBJECT_HUB: DurableObjectNamespace<StaleSubjectHub>;
 }
 
 // Not exported: workerd treats every export of a Worker's main module as an
@@ -69,6 +83,8 @@ function pick(env: Env, name: string | null): DurableObjectNamespace<ObservedHub
   if (name === "stale") return env.STALE_HUB;
   if (name === "subject") return env.SUBJECT_HUB;
   if (name === "aged") return env.AGED_HUB;
+  if (name === "crowded") return env.CROWDED_HUB;
+  if (name === "stale-subject") return env.STALE_SUBJECT_HUB;
   return env.HUB;
 }
 
