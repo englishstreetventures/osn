@@ -240,13 +240,15 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # Its own key: this job installs without the infra packages, so the
+      # key a full install restores is never one this job saved.
       - name: Cache bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
           restore-keys: |
-            ${{ runner.os }}-bun-
+            ${{ runner.os }}-bun-noinfra-
 
       # The Alchemy tree (@shared/infra and the @<product>/infra stacks) is
       # about 100 packages and over 1 GB unpacked, and only a job that builds,
@@ -335,13 +337,15 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # Its own key: this job installs without the infra packages, so the
+      # key a full install restores is never one this job saved.
       - name: Cache bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
           restore-keys: |
-            ${{ runner.os }}-bun-
+            ${{ runner.os }}-bun-noinfra-
 
       - name: Restore turbo cache
         uses: actions/cache/restore@v4
@@ -448,13 +452,15 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # Its own key: this job installs without the infra packages, so the
+      # key a full install restores is never one this job saved.
       - name: Cache bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
           restore-keys: |
-            ${{ runner.os }}-bun-
+            ${{ runner.os }}-bun-noinfra-
 
       - name: Restore turbo cache
         uses: actions/cache/restore@v4
@@ -526,13 +532,15 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # Its own key: this job installs without the infra packages, so the
+      # key a full install restores is never one this job saved.
       - name: Cache bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
           restore-keys: |
-            ${{ runner.os }}-bun-
+            ${{ runner.os }}-bun-noinfra-
 
       - name: Restore turbo cache
         uses: actions/cache/restore@v4
@@ -596,13 +604,15 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # Its own key: this job installs without the infra packages, so the
+      # key a full install restores is never one this job saved.
       - name: Cache bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
           restore-keys: |
-            ${{ runner.os }}-bun-
+            ${{ runner.os }}-bun-noinfra-
 
       - name: Restore turbo cache
         uses: actions/cache/restore@v4
@@ -670,13 +680,15 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # Its own key: this job installs without the infra packages, so the
+      # key a full install restores is never one this job saved.
       - name: Cache bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
           restore-keys: |
-            ${{ runner.os }}-bun-
+            ${{ runner.os }}-bun-noinfra-
 
       - name: Install dependencies except the infra packages
         run: bun install --frozen-lockfile --filter '!@*/infra'
@@ -774,13 +786,15 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # Its own key: this job installs without the infra packages, so the
+      # key a full install restores is never one this job saved.
       - name: Cache bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
           restore-keys: |
-            ${{ runner.os }}-bun-
+            ${{ runner.os }}-bun-noinfra-
 
       - name: Restore turbo cache
         uses: actions/cache/restore@v4
@@ -862,13 +876,15 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # Its own key: this job installs without the infra packages, so the
+      # key a full install restores is never one this job saved.
       - name: Cache bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
           restore-keys: |
-            ${{ runner.os }}-bun-
+            ${{ runner.os }}-bun-noinfra-
 
       - name: Install dependencies except the infra packages
         run: bun install --frozen-lockfile --filter '!@*/infra'

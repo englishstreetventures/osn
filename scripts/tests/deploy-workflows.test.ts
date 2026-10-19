@@ -925,6 +925,53 @@ describe("installs", () => {
     }
   });
 
+  // actions/cache saves a key once, from the first job that misses it. A
+  // filtered install that saved the key a full install restores would leave
+  // every full install fetching what the filter left out (the Alchemy tree,
+  // over 1 GB unpacked), so each install form saves under its own key.
+  test("in every workflow, bun's cache is keyed on what the job installs", () => {
+    const lock = "${{ hashFiles('bun.lock') }}";
+    /** The key prefix for each `--filter` an install passes; no filter is a full install. */
+    const PREFIX: Readonly<Record<string, string>> = {
+      "": "bun",
+      "'!@*/infra'": "bun-noinfra",
+    };
+    const files = readdirSync(join(root, ".github/workflows")).filter((file) =>
+      /\.ya?ml$/.test(file),
+    );
+    const cached = files.flatMap((file) =>
+      Object.entries(load(`.github/workflows/${file}`).jobs).flatMap(([id, job]) => {
+        const caches = stepsOf(job).filter((step) => step.with?.path === "~/.bun/install/cache");
+        if (caches.length === 0) return [];
+        const installs = stepsOf(job)
+          .map((step) => step.run ?? "")
+          .filter((run) => /\bbun install\b/.test(run));
+        return [{ job: `${file} ${id}`, caches, installs }];
+      }),
+    );
+    expect(cached.length).toBeGreaterThan(0);
+    for (const { job, caches, installs } of cached) {
+      expect({ job, caches: caches.length, installs: installs.length }).toEqual({
+        job,
+        caches: 1,
+        installs: 1,
+      });
+      const filter = /--filter (.+)$/.exec(installs[0] ?? "")?.[1] ?? "";
+      const prefix = PREFIX[filter];
+      expect({ job, filter, known: prefix !== undefined }).toEqual({ job, filter, known: true });
+      // A restore-only step saves nothing, so it may share any key it reads.
+      expect(["actions/cache@v4", "actions/cache/restore@v4"]).toContain(caches[0]?.uses ?? "");
+      expect({ job, with: caches[0]?.with }).toEqual({
+        job,
+        with: {
+          path: "~/.bun/install/cache",
+          key: `\${{ runner.os }}-${prefix}-${lock}`,
+          "restore-keys": `\${{ runner.os }}-${prefix}-\n`,
+        },
+      });
+    }
+  });
+
   test("'!@*/infra' leaves out every workspace that depends on alchemy", () => {
     // The filtered installs exist to keep the Alchemy tree out; a workspace
     // that depends on it under any other name would bring the tree back.
