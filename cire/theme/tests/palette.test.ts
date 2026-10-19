@@ -330,6 +330,62 @@ describe("contrast is enforced, not advised", () => {
     expect(onGold.l).toBeGreaterThan(gold.l);
   });
 
+  test("on-gold ink keeps the scheme's tint and stops at the bar, short of the pole", () => {
+    // A walked label is the scheme's own colour taken only as far as it must
+    // go: chapel's dark label is its ink, darker; garden's light label is its
+    // blush page, lighter. Neither becomes the bare black or white an
+    // over-eager walk would land on, and neither picks up more colour than
+    // the one it started from.
+    const BLACK = { l: 0, c: 0, h: 0, a: 1 };
+    const WHITE = { l: 1, c: 0, h: 0, a: 1 };
+    const cases = [
+      { key: "chapel", from: "ink", pole: BLACK },
+      { key: "garden", from: "ground", pole: WHITE },
+    ] as const;
+    for (const { key, from, pole } of cases) {
+      const v = derivePalette(PALETTE_PRESETS[key]);
+      const onGold = parseColor(v["--color-on-gold"]!)!;
+      const seed = parseColor(PALETTE_PRESETS[key][from])!;
+      const gold = parseColor(v["--color-gold"]!)!;
+      expect({ key, hue: Math.round(onGold.h) }).toEqual({ key, hue: Math.round(seed.h) });
+      expect(onGold.c, key).toBeLessThanOrEqual(seed.c);
+      expect(contrastOklch(onGold, gold), key).toBeLessThan(contrastOklch(pole, gold));
+    }
+  });
+
+  test("on-gold ink keeps the page colour whenever it reads, even where black would read better", () => {
+    // A grey gold in the narrow band where both poles clear 4.5:1 and black
+    // clears it by more. The white page already reads on it (4.54), so the
+    // buttons keep the page colour rather than trading it for a walked ink.
+    const v = derivePalette({
+      ground: "#ffffff",
+      card: "#ffffff",
+      ink: "#333333",
+      gilt: "#767676",
+    });
+    expect(v["--color-on-gold"]).toBe(v["--color-bg"]);
+  });
+
+  test("on-gold ink lightens the ink on a dark scheme whose gold sits mid-tone", () => {
+    // Navy page, rose ink, a mid-tone gold neither reads on (3.11 and 1.91),
+    // and white is the stronger pole (6.06 against black's 3.47). The light
+    // label is the ink walked lighter, keeping its rose, not the navy page
+    // walked across the gold.
+    const ink = "oklch(66% 0.05 30)";
+    const v = derivePalette({
+      ground: "oklch(18% 0.04 260)",
+      card: "oklch(22% 0.04 260)",
+      ink,
+      gilt: "oklch(50% 0.08 80)",
+    });
+    const onGold = parseColor(v["--color-on-gold"]!)!;
+    expect(contrastOklch(onGold, parseColor(v["--color-gold"]!)!)).toBeGreaterThanOrEqual(
+      WCAG_TEXT_MIN,
+    );
+    expect(onGold.l).toBeGreaterThan(parseColor(ink)!.l);
+    expect(Math.round(onGold.h)).toBe(30);
+  });
+
   test("on-gold ink clears the text bar on the muted field schemes too", () => {
     // Both schemes off the live wedding that added `--color-gold-ink`. Their
     // metal sits near the midpoint, where white is the only pole that reaches
@@ -595,9 +651,11 @@ describe("residual contrast warnings", () => {
         "--color-on-gold": derivePalette(PALETTE_PRESETS.chapel)["--color-bg"],
       },
     ];
-    const all = new Set(
-      schemes.flatMap((tokens) => paletteContrastWarnings(tokens).map((w) => w.id)),
-    );
+    const warnings = schemes.flatMap((tokens) => paletteContrastWarnings(tokens));
+    // The builder prints each message to the organiser; a blank one is a
+    // warning nobody can act on.
+    expect(warnings.filter((w) => w.message.trim() === "").map((w) => w.id)).toEqual([]);
+    const all = new Set(warnings.map((w) => w.id));
     expect([...all].toSorted()).toEqual(
       [
         "text-on-raised",

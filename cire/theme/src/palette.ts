@@ -377,40 +377,31 @@ const BLACK: Oklch = { l: 0, c: 0, h: 0, a: 1 };
  * uses, so a scheme whose gold reads under either keeps its look. When neither
  * reaches 4.5:1 (a mid-tone brass between a cream page and a dark ink), one of
  * them is walked toward black or white, whichever pole contrasts more with the
- * gold. The direction comes from that measurement, not from the gold's
- * lightness: a gold just past the midpoint can sit closer in contrast to black
- * than to white, and `ensureContrast`'s "dark text on a light backdrop" rule
- * then walks to pure black and still misses the bar. The organiser's gold is
- * never moved to make room.
+ * gold, and only as far as the bar. The direction comes from that measurement,
+ * not from the gold's lightness: a gold just past the lightness midpoint can
+ * still contrast more with white than with black, and `ensureContrast`'s
+ * "darker on a light backdrop" rule would walk it to pure black and still miss.
+ * The organiser's gold is never moved to make room.
  */
 function onGoldInk(gilt: Oklch, ground: Oklch, ink: Oklch): Oklch {
   for (const colour of [ground, ink]) {
     if (contrastOklch(colour, gilt) >= WCAG_TEXT_MIN) return colour;
   }
   const lighter = contrastOklch(WHITE, gilt) >= contrastOklch(BLACK, gilt);
-  // Start from whichever of the two already sits on that pole's side of the
-  // gold, so each step only adds contrast. Neither does only on a scheme whose
-  // page and ink both sit on one side of its gold; the gold itself is the
-  // start then.
-  const onSide = [ground, ink].filter((colour) =>
-    lighter ? colour.l > gilt.l : colour.l < gilt.l,
-  );
-  const start =
-    onSide.reduce<Oklch | undefined>(
-      (best, colour) =>
-        best && contrastOklch(best, gilt) >= contrastOklch(colour, gilt) ? best : colour,
-      undefined,
-    ) ?? gilt;
+  // Of the two, the one nearer that pole, so the label keeps the scheme's own
+  // tint: the page's on a light label, the ink's on a dark one.
+  const start = ground.l > ink.l === lighter ? ground : ink;
+  // The stronger pole clears 4.58:1 against any colour, so the walk always
+  // stops on the bar; fifty steps of 0.02 span the whole lightness range.
   const STEP = 0.02;
-  let best = start;
-  for (let i = 1; i <= 50; i++) {
+  let label = start;
+  for (let i = 1; i <= 50 && contrastOklch(label, gilt) < WCAG_TEXT_MIN; i++) {
     const l = Math.min(1, Math.max(0, start.l + (lighter ? i : -i) * STEP));
     // Ease chroma off toward the pole so the colour stays inside sRGB, as
     // `ensureContrast` does.
-    best = { ...start, l, c: Math.min(start.c, (lighter ? 1 - l : l) * 0.6) };
-    if (contrastOklch(best, gilt) >= WCAG_TEXT_MIN || l === 0 || l === 1) break;
+    label = { ...start, l, c: Math.min(start.c, (lighter ? 1 - l : l) * 0.6) };
   }
-  return best;
+  return label;
 }
 
 /**
