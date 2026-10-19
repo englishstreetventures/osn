@@ -11,7 +11,7 @@ export const APP_URL = import.meta.env.PUBLIC_APP_URL ?? "http://localhost:1422"
 
 /**
  * Docs / README link surfaced in the footer. Build-time override via
- * PUBLIC_DOCS_URL; defaults to a project README placeholder. Treated as a
+ * PUBLIC_DOCS_URL; defaults to the public repository's README. Treated as a
  * best-effort link — swap for a real docs site when one exists.
  */
 export const DOCS_URL =
