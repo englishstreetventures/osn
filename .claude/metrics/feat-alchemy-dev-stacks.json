@@ -1,0 +1,226 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1580,
+    "branch": "feat/alchemy-dev-stacks",
+    "base_sha": "77eb49b0d336ae3698c9a68891659cfb93c0b150",
+    "head_sha": "689737da757d2d4e157fd31d2be07c840478451c",
+    "generated_at": "2026-10-19T14:17:36.073Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1553,
+    "type": "Task",
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:8",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 8,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 39,
+    "first_ts": "2026-10-16T15:10:19.991Z",
+    "last_ts": "2026-10-19T14:17:26.677Z",
+    "span_seconds": 256027,
+    "active_seconds": 30373,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 527.2921323750005,
+    "tokens": {
+      "input": 7404,
+      "output": 91414,
+      "thinking": 23267,
+      "cache_write_5m": 26956123,
+      "cache_write_1h": 0,
+      "cache_read": 1002203676
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 6822,
+          "output": 87525,
+          "thinking": 23267,
+          "cache_write_5m": 25355603,
+          "cache_write_1h": 0,
+          "cache_read": 972325803
+        },
+        "usd_equivalent": 517.4861242000001,
+        "messages": 3344
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 572,
+          "output": 3873,
+          "thinking": 0,
+          "cache_write_5m": 1529551,
+          "cache_write_1h": 0,
+          "cache_read": 29655778
+        },
+        "usd_equivalent": 9.794907099999998,
+        "messages": 285
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 10
+      },
+      "claude-haiku-5-5": {
+        "tokens": {
+          "input": 10,
+          "output": 16,
+          "thinking": 0,
+          "cache_write_5m": 70969,
+          "cache_write_1h": 0,
+          "cache_read": 222095
+        },
+        "usd_equivalent": 0.011101074999999998,
+        "messages": 5
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 172,
+          "output": 38602,
+          "thinking": 18879,
+          "cache_write_5m": 560766,
+          "cache_write_1h": 0,
+          "cache_read": 1050241
+        },
+        "usd_equivalent": 3.9966543999999997,
+        "messages": 84
+      },
+      "subagent": {
+        "tokens": {
+          "input": 7232,
+          "output": 52812,
+          "thinking": 4388,
+          "cache_write_5m": 26395357,
+          "cache_write_1h": 0,
+          "cache_read": 1001153435
+        },
+        "usd_equivalent": 523.2954779750002,
+        "messages": 3560
+      }
+    },
+    "effort": {
+      "medium": 84,
+      "high": 223,
+      "xhigh": 3240,
+      "low": 87
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 3,
+      "test": 78,
+      "docs": 39,
+      "config": 31,
+      "source": 58
+    },
+    "loc": {
+      "generated": {
+        "added": 93,
+        "deleted": 0
+      },
+      "test": {
+        "added": 7362,
+        "deleted": 814
+      },
+      "docs": {
+        "added": 2771,
+        "deleted": 1107
+      },
+      "config": {
+        "added": 1445,
+        "deleted": 1091
+      },
+      "source": {
+        "added": 3874,
+        "deleted": 793
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/build-tools",
+      "cire/db",
+      "cire/infra",
+      "osn/api",
+      "osn/db",
+      "pulse/infra",
+      "pulse/landing",
+      "shared/infra",
+      "zap/api",
+      "zap/db",
+      "zap/infra"
+    ],
+    "touches_migration": false,
+    "commits": 54
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 3099,
+      "Read": 259,
+      "Edit": 133,
+      "Write": 92,
+      "Monitor": 78,
+      "StructuredOutput": 37,
+      "SubagentHandback": 36,
+      "Agent": 33,
+      "Grep": 27,
+      "Skill": 26,
+      "SendMessage": 14,
+      "ToolSearch": 10,
+      "mcp__claude_ai_Cloudflare_Developer_Platform__search_cloudflare_documentation": 6,
+      "Glob": 4,
+      "mcp__claude_ai_Cloudflare_Developer_Platform__d1_database_get": 3,
+      "mcp__claude_ai_Cloudflare_Developer_Platform__r2_bucket_get": 2,
+      "TaskStop": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 15,
+      "max_edits_one_file": 21
+    },
+    "skills": {
+      "new-feat": 10,
+      "superpowers:writing-plans": 1,
+      "superpowers:subagent-driven-development": 1,
+      "superpowers:test-driven-development": 3,
+      "prep-pr": 1,
+      "review-performance": 1,
+      "review-docs": 1,
+      "review-tests": 1,
+      "review-security": 1,
+      "rate-complexity": 1,
+      "write-wiki": 2,
+      "obsidian:obsidian-markdown": 2,
+      "retro": 1
+    },
+    "subagents": {
+      "explorer": 3,
+      "attacker": 2,
+      "implementer": 12,
+      "general-purpose": 10,
+      "reviewer": 6
+    }
+  }
+}
