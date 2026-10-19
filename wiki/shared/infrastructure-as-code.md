@@ -258,7 +258,7 @@ build ────┘
 **One stack job per stack** (`stack-musubi-dev`, `stack-cire-dev`, `stack-zap-dev`, `stack-pulse-dev`, "Alchemy <stack> stack — dev") deploys the whole stack, in the `dev` Environment, in its own concurrency group `deploy-dev-<stack>` that never cancels. In order:
 
 1. Refuse `force` together with `expect_no_change`.
-2. Install with `--frozen-lockfile`, run `dev-hosts`, and build the stack's sites against those hosts. No install or build step holds a credential or a Worker secret; the invites build reads `ASTRO_KEY` alone. The cire job then runs `scripts/guard-bundle-size.sh` on each of its four sites ([[bundle-size-guards]]).
+2. Install with `--frozen-lockfile`, run `dev-hosts`, and build the stack's sites against those hosts. No install or build step holds a credential or a Worker secret; the invites build reads `ASTRO_KEY` alone. Each job then runs `scripts/guard-bundle-size.sh` on every guarded site it built: cire's four, musubi landing and pulse landing ([[bundle-size-guards]]).
 3. **Token check**: `token:check -- --tier dev` stops the job unless the dev token reaches the dev account and no other, and acts on the `DEV_DOMAIN` zone and no production zone ([[#Accounts]]). No earlier step holds the token.
 4. **Snapshot**: `scripts/worker-deployments.ts snapshot` records each Worker's newest deployment, and writes `force=true` when any Worker's newest deployment carries the smoke check's rollback message.
 5. Refuse `expect_no_change` while the snapshot says `force`.

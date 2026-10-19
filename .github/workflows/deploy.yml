@@ -307,6 +307,12 @@ jobs:
           SITE: ${{ steps.hosts.outputs.musubi_landing_origin }}
           PUBLIC_APP_URL: ${{ steps.hosts.outputs.musubi_social_origin }}
 
+      # musubi/landing's `build` script runs scripts/guard-bundle-size.sh too,
+      # but not when turbo replays a cached build; this checks what is about to
+      # upload either way (wiki/conventions/bundle-size-guards.md).
+      - name: Guard musubi/landing bundle size
+        run: ./scripts/guard-bundle-size.sh musubi/landing
+
       # The dev token must reach the dev account and no other: a token created
       # with "All accounts" or "All zones" by a member of both would reach
       # production too. It must also act on the DEV_DOMAIN zone, so an account
@@ -1079,6 +1085,12 @@ jobs:
         run: bun run build --filter=@pulse/landing
         env:
           SITE: ${{ steps.hosts.outputs.pulse_landing_origin }}
+
+      # pulse/landing's `build` script runs scripts/guard-bundle-size.sh too,
+      # but not when turbo replays a cached build; this checks what is about to
+      # upload either way (wiki/conventions/bundle-size-guards.md).
+      - name: Guard pulse/landing bundle size
+        run: ./scripts/guard-bundle-size.sh pulse/landing
 
       # The dev token must reach the dev account and no other: a token created
       # with "All accounts" or "All zones" by a member of both would reach

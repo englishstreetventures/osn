@@ -142,18 +142,16 @@ Every app's own `build` script chains the guard on with `&&` (`astro build &&
 by-hand cire/invites deploy. It ALSO runs as its own step in `ci.yml`'s
 `build-test` job (one `--all` step covering every app), in every production
 deploy job in `production-release.yml` that builds a guarded app (one
-`guard-bundle-size.sh <app>` step; each such job builds one app), and in the cire
-stack job in `deploy.yml`, which builds four guarded apps and runs one step for
-each: `cire/invites`, `cire/host`, `cire/vendor` and `cire/landing`. That is not
+`guard-bundle-size.sh <app>` step; each such job builds one app), and in the
+stack jobs in `deploy.yml`, with one step per guarded app each builds: the cire
+stack job for `cire/invites`, `cire/host`, `cire/vendor` and `cire/landing`, the
+musubi stack job for `musubi/landing`, and the pulse stack job for
+`pulse/landing`. `scripts/tests/deploy-workflows.test.ts` holds each stack job to
+its list. That is not
 redundant: a Turborepo cache replay of `build` replays its logged output
 without executing the script, so the chained invocation never runs on a cache
 hit — the explicit workflow step is what still checks the artifact that IS on
 disk in that case. Both invocations matter; neither one alone covers both paths.
-
-The musubi and pulse stack jobs in `deploy.yml` build `musubi/landing` and
-`pulse/landing` and run no explicit guard step. Each keeps a turbo cache of its
-own ([[infrastructure-as-code#The dev deploy]]), so when that cache replays a
-landing build, the guard does not run on what dev uploads.
 
 `musubi/landing` and `pulse/landing` also deploy from
 `.github/workflows/deploy-osn-pulse-landing.yml` (a feature-branch preview,

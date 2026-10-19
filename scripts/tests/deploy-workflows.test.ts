@@ -215,10 +215,10 @@ const DEPLOY_VARIABLES: Readonly<Record<StackKey, Record<string, string>>> = {
 
 /** The bundle-size guards each stack job runs on its builds before anything uploads. */
 const BUNDLE_GUARDS: Readonly<Record<StackKey, readonly string[]>> = {
-  musubi: [],
+  musubi: ["musubi/landing"],
   cire: ["cire/invites", "cire/host", "cire/vendor", "cire/landing"],
   zap: [],
-  pulse: [],
+  pulse: ["pulse/landing"],
 };
 
 const BUILD = /\bbun run build --filter=(\S+)/;
