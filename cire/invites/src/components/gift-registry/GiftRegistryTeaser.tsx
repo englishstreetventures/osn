@@ -207,7 +207,7 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
             <a
               data-gift-teaser-link
               href={giftRegistryPath(props.slug)}
-              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg text-ui-base tracking-ui-wider inline-block rounded-sm border bg-transparent px-6 py-3.5 uppercase transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
+              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold text-ui-base tracking-ui-wider inline-block rounded-sm border bg-transparent px-6 py-3.5 uppercase transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
             >
               See the gift list
             </a>

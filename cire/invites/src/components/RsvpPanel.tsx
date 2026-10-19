@@ -980,7 +980,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                 keyed on `loading()` instead, which is the state that earns it. */}
             <button
               type="submit"
-              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg disabled:hover:text-gold-ink text-ui-sm tracking-ui-wider flex-1 rounded-sm border bg-transparent px-4 py-3 uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold disabled:hover:text-gold-ink text-ui-sm tracking-ui-wider flex-1 rounded-sm border bg-transparent px-4 py-3 uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               classList={{
                 "opacity-40": loading() || blockedByMember(),
                 "cursor-pointer": !saved(),
