@@ -236,7 +236,11 @@ describe("the probe workflow", () => {
       jobs: { probe: { environment?: string; steps: readonly ProbeStep[] } };
     };
     const { environment, steps } = workflow.jobs.probe;
-    const install = steps.findIndex((step) => step.run === "bun install --frozen-lockfile");
+    // The job installs only what dev-hosts needs (scripts/tests/deploy-workflows.test.ts
+    // holds the filter); either way it installs from the lockfile.
+    const install = steps.findIndex(
+      (step) => step.run?.startsWith("bun install --frozen-lockfile") === true,
+    );
     const hosts = steps.findIndex((step) => step.id === "hosts");
     const probe = steps.findIndex((step) => step.run?.includes("scripts/d1-latency-probe.ts"));
 
