@@ -7,9 +7,12 @@ const OSN_DB = { base: "osn-db", dev: "osn-db-dev", production: "osn-db-prod" };
 const CIRE_DB = { base: "cire-db", dev: "cire-db-dev", production: "cire-db" };
 
 describe("parseStage", () => {
-  test.each(["dev", "production", "pr-1512", "alice", "a1-b2"])("accepts %j", (stage) => {
-    expect(parseStage(stage)).toBe(stage);
-  });
+  test.each(["dev", "production", "pr-1512", "alice", "a1-b2", "a".repeat(20)])(
+    "accepts %j",
+    (stage) => {
+      expect(parseStage(stage)).toBe(stage);
+    },
+  );
 
   test.each([
     "",
@@ -58,9 +61,11 @@ describe("physicalName", () => {
     );
   });
 
-  test("refuses a derived name over 63 characters", () => {
-    expect(() =>
-      physicalName({ base: "b".repeat(50), dev: "x", production: "y" }, "investigation-12345"),
-    ).toThrow(/63/);
+  test("accepts a derived name of 63 characters and refuses one of 64", () => {
+    // `<base>-pr-7`: the base plus 5 characters.
+    const at = (baseLength: number) =>
+      physicalName({ base: "b".repeat(baseLength), dev: "x", production: "y" }, "pr-7");
+    expect(at(58)).toHaveLength(63);
+    expect(() => at(59)).toThrow(/63/);
   });
 });

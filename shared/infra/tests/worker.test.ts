@@ -2,6 +2,7 @@ import { Redacted } from "effect";
 import { describe, expect, test } from "vitest";
 
 import { tierSecrets } from "../src/secrets/inventory";
+import { requireSecrets } from "../src/secrets/require";
 import type { Tier } from "../src/stage";
 import {
   apiWorkerProps,
@@ -139,12 +140,36 @@ describe("apiWorkerProps", () => {
     expect(() => apiWorkerProps({ ...cireApiDev, bindings: { OSN_ENV: {} as never } })).toThrow(
       BindingNameClashError,
     );
+    expect(() =>
+      apiWorkerProps({ ...cireApiDev, bindings: { CIRE_OIDC_CLIENT_SECRET: {} as never } }),
+    ).toThrow(BindingNameClashError);
   });
 
   test("refuses a name Alchemy binds itself", () => {
     expect(() => apiWorkerProps({ ...cireApiDev, vars: { ALCHEMY_STAGE: "dev" } })).toThrow(
       /ALCHEMY_STAGE/,
     );
+    expect(() => apiWorkerProps({ ...cireApiDev, bindings: { ALCHEMY_X: {} as never } })).toThrow(
+      /ALCHEMY_X/,
+    );
+  });
+
+  test("passes an optional secret held during a rotation, still redacted", () => {
+    const row = tierSecrets("osn-api", "production");
+    const [optional] = row.optional;
+    if (optional === undefined) throw new Error("osn-api production declares no optional secret");
+    const env = Object.fromEntries(
+      [...row.secrets, optional].map((name) => [name, "not-a-real-secret"]),
+    );
+    const props = apiWorkerProps({
+      ...cireApiProduction,
+      worker: "osn-api",
+      name: "osn-api-production",
+      main: "../../osn/api/src/index.ts",
+      secrets: requireSecrets({ worker: "osn-api", stage: "production", env }),
+    });
+    const passed = (props.env as Record<string, unknown>)[optional];
+    expect(Redacted.isRedacted(passed)).toBe(true);
   });
 
   test("refuses secrets that leave out a name the inventory requires, naming it", () => {

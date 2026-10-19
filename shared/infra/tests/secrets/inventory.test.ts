@@ -33,17 +33,51 @@ function sourceText(dir: string): string {
 const reads = (dir: string, name: string): boolean =>
   new RegExp(`\\b${name}\\b`).test(sourceText(dir));
 
-/** osn-api refuses to serve outside local without these (osn/api/wrangler.toml secrets block; wiki/shared/production-deploy.md §3.1). */
-const OSN_API_FAIL_CLOSED = [
-  "OSN_JWT_PRIVATE_KEY",
-  "OSN_JWT_PUBLIC_KEY",
-  "OSN_PAIRWISE_SALT",
-  "OSN_SESSION_IP_PEPPER",
-  "OSN_TOTP_ENCRYPTION_KEY",
-  "RESEND_API_KEY",
-  "UPSTASH_REDIS_REST_TOKEN",
-  "UPSTASH_REDIS_REST_URL",
-];
+const read = (path: string): string => readFileSync(join(REPO_ROOT, path), "utf8");
+
+/** The `<name>="A B"` lists a workflow step's shell sets, by name. */
+const shellLists = (run: string): Map<string, string[]> =>
+  new Map(
+    [...run.matchAll(/^\s*(\w+)="([^"]*)"\s*$/gm)].map((match) => [
+      match[1]!,
+      match[2]!.split(/\s+/).filter((name) => name !== ""),
+    ]),
+  );
+
+interface PreflightStep {
+  readonly run?: string;
+  readonly "working-directory"?: string;
+}
+
+/** Each production deploy preflight, as the Worker it checks and the `required` and `forbidden` names it holds the Worker to. */
+const PREFLIGHTS = Object.values(
+  (
+    Bun.YAML.parse(read(".github/workflows/production-release.yml")) as {
+      jobs: Record<string, { steps?: PreflightStep[] }>;
+    }
+  ).jobs,
+)
+  .flatMap((job) => job.steps ?? [])
+  .flatMap((step) => {
+    const lists = shellLists(step.run ?? "");
+    const directory = step["working-directory"];
+    const entry = SECRET_INVENTORY.find(
+      (candidate) => directory !== undefined && candidate.sourceDir.startsWith(`${directory}/`),
+    );
+    if (entry === undefined || !(lists.has("forbidden") || lists.has("required"))) return [];
+    return [
+      {
+        worker: entry.worker,
+        required: lists.get("required") ?? [],
+        forbidden: lists.get("forbidden") ?? [],
+      },
+    ];
+  });
+
+/** The secrets osn/api/wrangler.toml marks `REQUIRED non-local`: osn-api refuses to serve outside local without them. */
+const OSN_API_REQUIRED_NON_LOCAL = [
+  ...read("osn/api/wrangler.toml").matchAll(/^#\s+([A-Z][A-Z0-9_]+)\s.*REQUIRED non-local/gm),
+].map((match) => match[1]!);
 
 const rows = SECRET_INVENTORY.flatMap((entry) =>
   TIERS.map((tier) => ({
@@ -59,12 +93,6 @@ describe("secret inventory", () => {
     for (const row of rows) {
       const all = [...row.secrets, ...row.optional, ...row.forbidden];
       expect(new Set(all).size, `${row.worker} ${row.tier}`).toBe(all.length);
-    }
-  });
-
-  test("osn-api keeps the outgoing TOTP key while a rotation drains, on both tiers", () => {
-    for (const tier of TIERS) {
-      expect(tierSecrets("osn-api", tier).optional).toEqual(["OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"]);
     }
   });
 
@@ -84,23 +112,34 @@ describe("secret inventory", () => {
   });
 
   test("osn-api declares every secret it fails closed without, on both tiers", () => {
+    const failClosed = [
+      ...OSN_API_REQUIRED_NON_LOCAL,
+      ...PREFLIGHTS.filter((step) => step.worker === "osn-api").flatMap((step) => step.required),
+    ];
+    expect(OSN_API_REQUIRED_NON_LOCAL.length).toBeGreaterThan(0);
     for (const tier of TIERS) {
-      expect(tierSecrets("osn-api", tier).secrets).toEqual(
-        expect.arrayContaining(OSN_API_FAIL_CLOSED),
-      );
+      expect(tierSecrets("osn-api", tier).secrets).toEqual(expect.arrayContaining(failClosed));
     }
   });
 
-  test("cire-api declares its OIDC client secret on both tiers", () => {
-    for (const tier of TIERS)
-      expect(tierSecrets("cire-api", tier).secrets).toContain("CIRE_OIDC_CLIENT_SECRET");
+  test("production forbids every name a deploy preflight refuses", () => {
+    expect(
+      PREFLIGHTS.filter((step) => step.forbidden.length > 0)
+        .map((step) => step.worker)
+        .toSorted(),
+    ).toEqual(["cire-api", "osn-api"]);
+    for (const step of PREFLIGHTS) {
+      const forbidden = tierSecrets(step.worker, "production").forbidden;
+      expect({
+        worker: step.worker,
+        notForbidden: step.forbidden.filter((name) => !forbidden.includes(name)),
+      }).toEqual({ worker: step.worker, notForbidden: [] });
+    }
   });
 
-  test("the forbidden lists hold what the deploy preflights refuse", () => {
-    expect(tierSecrets("osn-api", "production").forbidden).toContain("DEV_LOGIN_SECRET");
+  test("dev forbids the local mail emulator's address, which a deployed Worker refuses", () => {
     for (const worker of ["osn-api", "cire-api"] as const) {
-      for (const tier of TIERS)
-        expect(tierSecrets(worker, tier).forbidden).toContain("RESEND_API_URL");
+      expect(tierSecrets(worker, "dev").forbidden).toContain("RESEND_API_URL");
     }
   });
 
