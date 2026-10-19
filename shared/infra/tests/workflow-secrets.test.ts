@@ -147,7 +147,9 @@ describe("W12: each stack job checks its token before any step uses it", () => {
         secretsRead(step).includes(TIER_ACCOUNTS.dev.apiTokenSecret),
       );
       expect(first?.id).toBe("token");
-      expect(first?.run).toBe("bun run --cwd shared/infra token:check");
+      expect(first?.run).toBe("bun run --cwd shared/infra token:check -- --tier dev");
+      // The zone check needs the dev domain: a dev token must act on that zone.
+      expect(first?.env?.DEV_DOMAIN).toBe("${{ vars.DEV_DOMAIN }}");
       expect(first?.["continue-on-error"]).toBeUndefined();
       expect(first?.if).toBeUndefined();
       expect(secretsRead(first)).toEqual([...accountSecrets("dev")]);

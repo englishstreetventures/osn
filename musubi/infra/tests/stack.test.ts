@@ -92,6 +92,10 @@ describe("the musubi stack, evaluated offline", () => {
     expect(investigation.OsnApi?.Props.env?.OSN_RP_NAME).toBe("OSN (probe)");
   });
 
+  test("RQ1: osn-api redacts query strings from its logs and traces, since dev sign-in takes its secret in one", () => {
+    expect(resourcesOf(dev).OsnApi?.Props.observability?.redactQueryString).toBe(true);
+  });
+
   test("K5: every resource the dev stage keeps is retained on destroy and replacement", () => {
     const resources = resourcesOf(dev);
     expect(

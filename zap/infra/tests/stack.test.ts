@@ -37,14 +37,21 @@ describe("the zap stack, evaluated offline", () => {
     expect(resources.ZapApi?.Props.domain).toBe(`zap.cire.${DEV_DOMAIN}`);
 
     const env = resources.ZapApi?.Props.env ?? {};
+    // OSN_ENV marks a deployed tier, so zap-api runs its fail-closed checks
+    // on the JWKS URL, the issuer and the CORS list; ZAP_CORS_ORIGIN names
+    // the one browser origin on dev that calls it.
     expect({
+      OSN_ENV: env.OSN_ENV,
       OSN_JWKS_URL: env.OSN_JWKS_URL,
       OSN_ISSUER_URL: env.OSN_ISSUER_URL,
       OSN_API_URL: env.OSN_API_URL,
+      ZAP_CORS_ORIGIN: env.ZAP_CORS_ORIGIN,
     }).toEqual({
+      OSN_ENV: "dev",
       OSN_JWKS_URL: `https://id.musubi.${DEV_DOMAIN}/.well-known/jwks.json`,
       OSN_ISSUER_URL: `https://id.musubi.${DEV_DOMAIN}`,
       OSN_API_URL: `https://id.musubi.${DEV_DOMAIN}`,
+      ZAP_CORS_ORIGIN: `https://musubi.${DEV_DOMAIN}`,
     });
     // The D1 binding is the database this stack declares, so zap-api reaches
     // the dev database and nothing else.

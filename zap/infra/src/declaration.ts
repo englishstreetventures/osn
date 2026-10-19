@@ -64,10 +64,14 @@ export function zapDeclaration(input: {
       // each version's preview URL is a public workers.dev host that no
       // Access application covers.
       previewUrls: false,
-      // Exactly the names production's Wrangler config sets. OSN_ISSUER_URL
-      // must equal osn-api's own issuer byte for byte, or every
-      // authenticated request is refused.
+      // Production's Wrangler names, plus OSN_ENV, which marks a deployed
+      // tier so zap-api runs its fail-closed checks on the JWKS URL, the
+      // issuer and the CORS list, and ZAP_CORS_ORIGIN, the one browser origin
+      // on dev that calls it. OSN_ISSUER_URL must equal osn-api's own issuer
+      // byte for byte, or every authenticated request is refused.
       vars: {
+        OSN_ENV: "dev",
+        ZAP_CORS_ORIGIN: origin(hosts.musubiSocial),
         OSN_JWKS_URL: `${issuer}/.well-known/jwks.json`,
         OSN_ISSUER_URL: issuer,
         OSN_API_URL: issuer,

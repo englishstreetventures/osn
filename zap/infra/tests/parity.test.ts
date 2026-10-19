@@ -34,7 +34,7 @@ beforeAll(async () => {
 afterAll(removeEvaluations);
 
 describe("zap-api on dev against Wrangler's production config", () => {
-  test("K2: binding, var and secret names equal production's exactly; the retired GrowthBook key is in neither", () => {
+  test("K2: binding, var and secret names are production's plus the tier marker and CORS list; the retired GrowthBook key is in neither", () => {
     const production = wrangler.env.production;
     const secrets = tierSecrets("zap-api", "production");
     const productionNames = [
@@ -45,9 +45,19 @@ describe("zap-api on dev against Wrangler's production config", () => {
     ].toSorted();
     const devNames = Object.keys(resourcesOf(dev).ZapApi?.Props.env ?? {}).toSorted();
 
-    expect(devNames).toEqual(productionNames);
+    // Dev adds exactly the tier marker and the CORS list to production's names.
+    const devOnly = new Set(["OSN_ENV", "ZAP_CORS_ORIGIN"]);
+    expect(devNames.filter((name) => !devOnly.has(name))).toEqual(productionNames);
     expect(devNames).toEqual(
-      ["DB", "INTERNAL_SERVICE_SECRET", "OSN_API_URL", "OSN_ISSUER_URL", "OSN_JWKS_URL"].toSorted(),
+      [
+        "DB",
+        "INTERNAL_SERVICE_SECRET",
+        "OSN_API_URL",
+        "OSN_ENV",
+        "OSN_ISSUER_URL",
+        "OSN_JWKS_URL",
+        "ZAP_CORS_ORIGIN",
+      ].toSorted(),
     );
     expect(devNames).not.toContain(RETIRED);
     expect(productionNames).not.toContain(RETIRED);

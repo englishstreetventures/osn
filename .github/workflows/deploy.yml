@@ -29,8 +29,8 @@ name: Deploy
 # cire sites), zap/infra (zap-api), pulse/infra (pulse landing). In order, it
 #   1. derives every dev host from the dev Environment's DEV_DOMAIN variable
 #      (`dev-hosts`) and builds the stack's sites against those hosts;
-#   2. checks that the dev token reaches the dev account and no other
-#      (`token:check`), before any other step holds it;
+#   2. checks that the dev token reaches the dev account, and of zones only
+#      the dev domain's (`token:check`), before any other step holds it;
 #   3. records each Worker's newest deployment (scripts/worker-deployments.ts
 #      snapshot), deploys the stack, then names the deployment the deploy made
 #      for each Worker, or `unchanged` when it uploaded none (compare);
@@ -304,12 +304,15 @@ jobs:
           PUBLIC_APP_URL: ${{ steps.hosts.outputs.musubi_social_origin }}
 
       # The dev token must reach the dev account and no other: a token created
-      # with "All accounts" by a member of both would reach production too.
-      # Every step below that holds it runs only after this passes.
+      # with "All accounts" or "All zones" by a member of both would reach
+      # production too. It must also act on the DEV_DOMAIN zone, so an account
+      # id that names production fails here. Every step below that holds the
+      # token runs only after this passes.
       - name: Check the token reaches only the dev account
         id: token
-        run: bun run --cwd shared/infra token:check
+        run: bun run --cwd shared/infra token:check -- --tier dev
         env:
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
@@ -609,12 +612,15 @@ jobs:
         run: ./scripts/guard-bundle-size.sh cire/landing
 
       # The dev token must reach the dev account and no other: a token created
-      # with "All accounts" by a member of both would reach production too.
-      # Every step below that holds it runs only after this passes.
+      # with "All accounts" or "All zones" by a member of both would reach
+      # production too. It must also act on the DEV_DOMAIN zone, so an account
+      # id that names production fails here. Every step below that holds the
+      # token runs only after this passes.
       - name: Check the token reaches only the dev account
         id: token
-        run: bun run --cwd shared/infra token:check
+        run: bun run --cwd shared/infra token:check -- --tier dev
         env:
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
@@ -871,12 +877,15 @@ jobs:
           DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
 
       # The dev token must reach the dev account and no other: a token created
-      # with "All accounts" by a member of both would reach production too.
-      # Every step below that holds it runs only after this passes.
+      # with "All accounts" or "All zones" by a member of both would reach
+      # production too. It must also act on the DEV_DOMAIN zone, so an account
+      # id that names production fails here. Every step below that holds the
+      # token runs only after this passes.
       - name: Check the token reaches only the dev account
         id: token
-        run: bun run --cwd shared/infra token:check
+        run: bun run --cwd shared/infra token:check -- --tier dev
         env:
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
@@ -1040,12 +1049,15 @@ jobs:
           SITE: ${{ steps.hosts.outputs.pulse_landing_origin }}
 
       # The dev token must reach the dev account and no other: a token created
-      # with "All accounts" by a member of both would reach production too.
-      # Every step below that holds it runs only after this passes.
+      # with "All accounts" or "All zones" by a member of both would reach
+      # production too. It must also act on the DEV_DOMAIN zone, so an account
+      # id that names production fails here. Every step below that holds the
+      # token runs only after this passes.
       - name: Check the token reaches only the dev account
         id: token
-        run: bun run --cwd shared/infra token:check
+        run: bun run --cwd shared/infra token:check -- --tier dev
         env:
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 

@@ -23,12 +23,10 @@ const UNSET_ON_PRODUCTION_TOO = "unset on production too";
  */
 const UNSET_ON_DEV: Readonly<Record<string, string>> = {
   NODE_ENV: UNSET_ON_PRODUCTION_TOO,
-  OSN_ENV: UNSET_ON_PRODUCTION_TOO,
   PORT: "read only by src/local.ts, the Bun dev server",
   ZAP_API_ARC_KEY_ID: UNSET_ON_PRODUCTION_TOO,
   ZAP_API_ARC_PRIVATE_KEY: UNSET_ON_PRODUCTION_TOO,
-  ZAP_CORS_ORIGIN: UNSET_ON_PRODUCTION_TOO,
-  ZAP_ENV: UNSET_ON_PRODUCTION_TOO,
+  ZAP_ENV: "OSN_ENV marks the tier instead; zap-api reads ZAP_ENV first and OSN_ENV after it",
 };
 
 interface WranglerConfig {

@@ -126,10 +126,11 @@ export function musubiDeclaration(input: {
           ]),
         ),
       },
-      // Invocation logs on, as osn-api's Wrangler config leaves them when unset.
+      // Invocation logs on, as osn-api's Wrangler config leaves them when
+      // unset. Query strings are redacted: dev sign-in takes its secret in one.
       observability: {
         headSamplingRate: 1,
-        redactQueryString: false,
+        redactQueryString: true,
         traces: { enabled: true, headSamplingRate: 1 },
         invocationLogs: true,
         issues: true,
