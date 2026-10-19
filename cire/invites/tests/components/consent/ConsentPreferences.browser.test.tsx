@@ -6,7 +6,7 @@ import "../../../src/styles/global.css";
 import { ConsentPreferences } from "../../../src/components/consent/ConsentPreferences";
 import { readConsentFromDocument } from "../../../src/lib/consent/cookie";
 import { consentPreferencesOpen, openConsentPreferences } from "../../../src/lib/consent/store";
-import { resetConsentForTest } from "../../../src/lib/consent/testing";
+import { resetConsentForTest } from "../../test-support/testing";
 
 /**
  * The two dismissal gestures, performed against a real `<dialog>`.

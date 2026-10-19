@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-invite-designs]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-19
 ---
 # Site-wide consent framework
 
@@ -99,7 +99,7 @@ Two traps this separation exists to avoid:
 | `lib/consent/record.ts` | The persisted record: versions, grant normalisation, encode/decode. |
 | `lib/consent/cookie.ts` | Cookie transport (`__Host-cire_consent` / `cire_consent`). |
 | `lib/consent/store.ts` | Module-level Solid signals shared by every island. |
-| `lib/consent/testing.ts` | `seedConsentForTest` / `resetConsentForTest`. |
+| `../tests/test-support/testing.ts` | `seedConsentForTest` / `resetConsentForTest`. |
 | `components/consent/ConsentGate.tsx` | The wrapper + the default blocked-content placeholder. |
 | `components/consent/ConsentBanner.tsx` | The first-layer prompt — a dialog on the invite's pages, a bottom banner on the legal pages — and the standing `ConsentPreferencesLink`. |
 | `components/consent/ConsentPreferences.tsx` | The "Choose" dialog. |

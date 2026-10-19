@@ -10,15 +10,15 @@
  * against a record the application would actually have written — not a
  * hand-rolled approximation of one that might no longer parse.
  */
-import type { ConsentCategory } from "./categories";
-import { CONSENT_COOKIE_NAME, PREFIXED_CONSENT_COOKIE_NAME } from "./cookie";
+import type { ConsentCategory } from "../../src/lib/consent/categories";
+import { CONSENT_COOKIE_NAME, PREFIXED_CONSENT_COOKIE_NAME } from "../../src/lib/consent/cookie";
 import {
   type ConsentGrants,
   defaultGrants,
   encodeConsentRecord,
   makeConsentRecord,
-} from "./record";
-import { resetConsentStoreForTest } from "./store";
+} from "../../src/lib/consent/record";
+import { resetConsentStoreForTest } from "../../src/lib/consent/store";
 
 /**
  * Delete the consent cookie — both names, since a browser-tier test running

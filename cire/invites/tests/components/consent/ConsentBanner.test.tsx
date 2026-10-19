@@ -14,8 +14,8 @@ import {
   makeConsentRecord,
 } from "../../../src/lib/consent/record";
 import { consentPreferencesOpen } from "../../../src/lib/consent/store";
-import { resetConsentForTest, seedConsentForTest } from "../../../src/lib/consent/testing";
 import { onSecureOriginWithJar } from "../../test-support/secure-origin";
+import { resetConsentForTest, seedConsentForTest } from "../../test-support/testing";
 
 const bannerOf = (container: HTMLElement) =>
   container.querySelector<HTMLElement>('section[aria-label="Privacy choices"]');

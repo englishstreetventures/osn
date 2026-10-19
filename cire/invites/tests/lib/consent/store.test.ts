@@ -23,8 +23,8 @@ import {
   saveConsent,
   setReloadPageForTest,
 } from "../../../src/lib/consent/store";
-import { resetConsentForTest, seedConsentForTest } from "../../../src/lib/consent/testing";
 import { onSecureOriginWithJar } from "../../test-support/secure-origin";
+import { resetConsentForTest, seedConsentForTest } from "../../test-support/testing";
 
 /**
  * `saveConsent` reloads the page on a granted → revoked transition when a
