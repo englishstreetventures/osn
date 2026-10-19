@@ -9,7 +9,8 @@ related:
   - "[[bundle-size-guards]]"
   - "[[devloop-urls]]"
   - "[[browser-tests]]"
-last-reviewed: 2026-10-19
+  - "[[realtime]]"
+last-reviewed: 2026-10-20
 ---
 
 # Testing Patterns
@@ -622,6 +623,7 @@ Reach for these before hand-rolling setup:
 | `cire/api/tests/test-helpers.ts` → `appRequest()` | Elysia requests with `cf-connecting-ip` + `Origin` pre-injected. |
 | `cire/host/tests/test-support/mocks.ts` | The `@shared/rp-auth/solid` + `@shared/toast` + `lib/api` mock trio, their spies, and `resetOrganiserMocks()`. |
 | `pulse/web/tests/helpers/toast.ts` → `toastMock()` | Same idea for the Pulse app. |
+| `cire/invites/tests/test-support/consent.ts` → `seedConsentForTest()` / `resetConsentForTest()` | A returning guest's consent cookie, written with the app's own record encoder under the http name `cire_consent` (an https origin reads only `__Host-cire_consent`, so it ignores the seed), and a reset that deletes both consent cookie names and returns the store to before hydration. For any `cire/invites` suite that renders a consent-gated component on the default http origin. See [[cire-consent]]. |
 | `cire/api/tests/test-helpers/metrics-harness.ts` → `counterValue()` | Reading a counter back in a `@cire/api` test. See [[#Asserting a metric]]. |
 
 Call `makeAccessTokenSigner()` once per suite in `beforeAll` — there is no reason to re-key per test.
@@ -729,17 +731,19 @@ yet; their metric suites today assert only that a call does not throw.
 
 ## The D1 integration lane
 
-Each API package has a `tests/d1/d1-integration.test.ts` (cire's is `tests/db/d1-integration.test.ts`) that runs against a real workerd-backed D1 via Miniflare. They are the only coverage of the **asynchronous** D1 driver that dev/staging/prod actually use, as opposed to the synchronous `bun:sqlite` every other suite runs on.
+Each API package has a `tests/d1/d1-integration.test.ts` (cire's is `tests/db/d1-integration.test.ts`) that runs against a real workerd-backed D1 via Miniflare. They are the only coverage of the **asynchronous** D1 driver that dev/staging/prod actually use, as opposed to the synchronous `bun:sqlite` every other suite runs on. `shared/realtime` joins this lane too, though its `tests/d1/hub.test.ts` covers `TopicHub` on workerd rather than D1 — the hibernation API it exercises exists only in the runtime, so it needs the same Miniflare tier for the same reason.
 
-How the fast tier avoids them differs by runner, and the difference is worth knowing before you read a CI log:
+How the fast tier avoids these files differs by runner, and the difference is worth knowing before you read a CI log:
 
-| Package | Fast-tier runner | Does `bun run test` load the D1 file? |
+| Package | Fast-tier runner | Does `bun run test` load the D1/Miniflare file? |
 |---|---|---|
-| `osn/api`, `pulse/api`, `zap/api` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
+| `osn/api`, `pulse/api`, `zap/api`, `shared/realtime` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
 | `cire/api` | bare `bun test` | **Yes.** `bun test` discovers recursively and takes no exclude, so the Miniflare suite runs twice per CI run — once inside `@cire/api#test`, once under `test:d1`. A workerd failure reddens cire's fast tier too, and a workerd timeout can stop it outright: see [[#Miniflare in cire's fast tier]]. `tests/db/migrate-wrapper.test.ts`, which runs real wrangler, skips unless `CIRE_D1_TIER=1`, which only `test:d1` sets. |
 
+See [[realtime]] for what `hub.test.ts` covers.
+
 ```bash
-bun run test:d1            # all four packages, serially
+bun run test:d1            # every D1/Miniflare package, serially
 bun run --cwd zap/api test:d1
 ```
 

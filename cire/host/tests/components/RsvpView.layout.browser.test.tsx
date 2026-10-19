@@ -295,7 +295,8 @@ describe("the replies table's layout", () => {
     expect(markers.some((text) => text.includes("Wolfeschlegelsteinhausenbergerdorff"))).toBe(true);
     expect(
       [...document.querySelectorAll("tbody span.inline-block")].some(
-        (badge) => badge.textContent?.trim() === "Household-entered",
+        // The visible word only: the badge also holds its hidden explanation.
+        (badge) => badge.firstChild?.textContent?.trim() === "Household-entered",
       ),
     ).toBe(true);
   });
