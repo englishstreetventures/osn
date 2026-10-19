@@ -53,6 +53,7 @@ const api = (stage: string) =>
     domain: null,
     crons: [],
     workersDev: false,
+    previewUrls: false,
     vars: {},
     bindings: {},
     secrets: Object.fromEntries(
@@ -76,6 +77,7 @@ const site = (stage: string) =>
     directory: "../../cire/landing/dist",
     domain: null,
     workersDev: false,
+    previewUrls: false,
     htmlHandling: "auto-trailing-slash",
     notFoundHandling: "404-page",
     issues: true,

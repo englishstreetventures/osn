@@ -8,6 +8,8 @@ import {
   apiWorkerProps,
   BindingNameClashError,
   ProductionObservabilityError,
+  ProductionPreviewUrlsError,
+  SecretAsPlainBindingError,
   siteWorkerProps,
   UndeclaredSecretsError,
   type ApiWorkerInput,
@@ -40,6 +42,7 @@ const cireApiDev: ApiWorkerInput = {
   domain: "api.dev.cireweddings.com",
   crons: ["0 4 * * *"],
   workersDev: false,
+  previewUrls: false,
   vars: { OSN_ENV: "dev" },
   bindings: {},
   secrets: cireApiSecrets("dev"),
@@ -66,23 +69,64 @@ const cireApiProduction: ApiWorkerInput = {
 };
 
 describe("apiWorkerProps", () => {
-  test("turns version preview URLs off on production only", () => {
+  test("serves workers.dev and version preview URLs only as the input says", () => {
     expect(apiWorkerProps(cireApiDev).workersDev).toEqual({
       enabled: false,
-      previewsEnabled: true,
+      previewsEnabled: false,
     });
-    expect(apiWorkerProps({ ...cireApiDev, stage: "pr-7" }).workersDev).toEqual({
+    expect(apiWorkerProps({ ...cireApiDev, stage: "pr-7", previewUrls: true }).workersDev).toEqual({
       enabled: false,
       previewsEnabled: true,
     });
+    expect(apiWorkerProps({ ...cireApiDev, workersDev: true }).workersDev).toEqual({
+      enabled: true,
+      previewsEnabled: false,
+    });
+  });
+
+  test("refuses version preview URLs on production", () => {
     expect(apiWorkerProps(cireApiProduction).workersDev).toEqual({
       enabled: false,
       previewsEnabled: false,
     });
-    expect(apiWorkerProps({ ...cireApiDev, workersDev: true }).workersDev).toEqual({
-      enabled: true,
-      previewsEnabled: true,
-    });
+    expect(() => apiWorkerProps({ ...cireApiProduction, previewUrls: true })).toThrow(
+      ProductionPreviewUrlsError,
+    );
+  });
+
+  test.each([
+    ["an optional secret", "osn-api", "production", { OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: "plain" }],
+    ["a forbidden name", "cire-api", "production", { RESEND_API_URL: "http://localhost:3010" }],
+    ["the other tier's secret", "cire-api", "production", { STRIPE_SECRET_KEY: "plain" }],
+  ] as const)(
+    "refuses %s as a plain var, naming it and never its value",
+    (_kind, worker, stage, vars) => {
+      const secrets = Object.fromEntries(
+        tierSecrets(worker, stage).secrets.map((name) => [
+          name,
+          Redacted.make("not-a-real-secret"),
+        ]),
+      );
+      const error = thrown(() =>
+        apiWorkerProps({
+          ...cireApiProduction,
+          worker,
+          name: `${worker}-${stage}`,
+          stage,
+          secrets,
+          vars,
+        }),
+      );
+      expect(error).toBeInstanceOf(SecretAsPlainBindingError);
+      expect(error).toMatchObject({ names: Object.keys(vars) });
+      expect((error as Error).message).not.toContain(Object.values(vars)[0]);
+    },
+  );
+
+  test("refuses a binding named like a secret the inventory lists", () => {
+    expect(() =>
+      apiWorkerProps({ ...cireApiDev, bindings: { RESEND_API_URL: {} as never } }),
+    ).toThrow(SecretAsPlainBindingError);
   });
 
   test("keeps query strings redacted and native traces off on production", () => {
@@ -213,6 +257,7 @@ describe("siteWorkerProps", () => {
     directory: "../../cire/landing/dist",
     domain: "cireweddings.com",
     workersDev: false,
+    previewUrls: false,
     htmlHandling: "auto-trailing-slash",
     notFoundHandling: "404-page",
     issues: true,
@@ -228,10 +273,13 @@ describe("siteWorkerProps", () => {
       notFoundHandling: "404-page",
     });
     expect(props.workersDev).toEqual({ enabled: false, previewsEnabled: false });
-    expect(siteWorkerProps({ ...site, stage: "dev" }).workersDev).toEqual({
+    expect(siteWorkerProps({ ...site, stage: "dev", previewUrls: true }).workersDev).toEqual({
       enabled: false,
       previewsEnabled: true,
     });
+    expect(() => siteWorkerProps({ ...site, previewUrls: true })).toThrow(
+      ProductionPreviewUrlsError,
+    );
   });
 
   test("keeps query strings out of logs and native traces off on every stage", () => {

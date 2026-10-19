@@ -1,7 +1,7 @@
 import type * as Cloudflare from "alchemy/Cloudflare";
 import { Data, type Redacted } from "effect";
 
-import { tierSecrets, type WorkerKey } from "./secrets/inventory";
+import { SECRET_INVENTORY, tierSecrets, type WorkerKey } from "./secrets/inventory";
 import { tierOf, type Tier } from "./stage";
 
 export interface ApiWorkerObservability {
@@ -27,8 +27,11 @@ export interface ApiWorkerInput {
   /** The custom-domain hostname, or null to hold none. */
   readonly domain: string | null;
   readonly crons: readonly string[];
-  /** Serve the stable workers.dev URL. Version preview URLs follow the tier instead. */
+  /** Serve the stable workers.dev URL. */
   readonly workersDev: boolean;
+  /** Serve each version at its own workers.dev preview URL; refused on production. */
+  readonly previewUrls: boolean;
+  /** Plain-text values. Never a name the secret inventory lists for this Worker. */
   readonly vars: Readonly<Record<string, string>>;
   readonly bindings: Cloudflare.WorkerBindingProps;
   readonly secrets: Readonly<Record<string, Redacted.Redacted<string>>>;
@@ -42,6 +45,8 @@ export interface SiteWorkerInput {
   readonly directory: string;
   readonly domain: string | null;
   readonly workersDev: boolean;
+  /** Serve each version at its own workers.dev preview URL; refused on production. */
+  readonly previewUrls: boolean;
   readonly htmlHandling:
     | "auto-trailing-slash"
     | "force-trailing-slash"
@@ -59,6 +64,18 @@ export class BindingNameClashError extends Data.TaggedError("BindingNameClashErr
 
 export class ProductionObservabilityError extends Data.TaggedError("ProductionObservabilityError")<{
   readonly worker: string;
+  readonly message: string;
+}> {}
+
+export class ProductionPreviewUrlsError extends Data.TaggedError("ProductionPreviewUrlsError")<{
+  readonly worker: string;
+  readonly message: string;
+}> {}
+
+export class SecretAsPlainBindingError extends Data.TaggedError("SecretAsPlainBindingError")<{
+  readonly worker: WorkerKey;
+  /** The vars or bindings keys the inventory lists for the Worker. Never values. */
+  readonly names: readonly string[];
   readonly message: string;
 }> {}
 
@@ -114,7 +131,46 @@ function clashingNames(groups: readonly (readonly string[])[]): string[] {
   return [...clashes].toSorted();
 }
 
-const previewsEnabled = (stage: string): boolean => tierOf(stage) !== "production";
+/**
+ * Each version's preview URL is a public `workers.dev` host outside any
+ * Access gate, so the stack turns it on by name, and production never does.
+ */
+function previewsEnabled(name: string, stage: string, previewUrls: boolean): boolean {
+  if (previewUrls && tierOf(stage) === "production") {
+    throw new ProductionPreviewUrlsError({
+      worker: name,
+      message: `${name} on production: version preview URLs must be off.`,
+    });
+  }
+  return previewUrls;
+}
+
+/**
+ * A var reaches the Worker as plain text that `wrangler secret list` never
+ * shows, and a binding is no secret either, so neither may take a name the
+ * inventory lists for the Worker on any tier: required, optional or
+ * forbidden.
+ */
+function checkPlainBindings(input: ApiWorkerInput): void {
+  const entry = SECRET_INVENTORY.find((candidate) => candidate.worker === input.worker);
+  const listed = new Set<string>();
+  for (const tier of ["dev", "production"] as const) {
+    const row = entry?.tiers[tier];
+    for (const name of [row?.secrets, row?.optional, row?.forbidden].flat()) {
+      if (name !== undefined) listed.add(name);
+    }
+  }
+  const names = [...Object.keys(input.vars), ...Object.keys(input.bindings)]
+    .filter((name) => listed.has(name))
+    .toSorted();
+  if (names.length > 0) {
+    throw new SecretAsPlainBindingError({
+      worker: input.worker,
+      names,
+      message: `${input.name} (${input.worker}) vars or bindings take names the secret inventory lists: ${names.join(", ")}. Pass a secret through secrets, and never a forbidden name.`,
+    });
+  }
+}
 
 /**
  * Production request paths carry ids and slugs, so production keeps query
@@ -148,6 +204,7 @@ export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
       message: `Binding names used twice or reserved by Alchemy: ${clashes.join(", ")}.`,
     });
   }
+  checkPlainBindings(input);
   checkProductionObservability(input);
   const { observability } = input;
   return {
@@ -156,7 +213,10 @@ export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
     compatibility: { date: input.compatibility.date, flags: [...input.compatibility.flags] },
     domain: input.domain,
     crons: [...input.crons],
-    workersDev: { enabled: input.workersDev, previewsEnabled: previewsEnabled(input.stage) },
+    workersDev: {
+      enabled: input.workersDev,
+      previewsEnabled: previewsEnabled(input.name, input.stage, input.previewUrls),
+    },
     observability: {
       enabled: true,
       headSamplingRate: observability.headSamplingRate,
@@ -184,7 +244,10 @@ export function siteWorkerProps(input: SiteWorkerInput): Cloudflare.WorkerProps 
       notFoundHandling: input.notFoundHandling,
     },
     domain: input.domain,
-    workersDev: { enabled: input.workersDev, previewsEnabled: previewsEnabled(input.stage) },
+    workersDev: {
+      enabled: input.workersDev,
+      previewsEnabled: previewsEnabled(input.name, input.stage, input.previewUrls),
+    },
     // A site's URLs can carry parameters a user should not see logged (the
     // OIDC authorize screen's), and serving static files needs no traces.
     observability: {
