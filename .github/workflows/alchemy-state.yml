@@ -12,6 +12,10 @@ name: Alchemy state store
 #                      refreshes credentials and upgrades it only if its version
 #                      differs from the pinned Alchemy's. The tier's token
 #                      needs Secrets Store edit.
+# Each run first checks that the tier's token reaches exactly one account,
+# the one its CLOUDFLARE_ACCOUNT_ID names (`bun run token:check`), and stops
+# otherwise: a token that also reached the other account would undo the split.
+#
 #   action: check      lists the store's top level (stack names) and writes no
 #                      state; proves this tier's token reaches it. Like every
 #                      CI run against the store, it uploads a temporary
@@ -81,6 +85,7 @@ jobs:
             echo "::error::The dev Environment holds no CLOUDFLARE_DEV_ACCOUNT_ID or CLOUDFLARE_DEV_ACCOUNT_API_TOKEN, so there is no dev account to reach."
             exit 1
           fi
+          bun run token:check
           if [ "$ACTION" = bootstrap ]; then
             bun run state:bootstrap
           else
@@ -99,6 +104,7 @@ jobs:
             echo "::error::The production Environment holds no CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN."
             exit 1
           fi
+          bun run token:check
           if [ "$ACTION" = bootstrap ]; then
             bun run state:bootstrap
           else

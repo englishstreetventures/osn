@@ -19,6 +19,7 @@
     "test:run": "bunx --bun vitest run",
     "secrets:check-live": "bun run scripts/check-live-secrets.ts",
     "secrets:check-github": "bun run scripts/check-github-secrets.ts",
+    "token:check": "bun run scripts/check-token-reach.ts",
     "state:bootstrap": "DO_NOT_TRACK=1 bun alchemy provider cloudflare bootstrap",
     "state:check": "DO_NOT_TRACK=1 bun alchemy state ls --backend cloudflare"
   },

@@ -131,6 +131,17 @@ describe("the Alchemy state store workflow", () => {
     }
   });
 
+  test("each tier's step checks its token reaches only its own account before Alchemy runs", () => {
+    for (const tier of TIERS) {
+      const run = steps.find((candidate) => candidate.if === `inputs.tier == '${tier}'`)?.run ?? "";
+      const check = run.indexOf("bun run token:check");
+      expect(check, `${tier}`).toBeGreaterThan(-1);
+      for (const command of ["bun run state:bootstrap", "bun run state:check"]) {
+        expect(run.indexOf(command), `${tier} ${command}`).toBeGreaterThan(check);
+      }
+    }
+  });
+
   test("no secret is read anywhere else in the workflow", () => {
     const tierSteps = new Set(
       TIERS.map((tier) => steps.find((step) => step.if === `inputs.tier == '${tier}'`)),
