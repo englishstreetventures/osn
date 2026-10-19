@@ -542,8 +542,10 @@ jobs:
       # turbo hashes each dev build's PUBLIC_*, VITE_* and SITE values, so the
       # `build` job's cache never holds a dev build. This stack's own cache
       # does: a site whose files and dev values are unchanged replays its
-      # last build instead of building again. Keyed on the commit so each run
-      # saves, falling back to this stack's newest, then the `build` job's.
+      # last build instead of building again. The guest site is the
+      # exception: its build holds ASTRO_KEY and runs with the cache off.
+      # Keyed on the commit so each run saves, falling back to this stack's
+      # newest, then the `build` job's.
       - name: Cache turbo
         uses: actions/cache@v4
         with:
@@ -581,13 +583,17 @@ jobs:
       # manifest. With it, two builds of one commit are byte-identical and an
       # unchanged commit plans no change; without it every build differs, so
       # the step refuses to run. turbo.json passes it through to the build.
+      # Because the output holds the key, this build runs with turbo's cache
+      # off: it never replays a build made with another key (turbo does not
+      # hash ASTRO_KEY), and never leaves the key in .turbo, which this job
+      # saves to a cache other runs can restore.
       - name: Build cire/invites (dev)
         run: |
           if [ -z "$ASTRO_KEY" ]; then
             echo "::error::ASTRO_KEY is empty: set it on the dev Environment (make one with 'bunx --bun astro create-key' in cire/invites). Without it every guest-site build differs, and no deploy can plan 'no changes'."
             exit 1
           fi
-          bun run build --filter=@cire/invites
+          bun run build --filter=@cire/invites --cache=local:,remote:
         env:
           PUBLIC_API_URL: ${{ steps.hosts.outputs.cire_api_origin }}
           PUBLIC_SITE_URL: ${{ steps.hosts.outputs.cire_invites_origin }}

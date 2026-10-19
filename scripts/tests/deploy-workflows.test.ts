@@ -466,7 +466,34 @@ describe("each stack job builds, deploys and checks its whole stack", () => {
     expect(refused.bunCalls).toEqual([]);
     const built = runStep(build, { ASTRO_KEY: "a-fixed-key" });
     expect(built.exitCode).toBe(0);
-    expect(built.bunCalls).toEqual(["run build --filter=@cire/invites"]);
+    expect(built.bunCalls).toEqual(["run build --filter=@cire/invites --cache=local:,remote:"]);
+  });
+
+  // Astro writes ASTRO_KEY into the guest site's server output. A build that
+  // reads a secret must neither replay a cached build (made with another
+  // key, since turbo passes ASTRO_KEY through unhashed) nor leave its output
+  // in .turbo, which the stack job saves to a cache other runs can restore.
+  test("a build step that reads a secret runs with turbo's cache off", () => {
+    const reading = STACKS.flatMap((s) => buildsOf(stackJobOf(s.key))).filter((step) =>
+      JSON.stringify(step.env ?? {}).includes("secrets."),
+    );
+    expect(reading.map((step) => BUILD.exec(step.run ?? "")?.[1])).toEqual(["@cire/invites"]);
+    for (const step of reading) {
+      const calls = runStep(step, { ASTRO_KEY: "a-fixed-key" }).bunCalls;
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toEndWith(" --cache=local:,remote:");
+    }
+  });
+
+  test("no cache key or restore key in any workflow is made from a secret", () => {
+    const keys = readdirSync(join(root, ".github/workflows"))
+      .filter((file) => /\.ya?ml$/.test(file))
+      .flatMap((file) => Object.values(load(`.github/workflows/${file}`).jobs))
+      .flatMap((job) => stepsOf(job))
+      .filter((step) => /^actions\/cache(\/(restore|save))?@/.test(step.uses ?? ""))
+      .map((step) => `${step.with?.key ?? ""}\n${step.with?.["restore-keys"] ?? ""}`);
+    expect(keys.length).toBeGreaterThan(0);
+    expect(keys.filter((key) => key.includes("secrets."))).toEqual([]);
   });
 
   test.each(STACKS.map((s) => [s.key] as const))(
