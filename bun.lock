@@ -661,7 +661,7 @@
     },
     "shared/realtime": {
       "name": "@shared/realtime",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "4.0.3",
