@@ -10,6 +10,7 @@ import {
   DEV_READONLY_CREDENTIALS,
   forbiddenCredentials,
   knownCredentials,
+  REPOSITORY_CREDENTIALS,
   TIER_ACCOUNTS,
 } from "../src/accounts";
 import type { Tier } from "../src/stage";
@@ -164,5 +165,62 @@ describe("the Alchemy state store workflow", () => {
       },
     };
     expect(JSON.stringify(rest)).not.toMatch(/secrets/i);
+  });
+});
+
+const ALERT = fileURLToPath(
+  new URL("../../../.github/workflows/free-tier-ceiling-alert.yml", import.meta.url),
+);
+
+interface AlertStep extends WorkflowStep {
+  readonly "continue-on-error"?: boolean;
+}
+
+interface AlertJob {
+  readonly environment?: string;
+  readonly steps: readonly AlertStep[];
+}
+
+describe("the free-tier ceiling alert", () => {
+  const alert = Bun.YAML.parse(readFileSync(ALERT, "utf8")) as {
+    readonly jobs: Readonly<Record<string, AlertJob>>;
+  };
+  /** The one step of `job` that runs the check. */
+  const checkStep = (job: AlertJob | undefined): AlertStep | undefined => {
+    const steps = (job?.steps ?? []).filter((step) =>
+      step.run?.includes("scripts/check-free-tier-ceilings.ts"),
+    );
+    expect(steps).toHaveLength(1);
+    return steps[0];
+  };
+
+  test("F6: one job per account", () => {
+    expect(Object.keys(alert.jobs).toSorted()).toEqual(["dev", "production"]);
+  });
+
+  test("F6: the production job reads the repository's read-only pair and passes --account production", () => {
+    const job = alert.jobs.production;
+    expect(job?.environment).toBeUndefined();
+    expect(secretsRead(job)).toEqual([...REPOSITORY_CREDENTIALS].toSorted());
+    const step = checkStep(job);
+    expect(step?.env?.CLOUDFLARE_ACCOUNT_ID).toBe("${{ secrets.CLOUDFLARE_ACCOUNT_ID }}");
+    expect(step?.env?.CLOUDFLARE_API_TOKEN).toBe("${{ secrets.CLOUDFLARE_API_TOKEN_READONLY }}");
+    expect(step?.run).toContain("--account production");
+  });
+
+  test("F6: the dev job runs in dev and reads exactly the dev account id and read-only token", () => {
+    const job = alert.jobs.dev;
+    expect(job?.environment).toBe(TIER_ACCOUNTS.dev.environment);
+    expect(secretsRead(job)).toEqual(
+      [TIER_ACCOUNTS.dev.accountIdSecret, ...DEV_READONLY_CREDENTIALS].toSorted(),
+    );
+    const step = checkStep(job);
+    expect(step?.env?.CLOUDFLARE_ACCOUNT_ID).toBe(
+      `\${{ secrets.${TIER_ACCOUNTS.dev.accountIdSecret} }}`,
+    );
+    expect(step?.env?.CLOUDFLARE_API_TOKEN).toBe(`\${{ secrets.${DEV_READONLY_CREDENTIALS[0]} }}`);
+    expect(step?.run).toContain("--account dev");
+    // An empty dev secret must fail the job (the script names both secrets).
+    expect(step?.["continue-on-error"]).toBeUndefined();
   });
 });
