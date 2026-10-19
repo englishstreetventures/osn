@@ -114,11 +114,15 @@ export const createRsvpRoutes = (
         // Whether linking is on for the household, the stale-ok answer the
         // claim payload gives (via `waitUntil`). It decides only whether the
         // musubi sign-in may vouch for the reply. Started here so it overlaps
-        // the body read and the Turnstile check.
+        // the body read and the Turnstile check. A refusal can answer before
+        // it settles, so `waitUntil` holds it: a flag refresh it started is
+        // shared with the isolate's later requests. It never rejects.
+        const waitUntil = getWaitUntil(request);
         const linkingRead =
           accountLinking === undefined
             ? Promise.resolve(false)
-            : isAccountLinkingOn(accountLinking, familyId, getWaitUntil(request));
+            : isAccountLinkingOn(accountLinking, familyId, waitUntil);
+        waitUntil?.(linkingRead);
 
         const raw: unknown = await request.json().catch(() => null);
 
@@ -289,6 +293,20 @@ export const createRsvpRoutes = (
               set.status = 409;
               yield* Effect.sync(() => metricRsvpBlocked("member_required"));
               return { error: "member_required" };
+            }
+
+            // The reply is recorded under the session's member, so it must be
+            // the member the page showed: "Not you?" and a new choice in
+            // another tab would otherwise put this tab's answers under them.
+            // A page that names no member is taken as before.
+            if (
+              submittedByGuestId !== null &&
+              body.memberGuestId !== undefined &&
+              body.memberGuestId !== submittedByGuestId
+            ) {
+              set.status = 409;
+              yield* Effect.sync(() => metricRsvpBlocked("member_changed"));
+              return { error: "member_changed" };
             }
 
             // With the step on, a household of two or more must say who is

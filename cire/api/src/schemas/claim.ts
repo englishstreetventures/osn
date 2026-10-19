@@ -175,7 +175,9 @@ export const ClaimResponse = Schema.Struct({
   accountLink: AccountLinkState,
   // Which household member this session says it is: present for every guest
   // household, `null` until chosen. Absent on a host preview, which is not a
-  // guest seat.
+  // guest seat, and for a household of a wedding in
+  // `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` while account linking is off for it
+  // (`memberStepOn`).
   member: Schema.optional(Schema.NullOr(Schema.Struct({ guestId: Schema.String }))),
 });
 export type ClaimResponse = Schema.Schema.Type<typeof ClaimResponse>;

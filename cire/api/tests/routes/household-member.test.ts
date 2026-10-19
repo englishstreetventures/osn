@@ -20,10 +20,13 @@ import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { parseSessionToken } from "../../src/lib/cookie";
+import { setExecutionCtx } from "../../src/lib/execution-ctx";
+import { CIRE_METRICS } from "../../src/metrics";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import type { OsnAccountResolver } from "../../src/services/osn-bridge";
 import { rsvpService } from "../../src/services/rsvp";
 import { jsonBody } from "../test-helpers";
+import { counterValue } from "../test-helpers/metrics-harness";
 import { seedPlusOne } from "../test-helpers/plus-one";
 
 // Seeded families (cire/db/seed/data/guests.ts):
@@ -202,6 +205,24 @@ describe("claim payload", () => {
   });
 });
 
+describe("the restore's choice for a household of one, in a Worker", () => {
+  it("is written after the response, held by the request's waitUntil", async () => {
+    const { db, app } = buildApp(false);
+    const { cookie } = await claim(app, TESTFAMILY);
+    db.update(sessions).set({ memberGuestId: null }).run();
+    const request = new Request(`http://localhost/api/claim/session?slug=${SLUG}`, {
+      headers: { Cookie: cookie, "cf-connecting-ip": IP, Origin: ORIGIN },
+    });
+    const kept: Promise<unknown>[] = [];
+    setExecutionCtx(request, { waitUntil: (promise) => kept.push(promise) });
+    const res = await app.fetch(request);
+    const ada = guestId(db, "Ada");
+    expect(((await jsonBody(res)) as { member: unknown }).member).toEqual({ guestId: ada });
+    await Promise.all(kept);
+    expect(db.select({ member: sessions.memberGuestId }).from(sessions).get()?.member).toBe(ada);
+  });
+});
+
 describe("POST / DELETE /api/claim/member", () => {
   it("records the household's own member and answers with the link state", async () => {
     const { db, app } = buildApp();
@@ -231,6 +252,8 @@ describe("POST / DELETE /api/claim/member", () => {
     const plusOne = await call(app, "POST", "/api/claim/member", cookie, { guestId: sam });
     expect(plusOne.status).toBe(403);
     expect(await jsonBody(plusOne)).toEqual({ error: "plus_one_seat" });
+    // Neither refusal recorded a member.
+    expect(db.select({ member: sessions.memberGuestId }).from(sessions).get()?.member).toBeNull();
 
     const none = await call(app, "POST", "/api/claim/member", null, { guestId: guestId(db, "Bo") });
     expect(none.status).toBe(401);
@@ -295,6 +318,37 @@ describe("POST / DELETE /api/claim/member", () => {
     const res = await restore(app, cookie);
     expect(res.status).toBe(200);
     expect(((await jsonBody(res)) as { member: unknown }).member).toBeNull();
+  });
+});
+
+describe("POST /api/claim/member when the write does not land", () => {
+  it("answers 500 when the write fails, and records no member", async () => {
+    const { db, app } = buildApp();
+    const { cookie } = await claim(app, SAMPLETON);
+    db.run(
+      sql`CREATE TRIGGER refuse_session_update BEFORE UPDATE ON sessions BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+    );
+    const res = await call(app, "POST", "/api/claim/member", cookie, {
+      guestId: guestId(db, "Bo"),
+    });
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Could not save your choice" });
+    expect(db.select({ member: sessions.memberGuestId }).from(sessions).get()?.member).toBeNull();
+  });
+
+  it("answers 401 when the session is gone by the time of the write", async () => {
+    const { db, app } = buildApp();
+    const { cookie } = await claim(app, SAMPLETON);
+    // The write finds no session row, as when it ends between its check and
+    // the write; the guest passes every other check.
+    db.run(
+      sql`CREATE TRIGGER skip_session_update BEFORE UPDATE ON sessions BEGIN SELECT RAISE(IGNORE); END`,
+    );
+    const res = await call(app, "POST", "/api/claim/member", cookie, {
+      guestId: guestId(db, "Bo"),
+    });
+    expect(res.status).toBe(401);
+    expect(await jsonBody(res)).toEqual({ error: "Unauthorized" });
   });
 });
 
@@ -729,6 +783,29 @@ describe("a wedding excluded from the member step", () => {
     expect((await jsonBody(await restore(app, cookie))) as object).not.toHaveProperty("member");
   });
 
+  it("records no actor on a plus-one change from a session that chose a member earlier", async () => {
+    const { db, app } = buildApp(false, ownAccount, EXCLUDED);
+    const { cookie } = await claim(app, SAMPLETON);
+    const bo = guestId(db, "Bo");
+    db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, bo)).run();
+    db.update(sessions).set({ memberGuestId: bo }).run();
+    const res = await call(app, "PUT", `/api/plus-one/${bo}`, cookie, {
+      firstName: "Sam",
+      lastName: "Guest",
+    });
+    expect(res.status).toBe(200);
+    expect(db.select().from(rsvpChanges).get()?.actorGuestId).toBeNull();
+    const removed = await call(app, "DELETE", `/api/plus-one/${bo}`, cookie);
+    expect(removed.status).toBe(200);
+    expect(
+      db
+        .select({ actor: rsvpChanges.actorGuestId })
+        .from(rsvpChanges)
+        .all()
+        .map((r) => r.actor),
+    ).toEqual([null, null]);
+  });
+
   it("gets the step while the flag is on, as every household does", async () => {
     const { db, app } = buildApp(true, ownAccount, EXCLUDED);
     const { cookie, body } = await claim(app, SAMPLETON);
@@ -741,5 +818,122 @@ describe("a wedding excluded from the member step", () => {
     const res = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo)));
     expect(res.status).toBe(200);
     expect(db.select().from(rsvps).get()?.submittedByGuestId).toBe(bo);
+    db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, bo)).run();
+    const named = await call(app, "PUT", `/api/plus-one/${bo}`, cookie, {
+      firstName: "Sam",
+      lastName: "Guest",
+    });
+    expect(named.status).toBe(200);
+    expect(
+      db
+        .select({ actor: rsvpChanges.actorGuestId })
+        .from(rsvpChanges)
+        .where(eq(rsvpChanges.kind, "plus_one_added"))
+        .get()?.actor,
+    ).toBe(bo);
+  });
+});
+
+describe("the member a reply is recorded under", () => {
+  const reply = (guest: string, eventId: string, memberGuestId?: string) => ({
+    rsvps: [
+      {
+        guestId: guest,
+        eventId,
+        status: "attending",
+        dietary: "",
+        dietaryPresets: [],
+        dietaryConsent: false,
+      },
+    ],
+    ...(memberGuestId === undefined ? {} : { memberGuestId }),
+  });
+
+  it("refuses a reply from a page showing a member the session no longer holds", async () => {
+    const { db, app } = buildApp(false);
+    const { cookie } = await claim(app, SAMPLETON);
+    const bo = guestId(db, "Bo");
+    const cleo = guestId(db, "Cleo");
+    // A page naming a member when the session holds none still meets the
+    // household's member step.
+    const unchosen = await call(
+      app,
+      "POST",
+      "/api/rsvp",
+      cookie,
+      reply(bo, firstEventOf(db, bo), cleo),
+    );
+    expect(await jsonBody(unchosen)).toEqual({ error: "member_required" });
+    // The page showed Cleo; another tab has since said Bo.
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: bo });
+    const before = await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "member_changed" });
+    const refused = await call(
+      app,
+      "POST",
+      "/api/rsvp",
+      cookie,
+      reply(bo, firstEventOf(db, bo), cleo),
+    );
+    expect(refused.status).toBe(409);
+    expect(await jsonBody(refused)).toEqual({ error: "member_changed" });
+    expect(await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "member_changed" })).toBe(
+      before + 1,
+    );
+    expect(db.select().from(rsvps).all()).toHaveLength(0);
+
+    const taken = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo), bo));
+    expect(taken.status).toBe(200);
+    expect(db.select().from(rsvps).get()?.submittedByGuestId).toBe(bo);
+  });
+});
+
+describe("unlinking with the flag off", () => {
+  let asked = 0;
+  const counting: OsnAccountResolver = async (profileId) => {
+    asked += 1;
+    return { ok: true, accountId: `acc_${profileId}` };
+  };
+
+  const unlink = (app: App, guest: string, cookie: string) =>
+    call(app, "DELETE", `/api/account/link/${guest}`, cookie);
+
+  it("answers one refusal for a linked and an unlinked seat, and asks osn-api nothing", async () => {
+    asked = 0;
+    const { db, app } = buildApp(false, counting);
+    const { cookie } = await claim(app, SAMPLETON);
+    const bo = guestId(db, "Bo");
+    const cleo = guestId(db, "Cleo");
+    linkRow(db, bo, "usr_alice");
+    const other = await signIn(db, "usr_bob");
+
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: bo });
+    const before = await counterValue(CIRE_METRICS.accountLinkUnlinks, { result: "error" });
+    for (const as of [cookie, `${cookie}; ${other}`]) {
+      const res = await unlink(app, bo, as);
+      expect(res.status).toBe(403);
+      expect(await jsonBody(res)).toEqual({ error: "not_your_seat" });
+    }
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: cleo });
+    const unlinked = await unlink(app, cleo, `${cookie}; ${other}`);
+    expect(unlinked.status).toBe(403);
+    expect(await jsonBody(unlinked)).toEqual({ error: "not_your_seat" });
+
+    expect(db.select().from(guestAccountLinks).all()).toHaveLength(1);
+    expect(asked).toBe(0);
+    expect(await counterValue(CIRE_METRICS.accountLinkUnlinks, { result: "error" })).toBe(
+      before + 3,
+    );
+  });
+
+  it("still lets the linked account withdraw its own link", async () => {
+    const { db, app } = buildApp(false, counting);
+    const { cookie } = await claim(app, SAMPLETON);
+    const bo = guestId(db, "Bo");
+    linkRow(db, bo, "usr_alice");
+    const alice = await signIn(db, "usr_alice");
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: bo });
+    const res = await unlink(app, bo, `${cookie}; ${alice}`);
+    expect(res.status).toBe(200);
+    expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
   });
 });

@@ -364,8 +364,8 @@ CIRE_OIDC_CLIENT_ID = "cid_cire"
 # CIRE_OPS_EMAIL (secret, see the top-level [vars] note) sends the daily
 # vendor-claim reminder from this tier when set:
 #   bunx wrangler secret put CIRE_OPS_EMAIL --env dev
-# CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS (secret, see the top-level [vars] note)
-# is unset here, so every dev household gets the member step:
+# CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS (secret, see the top-level [vars] note).
+# Unset ⇒ every dev household gets the member step:
 #   bunx wrangler secret put CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS --env dev
 GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
 # GROWTHBOOK_CLIENT_KEY unset ⇒ every flag serves its coded default with zero

@@ -974,7 +974,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createRsvpRoutes(db, { limiter: rsvpLimiter, accountLinking }))
       // The household's plus-ones: same cookie, same no-Turnstile argument, and
       // a per-IP limiter like the guest registry writes.
-      .use(createPlusOneRoutes(db, { limiter: plusOneLimiter }))
+      .use(createPlusOneRoutes(db, { limiter: plusOneLimiter, accountLinking }))
       // Guest gift registry, four sibling instances by gate class: the gift
       // IMAGE read takes no auth (a per-save uuid name, and a session lookup on
       // every image on a page of dozens is the wrong trade — see the route);
@@ -1165,7 +1165,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // gating the guest-only unlink (same sibling pattern as rsvp + organiser).
       // The household's link state is read through the claim and restore
       // responses, not here.
-      .use(createAccountLinkRoutes(db, accountLinkLimiter, resolveOsnAccountId))
+      .use(createAccountLinkRoutes(db, accountLinkLimiter, accountLinking))
       .use(
         createAccountLinkPostRoute(
           db,

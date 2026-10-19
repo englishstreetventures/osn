@@ -120,6 +120,8 @@ export const CIRE_HOUSEHOLD = {
   code: "TESTTWO-OAK-BB22",
   members: ["Bo", "Cleo", "Dot"],
   member: "Cleo",
+  /** Who a second tab says is answering, after "Not you?". */
+  otherMember: "Bo",
 } as const;
 
 /** Identities the flows create. Fixed, so every run registers the same people. */

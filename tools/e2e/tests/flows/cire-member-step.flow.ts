@@ -1,7 +1,10 @@
 /**
  * Cire: a household of several opens its invite, says which member is
  * answering ("Who are you?"), and replies for two members. Each reply records
- * who sent it, and the household sees "Answered by" under both.
+ * who sent it, and the household sees "Answered by" under both. Then a second
+ * tab says "Not you?" and chooses someone else: the first tab's next save is
+ * refused rather than recorded under a member it never showed, and the page
+ * asks "Who are you?" again before the save goes through.
  *
  * The stack runs with `cire.account-linking` off (no GrowthBook key) and no
  * musubi bridge, so this is the guest experience with the flag off: the member
@@ -21,7 +24,7 @@ interface MemberStepBody {
   accountLink?: { enabled?: unknown };
 }
 
-test("cire-member-step", async ({ page, flow }) => {
+test("cire-member-step", async ({ page, context, flow }) => {
   await flow.step("open the invite", async () => {
     await page.goto(`${ORIGINS.cireInvites}/${CIRE_HOUSEHOLD.slug}`);
     await expect(page.getByLabel("Invitation code")).toBeVisible();
@@ -95,7 +98,71 @@ test("cire-member-step", async ({ page, flow }) => {
     await reception.click();
     // Under Bo's reply and Cleo's own: Cleo sent both.
     await expect(sheet.getByText(`Answered by ${CIRE_HOUSEHOLD.member}`)).toHaveCount(2);
+    await sheet.getByRole("button", { name: "Cancel" }).click();
+    await expect(sheet).toBeHidden();
   });
+
+  await flow.step(`another tab says it is ${CIRE_HOUSEHOLD.otherMember}`, async () => {
+    const other = await flow.newPage(context);
+    await other.goto(`${ORIGINS.cireInvites}/${CIRE_HOUSEHOLD.slug}`);
+    await expect(other.getByText(`Answering as ${CIRE_HOUSEHOLD.member}`)).toBeVisible({
+      timeout: 60_000,
+    });
+    await other.getByRole("button", { name: "Not you?" }).click();
+    const group = other.getByRole("group", { name: "Who are you?" });
+    await expect(group).toBeVisible();
+    await group.getByRole("button", { name: CIRE_HOUSEHOLD.otherMember, exact: true }).click();
+    await expect(other.getByText(`Answering as ${CIRE_HOUSEHOLD.otherMember}`)).toBeVisible();
+    await other.close();
+  });
+
+  const refused = await flow.step("this tab's next save is refused", async () => {
+    // Still showing the member it read before the other tab chose.
+    await expect(page.getByText(`Answering as ${CIRE_HOUSEHOLD.member}`)).toBeVisible();
+    await reception.click();
+    await sheet.getByRole("button", { name: "Not attending", exact: true }).first().click();
+    const response = page.waitForResponse(
+      (r) => r.url() === `${ORIGINS.cireApi}/api/rsvp` && r.request().method() === "POST",
+    );
+    await sheet.getByRole("button", { name: "Save" }).click();
+    const res = await response;
+    const body = (await res.json()) as { error?: unknown };
+    await expect(
+      sheet.getByText("Choose who you are under the welcome above, then reply.").first(),
+    ).toBeVisible();
+    return `${res.status()} ${String(body.error)}`;
+  });
+  flow.check("a save under a member the session no longer holds", "409 member_changed", refused);
+
+  await flow.step(`answer as ${CIRE_HOUSEHOLD.member} again and save`, async () => {
+    await sheet.getByRole("button", { name: "Cancel" }).click();
+    await expect(sheet).toBeHidden();
+    await whoAreYou.getByRole("button", { name: CIRE_HOUSEHOLD.member, exact: true }).click();
+    await expect(page.getByText(`Answering as ${CIRE_HOUSEHOLD.member}`)).toBeVisible();
+    await reception.click();
+    await sheet.getByRole("button", { name: "Not attending", exact: true }).first().click();
+    await sheet.getByRole("button", { name: "Save" }).click();
+    await expect(sheet.getByRole("button", { name: "Saved" })).toBeVisible();
+    await expect(sheet).toBeHidden();
+  });
+
+  const changed = queryOne<{ status: string; sender: string | null }>(
+    DB_FILES.cire,
+    `SELECT r.status, s.first_name AS sender
+       FROM rsvps r
+       JOIN guests g ON g.id = r.guest_id
+       JOIN families f ON f.id = g.family_id
+       LEFT JOIN guests s ON s.id = r.submitted_by_guest_id
+      WHERE f.public_id = ? AND g.first_name = ? AND r.event_id = ?`,
+    CIRE_HOUSEHOLD.code,
+    CIRE_HOUSEHOLD.otherMember,
+    RECEPTION_ID,
+  );
+  flow.check(
+    `${CIRE_HOUSEHOLD.otherMember}'s changed reply, sent by ${CIRE_HOUSEHOLD.member}`,
+    `declined by ${CIRE_HOUSEHOLD.member}`,
+    `${changed?.status ?? "missing"} by ${changed?.sender ?? "nobody"}`,
+  );
 
   // Names, never ids: the local seed mints fresh guest ids on every boot.
   const replies = queryOne<{

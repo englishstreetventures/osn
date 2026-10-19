@@ -35,6 +35,16 @@ test("cire-rsvp", async ({ page, context, flow }) => {
     await expect(page.getByText(CIRE_GUEST.guestName).first()).toBeVisible();
   });
 
+  await flow.step("see who is answering", async () => {
+    // A household of one is chosen for: no question, and no "Not you?".
+    await expect(page.getByText(`Answering as ${CIRE_GUEST.guestName}`)).toBeVisible();
+  });
+  flow.check(
+    "no 'Not you?' for a household of one",
+    0,
+    await page.getByRole("button", { name: "Not you?" }).count(),
+  );
+
   const cookie = await cookieNamed(context, ORIGINS.cireApi, "cire_session");
   flow.check("cire_session cookie set by cire-api", true, cookie !== undefined);
   flow.check("cire_session is HttpOnly", true, cookie?.httpOnly ?? false);

@@ -78,12 +78,19 @@ household's controls in this order:
    `onPlusOneChange` and applies each change to its claim result; without it
    there is no prompt. Hidden in host preview. The contract is in
    [[cire-plus-ones#On the invite]].
-2. **Pulse account linking** — `PulseAccountLink`, with the OSN auth client's
+2. **Who are you?** — the household member step, drawn whenever the claim
+   payload carries `member` (every guest household, bar an excluded
+   wedding's while linking is off — see [[cire-auth]]):
+   one button per invited member while none is chosen, then "Answering as
+   {name}", with "Not you?" for a household of two or more or a browser
+   signed in to musubi. The pack passes `onMemberChange`; without it there is
+   no step. Never in host preview.
+3. **Pulse account linking** — `PulseAccountLink`, with the OSN auth client's
    core inside its chunk. The panel draws it only when the claim payload's
    `accountLink` offers linking (`cire.account-linking`, [[feature-flags]];
-   never in host preview), and hands it that state. It offers no plus-one's
-   seat, and the API refuses one.
-3. **Sign-out** — "Not {name}? Sign out". The panel itself revokes
+   never in host preview) and a member is chosen, and hands it that state. It
+   offers no plus-one's seat, and the API refuses one.
+4. **Sign-out** — "Not {name}? Sign out". The panel itself revokes
    `cire_session` (`POST /api/claim/signout`, see [[cire-auth]]), drops the
    restore hint, resets its form and clears the inline styles the unlock
    animation left on it. Outside host preview it also ends the OSN sign-in

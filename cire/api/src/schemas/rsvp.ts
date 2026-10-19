@@ -74,6 +74,9 @@ export type RsvpBody = Schema.Schema.Type<typeof RsvpBody>;
 
 export const BulkRsvpBody = Schema.Struct({
   rsvps: Schema.Array(RsvpItem).check(Schema.isMaxLength(MAX_RSVP_BATCH)),
+  // The household member the page showed as answering ("Answering as …").
+  // Absent from a page that showed none, or that predates the field.
+  memberGuestId: Schema.optional(Schema.String.check(Schema.isMaxLength(128))),
 });
 export type BulkRsvpBody = Schema.Schema.Type<typeof BulkRsvpBody>;
 
@@ -114,7 +117,9 @@ export type OrganiserRsvpBody = Schema.Schema.Type<typeof OrganiserRsvpBody>;
 
 /**
  * The household member whose session sent a reply, for "Answered by" on the
- * invite. Sent to every guest household; never on a host preview.
+ * invite. Sent wherever the member step is on (`memberStepOn`): absent on a
+ * host preview, and for an excluded wedding's household while account linking
+ * is off for it.
  */
 export const ReplySubmitter = Schema.Struct({
   guestId: Schema.String,
@@ -142,7 +147,7 @@ export const RsvpRecord = Schema.Struct({
   // "when this guest last recorded dietary data" off a credential the whole
   // household shares.
   dietaryConsentCurrent: Schema.Boolean,
-  // Who sent the reply ("Answered by"); absent on a host preview.
+  // Who sent the reply ("Answered by"); absent wherever the member step is off.
   submittedBy: Schema.optional(Schema.NullOr(ReplySubmitter)),
 });
 export type RsvpRecord = Schema.Schema.Type<typeof RsvpRecord>;

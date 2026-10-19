@@ -99,6 +99,11 @@ the ARC bridge configured, as `isAccountLinkingOn` reads it
 - **`POST /api/account/link`** (`routes/account-link.ts`) answers **503**
   ("disabled") while the flag is off, as defence in depth: a crafted request
   can't link. It passes no `waitUntil`, so it never acts on a stale payload.
+- **`DELETE /api/account/link/:guestId`** reads it the same way: while it is
+  off, every unlink but the linked account's own answers 403 `not_your_seat`,
+  linked seat or not, with no call to osn-api.
+- **`PUT` / `DELETE /api/plus-one/:guestId`** read it only for a wedding listed
+  in the exclusion, to record no actor on the change while it is off.
 
 Turn the flag on in the GrowthBook dashboard (feature key `cire.account-linking`)
 to reveal it. Add further flags to the registry + the dashboard as features land.

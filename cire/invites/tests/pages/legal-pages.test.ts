@@ -133,6 +133,16 @@ describe("privacy.astro", () => {
   });
 
   /**
+   * cire-api records which household member sent each reply and change
+   * (`rsvps.submitted_by_guest_id`, `rsvp_changes.actor_guest_id`) and shows
+   * it to the household and its hosts, so the notice names it.
+   */
+  it("names the record of which member sent each reply, and who sees it", () => {
+    expect(body).toContain("Which of you sent each reply");
+    expect(body).toMatch(/Answered by[\s\S]{0,80}your hosts see it too/);
+  });
+
+  /**
    * Softened from "hosted in Sydney" once the subprocessor register turned out to
    * record the D1/R2 region as unconfirmed. The page must still name a region and
    * still tell an EEA or UK reader that their data leaves that area — those two

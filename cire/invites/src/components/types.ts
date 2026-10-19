@@ -247,8 +247,9 @@ export interface ClaimResult {
   householdReplied?: unknown;
   /**
    * Which household member this session says it is, exactly as it arrived.
-   * Present for every guest household and absent on a host preview; `null`
-   * until chosen. Unproven, like `accountLink`: read it only through `readMember`,
+   * Present for every guest household; absent on a host preview, and for a
+   * household of an excluded wedding while account linking is off for it
+   * (cire-api's `memberStepOn`). `null` until chosen. Unproven, like `accountLink`: read it only through `readMember`,
    * which answers "no member step" for anything absent or malformed.
    */
   member?: unknown;
