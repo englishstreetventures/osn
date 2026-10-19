@@ -34,7 +34,7 @@ pull request that touched it.
 
 **`tessl eval run` resolves the project from its scenarios argument, so that
 argument has to sit inside `.claude/`.** Point it anywhere else — a temp
-directory, the repository root, `$RUNNER_TEMP` — and it answers:
+directory, the repository root — and it answers:
 
 ```
 ✘ No Tessl project found. Run tessl init from your project root, then rerun this command.
@@ -42,7 +42,7 @@ directory, the repository root, `$RUNNER_TEMP` — and it answers:
 
 Do not run `tessl init`, whatever that message says: it would make a second
 project and split this suite's history across two scoreboards. Move the
-scenarios instead. `subset --out .claude/eval-subset`, then
+scenarios instead. `subset --skills <a,b> --out .claude/eval-subset`, then
 `cd .claude && tessl eval run eval-subset --context .`.
 
 > [!warning] The message names the wrong cause. Do not go looking at the link.
@@ -60,7 +60,8 @@ scenarios instead. `subset --out .claude/eval-subset`, then
 ## Running
 
 **Anything that submits a run goes from inside `.claude/`**, with its scenarios
-inside it too: `subset --out .claude/eval-subset` puts a narrowed set there.
+inside it too: `subset --skills <a,b> --out .claude/eval-subset` puts a
+narrowed set there.
 
 ```bash
 cd .claude
@@ -97,7 +98,9 @@ measuring.
 Two signals come out of it, and they are deliberately different in kind:
 
 - **A quality score can be acted on alone.** It is deterministic — the same
-  `SKILL.md` scores the same twice — so a real fall in it needs no second run.
+  `SKILL.md` scores the same twice — so one run is enough. No file keeps past
+  scores: to see whether an edit lowered one, also score the skill as it stands
+  on `origin/main`, which spends a second review's credits.
 - **A large eval fall asks a person to look, and nothing more.** At `-n 1`
   there is no threshold that means significant: the same skill text scored 3/3
   and 0/3 on two scenarios of a single run. `compare` notes a fall of 25 points
@@ -124,15 +127,31 @@ before you submit one. The loop is three steps:
    Every skill here avoids it with an em dash. The judge's own weakest item is
    worth reading too — it is usually `trigger_term_quality`, and the fix is
    naming the thing a person would actually type.
-2. **A narrowed eval.** `scripts/skill-evals.ts changed --base <ref>` names the
-   skills the branch touched, `subset` copies just their scenarios into a
-   directory, and the run is
-   `tessl eval run <dir> --context .claude --skip-baseline -n 1`.
-   `--skip-baseline` because the baseline cannot move when only a skill changed
-   and it is half the solves; `-n 1` because this is the inner loop.
+2. **A narrowed eval.** `changed` names the skills the branch touched,
+   `subset` copies just their scenarios into `.claude/eval-subset`, and the run
+   goes from inside `.claude/`. `--skip-baseline` because the baseline cannot move
+   when only a skill changed and it is half the solves; `-n 1` because this is the
+   inner loop.
 3. **`compare`** against `scores.json`, which prints a markdown table to paste
    into the pull request, and `record` to write the new numbers back to the
    branch.
+
+The whole chain, from the repository root:
+
+```bash
+SKILLS=$(bun scripts/skill-evals.ts changed --base origin/main | paste -sd, -)
+bun scripts/skill-evals.ts subset --skills "$SKILLS" --out .claude/eval-subset
+(cd .claude && tessl eval run eval-subset --context . --skip-baseline -n 1)
+# wait, then fetch the run by the id `tessl eval run` printed
+(cd .claude && tessl eval view <run-id> --json) > /tmp/run.json
+bun scripts/skill-evals.ts ready   --run /tmp/run.json   # exits non-zero until every variant is scored
+bun scripts/skill-evals.ts compare --run /tmp/run.json
+bun scripts/skill-evals.ts record  --run /tmp/run.json   # then commit scores.json
+```
+
+`.claude/.tessl-plugin/plugin.json` names the Tessl workspace, `musubi`. Pass
+`--workspace musubi` to `tessl review run quality` if your login's default
+workspace is another one.
 
 Three things that loop gets right, each of which took a wrong run to learn:
 

@@ -11,7 +11,7 @@ related:
   - "[[cire-landing]]"
   - "[[venues]]"
   - "[[design-tokens]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-19
 ---
 
 # Pulse Landing
@@ -135,7 +135,8 @@ bundles it automatically.
 `PulseHero.test.tsx` renders the hero and asserts the headline + the geo
 _fallback_ CTA (no `/api/geo` in the test env). Run with
 `bun run --cwd pulse/landing test:run`. The `/api/geo` function logic is simple
-and edge-only (`request.cf`), so it is exercised at deploy rather than unit-mocked.
+and edge-only (`request.cf`), so no test covers it; it runs only when someone
+deploys the site by hand (see Deferred).
 
 ## Deferred
 

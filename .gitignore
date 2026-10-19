@@ -261,7 +261,7 @@ DerivedData/
 # `retro`'s `RETRO.md` is scratch for the same reason, and the one thing it
 # produces that the repository keeps is committed separately: the card under
 # `.claude/metrics/`, which is tracked.
-# `bun scripts/skill-evals.ts subset --out .claude/eval-subset` copies the changed
+# `bun scripts/skill-evals.ts subset --skills <a,b> --out .claude/eval-subset` copies the changed
 # skills' scenarios here before a run: `tessl eval run` resolves the project from
 # its scenarios argument, so the copy has to live inside the linked `.claude/`
 # rather than in a temp directory.

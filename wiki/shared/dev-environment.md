@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-19
 ---
 
 # Dev environment (cire + OSN identity)
@@ -152,13 +152,25 @@ a fresh deploy out.
 `gh api repos/englishstreetventures/osn/deployments/7113807729/statuses`*
 
 To prove it again, deploy a version that answers wrongly and run the check by hand
-(§7), when no **Deploy** run is in progress. `CLOUDFLARE_API_TOKEN_DEV` exists only
-on the `dev` Environment, so use a Cloudflare token of your own with the grants in
-the table under *Where the tokens live* below. With it exported as
-`CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_ACCOUNT_ID` beside it, run
-`bunx wrangler deploy --env dev` in `osn/api` from a checkout where `/health`
-answers 503, then `bun run scripts/smoke-check.ts osn_api dev` from the repository
-root. It should roll the Worker back and exit 1.
+(§7), when no **Deploy** run is in progress.
+
+1. **Make a token for this run only.** `CLOUDFLARE_API_TOKEN_DEV` exists only on
+   the `dev` Environment, so create a Cloudflare token of your own with the rows of
+   the table under *Where the tokens live* that osn-api's dev deploy uses:
+   `Workers Scripts: Edit`, `D1: Edit`, `Account Settings: Read`, `Zone: Read` and
+   `Workers Routes: Edit`. It needs no Pages or R2 grant. **This token can write
+   production Workers too**: `Workers Scripts: Edit` is account-wide and both tiers
+   share one Cloudflare account (*What the split does not buy*, below). So set its
+   expiry to today, filter it to your own IP address where you can, and delete it
+   once the check has run.
+2. **Deploy a broken build.** On a scratch branch, make `handler.fetch` in
+   [`osn/api/src/index.ts`](../../osn/api/src/index.ts) return
+   `misconfigured("rollback proof")` before anything else, so every route,
+   `/health` included, answers 503. With the token exported as
+   `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` beside it, run
+   `bunx wrangler deploy --env dev` in `osn/api`.
+3. **Run the check.** `bun run scripts/smoke-check.ts osn_api dev` from the
+   repository root. It should roll the Worker back and exit 1.
 
 *Unverified — nobody has run this sequence end to end. With
 `WRANGLER_OUTPUT_FILE_PATH` unset, the check takes the newest deployment to be its

@@ -14,7 +14,7 @@ related:
   - "[[dev-environment]]"
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-19
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -1359,10 +1359,8 @@ How it decides:
   offers it again, the same content included, until the cause is fixed (§5.0 item 7);
   on dev the dev gate holds the change back from production.
 - A rollback restores code only. The migrations the job applied stay (§4).
-- The rollback path has run for real: on 2026-10-16, **Deploy** run 38869446427
-  forced osn-api's dev check to fail, and job 116870013485 rolled `osn-api-dev`
-  back and found the restored version healthy. How to prove it again by hand is in
-  [[dev-environment]] §2, *Proving the rollback path*.
+- The rollback path has run on dev. The record, and how to prove it again by hand,
+  are in [[dev-environment]] §2, *Proving the rollback path*.
 
 ### The checks
 
