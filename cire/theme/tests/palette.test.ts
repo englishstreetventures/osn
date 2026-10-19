@@ -413,6 +413,22 @@ describe("contrast is enforced, not advised", () => {
     });
     expect(reports.map((r) => r.token).toSorted()).toEqual(["bloom", "gilt", "ink"]);
   });
+
+  test("reports a bloom that clears the UI floor but not the label's text bar", () => {
+    // Bloom carries the "RSVP given" label, so it is held to 4.5:1 against
+    // the page, and a seed between 3:1 and 4.5:1 is moved. The builder has to
+    // say so, or its swatch and the painted button disagree with no notice.
+    const seeds = { ground: "#ffffff", bloom: "#888888" };
+    const seedRatio = contrastRatio(seeds.bloom, seeds.ground)!;
+    expect(seedRatio).toBeGreaterThan(WCAG_UI_MIN);
+    expect(seedRatio).toBeLessThan(WCAG_TEXT_MIN);
+
+    expect(paletteAdjustments(seeds).map((r) => r.token)).toContain("bloom");
+    const v = derivePalette(seeds);
+    expect(contrastRatio(v["--color-bloom"]!, v["--color-bg"]!)).toBeGreaterThanOrEqual(
+      WCAG_TEXT_MIN,
+    );
+  });
 });
 
 /**

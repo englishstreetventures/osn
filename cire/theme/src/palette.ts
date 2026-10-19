@@ -23,7 +23,9 @@ import {
   contrastOklch,
   ensureContrast,
   formatOklch,
+  luminance,
   type Oklch,
+  oklchToRgb,
   parseColor,
   shiftLightness,
   WCAG_TEXT_MIN,
@@ -384,22 +386,30 @@ const BLACK: Oklch = { l: 0, c: 0, h: 0, a: 1 };
  * The organiser's gold is never moved to make room.
  */
 function onGoldInk(gilt: Oklch, ground: Oklch, ink: Oklch): Oklch {
+  // The gold is the backdrop of every comparison here, so its luminance is
+  // taken once; each candidate costs one conversion.
+  const giltY = luminance(oklchToRgb(gilt));
+  const ratioTo = (y: number) => (Math.max(y, giltY) + 0.05) / (Math.min(y, giltY) + 0.05);
+  const reads = (colour: Oklch) => ratioTo(luminance(oklchToRgb(colour))) >= WCAG_TEXT_MIN;
+
   for (const colour of [ground, ink]) {
-    if (contrastOklch(colour, gilt) >= WCAG_TEXT_MIN) return colour;
+    if (reads(colour)) return colour;
   }
-  const lighter = contrastOklch(WHITE, gilt) >= contrastOklch(BLACK, gilt);
+  const lighter = ratioTo(1) >= ratioTo(0);
   // Of the two, the one nearer that pole, so the label keeps the scheme's own
   // tint: the page's on a light label, the ink's on a dark one.
   const start = ground.l > ink.l === lighter ? ground : ink;
-  // The stronger pole clears 4.58:1 against any colour, so the walk always
-  // stops on the bar; fifty steps of 0.02 span the whole lightness range.
+  // `start` already failed above, so the walk begins one step out. The
+  // stronger pole clears 4.58:1 against any colour, so it always stops on the
+  // bar; fifty steps of 0.02 span the whole lightness range.
   const STEP = 0.02;
   let label = start;
-  for (let i = 1; i <= 50 && contrastOklch(label, gilt) < WCAG_TEXT_MIN; i++) {
+  for (let i = 1; i <= 50; i++) {
     const l = Math.min(1, Math.max(0, start.l + (lighter ? i : -i) * STEP));
     // Ease chroma off toward the pole so the colour stays inside sRGB, as
     // `ensureContrast` does.
     label = { ...start, l, c: Math.min(start.c, (lighter ? 1 - l : l) * 0.6) };
+    if (reads(label)) break;
   }
   return label;
 }
