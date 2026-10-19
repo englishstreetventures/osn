@@ -586,6 +586,16 @@ describe("a broken deploy", () => {
     });
     expect(still.code).toBe(1);
     expect(still.output).toContain("::error title=Still failing after rollback::");
+
+    // The restored version is judged on every probe, not the first one alone.
+    const keyless = await smoke(["osn_api", "production"], {
+      "https://id.musubi.social/health": (call) => (call <= rounds ? MISCONFIGURED() : HEALTHY()),
+      "https://id.musubi.social/.well-known/jwks.json": () => json({ keys: [] }),
+    });
+    expect(keyless.code).toBe(1);
+    expect(keyless.posts).toHaveLength(1);
+    expect(keyless.output).toContain("::error title=Still failing after rollback::");
+    expect(keyless.output).not.toContain("answers healthy");
   });
 
   test("Cloudflare's refusal over changed secrets is kept: nothing is forced through", async () => {

@@ -72,6 +72,11 @@ const jobsIn = (workflow: Workflow, environment: string) =>
   Object.entries(workflow.jobs).filter(([, job]) => environmentOf(job) === environment);
 
 describe("deploy.yml deploys dev only", () => {
+  test("runs on a push to main and by hand", () => {
+    expect(Object.keys(dev.on).toSorted()).toEqual(["push", "workflow_dispatch"]);
+    expect((dev.on.push as { branches: string[] }).branches).toEqual(["main"]);
+  });
+
   test("no job in it reaches the production Environment", () => {
     expect(jobsIn(dev, "production")).toEqual([]);
   });
