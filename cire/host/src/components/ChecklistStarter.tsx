@@ -155,17 +155,15 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
           checked={picked().has(item.key)}
           onChange={() => toggle(item.key)}
         />
-        <span class="flex-1">
-          {item.title}
+        <span class="flex flex-1 flex-col">
+          <span>{item.title}</span>
           <Show when={item.dueAt}>
             {(due) => (
-              <span class="text-text-muted text-ui-xs ml-2" data-numeric>
-                · due {due()}
+              <span class="text-text-muted text-ui-xs" data-numeric>
+                due {due()}
+                {isPast(item) ? " · date passed" : ""}
               </span>
             )}
-          </Show>
-          <Show when={isPast(item)}>
-            <span class="text-text-muted text-ui-xs ml-2 italic">· date passed</span>
           </Show>
         </span>
       </label>
@@ -198,11 +196,19 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
         </Show>
       </Show>
 
-      <Modal open={open()} onClose={close} labelledBy={TITLE_ID} class="w-full max-w-lg">
-        <div class="flex flex-col gap-4">
+      {/* `frame`: the list scrolls under a title and an action bar that stay
+          put, so "Add" is always in reach however long the list runs. */}
+      <Modal open={open()} onClose={close} labelledBy={TITLE_ID} frame class="w-full max-w-lg">
+        <div class="flex flex-col gap-1 px-6 pt-6 pb-3">
           <h2 id={TITLE_ID} class="font-display text-text text-ui-md font-light">
             Starter checklist
           </h2>
+          <p class="text-text-muted text-ui-sm leading-snug">
+            Each task is due a set time before your wedding date. Untick what does not fit; you can
+            change or delete any task later.
+          </p>
+        </div>
+        <div class="flex min-h-0 flex-col gap-4 overflow-y-auto px-6 pb-4">
           <Show when={loadError()}>
             <Notice tone="danger" alert>
               {loadError()}
@@ -260,6 +266,8 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
               </>
             )}
           </Show>
+        </div>
+        <div class="border-border flex flex-col gap-3 border-t px-6 py-4">
           <Show when={applyError()}>
             <Notice tone="danger" alert>
               {applyError()}
