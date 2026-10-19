@@ -260,8 +260,7 @@ describe("DetailsPanel — the way to the RSVP form", () => {
  */
 describe("DetailsPanel — each embed waits for its own switch", () => {
   const MAPS_KEY = "test-embed-key";
-  const PINTEREST_URL =
-    "https://www.pinterest.com.au/example/catholic-wedding-guest-moodboard/";
+  const PINTEREST_URL = "https://www.pinterest.com.au/example/catholic-wedding-guest-moodboard/";
 
   const richEvent: EventSummary = {
     ...baseEvent,
