@@ -20,9 +20,11 @@
  *    (bare `state` opens an explorer that reads records; `provider cloudflare
  *    state logs` reads the store's logs), and never `nuke`, `drift … --repair`,
  *    `teardown`, `provider cloudflare token` (it prints the token it creates),
- *    `destroy` with `--stage dev` or `--stage production` in any flag order,
- *    or `destroy` with no `--stage` (the stage then comes from
- *    `ALCHEMY_STAGE` in the environment, `--env-file` or `.env`).
+ *    `logs` (it prints a stage's Worker logs), and `destroy` unless it names
+ *    exactly one stage with a literal `--stage` that is neither `dev` nor
+ *    `production`: without `--stage` the stage comes from `ALCHEMY_STAGE` in
+ *    the environment, `--env-file` or `.env`, and a variable or expression
+ *    may hold either.
  *  - stack files (`*\/infra/**\/*.ts`, `*alchemy.run.ts`, tests excluded): no
  *    state constructor (`localState`, `inMemoryState`, `postgresState`,
  *    `makeLocalState`, `makePostgresState`, `makeHttpStateStore`,
@@ -78,16 +80,40 @@ const FORBIDDEN: readonly { readonly pattern: RegExp; readonly why: string }[] =
     why: "creates a Cloudflare API token and prints it to stdout, which lands in a public run log",
   },
   {
-    pattern: new RegExp(
-      String.raw`${INVOCATION}(?=[^\n]*\bdestroy\b)(?=[^\n]*--stage(?:\s+|=)["']?(?:dev|production)["']?(?![\w-]))`,
-    ),
-    why: "`destroy` on dev or production deletes every resource and state row of a long-lived stage",
-  },
-  {
-    pattern: new RegExp(String.raw`${INVOCATION}(?=[^\n]*\bdestroy\b)(?![^\n]*--stage\b)`),
-    why: "`destroy` must name its stage with --stage; without it ALCHEMY_STAGE or .env picks the stage, which may be dev or production",
+    pattern: new RegExp(String.raw`${INVOCATION}(?:[^\n]*?\s)?(?<!\bstate\s+)logs(?=\s|$)`),
+    why: "prints a stage's Worker logs, which carry request paths, into a public run log",
   },
 ];
+
+const DESTROY = new RegExp(String.raw`${INVOCATION}(?:[^\n]*?\s)?destroy(?=\s|$)`);
+
+/** Every `--stage` value in a segment, as written. */
+const STAGE_FLAG = /(?:^|\s)--stage(?:=|\s+)(\S+)/g;
+
+/** A stage name as `parseStage()` in shared/infra/src/stage.ts shapes it, written out literally. */
+const LITERAL_STAGE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
+const LONG_LIVED_STAGES: ReadonlySet<string> = new Set(["dev", "production"]);
+
+const unquote = (value: string): string => value.replace(/^(["'])(.*)\1$/, "$2");
+
+/**
+ * `destroy` runs only on one stage the guard can read and prove short-lived.
+ * Without `--stage`, Alchemy takes the stage from ALCHEMY_STAGE in the
+ * environment, an --env-file or .env; a variable or an expression may hold
+ * dev or production. Every form the guard cannot read fails.
+ */
+function destroyProblem(segment: string): string | undefined {
+  if (!DESTROY.test(segment)) return undefined;
+  const stages = [...segment.matchAll(STAGE_FLAG)].map((match) => unquote(match[1] ?? ""));
+  const [stage] = stages;
+  if (stages.length !== 1 || stage === undefined || !LITERAL_STAGE.test(stage)) {
+    return "`destroy` names exactly one stage with a literal --stage; any other form may reach dev or production";
+  }
+  return LONG_LIVED_STAGES.has(stage)
+    ? "`destroy` on dev or production deletes every resource and state row of a long-lived stage"
+    : undefined;
+}
 
 const STATE_CONSTRUCTOR =
   /\b(?:localState|inMemoryState|postgresState|makeLocalState|makePostgresState|makeHttpStateStore|InMemoryService)\s*\(|\bCloudflare\.state\b|\bimport\s*\{[^}]*\bstate\b[^}]*\}\s*from\s*["']alchemy\/Cloudflare["']/;
@@ -123,9 +149,11 @@ const inlineTelemetry = (segment: string): string | undefined =>
     .at(-1);
 
 function forbidden(where: string, segment: string): Finding[] {
-  return FORBIDDEN.filter(({ pattern }) => pattern.test(segment)).map(({ why }) => ({
+  const problems = FORBIDDEN.filter(({ pattern }) => pattern.test(segment)).map(({ why }) => why);
+  const destroy = destroyProblem(segment);
+  return [...problems, ...(destroy === undefined ? [] : [destroy])].map((problem) => ({
     where,
-    problem: why,
+    problem,
   }));
 }
 

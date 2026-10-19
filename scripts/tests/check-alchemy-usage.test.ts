@@ -233,6 +233,10 @@ describe("commands that print a token or delete a long-lived stage", () => {
     "DO_NOT_TRACK=1 ALCHEMY_STAGE=production bun alchemy destroy --yes",
     "ALCHEMY_STAGE=dev DO_NOT_TRACK=1 bun alchemy destroy",
     "DO_NOT_TRACK=1 bun alchemy destroy --env-file .env.production",
+    'DO_NOT_TRACK=1 bun alchemy destroy --stage "$STAGE"',
+    "DO_NOT_TRACK=1 bun alchemy destroy --stage $STAGE",
+    "DO_NOT_TRACK=1 bun alchemy destroy --stage pr-7 --stage production",
+    "DO_NOT_TRACK=1 bun alchemy destroy --stage=Production",
   ])("refuses %j", (script) => {
     expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
   });
@@ -246,10 +250,28 @@ describe("commands that print a token or delete a long-lived stage", () => {
     );
   });
 
-  test("passes destroying an investigation stage", () => {
+  test("refuses a workflow destroy whose stage is an expression", () => {
     expect(
-      checkPackageScripts("p", manifest({ x: "DO_NOT_TRACK=1 bun alchemy destroy --stage pr-7" })),
-    ).toEqual([]);
+      checkWorkflow(
+        "w",
+        blockWorkflow(TRACK_OFF, "", ["bunx alchemy destroy --stage ${{ inputs.stage }} --yes"]),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test.each([
+    "DO_NOT_TRACK=1 bun alchemy destroy --stage pr-7",
+    "DO_NOT_TRACK=1 bun alchemy destroy --stage='pr-7' --yes",
+    "DO_NOT_TRACK=1 ALCHEMY_STAGE=production bun alchemy destroy --stage pr-7",
+  ])("passes destroying an investigation stage, %j", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toEqual([]);
+  });
+
+  test.each([
+    "DO_NOT_TRACK=1 bun alchemy logs --stage production",
+    "DO_NOT_TRACK=1 bun alchemy logs --tail",
+  ])("refuses %j, which prints Worker logs into a public run log", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
   });
 });
 
