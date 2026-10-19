@@ -11,6 +11,8 @@ import {
 } from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { SURFACES, type SurfaceKey } from "../../../scripts/deploy-surfaces";
+import { devTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import { osnSeedSql } from "../src/seeds";
 import {
@@ -28,6 +30,17 @@ import {
 } from "./evaluate";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
+/**
+ * Each dev surface of the musubi stack and the logical id of the Worker it
+ * deploys: the smoke check's snapshot, compare and rollback act on that
+ * surface's dev target.
+ */
+const SURFACE_WORKERS = [
+  ["osn_api", "OsnApi"],
+  ["osn_social", "MusubiSocial"],
+  ["musubi_landing", "MusubiLanding"],
+] as const satisfies readonly (readonly [SurfaceKey, string])[];
 
 /**
  * The origins each musubi site's dev build bakes in, under `musubi/`: found by
@@ -125,6 +138,37 @@ describe("the musubi stack, evaluated offline", () => {
 
   test("RQ1: osn-api redacts query strings from its logs and traces, since dev sign-in takes its secret in one", () => {
     expect(resourcesOf(dev).OsnApi?.Props.observability?.redactQueryString).toBe(true);
+  });
+
+  test("K11: no Worker serves a workers.dev host or version preview URLs, each a public host outside Access", async () => {
+    const investigation = await evaluateMusubi({ stage: "probe", env: stackEnv(arcPublicJwk) });
+    for (const evaluation of [dev, investigation]) {
+      const workers = Object.values(resourcesOf(evaluation)).filter(
+        (resource) => resource.Type === "Cloudflare.Worker",
+      );
+      expect(workers.map((worker) => worker.LogicalId).toSorted()).toEqual([
+        "MusubiLanding",
+        "MusubiSocial",
+        "OsnApi",
+      ]);
+      for (const worker of workers) {
+        expect({ [worker.LogicalId]: worker.Props.workersDev }).toEqual({
+          [worker.LogicalId]: { enabled: false, previewsEnabled: false },
+        });
+      }
+    }
+  });
+
+  test("K13: each dev surface's smoke target names the Worker the stack deploys for it", () => {
+    const resources = resourcesOf(dev);
+    expect(
+      SURFACES.filter((surface) => surface.stack === "musubi")
+        .map((surface) => surface.key)
+        .toSorted(),
+    ).toEqual(SURFACE_WORKERS.map(([key]) => key).toSorted());
+    expect(SURFACE_WORKERS.map(([key]) => [key, devTarget(key)?.worker])).toEqual(
+      SURFACE_WORKERS.map(([key, logicalId]) => [key, resources[logicalId]?.Props.name]),
+    );
   });
 
   test("K5: every resource the dev stage keeps is retained on destroy and replacement", () => {

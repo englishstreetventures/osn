@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { SiteBuildError } from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { SURFACES, type SurfaceKey } from "../../../scripts/deploy-surfaces";
+import { devTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import {
   DEV_DOMAIN,
@@ -19,6 +21,16 @@ import {
 
 const packageDir = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
+/**
+ * Each dev surface of the pulse stack and the logical id of the Worker it
+ * deploys: the smoke check's snapshot, compare and rollback act on that
+ * surface's dev target.
+ */
+const SURFACE_WORKERS = [["pulse_landing", "PulseLanding"]] as const satisfies readonly (readonly [
+  SurfaceKey,
+  string,
+])[];
 
 /**
  * The origin pulse landing's dev build bakes in, under `pulse/`: found by
@@ -72,6 +84,33 @@ describe("the pulse stack, evaluated offline", () => {
     const investigation = resourcesOf(await evaluatePulse({ stage: "probe", env: stackEnv() }));
     expect(investigation.PulseLanding?.Props.name).toBe("pulse-landing-probe");
     expect(investigation.PulseLanding?.Props.domain).toBe(`pulse.probe.${DEV_DOMAIN}`);
+  });
+
+  test("K11: no Worker serves a workers.dev host or version preview URLs, each a public host outside Access", async () => {
+    const investigation = await evaluatePulse({ stage: "probe", env: stackEnv() });
+    for (const evaluation of [dev, investigation]) {
+      const workers = Object.values(resourcesOf(evaluation)).filter(
+        (resource) => resource.Type === "Cloudflare.Worker",
+      );
+      expect(workers.map((worker) => worker.LogicalId).toSorted()).toEqual(["PulseLanding"]);
+      for (const worker of workers) {
+        expect({ [worker.LogicalId]: worker.Props.workersDev }).toEqual({
+          [worker.LogicalId]: { enabled: false, previewsEnabled: false },
+        });
+      }
+    }
+  });
+
+  test("K13: each dev surface's smoke target names the Worker the stack deploys for it", () => {
+    const resources = resourcesOf(dev);
+    expect(
+      SURFACES.filter((surface) => surface.stack === "pulse")
+        .map((surface) => surface.key)
+        .toSorted(),
+    ).toEqual(SURFACE_WORKERS.map(([key]) => key).toSorted());
+    expect(SURFACE_WORKERS.map(([key]) => [key, devTarget(key)?.worker])).toEqual(
+      SURFACE_WORKERS.map(([key, logicalId]) => [key, resources[logicalId]?.Props.name]),
+    );
   });
 
   test("K5: pulse landing is retained on destroy and replacement on the dev stage", () => {

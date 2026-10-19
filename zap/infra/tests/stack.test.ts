@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { tierSecrets } from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { SURFACES, type SurfaceKey } from "../../../scripts/deploy-surfaces";
+import { devTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import {
   DEV_DOMAIN,
@@ -17,6 +19,16 @@ import {
 } from "./evaluate";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
+/**
+ * Each dev surface of the zap stack and the logical id of the Worker it
+ * deploys: the smoke check's snapshot, compare and rollback act on that
+ * surface's dev target.
+ */
+const SURFACE_WORKERS = [["zap_api", "ZapApi"]] as const satisfies readonly (readonly [
+  SurfaceKey,
+  string,
+])[];
 
 let dev: Evaluation;
 
@@ -66,6 +78,33 @@ describe("the zap stack, evaluated offline", () => {
     expect(investigation.ZapApi?.Props.domain).toBe(`zap.cire.probe.${DEV_DOMAIN}`);
     expect(investigation.ZapApi?.Props.env?.OSN_ISSUER_URL).toBe(
       `https://id.musubi.probe.${DEV_DOMAIN}`,
+    );
+  });
+
+  test("K11: no Worker serves a workers.dev host or version preview URLs, each a public host outside Access", async () => {
+    const investigation = await evaluateZap({ stage: "probe", env: stackEnv() });
+    for (const evaluation of [dev, investigation]) {
+      const workers = Object.values(resourcesOf(evaluation)).filter(
+        (resource) => resource.Type === "Cloudflare.Worker",
+      );
+      expect(workers.map((worker) => worker.LogicalId).toSorted()).toEqual(["ZapApi"]);
+      for (const worker of workers) {
+        expect({ [worker.LogicalId]: worker.Props.workersDev }).toEqual({
+          [worker.LogicalId]: { enabled: false, previewsEnabled: false },
+        });
+      }
+    }
+  });
+
+  test("K13: each dev surface's smoke target names the Worker the stack deploys for it", () => {
+    const resources = resourcesOf(dev);
+    expect(
+      SURFACES.filter((surface) => surface.stack === "zap")
+        .map((surface) => surface.key)
+        .toSorted(),
+    ).toEqual(SURFACE_WORKERS.map(([key]) => key).toSorted());
+    expect(SURFACE_WORKERS.map(([key]) => [key, devTarget(key)?.worker])).toEqual(
+      SURFACE_WORKERS.map(([key, logicalId]) => [key, resources[logicalId]?.Props.name]),
     );
   });
 

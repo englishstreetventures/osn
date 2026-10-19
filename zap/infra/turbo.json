@@ -8,6 +8,8 @@
         "!**/*.md",
         "$TURBO_ROOT$/shared/*/src/**",
         "$TURBO_ROOT$/shared/infra/tests/support/**",
+        "$TURBO_ROOT$/scripts/smoke-check.ts",
+        "$TURBO_ROOT$/scripts/deploy-surfaces.ts",
         "$TURBO_ROOT$/zap/api/wrangler.toml",
         "$TURBO_ROOT$/zap/api/src/**",
         "$TURBO_ROOT$/zap/db/src/**",

@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { SiteBuildError } from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { SURFACES, type SurfaceKey } from "../../../scripts/deploy-surfaces";
+import { devTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import { ownerSeatSql, SeedInputError } from "../src/seeds";
 import {
@@ -19,6 +21,19 @@ import {
 } from "./evaluate";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
+/**
+ * Each dev surface of the cire stack and the logical id of the Worker it
+ * deploys: the smoke check's snapshot, compare and rollback act on that
+ * surface's dev target.
+ */
+const SURFACE_WORKERS = [
+  ["cire_api", "CireApi"],
+  ["cire_invites", "CireInvites"],
+  ["cire_host", "CireHost"],
+  ["cire_vendor", "CireVendor"],
+  ["cire_landing", "CireLanding"],
+] as const satisfies readonly (readonly [SurfaceKey, string])[];
 
 /** cire/db's dev seed, as the stack names it from its working directory. */
 const DEV_SEED = "../db/seed/dev-seed.sql";
@@ -173,6 +188,33 @@ describe("the cire stack, evaluated offline", () => {
     });
     expect(investigation.CireApi?.Props.domain).toBe(`api.cire.probe.${DEV_DOMAIN}`);
     expect(investigation.CireApi?.Props.env?.OSN_ENV).toBe("dev");
+  });
+
+  test("K11: no Worker serves a workers.dev host or version preview URLs, each a public host outside Access", async () => {
+    const investigation = await evaluateCire({ stage: "probe", env: stackEnv() });
+    for (const evaluation of [dev, investigation]) {
+      const workers = Object.values(resourcesOf(evaluation)).filter(
+        (resource) => resource.Type === "Cloudflare.Worker",
+      );
+      expect(workers.map((worker) => worker.LogicalId).toSorted()).toEqual([...WORKERS].toSorted());
+      for (const worker of workers) {
+        expect({ [worker.LogicalId]: worker.Props.workersDev }).toEqual({
+          [worker.LogicalId]: { enabled: false, previewsEnabled: false },
+        });
+      }
+    }
+  });
+
+  test("K13: each dev surface's smoke target names the Worker the stack deploys for it", () => {
+    const resources = resourcesOf(dev);
+    expect(
+      SURFACES.filter((surface) => surface.stack === "cire")
+        .map((surface) => surface.key)
+        .toSorted(),
+    ).toEqual(SURFACE_WORKERS.map(([key]) => key).toSorted());
+    expect(SURFACE_WORKERS.map(([key]) => [key, devTarget(key)?.worker])).toEqual(
+      SURFACE_WORKERS.map(([key, logicalId]) => [key, resources[logicalId]?.Props.name]),
+    );
   });
 
   test("K4: invocation logs are off on cire-api and cire-invites", () => {
