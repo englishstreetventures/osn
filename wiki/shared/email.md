@@ -24,7 +24,7 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-10-17
+last-reviewed: 2026-10-19
 ---
 
 # Email Transport
@@ -302,6 +302,12 @@ deploy refuses to run while `RESEND_API_URL` exists as a secret.
 > recovery-code login. Production moves to the same sender only after dev mail
 > from `musubi.social` is seen to arrive. The steps are on
 > englishstreetventures/osn#1548. See [[musubi-identity-migration]].
+>
+> Dev shares the address production will move to, by the owner's choice on
+> that issue. Neither the address nor the display name marks a message as dev,
+> and spam complaints about dev mail count against that address. A separate
+> `Musubi (dev) <dev@musubi.social>` would keep both apart, with no extra Resend
+> setup, since Resend verifies a whole domain.
 
 Before you deploy (Resend — the live path):
 

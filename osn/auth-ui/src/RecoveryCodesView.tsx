@@ -78,6 +78,7 @@ export interface RecoveryCodesViewProps {
 export function recoveryCodesFileName(productName: string): string {
   const slug = productName
     .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");

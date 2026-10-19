@@ -64,10 +64,10 @@ export function PrivacyPage(): JSX.Element {
       </p>
       <h3>Your social graph</h3>
       <p>
-        Connections between profiles, and blocks. Connections are shared with other apps that use
-        your Musubi account when they need them — Pulse to show which of your connections are
-        attending an event, Zap to honour a block, Cire to offer co-host suggestions from your own
-        accepted connections. Blocks are enforced everywhere.
+        Connections between profiles, and blocks. Connections are shared with our other apps when
+        they need them — Pulse to show which of your connections are attending an event, Zap to
+        honour a block, Cire to offer co-host suggestions from your own accepted connections. Blocks
+        are enforced everywhere.
       </p>
       <h3>Security records</h3>
       <p>

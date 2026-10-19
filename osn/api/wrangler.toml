@@ -182,6 +182,11 @@ OSN_COOKIE_DOMAIN = "dev.musubi.social"
 # musubi.social zone) before this deploys: Resend refuses a sender on a domain
 # it has not verified, and every dev OTP and security email fails with it.
 # Steps: englishstreetventures/osn#1548.
+# Dev shares the address production will move to, by the owner's choice on
+# that issue: neither the address nor the display name marks a message as dev, and
+# spam complaints about dev mail count against that address. A separate
+# `Musubi (dev) <dev@musubi.social>` would keep both apart and needs no extra
+# Resend setup, since Resend verifies a whole domain.
 OSN_EMAIL_FROM = "Musubi <hello@musubi.social>"
 
 # Custom-domain route: serves osn-api-dev on id.dev.musubi.social. Two labels

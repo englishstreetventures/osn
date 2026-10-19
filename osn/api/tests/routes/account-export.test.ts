@@ -203,6 +203,12 @@ describe("GET /account/export — download name", () => {
     );
   });
 
+  it("keeps an accented letter as its plain form rather than splitting the word", async () => {
+    expect(await dispositionUnder("Müller")).toBe(
+      'attachment; filename="muller-account-export.ndjson"',
+    );
+  });
+
   // A header value outside Latin-1 is refused when the response is built, so a
   // name with no ASCII letter or digit must fall back rather than fail the export.
   it("falls back to a bare name when the instance name has no ASCII letter or digit", async () => {

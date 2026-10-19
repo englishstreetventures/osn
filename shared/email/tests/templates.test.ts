@@ -167,11 +167,11 @@ describe("renderTemplate", () => {
 /**
  * The account emails osn-api sends name the identity instance they come from,
  * and that name is the instance's to choose: an operator running their own
- * instance must not send mail that names ours. The name carries an `&` so the
- * same render also proves it is escaped in the HTML part.
+ * instance must not send mail that names ours. The name carries `&`, `<` and
+ * `>` so the same render also proves it is escaped in the HTML part.
  */
 describe("account emails name the instance passed in", () => {
-  const instanceName = "Acme & Co";
+  const instanceName = "Acme & <Co>";
   const accountEmails = {
     "otp-registration": { code: "000000", ttlMinutes: 10, instanceName },
     "otp-step-up": { code: "000000", ttlMinutes: 10, instanceName },
@@ -198,7 +198,7 @@ describe("account emails name the instance passed in", () => {
 
     it(`${template} escapes the instance name in its HTML`, () => {
       const out = renderTemplate(template, accountEmails[template]);
-      expect(out.html).toContain("Acme &amp; Co");
+      expect(out.html).toContain("Acme &amp; &lt;Co&gt;");
       expect(out.html).not.toContain(instanceName);
     });
   }

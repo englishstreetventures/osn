@@ -353,7 +353,9 @@ describe("recoveryCodesFileName", () => {
     expect(recoveryCodesFileName("結び")).toBe("recovery-codes.txt");
   });
 
+  // The accent sits mid-word: a trailing one would hide a stray hyphen, since
+  // the ends of the name are trimmed.
   it("keeps an accented letter as its plain form rather than splitting the word", () => {
-    expect(recoveryCodesFileName("Café")).toBe("cafe-recovery-codes.txt");
+    expect(recoveryCodesFileName("Müller Café")).toBe("muller-cafe-recovery-codes.txt");
   });
 });

@@ -35,6 +35,22 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   });
   flow.check("tab title", "Musubi", await page.title());
 
+  // The narrowest phone: the signed-out top bar must hold the wordmark, the
+  // theme toggle, "Sign in" and "Create account" without running off the right
+  // edge.
+  const viewport = page.viewportSize();
+  let createAccountRight = Number.POSITIVE_INFINITY;
+  await flow.step("signed-out top bar at 320px", async () => {
+    await page.setViewportSize({ width: 320, height: 640 });
+    const box = await page
+      .getByRole("button", { name: "Create account" })
+      .filter({ visible: true })
+      .boundingBox();
+    createAccountRight = box ? box.x + box.width : createAccountRight;
+    if (viewport) await page.setViewportSize(viewport);
+  });
+  flow.check("Create account fits a 320px screen", true, createAccountRight <= 320);
+
   await flow.step("register: details", async () => {
     await page.getByRole("button", { name: "Create account" }).first().click();
     await page.getByLabel("Email").fill(ada.email);
@@ -56,6 +72,13 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await page.getByRole("button", { name: "Enroll credential" }).click();
     await expect(page.getByRole("button", { name: `@${ada.handle}` })).toBeVisible();
   });
+
+  const notices = await mailFor(ada.email, (m) => m.subject.startsWith("A passkey was added"));
+  flow.check(
+    "passkey-added notice subject",
+    "A passkey was added to your Musubi account",
+    notices.find((m) => m.subject.startsWith("A passkey was added"))?.subject ?? "",
+  );
 
   const credentials = await authenticator.credentials();
   flow.check("authenticator holds one passkey", 1, credentials.length);

@@ -26,13 +26,15 @@ import { errorResponse, stepUpRequiredResponse } from "./auth/response-schemas";
 /**
  * The export's download name, led by the instance's name so a user who has
  * exported from several services can tell the files apart:
- * "Musubi" → `musubi-account-export.ndjson`. ASCII only, because the name goes
- * into a `Content-Disposition` header and a value outside Latin-1 fails the
- * response; a name with no ASCII letter or digit falls back to the bare name.
+ * "Musubi" → `musubi-account-export.ndjson`. Accents fold to their plain letter
+ * and anything else outside ASCII letters and digits becomes a hyphen, because
+ * the name goes into a `Content-Disposition` header and a value outside Latin-1
+ * fails the response; a name left with nothing falls back to the bare name.
  */
 function exportFileName(instanceName: string): string {
   const slug = instanceName
     .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
@@ -72,6 +74,7 @@ export function createAccountExportRoutes(
   downstreams: ExportDownstream[] = defaultExportDownstreams(),
 ) {
   const auth = createAuthService(authConfig);
+  const contentDisposition = `attachment; filename="${exportFileName(authConfig.instanceName)}"`;
   const { run } = makeAppRunner<Db>(runtime, Layer.merge(dbLayer, loggerLayer));
   const handleError = (e: unknown) => publicError(e, loggerLayer);
 
@@ -170,7 +173,7 @@ export function createAccountExportRoutes(
           headers: {
             "content-type": "application/x-ndjson; charset=utf-8",
             "cache-control": "no-store",
-            "content-disposition": `attachment; filename="${exportFileName(authConfig.instanceName)}"`,
+            "content-disposition": contentDisposition,
           },
         });
       } catch (e) {

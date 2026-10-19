@@ -9,7 +9,7 @@ related:
   - "[[bundle-size-guards]]"
   - "[[devloop-urls]]"
   - "[[browser-tests]]"
-last-reviewed: 2026-10-17
+last-reviewed: 2026-10-19
 ---
 
 # Testing Patterns
@@ -79,7 +79,7 @@ Requests are kept only for osn-api, pulse-api and cire-api. Query strings are dr
 2. Import `test` and `expect` from `../support/fixtures`, and take the `flow` fixture.
 3. Wrap each user-visible action in `flow.step("…", …)`. Record every outcome a reviewer should see with `flow.check(name, expected, actual)`, which also asserts. Check the database row, not only the UI: `queryOne(DB_FILES.<db>, sql, …)` reads a stack database read-only. Join on seeded or fixed values, never on a generated id.
 4. For a second user, create a context with `browser.newContext()` and open pages with `flow.newPage(context)`, so they get the suite clock and their requests are recorded. Point `flow.finalPage` at the page whose end state the screenshot should show.
-5. To create an OSN account, register through the UI when registration is what the flow tests (`otpFor(email)` reads the one-time code, and `mailFor(email)` returns every message sent to the address so far, to check a subject or body). Otherwise call `registerThroughApi(flow, context.request, person)`. Fixed people and values go in `tools/e2e/src/config.ts`.
+5. To create an OSN account, register through the UI when registration is what the flow tests (`otpFor(email)` reads the one-time code, and `mailFor(email, until)` waits until a message matching `until` has reached the address, then returns every message sent to it so far, to check a subject or body). Otherwise call `registerThroughApi(flow, context.request, person)`. Fixed people and values go in `tools/e2e/src/config.ts`.
 6. Wait on state only: `expect(locator)`, `expect(page).toHaveURL`, `page.waitForResponse`. `tools/e2e/tests/flows.test.ts` fails on `waitForTimeout`, `setTimeout`, `networkidle` or `.only` in a flow.
 7. Run `bun run test:e2e:repro` and confirm the two runs match.
 
