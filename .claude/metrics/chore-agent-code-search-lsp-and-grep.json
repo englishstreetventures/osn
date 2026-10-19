@@ -1,0 +1,194 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1571,
+    "branch": "chore/agent-code-search-lsp-and-grep",
+    "base_sha": "3321751c3ff0eca36f290b16c58d29168351ce41",
+    "head_sha": "3d2a14f97c04a365bbb7c8acada540fb748c712a",
+    "generated_at": "2026-10-19T07:29:36.841Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1562,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:2"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "confirmed"
+  },
+  "window": {
+    "sessions": 4,
+    "first_ts": "2026-10-19T06:29:43.423Z",
+    "last_ts": "2026-10-19T07:29:30.395Z",
+    "span_seconds": 3587,
+    "active_seconds": 5061,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 15.341513590000012,
+    "tokens": {
+      "input": 556,
+      "output": 68923,
+      "thinking": 11866,
+      "cache_write_5m": 764370,
+      "cache_write_1h": 59991,
+      "cache_read": 26282482
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 536,
+          "output": 68082,
+          "thinking": 11866,
+          "cache_write_5m": 617774,
+          "cache_write_1h": 59991,
+          "cache_read": 25755213
+        },
+        "usd_equivalent": 15.234667200000013,
+        "messages": 268
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 6,
+          "output": 797,
+          "thinking": 0,
+          "cache_write_5m": 30552,
+          "cache_write_1h": 0,
+          "cache_read": 14120
+        },
+        "usd_equivalent": 0.087186,
+        "messages": 3
+      },
+      "claude-haiku-5-5": {
+        "tokens": {
+          "input": 14,
+          "output": 44,
+          "thinking": 0,
+          "cache_write_5m": 116044,
+          "cache_write_1h": 0,
+          "cache_read": 513149
+        },
+        "usd_equivalent": 0.01966039,
+        "messages": 7
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 220,
+          "output": 65041,
+          "thinking": 11866,
+          "cache_write_5m": 200948,
+          "cache_write_1h": 59991,
+          "cache_read": 15177609
+        },
+        "usd_equivalent": 8.857411600000002,
+        "messages": 110
+      },
+      "subagent": {
+        "tokens": {
+          "input": 336,
+          "output": 3882,
+          "thinking": 0,
+          "cache_write_5m": 563422,
+          "cache_write_1h": 0,
+          "cache_read": 11104873
+        },
+        "usd_equivalent": 6.4841019900000045,
+        "messages": 168
+      }
+    },
+    "effort": {
+      "medium": 117,
+      "low": 3,
+      "xhigh": 134,
+      "high": 24
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 0,
+      "test": 0,
+      "docs": 8,
+      "config": 0,
+      "source": 0
+    },
+    "loc": {
+      "generated": {
+        "added": 0,
+        "deleted": 0
+      },
+      "test": {
+        "added": 0,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 78,
+        "deleted": 10
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 0,
+        "deleted": 0
+      }
+    },
+    "packages": [],
+    "touches_migration": false,
+    "commits": 3
+  },
+  "interaction": {
+    "user_turns": 4,
+    "corrective_turns": 3,
+    "tokens_before_first_edit": 1387236,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 221,
+      "Edit": 36,
+      "Read": 30,
+      "Write": 30,
+      "WebFetch": 14,
+      "Skill": 12,
+      "LSP": 9,
+      "Agent": 8,
+      "SubagentHandback": 6,
+      "ToolSearch": 3,
+      "AskUserQuestion": 2,
+      "EnterWorktree": 1,
+      "WebSearch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 6,
+      "max_edits_one_file": 10
+    },
+    "skills": {
+      "new-feat": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-performance": 1,
+      "review-security": 1,
+      "write-pr": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "claude-code-guide": 1,
+      "explorer": 2,
+      "reviewer": 4
+    }
+  }
+}
