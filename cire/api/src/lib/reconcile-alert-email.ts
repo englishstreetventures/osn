@@ -32,9 +32,9 @@ const ATTEMPTS = 3;
 /**
  * The bucket a binding names in each deployed tier: production's as
  * `cire/api/wrangler.toml` declares it, which
- * tests/lib/reconcile-alert-email.test.ts reads; dev's are the literal names
- * that test and the cire stack's K1 test (`cire/infra/tests/stack.test.ts`)
- * each pin.
+ * tests/lib/reconcile-alert-email.test.ts reads; dev's as the cire stack
+ * creates them, which the stack's K1 test (`cire/infra/tests/stack.test.ts`)
+ * holds this function to.
  */
 export function reconcileBucketName(label: R2BucketLabel, env: "dev" | "production"): string {
   const name = label === "sheets" ? "cire-sheets" : "cire-assets";

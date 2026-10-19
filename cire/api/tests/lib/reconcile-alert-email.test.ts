@@ -135,10 +135,4 @@ describe("reconcileBucketName", () => {
     expect(reconcileBucketName("sheets", "production")).toBe(named("SHEETS")!);
     expect(reconcileBucketName("assets", "production")).toBe(named("ASSETS")!);
   });
-
-  it("matches the dev bucket names the cire stack declares", () => {
-    // The names `cire/infra/tests/stack.test.ts` (K1) holds the stack to.
-    expect(reconcileBucketName("sheets", "dev")).toBe("cire-sheets-dev");
-    expect(reconcileBucketName("assets", "dev")).toBe("cire-assets-dev");
-  });
 });

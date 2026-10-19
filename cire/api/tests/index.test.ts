@@ -971,7 +971,7 @@ describe("D1 session routing at the entry points", () => {
 // portal, vendor portal). Driven through the real entry point with the
 // committed production list, so a change to that mapping in `src/index.ts` or
 // to the list's order in `wrangler.toml` shows up here. The dev list's order is
-// the cire stack's (`cire/infra/tests/declaration.test.ts`).
+// the cire stack's, which its K1 test (`cire/infra/tests/stack.test.ts`) holds.
 describe("CSP report site labels from WEB_ORIGIN", () => {
   it("labels a report from the vendor portal as vendor", async () => {
     const toml = await Bun.file(new URL("../wrangler.toml", import.meta.url)).text();

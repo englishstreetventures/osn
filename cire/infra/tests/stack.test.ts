@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { SiteBuildError } from "@shared/infra";
@@ -21,6 +22,22 @@ import {
 } from "./evaluate";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
+/**
+ * The bucket cire-api's reconcile alerts name for `label` on dev. Its module
+ * is loaded when the test runs, not imported: type-checking cire-api's
+ * source needs the Workers types, which this package does not install.
+ */
+async function reconcileBucketName(label: "sheets" | "assets"): Promise<string> {
+  const cireApi = (await import(join(repoRoot, "cire/api/src/lib/reconcile-alert-email.ts"))) as {
+    readonly reconcileBucketName: (label: "sheets" | "assets", env: "dev" | "production") => string;
+  };
+  return cireApi.reconcileBucketName(label, "dev");
+}
+
+/** `text` with its block comments and its `//` comments blanked. */
+const withoutComments = (text: string): string =>
+  text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|\s)\/\/.*$/gm, "$1");
 
 /**
  * Each dev surface of the cire stack and the logical id of the Worker it
@@ -164,6 +181,14 @@ describe("the cire stack, evaluated offline", () => {
     expect(env.DB).toBe(resources.CireDb);
     expect(env.ASSETS).toBe(resources.CireAssets);
     expect(env.SHEETS).toBe(resources.CireSheets);
+    // The buckets cire-api's reconcile alerts name on dev are the ones the stack creates.
+    expect({
+      sheets: resources.CireSheets?.Props.name,
+      assets: resources.CireAssets?.Props.name,
+    }).toEqual({
+      sheets: await reconcileBucketName("sheets"),
+      assets: await reconcileBucketName("assets"),
+    });
     expect(resources.CireInvites?.Props.env).toEqual({});
 
     // An investigation stage derives every name and host from its own name
@@ -215,6 +240,45 @@ describe("the cire stack, evaluated offline", () => {
     expect(SURFACE_WORKERS.map(([key]) => [key, devTarget(key)?.worker])).toEqual(
       SURFACE_WORKERS.map(([key, logicalId]) => [key, resources[logicalId]?.Props.name]),
     );
+  });
+
+  test("K14: the guest site uploads the Astro build as it is: the server entry Astro writes, unbundled, with the client output as its assets", () => {
+    const props = resourcesOf(dev).CireInvites?.Props;
+    // cire/invites's Astro config sets no output directory or server entry,
+    // so Astro's defaults name the files its build writes.
+    const config = withoutComments(
+      readFileSync(join(repoRoot, "cire/invites/astro.config.mjs"), "utf8"),
+    );
+    expect(config).toContain("defineConfig(");
+    expect(config).not.toMatch(
+      /\b(?:outDir|serverEntry)\s*:|\bbuild\s*:\s*\{[^}]*\b(?:client|server)\s*:/,
+    );
+    const astro = dirname(
+      createRequire(join(repoRoot, "cire/invites/package.json")).resolve("astro/package.json"),
+    );
+    const defaults = readFileSync(join(astro, "dist/core/config/schemas/defaults.js"), "utf8");
+    const build = defaults.slice(defaults.indexOf("build: {"));
+    const value = (text: string, key: string): string =>
+      new RegExp(`\\b${key}: "([^"]+)"`).exec(text)?.[1] ?? `no ${key} in Astro's defaults`;
+    const outDir = posix.join("../invites", value(defaults, "outDir"));
+
+    expect({
+      main: props?.main,
+      bundle: props?.bundle,
+      build: props?.build,
+      assets: props?.assets,
+    }).toEqual({
+      main: posix.join(outDir, value(build, "server"), value(build, "serverEntry")),
+      // A prebuilt Worker is uploaded as it is, so it takes no bundler options.
+      bundle: false,
+      build: undefined,
+      assets: {
+        directory: posix.join(outDir, value(build, "client")).replace(/\/$/, ""),
+        htmlHandling: "auto-trailing-slash",
+        notFoundHandling: "none",
+        runWorkerFirst: false,
+      },
+    });
   });
 
   test("K4: invocation logs are off on cire-api and cire-invites", () => {

@@ -63,7 +63,8 @@ describe("CORS", () => {
 // the preflight's `Access-Control-Allow-Methods` leaves out. The origins are
 // the committed `[env.production.vars] WEB_ORIGIN` allowlist, split here with
 // a copy of the split, trim and filter in `src/index.ts`. The dev list's three
-// origins come from the cire stack (`cire/infra/tests/declaration.test.ts`).
+// origins come from the cire stack, whose K1 test (`cire/infra/tests/stack.test.ts`)
+// holds them.
 const committedToml = await Bun.file(new URL("../wrangler.toml", import.meta.url)).text();
 const production = Bun.TOML.parse(committedToml) as {
   env: { production: { vars: { WEB_ORIGIN: string } } };

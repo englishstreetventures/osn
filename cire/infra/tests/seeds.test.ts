@@ -1,9 +1,14 @@
-import { readFileSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
 
+import { DEV_OWNER_PROFILE_ID, DEV_OWNER_SEAT_ID } from "../../db/seed/data/wedding";
 import { ownerSeatSql, SeedInputError } from "../src/seeds";
+
+const cireDb = fileURLToPath(new URL("../../db/", import.meta.url));
 
 const seedScript = readFileSync(
   fileURLToPath(new URL("../../../scripts/cire-db-seed.sh", import.meta.url)),
@@ -37,6 +42,34 @@ const statements = (sql: string): string[] =>
     .split(";")
     .map((statement) => statement.trim().replace(/\s+/g, " "))
     .filter((statement) => statement !== "");
+
+interface SeatRow {
+  readonly osn_profile_id: string;
+  readonly added_by_osn_profile_id: string;
+  readonly role: string;
+}
+
+/**
+ * SQLite migrated through cire/db's migrations, foreign keys on as on D1, and
+ * loaded with the dev seed: what the stack's dev database holds before
+ * Alchemy imports the owner-seat file after it.
+ */
+function seededDb(): Database {
+  const db = new Database(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  const migrations = join(cireDb, "migrations");
+  for (const file of readdirSync(migrations)
+    .filter((name) => name.endsWith(".sql"))
+    .toSorted()) {
+    for (const statement of readFileSync(join(migrations, file), "utf8").split(
+      "--> statement-breakpoint",
+    )) {
+      if (statement.trim() !== "") db.exec(statement);
+    }
+  }
+  db.exec(readFileSync(join(cireDb, "seed/dev-seed.sql"), "utf8"));
+  return db;
+}
 
 describe("ownerSeatSql", () => {
   test("S6: an invalid profile id is refused, naming the variable only; unset or empty seeds nothing; a valid one gives the seed script's two statements", () => {
@@ -78,5 +111,44 @@ describe("ownerSeatSql", () => {
   test("S5: identical inputs give identical bytes, so a second deploy re-imports nothing", () => {
     expect(ownerSeatSql("usr_Ab3-x_9")).toBe(ownerSeatSql("usr_Ab3-x_9"));
     expect(ownerSeatSql("usr_Ab3-x_9")).not.toBe(ownerSeatSql("usr_other"));
+  });
+
+  test("S11: imported after the dev seed, it moves the seed's owner seat to the profile, which keeps one seat on the wedding", () => {
+    const seat = (db: Database) =>
+      db
+        .query<SeatRow, [string]>(
+          "SELECT osn_profile_id, added_by_osn_profile_id, role FROM wedding_hosts WHERE id = ?",
+        )
+        .get(DEV_OWNER_SEAT_ID);
+    const seatsOf = (db: Database, profileId: string) =>
+      db
+        .query<{ readonly id: string }, [string]>(
+          "SELECT id FROM wedding_hosts WHERE wedding_id = 'wed_bootstrap' AND osn_profile_id = ?",
+        )
+        .all(profileId)
+        .map((row) => row.id);
+
+    const db = seededDb();
+    expect(seat(db)).toEqual({
+      osn_profile_id: DEV_OWNER_PROFILE_ID,
+      added_by_osn_profile_id: DEV_OWNER_PROFILE_ID,
+      role: "owner",
+    });
+    db.exec(ownerSeatSql("usr_Ab3-x_9") ?? "");
+    expect(seat(db)).toEqual({
+      osn_profile_id: "usr_Ab3-x_9",
+      added_by_osn_profile_id: "usr_Ab3-x_9",
+      role: "owner",
+    });
+    expect(seatsOf(db, "usr_Ab3-x_9")).toEqual([DEV_OWNER_SEAT_ID]);
+
+    // A profile the seed already seats on the wedding gives up that seat for the owner's.
+    const cohost = seededDb();
+    const [cohostSeat] = seatsOf(cohost, "usr_dev_cohost_partner");
+    expect(cohostSeat).toBeDefined();
+    expect(cohostSeat).not.toBe(DEV_OWNER_SEAT_ID);
+    cohost.exec(ownerSeatSql("usr_dev_cohost_partner") ?? "");
+    expect(seatsOf(cohost, "usr_dev_cohost_partner")).toEqual([DEV_OWNER_SEAT_ID]);
+    expect(seat(cohost)?.role).toBe("owner");
   });
 });

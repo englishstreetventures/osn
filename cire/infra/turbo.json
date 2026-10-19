@@ -19,6 +19,8 @@
         "$TURBO_ROOT$/cire/theme/src/**",
         "$TURBO_ROOT$/cire/db/migrations/**",
         "$TURBO_ROOT$/cire/db/seed/dev-seed.sql",
+        "$TURBO_ROOT$/cire/db/seed/data/wedding.ts",
+        "$TURBO_ROOT$/cire/invites/astro.config.mjs",
         "$TURBO_ROOT$/cire/invites/wrangler.jsonc",
         "$TURBO_ROOT$/scripts/cire-db-seed.sh",
         "$TURBO_ROOT$/bun.lock"
