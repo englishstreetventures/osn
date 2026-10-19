@@ -12,7 +12,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-19
 ---
 # Invite design selector
 
@@ -271,10 +271,60 @@ at 320x568, 375x667, 390x844, 844x390 and 1440x900 ([[browser-tests]]).
 `tests/designs/InviteHeader.ssr.test.tsx` checks the cue is in each pack's
 server HTML, and fails when the catalog gains a pack it does not list.
 
+## Event card states
+
+[`EventCard`](../../cire/invites/src/components/EventCard.tsx) has two
+buttons: Event Details, always, and the answer button, whose label, fill and
+presence follow the household's replies and the RSVP deadline
+([[cire-rsvp-deadline]]). Both packs pass the same three facts: `responded`
+(every invited member has a reply, `hasHouseholdResponded`), `replied` (at
+least one has, `hasAnyHouseholdReply`; plus-ones excluded, any status) and
+`rsvpClosed`.
+
+| State | Answer button | Label | Fill and tick | Label ink |
+|---|---|---|---|---|
+| Open, no complete reply (a part reply included) | shown | Respond | none | `text-on-gold` on gold |
+| Every member answered, open or closed | shown | RSVP given | bloom fill, tick | `text-bg` on bloom |
+| Closed, part reply | shown | RSVP given | none | `text-on-gold` on gold |
+| Closed, no reply | none | — | — | — |
+
+- **The fill and tick mean everyone answered.** A part reply after the
+  deadline gets the label, so the guest can look back at it, and not the mark.
+  The label follows the mark too, so the host preview's celebration reads
+  "RSVP given" with no row written.
+- **The label ink follows the fill under it.** Both pairs are held to 4.5:1 by
+  `derivePalette`: `--color-on-gold` against `--color-gold`, and
+  `--color-bg` against `--color-bloom` ([[cire-invite-builder#Contrast is enforced first, and warned about where it can't be]]).
+  During the 500ms sweep the label crosses from one fill to the other; the
+  settled states are what the contrast test measures.
+- **Hover underlines the label and leaves the gold solid.** A translucent gold
+  over the card is a pair no derivation measures, so no gold fill on the
+  invite eases its opacity under a label.
+- **The "RSVPs closed" badge** sits after the `<h3>` in a shared row
+  (`flex-wrap items-baseline`), never inside the heading, in the closed
+  notice's treatment: `border-border text-text-muted rounded-sm border`, the
+  `text-ui-xs` uppercase micro-label, `whitespace-nowrap`, no tint. At 320px a
+  long name pushes it onto its own line rather than past the card's edge.
+- **No inert button.** Closed with no reply, the answer button unmounts; when
+  it held focus, focus moves to Event Details.
+
+Every gold button on the invite writes its label in `--color-on-gold`: the
+hand-written fills (`text-on-gold`, including the hover and focus states that
+turn an outline gold) and every `@cire/ui` primary and cta hover, through
+`--ui-on-accent: var(--color-on-gold)` in `src/styles/global.css`. On
+evergreen, jewel and fog that is the page colour, as it always was; on chapel
+it is a near-black and on garden a near-white, because neither the cream page
+nor the ink reaches 4.5:1 on their mid-tone gold.
+
+Tests: `tests/components/EventCard.test.tsx` (each state, the badge's place,
+the focus rescue), `EventCard.actions.browser.test.tsx` (the labels and badge
+at 320px) and `EventCard.contrast.browser.test.tsx` (every label on its fill,
+on every preset, at rest and on hover).
+
 ## The event sheet
 
-Each event card has two buttons, Event Details and Respond. Both open one
-dialog, [`EventSheet`](../../cire/invites/src/components/EventSheet.tsx),
+Each event card has two buttons, Event Details and the answer button
+([[#Event card states]]). Both open one dialog, [`EventSheet`](../../cire/invites/src/components/EventSheet.tsx),
 holding two panels: [`DetailsPanel`](../../cire/invites/src/components/DetailsPanel.tsx)
 (when, where, Add to Calendar, about, dress code, moodboard) and
 [`RsvpPanel`](../../cire/invites/src/components/RsvpPanel.tsx) (the reply
@@ -297,8 +347,8 @@ event and the panel to open on.
   for a guest who asks for them.
 - **Focus moves to the new panel's heading.** Both panels are titled with the
   event's name, so each heading also carries its panel's name — "Respond,
-  Mehndi", "Details, Mehndi" — and the dialog takes its name from the heading
-  on screen. Closing from either panel hands focus back to the card button
+  Mehndi" ("Your RSVP, Mehndi" past the deadline), "Details, Mehndi" — and the
+  dialog takes its name from the heading on screen. Closing from either panel hands focus back to the card button
   that opened the sheet; the platform's `<dialog>` does that.
 - **The scroll goes to the top** of the new panel, so its heading is in view.
   The form's scroll position is not kept across a visit to the details; its
@@ -315,12 +365,13 @@ event and the panel to open on.
   the sliding form's full-bleed action bar would otherwise cause. Outside a
   switch nothing is clipped. Under reduced motion the global clamp makes the
   switch instant, the resize included.
-- **Past the RSVP deadline** the details panel offers no way into the form and
-  says "RSVPs closed on …" in its place, in a live region present from the
-  start so a deadline that passes with the sheet open is announced. If focus
-  was on the RSVP button when it went, focus moves to the details heading
-  ([[cire-rsvp-deadline]]).
-- **The card's mark waits for the sheet.** `covered` holds the Respond
+- **Past the RSVP deadline** the form is read-only, and the details panel says
+  "RSVPs closed on …" in a live region present from the start, so a deadline
+  that passes with the sheet open is announced. A household with a reply on
+  file keeps its way into the form, relabelled "View your RSVP"; one with none
+  loses it, and if focus was on that button when it went, focus moves to the
+  details heading ([[cire-rsvp-deadline]]).
+- **The card's mark waits for the sheet.** `covered` holds the answer
   button's confirmation back while the sheet is open on either panel.
 
 Tests: `tests/components/EventSheet.test.tsx` (what mounts, hides, names and
