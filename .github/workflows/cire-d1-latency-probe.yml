@@ -11,8 +11,10 @@
 # It sends only requests any browser can send, to a public, rate-limited GET on
 # the dev tier, and costs one D1 read per timed SELECT. The target is the dev
 # cire-api origin, which `dev-hosts` derives from the dev Environment's
-# DEV_DOMAIN; the script refuses any host production is routed on. The job holds
-# no secret and no Cloudflare credential.
+# DEV_DOMAIN. The script reads DEV_DOMAIN too and runs only against a host
+# under it, refusing a DEV_DOMAIN that is a production zone or under one, so
+# no spelling of a production host passes. The job holds no secret and no
+# Cloudflare credential.
 name: Probe cire dev D1 first-query latency
 
 on:
@@ -66,4 +68,5 @@ jobs:
         run: bun --no-install cire/api/scripts/d1-latency-probe.ts
         env:
           CIRE_API_ORIGIN: ${{ steps.hosts.outputs.cire_api_origin }}
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
           SAMPLES: ${{ inputs.samples }}

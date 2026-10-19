@@ -22,11 +22,14 @@
  *
  * The target is `CIRE_API_ORIGIN`, the dev cire-api origin: the workflow
  * takes it from `dev-hosts`, which derives it from the dev Environment's
- * `DEV_DOMAIN`. It must be a bare https origin, and a host under a production
- * zone, or one `[[env.production.routes]]` in `wrangler.toml` names, is
- * refused, so the variable cannot point it at production. Requests are spaced from the
+ * `DEV_DOMAIN`, and passes `DEV_DOMAIN` as well. The probe runs only against
+ * a bare https origin whose host is `DEV_DOMAIN` or a name under it, written
+ * without a trailing dot, and only when `DEV_DOMAIN` is itself a bare
+ * lower-case domain that is no production zone and under none. A production
+ * host can match neither, however it is spelt. Requests are spaced from the
  * `CLAIM_SESSION_RATE_LIMITER` budget in the top-level `[[unsafe.bindings]]`
- * of the same file, which the cire stack gives the dev Worker as well.
+ * of `wrangler.toml`, which the cire stack gives the dev Worker as well
+ * (`cire/infra/tests/parity.test.ts` holds the two equal).
  *
  * Imports only Bun and web built-ins, so CI runs it with `bun --no-install`.
  * Output goes to stdout and, on GitHub Actions, to the step summary.
@@ -119,30 +122,66 @@ type ProbeConfig = {
       readonly simple?: { readonly limit?: unknown; readonly period?: unknown };
     }[];
   };
-  readonly env?: {
-    readonly production?: { readonly routes?: readonly { readonly pattern?: unknown }[] };
-  };
 };
 
 /**
  * The zones production serves from, as `@shared/infra`'s `PRODUCTION_ZONES`
- * lists them; repeated here because this script imports only built-ins.
+ * lists them; repeated here because this script imports only built-ins. A
+ * test holds the two lists equal.
  */
-const PRODUCTION_ZONES = ["cireweddings.com", "musubi.social", "pulse.events"];
+export const PRODUCTION_ZONES: readonly string[] = [
+  "cireweddings.com",
+  "musubi.social",
+  "pulse.events",
+];
+
+/** One DNS label, as `@shared/infra`'s `parseDevDomain` takes it. */
+const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/** The longest DNS name, in characters. */
+const MAX_NAME = 253;
+
+const under = (name: string, zone: string): boolean => name === zone || name.endsWith(`.${zone}`);
+
+/** `raw` when it is a bare lower-case domain outside every production zone; throws otherwise. */
+function readDevDomain(raw: string | undefined): string {
+  if (raw === undefined || raw.trim() === "") {
+    throw new Error(
+      "DEV_DOMAIN is not set; it names the dev zone the probe's target must be under",
+    );
+  }
+  const labels = raw.split(".");
+  if (raw.length > MAX_NAME || labels.length < 2 || !labels.every((label) => LABEL.test(label))) {
+    throw new Error(`DEV_DOMAIN '${raw}' is not a bare lower-case domain name`);
+  }
+  const zone = PRODUCTION_ZONES.find((name) => under(raw, name));
+  if (zone !== undefined) {
+    throw new Error(
+      `DEV_DOMAIN '${raw}' is the production zone ${zone} or under it; refusing production`,
+    );
+  }
+  return raw;
+}
 
 const isPositiveInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value > 0;
 
 /**
- * The dev API origin from `origin` (`CIRE_API_ORIGIN`), and the budget of the
- * limiter the probed route sits behind, from `toml` (`wrangler.toml`).
+ * The dev API origin from `input.origin` (`CIRE_API_ORIGIN`), allowed only
+ * under `input.devDomain` (`DEV_DOMAIN`), and the budget of the limiter the
+ * probed route sits behind, from `toml` (`wrangler.toml`).
  */
-export function readDevTarget(origin: string | undefined, toml: string): DevTarget {
+export function readDevTarget(
+  input: { readonly origin: string | undefined; readonly devDomain: string | undefined },
+  toml: string,
+): DevTarget {
   const config = Bun.TOML.parse(toml) as ProbeConfig;
+  const { origin } = input;
 
   if (origin === undefined || origin.trim() === "") {
     throw new Error("CIRE_API_ORIGIN is not set; it names the dev cire-api origin");
   }
+  const devDomain = readDevDomain(input.devDomain);
   const url = new URL(origin);
   if (url.protocol !== "https:") {
     throw new Error(`CIRE_API_ORIGIN must be https, got ${origin}`);
@@ -150,17 +189,17 @@ export function readDevTarget(origin: string | undefined, toml: string): DevTarg
   if (url.origin !== origin.replace(/\/$/, "")) {
     throw new Error(`CIRE_API_ORIGIN must be a bare origin, got ${origin}`);
   }
-  const zone = PRODUCTION_ZONES.find(
-    (name) => url.hostname === name || url.hostname.endsWith(`.${name}`),
-  );
-  if (zone !== undefined) {
-    throw new Error(`${url.host} is under the production zone ${zone}; refusing production`);
+  // DNS reads `name.` as `name`, so a trailing dot would let any host past
+  // a comparison of labels.
+  if (url.hostname.endsWith(".")) {
+    throw new Error(
+      `CIRE_API_ORIGIN host ${url.hostname} ends in a trailing dot; write it without`,
+    );
   }
-  const production = (config.env?.production?.routes ?? []).some(
-    (route) => route.pattern === url.host,
-  );
-  if (production) {
-    throw new Error(`${url.host} is a pattern in [[env.production.routes]]; refusing production`);
+  if (!under(url.hostname, devDomain)) {
+    throw new Error(
+      `CIRE_API_ORIGIN host ${url.hostname} is not DEV_DOMAIN or a name under it (${devDomain}); the probe times only the dev tier`,
+    );
   }
 
   const limiter = (config.unsafe?.bindings ?? []).find(
@@ -429,7 +468,7 @@ function randomToken(): string {
 
 async function main(): Promise<number> {
   const target = readDevTarget(
-    process.env.CIRE_API_ORIGIN,
+    { origin: process.env.CIRE_API_ORIGIN, devDomain: process.env.DEV_DOMAIN },
     await Bun.file(new URL("../wrangler.toml", import.meta.url)).text(),
   );
   const samples = parseSampleCount(process.env.SAMPLES);

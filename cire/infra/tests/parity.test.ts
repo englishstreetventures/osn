@@ -31,6 +31,8 @@ interface WranglerTier {
 interface WranglerConfig {
   readonly compatibility_date: string;
   readonly compatibility_flags: readonly string[];
+  /** The top-level bindings: what the D1 latency probe paces itself by. */
+  readonly unsafe: { readonly bindings: readonly UnsafeBinding[] };
   readonly env: { readonly production: WranglerTier };
 }
 
@@ -119,6 +121,19 @@ describe("cire on dev against Wrangler's production config", () => {
     expect(
       Object.keys(invitesWrangler).filter((key) => !INVITES_NON_BINDING_KEYS.has(key)),
     ).toEqual([]);
+  });
+
+  test("L7: the dev session-restore limiter keeps the budget the D1 latency probe paces itself by", () => {
+    // cire/api/scripts/d1-latency-probe.ts spaces its requests to the
+    // top-level CLAIM_SESSION_RATE_LIMITER in cire/api/wrangler.toml and
+    // probes the dev Worker, so the two must hold one budget.
+    const name = "CLAIM_SESSION_RATE_LIMITER";
+    const topLevel = wrangler.unsafe.bindings.find((binding) => binding.name === name);
+    expect(topLevel).toBeDefined();
+    expect(resourcesOf(dev).CireApi?.Props.env?.[name]).toMatchObject({
+      kind: "Cloudflare.RateLimit",
+      simple: topLevel?.simple,
+    });
   });
 
   test("K3: cire-api's compatibility equals Wrangler's plus legacy_module_registry and its crons production's; cire-invites' equals its own config verbatim", () => {
