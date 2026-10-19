@@ -9,8 +9,10 @@
 # cire/api/scripts/d1-latency-probe.ts.
 #
 # It sends only requests any browser can send, to a public, rate-limited GET on
-# the dev tier, and costs one D1 read per timed SELECT. The target comes from
-# the `[env.dev]` block of cire/api/wrangler.toml and nothing here can change it.
+# the dev tier, and costs one D1 read per timed SELECT. The target is the dev
+# cire-api origin, which `dev-hosts` derives from the dev Environment's
+# DEV_DOMAIN; the script refuses any host production is routed on. The job holds
+# no secret and no Cloudflare credential.
 name: Probe cire dev D1 first-query latency
 
 on:
@@ -29,11 +31,14 @@ jobs:
     name: Time the first D1 query on dev
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Its own group, never `deploy-dev-cire-api`: GitHub cancels the pending job
-    # in a group when another joins it, so a probe there could cancel a queued
-    # dev deploy, and with it that merge's production promotion. A dev deploy
-    # or the nightly rebuild (14:00 UTC) can therefore overlap a run; the report
-    # prints its window so an overlapping run can be spotted and repeated.
+    # The dev Environment holds DEV_DOMAIN, the one input every dev host
+    # comes from.
+    environment: dev
+    # Its own group, never the cire stack's deploy group: GitHub cancels the
+    # pending job in a group when another joins it, so a probe there could
+    # cancel a queued dev deploy. A dev deploy can therefore overlap a run; the
+    # report prints its window so an overlapping run can be spotted and
+    # repeated.
     concurrency:
       group: cire-d1-latency-probe
       cancel-in-progress: false
@@ -44,10 +49,21 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      # `--no-install`: the script imports only Bun and web built-ins, so there
-      # is nothing to install, and a stray package import must fail here rather
-      # than be fetched from the public registry.
+      # dev-hosts runs from the @shared/infra workspace.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Derive the dev hosts
+        id: hosts
+        run: bun run --cwd shared/infra dev-hosts -- --stage dev
+        env:
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
+
+      # `--no-install`: the script imports only Bun and web built-ins, so a
+      # stray package import must fail here rather than be fetched from the
+      # public registry.
       - name: Time the route pair
         run: bun --no-install cire/api/scripts/d1-latency-probe.ts
         env:
+          CIRE_API_ORIGIN: ${{ steps.hosts.outputs.cire_api_origin }}
           SAMPLES: ${{ inputs.samples }}

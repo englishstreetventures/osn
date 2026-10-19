@@ -1,9 +1,9 @@
-// Holds .github/workflows/deploy.yml to the dev-hosts command: every
-// `steps.hosts.outputs.<key>` a dev build or smoke check reads is one the
-// command writes. GitHub expands an output nobody wrote to an empty string,
-// so a misspelt key builds a site against no API origin, or fails a smoke
-// check, with nothing pointing at the typo.
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+// Holds every workflow that reads a dev host to the dev-hosts command: every
+// `steps.hosts.outputs.<key>` a dev build, smoke check or probe reads is one
+// the command writes. GitHub expands an output nobody wrote to an empty
+// string, so a misspelt key builds a site against no API origin, fails a smoke
+// check, or probes nothing, with nothing pointing at the typo.
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,17 +23,29 @@ interface Workflow {
 }
 
 const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
-const TEXT = readFileSync(`${ROOT}.github/workflows/deploy.yml`, "utf8");
-const workflow = Bun.YAML.parse(TEXT) as Workflow;
+const WORKFLOWS = `${ROOT}.github/workflows/`;
 
 const HOST_READ = /\bsteps\.hosts\.outputs\.([A-Za-z0-9_]+)/g;
+
+/** Every workflow file that reads a dev-hosts output, sorted. */
+const READERS = readdirSync(WORKFLOWS)
+  .filter((file) => /\.ya?ml$/.test(file))
+  .filter((file) => /\bsteps\.hosts\.outputs\./.test(readFileSync(`${WORKFLOWS}${file}`, "utf8")))
+  .toSorted();
 const hostKeysRead = (fragment: unknown): string[] =>
   [...JSON.stringify(fragment ?? {}).matchAll(HOST_READ)].map((match) => match[1] ?? "");
 
 /** A domain the dev layout accepts; the keys do not depend on it. */
 const DOMAIN = "dev-zone.example";
 
-describe("the dev-hosts outputs deploy.yml reads", () => {
+test("the workflows that read a dev host are the deploy and the cire latency probe", () => {
+  expect(READERS).toEqual(["cire-d1-latency-probe.yml", "deploy.yml"]);
+});
+
+describe.each(READERS)("the dev-hosts outputs %s reads", (file) => {
+  const TEXT = readFileSync(`${WORKFLOWS}${file}`, "utf8");
+  const workflow = Bun.YAML.parse(TEXT) as Workflow;
+
   test("every one is a key devHostOutputs() writes", () => {
     const read = [...new Set([...TEXT.matchAll(HOST_READ)].map((match) => match[1] ?? ""))];
     expect(read.length).toBeGreaterThan(0);

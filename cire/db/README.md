@@ -23,14 +23,14 @@ cire/db/
     ├── generate.ts       # derives dev-seed.sql from ./data + dev-reset.sql from schema.ts
     ├── seed.test.ts      # fails CI if either generated .sql drifts from its source
     ├── dev-seed.sql      # GENERATED dev seed (events + families + guests)
-    └── dev-reset.sql     # GENERATED DROP of every table incl. d1_migrations (dev only)
+    └── dev-reset.sql     # GENERATED DROP of every table incl. d1_migrations; no script applies it
 ```
 
 ## Scripts
 
 Run from the repo root with `bun run --cwd cire/db <script>`. Wrangler reads
 `cire/api/wrangler.toml` via the `--config` flag baked into each script. The
-four scripts that apply migrations go through `scripts/cire-db-migrate.ts`,
+three scripts that apply migrations go through `scripts/cire-db-migrate.ts`,
 which checks the target's ledger first (see the baseline section below) and
 runs the wrangler `cire/api` installs from the lockfile. Without that install
 it stops rather than fetch another version.
@@ -39,23 +39,21 @@ it stops rather than fetch another version.
 | ------------------ | ------------------------------------------------------------------------------------------------- |
 | `db:generate`      | `drizzle-kit generate` — diff `schema.ts` against the latest migration, emit a new one            |
 | `db:push`          | Check the ledger, then apply pending migrations to the **local** D1 (Miniflare-backed)            |
-| `db:migrate:local` | Same as `db:push`, named to match the `:dev` / `:prod` pair                                       |
-| `db:migrate:dev`   | Check the ledger, then apply pending migrations to the **dev** D1 (`cire-db-dev`, `--env dev`). CI runs this every merge |
+| `db:migrate:local` | Same as `db:push`, named to match `:prod`                                                         |
 | `db:migrate:prod`  | Check the ledger, then apply pending migrations to the **production** D1 (`--env production`). Coordinate with deploys. |
 | `db:seed`          | Apply `seed/dev-seed.sql` to the local D1 (idempotent — uses `INSERT OR IGNORE`)                  |
-| `db:seed:dev`      | Same seed against `cire-db-dev`. Guarded — refuses any other remote database. Nightly, with the reset above |
 | `db:reset`         | Wipe local D1 state, re-run migrations + seed. Destructive — local only.                          |
-| `db:reset:dev`     | Drop every table in `cire-db-dev` incl. `d1_migrations`. Destructive — dev only, no prod flag. Run nightly by `cire-dev-db-rebuild.yml`, not on merge |
 | `db:studio`        | Launch Drizzle Studio for browsing the schema / writing one-off queries                           |
 | `seed:generate`    | Regenerate `seed/dev-seed.sql` and `seed/dev-reset.sql` from `seed/data/` + `src/schema.ts`       |
 | `test`             | Run the seed sync tests (`bun test`) — fail if either generated `.sql` is out of sync             |
 
-Every remote script names its target database explicitly **and** passes `--env`.
+The remote script names its target database explicitly **and** passes `--env`.
 Neither is optional: without `--env`, wrangler resolves the name against the
-top-level config, so a script meant for dev silently hits production. The two
-destructive dev scripts also re-check `cire/api/wrangler.toml` at run time
-(`scripts/cire-dev-db-guard.ts`) and abort unless `[env.dev]` really is
-`cire-db-dev` with an id no other environment shares.
+top-level config, which is the local database's.
+
+The dev tier's database is not migrated or seeded from here: the cire stack
+(`cire/infra`) creates it in the dev account, applies the migrations and
+imports `seed/dev-seed.sql` on every dev deploy.
 
 Production is never reset and never seeded — no script here can do either.
 
@@ -127,8 +125,7 @@ files by hand: they can change schema the Worker serving that database still
 reads. Production: re-run only the production cire-api job of an earlier run
 whose commit is from before the files were archived and let it finish — it
 applies them and deploys the matching Worker — then dispatch a release
-(`wiki/shared/production-deploy.md` §4.1). Dev: run `cire-dev-db-rebuild.yml`.
-Local: `db:reset`.
+(`wiki/shared/production-deploy.md` §4.1). Local: `db:reset`.
 
 The archive lives outside `migrations_dir`, so nothing applies it. The tests
 that replay it to prove what a migration did to existing rows are listed in
@@ -219,4 +216,4 @@ Use `TESTFOR-JOY-DD44` as the dev claim code (Eli is invited to every event).
   `cire/api/tests/db/ddl-lockstep.test.ts` diffs all three and fails on drift.
 - D1 migrations are **forward-only**. No `DOWN` blocks. To retire a column, copy data into a new table and add a `DROP TABLE` / `ALTER` migration that performs the swap.
 - After editing `schema.ts` AND any wrangler binding, regenerate types: `bunx wrangler --config cire/api/wrangler.toml types`.
-- The dev seed is **not** applied to remote D1. Production data flows in via the organiser spreadsheet import (`/api/organiser/import/{preview,apply}`).
+- The dev seed reaches the local D1 and the dev tier's (through the cire stack), never production. Production data flows in via the organiser spreadsheet import (`/api/organiser/import/{preview,apply}`).

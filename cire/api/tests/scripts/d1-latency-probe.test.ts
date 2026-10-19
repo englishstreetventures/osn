@@ -20,53 +20,96 @@ import {
 } from "../../scripts/d1-latency-probe";
 
 const committedToml = () => Bun.file(new URL("../../wrangler.toml", import.meta.url)).text();
-const workflow = () =>
+const workflowText = () =>
   Bun.file(
     new URL("../../../../.github/workflows/cire-d1-latency-probe.yml", import.meta.url),
   ).text();
 
 /** A limiter binding with the given `simple` table, for the refusal cases. */
 const limiterWith = (simple: string) =>
-  `name = "CLAIM_SESSION_RATE_LIMITER"\ntype = "ratelimit"\nnamespace_id = "1102"\nsimple = ${simple}`;
+  `name = "CLAIM_SESSION_RATE_LIMITER"\ntype = "ratelimit"\nnamespace_id = "1002"\nsimple = ${simple}`;
 
-/** The smallest config `readDevTarget` accepts; each case below breaks one piece. */
-const devToml = ({
-  origin = "https://api.dev.example.com",
-  routePattern = "api.dev.example.com",
-  limiter = 'name = "CLAIM_SESSION_RATE_LIMITER"\ntype = "ratelimit"\nnamespace_id = "1102"\nsimple = { limit = 60, period = 60 }',
-}: { origin?: string; routePattern?: string; limiter?: string } = {}) => `
-[env.dev.vars]
-CIRE_API_ORIGIN = "${origin}"
-
-[[env.dev.routes]]
-pattern = "${routePattern}"
-custom_domain = true
-
-[[env.dev.unsafe.bindings]]
+/**
+ * The smallest config `readDevTarget` accepts: the top-level limiter the probe
+ * paces itself by, and the production route it must never target. Each case
+ * below breaks one piece.
+ */
+const configToml = ({
+  limiter = 'name = "CLAIM_SESSION_RATE_LIMITER"\ntype = "ratelimit"\nnamespace_id = "1002"\nsimple = { limit = 60, period = 60 }',
+  productionRoute = "api.example.com",
+}: { limiter?: string; productionRoute?: string } = {}) => `
+[[unsafe.bindings]]
 ${limiter}
+
+[[env.production.routes]]
+pattern = "${productionRoute}"
+custom_domain = true
 `;
 
+const DEV_ORIGIN = "https://api.cire.dev-zone.example";
+
 describe("readDevTarget", () => {
-  it("never targets a host production is served on", async () => {
+  it("L1: refuses an unset or blank CIRE_API_ORIGIN, naming it", () => {
+    for (const origin of [undefined, "", "  "]) {
+      expect(() => readDevTarget(origin, configToml())).toThrow("CIRE_API_ORIGIN");
+    }
+  });
+
+  it("L2: refuses an origin that is not https", () => {
+    expect(() => readDevTarget("http://api.cire.dev-zone.example", configToml())).toThrow("https");
+  });
+
+  it("L3: refuses an origin with a path", () => {
+    expect(() => readDevTarget(`${DEV_ORIGIN}/api`, configToml())).toThrow("bare origin");
+  });
+
+  it("L4: refuses a host production is routed on, in the committed config too", async () => {
+    expect(() => readDevTarget("https://api.example.com", configToml())).toThrow(
+      "[[env.production.routes]]",
+    );
+
     const toml = await committedToml();
-    const parsed = Bun.TOML.parse(toml) as {
+    const production = Bun.TOML.parse(toml) as {
       env: { production: { routes: { pattern: string }[] } };
     };
+    const hosts = production.env.production.routes.map((route) => route.pattern);
+    expect(hosts.length).toBeGreaterThan(0);
+    for (const host of hosts) {
+      expect(() => readDevTarget(`https://${host}`, toml)).toThrow("[[env.production.routes]]");
+    }
+  });
 
-    const target = readDevTarget(toml);
+  it("accepts a dev origin and paces by the top-level limiter", () => {
+    expect(readDevTarget(`${DEV_ORIGIN}/`, configToml())).toEqual({
+      origin: DEV_ORIGIN,
+      limit: 60,
+      periodSeconds: 60,
+    });
+  });
 
-    expect(parsed.env.production.routes.map((route) => route.pattern)).not.toContain(
-      new URL(target.origin).host,
-    );
+  it("reads the committed top-level limiter, not a named environment's", async () => {
+    const toml = await committedToml();
+    const parsed = Bun.TOML.parse(toml) as {
+      unsafe: { bindings: { name: string; simple: { limit: number; period: number } }[] };
+    };
+    const top = parsed.unsafe.bindings.find((b) => b.name === "CLAIM_SESSION_RATE_LIMITER");
+    expect(top).toBeDefined();
+
+    expect(readDevTarget(DEV_ORIGIN, toml)).toEqual({
+      origin: DEV_ORIGIN,
+      limit: top!.simple.limit,
+      periodSeconds: top!.simple.period,
+    });
   });
 
   it("fits the longest allowed run inside the workflow's timeout", async () => {
-    // The pauses alone, at the committed dev budget, for the most pairs the
-    // workflow accepts. A quarter of the job is left for checkout, Bun setup
-    // and the requests themselves. A tighter limiter, a larger sample cap or a
-    // shorter timeout fails here rather than on the next manual run.
-    const target = readDevTarget(await committedToml());
-    const timeout = /timeout-minutes:\s*(\d+)/.exec(await workflow())?.[1];
+    // The pauses alone, at the committed budget, for the most pairs the
+    // workflow accepts. A quarter of the job is left for checkout, Bun setup,
+    // the install and the requests themselves. A tighter limiter, a larger
+    // sample cap or a shorter timeout fails here rather than on the next
+    // manual run.
+    const target = readDevTarget(DEV_ORIGIN, await committedToml());
+    const timeout = /timeout-minutes:\s*(\d+)/.exec(await workflowText())?.[1];
     expect(timeout).toBeDefined();
 
     const pausesMs = (WARM_UP_PAIRS + MAX_SAMPLES) * 2 * spacingMs(target);
@@ -74,43 +117,20 @@ describe("readDevTarget", () => {
     expect(pausesMs).toBeLessThanOrEqual(0.75 * Number(timeout) * 60_000);
   });
 
-  it("accepts a minimal dev block", () => {
-    expect(readDevTarget(devToml())).toEqual({
-      origin: "https://api.dev.example.com",
-      limit: 60,
-      periodSeconds: 60,
-    });
-  });
-
-  it("refuses a config with no dev environment", () => {
-    expect(() => readDevTarget('[vars]\nCIRE_API_ORIGIN = "https://x.example.com"')).toThrow(
-      "[env.dev.vars] CIRE_API_ORIGIN",
-    );
-  });
-
-  it("refuses an origin that is not https", () => {
-    expect(() => readDevTarget(devToml({ origin: "http://api.dev.example.com" }))).toThrow("https");
-  });
-
-  it("refuses an origin with a path", () => {
-    expect(() => readDevTarget(devToml({ origin: "https://api.dev.example.com/api" }))).toThrow(
-      "bare origin",
-    );
-  });
-
-  it("refuses an origin the dev Worker is not routed on", () => {
-    expect(() => readDevTarget(devToml({ routePattern: "api.example.com" }))).toThrow(
-      "[[env.dev.routes]]",
-    );
-  });
-
-  it("refuses a dev block without the session-restore limiter", () => {
+  it("L5: refuses a config whose top level lacks the session-restore limiter", () => {
     expect(() =>
       readDevTarget(
-        devToml({
+        DEV_ORIGIN,
+        configToml({
           limiter:
-            'name = "CLAIM_RATE_LIMITER"\ntype = "ratelimit"\nnamespace_id = "1101"\nsimple = { limit = 5, period = 60 }',
+            'name = "CLAIM_RATE_LIMITER"\ntype = "ratelimit"\nnamespace_id = "1001"\nsimple = { limit = 5, period = 60 }',
         }),
+      ),
+    ).toThrow("CLAIM_SESSION_RATE_LIMITER");
+    expect(() =>
+      readDevTarget(
+        DEV_ORIGIN,
+        `[[env.production.unsafe.bindings]]\n${limiterWith("{ limit = 60, period = 60 }")}`,
       ),
     ).toThrow("CLAIM_SESSION_RATE_LIMITER");
   });
@@ -122,18 +142,44 @@ describe("readDevTarget", () => {
     "{ limit = 1.5, period = 60 }",
     '{ limit = "60", period = 60 }',
     "{ period = 60 }",
-  ])("refuses a limiter whose limit is not a positive whole number: %s", (simple) => {
-    expect(() => readDevTarget(devToml({ limiter: limiterWith(simple) }))).toThrow("simple.limit");
+  ])("L5: refuses a limiter whose limit is not a positive whole number: %s", (simple) => {
+    expect(() => readDevTarget(DEV_ORIGIN, configToml({ limiter: limiterWith(simple) }))).toThrow(
+      "simple.limit",
+    );
   });
 
   it.each(["{ limit = 60, period = 0 }", "{ limit = 60, period = 1.5 }", "{ limit = 60 }"])(
-    "refuses a limiter whose period is not a positive whole number: %s",
+    "L5: refuses a limiter whose period is not a positive whole number: %s",
     (simple) => {
-      expect(() => readDevTarget(devToml({ limiter: limiterWith(simple) }))).toThrow(
+      expect(() => readDevTarget(DEV_ORIGIN, configToml({ limiter: limiterWith(simple) }))).toThrow(
         "simple.period",
       );
     },
   );
+});
+
+interface ProbeStep {
+  readonly id?: string;
+  readonly run?: string;
+  readonly env?: Readonly<Record<string, string>>;
+}
+
+describe("the probe workflow", () => {
+  it("L6: runs in dev, installs from the lockfile and takes the origin from dev-hosts", async () => {
+    const workflow = Bun.YAML.parse(await workflowText()) as {
+      jobs: { probe: { environment?: string; steps: readonly ProbeStep[] } };
+    };
+    const { environment, steps } = workflow.jobs.probe;
+    const install = steps.findIndex((step) => step.run === "bun install --frozen-lockfile");
+    const hosts = steps.findIndex((step) => step.id === "hosts");
+    const probe = steps.findIndex((step) => step.run?.includes("scripts/d1-latency-probe.ts"));
+
+    expect(environment).toBe("dev");
+    expect(install).toBeGreaterThan(-1);
+    expect(steps[hosts]?.run).toBe("bun run --cwd shared/infra dev-hosts -- --stage dev");
+    expect(install < hosts && hosts < probe).toBe(true);
+    expect(steps[probe]?.env?.CIRE_API_ORIGIN).toBe("${{ steps.hosts.outputs.cire_api_origin }}");
+  });
 });
 
 describe("spacingMs", () => {

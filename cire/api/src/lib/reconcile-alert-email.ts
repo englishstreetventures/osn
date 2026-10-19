@@ -30,8 +30,10 @@ export interface ReconcileAlertInput {
 const ATTEMPTS = 3;
 
 /**
- * The bucket a binding names in each deployed tier, as `cire/api/wrangler.toml`
- * declares it; tests/lib/reconcile-alert-email.test.ts holds the two together.
+ * The bucket a binding names in each deployed tier: production's as
+ * `cire/api/wrangler.toml` declares it, dev's as the cire stack
+ * (`cire/infra`) names it. tests/lib/reconcile-alert-email.test.ts holds this
+ * to both.
  */
 export function reconcileBucketName(label: R2BucketLabel, env: "dev" | "production"): string {
   const name = label === "sheets" ? "cire-sheets" : "cire-assets";

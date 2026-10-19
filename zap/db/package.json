@@ -22,7 +22,6 @@
     "db:seed": "bun run src/seed.ts",
     "db:reset": "bash ../../scripts/db-reset.sh ZAP_DATABASE_URL ../../data/zap.db",
     "db:migrate:local": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply zap-db --env dev --local",
-    "db:migrate:dev": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply zap-db --env dev --remote",
     "db:migrate:staging": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply zap-db-staging --env staging --remote",
     "db:migrate:prod": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply zap-db-prod --env production --remote",
     "db:reset:local": "rm -rf ../api/.wrangler/state/v3/d1 && bun run db:migrate:local",

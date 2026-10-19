@@ -423,15 +423,11 @@ jobs:
       # `scripts/` is not a workspace, so `turbo test` never reaches it and the
       # tests under it ran nowhere: `test:migration` was declared in the root
       # package.json and called by no workflow, so the throttle and backfill
-      # tests had never run in CI at all. They do now, along with the D1
-      # guard's — which is the pair that matters, since that guard decides
-      # whether a deploy proceeds.
-      #
-      # scripts/cire-dev-db-guard.ts is the only thing standing between the
-      # unattended `db:reset:dev` step and the live-wedding D1, and a weakened
-      # guard's failure mode is *passing* — nothing downstream would notice
-      # until the tables were gone. Its own tests therefore run on every PR,
-      # not just when someone remembers.
+      # tests had never run in CI at all. They do now, along with the tests of
+      # every deploy guard under scripts/ — the D1 ledger and database-id
+      # checks, the smoke check and the release planner — whose failure mode
+      # when weakened is *passing*, so they run on every PR, not just when
+      # someone remembers.
       #
       # (The changeset gate's two shell tests live in changeset-check.yml
       # instead, beside the job whose scripts they self-test.)

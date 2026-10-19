@@ -30,9 +30,10 @@ workers_dev = false
 # and remains the default fast devloop (`bun run dev`); `wrangler dev` is the
 # workerd parity loop (`bun run dev:wrangler`).
 #
-# Migrate the D1 databases for free, locally and remotely:
-#   bun run --cwd osn/db db:migrate:local     # miniflare local D1
-#   bun run --cwd osn/db db:migrate:dev       # remote dev D1
+# Migrate the local D1 (miniflare):
+#   bun run --cwd osn/db db:migrate:local
+# The dev tier's Worker and database are the musubi stack's (musubi/infra),
+# which builds and migrates them in the dev account; nothing here deploys dev.
 #
 # Tracked as an open issue (the four-environment DB story).
 
@@ -63,9 +64,8 @@ DEV_LOGIN_RETURN_ORIGINS = "http://localhost:1422,http://localhost:4322,http://l
 
 # Local `wrangler dev` D1 (miniflare). database_id is ignored locally but
 # required syntactically, so this names the little-used remote `osn-db`. It is
-# NOT the dev tier's database — [env.dev] has its own `osn-db-dev` (they were the
-# same row until 2026-08-13, which would have had a deployed dev Worker sharing a
-# database with the local devloop).
+# NOT the dev tier's database, which the musubi stack declares in the dev
+# account.
 [[d1_databases]]
 binding = "DB"
 database_name = "osn-db"
@@ -90,7 +90,7 @@ migrations_dir = "../db/drizzle"
 # `namespace_id` is an account-scoped positive integer that uniquely identifies
 # the namespace. The values below are NEW and per-tier; bump/replace them if they
 # collide with another Worker's namespaces in this account. Named envs do NOT
-# inherit these — they are mirrored into [env.dev|staging|production] below.
+# inherit these — they are mirrored into [env.staging|production] below.
 [[ratelimits]]
 name = "RL_AUTH_IP_5_60"
 namespace_id = "2001"
@@ -139,115 +139,6 @@ head_sampling_rate = 1
 [triggers]
 crons = ["0 */6 * * *"]
 
-# ── dev ──────────────────────────────────────────────────────────────────────
-# A real deployed tier since 2026-08-13, not a localhost placeholder: osn-api-dev
-# on id.dev.musubi.social, backed by its own D1 (`osn-db-dev`), its own Upstash
-# database, its own signing keys and its own pairwise salt. Deployed
-# automatically on every merge to main, ahead of the approval-gated production
-# jobs. It shares NOTHING with production identity — a dev account is a different
-# account, and a dev passkey is a different credential. See
-# `[[wiki/shared/dev-environment]]`.
-#
-# RP ID is `dev.musubi.social`, the origin `@musubi/social`'s dev deployment is
-# served from — a WebAuthn ceremony may only run on an origin same-site with the
-# RP ID, and the ceremonies (plus the OIDC consent screen) live on that app, not
-# on this API host. Deliberately NOT the `musubi.social` apex: an apex RP ID would
-# make dev-enrolled credentials usable against production.
-[env.dev.vars]
-OSN_ENV = "dev"
-OSN_RP_ID = "dev.musubi.social"
-OSN_RP_NAME = "OSN (dev)"
-OSN_ORIGIN = "https://dev.musubi.social"
-OSN_ISSUER_URL = "https://id.dev.musubi.social"
-# Same reasoning as production: the cire dev origins exchange OIDC codes
-# server-side (cire-api-dev → this Worker), so no browser on a cireweddings-dev
-# surface makes a credentialed fetch here. This list also feeds the CSRF origin
-# guard — add an origin only when a browser genuinely fetches this Worker from it.
-OSN_CORS_ORIGIN = "https://dev.musubi.social"
-# Dev-login redirect targets — see the note on the top-level var. These are the
-# dev-tier surfaces an operator lands on after a passkey-less sign-in; they are
-# deliberately absent from OSN_CORS_ORIGIN above, which stays at the one origin
-# that genuinely fetches this Worker from a browser.
-DEV_LOGIN_RETURN_ORIGINS = "https://dev.musubi.social,https://host.dev.cireweddings.com,https://vendor.dev.cireweddings.com,https://invite.dev.cireweddings.com"
-OSN_AUTHORIZE_UI_URL = "https://dev.musubi.social/authorize"
-# Scope of the readable `osn_has_session` marker. Must be the app's apex, not
-# this Worker's host: the issuer is `id.dev.musubi.social` and the app is
-# `dev.musubi.social`, so a host-only marker would be invisible to the script
-# that reads it and every dev cold start would read as signed out. Deliberately
-# NOT the `musubi.social` parent — that would let dev and production overwrite
-# each other's marker in one browser profile.
-OSN_COOKIE_DOMAIN = "dev.musubi.social"
-# Resend has no verified musubi.social domain, so dev sends over the verified
-# cireweddings.com domain — but from its OWN address, never production's.
-# Verification is per-domain, so this needs no extra setup, and it buys two
-# things: a recipient can tell a dev OTP from a real one at a glance, and a dev
-# send loop that trips a spam complaint burns `dev@`'s reputation rather than
-# the address every live couple's guests receive their invites from.
-OSN_EMAIL_FROM = "dev@cireweddings.com"
-
-# Custom-domain route: serves osn-api-dev on id.dev.musubi.social. Two labels
-# deep is fine — a Workers Custom Domain provisions its own certificate for the
-# exact hostname (verified 2026-08-14, issued free, no ACM subscription), so
-# nothing here rides on the zone's single-label Universal wildcard. Named envs
-# do NOT inherit top-level routes. Deliberately NOT behind Cloudflare Access: an
-# Access cookie
-# is not sent on cross-origin XHR, so gating this host would break every dev API
-# call and the OIDC redirect. It stays guarded by CORS + the origin guard.
-[[env.dev.routes]]
-pattern = "id.dev.musubi.social"
-custom_domain = true
-
-# Created 2026-08-13 (`wrangler d1 create osn-db-dev`, primary location OC to
-# match prod). Was pointed at `osn-db` — the top-level local/miniflare database —
-# which would have made a deployed dev Worker write to the same remote D1 the
-# local devloop migrates.
-[[env.dev.d1_databases]]
-binding = "DB"
-database_name = "osn-db-dev"
-database_id = "1c1425e1-bb9f-4760-b090-763ccf61eb83"
-migrations_dir = "../db/drizzle"
-
-# Native rate-limit bindings mirrored into dev (named envs don't inherit them).
-# Fresh 21xx namespace ids, NOT production's 20xx: the namespace is the entire
-# scope of the counter — the Worker name is not part of the key — so sharing them
-# would let dev traffic burn a real user's per-IP auth budget.
-[[env.dev.ratelimits]]
-name = "RL_AUTH_IP_5_60"
-namespace_id = "2101"
-simple = { limit = 5, period = 60 }
-
-[[env.dev.ratelimits]]
-name = "RL_AUTH_IP_10_60"
-namespace_id = "2102"
-simple = { limit = 10, period = 60 }
-
-[[env.dev.ratelimits]]
-name = "RL_AUTH_IP_20_60"
-namespace_id = "2103"
-simple = { limit = 20, period = 60 }
-
-[[env.dev.ratelimits]]
-name = "RL_AUTH_IP_30_60"
-namespace_id = "2104"
-simple = { limit = 30, period = 60 }
-
-[[env.dev.ratelimits]]
-name = "RL_AUTH_IP_60_60"
-namespace_id = "2105"
-simple = { limit = 60, period = 60 }
-
-[env.dev.observability]
-enabled = true
-head_sampling_rate = 1
-redact_query_string = false
-
-[env.dev.observability.traces]
-enabled = true
-head_sampling_rate = 1
-
-[env.dev.triggers]
-crons = ["0 */6 * * *"]
-
 # ── staging ──────────────────────────────────────────────────────────────────
 [env.staging.vars]
 OSN_ENV = "staging"
@@ -275,8 +166,8 @@ migrations_dir = "../db/drizzle"
 # not worker-scoped: two Workers naming the same id share one set of counters. On
 # the shared ids, a staging load test against /login would have spent production's
 # per-IP budget and locked real users out of sign-in — and any staging IP that
-# collided with a real one would have done it quietly. Dev already sits on
-# 2101–2105 for the same reason.
+# collided with a real one would have done it quietly. The dev tier, in its own
+# account, uses 2101–2105 (musubi/infra).
 [[env.staging.ratelimits]]
 name = "RL_AUTH_IP_5_60"
 namespace_id = "2201"
@@ -425,7 +316,7 @@ enabled = false
 crons = ["0 */6 * * *"]
 
 # ── Secrets (NOT in this file) ───────────────────────────────────────────────
-# Provision per env with `wrangler secret put <NAME> --env <dev|staging|production>`.
+# Provision per env with `wrangler secret put <NAME> --env <staging|production>`.
 # On workerd these are surfaced ONLY on the `env` binding (never process.env),
 # which is why `src/index.ts` threads `env` through `buildAppDeps`.
 #

@@ -64,7 +64,7 @@ describe("buildAppDeps cookie config", () => {
   it("leaves the marker host-only when the var is unset", async () => {
     // Correct for local dev, where the issuer and the app share a host. On a
     // split-host deployment it is a misconfiguration, not a crash — hence the
-    // comment on the dev block in wrangler.toml.
+    // comment on OSN_COOKIE_DOMAIN in wrangler.toml's production block.
     const built = await buildAppDeps(nonLocalEnv(), parts());
 
     expect(built.deps.cookieConfig.markerDomain).toBeUndefined();

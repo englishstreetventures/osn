@@ -125,16 +125,20 @@ describe("sendReconcileAlert when the email layer throws", () => {
 });
 
 describe("reconcileBucketName", () => {
-  it("matches the bucket each tier binds in wrangler.toml", async () => {
+  it("matches the bucket production binds in wrangler.toml", async () => {
     type Buckets = { r2_buckets: Array<{ binding: string; bucket_name: string }> };
     const toml = Bun.TOML.parse(
       await Bun.file(new URL("../../wrangler.toml", import.meta.url)).text(),
-    ) as { env: Record<"dev" | "production", Buckets> };
-    for (const env of ["dev", "production"] as const) {
-      const named = (binding: string) =>
-        toml.env[env].r2_buckets.find((b) => b.binding === binding)?.bucket_name;
-      expect(reconcileBucketName("sheets", env)).toBe(named("SHEETS")!);
-      expect(reconcileBucketName("assets", env)).toBe(named("ASSETS")!);
-    }
+    ) as { env: { production: Buckets } };
+    const named = (binding: string) =>
+      toml.env.production.r2_buckets.find((b) => b.binding === binding)?.bucket_name;
+    expect(reconcileBucketName("sheets", "production")).toBe(named("SHEETS")!);
+    expect(reconcileBucketName("assets", "production")).toBe(named("ASSETS")!);
+  });
+
+  it("matches the dev bucket names the cire stack declares", () => {
+    // The names `cire/infra/tests/stack.test.ts` (K1) holds the stack to.
+    expect(reconcileBucketName("sheets", "dev")).toBe("cire-sheets-dev");
+    expect(reconcileBucketName("assets", "dev")).toBe("cire-assets-dev");
   });
 });

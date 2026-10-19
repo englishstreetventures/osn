@@ -20,10 +20,13 @@
  * one, so a change to the route or the cookie name fails a test instead of
  * quietly turning the query arm into a second control.
  *
- * The target comes from `wrangler.toml`: `[env.dev.vars] CIRE_API_ORIGIN`, which
- * must be a host the dev Worker is routed on. Requests are spaced from the dev
- * `CLAIM_SESSION_RATE_LIMITER` budget in the same file. Nothing on the command
- * line can point it at production.
+ * The target is `CIRE_API_ORIGIN`, the dev cire-api origin: the workflow
+ * takes it from `dev-hosts`, which derives it from the dev Environment's
+ * `DEV_DOMAIN`. It must be a bare https origin, and a host that
+ * `[[env.production.routes]]` in `wrangler.toml` names is refused, so the
+ * variable cannot point it at production. Requests are spaced from the
+ * `CLAIM_SESSION_RATE_LIMITER` budget in the top-level `[[unsafe.bindings]]`
+ * of the same file, which the cire stack gives the dev Worker as well.
  *
  * Imports only Bun and web built-ins, so CI runs it with `bun --no-install`.
  * Output goes to stdout and, on GitHub Actions, to the step summary.
@@ -109,31 +112,30 @@ export interface ProbeRun {
  * Only the shape this reads. Fields stay `unknown`: the file is hand-edited,
  * and the checks below are what narrow them.
  */
-type DevConfig = {
+type ProbeConfig = {
+  readonly unsafe?: {
+    readonly bindings?: readonly {
+      readonly name?: unknown;
+      readonly simple?: { readonly limit?: unknown; readonly period?: unknown };
+    }[];
+  };
   readonly env?: {
-    readonly dev?: {
-      readonly vars?: { readonly CIRE_API_ORIGIN?: unknown };
-      readonly routes?: readonly { readonly pattern?: unknown }[];
-      readonly unsafe?: {
-        readonly bindings?: readonly {
-          readonly name?: unknown;
-          readonly simple?: { readonly limit?: unknown; readonly period?: unknown };
-        }[];
-      };
-    };
+    readonly production?: { readonly routes?: readonly { readonly pattern?: unknown }[] };
   };
 };
 
 const isPositiveInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value > 0;
 
-/** The dev API origin and the budget of the limiter the probed route sits behind. */
-export function readDevTarget(toml: string): DevTarget {
-  const dev = (Bun.TOML.parse(toml) as DevConfig).env?.dev;
+/**
+ * The dev API origin from `origin` (`CIRE_API_ORIGIN`), and the budget of the
+ * limiter the probed route sits behind, from `toml` (`wrangler.toml`).
+ */
+export function readDevTarget(origin: string | undefined, toml: string): DevTarget {
+  const config = Bun.TOML.parse(toml) as ProbeConfig;
 
-  const origin = dev?.vars?.CIRE_API_ORIGIN;
-  if (typeof origin !== "string" || origin.trim() === "") {
-    throw new Error("wrangler.toml has no [env.dev.vars] CIRE_API_ORIGIN");
+  if (origin === undefined || origin.trim() === "") {
+    throw new Error("CIRE_API_ORIGIN is not set; it names the dev cire-api origin");
   }
   const url = new URL(origin);
   if (url.protocol !== "https:") {
@@ -142,14 +144,18 @@ export function readDevTarget(toml: string): DevTarget {
   if (url.origin !== origin.replace(/\/$/, "")) {
     throw new Error(`CIRE_API_ORIGIN must be a bare origin, got ${origin}`);
   }
-  const routed = (dev?.routes ?? []).some((route) => route.pattern === url.host);
-  if (!routed) {
-    throw new Error(`${url.host} is not a pattern in [[env.dev.routes]]`);
+  const production = (config.env?.production?.routes ?? []).some(
+    (route) => route.pattern === url.host,
+  );
+  if (production) {
+    throw new Error(`${url.host} is a pattern in [[env.production.routes]]; refusing production`);
   }
 
-  const limiter = (dev?.unsafe?.bindings ?? []).find((binding) => binding.name === LIMITER_BINDING);
+  const limiter = (config.unsafe?.bindings ?? []).find(
+    (binding) => binding.name === LIMITER_BINDING,
+  );
   if (!limiter) {
-    throw new Error(`[[env.dev.unsafe.bindings]] has no ${LIMITER_BINDING}`);
+    throw new Error(`the top-level [[unsafe.bindings]] has no ${LIMITER_BINDING}`);
   }
   const limit = limiter.simple?.limit;
   const period = limiter.simple?.period;
@@ -327,7 +333,7 @@ export function checkProbeResponse(arm: Arm, response: Response): string {
         ? "the limiter refused it: requests came faster than its budget, or another client shares this IP"
         : mitigated
           ? `Cloudflare answered a ${mitigated} instead of the Worker`
-          : "dev may be mid-deploy or mid-rebuild; try again later";
+          : "dev may be mid-deploy; try again later";
     throw new Error(
       `${arm} request answered ${response.status}, expected 401 — ${hint}. Nothing was recorded.`,
     );
@@ -410,7 +416,10 @@ function randomToken(): string {
 }
 
 async function main(): Promise<number> {
-  const target = readDevTarget(await Bun.file(new URL("../wrangler.toml", import.meta.url)).text());
+  const target = readDevTarget(
+    process.env.CIRE_API_ORIGIN,
+    await Bun.file(new URL("../wrangler.toml", import.meta.url)).text(),
+  );
   const samples = parseSampleCount(process.env.SAMPLES);
   const spacing = spacingMs(target);
   const requests = probeRequests(target.origin, randomToken());
