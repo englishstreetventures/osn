@@ -108,8 +108,7 @@ See **Making a run shorter** below for what the time is actually made of;
 before you submit one. The loop is three steps:
 
 1. **`tessl review run quality .claude/skills/<name>`** — deterministic, cached,
-   no agent solve. Run it on each skill you edit. `quality.json` holds each
-   skill's score as recorded on 2026-09-06; no script reads or writes it.
+   no agent solve. Run it on each skill you edit.
 
    It runs validation before the judge, and a validation error means no score at
    all — `Review Score: N/A`, whatever the prose is worth. **The one that bites
