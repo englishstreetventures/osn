@@ -81,7 +81,7 @@ More than that and you're probably modelling what should be two metrics.
 
 When an attribute value comes from user input or a runtime registry whose set can't be known at compile time (e.g. event category, ARC service ID), do NOT type it as `string`. Define a closed allow-list and a `bucketX()` / `safeX()` helper that collapses unknown values to `"other"` or `"unknown"` before emission. See `bucketCategory()` in `pulse/api/src/metrics.ts` and `safeIssuer()` in `shared/crypto/src/arc-metrics.ts` for the canonical pattern. This is the runtime analogue of the compile-time string-literal-union rule.
 
-### Route attributes default to a fixed sentinel (S-C1)
+### Route attributes default to a fixed sentinel
 
 Never set HTTP-style route labels from a raw URL path. The shared Elysia plugin defaults `http.route` to `"unmatched"` and only overwrites it with Elysia's matched route template in `onAfterHandle`. Any request that short-circuits before then (404, body validation failure) records as `unmatched`, not as a raw attacker-controlled path.
 
