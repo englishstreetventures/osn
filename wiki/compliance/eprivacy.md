@@ -6,7 +6,7 @@ related:
   - "[[gdpr]]"
   - "[[scope-matrix]]"
   - "[[sessions]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-10-20
 ---
 
 # ePrivacy Directive
@@ -50,6 +50,7 @@ Per the EDPB Guidelines 2/2023:
 | Storage | Type | Necessary? | Notes |
 |---|---|---|---|
 | `osn_session` cookie | HttpOnly, Secure, SameSite=Lax, Path=/, refresh token | ✓ Strictly necessary for authenticated session | First-party only. |
+| `cire_claimed` cookie (cire guest site) | First-party, not HttpOnly, Path=/, Max-Age 30 days, SameSite=Lax (Secure over HTTPS); value `1`, or `plus-one` when the claim showed the plus-one prompt | ✓ Strictly necessary: it serves the invite the guest opened | Written on a successful claim, cleared on sign-out. Carries no authority. Lets the invite skip a session-restore request that would answer 401 for a first-time visitor, and decide whether to load the plus-one prompt's code early ([[cire-auth]]). |
 | `localStorage:@osn/client:account_session` | Profile-scoped access tokens, active profile id | ✓ Strictly necessary | First-party only. The 5-min TTL limits the damage. |
 | `localStorage:@pulse/web:*` (theme, last-tab, draft-event) | UX state | Borderline — request-driven UX state, generally accepted as exempt under "user-friendly design" tests | Document on the privacy notice anyway. |
 | iOS Keychain (planned) | Refresh / session tokens on native | ✓ Strictly necessary | iOS Keychain / Android Keystore equivalent. |
