@@ -1,9 +1,11 @@
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { SiteBuildError } from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import {
   DEV_DOMAIN,
   evaluatePulse,
@@ -78,6 +80,21 @@ describe("the pulse stack, evaluated offline", () => {
       Object.values(resources).map((resource) => [resource.LogicalId, resource.RemovalPolicy]),
     ).toEqual([["PulseLanding", "retain"]]);
   });
+
+  test.each(refusedTargets([]))(
+    "K12: $name refuses the run before it calls anything",
+    async (target) => {
+      const refused = await evaluatePulse({
+        stage: target.stage,
+        env: target.edit(stackEnv()),
+        workingDirFiles: target.workingDirFiles,
+      });
+      expect(failureOf(refused)).toBeInstanceOf(target.refusal);
+      expect(failureOf(refused)).toMatchObject(target.fields(refused));
+      expect(existsSync(refused.generatedDir)).toBe(false);
+      expect(refused.fetches).toEqual([]);
+    },
+  );
 
   test("SB9: site output holding the origin its dev build bakes in is accepted", async () => {
     const accepted = await evaluatePulse({

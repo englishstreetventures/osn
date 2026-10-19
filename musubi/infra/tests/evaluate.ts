@@ -81,7 +81,7 @@ export function evaluateMusubi(input: {
       Alchemy.Stack(
         "musubi",
         offlineStackOptions(),
-        musubiStack({ env: input.env, generatedDir, siteRoot: workingDir }),
+        musubiStack({ env: input.env, generatedDir, workingDir }),
       ),
   });
 }

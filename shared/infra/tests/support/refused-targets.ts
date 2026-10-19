@@ -1,0 +1,112 @@
+/**
+ * The deploy targets every stack must refuse before it writes or declares
+ * anything, as one table each stack's K12 test runs through its own
+ * evaluation: the stage-to-account guard, the dev-domain check and the
+ * secret check are each called from the stack body, and only an evaluation
+ * shows that the body calls them.
+ */
+
+import { expect } from "vitest";
+
+import { InvalidDevDomainError } from "../../src/hosts";
+import { tierSecrets, type WorkerKey } from "../../src/secrets/inventory";
+import { MissingSecretsError } from "../../src/secrets/require";
+import { DeployTargetError, StageNotDeclaredError } from "../../src/target";
+import type { Evaluation } from "./evaluate-stack";
+
+type Env = Readonly<Record<string, string | undefined>>;
+
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+export interface RefusedTarget {
+  /** What is wrong with the run. */
+  readonly name: string;
+  readonly stage: string;
+  /** The deploy step's environment, made wrong. */
+  readonly edit: (env: Env) => Env;
+  /** Files placed in the stack's working directory before it runs. */
+  readonly workingDirFiles: readonly string[];
+  readonly refusal: abstract new (...args: never[]) => Error;
+  /** Fields the refusal must carry, given the evaluation it ended. */
+  readonly fields: (evaluation: Evaluation) => Readonly<Record<string, unknown>>;
+}
+
+const target = (
+  name: string,
+  refusal: RefusedTarget["refusal"],
+  edit: RefusedTarget["edit"],
+  fields: RefusedTarget["fields"] = () => ({}),
+  options: { readonly stage?: string; readonly workingDirFiles?: readonly string[] } = {},
+): RefusedTarget => ({
+  name,
+  stage: options.stage ?? "dev",
+  edit,
+  workingDirFiles: options.workingDirFiles ?? [],
+  refusal,
+  fields,
+});
+
+/**
+ * Each refused deploy target, for a stack whose API Workers are `workers`
+ * (one case per Worker that requires a secret on dev, with every required
+ * secret blank).
+ */
+export function refusedTargets(workers: readonly WorkerKey[]): readonly RefusedTarget[] {
+  return [
+    target("OSN_DEPLOY_TIER unset", DeployTargetError, (env) => ({
+      ...env,
+      OSN_DEPLOY_TIER: undefined,
+    })),
+    target("OSN_DEPLOY_TIER naming production", DeployTargetError, (env) => ({
+      ...env,
+      OSN_DEPLOY_TIER: "production",
+    })),
+    target(
+      "CLOUDFLARE_API_TOKEN blank",
+      DeployTargetError,
+      (env) => ({ ...env, CLOUDFLARE_API_TOKEN: " " }),
+      () => ({ message: expect.stringMatching(/^CLOUDFLARE_API_TOKEN is unset or blank/) }),
+    ),
+    target(
+      "CLOUDFLARE_ACCOUNT_ID empty",
+      DeployTargetError,
+      (env) => ({ ...env, CLOUDFLARE_ACCOUNT_ID: "" }),
+      () => ({ message: expect.stringMatching(/^CLOUDFLARE_ACCOUNT_ID is unset or blank/) }),
+    ),
+    target(
+      "DEV_DOMAIN a production zone",
+      InvalidDevDomainError,
+      (env) => ({ ...env, DEV_DOMAIN: "musubi.social" }),
+      () => ({ domain: "musubi.social" }),
+    ),
+    target(
+      "the production stage",
+      StageNotDeclaredError,
+      (env) => env,
+      () => ({ stage: "production" }),
+      { stage: "production" },
+    ),
+    target(
+      "a .env file in the stack's working directory",
+      DeployTargetError,
+      (env) => env,
+      (evaluation) => ({
+        message: expect.stringMatching(
+          new RegExp(`^\\.env in ${escapeRegExp(evaluation.workingDir)} `),
+        ),
+      }),
+      { workingDirFiles: [".env"] },
+    ),
+    ...workers
+      .map((worker) => ({ worker, required: tierSecrets(worker, "dev").secrets }))
+      .filter(({ required }) => required.length > 0)
+      .map(({ worker, required }) =>
+        target(
+          `every secret ${worker} requires on dev blank`,
+          MissingSecretsError,
+          (env) => ({ ...env, ...Object.fromEntries(required.map((name) => [name, ""])) }),
+          () => ({ worker, missing: required }),
+        ),
+      ),
+  ];
+}

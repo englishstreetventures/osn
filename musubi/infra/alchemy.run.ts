@@ -71,23 +71,23 @@ function writeSeed(path: string, sql: string): void {
  * musubi landing. Every value is read and checked, and each prebuilt site
  * is checked to be built for the stage's hosts, before anything is written
  * or declared, so a refused run writes nothing. Paths are relative to the
- * working directory, `musubi/infra`; `siteRoot` is the directory the site
- * paths resolve from for that check, the working directory when the CLI
- * runs the stack.
+ * working directory, `musubi/infra`. `workingDir` names that directory to
+ * the checks: the `.env` files Bun would load from it are refused, and the
+ * site paths resolve from it.
  */
 export const musubiStack = (input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly generatedDir: string;
-  readonly siteRoot: string;
+  readonly workingDir: string;
 }) =>
   Effect.gen(function* () {
     const { env, generatedDir } = input;
-    refuseDotEnvFiles(process.cwd());
+    refuseDotEnvFiles(input.workingDir);
     const stage = assertDevDeployTarget(yield* Alchemy.Stage, env);
     const hosts = stageHosts(readDevDomain(env), stage);
     const declared = musubiDeclaration({ stage, hosts, generatedDir });
     for (const site of declared.prebuilt) {
-      assertSiteBuiltFor({ ...site, directory: join(input.siteRoot, site.directory) });
+      assertSiteBuiltFor({ ...site, directory: join(input.workingDir, site.directory) });
     }
     const secrets = requireSecrets({ worker: "osn-api", stage, env });
     const seed = osnSeedSql({
@@ -121,5 +121,5 @@ export const musubiStack = (input: {
 export default Alchemy.Stack(
   "musubi",
   stackOptions(),
-  musubiStack({ env: process.env, generatedDir: ".generated", siteRoot: process.cwd() }),
+  musubiStack({ env: process.env, generatedDir: ".generated", workingDir: process.cwd() }),
 );

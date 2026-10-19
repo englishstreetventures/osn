@@ -46,7 +46,11 @@ export function evaluateZap(input: {
     stage: input.stage,
     sites: {},
     workingDirFiles: input.workingDirFiles,
-    stack: ({ generatedDir }) =>
-      Alchemy.Stack("zap", offlineStackOptions(), zapStack({ env: input.env, generatedDir })),
+    stack: ({ generatedDir, workingDir }) =>
+      Alchemy.Stack(
+        "zap",
+        offlineStackOptions(),
+        zapStack({ env: input.env, generatedDir, workingDir }),
+      ),
   });
 }

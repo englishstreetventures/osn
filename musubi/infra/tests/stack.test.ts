@@ -11,6 +11,7 @@ import {
 } from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import { osnSeedSql } from "../src/seeds";
 import {
   ARC_KEY_ID,
@@ -189,6 +190,21 @@ describe("the musubi stack, evaluated offline", () => {
       }
     }
   });
+
+  test.each(refusedTargets(["osn-api"]))(
+    "K12: $name refuses the run before it writes or calls anything",
+    async (target) => {
+      const refused = await evaluateMusubi({
+        stage: target.stage,
+        env: target.edit(stackEnv(arcPublicJwk)),
+        workingDirFiles: target.workingDirFiles,
+      });
+      expect(failureOf(refused)).toBeInstanceOf(target.refusal);
+      expect(failureOf(refused)).toMatchObject(target.fields(refused));
+      expect(existsSync(refused.generatedDir)).toBe(false);
+      expect(refused.fetches).toEqual([]);
+    },
+  );
 
   test("SB9: site output holding exactly the origins each dev build bakes in is accepted", async () => {
     const accepted = await evaluateMusubi({

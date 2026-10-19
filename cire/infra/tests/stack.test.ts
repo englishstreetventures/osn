@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { SiteBuildError } from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import { ownerSeatSql, SeedInputError } from "../src/seeds";
 import {
   DEV_DOMAIN,
@@ -276,6 +277,21 @@ describe("the cire stack, evaluated offline", () => {
     expect(resourcesOf(seeded).CireDb?.Props.importFiles).toEqual([DEV_SEED, seat]);
     expect(readFileSync(seat, "utf8")).toBe(ownerSeatSql(profileId));
   });
+
+  test.each(refusedTargets(["cire-api", "cire-invites"]))(
+    "K12: $name refuses the run before it writes or calls anything",
+    async (target) => {
+      const refused = await evaluateCire({
+        stage: target.stage,
+        env: target.edit(stackEnv()),
+        workingDirFiles: target.workingDirFiles,
+      });
+      expect(failureOf(refused)).toBeInstanceOf(target.refusal);
+      expect(failureOf(refused)).toMatchObject(target.fields(refused));
+      expect(existsSync(refused.generatedDir)).toBe(false);
+      expect(refused.fetches).toEqual([]);
+    },
+  );
 
   test("SB9: site output holding exactly the origins each dev build bakes in is accepted", async () => {
     const accepted = await evaluateCire({ stage: "dev", env: stackEnv(), sites: fixtures() });

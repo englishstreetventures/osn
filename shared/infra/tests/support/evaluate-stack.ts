@@ -79,6 +79,8 @@ export interface Evaluation {
   readonly fetches: readonly string[];
   /** Where the stack was told to write its migrations and seeds. */
   readonly generatedDir: string;
+  /** The working directory the stack was told it runs from. */
+  readonly workingDir: string;
 }
 
 /** The directories an evaluation hands the stack body, each under a fresh temporary root. */
@@ -152,6 +154,7 @@ export async function evaluateStack(input: {
       exit: Exit.map(exit, (resources) => resources as Record<string, EvaluatedResource>),
       fetches,
       generatedDir: directories.generatedDir,
+      workingDir: directories.workingDir,
     };
   } finally {
     globalThis.fetch = realFetch;

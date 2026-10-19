@@ -71,7 +71,7 @@ export function evaluateCire(input: {
       Alchemy.Stack(
         "cire",
         offlineStackOptions(),
-        cireStack({ env: input.env, generatedDir, siteRoot: workingDir }),
+        cireStack({ env: input.env, generatedDir, workingDir }),
       ),
   });
 }

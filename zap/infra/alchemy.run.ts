@@ -51,15 +51,18 @@ function toBindings(
 /**
  * The zap stack: zap-api and its database. Every value is read and checked
  * before anything is written or declared, so a refused run writes nothing.
- * Paths are relative to the working directory, `zap/infra`.
+ * Paths are relative to the working directory, `zap/infra`. `workingDir`
+ * names that directory to the check that refuses the `.env` files Bun would
+ * load from it.
  */
 export const zapStack = (input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly generatedDir: string;
+  readonly workingDir: string;
 }) =>
   Effect.gen(function* () {
     const { env, generatedDir } = input;
-    refuseDotEnvFiles(process.cwd());
+    refuseDotEnvFiles(input.workingDir);
     const stage = assertDevDeployTarget(yield* Alchemy.Stage, env);
     const hosts = stageHosts(readDevDomain(env), stage);
     const declared = zapDeclaration({ stage, hosts, generatedDir });
@@ -81,5 +84,5 @@ export const zapStack = (input: {
 export default Alchemy.Stack(
   "zap",
   stackOptions(),
-  zapStack({ env: process.env, generatedDir: ".generated" }),
+  zapStack({ env: process.env, generatedDir: ".generated", workingDir: process.cwd() }),
 );

@@ -1,13 +1,15 @@
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { tierSecrets } from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import {
   DEV_DOMAIN,
   evaluateZap,
+  failureOf,
   removeEvaluations,
   resourcesOf,
   stackEnv,
@@ -66,6 +68,21 @@ describe("the zap stack, evaluated offline", () => {
       `https://id.musubi.probe.${DEV_DOMAIN}`,
     );
   });
+
+  test.each(refusedTargets(["zap-api"]))(
+    "K12: $name refuses the run before it writes or calls anything",
+    async (target) => {
+      const refused = await evaluateZap({
+        stage: target.stage,
+        env: target.edit(stackEnv()),
+        workingDirFiles: target.workingDirFiles,
+      });
+      expect(failureOf(refused)).toBeInstanceOf(target.refusal);
+      expect(failureOf(refused)).toMatchObject(target.fields(refused));
+      expect(existsSync(refused.generatedDir)).toBe(false);
+      expect(refused.fetches).toEqual([]);
+    },
+  );
 
   test("K5: every resource the dev stage keeps is retained on destroy and replacement", () => {
     const resources = resourcesOf(dev);

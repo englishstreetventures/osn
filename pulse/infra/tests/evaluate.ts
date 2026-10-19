@@ -53,10 +53,6 @@ export function evaluatePulse(input: {
     sites: input.sites ?? stageSites(SITE_DIRECTORIES, input.stage, input.env),
     workingDirFiles: input.workingDirFiles,
     stack: ({ workingDir }) =>
-      Alchemy.Stack(
-        "pulse",
-        offlineStackOptions(),
-        pulseStack({ env: input.env, siteRoot: workingDir }),
-      ),
+      Alchemy.Stack("pulse", offlineStackOptions(), pulseStack({ env: input.env, workingDir })),
   });
 }
