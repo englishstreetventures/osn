@@ -11,6 +11,7 @@ import {
   DEV_OWNER_SEAT_ID,
   repointDevOwnerSeat,
   seedDb,
+  setSampleRsvpDeadline,
   type TestDb,
 } from "../../src/db/setup";
 
@@ -287,5 +288,29 @@ describe("repointDevOwnerSeat", () => {
 
       expect(allSeats(theirs)).toEqual(allSeats(ours));
     });
+  });
+});
+
+describe("setSampleRsvpDeadline", () => {
+  const deadlineOf = (db: TestDb) =>
+    db
+      .select({
+        date: schema.weddings.rsvpDeadline,
+        timezone: schema.weddings.rsvpDeadlineTimezone,
+      })
+      .from(schema.weddings)
+      .where(eq(schema.weddings.id, schema.BOOTSTRAP_WEDDING_ID))
+      .get();
+
+  it("refuses a date that is not a real calendar day, and leaves RSVPs open", () => {
+    // A malformed value would otherwise be stored and read back as "no
+    // deadline", so a run meant to test the closed invite would test an open
+    // one and pass.
+    const db = createDb();
+    seedDb(db);
+    for (const bad of ["2099-02-30", "2099-1-1", "tomorrow", ""]) {
+      expect(() => setSampleRsvpDeadline(db, bad)).toThrow();
+    }
+    expect(deadlineOf(db)).toEqual({ date: null, timezone: null });
   });
 });

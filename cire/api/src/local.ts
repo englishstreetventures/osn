@@ -2,7 +2,7 @@ import { makeResendEmailLive } from "@shared/email";
 import { Effect } from "effect";
 
 import { createApp } from "./app";
-import { createDb, repointDevOwnerSeat, seedDb } from "./db/setup";
+import { createDb, repointDevOwnerSeat, seedDb, setSampleRsvpDeadline } from "./db/setup";
 import { localResendConfig } from "./lib/resend-email";
 import { siteOriginOptions } from "./lib/web-origin";
 import { runCireSync } from "./observability";
@@ -16,6 +16,13 @@ import { createStripeClientFromEnv } from "./services/stripe";
 const db = createDb(process.env.CIRE_LOCAL_DB_PATH || ":memory:");
 // One transaction, for the same reason `createDb` applies its DDL in one.
 db.$client.transaction(() => seedDb(db))();
+
+// The seed sets no RSVP deadline. The E2E suite names one (a `YYYY-MM-DD`,
+// far in the future) so a flow can move the browser's clock past it while this
+// server, on the suite clock, still takes replies. A malformed value throws
+// here rather than booting a server with no deadline.
+const e2eRsvpDeadline = process.env.CIRE_E2E_RSVP_DEADLINE;
+if (e2eRsvpDeadline) setSampleRsvpDeadline(db, e2eRsvpDeadline);
 
 // Dev convenience: the in-memory seed gives the sample wedding's owner seat to
 // the fixed local dev id (usr_dev_bootstrap_owner — see DEV_OWNER_PROFILE_ID in

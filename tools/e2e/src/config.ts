@@ -19,12 +19,20 @@ export const TRACE_DIR = resolve(ARTIFACT_DIR, "traces");
 export const LOG_DIR = resolve(ARTIFACT_DIR, "logs");
 export const STATE_DIR = resolve(ARTIFACT_DIR, "state");
 
-/**
- * The suite's clock starts here. Before the seeded cire wedding's RSVP deadline
- * (`cire/db/seed/data/wedding.ts`), so the guest flow is open on every run.
- */
+/** The suite's clock starts here. */
 export const CLOCK_T0_ISO = "2026-10-01T00:00:00.000Z";
 export const CLOCK_T0 = Date.parse(CLOCK_T0_ISO);
+
+/**
+ * The sample wedding's RSVP deadline on the E2E stack (`CIRE_E2E_RSVP_DEADLINE`,
+ * read by `cire/api/src/local.ts`). The in-memory seed sets none, and the
+ * deadline the D1 seed carries never reaches this stack. Far past the suite
+ * clock, so cire-api takes replies on every run; a flow that needs the invite
+ * closed moves only the browser's clock, to `CIRE_RSVP_CLOSED_ISO`.
+ */
+export const CIRE_RSVP_DEADLINE = "2099-01-01";
+/** A browser instant past `CIRE_RSVP_DEADLINE` (the end of that day in UTC). */
+export const CIRE_RSVP_CLOSED_ISO = "2099-01-02T00:00:00.000Z";
 
 /**
  * The fixed ports `PORTLESS=0` uses. Written out rather than imported because
@@ -78,6 +86,17 @@ export const CIRE_GUEST = {
   slug: "cire-wedding",
   code: "TESTONE-IVY-AA11",
   guestName: "Ada",
+} as const;
+
+/**
+ * A second seeded cire household, for the after-the-deadline flow: Nori, a
+ * household of one, invited to the Catholic and Hindu ceremonies. Not Ada's,
+ * so `cire-rsvp` still finds Ada with no reply on file, whichever flow runs
+ * first.
+ */
+export const CIRE_LATE_GUEST = {
+  code: "TESTTRE-DEW-CC33",
+  guestName: "Nori",
 } as const;
 
 /** Identities the flows create. Fixed, so every run registers the same people. */
