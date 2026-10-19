@@ -35,10 +35,12 @@ export interface RsvpPanelProps {
   preview?: boolean;
   /**
    * The wedding's RSVP deadline has passed — the sheet becomes a read-only view
-   * of whatever this household already answered: every control is disabled and
-   * the submit button is gone, so there is nothing to send. Its title reads
-   * "Your RSVP" rather than "Respond", and a stored "maybe", which the binary
-   * buttons cannot show, reads "Not decided".
+   * of whatever this household already answered: the submit button is gone, so
+   * there is nothing to send, and its title reads "Your RSVP" rather than
+   * "Respond". Each member's answer on file is written out ("Attending", "Not
+   * attending", "Not decided", "No reply") in place of the answer buttons, the
+   * dietary choices stay on show but disabled, and the consent boxes give way to
+   * a line saying dietary requirements on file are shared with the caterers.
    *
    * A household with a reply on file reaches it on purpose, from the event
    * card's "RSVP given" or the details panel's "View your RSVP". It is also
@@ -255,11 +257,14 @@ export function RsvpPanel(props: RsvpPanelProps) {
 
   const [responses, setResponses] = createSignal<Record<string, MemberState>>(initialResponses());
 
-  /** The member's reply on file for this event is "maybe". */
-  const undecidedOnFile = (guestId: string) =>
-    priorRsvps.some(
-      (r) => r.guestId === guestId && r.eventId === props.event.id && r.status === "maybe",
-    );
+  /** The member's reply on file for this event, in words, for the read-only view. */
+  function answerOnFile(guestId: string): string {
+    const row = priorRsvps.find((r) => r.guestId === guestId && r.eventId === props.event.id);
+    if (row?.status === "attending") return "Attending";
+    if (row?.status === "declined") return "Not attending";
+    if (row?.status === "maybe") return "Not decided";
+    return "No reply";
+  }
   /**
    * Which attending members are offering dietary data on this submission.
    *
@@ -757,15 +762,17 @@ export function RsvpPanel(props: RsvpPanelProps) {
                   </Show>
                 </legend>
 
-                {/* A stored "maybe" opens with neither button pressed, which
-                    past the deadline reads as no answer at all. The sheet can
-                    no longer take one, so it says what is on file instead, in
-                    the box the pair would fill. */}
+                {/* Past the deadline the pair can no longer be pressed, so
+                    which of two greyed buttons is lit would be the only sign
+                    of the answer — colour alone, and nothing at all for a
+                    stored "maybe", which the binary pair cannot show. The
+                    answer on file is written out instead, in the box the pair
+                    would fill. */}
                 <Show
-                  when={!(props.closed && undecidedOnFile(guestId))}
+                  when={!props.closed}
                   fallback={
-                    <p class="font-body text-ui-sm tracking-ui-wide border-border text-text-muted rounded-sm border px-3 py-2.5 text-center uppercase">
-                      Not decided
+                    <p class="font-body text-ui-sm tracking-ui-wide border-border text-text rounded-sm border px-3 py-2.5 text-center uppercase">
+                      {answerOnFile(guestId)}
                     </p>
                   }
                 >
@@ -868,8 +875,34 @@ export function RsvpPanel(props: RsvpPanelProps) {
             ticked unless every one of those people already has a stored
             consent record — see `createConsentBox`. Unticked by default, and
             the submit gate blocks on it. See
-            `wiki/compliance/dpia/cire-guest-data.md`. */}
-        <Show when={ownWithDietaryData().length > 0}>
+            `wiki/compliance/dpia/cire-guest-data.md`.
+
+            Only while RSVPs are open. Past the deadline a box cannot be
+            pressed, so it would read as the record — and its default state
+            does not record consent given on another basis (a row the couple
+            entered, an earlier wording), so an unticked "I agree" beside data
+            that is stored would misstate it. The line below says what is
+            stored instead. */}
+        <Show
+          when={
+            props.closed &&
+            (ownWithDietaryData().length > 0 || plusOnesWithDietaryData().length > 0)
+          }
+        >
+          <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+            Dietary requirements on file are shared with the caterers for this wedding. See our{" "}
+            <a
+              href="/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-gold-ink underline underline-offset-2"
+            >
+              privacy notice
+            </a>
+            .
+          </p>
+        </Show>
+        <Show when={!props.closed && ownWithDietaryData().length > 0}>
           <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
             <input
               type="checkbox"
@@ -899,7 +932,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
             because it says something different — not "I agree" but "they
             agreed" — and is stored under its own version. Same rules as the
             box above, over its own people. */}
-        <Show when={plusOnesWithDietaryData().length > 0}>
+        <Show when={!props.closed && plusOnesWithDietaryData().length > 0}>
           <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
             <input
               type="checkbox"

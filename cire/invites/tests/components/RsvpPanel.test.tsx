@@ -1386,13 +1386,114 @@ describe("RsvpPanel", () => {
     expect(getByText("Close")).toBeTruthy();
     expect(queryByText("Cancel")).toBeNull();
 
-    // The reply already on file is still visible, and frozen.
+    // The reply already on file is still visible, and frozen. The answer is
+    // written out rather than shown as a pressed button: with nothing left to
+    // press, which of two greyed buttons is lit would be the only cue, and
+    // colour alone is not one.
     const fs = fieldsetFor("Priya");
-    const attending = within(fs).getByText("Attending") as HTMLButtonElement;
-    expect(attending.getAttribute("aria-pressed")).toBe("true");
-    expect(attending.disabled).toBe(true);
-    expect((within(fs).getByText("Not attending") as HTMLButtonElement).disabled).toBe(true);
+    expect(within(fs).getByText("Attending").tagName).toBe("P");
+    expect(within(fs).queryByRole("button", { name: /attending/i })).toBeNull();
     expect(openOtherText(fs).disabled).toBe(true);
+  });
+
+  it("writes each member's answer on file as words once closed", () => {
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya, raj, { ...naina, eventIds: ["event-1"] }]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+          {
+            guestId: "guest-raj",
+            eventId: "event-1",
+            status: "declined",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+
+    expect(within(fieldsetFor("Priya")).getByText("Attending")).toBeTruthy();
+    expect(within(fieldsetFor("Raj")).getByText("Not attending")).toBeTruthy();
+    // Naina is invited and has nothing on file.
+    expect(within(fieldsetFor("Naina")).getByText("No reply")).toBeTruthy();
+    expect(document.querySelectorAll("fieldset button")).toHaveLength(0);
+  });
+
+  it("states what is stored in place of the consent boxes once closed", () => {
+    // Past the deadline the boxes cannot be pressed, so they would read as
+    // the record — and an unticked "I agree" beside stored dietary data says
+    // the guest refused what is in fact stored, here on a basis the guest's
+    // box never recorded (`dietaryConsentCurrent: false`).
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[bo, sam]}
+        existingRsvps={[
+          {
+            guestId: "guest-bo",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "No nuts",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+          {
+            guestId: "guest-sam",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: ["vegan"],
+            dietaryConsentCurrent: false,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+
+    expect(queryOwnBox()).toBeNull();
+    expect(queryAttestBox()).toBeNull();
+    const line = screen.getByText(/Dietary requirements on file are shared with the caterers/);
+    expect(within(line).getByRole("link", { name: "privacy notice" }).getAttribute("href")).toBe(
+      "/privacy",
+    );
+  });
+
+  it("says nothing about dietary data once closed when none is on file", () => {
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+    expect(screen.queryByText(/Dietary requirements on file/)).toBeNull();
   });
 
   it("shows a plus-one's reply and both households' dietary answers read-only once closed", () => {
@@ -1429,12 +1530,10 @@ describe("RsvpPanel", () => {
 
     for (const name of ["Bo", "Sam"]) {
       const fs = fieldsetFor(name);
-      const attending = within(fs).getByText("Attending") as HTMLButtonElement;
-      expect({ name, pressed: attending.getAttribute("aria-pressed") }).toEqual({
+      expect({ name, answer: within(fs).queryByText("Attending")?.tagName }).toEqual({
         name,
-        pressed: "true",
+        answer: "P",
       });
-      expect({ name, disabled: attending.disabled }).toEqual({ name, disabled: true });
       const boxes = within(fs).getAllByRole("checkbox") as HTMLInputElement[];
       expect({ name, enabled: boxes.filter((b) => !b.disabled).map((b) => b.value) }).toEqual({
         name,
@@ -1448,8 +1547,6 @@ describe("RsvpPanel", () => {
     const samText = within(fieldsetFor("Sam")).getByPlaceholderText(/onion/i) as HTMLInputElement;
     expect(samText.value).toBe("No shellfish");
     expect(samText.disabled).toBe(true);
-    expect(ownBox().disabled).toBe(true);
-    expect(attestBox().disabled).toBe(true);
     expect(document.querySelector("button[type='submit']")).toBeNull();
   });
 
@@ -1488,16 +1585,14 @@ describe("RsvpPanel", () => {
     const priyaSet = fieldsetFor("Priya");
     expect(within(priyaSet).getByText("Not decided")).toBeTruthy();
     expect(within(priyaSet).queryByRole("button", { name: "Attending" })).toBeNull();
-    // A decided member keeps the frozen pair.
-    const rajDeclined = within(fieldsetFor("Raj")).getByText("Not attending") as HTMLButtonElement;
-    expect(rajDeclined.getAttribute("aria-pressed")).toBe("true");
+    // A decided member reads as their decision.
+    expect(within(fieldsetFor("Raj")).getByText("Not attending")).toBeTruthy();
     expect(within(fieldsetFor("Raj")).queryByText("Not decided")).toBeNull();
   });
 
   it("says “Not decided” only for that member's own maybe on this event", () => {
     // Raj has no reply to this event — only a stray "maybe" on another one —
-    // and Priya's "maybe" here is hers, not his. His fieldset keeps the frozen
-    // pair, neither pressed: nothing is on file for him.
+    // and Priya's "maybe" here is hers, not his. Nothing is on file for him.
     render(() => (
       <RsvpPanel
         event={event}
@@ -1528,9 +1623,7 @@ describe("RsvpPanel", () => {
 
     const rajSet = fieldsetFor("Raj");
     expect(within(rajSet).queryByText("Not decided")).toBeNull();
-    const attending = within(rajSet).getByText("Attending") as HTMLButtonElement;
-    expect(attending.getAttribute("aria-pressed")).toBe("false");
-    expect(attending.disabled).toBe(true);
+    expect(within(rajSet).getByText("No reply")).toBeTruthy();
   });
 
   it("titles the closed sheet as the household's RSVP rather than asking for one", () => {
@@ -1614,6 +1707,27 @@ describe("RsvpPanel", () => {
     await waitFor(() => expect(document.querySelector("button[type='submit']")).toBeNull());
     // Focus landed on the sheet's dismiss button, not on <body>.
     expect(document.activeElement).not.toBe(document.body);
+    expect((document.activeElement as HTMLElement).textContent).toContain("Close");
+  });
+
+  it("rescues focus the same way when the deadline passes with an answer button focused", async () => {
+    // Closed, the answer pair gives way to the answer in words, so a focused
+    // "Attending" leaves the DOM just as Save does.
+    const [closed, setClosed] = createSignal(false);
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya]}
+        apiUrl="https://api.test"
+        closed={closed()}
+        onClose={() => {}}
+      />
+    ));
+    within(fieldsetFor("Priya")).getByRole("button", { name: "Attending" }).focus();
+
+    setClosed(true);
+
+    await waitFor(() => expect(within(fieldsetFor("Priya")).getByText("No reply")).toBeTruthy());
     expect((document.activeElement as HTMLElement).textContent).toContain("Close");
   });
 

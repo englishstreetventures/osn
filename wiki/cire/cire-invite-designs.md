@@ -12,7 +12,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 # Invite design selector
 
@@ -365,9 +365,11 @@ event and the panel to open on.
   the sliding form's full-bleed action bar would otherwise cause. Outside a
   switch nothing is clipped. Under reduced motion the global clamp makes the
   switch instant, the resize included.
-- **Past the RSVP deadline** the form is read-only, and the details panel says
-  "RSVPs closed on …" in a live region present from the start, so a deadline
-  that passes with the sheet open is announced. A household with a reply on
+- **Past the RSVP deadline** the form is read-only: each member's answer on
+  file is written out in place of the answer pair, and one line about stored
+  dietary data takes the consent boxes' place ([[cire-rsvp-deadline]]). The
+  details panel says "RSVPs closed on …" in a live region present from the
+  start, so a deadline that passes with the sheet open is announced. A household with a reply on
   file keeps its way into the form, relabelled "View your RSVP"; one with none
   loses it, and if focus was on that button when it went, focus moves to the
   details heading ([[cire-rsvp-deadline]]).
