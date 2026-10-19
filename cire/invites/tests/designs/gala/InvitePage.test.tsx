@@ -330,7 +330,7 @@ describe("gala InvitePage", () => {
       ),
     );
 
-    const { getAllByRole, getByText, getByPlaceholderText, queryByText } = render(() => (
+    const { getByText, getByPlaceholderText, queryByText } = render(() => (
       <InvitePage apiUrl="https://api.test" />
     ));
 
@@ -604,7 +604,7 @@ describe("gala InvitePage", () => {
       ),
     );
 
-    const { getByText, getByPlaceholderText, getAllByRole } = render(() => (
+    const { getByText, getByPlaceholderText } = render(() => (
       <InvitePage apiUrl="https://api.test" />
     ));
 
@@ -794,7 +794,7 @@ describe("gala InvitePage", () => {
     });
     vi.stubGlobal("fetch", noSession(fetchMock as typeof fetch));
 
-    const { getByText, getAllByRole, getByPlaceholderText, findByLabelText } = render(() => (
+    const { getByText, getByPlaceholderText, findByLabelText } = render(() => (
       <InvitePage apiUrl="https://api.test" />
     ));
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
@@ -1113,7 +1113,7 @@ describe("gala InvitePage", () => {
     // the same reference; the list must keep its rows, so an answer the guest
     // has open stays open.
     it("keeps an open answer open across an RSVP save", async () => {
-      const { container, getAllByRole } = await claimWith({ faq: FAQ });
+      const { container } = await claimWith({ faq: FAQ });
       await waitFor(() => expect(faqSection(container)).toBeTruthy());
       const details = faqSection(container)!.querySelector("details")!;
       details.open = true;
