@@ -1,7 +1,7 @@
 /**
  * Test helpers for the consent framework.
  *
- * Shipped as a normal module rather than inlined into each spec because three
+ * One shared module rather than inlined into each spec because three
  * separate suites (the gate, the banner, and every gated component) all need to
  * put the store into a known state, and a copy-pasted cookie-poke in each one
  * would quietly drift from the real encoding the moment the record shape

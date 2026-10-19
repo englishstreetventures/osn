@@ -9,7 +9,7 @@ related:
   - "[[bundle-size-guards]]"
   - "[[devloop-urls]]"
   - "[[browser-tests]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-19
 ---
 
 # Testing Patterns
@@ -619,6 +619,7 @@ Reach for these before hand-rolling setup:
 | `cire/api/tests/test-helpers/organiser-session.ts` → `seedOrganiserSession()` | A live `cire_org_session` token for a profile, minted by `organiserSessionService.create`, the function the OIDC callback calls. Send it as a `Cookie` with no bearer to test that an organiser route reads the cookie. |
 | `cire/api/tests/test-helpers.ts` → `appRequest()` | Elysia requests with `cf-connecting-ip` + `Origin` pre-injected. |
 | `cire/host/tests/test-support/mocks.ts` | The `@shared/rp-auth/solid` + `@shared/toast` + `lib/api` mock trio, their spies, and `resetOrganiserMocks()`. |
+| `cire/invites/tests/test-support/consent.ts` → `seedConsentForTest()` / `resetConsentForTest()` | A returning guest's consent cookie, written with the app's own record encoder, and a reset to an empty jar and a store that has not hydrated. For any `cire/invites` suite that renders a consent-gated component. See [[cire-consent]]. |
 | `pulse/web/tests/helpers/toast.ts` → `toastMock()` | Same idea for the Pulse app. |
 | `cire/api/tests/test-helpers/metrics-harness.ts` → `counterValue()` | Reading a counter back in a `@cire/api` test. See [[#Asserting a metric]]. |
 

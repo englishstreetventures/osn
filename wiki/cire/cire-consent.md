@@ -92,6 +92,8 @@ Two traps this separation exists to avoid:
 
 ## Files
 
+Paths are under `cire/invites/src/`.
+
 | File | Responsibility |
 |---|---|
 | `lib/consent/categories.ts` | The categories — `necessary` and the two switches, `pinterest` and `maps` — with their display metadata. |
@@ -99,10 +101,13 @@ Two traps this separation exists to avoid:
 | `lib/consent/record.ts` | The persisted record: versions, grant normalisation, encode/decode. |
 | `lib/consent/cookie.ts` | Cookie transport (`__Host-cire_consent` / `cire_consent`). |
 | `lib/consent/store.ts` | Module-level Solid signals shared by every island. |
-| `../tests/test-support/testing.ts` | `seedConsentForTest` / `resetConsentForTest`. |
 | `components/consent/ConsentGate.tsx` | The wrapper + the default blocked-content placeholder. |
 | `components/consent/ConsentBanner.tsx` | The first-layer prompt — a dialog on the invite's pages, a bottom banner on the legal pages — and the standing `ConsentPreferencesLink`. |
 | `components/consent/ConsentPreferences.tsx` | The "Choose" dialog. |
+
+Tests put the consent cookie and store into a known state with
+`seedConsentForTest` and `resetConsentForTest`, in
+[`cire/invites/tests/test-support/consent.ts`](../../cire/invites/tests/test-support/consent.ts).
 
 ## The vendor registry is the source of truth
 

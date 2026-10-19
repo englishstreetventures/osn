@@ -11,7 +11,7 @@ import {
   isCategoryGranted,
   saveConsent,
 } from "../../../src/lib/consent/store";
-import { resetConsentForTest, seedConsentForTest } from "../../test-support/testing";
+import { resetConsentForTest, seedConsentForTest } from "../../test-support/consent";
 
 /**
  * A child that records whether it was ever constructed. This is the assertion

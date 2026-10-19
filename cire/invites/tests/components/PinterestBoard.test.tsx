@@ -5,7 +5,7 @@ import { PinterestBoard } from "../../src/components/PinterestBoard";
 import { readConsentFromDocument } from "../../src/lib/consent/cookie";
 import { defaultGrants } from "../../src/lib/consent/record";
 import { saveConsent, setReloadPageForTest } from "../../src/lib/consent/store";
-import { resetConsentForTest, seedConsentForTest } from "../test-support/testing";
+import { resetConsentForTest, seedConsentForTest } from "../test-support/consent";
 
 const VALID_URL = "https://www.pinterest.com.au/example/catholic-wedding-guest-moodboard/";
 
