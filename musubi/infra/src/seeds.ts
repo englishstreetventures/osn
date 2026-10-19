@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import { Data } from "effect";
 
 export class SeedInputError extends Data.TaggedError("SeedInputError")<{
@@ -37,33 +35,30 @@ const HEX = /^[0-9a-f]{64}$/;
 /** One P-256 coordinate: 32 bytes, base64url without padding. */
 const COORDINATE = /^[A-Za-z0-9_-]{43}$/;
 
-/** SHA-256 hex of a client secret, as osn-api's `hashClientSecret` computes it (`osn/api/src/services/auth/oidc.ts`). */
-export function clientSecretHash(secret: string): string {
-  return createHash("sha256").update(secret, "utf8").digest("hex");
-}
-
 interface JwkFields {
-  readonly kty?: string;
-  readonly crv?: string;
-  readonly x?: string;
-  readonly y?: string;
+  readonly kty?: unknown;
+  readonly crv?: unknown;
+  readonly x?: unknown;
+  readonly y?: unknown;
+  readonly d?: unknown;
 }
 
 const refuseKey = (reason: string): SeedInputError =>
   new SeedInputError({
-    input: "CIRE_API_ARC_PRIVATE_KEY",
-    message: `CIRE_API_ARC_PRIVATE_KEY ${reason}; it must be a raw ES256 JWK (kty EC, crv P-256, with x and y).`,
+    input: "CIRE_API_ARC_PUBLIC_JWK",
+    message: `CIRE_API_ARC_PUBLIC_JWK ${reason}; it must be the public half of an ES256 JWK (kty EC, crv P-256, with x and y, without d).`,
   });
 
 /**
- * The public half of cire-api's ARC key, as the JSON string osn-api stores
- * in `service_account_keys.public_key_jwk`. The key is a raw JWK string, not
- * base64. Only `kty`, `crv`, `x` and `y` are kept, so `d` never leaves.
+ * cire-api's ARC public key as osn-api stores it in
+ * `service_account_keys.public_key_jwk`: `kty`, `crv`, `x` and `y`, in that
+ * order. A key carrying `d` is refused, so a private key never reaches the
+ * seed.
  */
-export function arcPublicJwk(privateJwk: string): string {
+function arcPublicKeyColumn(publicJwk: string): string {
   let parsed: JwkFields | null;
   try {
-    parsed = JSON.parse(privateJwk) as JwkFields | null;
+    parsed = JSON.parse(publicJwk) as JwkFields | null;
   } catch {
     // JSON.parse's message can quote the input, so it is never passed on.
     throw refuseKey("is not JSON");
@@ -71,7 +66,8 @@ export function arcPublicJwk(privateJwk: string): string {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw refuseKey("is not a JSON object");
   }
-  const { kty, crv, x, y } = parsed;
+  const { kty, crv, x, y, d } = parsed;
+  if (d !== undefined) throw refuseKey("carries d, the private key");
   if (kty !== "EC" || crv !== "P-256") throw refuseKey("is not an EC P-256 key");
   if (typeof x !== "string" || typeof y !== "string") throw refuseKey("has no x or no y");
   if (!COORDINATE.test(x) || !COORDINATE.test(y)) {
@@ -85,11 +81,14 @@ export function arcPublicJwk(privateJwk: string): string {
  * osn-api, as one SQL file Alchemy imports after the migrations:
  *
  * - the `cid_cire` OIDC client, its redirect URI the one cire-api builds
- *   from `CIRE_API_ORIGIN` (`cire/api/src/index.ts`) and its hash that of
- *   `CIRE_OIDC_CLIENT_SECRET`;
+ *   from `CIRE_API_ORIGIN` (`cire/api/src/index.ts`) and its hash the
+ *   SHA-256 of `CIRE_OIDC_CLIENT_SECRET`;
  * - cire-api's ARC service account and key, written as
  *   `POST /graph/internal/register-service` writes them
  *   (`osn/api/src/routes/graph-internal.ts`).
+ *
+ * It takes the hash and the public key, never the secrets they come from:
+ * `scripts/derive-cire-seed.ts` derives them in a step of their own.
  *
  * A re-import never undoes what an operator did in the database: it leaves a
  * disabled client disabled and a revoked or expired key so, and leaves a key
@@ -102,9 +101,11 @@ export function arcPublicJwk(privateJwk: string): string {
  */
 export function osnSeedSql(input: {
   readonly cireApiOrigin: string;
-  readonly clientSecret: string;
+  /** `CIRE_OIDC_CLIENT_SECRET_SHA256`: lower-case SHA-256 hex. */
+  readonly clientSecretSha256: string;
   readonly arcKeyId: string;
-  readonly arcPrivateJwk: string;
+  /** `CIRE_API_ARC_PUBLIC_JWK`: the public half of cire-api's ARC key. */
+  readonly arcPublicJwk: string;
 }): string {
   if (!ORIGIN.test(input.cireApiOrigin)) {
     throw new SeedInputError({
@@ -118,14 +119,14 @@ export function osnSeedSql(input: {
       message: "CIRE_API_ARC_KEY_ID is not a UUID.",
     });
   }
-  const hash = clientSecretHash(input.clientSecret);
+  const hash = input.clientSecretSha256;
   if (!HEX.test(hash)) {
     throw new SeedInputError({
-      input: "CIRE_OIDC_CLIENT_SECRET",
-      message: "The client secret's hash is not SHA-256 hex.",
+      input: "CIRE_OIDC_CLIENT_SECRET_SHA256",
+      message: "CIRE_OIDC_CLIENT_SECRET_SHA256 is not lower-case SHA-256 hex.",
     });
   }
-  const publicJwk = arcPublicJwk(input.arcPrivateJwk);
+  const publicJwk = arcPublicKeyColumn(input.arcPublicJwk);
   const redirectUris = JSON.stringify([`${input.cireApiOrigin}/api/auth/oidc/callback`]);
   const scopes = CIRE_API_ARC_SCOPES.join(",");
   return `-- Generated by musubi/infra on every deploy; Alchemy re-imports it when it changes.

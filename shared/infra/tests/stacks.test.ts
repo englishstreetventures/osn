@@ -9,7 +9,7 @@ describe("the stack map", () => {
     expect(deployed).toEqual(SECRET_INVENTORY.map((entry) => entry.worker).toSorted());
   });
 
-  test("every secret a stack's deploy step reads for itself is a dev inventory secret", () => {
+  test("every secret a stack job reads for itself is a dev inventory secret", () => {
     const dev = new Set(
       SECRET_INVENTORY.flatMap((entry) => entry.tiers.dev.secrets.concat(entry.tiers.dev.optional)),
     );

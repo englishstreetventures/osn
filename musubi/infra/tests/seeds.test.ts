@@ -6,40 +6,57 @@ import { fileURLToPath } from "node:url";
 import { origin, stageHosts } from "@shared/infra";
 import { beforeAll, describe, expect, test } from "vitest";
 
-import { arcPublicJwk, clientSecretHash, osnSeedSql, SeedInputError } from "../src/seeds";
+import { osnSeedSql, SeedInputError } from "../src/seeds";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const readRepo = (path: string): string => readFileSync(join(repoRoot, path), "utf8");
 
 const CIRE_API_ORIGIN = origin(stageHosts("example.test", "dev").cireApi);
 const ARC_KEY_ID = "0b6f8f5e-2d1c-4c7a-9f3e-5a4b3c2d1e0f";
-const CLIENT_SECRET = "cs_placeholder-client-secret";
+/**
+ * SHA-256("abc"), FIPS 180-2 appendix B.1: a hash of the shape the cire_seed
+ * step writes for the client secret.
+ */
+const CLIENT_SECRET_SHA256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 
-interface PrivateJwk {
+interface PublicJwk {
   readonly kty: string;
   readonly crv: string;
   readonly x: string;
   readonly y: string;
-  readonly d: string;
 }
 
-let privateJwk = "";
-let parsedPrivate: PrivateJwk;
+/** The public half as the cire_seed step writes it: kty, crv, x and y only. */
+let publicJwk = "";
+let parsedPublic: PublicJwk;
+/** The private key's `d`, which the seed must refuse to carry. */
+let privateD = "";
 let sql = "";
+
+const seedOf = (overrides: Partial<Parameters<typeof osnSeedSql>[0]> = {}): string =>
+  osnSeedSql({
+    cireApiOrigin: CIRE_API_ORIGIN,
+    clientSecretSha256: CLIENT_SECRET_SHA256,
+    arcKeyId: ARC_KEY_ID,
+    arcPublicJwk: publicJwk,
+    ...overrides,
+  });
 
 beforeAll(async () => {
   const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
     "sign",
     "verify",
   ]);
-  privateJwk = JSON.stringify(await crypto.subtle.exportKey("jwk", pair.privateKey));
-  parsedPrivate = JSON.parse(privateJwk) as PrivateJwk;
-  sql = osnSeedSql({
-    cireApiOrigin: CIRE_API_ORIGIN,
-    clientSecret: CLIENT_SECRET,
-    arcKeyId: ARC_KEY_ID,
-    arcPrivateJwk: privateJwk,
-  });
+  const exported = await crypto.subtle.exportKey("jwk", pair.publicKey);
+  parsedPublic = {
+    kty: exported.kty ?? "",
+    crv: exported.crv ?? "",
+    x: exported.x ?? "",
+    y: exported.y ?? "",
+  };
+  publicJwk = JSON.stringify(parsedPublic);
+  privateD = (await crypto.subtle.exportKey("jwk", pair.privateKey)).d ?? "";
+  sql = seedOf();
 });
 
 /** A fresh in-memory database migrated through osn/db's whole chain, foreign keys on as on D1. */
@@ -78,12 +95,12 @@ interface KeyRow {
   readonly revoked_at: number | null;
 }
 
-/** The message `run` throws. */
-function thrownMessage(run: () => unknown): string {
+/** The error `run` throws. */
+function thrown(run: () => unknown): unknown {
   try {
     run();
   } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+    return error;
   }
   throw new Error("expected a throw");
 }
@@ -93,24 +110,13 @@ const captured = (text: string, pattern: RegExp): string[] =>
   [...text.matchAll(pattern)].map((match) => match[1] ?? "");
 
 describe("osnSeedSql", () => {
-  test("S1: the client row's hash is the one osn-api's own client-secret check computes", () => {
-    const oidc = readRepo("osn/api/src/services/auth/oidc.ts");
-    expect(oidc).toContain(
-      'const sha256Hex = (input: string): string => createHash("sha256").update(input).digest("hex");',
-    );
-    expect(oidc).toMatch(
-      /export function hashClientSecret\(secret: string\): string \{\s*return sha256Hex\(secret\);\s*\}/,
-    );
-    // SHA-256("abc"), FIPS 180-2 appendix B.1.
-    expect(clientSecretHash("abc")).toBe(
-      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-    );
+  test("S1: the client row holds the client secret's hash as given", () => {
     const db = migratedDb();
     db.exec(sql);
     const row = db
       .query<ClientRow, []>("SELECT * FROM oauth_clients WHERE client_id = 'cid_cire'")
       .get();
-    expect(row?.client_secret_hash).toBe(clientSecretHash(CLIENT_SECRET));
+    expect(row?.client_secret_hash).toBe(CLIENT_SECRET_SHA256);
   });
 
   test("S2: the redirect URI is the one cire-api builds from CIRE_API_ORIGIN", () => {
@@ -126,21 +132,8 @@ describe("osnSeedSql", () => {
     expect(JSON.parse(row?.redirect_uris ?? "null")).toEqual([`${CIRE_API_ORIGIN}${path}`]);
   });
 
-  test("S4: the SQL never holds a secret: not the client secret, not the private key's d", () => {
-    expect(sql).not.toContain(CLIENT_SECRET);
-    expect(sql).not.toContain(parsedPrivate.d);
-    expect(sql).not.toContain('"d"');
-  });
-
   test("S5: identical inputs give identical bytes", () => {
-    expect(
-      osnSeedSql({
-        cireApiOrigin: CIRE_API_ORIGIN,
-        clientSecret: CLIENT_SECRET,
-        arcKeyId: ARC_KEY_ID,
-        arcPrivateJwk: privateJwk,
-      }),
-    ).toBe(sql);
+    expect(seedOf()).toBe(sql);
   });
 
   test("S7: cire-api's service account carries exactly the scopes cire-api requests, each one osn-api permits", () => {
@@ -167,50 +160,42 @@ describe("osnSeedSql", () => {
     expect(granted.filter((scope) => !permitted.includes(scope))).toEqual([]);
   });
 
-  test("S8: the public JWK is EC P-256 with x and y and no d, importable as ES256; any other key is refused", async () => {
-    const jwk = JSON.parse(arcPublicJwk(privateJwk)) as Partial<PrivateJwk>;
-    expect(jwk).toEqual({
-      kty: "EC",
-      crv: "P-256",
-      x: parsedPrivate.x,
-      y: parsedPrivate.y,
-    });
-    const key = await crypto.subtle.importKey(
-      "jwk",
-      jwk,
-      { name: "ECDSA", namedCurve: "P-256" },
-      true,
-      ["verify"],
-    );
-    expect(key.type).toBe("public");
+  test("S8: the key row holds the public JWK's kty, crv, x and y; a key that is not EC P-256 with x and y, or that carries d, is refused", () => {
+    // Extra public members are dropped, so the row is the same whatever
+    // exported the key.
+    for (const given of [publicJwk, JSON.stringify({ ...parsedPublic, ext: true })]) {
+      const db = migratedDb();
+      db.exec(seedOf({ arcPublicJwk: given }));
+      const key = db
+        .query<KeyRow, []>(`SELECT * FROM service_account_keys WHERE key_id = '${ARC_KEY_ID}'`)
+        .get();
+      expect(key?.public_key_jwk).toBe(publicJwk);
+    }
 
     const refused = [
-      "secret-material-not-json",
-      JSON.stringify({ ...parsedPrivate, kty: "RSA" }),
-      JSON.stringify({ ...parsedPrivate, crv: "P-384" }),
-      JSON.stringify({ kty: "EC", crv: "P-256", x: parsedPrivate.x }),
-      JSON.stringify({ kty: "EC", crv: "P-256", y: parsedPrivate.y }),
+      "key-material-not-json",
+      JSON.stringify({ ...parsedPublic, d: privateD }),
+      JSON.stringify({ ...parsedPublic, kty: "RSA" }),
+      JSON.stringify({ ...parsedPublic, crv: "P-384" }),
+      JSON.stringify({ kty: "EC", crv: "P-256", x: parsedPublic.x }),
+      JSON.stringify({ kty: "EC", crv: "P-256", y: parsedPublic.y }),
       "[]",
       "null",
     ];
-    for (const candidate of refused) {
-      expect(() => arcPublicJwk(candidate)).toThrow(SeedInputError);
+    for (const arcPublicJwk of refused) {
+      const error = thrown(() => seedOf({ arcPublicJwk }));
+      expect(error).toBeInstanceOf(SeedInputError);
+      expect(error).toMatchObject({ input: "CIRE_API_ARC_PUBLIC_JWK" });
+      // The refusal names the value, never its content.
+      expect(String((error as SeedInputError).message)).not.toMatch(
+        new RegExp(`${privateD}|key-material`),
+      );
     }
-    // The refusal names the secret, never its content.
-    expect(
-      refused.map((candidate) => thrownMessage(() => arcPublicJwk(candidate))).join("\n"),
-    ).not.toMatch(new RegExp(`${parsedPrivate.d}|secret-material`));
   });
 
   test("S9: a value that could carry a quote into the SQL is refused", () => {
-    const valid = {
-      cireApiOrigin: CIRE_API_ORIGIN,
-      clientSecret: CLIENT_SECRET,
-      arcKeyId: ARC_KEY_ID,
-      arcPrivateJwk: privateJwk,
-    };
     for (const arcKeyId of ["not-a-uuid", `${ARC_KEY_ID}'`, "", `${ARC_KEY_ID} `]) {
-      expect(() => osnSeedSql({ ...valid, arcKeyId })).toThrow(SeedInputError);
+      expect(() => seedOf({ arcKeyId })).toThrow(SeedInputError);
     }
     for (const cireApiOrigin of [
       "http://api.cire.example.test",
@@ -218,11 +203,19 @@ describe("osnSeedSql", () => {
       "https://api.cire.example.test'",
       "https://API.cire.example.test",
     ]) {
-      expect(() => osnSeedSql({ ...valid, cireApiOrigin })).toThrow(SeedInputError);
+      expect(() => seedOf({ cireApiOrigin })).toThrow(SeedInputError);
+    }
+    for (const clientSecretSha256 of [
+      `${CLIENT_SECRET_SHA256.slice(0, 63)}'`,
+      CLIENT_SECRET_SHA256.toUpperCase(),
+      CLIENT_SECRET_SHA256.slice(1),
+      "",
+    ]) {
+      expect(() => seedOf({ clientSecretSha256 })).toThrow(SeedInputError);
     }
     for (const field of ["x", "y"] as const) {
-      const quoted = JSON.stringify({ ...parsedPrivate, [field]: `${parsedPrivate[field]}'` });
-      expect(() => osnSeedSql({ ...valid, arcPrivateJwk: quoted })).toThrow(SeedInputError);
+      const quoted = JSON.stringify({ ...parsedPublic, [field]: `${parsedPublic[field]}'` });
+      expect(() => seedOf({ arcPublicJwk: quoted })).toThrow(SeedInputError);
     }
   });
 
@@ -253,7 +246,7 @@ describe("osnSeedSql", () => {
       expect(keyRow(db)).toEqual({
         key_id: ARC_KEY_ID,
         service_id: "cire-api",
-        public_key_jwk: arcPublicJwk(privateJwk),
+        public_key_jwk: publicJwk,
         // 2025-10-17T00:00:00Z, the instant every seeded row records.
         registered_at: 1760659200,
         expires_at: null,

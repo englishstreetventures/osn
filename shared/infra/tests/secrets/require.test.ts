@@ -5,8 +5,8 @@ import { tierSecrets, type WorkerKey } from "../../src/secrets/inventory";
 import {
   MissingSecretsError,
   requireSecrets,
-  requireSeedSecret,
-  SeedSecretError,
+  requireSeedValue,
+  SeedValueError,
 } from "../../src/secrets/require";
 import type { Tier } from "../../src/stage";
 
@@ -96,17 +96,17 @@ describe("requireSecrets", () => {
   });
 });
 
-describe("requireSeedSecret", () => {
+describe("requireSeedValue", () => {
   test("B6: refuses an unset, blank or padded value, naming the variable and never the value", () => {
     for (const value of [undefined, "", "   ", " s3cr3t-seed", "s3cr3t-seed\n"]) {
       const env = { CIRE_OIDC_CLIENT_SECRET: value };
-      const error = thrown(() => requireSeedSecret(env, "CIRE_OIDC_CLIENT_SECRET"));
-      expect(error).toBeInstanceOf(SeedSecretError);
+      const error = thrown(() => requireSeedValue(env, "CIRE_OIDC_CLIENT_SECRET"));
+      expect(error).toBeInstanceOf(SeedValueError);
       expect((error as Error).message).toContain("CIRE_OIDC_CLIENT_SECRET");
       expect((error as Error).message).not.toContain("s3cr3t-seed");
     }
     expect(
-      requireSeedSecret({ CIRE_OIDC_CLIENT_SECRET: "s3cr3t-seed" }, "CIRE_OIDC_CLIENT_SECRET"),
+      requireSeedValue({ CIRE_OIDC_CLIENT_SECRET: "s3cr3t-seed" }, "CIRE_OIDC_CLIENT_SECRET"),
     ).toBe("s3cr3t-seed");
   });
 });

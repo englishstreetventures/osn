@@ -116,11 +116,17 @@ describe("W3: no install or build step holds a secret", () => {
     }
   });
 
-  test("only the token check, the deploy, the deployment snapshot and compare, the smoke checks and the guest site's build read a secret", () => {
-    // The deploy step and the guest site's build are held exactly above.
+  test("only the token check, the seed derivation, the deploy, the deployment snapshot and compare, the smoke checks and the guest site's build read a secret", () => {
+    // The deploy step and the guest site's build are held exactly above, the
+    // musubi job's cire_seed step under DV1.
     const mayRead = (step: Step): readonly string[] => {
       if (step.id === "token" || step.id === "snapshot" || step.id === "deployments") {
         return accountSecrets("dev");
+      }
+      if (step.id === "cire_seed") {
+        return STACK_KEYS.flatMap((key) => STACK_STEP_SECRETS[key])
+          .filter((entry) => entry.step === "cire_seed")
+          .map((entry) => entry.name);
       }
       if (step.id?.startsWith("smoke_") === true) {
         return accountSecrets("dev").concat(["CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"]);
@@ -135,6 +141,61 @@ describe("W3: no install or build step holds a secret", () => {
         .map((name) => `${step.name ?? step.id ?? "a step"}: ${name}`),
     );
     expect(strays).toEqual([]);
+  });
+});
+
+describe("DV1: the musubi deploy step holds no cire secret; the cire_seed step alone does", () => {
+  // osn-api's seed needs only a hash of cire's OIDC client secret and the
+  // public half of cire-api's ARC key. The step that runs Alchemy, and every
+  // dependency it loads, never holds either secret.
+  const CIRE_SEED_SECRETS = [
+    "CIRE_API_ARC_KEY_ID",
+    "CIRE_API_ARC_PRIVATE_KEY",
+    "CIRE_OIDC_CLIENT_SECRET",
+  ];
+  const steps = stackJob("musubi").steps ?? [];
+  const indexOf = (id: string): number => steps.findIndex((step) => step.id === id);
+
+  test("STACK_STEP_SECRETS gives the three to the cire_seed step and none to the deploy", () => {
+    expect(STACK_STEP_SECRETS.musubi.map((entry) => [entry.name, entry.step]).toSorted()).toEqual(
+      CIRE_SEED_SECRETS.map((name) => [name, "cire_seed"]),
+    );
+  });
+
+  test("the cire_seed step runs the derive script before the deploy, holding the three and nothing else", () => {
+    const seed = steps[indexOf("cire_seed")];
+    expect(indexOf("cire_seed")).toBeGreaterThan(-1);
+    expect(indexOf("cire_seed")).toBeLessThan(indexOf("deploy"));
+    expect(seed?.run).toBe("bun --no-install musubi/infra/scripts/derive-cire-seed.ts");
+    expect(seed?.env).toEqual(
+      Object.fromEntries(CIRE_SEED_SECRETS.map((name) => [name, `\${{ secrets.${name} }}`])),
+    );
+    expect(seed?.if).toBeUndefined();
+    expect(seed?.["continue-on-error"]).toBeUndefined();
+  });
+
+  test("the deploy step reads none of the three and takes the seed values from the cire_seed step's outputs", () => {
+    const deploy = steps[indexOf("deploy")];
+    expect(secretsRead(deploy).filter((name) => CIRE_SEED_SECRETS.includes(name))).toEqual([]);
+    expect(JSON.stringify(deploy)).not.toMatch(
+      /\bCIRE_API_ARC_PRIVATE_KEY\b|\bCIRE_OIDC_CLIENT_SECRET\b/,
+    );
+    expect({
+      CIRE_API_ARC_KEY_ID: deploy?.env?.CIRE_API_ARC_KEY_ID,
+      CIRE_API_ARC_PUBLIC_JWK: deploy?.env?.CIRE_API_ARC_PUBLIC_JWK,
+      CIRE_OIDC_CLIENT_SECRET_SHA256: deploy?.env?.CIRE_OIDC_CLIENT_SECRET_SHA256,
+    }).toEqual({
+      CIRE_API_ARC_KEY_ID: "${{ steps.cire_seed.outputs.key_id }}",
+      CIRE_API_ARC_PUBLIC_JWK: "${{ steps.cire_seed.outputs.public_jwk }}",
+      CIRE_OIDC_CLIENT_SECRET_SHA256: "${{ steps.cire_seed.outputs.client_secret_sha256 }}",
+    });
+  });
+
+  test("no other step of the musubi job reads the three", () => {
+    const readers = steps
+      .filter((step) => secretsRead(step).some((name) => CIRE_SEED_SECRETS.includes(name)))
+      .map((step) => step.id);
+    expect(readers).toEqual(["cire_seed"]);
   });
 });
 

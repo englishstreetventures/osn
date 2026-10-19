@@ -10,7 +10,7 @@ import {
   readDevDomain,
   refuseDotEnvFiles,
   requireSecrets,
-  requireSeedSecret,
+  requireSeedValue,
   retainedD1,
   siteWorker,
   stackOptions,
@@ -84,9 +84,10 @@ export const musubiStack = (input: {
     const secrets = requireSecrets({ worker: "osn-api", stage, env });
     const seed = osnSeedSql({
       cireApiOrigin: origin(hosts.cireApi),
-      clientSecret: requireSeedSecret(env, "CIRE_OIDC_CLIENT_SECRET"),
-      arcKeyId: requireSeedSecret(env, "CIRE_API_ARC_KEY_ID"),
-      arcPrivateJwk: requireSeedSecret(env, "CIRE_API_ARC_PRIVATE_KEY"),
+      // The deploy step's cire_seed outputs; it holds no cire secret.
+      clientSecretSha256: requireSeedValue(env, "CIRE_OIDC_CLIENT_SECRET_SHA256"),
+      arcKeyId: requireSeedValue(env, "CIRE_API_ARC_KEY_ID"),
+      arcPublicJwk: requireSeedValue(env, "CIRE_API_ARC_PUBLIC_JWK"),
     });
 
     flattenMigrations({ source: OSN_MIGRATIONS, target: declared.osnDb.migrations });

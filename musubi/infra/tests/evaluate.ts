@@ -24,24 +24,27 @@ export function removeEvaluations(): void {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 }
 export const ARC_KEY_ID = "0b6f8f5e-2d1c-4c7a-9f3e-5a4b3c2d1e0f";
-export const OIDC_CLIENT_SECRET = "cs_placeholder-client-secret";
+/** SHA-256("abc"): a hash of the shape the cire_seed step writes for the client secret. */
+export const OIDC_CLIENT_SECRET_SHA256 =
+  "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 
-/** A fresh ES256 private key as the raw JWK string cire-api holds in CIRE_API_ARC_PRIVATE_KEY. */
-export async function generateArcPrivateJwk(): Promise<string> {
+/** A fresh ES256 public key as the cire_seed step writes it: kty, crv, x and y only. */
+export async function generateArcPublicJwk(): Promise<string> {
   const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
     "sign",
     "verify",
   ]);
-  return JSON.stringify(await crypto.subtle.exportKey("jwk", pair.privateKey));
+  const { kty, crv, x, y } = await crypto.subtle.exportKey("jwk", pair.publicKey);
+  return JSON.stringify({ kty, crv, x, y });
 }
 
 /**
  * Everything the musubi deploy step's environment holds, with placeholder
  * values: the deploy target, the dev domain, every secret the inventory
  * declares for osn-api on dev (required and optional), and the three seed
- * secrets.
+ * values the cire_seed step derives. No cire secret: the step holds none.
  */
-export function stackEnv(arcPrivateJwk: string): Record<string, string | undefined> {
+export function stackEnv(arcPublicJwk: string): Record<string, string | undefined> {
   const row = tierSecrets("osn-api", "dev");
   return {
     DEV_DOMAIN,
@@ -51,9 +54,9 @@ export function stackEnv(arcPrivateJwk: string): Record<string, string | undefin
     ...Object.fromEntries(
       [...row.secrets, ...row.optional].map((name) => [name, `placeholder-${name}`]),
     ),
-    CIRE_OIDC_CLIENT_SECRET: OIDC_CLIENT_SECRET,
     CIRE_API_ARC_KEY_ID: ARC_KEY_ID,
-    CIRE_API_ARC_PRIVATE_KEY: arcPrivateJwk,
+    CIRE_API_ARC_PUBLIC_JWK: arcPublicJwk,
+    CIRE_OIDC_CLIENT_SECRET_SHA256: OIDC_CLIENT_SECRET_SHA256,
   };
 }
 

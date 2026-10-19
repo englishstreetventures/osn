@@ -22,17 +22,25 @@ export const STACK_WORKERS: PerStack<readonly WorkerKey[]> = {
   pulse: [],
 };
 
+/**
+ * The step of a stack job that reads a secret for the stack itself, by id:
+ * `deploy` runs Alchemy; `cire_seed` derives the musubi seed's values.
+ */
+export type StackStep = "deploy" | "cire_seed";
+
 /** Secrets a stack's deploy job reads besides its Workers' own, with the step that reads each. */
 export const STACK_STEP_SECRETS: PerStack<
-  readonly { readonly name: string; readonly step: "deploy" }[]
+  readonly { readonly name: string; readonly step: StackStep }[]
 > = {
   // The musubi stack seeds osn-api's database with the cire OIDC client row,
-  // whose hash it computes from the client secret, and with cire-api's ARC
-  // public key, which it derives from the private key.
+  // which stores the client secret's hash, and with cire-api's ARC key id and
+  // public key. The cire_seed step alone holds these three and derives the
+  // hash and the public key (musubi/infra/scripts/derive-cire-seed.ts), so
+  // the deploy step, and every package Alchemy loads, holds neither secret.
   musubi: [
-    { name: "CIRE_OIDC_CLIENT_SECRET", step: "deploy" },
-    { name: "CIRE_API_ARC_KEY_ID", step: "deploy" },
-    { name: "CIRE_API_ARC_PRIVATE_KEY", step: "deploy" },
+    { name: "CIRE_OIDC_CLIENT_SECRET", step: "cire_seed" },
+    { name: "CIRE_API_ARC_KEY_ID", step: "cire_seed" },
+    { name: "CIRE_API_ARC_PRIVATE_KEY", step: "cire_seed" },
   ],
   cire: [],
   zap: [],

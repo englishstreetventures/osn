@@ -61,32 +61,32 @@ export function requireSecrets(input: {
   return Object.fromEntries(present);
 }
 
-export class SeedSecretError extends Data.TaggedError("SeedSecretError")<{
-  /** The GitHub Environment secret's name. Never its value. */
+export class SeedValueError extends Data.TaggedError("SeedValueError")<{
+  /** The environment variable's name. Never its value. */
   readonly variable: string;
   readonly message: string;
 }> {}
 
 /**
- * One secret a stack reads for itself (a seed), never uploaded to a Worker;
+ * One value a stack builds its own seed from, never uploaded to a Worker;
  * refused unset, blank or padded. The value is never trimmed, and the error
  * names the variable only.
  */
-export function requireSeedSecret(
+export function requireSeedValue(
   env: Readonly<Record<string, string | undefined>>,
   name: string,
 ): string {
   const value = env[name] ?? "";
   if (value.trim() === "") {
-    throw new SeedSecretError({
+    throw new SeedValueError({
       variable: name,
-      message: `GitHub Environment secret ${name} is unset or blank; the stack needs it to build its seed.`,
+      message: `${name} is unset or blank; the stack needs it to build its seed.`,
     });
   }
   if (value !== value.trim()) {
-    throw new SeedSecretError({
+    throw new SeedValueError({
       variable: name,
-      message: `GitHub Environment secret ${name} has leading or trailing whitespace; set it without.`,
+      message: `${name} has leading or trailing whitespace; the stack takes it as given, never trimmed.`,
     });
   }
   return value;

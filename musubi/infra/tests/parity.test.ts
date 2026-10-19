@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import {
   evaluateMusubi,
-  generateArcPrivateJwk,
+  generateArcPublicJwk,
   removeEvaluations,
   resourcesOf,
   stackEnv,
@@ -44,7 +44,7 @@ const PRODUCTION_ONLY: Readonly<Record<string, string>> = {
 let dev: Evaluation;
 
 beforeAll(async () => {
-  dev = await evaluateMusubi({ stage: "dev", env: stackEnv(await generateArcPrivateJwk()) });
+  dev = await evaluateMusubi({ stage: "dev", env: stackEnv(await generateArcPublicJwk()) });
 });
 
 afterAll(removeEvaluations);

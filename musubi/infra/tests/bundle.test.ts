@@ -6,7 +6,7 @@ import { afterAll, describe, expect, test } from "vitest";
 
 import {
   evaluateMusubi,
-  generateArcPrivateJwk,
+  generateArcPublicJwk,
   removeEvaluations,
   resourcesOf,
   stackEnv,
@@ -18,7 +18,7 @@ describe("osn-api's bundle", () => {
   test("K10: bundled offline through Alchemy's rolldown path with the stack's build options, no module names bun:sqlite", async () => {
     const evaluation = await evaluateMusubi({
       stage: "dev",
-      env: stackEnv(await generateArcPrivateJwk()),
+      env: stackEnv(await generateArcPublicJwk()),
     });
     const props = resourcesOf(evaluation).OsnApi?.Props;
     if (props?.main === undefined) throw new Error("osn-api declares no main");

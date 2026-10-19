@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { origin, SeedSecretError, STACK_STEP_SECRETS, stageHosts } from "@shared/infra";
+import { origin, SeedValueError, STACK_STEP_SECRETS, stageHosts } from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { osnSeedSql } from "../src/seeds";
@@ -11,8 +11,8 @@ import {
   DEV_DOMAIN,
   evaluateMusubi,
   failureOf,
-  generateArcPrivateJwk,
-  OIDC_CLIENT_SECRET,
+  generateArcPublicJwk,
+  OIDC_CLIENT_SECRET_SHA256,
   removeEvaluations,
   resourcesOf,
   stackEnv,
@@ -21,12 +21,12 @@ import {
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
-let arcPrivateJwk = "";
+let arcPublicJwk = "";
 let dev: Evaluation;
 
 beforeAll(async () => {
-  arcPrivateJwk = await generateArcPrivateJwk();
-  dev = await evaluateMusubi({ stage: "dev", env: stackEnv(arcPrivateJwk) });
+  arcPublicJwk = await generateArcPublicJwk();
+  dev = await evaluateMusubi({ stage: "dev", env: stackEnv(arcPublicJwk) });
 });
 
 afterAll(removeEvaluations);
@@ -81,7 +81,7 @@ describe("the musubi stack, evaluated offline", () => {
     // An investigation stage derives every name and host from its own name
     // and keeps the dev posture.
     const investigation = resourcesOf(
-      await evaluateMusubi({ stage: "probe", env: stackEnv(arcPrivateJwk) }),
+      await evaluateMusubi({ stage: "probe", env: stackEnv(arcPublicJwk) }),
     );
     expect(investigation.OsnApi?.Props.name).toBe("osn-api-probe");
     expect(investigation.OsnDb?.Props.name).toBe("osn-db-probe");
@@ -121,29 +121,40 @@ describe("the musubi stack, evaluated offline", () => {
     expect(readFileSync(seed, "utf8")).toBe(
       osnSeedSql({
         cireApiOrigin: origin(stageHosts(DEV_DOMAIN, "dev").cireApi),
-        clientSecret: OIDC_CLIENT_SECRET,
+        clientSecretSha256: OIDC_CLIENT_SECRET_SHA256,
         arcKeyId: ARC_KEY_ID,
-        arcPrivateJwk,
+        arcPublicJwk,
       }),
     );
   });
 
-  test("S3: a missing, blank or padded seed secret refuses the run, naming it, and writes nothing", async () => {
-    const names = STACK_STEP_SECRETS.musubi.map((secret) => secret.name);
-    expect(names.toSorted()).toEqual(
+  test("S3: the stack seeds from the cire_seed step's values and holds no cire secret; a value missing, blank or padded refuses the run, naming it, and writes nothing", async () => {
+    // The job hands the three cire secrets to the cire_seed step alone; the
+    // evaluations above ran with none of them in the environment.
+    const cireSecrets = STACK_STEP_SECRETS.musubi.map((secret) => secret.name);
+    expect(cireSecrets.toSorted()).toEqual(
       ["CIRE_API_ARC_KEY_ID", "CIRE_API_ARC_PRIVATE_KEY", "CIRE_OIDC_CLIENT_SECRET"].toSorted(),
     );
-    for (const name of names) {
+    expect(STACK_STEP_SECRETS.musubi.filter((secret) => secret.step === "deploy")).toEqual([]);
+    const env = stackEnv(arcPublicJwk);
+    expect(
+      ["CIRE_API_ARC_PRIVATE_KEY", "CIRE_OIDC_CLIENT_SECRET"].filter((name) =>
+        Object.hasOwn(env, name),
+      ),
+    ).toEqual([]);
+
+    for (const name of [
+      "CIRE_API_ARC_KEY_ID",
+      "CIRE_API_ARC_PUBLIC_JWK",
+      "CIRE_OIDC_CLIENT_SECRET_SHA256",
+    ]) {
       for (const value of [undefined, "", "   ", ` ${name}-padded `]) {
-        const refused = await evaluateMusubi({
-          stage: "dev",
-          env: { ...stackEnv(arcPrivateJwk), [name]: value },
-        });
+        const refused = await evaluateMusubi({ stage: "dev", env: { ...env, [name]: value } });
         const failure = failureOf(refused);
-        expect(failure).toBeInstanceOf(SeedSecretError);
+        expect(failure).toBeInstanceOf(SeedValueError);
         expect(failure).toMatchObject({ variable: name });
         // The message names the variable, never its value.
-        expect(String((failure as SeedSecretError).message)).not.toContain(`${name}-padded`);
+        expect(String((failure as SeedValueError).message)).not.toContain(`${name}-padded`);
         expect(existsSync(refused.generatedDir)).toBe(false);
       }
     }
