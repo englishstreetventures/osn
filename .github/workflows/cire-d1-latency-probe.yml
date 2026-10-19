@@ -51,9 +51,20 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      # dev-hosts runs from the @shared/infra workspace.
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      # Its own key: this job installs @shared/infra alone, so the key a
+      # full install restores is never one this job saved.
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-shared-infra-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-shared-infra-
+
+      # dev-hosts runs from the @shared/infra workspace, and nothing else this
+      # job runs needs a package.
+      - name: Install @shared/infra
+        run: bun install --frozen-lockfile --filter @shared/infra
 
       - name: Derive the dev hosts
         id: hosts

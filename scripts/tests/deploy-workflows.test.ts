@@ -935,6 +935,7 @@ describe("installs", () => {
     const PREFIX: Readonly<Record<string, string>> = {
       "": "bun",
       "'!@*/infra'": "bun-noinfra",
+      "@shared/infra": "bun-shared-infra",
     };
     const files = readdirSync(join(root, ".github/workflows")).filter((file) =>
       /\.ya?ml$/.test(file),
@@ -970,6 +971,24 @@ describe("installs", () => {
         },
       });
     }
+  });
+
+  // The probe needs only the dev-hosts command, which runs from
+  // @shared/infra; the probe itself imports no package.
+  test("the cire latency probe installs only @shared/infra, cached, and runs the probe without installing", () => {
+    const steps = stepsOf(load(".github/workflows/cire-d1-latency-probe.yml").jobs.probe);
+    const installs = steps.filter((step) => /\bbun install\b/.test(step.run ?? ""));
+    expect(installs.map((step) => step.run)).toEqual([
+      "bun install --frozen-lockfile --filter @shared/infra",
+    ]);
+    const cache = steps.findIndex((step) => step.with?.path === "~/.bun/install/cache");
+    const install = steps.indexOf(installs[0]!);
+    expect(cache).toBeGreaterThan(-1);
+    expect(cache).toBeLessThan(install);
+    expect(install).toBeLessThan(steps.findIndex((step) => step.id === "hosts"));
+    expect(
+      steps.filter((step) => step.run?.includes("d1-latency-probe.ts")).map((step) => step.run),
+    ).toEqual(["bun --no-install cire/api/scripts/d1-latency-probe.ts"]);
   });
 
   test("'!@*/infra' leaves out every workspace that depends on alchemy", () => {
