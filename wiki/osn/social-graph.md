@@ -19,7 +19,7 @@ related:
 packages:
   - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-19
 ---
 
 # Social Graph
@@ -157,7 +157,7 @@ Current shape prioritises correctness + bounded cost over peak throughput. Next 
 - **P-W6** — short-lived per-caller cache (5-15 min) so a Discover-page visit doesn't re-run the pipeline.
 - **P-W7** — push aggregation to SQL (`GROUP BY … ORDER BY … LIMIT`) is still open. This line used to also propose two compound indexes, `connections(status, requester_id)` / `connections(status, addressee_id)` — **don't add them.** Measured on real D1: the existing `connections_requester_idx` / `connections_addressee_idx` already give a MULTI-INDEX OR, and the proposed indexes cut rows_read only 120 → 112 (about 7%) — and on a fresh un-`ANALYZE`d database the planner instead picked `(status, addressee_id)` and scanned every accepted edge, a strict regression. `status` has two values; it is the worst possible leading column. The measurements are recorded on osn-tracker#312 and #278. If a real need is ever proven, the right shape is `(requester_id, status, addressee_id)` — the selective column first, not `status`.
 
-Privacy: the endpoint returns `mutualCount` alongside each suggestion. This leaks graph-inference signal — see `S-L4` in `englishstreetventures/osn-tracker` for the bucketing follow-up.
+Privacy: the endpoint returns `mutualCount` alongside each suggestion. This leaks graph-inference signal.
 
 Rate-limited at 20 req/user/min via `createRedisRecommendationRateLimiters().suggest` — see [[rate-limiting]].
 

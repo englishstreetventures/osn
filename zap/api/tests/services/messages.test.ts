@@ -66,8 +66,7 @@ describe("messages service", () => {
       // resolution, so a 10ms gap stored the same value for both and the test
       // was really asserting insertion order — which the list query never
       // promised and, since it now tiebreaks on the random `id`, no longer
-      // happens to give. Within one second the order is unspecified; see
-      // englishstreetventures/osn-tracker for the ordering finding.
+      // happens to give. Within one second the order is unspecified.
       const base = new Date(1_756_500_000_000);
       yield* seedMessage(chat.id, "usr_alice", "bXNnMQ==", new Date(base.getTime()));
       yield* seedMessage(chat.id, "usr_alice", "bXNnMg==", new Date(base.getTime() + 1000));

@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-19
 ---
 
 # Dev environment (cire + OSN identity)
@@ -466,8 +466,7 @@ dashboard-only.
    inside one account buys nothing anyway — `Workers Scripts:Edit` and `D1:Edit` are
    account-scoped with no per-script or per-database filter (only R2 scopes per bucket),
    so a token named `…_DEV` can still write production Workers. The boundary that makes
-   the name real is a **separate Cloudflare account**, tracked as S-M
-   (`dev-token-not-resource-scoped`) in `englishstreetventures/osn-tracker`. Set `CLOUDFLARE_API_TOKEN_DEV` on the
+   the name real is a **separate Cloudflare account**. Set `CLOUDFLARE_API_TOKEN_DEV` on the
    `dev` Environment the day that account exists — no workflow change needed, the
    fallback picks it up.
 
@@ -763,8 +762,7 @@ secret-bearing URL never reaches the target as a `Referer`.
 > never paste it into an issue, a PR, or a chat, and rotate `DEV_LOGIN_SECRET` if
 > it turns up in one. Production is unreachable this way — the tier gate keeps
 > the route unmounted and the production deploy job **fails** while
-> `DEV_LOGIN_SECRET` is set on `osn-api-production`. Tracked open as `S-L3` in
-> `englishstreetventures/osn-tracker` (#437).
+> `DEV_LOGIN_SECRET` is set on `osn-api-production`.
 
 > [!important] Why `GET`, and why no button
 > The origin guard rejects a POST without a matching `Origin` header, so GET is

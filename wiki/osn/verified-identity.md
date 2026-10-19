@@ -17,7 +17,7 @@ packages:
   - "@osn/auth-ui"
   - "@musubi/social"
   - "@shared/crypto"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-19
 status: design — not yet implemented
 ---
 
@@ -247,8 +247,7 @@ This system creates **Special Category Personal Data** under GDPR Art.
 9 (biometric for unique identification + identity-document data).
 Hard requirements:
 
-- **DPIA** before M1 ships. Add to `[[compliance/gdpr]]` and link from
-  C-M3 in `englishstreetventures/osn-tracker`.
+- **DPIA** before M1 ships. Add to `[[compliance/gdpr]]`.
 - **Data map** updates: new processor (KYC vendor), new categories
   (biometric template hashes, document numbers via hash), new
   retention rule (verified_attributes default 24 months from

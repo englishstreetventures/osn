@@ -210,7 +210,7 @@ jobs:
       # `provider: fontProviders.google()`, which makes `astro build` fetch
       # `https://fonts.google.com/metadata/fonts` — Astro's own font
       # metadata cache for that fetch lives at each package's default
-      # `cacheDir`, `node_modules/.astro` (englishstreetventures/osn-tracker#128). None of
+      # `cacheDir`, `node_modules/.astro`. None of
       # this job's other caches cover it: the bun cache above only holds
       # installed packages, and the turbo cache is keyed per-commit on
       # purpose (see the `typecheck` job's comment on why) so it can't be

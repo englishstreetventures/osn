@@ -10,7 +10,7 @@ related:
   - "[[cire]]"
   - "[[cire-vendors]]"
   - "[[subprocessors]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-19
 ---
 
 # Access Control
@@ -177,8 +177,7 @@ grant in the matrix above. Expectations:
   truncate; and each row records `added_by_osn_profile_id`, surfaced in the
   panel, so an owner can see which seats they did not create. **Residual, and
   accepted rather than solved:** a new seat is live immediately and the owner is
-  not notified — tracked as `S-M2` in `englishstreetventures/osn-tracker`. See the
-  roles capability matrix in [[cire-auth]].
+  not notified. See the roles capability matrix in [[cire-auth]].
 - **Vendor claims are confirmed by an operator, never by the claim link.**
   A cire organiser chooses the address a directory claim link goes to, so a
   redeemed link only records a pending claim (`directory_vendors.review_*`).

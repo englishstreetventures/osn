@@ -5,14 +5,12 @@ import { instrumentedFetch } from "@shared/observability";
  * Pulse-api outbound ARC issuer for the leave-app flow.
  *
  * A SEPARATE key from graphBridge's so the two surfaces don't share signing
- * material. ⚠ Note this does NOT (yet) buy scope isolation between the keys:
+ * material. ⚠ Note this does NOT buy scope isolation between the keys:
  * osn-api authorises scopes per SERVICE (`service_accounts.allowedScopes`,
  * upsert = full replace), not per key, so both pulse-api registrations must
  * carry the identical scope union or they clobber each other on every boot
- * race / rotation (S-H1, prep-pr review 2026-07-05). Keep `ALLOWED_SCOPES`
- * in lockstep with `services/graphBridge.ts` `REGISTERED_SCOPES`. Per-key
- * scope storage (restoring the key-compromise blast-radius separation this
- * file originally claimed) is tracked in `englishstreetventures/osn-tracker`.
+ * race / rotation. Keep `ALLOWED_SCOPES` in lockstep with
+ * `services/graphBridge.ts` `REGISTERED_SCOPES`.
  *
  * Tokens minted here still carry only the minimal per-call scope
  * (`arcAuthHeader(audience, scope)`).

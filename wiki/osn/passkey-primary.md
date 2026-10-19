@@ -12,7 +12,7 @@ packages:
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-09-10
+last-reviewed: 2026-10-19
 ---
 
 # Passkey-Primary Login
@@ -49,8 +49,7 @@ holds from registration to deletion:
   account can be federated to a relying party. Closing the hole properly needs a
   server-side registration-incomplete state that gates `/authorize` and `/token`
   as well as app routes; a client-side `logout()` on the walk-away paths is a
-  worthwhile partial, since `POST /logout` needs only the cookie. See
-  `englishstreetventures/osn-tracker` for all three findings.
+  worthwhile partial, since `POST /logout` needs only the cookie.
 - **Deletion.** `deletePasskey` refuses unconditionally if the delete would
   drop the account below 1 passkey (`osn/api/src/services/auth/passkey-management.ts`). Recovery
   codes are NOT a substitute credential — they are the "my device is gone"
@@ -389,8 +388,7 @@ turned into an open redirect. Nothing in code stops a human forwarding the link.
 So treat it like a password — never in an issue, a PR, or a chat, and rotate
 `DEV_LOGIN_SECRET` if it appears in one. This is acceptable **because of where it
 can exist**: the dev tier holds seeded weddings and no real guest data, and
-production cannot mount the route at all. Filed open as `S-L3` in
-`englishstreetventures/osn-tracker` (#437); the four-field write-up is the issue body.
+production cannot mount the route at all.
 
 ## Enumeration safety (S-M1)
 

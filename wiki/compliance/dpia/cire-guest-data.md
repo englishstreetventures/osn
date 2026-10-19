@@ -11,7 +11,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-19
 ---
 
 # DPIA — Cire guest data
@@ -35,8 +35,8 @@ evidences the condition. The lawful-processing blocker is therefore **closed**;
 final sign-off now turns only on the residual retention gaps (C-H1) below.
 
 > **Label note.** This finding is labelled **C-H2 (cire dietary)** to
-> disambiguate it from the root **C-H2** (OSN account-erasure endpoint), which
-> is a separate finding in `englishstreetventures/osn-tracker`.
+> disambiguate it from the OSN account-erasure item that carries the same
+> label in [[gdpr]].
 
 ## 1. Description of the processing
 
@@ -459,7 +459,7 @@ household. Art. 36 prior consultation is not triggered.
 - Deactivating a family still deletes its sessions in the same commit, and the
   restore re-checks `deactivated_at` independently.
 
-**Outstanding mitigation — required, tracked as S-M2 in `englishstreetventures/osn-tracker`.**
+**Outstanding mitigation — required.**
 There is no guest sign-out: `sessionService.revoke` exists but is wired to no
 guest-facing route, and the guest site offers no session control at all. A
 credential that auto-exercises itself needs a user-controlled way to stop it.

@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-19
 ---
 # Host Portal Layout System
 
@@ -276,10 +276,9 @@ component was previously reading a container it did not live in.
      bare `setCachedXxx`, because only `ensureXxxLoaded` carries the
      generation guard and the failure branch that blanks the rows on a
      refused refetch. That is exactly what `BudgetView`, `ChecklistView`,
-     `RegistryView` and `VendorsView`'s `reload()` do. The store-level fix,
-     **P-W2**, is shipped — PR #860 (write through the signal instead of
-     deleting the entry) and PR #864 (stale-while-revalidate); tracked in
-     `englishstreetventures/osn-tracker`.
+     `RegistryView` and `VendorsView`'s `reload()` do. The store-level fix
+     is shipped — PR #860 (write through the signal instead of
+     deleting the entry) and PR #864 (stale-while-revalidate).
 - **Event cards** (`EventTable`) — cards flow in an `auto-grid`; each card is its
   own `@container/card` and its details grid switches at `@md/card`.
 

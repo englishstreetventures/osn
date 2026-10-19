@@ -9,7 +9,7 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-19
 ---
 # Invite Builder
 
@@ -123,7 +123,7 @@ carries no captured source dims (three hand-kept copies; the two inside
 pair by convention). `cropAspectRatio` also gained a `[0.05, 20]` clamp in both
 mirrors: `natW`/`natH` are validated only as positive and finite, and a ratio
 that stringifies to exponential notation is a value CSS drops outright, which
-would render the band as a zero-height box (S-L1 in `englishstreetventures/osn-tracker`).
+would render the band as a zero-height box.
 
 **It is behind the claim gate — enforced at the API, not in the render tree.**
 The first cut gated it only with `<Show when={claimResult()}>`, which controls
@@ -1371,14 +1371,14 @@ into the first form control of the active section, which sits *behind* the
 opaque overlay the open menu paints across the top of that section, with Escape
 bound to the tabs and the trigger rather than to the field. WCAG 2.2 SC 2.4.11
 *Focus Not Obscured*, and the "reveal without advancing focus" exception does
-not apply (**SM-C-M1** in `englishstreetventures/osn-tracker`).
+not apply.
 
 A fifth closer is not a dismissal at all: the `ResizeObserver` that already
 picks the preview layer also collapses the menu once the container crosses
 `SECTION_MENU_REM` (48rem), because the trigger is the signal's only other
 writer — left alone, a menu opened narrow stays "open" for the rest of the
 session after a rotate or resize, and `selectSection` then focuses a
-`display: none` trigger on every wide tab click (**SM-P-I1** in `englishstreetventures/osn-tracker`).
+`display: none` trigger on every wide tab click.
 
 **Arrow keys follow the geometry, not the DOM order.** `ArrowLeft`/`ArrowRight`
 step one, always. `ArrowDown`/`ArrowUp` are handled **only while the menu is
@@ -1437,10 +1437,10 @@ resolved once in the `previewTokens` memo — and shared into `PaletteField`
 via its `tokens`/`adjustments` props, so the whole builder derives exactly
 once per colour-drag frame). Both layers stay permanently mounted with a
 CSS-only container-query switch — a deliberate trade (one markup source, no
-`ResizeObserver`) accepted as `P-I1` in `englishstreetventures/osn-tracker`. The
+`ResizeObserver`). The
 `url("…")` sink both layers' crop rendering shares (`cropBackgroundStyle`,
-lockstep organiser + guest copies) escapes its URL argument at the sink
-(S-L1). The hero preview is **crop-aware** (saved rectangles render via the
+lockstep organiser + guest copies) escapes its URL argument at the sink.
+The hero preview is **crop-aware** (saved rectangles render via the
 guest's background-fraction technique — the framing never lies) and the phone
 frame uses the hero's phone rectangle, falling back to the desktop crop
 exactly as the guest site does. Tone pickers render **as their surface**

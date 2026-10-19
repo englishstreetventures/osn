@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-19
 ---
 
 # Guards that gate on a number
@@ -126,10 +126,10 @@ touching a threshold. In short:
 > see bytes that never land in the directory it reads. Measured on
 > musubi/landing: 5 inline style blocks + 4 inline script blocks in
 > `dist/index.html` alone, about 3116 bytes gzip-equivalent — real budget the
-> guard cannot see. Tracker issue `englishstreetventures/osn-tracker#636` holds the two ways to close this
-> (parse the HTML too, or force `inlineStylesheets: "never"` so everything
-> lands in `dist/_astro` where the guard already looks); this is a product
-> decision, not something fixed in this script.
+> guard cannot see. There are two ways to close this (parse the HTML too, or
+> force `inlineStylesheets: "never"` so everything lands in `dist/_astro`
+> where the guard already looks); this is a product decision, not something
+> fixed in this script.
 >
 > *Unverified — no command on record. Written into this page 2026-09-07;
 > recount the inline `<style>`/`<script>` blocks in

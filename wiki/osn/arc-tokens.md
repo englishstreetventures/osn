@@ -20,7 +20,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-19
 ---
 # ARC Tokens (S2S Auth)
 
@@ -232,8 +232,7 @@ to each downstream — otherwise the first `/internal/account-deleted` POST is
 > identical scope union from every registration call site**, or the registrations
 > clobber each other on boot races / rotations and randomly fail-close S2S calls;
 > (b) per-key least privilege between a service's own keys does not exist — any of
-> its keys can mint any scope in the service union. The per-key `allowed_scopes`
-> schema fix is open as S-M1 (arc-key-scopes) in `englishstreetventures/osn-tracker`. Keep
+> its keys can mint any scope in the service union. Keep
 > `pulse/api/src/services/graphBridge.ts` `REGISTERED_SCOPES` and
 > `pulse/api/src/lib/outbound-arc.ts` `ALLOWED_SCOPES` in lockstep.
 
