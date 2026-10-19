@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
 import * as BunServices from "@effect/platform-bun/BunServices";
@@ -10,6 +13,9 @@ import { evaluateCire, removeEvaluations, resourcesOf, stackEnv } from "./evalua
 
 afterAll(removeEvaluations);
 
+const packageDir = fileURLToPath(new URL("..", import.meta.url));
+const cireApiWrangler = fileURLToPath(new URL("../../api/wrangler.toml", import.meta.url));
+
 /** Workers Free's limit on a Worker's compressed size: 3 MiB. */
 const FREE_LIMIT = 3 * 1024 * 1024;
 
@@ -19,6 +25,10 @@ describe("cire-api's bundle", () => {
     const props = resourcesOf(evaluation).CireApi?.Props;
     if (props?.main === undefined) throw new Error("cire-api declares no main");
     const main = props.main;
+    // The stack bundles cire-api from the entry its Wrangler config names.
+    const wrangler = Bun.TOML.parse(readFileSync(cireApiWrangler, "utf8")) as { main: string };
+    expect(resolve(packageDir, main)).toBe(resolve(dirname(cireApiWrangler), wrangler.main));
+    expect(props.bundle).toBe(true);
 
     // What the Worker provider does for a bundled Worker declared by props
     // alone (alchemy src/Cloudflare/Workers/WorkerProvider.ts, prepareBundle).

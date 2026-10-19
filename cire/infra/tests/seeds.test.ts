@@ -94,8 +94,10 @@ describe("ownerSeatSql", () => {
       expect(refused).toMatchObject({ input: "CIRE_DEV_OWNER_PROFILE_ID" });
       messages.add((refused as SeedInputError).message);
     }
-    // The value can carry SQL, so the message is the same whatever it is: it never repeats it.
+    // The value can carry SQL, so the message is the same whatever it is: it
+    // never repeats it. It names the variable the deploy log should point at.
     expect(messages.size).toBe(1);
+    expect([...messages][0]).toMatch(/^CIRE_DEV_OWNER_PROFILE_ID is not a profile id/);
 
     // An unset GitHub variable reaches the step as an empty string.
     expect(ownerSeatSql(undefined)).toBeNull();

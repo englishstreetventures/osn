@@ -12,6 +12,7 @@
     "check": "tsc --noEmit",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",
+    "test:mutation": "bun ../../tools/stryker/src/cli.ts",
     "plan:dev": "DO_NOT_TRACK=1 bun alchemy plan --stage dev",
     "deploy:dev": "DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes"
   },

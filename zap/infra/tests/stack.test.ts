@@ -116,8 +116,7 @@ describe("the zap stack, evaluated offline", () => {
         env: target.edit(stackEnv()),
         workingDirFiles: target.workingDirFiles,
       });
-      expect(failureOf(refused)).toBeInstanceOf(target.refusal);
-      expect(failureOf(refused)).toMatchObject(target.fields(refused));
+      expect(failureOf(refused)).toMatchObject({ _tag: target.refusal, ...target.fields(refused) });
       expect(existsSync(refused.generatedDir)).toBe(false);
       expect(refused.fetches).toEqual([]);
     },

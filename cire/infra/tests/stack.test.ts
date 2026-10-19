@@ -242,7 +242,7 @@ describe("the cire stack, evaluated offline", () => {
     );
   });
 
-  test("K14: the guest site uploads the Astro build as it is: the server entry Astro writes, unbundled, with the client output as its assets", () => {
+  test("K14: each site uploads its build as it is: the guest site Astro's server entry, unbundled, with its client output as assets; the others their output alone", () => {
     const props = resourcesOf(dev).CireInvites?.Props;
     // cire/invites's Astro config sets no output directory or server entry,
     // so Astro's defaults name the files its build writes.
@@ -279,6 +279,23 @@ describe("the cire stack, evaluated offline", () => {
         runWorkerFirst: false,
       },
     });
+
+    // The organiser portal, vendor portal and marketing site are static
+    // output with Wrangler's defaults, and a `_redirects` they build applies.
+    const resources = resourcesOf(dev);
+    for (const [logicalId, directory] of [
+      ["CireHost", "../host/dist"],
+      ["CireVendor", "../vendor/dist"],
+      ["CireLanding", "../landing/dist"],
+    ] as const) {
+      const site = resources[logicalId]?.Props;
+      expect({ [logicalId]: { main: site?.main, assets: site?.assets } }).toEqual({
+        [logicalId]: {
+          main: undefined,
+          assets: { directory, htmlHandling: "auto-trailing-slash", notFoundHandling: "none" },
+        },
+      });
+    }
   });
 
   test("K4: invocation logs are off on cire-api and cire-invites", () => {
@@ -392,8 +409,7 @@ describe("the cire stack, evaluated offline", () => {
         env: target.edit(stackEnv()),
         workingDirFiles: target.workingDirFiles,
       });
-      expect(failureOf(refused)).toBeInstanceOf(target.refusal);
-      expect(failureOf(refused)).toMatchObject(target.fields(refused));
+      expect(failureOf(refused)).toMatchObject({ _tag: target.refusal, ...target.fields(refused) });
       expect(existsSync(refused.generatedDir)).toBe(false);
       expect(refused.fetches).toEqual([]);
     },

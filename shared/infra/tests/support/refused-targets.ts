@@ -8,10 +8,10 @@
 
 import { expect } from "vitest";
 
-import { InvalidDevDomainError } from "../../src/hosts";
+import type { InvalidDevDomainError } from "../../src/hosts";
 import { tierSecrets, type WorkerKey } from "../../src/secrets/inventory";
-import { MissingSecretsError } from "../../src/secrets/require";
-import { DeployTargetError, StageNotDeclaredError } from "../../src/target";
+import type { MissingSecretsError } from "../../src/secrets/require";
+import type { DeployTargetError, StageNotDeclaredError } from "../../src/target";
 import type { Evaluation } from "./evaluate-stack";
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -26,7 +26,17 @@ export interface RefusedTarget {
   readonly edit: (env: Env) => Env;
   /** Files placed in the stack's working directory before it runs. */
   readonly workingDirFiles: readonly string[];
-  readonly refusal: abstract new (...args: never[]) => Error;
+  /**
+   * The refusal's `_tag`. A stack test matches the tag, not the class: a
+   * stack reaches these errors through `@shared/infra` and this file through
+   * relative paths, which Stryker's sandbox resolves to two copies.
+   */
+  readonly refusal: (
+    | DeployTargetError
+    | InvalidDevDomainError
+    | MissingSecretsError
+    | StageNotDeclaredError
+  )["_tag"];
   /** Fields the refusal must carry, given the evaluation it ended. */
   readonly fields: (evaluation: Evaluation) => Readonly<Record<string, unknown>>;
 }
@@ -53,42 +63,42 @@ const target = (
  */
 export function refusedTargets(workers: readonly WorkerKey[]): readonly RefusedTarget[] {
   return [
-    target("OSN_DEPLOY_TIER unset", DeployTargetError, (env) => ({
+    target("OSN_DEPLOY_TIER unset", "DeployTargetError", (env) => ({
       ...env,
       OSN_DEPLOY_TIER: undefined,
     })),
-    target("OSN_DEPLOY_TIER naming production", DeployTargetError, (env) => ({
+    target("OSN_DEPLOY_TIER naming production", "DeployTargetError", (env) => ({
       ...env,
       OSN_DEPLOY_TIER: "production",
     })),
     target(
       "CLOUDFLARE_API_TOKEN blank",
-      DeployTargetError,
+      "DeployTargetError",
       (env) => ({ ...env, CLOUDFLARE_API_TOKEN: " " }),
       () => ({ message: expect.stringMatching(/^CLOUDFLARE_API_TOKEN is unset or blank/) }),
     ),
     target(
       "CLOUDFLARE_ACCOUNT_ID empty",
-      DeployTargetError,
+      "DeployTargetError",
       (env) => ({ ...env, CLOUDFLARE_ACCOUNT_ID: "" }),
       () => ({ message: expect.stringMatching(/^CLOUDFLARE_ACCOUNT_ID is unset or blank/) }),
     ),
     target(
       "DEV_DOMAIN a production zone",
-      InvalidDevDomainError,
+      "InvalidDevDomainError",
       (env) => ({ ...env, DEV_DOMAIN: "musubi.social" }),
       () => ({ domain: "musubi.social" }),
     ),
     target(
       "the production stage",
-      StageNotDeclaredError,
+      "StageNotDeclaredError",
       (env) => env,
       () => ({ stage: "production" }),
       { stage: "production" },
     ),
     target(
       "a .env file in the stack's working directory",
-      DeployTargetError,
+      "DeployTargetError",
       (env) => env,
       (evaluation) => ({
         message: expect.stringMatching(
@@ -103,7 +113,7 @@ export function refusedTargets(workers: readonly WorkerKey[]): readonly RefusedT
       .map(({ worker, required }) =>
         target(
           `every secret ${worker} requires on dev blank`,
-          MissingSecretsError,
+          "MissingSecretsError",
           (env) => ({ ...env, ...Object.fromEntries(required.map((name) => [name, ""])) }),
           () => ({ worker, missing: required }),
         ),
