@@ -41,8 +41,9 @@ export async function generateArcPublicJwk(): Promise<string> {
 /**
  * Everything the musubi deploy step's environment holds, with placeholder
  * values: the deploy target, the dev domain, every secret the inventory
- * declares for osn-api on dev (required and optional), and the three seed
- * values the cire_seed step derives. No cire secret: the step holds none.
+ * declares for osn-api on dev (required and optional), DEV_LOGIN_SECRET at
+ * the length the dev tier requires, and the three seed values the cire_seed
+ * step derives. No cire secret: the step holds none.
  */
 export function stackEnv(arcPublicJwk: string): Record<string, string | undefined> {
   const row = tierSecrets("osn-api", "dev");
@@ -54,6 +55,7 @@ export function stackEnv(arcPublicJwk: string): Record<string, string | undefine
     ...Object.fromEntries(
       [...row.secrets, ...row.optional].map((name) => [name, `placeholder-${name}`]),
     ),
+    DEV_LOGIN_SECRET: "placeholder-DEV_LOGIN_SECRET-of-32-characters-or-more",
     CIRE_API_ARC_KEY_ID: ARC_KEY_ID,
     CIRE_API_ARC_PUBLIC_JWK: arcPublicJwk,
     CIRE_OIDC_CLIENT_SECRET_SHA256: OIDC_CLIENT_SECRET_SHA256,

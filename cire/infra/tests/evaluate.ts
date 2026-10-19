@@ -28,6 +28,7 @@ export function removeEvaluations(): void {
  * Everything the cire deploy step's environment holds, with placeholder
  * values: the deploy target, the dev domain and every secret the inventory
  * declares for cire-api and cire-invites on dev (required and optional).
+ * STRIPE_SECRET_KEY is a test-mode key, as the dev tier requires.
  * `CIRE_DEV_OWNER_PROFILE_ID` is left unset; a test sets it.
  */
 export function stackEnv(): Record<string, string | undefined> {
@@ -42,6 +43,7 @@ export function stackEnv(): Record<string, string | undefined> {
         .flatMap((row) => row.secrets.concat(row.optional))
         .map((name) => [name, `placeholder-${name}`]),
     ),
+    STRIPE_SECRET_KEY: "sk_test_placeholder",
   };
 }
 
