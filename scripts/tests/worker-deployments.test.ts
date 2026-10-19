@@ -148,6 +148,61 @@ describe("snapshot, then compare", () => {
   });
 });
 
+describe("Q17: a snapshot compare cannot trust, or a run without a token, is refused before any request", () => {
+  test.each([
+    ["no snapshot file", undefined, ["osn_api"], "osn_api"],
+    ["a file that is not JSON", "not json\n", ["osn_api"], "osn_api"],
+    ["a value that is not a deployment id", { osn_api: "dep-plain" }, ["osn_api"], "osn_api"],
+    [
+      "no snapshot of one named surface",
+      { osn_api: DEP_SAME },
+      ["osn_api", "osn_social"],
+      "osn_social",
+    ],
+  ] as const)(
+    "compare with %s exits 2, naming the file and the surface, and writes nothing",
+    async (_, content, surfaces, missing) => {
+      await withFiles(async ({ snapshot, output }) => {
+        if (content !== undefined) {
+          await writeFile(
+            snapshot,
+            typeof content === "string" ? content : JSON.stringify(content),
+          );
+        }
+        const result = await run(
+          ["compare", snapshot, ...surfaces],
+          {
+            "osn-api-dev": () => listing([deployment(DEP_NEW, "2026-10-17T09:00:00Z")]),
+            "osn-social-dev": () => listing([deployment(DEP_NEW, "2026-10-17T09:00:00Z")]),
+          },
+          { GITHUB_OUTPUT: output },
+        );
+        expect(result.code).toBe(2);
+        expect(result.output).toContain(
+          `::error::worker-deployments: ${snapshot} holds no snapshot of ${missing};`,
+        );
+        expect(await readOr(output)).toBeUndefined();
+        expect(result.calls).toEqual([]);
+      });
+    },
+  );
+
+  test("snapshot with CLOUDFLARE_API_TOKEN unset exits 2, asking and writing nothing", async () => {
+    await withFiles(async ({ snapshot, output }) => {
+      const result = await run(
+        ["snapshot", snapshot, "osn_api"],
+        { "osn-api-dev": () => listing([deployment(DEP_PLAIN, "2026-10-16T09:00:00Z")]) },
+        { GITHUB_OUTPUT: output, CLOUDFLARE_API_TOKEN: undefined },
+      );
+      expect(result.code).toBe(2);
+      expect(result.output).toContain("::error::worker-deployments: CLOUDFLARE_API_TOKEN");
+      expect(result.calls).toEqual([]);
+      expect(await readOr(snapshot)).toBeUndefined();
+      expect(await readOr(output)).toBeUndefined();
+    });
+  });
+});
+
 describe("snapshot", () => {
   test.each([
     ["Cloudflare refuses", () => apiError(10_000, "Authentication error", 403)],

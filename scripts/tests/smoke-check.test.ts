@@ -1255,6 +1255,24 @@ describe("dev learns its host and its deployment from the stack job", () => {
     expect(result.output).toContain("this run deployed nothing to cire-api-dev");
   });
 
+  test.each([
+    ["holds only the deployment this run made", [HISTORY[1]!], "first deploy"],
+    ["is empty", [], "has no deployments"],
+  ] as const)(
+    "Q18: a dev Worker failing its check when its history %s is not rolled back, and the step says why",
+    async (_, history, reason) => {
+      const result = await smoke(["cire_api", "dev"], BROKEN_CIRE_API, {
+        env: devEnv(CIRE_API_DEV),
+        api: { reads: [history] },
+      });
+      expect(result.code).toBe(1);
+      expect(result.posts).toEqual([]);
+      expect(result.output).toContain("::error title=Rollback failed::");
+      expect(result.output).toContain(reason);
+      expect(result.output).not.toContain("restored version");
+    },
+  );
+
   test("a deployment that is no longer the newest is never rolled back", async () => {
     const result = await smoke(["cire_api", "dev"], BROKEN_CIRE_API, {
       env: devEnv(CIRE_API_DEV, { SMOKE_DEPLOYMENT: DEP_BEFORE }),
