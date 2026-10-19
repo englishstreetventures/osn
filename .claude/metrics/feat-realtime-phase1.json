@@ -4,8 +4,8 @@
     "number": 1244,
     "branch": "feat/realtime-phase1",
     "base_sha": "263599f251e63750e639c548265f6ae7b124cb12",
-    "head_sha": "2f61792f9af39336cdcd2cb6dc69fc20e4fc28f6",
-    "generated_at": "2026-10-19T16:26:00.049Z",
+    "head_sha": "acbd02a5e00f28e95f7913b841db337e3d850678",
+    "generated_at": "2026-10-19T16:26:35.172Z",
     "merged_at": null,
     "phase": "at-open"
   },
@@ -25,20 +25,20 @@
   "window": {
     "sessions": 23,
     "first_ts": "2026-09-26T15:27:36.140Z",
-    "last_ts": "2026-10-19T16:25:53.952Z",
-    "span_seconds": 1990698,
-    "active_seconds": 13679,
+    "last_ts": "2026-10-19T16:26:30.990Z",
+    "span_seconds": 1990735,
+    "active_seconds": 13716,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 112.30374039999994,
+    "usd_equivalent": 113.15433939999994,
     "tokens": {
-      "input": 2865,
-      "output": 85232,
+      "input": 2873,
+      "output": 85262,
       "thinking": 4107,
-      "cache_write_5m": 9113315,
+      "cache_write_5m": 9116806,
       "cache_write_1h": 0,
-      "cache_read": 195371365
+      "cache_read": 197452645
     },
     "by_model": {
       "claude-opus-4-7": {
@@ -55,15 +55,15 @@
       },
       "claude-opus-5-5": {
         "tokens": {
-          "input": 1672,
-          "output": 20092,
+          "input": 1680,
+          "output": 20122,
           "thinking": 4083,
-          "cache_write_5m": 6446495,
+          "cache_write_5m": 6449986,
           "cache_write_1h": 0,
-          "cache_read": 150710138
+          "cache_read": 152791418
         },
-        "usd_equivalent": 92.92505820000011,
-        "messages": 795
+        "usd_equivalent": 93.77565720000011,
+        "messages": 799
       },
       "<synthetic>": {
         "tokens": {
@@ -117,20 +117,20 @@
       },
       "subagent": {
         "tokens": {
-          "input": 2672,
-          "output": 23954,
+          "input": 2680,
+          "output": 23984,
           "thinking": 469,
-          "cache_write_5m": 8629203,
+          "cache_write_5m": 8632694,
           "cache_write_1h": 0,
-          "cache_read": 192456813
+          "cache_read": 194538093
         },
-        "usd_equivalent": 106.43006229999996,
-        "messages": 1285
+        "usd_equivalent": 107.28066129999996,
+        "messages": 1289
       }
     },
     "effort": {
       "medium": 380,
-      "xhigh": 909
+      "xhigh": 913
     },
     "unpriced_models": []
   },
@@ -156,7 +156,7 @@
         "deleted": 17
       },
       "config": {
-        "added": 469,
+        "added": 475,
         "deleted": 10
       },
       "source": {
@@ -168,7 +168,7 @@
       "shared/realtime"
     ],
     "touches_migration": false,
-    "commits": 28
+    "commits": 29
   },
   "interaction": {
     "user_turns": 0,
@@ -176,7 +176,7 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 966,
+      "Bash": 970,
       "Read": 277,
       "Edit": 93,
       "Write": 59,
