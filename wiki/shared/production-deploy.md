@@ -14,7 +14,8 @@ related:
   - "[[dev-environment]]"
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
-last-reviewed: 2026-10-16
+  - "[[infrastructure-as-code]]"
+last-reviewed: 2026-10-19
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -311,6 +312,17 @@ osn-api secrets are set with `wrangler secret put … --env <env>` (§3.1), surf
 > `wrangler secret put <NAME> --env <env>` (from the package dir, against
 > `wrangler.toml`); non-secret vars live in each `wrangler.toml` (`[vars]` /
 > `[env.<env>.vars]`). cire Pages `PUBLIC_*` are **build-time** env vars.
+
+> [!important] The secret inventory decides which secrets a Worker keeps
+> `SECRET_INVENTORY` (`shared/infra/src/secrets/inventory.ts`) lists every
+> secret osn-api, cire-api, zap-api and cire-invites may hold. Once a Worker
+> deploys through Alchemy, its deploy uploads exactly those names and deletes
+> every other secret the Worker holds, so a name this section sets that the
+> inventory lacks needs an inventory change first. A production value set by
+> hand with `wrangler secret put` is set in the `production` GitHub
+> Environment too, or the next Alchemy deploy writes the old value back.
+> `bun run --cwd shared/infra secrets:check-live -- --tier production` shows
+> any drift. See [[infrastructure-as-code#Secrets]].
 
 ### 3.1 osn-api (Cloudflare Worker)
 

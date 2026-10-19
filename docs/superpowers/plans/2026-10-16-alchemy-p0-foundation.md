@@ -1,5 +1,7 @@
 # Alchemy rollout P0 — foundation Implementation Plan
 
+> **The plan as written, not the reference.** The shipped code differs from the code blocks below in places (the `ApiWorkerInput` shape, the errors, the guard's rules and the check scripts among them). The code under `shared/infra/` and `scripts/check-alchemy-usage.ts`, and [`wiki/shared/infrastructure-as-code.md`](../../../wiki/shared/infrastructure-as-code.md), are the reference for the API.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship `@shared/infra` (the pinned Alchemy version and the building blocks every product stack uses), a committed secret inventory that equals every live Worker's secret names, the names of the GitHub Environment secrets that hold each tier's Cloudflare account and token, a deliberate way to bootstrap and check each account's Alchemy state store, and a repository guard that keeps Alchemy telemetry off — without deploying any resource through Alchemy, and without needing the new dev account or the dev domain, which do not exist yet.

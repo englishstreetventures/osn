@@ -15,6 +15,8 @@ bunx wrangler tail <worker-name> --env production
 
 ## 2. Setting a JSON or JWK secret
 
+A Worker secret must be a name `SECRET_INVENTORY` (`shared/infra/src/secrets/inventory.ts`) lists for that Worker; an Alchemy deploy deletes any other. Set a production value in the `production` GitHub Environment as well as on the Worker, or the next Alchemy deploy writes the old value back (`wiki/shared/infrastructure-as-code.md` §Secrets).
+
 Never `source` a secrets file to set a secret shaped like JSON or a JWK: bash brace expansion mangles an unquoted `{"a":"b"}`. Extract the value and pipe it:
 
 ```bash
