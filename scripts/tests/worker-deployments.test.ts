@@ -75,13 +75,27 @@ async function run(
 ) {
   const api = fakeApi(answers);
   const lines: string[] = [];
+  const sleeps: number[] = [];
   const code = await runWorkerDeployments({
     args,
     env: { ...CREDENTIALS, ...env },
     fetch: api.fetch,
+    sleep: async (ms: number) => {
+      sleeps.push(ms);
+    },
     out: (text: string) => lines.push(text),
   });
-  return { code, calls: api.calls, output: lines.join("") };
+  return { code, calls: api.calls, sleeps, output: lines.join("") };
+}
+
+/** Each answer in turn, one per request, the last one repeating. */
+function inTurn(...answers: readonly Answer[]): Answer {
+  let call = 0;
+  return () => {
+    const answer = answers[Math.min(call, answers.length - 1)]!;
+    call += 1;
+    return answer();
+  };
 }
 
 const readOr = async (path: string) => (existsSync(path) ? readFile(path, "utf8") : undefined);
@@ -214,6 +228,72 @@ describe("snapshot", () => {
       expect(result.output).not.toContain(ACCOUNT);
       expect(result.output).not.toContain(TOKEN);
     });
+  });
+});
+
+describe("a deployments read retries a transient failure", () => {
+  const LISTED = () => listing([deployment(DEP_PLAIN, "2026-10-16T09:00:00Z")]);
+  const snapshotOf = (answer: Answer) =>
+    withFiles(async ({ snapshot, output }) => {
+      const result = await run(
+        ["snapshot", snapshot, "osn_api"],
+        { "osn-api-dev": answer },
+        {
+          GITHUB_OUTPUT: output,
+        },
+      );
+      return { ...result, written: await readOr(snapshot) };
+    });
+
+  test("DR1: a 503 then a 200 succeeds on the second attempt, after one 1 s wait", async () => {
+    const result = await snapshotOf(
+      inTurn(() => apiError(10_000, "Service unavailable", 503), LISTED),
+    );
+    expect(result.code).toBe(0);
+    expect(result.calls).toEqual([deploymentsUrl("osn-api-dev"), deploymentsUrl("osn-api-dev")]);
+    expect(result.sleeps).toEqual([1_000]);
+    expect(JSON.parse(result.written ?? "")).toEqual({ osn_api: DEP_PLAIN });
+  });
+
+  test("DR2: three 5xx fail after three attempts, waiting 1 s then 2 s", async () => {
+    const result = await snapshotOf(
+      inTurn(
+        () => apiError(10_000, "Internal error", 500),
+        () => apiError(10_000, "Bad gateway", 502),
+        () => apiError(10_000, "Service unavailable", 503),
+        LISTED,
+      ),
+    );
+    expect(result.code).toBe(1);
+    expect(result.calls).toHaveLength(3);
+    expect(result.sleeps).toEqual([1_000, 2_000]);
+    expect(result.written).toBeUndefined();
+    expect(result.output).toContain("Service unavailable");
+  });
+
+  test.each([
+    ["a 404", NOT_FOUND],
+    ["a 403", () => apiError(10_000, "Authentication error", 403)],
+    ["a 400", () => apiError(10_001, "Bad request", 400)],
+  ] as const)("DR3: %s is answered once, never retried", async (_, answer) => {
+    const result = await snapshotOf(inTurn(answer, LISTED));
+    expect(result.calls).toHaveLength(1);
+    expect(result.sleeps).toEqual([]);
+  });
+
+  test.each([
+    ["a network error", () => new TypeError("fetch failed")],
+    ["a timeout", () => new DOMException("The operation timed out.", "TimeoutError")],
+    ["a 429", () => apiError(10_000, "Too many requests", 429)],
+  ] as const)("DR4: %s is retried, and one answer after it is used", async (_, answer) => {
+    const recovered = await snapshotOf(inTurn(answer, answer, LISTED));
+    expect(recovered.code).toBe(0);
+    expect(recovered.calls).toHaveLength(3);
+    expect(recovered.sleeps).toEqual([1_000, 2_000]);
+
+    const failed = await snapshotOf(inTurn(answer));
+    expect(failed.code).toBe(1);
+    expect(failed.calls).toHaveLength(3);
   });
 });
 

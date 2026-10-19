@@ -33,6 +33,9 @@
  *                       No message carries either.
  *   GITHUB_OUTPUT       receives the output lines (stdout when unset).
  *
+ * Each read of a Worker's deployments is tried up to three times, 1 s then
+ * 2 s apart, after a network error, a timeout, a 429 or a 5xx.
+ *
  * Exit codes: 0 done; 1 the Cloudflare API failed (snapshot then writes
  * nothing); 2 a usage error, before any request.
  */
@@ -104,6 +107,8 @@ export interface WorkerDeploymentsInput {
   readonly args: readonly string[];
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly fetch: typeof fetch;
+  /** How a read waits before trying again. */
+  readonly sleep: (ms: number) => Promise<void>;
   readonly out: (text: string) => void;
 }
 
@@ -131,7 +136,7 @@ export async function runWorkerDeployments(input: WorkerDeploymentsInput): Promi
     const target = devTarget(name);
     return target === undefined ? [] : [{ key: name, worker: target.worker }];
   });
-  const api = cloudflareCredentials(env, input.fetch);
+  const api = cloudflareCredentials(env, input.fetch, input.sleep);
   if (typeof api === "string") return usage(api);
 
   const snapshot = command === "compare" ? readSnapshot(file) : undefined;
@@ -203,6 +208,7 @@ if (import.meta.main) {
     args: process.argv.slice(2),
     env: process.env,
     fetch,
+    sleep: (ms) => Bun.sleep(ms),
     out: (text) => process.stdout.write(text),
   });
   process.exit(code);

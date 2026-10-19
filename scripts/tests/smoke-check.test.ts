@@ -723,6 +723,36 @@ describe("a broken deploy", () => {
     },
   );
 
+  // A repeated restore could race a deploy, so a failed POST is reported,
+  // never sent again.
+  test.each([
+    ["a 503", apiError(10_000, "Service unavailable", 503)],
+    ["a network error", new TypeError("fetch failed")],
+  ] as const)("DR5: the rollback's POST meeting %s is sent once", async (_, rollback) => {
+    const result = await smoke(
+      ["osn_api", "production"],
+      { ...OSN_PROD, "https://id.musubi.social/health": MISCONFIGURED },
+      { api: { rollback } },
+    );
+    expect(result.code).toBe(1);
+    expect(result.posts).toHaveLength(1);
+    expect(result.apiCalls.filter((call) => call.init?.method === "POST")).toHaveLength(1);
+    expect(result.sleeps.filter((ms) => ms !== 10_000)).toEqual([]);
+    expect(result.output).toContain("::error title=Rollback failed::");
+  });
+
+  test("DR1: the rollback's read of the deployments retries a 503 through the injected sleep, then rolls back", async () => {
+    const result = await smoke(
+      ["osn_api", "production"],
+      { ...OSN_PROD, "https://id.musubi.social/health": MISCONFIGURED },
+      { api: { reads: [HISTORY, apiError(10_000, "Service unavailable", 503), HISTORY] } },
+    );
+    expect(result.code).toBe(1);
+    expect(result.posts).toHaveLength(1);
+    expect(result.sleeps.filter((ms) => ms !== 10_000)).toEqual([1_000]);
+    expect(result.output).toContain("v-before");
+  });
+
   test("with no Cloudflare credentials, the check says so and rolls nothing back", async () => {
     const result = await smoke(
       ["osn_api", "production"],

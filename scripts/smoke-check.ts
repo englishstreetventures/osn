@@ -37,7 +37,9 @@
  * the version named in the output file the deploy step's wrangler wrote, on
  * dev the deployment id scripts/worker-deployments.ts found after the stack
  * deploy — so a deploy made by anything else, before or during the check, is
- * never overwritten. On dev a Worker the stack deploy left unchanged is never
+ * never overwritten. Each read of the deployments is tried up to three times,
+ * 1 s then 2 s apart, after a network error, a timeout, a 429 or a 5xx; the
+ * restore itself is sent once. On dev a Worker the stack deploy left unchanged is never
  * rolled back, and one still serving what an earlier smoke check restored
  * fails at once: the stack's state names code that Worker does not serve, and
  * the next run re-uploads it with --force. An unchanged Worker whose history
@@ -608,6 +610,8 @@ export type ApiAnswer<T> =
 
 export interface Cloudflare {
   readonly fetch: typeof fetch;
+  /** How a read of the deployments waits before its next attempt. */
+  readonly sleep: (ms: number) => Promise<void>;
   readonly token: string;
   readonly account: string;
 }
@@ -616,6 +620,7 @@ export interface Cloudflare {
 export function cloudflareCredentials(
   env: Readonly<Record<string, string | undefined>>,
   fetcher: typeof fetch,
+  sleep: (ms: number) => Promise<void>,
 ): Cloudflare | string {
   const token = env.CLOUDFLARE_API_TOKEN ?? "";
   const account = env.CLOUDFLARE_ACCOUNT_ID ?? "";
@@ -623,15 +628,51 @@ export function cloudflareCredentials(
     return "CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are not both set";
   }
   if (!/^[0-9a-f]{32}$/i.test(account)) return "CLOUDFLARE_ACCOUNT_ID is not an account ID";
-  return { fetch: fetcher, token, account };
+  return { fetch: fetcher, sleep, token, account };
 }
 
-/** One call to the Cloudflare API on a Worker's deployments. */
+/** The waits before a deployments read's second and third attempts. */
+export const READ_RETRY_DELAYS_MS: readonly number[] = [1_000, 2_000];
+
+type DeploymentsCall =
+  | { readonly method: "GET" }
+  | { readonly method: "POST"; readonly body: unknown };
+
+/** One attempt's answer, and whether it failed in a way a later attempt could get past. */
+interface Attempt<T> {
+  readonly answer: ApiAnswer<T>;
+  readonly transient: boolean;
+}
+
+/**
+ * A call to the Cloudflare API on a Worker's deployments. A GET changes
+ * nothing, so it is tried again after a network error, a timeout, a 429 or a
+ * 5xx, waiting each of READ_RETRY_DELAYS_MS in turn. A POST restores a
+ * version and is sent once: sent again it could restore twice or race a
+ * deploy.
+ */
 async function deploymentsApi<T>(
   api: Cloudflare,
   worker: string,
-  init: { readonly method: "GET" } | { readonly method: "POST"; readonly body: unknown },
+  init: DeploymentsCall,
 ): Promise<ApiAnswer<T>> {
+  const first = await attemptDeployments<T>(api, worker, init);
+  if (init.method === "POST") return first.answer;
+  const retry = async (attempt: Attempt<T>, delays: readonly number[]): Promise<ApiAnswer<T>> => {
+    const [delay, ...rest] = delays;
+    if (!attempt.transient || delay === undefined) return attempt.answer;
+    await api.sleep(delay);
+    return retry(await attemptDeployments<T>(api, worker, init), rest);
+  };
+  return retry(first, READ_RETRY_DELAYS_MS);
+}
+
+/** One attempt at a call to the Cloudflare API on a Worker's deployments. */
+async function attemptDeployments<T>(
+  api: Cloudflare,
+  worker: string,
+  init: DeploymentsCall,
+): Promise<Attempt<T>> {
   const url = `${CLOUDFLARE_API}/accounts/${api.account}/workers/scripts/${encodeURIComponent(worker)}/deployments`;
   try {
     const response = await api.fetch(url, {
@@ -646,22 +687,28 @@ async function deploymentsApi<T>(
       result?: T;
     };
     if (response.ok && envelope.success === true) {
-      return { ok: true, result: envelope.result as T };
+      return { answer: { ok: true, result: envelope.result as T }, transient: false };
     }
     const errors = envelope.errors ?? [];
     return {
-      ok: false,
-      codes: errors.flatMap((e) => (typeof e.code === "number" ? [e.code] : [])),
-      reason: oneLine(
-        errors.map((e) => `${e.message ?? "error"} [code: ${e.code ?? "none"}]`).join("; ") ||
-          `Cloudflare answered ${response.status}`,
-      ),
+      answer: {
+        ok: false,
+        codes: errors.flatMap((e) => (typeof e.code === "number" ? [e.code] : [])),
+        reason: oneLine(
+          errors.map((e) => `${e.message ?? "error"} [code: ${e.code ?? "none"}]`).join("; ") ||
+            `Cloudflare answered ${response.status}`,
+        ),
+      },
+      transient: response.status === 429 || response.status >= 500,
     };
   } catch (error) {
     return {
-      ok: false,
-      codes: [],
-      reason: `no answer from the Cloudflare API: ${oneLine(error instanceof Error ? error.message : String(error))}`,
+      answer: {
+        ok: false,
+        codes: [],
+        reason: `no answer from the Cloudflare API: ${oneLine(error instanceof Error ? error.message : String(error))}`,
+      },
+      transient: true,
     };
   }
 }
@@ -1025,7 +1072,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
 
   // Read before the first probe, so a rollback restores what served before
   // this deploy and can tell whether anything deployed the Worker since.
-  const api = cloudflareCredentials(env, input.fetch);
+  const api = cloudflareCredentials(env, input.fetch, input.sleep);
   if (deployment === "unchanged" && typeof api === "string") return unreadableUnchanged(api);
   let plan: RestorePlan | undefined;
   if (typeof api !== "string") {
