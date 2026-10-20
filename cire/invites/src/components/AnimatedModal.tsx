@@ -38,6 +38,26 @@ interface AnimatedModalProps {
    * back at the top of it (EventSheet, switching panels).
    */
   scrollRef?: (el: HTMLDivElement) => void;
+  /**
+   * A control drawn beside the close button, in the sheet's chrome rather than
+   * its content, so it stays put while the content scrolls — EventSheet's way
+   * between its two panels. Absent ⇒ the close button alone.
+   */
+  action?: JSX.Element;
+  /**
+   * Clear the content of a row of controls at the top, not just the close
+   * button. Set by a sheet that shows {@link action}, and set for the sheet's
+   * whole life rather than only while the action shows: an action withdrawn
+   * mid-visit (EventSheet's past a deadline) must not pull the content up.
+   */
+  toolbar?: boolean;
+  /**
+   * Ignore a tap on the backdrop for now. EventSheet sets it while its panels
+   * are moving: the sheet changes height under the finger, so the second tap
+   * of a double tap on its badge can land outside it, and that is not a
+   * request to close. Escape and the close button still close.
+   */
+  holdOpen?: boolean;
   children: JSX.Element;
 }
 
@@ -113,6 +133,7 @@ export function AnimatedModal(props: AnimatedModalProps) {
       }}
       label={props.label}
       labelledBy={props.labelledBy}
+      dismissable={!props.holdOpen}
       frame
       // Bottom-anchored on a phone, centred above `md`, with the grip radius
       // the invite's own `--ui-radius-sheet` sets. One choice rather than eight
@@ -137,7 +158,7 @@ export function AnimatedModal(props: AnimatedModalProps) {
       // `--container-*` entry; see wiki/shared/design-tokens.md.
       class="max-w-column-md md:mb-8"
     >
-      {/* `z-10` because tree order alone is not enough. This chip is an
+      {/* `z-10` because tree order alone is not enough. This row is an
           earlier-in-tree positioned sibling of the scroller, so it outranks the
           scroller's NON-positioned contents and nothing else — a positioned box
           further down the sheet paints over it. The dietary pills are exactly
@@ -152,13 +173,16 @@ export function AnimatedModal(props: AnimatedModalProps) {
           `showModal()` dialog paints in the top layer, above every stacking
           context in the page. This number orders two boxes inside one dialog
           and can never meet those. */}
-      <button
-        class="text-text-muted hover:text-text focus-visible:ring-gold/60 bg-surface absolute top-2 right-2 z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border-none text-2xl leading-none transition-colors focus-visible:ring-2 focus-visible:outline-none"
-        onClick={() => setOpen(false)}
-        aria-label="Close"
-      >
-        &times;
-      </button>
+      <div class="absolute top-2 right-2 z-10 flex items-center gap-1">
+        {props.action}
+        <button
+          class="text-text-muted hover:text-text focus-visible:ring-gold/60 bg-surface flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border-none text-2xl leading-none transition-colors focus-visible:ring-2 focus-visible:outline-none"
+          onClick={() => setOpen(false)}
+          aria-label="Close"
+        >
+          &times;
+        </button>
+      </div>
       {/* `min-h-0` so this flex item may shrink below its content height —
           without it the panel's `max-h` cannot take effect and nothing
           scrolls.
@@ -170,15 +194,19 @@ export function AnimatedModal(props: AnimatedModalProps) {
           `scroll-pt-14` (56px) keeps focus-driven scrolling clear of the
           close button's 52px-tall footprint: tabbing BACKWARDS scrolls a
           target to the top of the scrollport, which is exactly where the chip
-          sits. */}
+          sits.
+
+          `pt-16` under a toolbar: the content's first line would otherwise
+          start level with the row, and an action beside the cross leaves a
+          heading on a 320px phone too little width to clear it. */}
       <div
         ref={(el) => props.scrollRef?.(el)}
         autofocus
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region MUST be focusable or it has no keyboard (WCAG 2.1.1; axe `scrollable-region-focusable`). This rule and that one disagree by construction on scrollports, and keyboard operability wins: measured, focus elsewhere left Arrow/PageDown moving this sheet 0px.
         tabindex="0"
-        class={`min-h-0 scroll-pt-14 overflow-y-auto overscroll-contain px-6 pt-8 ${
-          props.flushBottom ? "pb-0" : "pb-[max(2.5rem,env(safe-area-inset-bottom))] md:pb-10"
-        }`}
+        class={`min-h-0 scroll-pt-14 overflow-y-auto overscroll-contain px-6 ${
+          props.toolbar ? "pt-16" : "pt-8"
+        } ${props.flushBottom ? "pb-0" : "pb-[max(2.5rem,env(safe-area-inset-bottom))] md:pb-10"}`}
       >
         {props.children}
       </div>

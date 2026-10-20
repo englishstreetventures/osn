@@ -161,10 +161,10 @@ describe("AddToCalendar", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith(created);
   });
 
-  it("draws an outlined trigger, never a filled one, at the RSVP button's height", () => {
-    // It sits beside "RSVP for this event" in the details panel. A fill here
-    // would make the calendar the thing to do, and the shorter box would sit
-    // unevenly in the row beside that button's 44px.
+  it("draws an outlined trigger, never a filled one, with a 44px target", () => {
+    // A fill here would make the calendar the thing to do on the details,
+    // where the way to the RSVP form is the sheet's badge; and a phone's thumb
+    // needs the 44px.
     const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
     const button = getByRole("button", { name: /add to calendar/i });
     expect(button.className).toContain("bg-transparent");

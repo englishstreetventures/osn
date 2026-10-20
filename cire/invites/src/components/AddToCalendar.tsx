@@ -10,9 +10,9 @@ interface AddToCalendarProps {
 }
 
 /**
- * The trigger: an outlined secondary button, like the card's quieter action.
- * In the details panel it sits beside "RSVP for this event", the call to
- * action, so it matches that button's 44px height to share its row evenly.
+ * The trigger: an outlined secondary button, like the card's quieter action,
+ * so it never outranks the sheet's way to the RSVP form. 44px tall, the
+ * touch target a phone's thumb needs.
  */
 const TRIGGER_CLASS =
   "border-border font-body text-text-muted hover:border-gold hover:text-gold-ink inline-flex min-h-11 items-center rounded-sm border bg-transparent px-5 py-2.5 text-ui-sm tracking-ui-wider uppercase transition-colors duration-200";

@@ -610,6 +610,14 @@
   }
 }
 
+/* The event sheet's panels finishing a swipe: from wherever the finger let go
+   to their resting places, on the panel slide's own duration and curve so a
+   swipe and a button press take the same time. EventSheet reads the duration
+   back, so the reduced-motion clamp below reaches it too. */
+@utility transition-panel-settle {
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 /*
   Invite compositions that used to be hardcoded colour literals inside
   components (and hand-copied into the organiser's preview). They are derived
