@@ -148,7 +148,7 @@ describe("who holds a task", () => {
     expect(within(rowOf("Carry the rings")).queryByText("Needs an owner")).not.toBeInTheDocument();
   });
 
-  it("treats a seat that has gone as nobody, on the row and in the drawer", async () => {
+  it("treats a seat that has gone as nobody on its row", async () => {
     // The server cleared the assignment when the seat went; this list is older.
     setCachedTasks("wed_1", [row({ id: "a", title: "Book venue", assignedHostId: "whost_gone" })]);
     api({ hosts: hostsAnswer([SAM, JO]) });
@@ -157,9 +157,9 @@ describe("who holds a task", () => {
       expect(within(rowOf("Book venue")).getByText("Needs an owner")).toBeVisible(),
     );
 
-    const { select } = await openDrawer("Book venue");
-    await waitFor(() => expect(select).not.toBeDisabled());
-    expect(selectedOption(select)).toBe("Nobody yet");
+    // The drawer's half — its select shows "Nobody yet", not a blank — needs
+    // a real engine: happy-dom shows the first option whatever the value is.
+    // ChecklistView.assign.browser.test.tsx checks it in Chrome.
   });
 
   it("asks for nobody's names while no task is assigned", async () => {
@@ -239,6 +239,28 @@ describe("the task drawer", () => {
 
     fireEvent.click(within(drawer).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(drawer).not.toHaveAttribute("open"));
+  });
+
+  it("offers a seat whose role this portal does not know as a helper, and assigns it", async () => {
+    // The API and the portal deploy apart, so a newer API can name a role this
+    // build has never shipped.
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    const PAT = { hostId: "whost_pat", osnProfileId: "usr_pat", handle: "pat", role: "planner" };
+    api({
+      hosts: () => json({ hosts: [PAT], total: 1, peopleLimit: null }),
+      assign: () =>
+        json({ task: row({ id: "a", title: "Book venue", assignedHostId: "whost_pat" }) }),
+    });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+    const { select } = await openDrawer("Book venue");
+
+    const option = await within(select).findByRole("option", { name: "@pat · Helper" });
+    fireEvent.change(select, { target: { value: (option as HTMLOptionElement).value } });
+    await waitFor(() => expect(within(rowOf("Book venue")).getByText("@pat")).toBeVisible());
+    expect(JSON.parse(String((calls("/assignee", "PUT")[0]![1] as RequestInit).body))).toEqual({
+      assignedHostId: "whost_pat",
+    });
   });
 
   it("takes the pick back at once and asks again when that person is no longer on the wedding", async () => {
