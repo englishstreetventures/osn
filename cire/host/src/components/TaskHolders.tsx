@@ -313,6 +313,17 @@ function PeopleList(props: TaskHoldersProps) {
 
   const activeId = () => (results().length > 0 ? optionId(active()) : undefined);
 
+  /** What the list says beside its options, read out politely as it changes:
+   *  that it is still looking, how many people a search matches, or that it
+   *  matches nobody. Nothing while the whole list shows. */
+  const status = () => {
+    if (props.seats === null) return props.seatsFailed ? "" : "Finding the people on this wedding…";
+    if (!searchable() || !query().trim()) return "";
+    const count = results().length;
+    if (count === 0) return `Nobody matches “${query()}”.`;
+    return count === 1 ? "1 person matches" : `${count} people match`;
+  };
+
   return (
     <>
       {/* Only while there is nobody to show: seats that arrive take it away
@@ -383,6 +394,7 @@ function PeopleList(props: TaskHoldersProps) {
             const seat = () => seatById().get(hostId)!;
             const on = () => props.holds(hostId);
             const you = () => hostId === props.viewerHostId;
+            const lit = () => active() === index();
             return (
               <li
                 id={optionId(index())}
@@ -397,8 +409,11 @@ function PeopleList(props: TaskHoldersProps) {
                   setActive(index());
                   props.onToggle(hostId);
                 }}
-                class="font-body flex cursor-pointer items-center gap-3 rounded-sm px-3 py-2 transition-colors duration-(--dur-fast)"
-                classList={{ "bg-gold/10": active() === index() }}
+                // The house ring stays on the search or the list and never
+                // reaches a person: a bar in the ring's colour marks the
+                // highlighted one instead, with gold ink on the name.
+                class="font-body relative flex cursor-pointer items-center gap-3 rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) before:absolute before:inset-y-2 before:start-0 before:w-0.75 before:rounded-full"
+                classList={{ "bg-gold/10 before:bg-focus": lit() }}
               >
                 <span
                   data-toggle
@@ -427,7 +442,11 @@ function PeopleList(props: TaskHoldersProps) {
                 </span>
                 <PersonAvatar url={seat().avatarUrl} class="size-8" />
                 <span class="flex min-w-0 flex-1 flex-col">
-                  <span data-name class="text-text text-ui-sm truncate">
+                  <span
+                    data-name
+                    class="text-ui-sm truncate"
+                    classList={{ "text-gold-ink": lit(), "text-text": !lit() }}
+                  >
                     {seatName(seat())}
                   </span>
                   <span class="text-text-muted text-ui-xs truncate">
@@ -438,17 +457,21 @@ function PeopleList(props: TaskHoldersProps) {
             );
           }}
         </For>
-        <Show when={props.seats === null && !props.seatsFailed}>
-          <li role="presentation" class="text-text-muted text-ui-sm px-3 py-4">
-            Finding the people on this wedding…
-          </li>
-        </Show>
-        <Show when={searchable() && results().length === 0}>
-          <li role="presentation" class="text-text-muted text-ui-sm px-3 py-4 text-center">
-            Nobody matches “{query()}”.
-          </li>
-        </Show>
       </ul>
+      {/* Outside the list, which holds people only. Always there, never
+          `display: none`, so a screen reader hears each change; the count
+          is for a screen reader alone, the rest shows. */}
+      <p
+        role="status"
+        class="text-text-muted text-ui-sm"
+        classList={{
+          "sr-only": results().length > 0,
+          "px-4 pt-3 pb-5": results().length === 0 && status() !== "",
+          "text-center": props.seats !== null,
+        }}
+      >
+        {status()}
+      </p>
     </>
   );
 }

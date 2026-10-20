@@ -1,3 +1,4 @@
+import { contrastRatio, WCAG_TEXT_MIN, WCAG_UI_MIN } from "@cire/theme";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
@@ -187,6 +188,43 @@ async function openPopover(title: string) {
   return { dialog, listbox };
 }
 
+/** Paint `layers` bottom-up on a 1px canvas and read back plain `rgb`, as
+ *  `ModuleSidebar.contrast.browser.test.tsx` does. */
+function composite(layers: readonly string[]): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  for (const layer of layers) {
+    ctx.fillStyle = layer;
+    ctx.fillRect(0, 0, 1, 1);
+  }
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/** How opaque a colour is, 0 to 1, as the engine paints it. */
+function alphaOf(colour: string): number {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = colour;
+  ctx.fillRect(0, 0, 1, 1);
+  return ctx.getImageData(0, 0, 1, 1).data[3]! / 255;
+}
+
+/** What `element` sits on: every ancestor's background, outermost first, its own last. */
+function backdropOf(element: Element): string {
+  const layers: string[] = [];
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    const bg = getComputedStyle(node).backgroundColor;
+    if (alphaOf(bg) > 0) layers.push(bg);
+  }
+  return composite(layers.toReversed());
+}
+
+/** The element painted on top at a point, as a pointer would hit it. */
+const topAt = (x: number, y: number) => document.elementFromPoint(x, y);
+
 const optionNamed = (listbox: HTMLElement, name: string) =>
   within(listbox)
     .getAllByRole("option")
@@ -253,6 +291,13 @@ describe("the holders on each row, painted", () => {
             f.getBoundingClientRect(),
           );
           expect(faces[1]!.left).toBeLessThan(faces[0]!.right);
+          // And each paints over the edge of the one before it: what is on top
+          // just inside a layer's left edge is that layer, where the layer
+          // before it also reaches.
+          const middle = (box: DOMRect) => box.top + box.height / 2;
+          expect(topAt(faces[1]!.left + 2, middle(faces[1]!))?.closest("[data-holder]")).toBe(
+            welcome.querySelector(`[data-holder="${id("priya")}"]`),
+          );
           // An editor's + is the stack's top layer, over the count's edge; a
           // viewer has none, and sees the empty circle on the open task nobody
           // holds — and nothing on a done one.
@@ -265,6 +310,16 @@ describe("the holders on each row, painted", () => {
                 ? "over the count"
                 : "elsewhere";
           expect(plusAt).toBe(role === "editor" ? "over the count" : "none");
+          // The count over the last face; the + over the count.
+          expect(more.left).toBeLessThan(faces[2]!.right);
+          expect(topAt(more.left + 2, middle(more))?.closest("[data-more]")).not.toBeNull();
+          const plusPaint =
+            plus === undefined
+              ? "none"
+              : topAt(plus.left + 2, middle(plus))?.closest("[data-assign-plus]")
+                ? "on top"
+                : "under";
+          expect(plusPaint).toBe(role === "editor" ? "on top" : "none");
           expect(within(list).queryAllByRole("button", { name: /^Assign people/ })).toHaveLength(
             role === "editor" ? TASKS.length : 0,
           );
@@ -274,10 +329,16 @@ describe("the holders on each row, painted", () => {
             }),
           ).toHaveLength(role === "editor" ? 0 : 1);
           expect(within(rowOf("Pack the emergency kit")).queryAllByRole("img")).toHaveLength(0);
-          // A face without a photo is the empty avatar, not a broken image.
-          expect(
-            welcome.querySelector(`[data-holder="${id("maximiliana")}"] [data-blank-avatar]`),
-          ).not.toBeNull();
+          // A face without a photo is the empty avatar, not a broken image —
+          // and an opaque one: the page's colour under the faint-ink disc, so
+          // the face before it does not show through where they overlap.
+          const blank = welcome.querySelector<SVGElement>(
+            `[data-holder="${id("maximiliana")}"] [data-blank-avatar]`,
+          );
+          expect(blank).not.toBeNull();
+          const blankStyle = getComputedStyle(blank!);
+          expect(alphaOf(blankStyle.backgroundColor)).toBe(1);
+          expect(blankStyle.backgroundImage.startsWith("linear-gradient(")).toBe(true);
           const photoFace = welcome.querySelector<HTMLImageElement>(
             `[data-holder="${id("ana")}"] img`,
           )!;
@@ -559,6 +620,60 @@ describe("the popover's list, in Chrome", () => {
     await waitFor(() => expect(dialog.isConnected).toBe(false));
     await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
+});
+
+describe("the highlighted person, in Chrome", () => {
+  for (const theme of THEMES) {
+    it(`is marked by a bar at 3:1 or more and gold ink, not by a tint alone — ${theme}`, async () => {
+      await page.viewport(1280, 800);
+      document.documentElement.dataset.theme = theme;
+      seedTasks(TASKS);
+      render(() => (
+        <div style={{ padding: "16px" }}>
+          <ChecklistView weddingId="wed_1" canEdit={true} />
+        </div>
+      ));
+      const { dialog, listbox } = await openPopover("Set up the welcome table");
+      const options = within(listbox).getAllByRole("option");
+      const search = within(dialog).getByRole("combobox", { name: "Search people" });
+      expect(search.getAttribute("aria-activedescendant")).toBe(options[0]!.id);
+
+      /** The bar at the row's inline start, and what the name is inked in. */
+      const marks = (option: Element) => {
+        const bar = getComputedStyle(option, "::before");
+        const backdrop = backdropOf(option);
+        const name = option.querySelector("[data-name]")!;
+        return {
+          bar: alphaOf(bar.backgroundColor) > 0,
+          barWidth: Number.parseFloat(bar.width),
+          barContrast: contrastRatio(composite([backdrop, bar.backgroundColor]), backdrop)!,
+          ink: getComputedStyle(name).color,
+          inkContrast: contrastRatio(
+            composite([backdrop, getComputedStyle(name).color]),
+            backdrop,
+          )!,
+        };
+      };
+
+      const lit = marks(options[0]!);
+      const idle = marks(options[1]!);
+      expect(lit.bar).toBe(true);
+      expect(lit.barWidth).toBeGreaterThanOrEqual(2);
+      expect(lit.barContrast).toBeGreaterThanOrEqual(WCAG_UI_MIN);
+      expect(idle.bar).toBe(false);
+      expect(lit.ink).not.toBe(idle.ink);
+      expect(lit.inkContrast).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
+
+      // The marks move with the highlight.
+      await userEvent.keyboard("{ArrowDown}");
+      await waitFor(() =>
+        expect(search.getAttribute("aria-activedescendant")).toBe(options[1]!.id),
+      );
+      expect(marks(options[0]!).bar).toBe(false);
+      expect(marks(options[1]!).bar).toBe(true);
+      await page.screenshot({ path: shot(`popover-highlight-${theme}`) });
+    });
+  }
 });
 
 describe("a re-read of the seats while the popover is open, in Chrome", () => {

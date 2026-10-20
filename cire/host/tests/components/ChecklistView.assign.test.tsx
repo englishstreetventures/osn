@@ -572,6 +572,8 @@ describe("the popover", () => {
     expect(within(listbox).getAllByRole("option")).toHaveLength(5);
     expect(within(dialog).queryByRole("combobox")).not.toBeInTheDocument();
     expect(within(dialog).queryByText(/^Nobody matches/)).not.toBeInTheDocument();
+    // With no search, the list is the one tab stop and holds the focus.
+    expect(listbox).toHaveAttribute("tabindex", "0");
     fireEvent.keyDown(listbox, { key: "Escape" });
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
 
@@ -583,6 +585,9 @@ describe("the popover", () => {
     expect(within(listbox).getAllByRole("option")).toHaveLength(6);
     expect(search).toHaveAttribute("spellcheck", "false");
     expect(within(dialog).queryByText(/^Nobody matches/)).not.toBeInTheDocument();
+    // The search holds the focus and points into the list: the list is no
+    // tab stop of its own, so a click on its edge leaves the focus typing.
+    expect(listbox).toHaveAttribute("tabindex", "-1");
 
     fireEvent.input(search, { target: { value: "  @KIMMY " } });
     expect(listed(listbox)).toEqual(["Kim Park"]);
@@ -606,6 +611,10 @@ describe("the popover", () => {
     expect(listed(listbox)).toHaveLength(5);
     setFreshHosts("wed_1", seats);
     search = await within(dialog).findByRole("combobox", { name: "Search people" });
+
+    // Only a leading @ marks a handle; one later in the query is searched for.
+    fireEvent.input(search, { target: { value: "jo@" } });
+    expect(within(dialog).getByText("Nobody matches “jo@”.")).toBeVisible();
 
     fireEvent.input(search, { target: { value: "zz" } });
     expect(within(listbox).queryAllByRole("option")).toHaveLength(0);
@@ -764,6 +773,55 @@ describe("the popover", () => {
     expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
     retry.answer(hostsAnswer([SAM, JO])());
     await within(dialog).findAllByRole("option");
+  });
+});
+
+describe("what the popover says about its list", () => {
+  /** Everything in the list that is not a person: the listbox holds options only. */
+  const notOptions = (listbox: HTMLElement) =>
+    [...listbox.children].filter((el) => el.getAttribute("role") !== "option");
+
+  it("says it is looking for the people, politely and outside the list", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    const seats = held();
+    api({ hosts: seats.route });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+    fireEvent.click(assignButton("Book venue"));
+    const dialog = await screen.findByRole("dialog", { name: "Assign people" });
+    const listbox = within(dialog).getByRole("listbox", { name: "People" });
+
+    const status = within(dialog).getByRole("status");
+    expect(status).toHaveTextContent("Finding the people on this wedding…");
+    expect(status).toBeVisible();
+    expect(listbox.contains(status)).toBe(false);
+    expect(notOptions(listbox)).toEqual([]);
+
+    seats.answer(hostsAnswer([SAM, JO])());
+    await within(listbox).findAllByRole("option");
+    expect(status).toHaveTextContent("");
+    expect(notOptions(listbox)).toEqual([]);
+  });
+
+  it("says how many people a search matches, and when it matches nobody", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    api({ hosts: hostsAnswer([SAM, JO, ANON, KIM, ROBIN, ALEX]) });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    const { dialog, listbox } = await openPopover("Book venue");
+    const status = within(dialog).getByRole("status");
+    const search = within(dialog).getByRole("combobox", { name: "Search people" });
+    // Nothing typed, nothing to say: the list is all there is.
+    expect(status).toHaveTextContent("");
+
+    fireEvent.input(search, { target: { value: "o" } });
+    expect(listed(listbox)).toHaveLength(4);
+    expect(status).toHaveTextContent("4 people match");
+    fireEvent.input(search, { target: { value: "kim" } });
+    expect(status).toHaveTextContent("1 person matches");
+    fireEvent.input(search, { target: { value: "zz" } });
+    expect(status).toHaveTextContent("Nobody matches “zz”.");
+    expect(listbox.contains(status)).toBe(false);
+    expect(notOptions(listbox)).toEqual([]);
   });
 });
 

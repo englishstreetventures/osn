@@ -306,8 +306,12 @@ names and handles heads the list, which shows about four rows and scrolls; five
 or fewer show whole with no search. The focus starts in the search when there
 is one, else on the list; the arrows, Home and End move the highlight, and
 Enter toggles it — Space too on the list, but not in the search, where it types
-the space a name has. The rows stay usable while writes are out; the list says
-`aria-busy` instead.
+the space a name has. The highlighted person is marked by a bar in the focus
+ring's colour and gold ink on their name, since the ring itself stays on the
+search or the list. The rows stay usable while writes are out; the list says
+`aria-busy` instead. One polite `role="status"` line under the list, outside
+it, says the popover is finding the people, how many a search matches, or
+that it matches nobody.
 
 The rows are keyed by task id behind a memo that ignores `assigneeHostIds` as it
 ignores `sortOrder` (`sameButOrder` in `lib/sortable-rows.ts`, with the field

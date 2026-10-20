@@ -355,8 +355,15 @@ later stack of people:
 The popover it opens is a listbox of toggles, the command palette's pattern
 with `aria-multiselectable`: each row is a 20px circle — `--border-strong`
 outline when off, a `--brand` fill with an `--on-brand` tick when on — then the
-face, the name, and the role in muted ink. The keyboard highlight is
-`bg-gold/10`, as in the palette. Five people show whole; above five a search
+face, the name, and the role in muted ink. The focus stays in the search or on
+the list, so the house ring never reaches a person: the highlighted one wears
+the ring's mark instead — a 3px `--focus` bar at the row's inline start, at
+3:1 or more on the panel in both ramps — with the name in `--gold-ink` over the
+palette's `bg-gold/10` wash, which is far too faint to be the mark on its own.
+What the list says beside its people — that it is
+still looking, how many a search matches, that it matches nobody — is one
+`role="status"` line under the list, never a row inside it: the listbox holds
+options only. Five people show whole; above five a search
 heads the list and it shows about four and a half rows, the half saying it
 scrolls. The list draws the house focus ring inside its own edge, and the
 search field turns its border and a 1px ring `--focus` while it has the focus:
