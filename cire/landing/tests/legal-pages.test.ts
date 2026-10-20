@@ -80,6 +80,17 @@ describe("legal pages", () => {
     expect(hosts).toMatch(/up to 30 days later/);
   });
 
+  /**
+   * `GET …/hosts` hands every member of a wedding each seat's musubi name,
+   * handle and photo, and the checklist shows who holds each task, so the
+   * hosts' notice names that disclosure and who receives it.
+   */
+  it("the hosts' notice says the wedding team sees each organiser's photo and the tasks they hold", () => {
+    expect(hosts).toMatch(/everyone on a wedding/);
+    expect(hosts).toMatch(/musubi name, handle and profile photo/);
+    expect(hosts).toMatch(/which checklist tasks each of you holds/);
+  });
+
   it("footer links every legal page", () => {
     for (const name of footerPages) {
       expect(footer).toContain(`href="/${name}"`);

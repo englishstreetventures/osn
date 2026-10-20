@@ -2,6 +2,7 @@
 "@cire/api": minor
 "@cire/db": minor
 "@cire/host": minor
+"@cire/landing": patch
 ---
 
 A checklist task can be held by any number of people seated on the wedding —
@@ -18,7 +19,9 @@ another wedding is 404 `task_not_found`. Every task the API returns carries
 `assigneeHostIds`, the holders' seat ids in the order they were added, and
 `GET /tasks` also answers `viewerHostId`, the caller's own seat. `GET /hosts`
 names each seat by its id (`hostId`) and gives its OSN profile photo as
-`avatarUrl`, only ever an https URL. Removing a co-host or leaving the wedding
+`avatarUrl`, only ever an https URL on musubi's identity host (the origin of
+`OSN_ISSUER_URL`) with no user name or password, at most 2,048 characters; any
+other photo URL osn-api sends is dropped. Removing a co-host or leaving the wedding
 takes them off their tasks and keeps the tasks with their other holders.
 
 In the organiser portal each checklist row shows who holds the task as an
@@ -28,7 +31,10 @@ avatar when they have none or it will not load. An owner or editor gets a dotted
 + on top of the stack that opens a popover of everyone on the wedding: clicking
 a person puts them on the task or takes them off at once, and the popover stays
 open until a click outside it, Escape or Tab. Above five people it opens on a
-search over names and handles. A viewer sees the faces, and an empty dotted
+search over names and handles. The person Enter will toggle is marked by a bar
+in the focus ring's colour and gold ink on their name, and a polite status line
+under the list says it is finding the people, how many a search matches, or
+that it matches nobody. Photos load with no `Referer`. A viewer sees the faces, and an empty dotted
 circle on an open task nobody holds. The task drawer, its Edit button and the
 "Needs an owner" mark are gone.
 
@@ -37,4 +43,11 @@ per task and seat, with `assigned_at` — whose two foreign keys,
 `(task_id, wedding_id)` to `tasks` and `(host_id, wedding_id)` to
 `wedding_hosts`, both cascade on delete and refuse a task paired with another
 wedding's seat. It adds the unique indexes on `tasks(id, wedding_id)` and
-`wedding_hosts(id, wedding_id)` those keys reference.
+`wedding_hosts(id, wedding_id)` those keys reference, and indexes
+`task_assignees` on `(wedding_id, task_id, assigned_at)` and
+`(host_id, wedding_id)`, so a task's holders and both cascades find their rows
+without walking the wedding's.
+
+The hosts' privacy notice on the marketing site now says that everyone on a
+wedding sees the others' musubi name, handle and profile photo, and which
+checklist tasks each holds.
