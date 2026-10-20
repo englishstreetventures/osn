@@ -15,13 +15,15 @@ import { createStripeClientFromEnv } from "./services/stripe";
 // boot, so the file must not exist yet.
 const db = createDb(process.env.CIRE_LOCAL_DB_PATH || ":memory:");
 // One transaction, for the same reason `createDb` applies its DDL in one.
-db.$client.transaction(() => seedDb(db))();
-
+//
 // The seed sets no RSVP deadline. The E2E suite names one (a `YYYY-MM-DD`,
 // far in the future) so a flow can move the browser's clock past it while this
 // server, on the suite clock, still takes replies. A malformed value throws
 // here rather than booting a server with no deadline.
-applyE2eRsvpDeadline(db, process.env);
+db.$client.transaction(() => {
+  seedDb(db);
+  applyE2eRsvpDeadline(db, process.env);
+})();
 
 // Dev convenience: the in-memory seed gives the sample wedding's owner seat to
 // the fixed local dev id (usr_dev_bootstrap_owner — see DEV_OWNER_PROFILE_ID in
