@@ -70,6 +70,7 @@ describe("buildDevEnv", () => {
       PUBLIC_API_URL: "https://api.cire.localhost",
       PUBLIC_CIRE_API_URL: "https://api.cire.localhost",
       PUBLIC_CIRE_WEB_URL: "https://invite.cire.localhost",
+      PUBLIC_MARKETING_URL: "https://cire.localhost",
       PUBLIC_OSN_ACCOUNT_URL: "https://musubi.localhost",
     });
     expect(buildDevEnv("@pulse/web", urlFor("@pulse/web"))).toEqual({
