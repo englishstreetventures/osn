@@ -537,7 +537,7 @@ describe("the people holding a task", () => {
     };
 
     expect(await answers()).toEqual([added, added]);
-    db.run(sql`DROP INDEX task_assignees_wedding_assigned_idx`);
+    db.run(sql`DROP INDEX task_assignees_wedding_task_idx`);
     expect(await answers()).toEqual([added, added]);
   });
 

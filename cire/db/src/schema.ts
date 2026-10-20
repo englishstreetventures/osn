@@ -501,10 +501,18 @@ export const taskAssignees = sqliteTable(
       columns: [t.hostId, t.weddingId],
       foreignColumns: [weddingHosts.id, weddingHosts.weddingId],
     }).onDelete("cascade"),
-    // The probe the seat cascade runs on every seat delete.
-    index("task_assignees_host_idx").on(t.hostId),
-    // A wedding's assignments in the order they were made: the checklist read.
-    index("task_assignees_wedding_assigned_idx").on(t.weddingId, t.assignedAt),
+    // Each index leads with exactly the equalities of the reads it serves, so
+    // the planner picks it with no statistics, which D1 has none of; with only
+    // `wedding_id` in front it would walk every assignment of the wedding to
+    // find one task's or one seat's.
+    //
+    // A seat's assignments: the seat cascade's probe, (host_id, wedding_id).
+    index("task_assignees_host_wedding_idx").on(t.hostId, t.weddingId),
+    // A task's assignments, in the order they were made: the holder read of
+    // every holder write and edit, and the task cascade's probe, (task_id,
+    // wedding_id). The checklist read takes the whole wedding through it, task
+    // by task, with no sort.
+    index("task_assignees_wedding_task_idx").on(t.weddingId, t.taskId, t.assignedAt),
   ],
 );
 

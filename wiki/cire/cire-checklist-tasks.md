@@ -175,14 +175,25 @@ a seat of another wedding, whichever wedding the row names. The service never
 sends one (below); the keys are what make "every holder of a task is a seat of
 its wedding" true of the table rather than of the code that writes it.
 
-**Indexes:** `task_assignees_host_idx (host_id)`, the probe the seat cascade
-runs on every seat delete; `task_assignees_wedding_assigned_idx (wedding_id,
-assigned_at)`, the checklist read in the order holders were added.
+**Indexes.** Each leads with exactly the equalities of the reads it serves.
+D1 keeps no planner statistics ([[d1-limits]]), and without them SQLite costs
+an equality on any index's first column the same, so an index led by
+`wedding_id` alone wins every tie and walks the whole wedding's assignments to
+find one task's or one seat's.
+
+| Index | Serves |
+|---|---|
+| `task_assignees_wedding_task_idx (wedding_id, task_id, assigned_at)` | one task's holders, read by every holder write and every task edit; the task cascade's probe `(task_id, wedding_id)`; the checklist read of the whole wedding, task by task, with no sort |
+| `task_assignees_host_wedding_idx (host_id, wedding_id)` | the seat cascade's probe, on every seat removed or co-host leaving |
+
+[`tests/db/task-assignees-index.test.ts`](../../cire/api/tests/db/task-assignees-index.test.ts)
+pins the four plans with `EXPLAIN QUERY PLAN`.
 
 **Order.** A task's holders read back by `assigned_at`, then `rowid`.
 `assigned_at` is in seconds, so two seats added in the same second would tie;
 rowid keeps them in the order they were added. A seat taken off and put back
-goes to the end.
+goes to the end. The checklist read orders by `task_id` first, the index's
+order; each task's holders keep the same order within it.
 
 ### Routes
 

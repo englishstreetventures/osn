@@ -119,18 +119,20 @@ export interface AssigneeRow {
  *  rowid orders two seats added in the same second. */
 const ASSIGNMENT_ORDER = [asc(taskAssignees.assignedAt), asc(sql`rowid`)];
 
-/** Every holder of every task of `weddingId`, in the order they were added.
- *  Returned unrun, so it rides in the batch that reads the tasks. */
+/** Every holder of every task of `weddingId`, task by task, each task's in the
+ *  order they were added — the order of `task_assignees_wedding_task_idx`, so
+ *  the read needs no sort. Returned unrun, so it rides in the batch that reads
+ *  the tasks. */
 export const weddingAssignees = (db: Db, weddingId: string) =>
   db
     .select({ taskId: taskAssignees.taskId, hostId: taskAssignees.hostId })
     .from(taskAssignees)
     .where(eq(taskAssignees.weddingId, weddingId))
-    .orderBy(...ASSIGNMENT_ORDER);
+    .orderBy(asc(taskAssignees.taskId), ...ASSIGNMENT_ORDER);
 
 /** The holders of one task of `weddingId`, in the order they were added.
  *  Returned unrun, for the batch that writes or reads the task. */
-const taskAssigneeIds = (db: Db, weddingId: string, taskId: string) =>
+export const taskAssigneeIds = (db: Db, weddingId: string, taskId: string) =>
   db
     .select({ hostId: taskAssignees.hostId })
     .from(taskAssignees)

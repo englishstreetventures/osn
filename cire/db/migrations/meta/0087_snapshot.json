@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b2bc8565-6174-4071-87d8-7ccea5a400f2",
-  "prevId": "315306c3-c6e8-441b-be06-a29063c918ca",
+  "id": "78b7499f-83e1-427c-84c6-2713b7af64df",
+  "prevId": "983e4c15-e3fb-40fb-91d5-6df07a9410b1",
   "tables": {
     "budget_items": {
       "name": "budget_items",
@@ -2723,17 +2723,19 @@
         }
       },
       "indexes": {
-        "task_assignees_host_idx": {
-          "name": "task_assignees_host_idx",
+        "task_assignees_host_wedding_idx": {
+          "name": "task_assignees_host_wedding_idx",
           "columns": [
-            "host_id"
+            "host_id",
+            "wedding_id"
           ],
           "isUnique": false
         },
-        "task_assignees_wedding_assigned_idx": {
-          "name": "task_assignees_wedding_assigned_idx",
+        "task_assignees_wedding_task_idx": {
+          "name": "task_assignees_wedding_task_idx",
           "columns": [
             "wedding_id",
+            "task_id",
             "assigned_at"
           ],
           "isUnique": false

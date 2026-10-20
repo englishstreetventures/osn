@@ -342,8 +342,8 @@ CREATE TABLE IF NOT EXISTS task_assignees (
   FOREIGN KEY (task_id, wedding_id) REFERENCES tasks(id, wedding_id) ON DELETE CASCADE,
   FOREIGN KEY (host_id, wedding_id) REFERENCES wedding_hosts(id, wedding_id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS task_assignees_host_idx ON task_assignees(host_id);
-CREATE INDEX IF NOT EXISTS task_assignees_wedding_assigned_idx ON task_assignees(wedding_id, assigned_at);
+CREATE INDEX IF NOT EXISTS task_assignees_host_wedding_idx ON task_assignees(host_id, wedding_id);
+CREATE INDEX IF NOT EXISTS task_assignees_wedding_task_idx ON task_assignees(wedding_id, task_id, assigned_at);
 
 CREATE TABLE IF NOT EXISTS task_template_dismissals (
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
