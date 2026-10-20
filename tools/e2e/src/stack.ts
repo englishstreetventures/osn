@@ -156,6 +156,8 @@ export function appSpecs(): AppSpec[] {
         PORT: String(PORTS.cireApi),
         CIRE_LOCAL_DB_PATH: DB_FILES.cire,
         CIRE_E2E_RSVP_DEADLINE: CIRE_RSVP_DEADLINE,
+        // Adds the gift-list wedding (`CIRE_GIFT_LIST`) to cire-api's seed.
+        CIRE_E2E_REGISTRY: "1",
         WEB_ORIGIN: ORIGINS.cireInvites,
       },
     },

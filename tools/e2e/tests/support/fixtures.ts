@@ -21,7 +21,14 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { API_LABELS, BIRTHDATE, CLOCK_T0, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
+import {
+  API_LABELS,
+  BIRTHDATE,
+  CIRE_GIFT_LIST,
+  CLOCK_T0,
+  ORIGINS,
+  SCREENSHOT_DIR,
+} from "../../src/config";
 import { requestLine, requestSet, type Assertion, type FlowRecord } from "../../src/record";
 import { RECORD_ATTACHMENT } from "../../src/reporter";
 
@@ -221,4 +228,15 @@ export async function cookieNamed(context: BrowserContext, url: string, name: st
 export function onSuiteClock(unixSeconds: number | undefined): boolean {
   const start = Math.floor(CLOCK_T0 / 1000);
   return unixSeconds !== undefined && unixSeconds >= start && unixSeconds < start + 3600;
+}
+
+/**
+ * Which of the gift list's private strings (`CIRE_GIFT_LIST`: every gift title,
+ * the couple's headline and their message) `text` holds, comma-joined, or
+ * `"none"`. Read off a page's HTML or an API body: what a visitor without a
+ * claim must never receive.
+ */
+export function giftListTextIn(text: string): string {
+  const secret = [...CIRE_GIFT_LIST.gifts, CIRE_GIFT_LIST.headline, CIRE_GIFT_LIST.message];
+  return secret.filter((s) => text.includes(s)).join(", ") || "none";
 }

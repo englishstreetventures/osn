@@ -11,7 +11,9 @@ related:
   - "[[drag-and-drop]]"
   - "[[cire-development]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-10-19
+  - "[[cire-auth]]"
+  - "[[testing-patterns]]"
+last-reviewed: 2026-10-20
 ---
 
 # Gift registry
@@ -279,7 +281,7 @@ Under `/api/invite/:slug/registry`. **The list is not public.** It names what a 
 | Route                                                   | Gate                              |
 | ------------------------------------------------------- | --------------------------------- |
 | `GET /registry` — the published list, with claim counts | `sessionAuth` + family-in-wedding |
-| `GET /registry/mine` — this household's own claims      | `sessionAuth`                     |
+| `GET /registry/mine` — this household's own claims      | `sessionAuth` + family-in-wedding |
 | `POST \| DELETE /registry/items/:itemId/claim`          | per-IP limiter, then `sessionAuth` |
 | `GET /registry/image/:name` — a gift's image bytes      | none — see below                  |
 
@@ -634,7 +636,16 @@ The hint is wired with `aria-describedby`, conditional on there being a hint —
 
 **States that look alike and are not.** An unpublished registry, or one on a wedding below Gold, 404s: the page says the couple have closed their list and the band renders nothing at all on the invite. A visitor with no claim gets a 401, which is a different page again — a way in, not a refusal. A published empty list renders its masthead and "The couple haven't added any gifts yet." The shipping address renders only when the household read actually returned one — the field is optional on the wire and carries no reason, so absent covers both "the couple set none" and "you may not see it", and there is nothing honest to print in its place.
 
-**Copy and theme.** `registry_*` copy columns reach both surfaces as `eyebrow` / `heading` / `body`; `null` means the built-in default (`With Love` / `Gift Registry`), the same contract as the details section. Where both exist, the invite's own section copy wins over the registry module's `headline` / `message`, because it is section furniture themed with every other header. Resolution is pure (`giftRegistryEyebrow` / `giftRegistryHeading` / `giftRegistryBody`) so the Astro shell can render the masthead server-side, and **blank counts as unset** — a bare `??` chain would let a heading saved as `""` beat both fallbacks, which on a page of its own is an empty browser tab. `ThemeSection` carries `"registry"`, so both surfaces take a tone through the same `sectionVars` allow-list as the rest, and the page's masthead reuses the invite hero's own server-blurred `hero-bg` variant at the same URL — already in cache for a guest who came from the invitation — with the organiser's crop honoured through `heroCropLayers`.
+**What a visitor without a claim receives.** The page's server render carries the invite's public payload and nothing from the list: the couple's colours, hero photo and the section copy below. Gift titles, prices, counts and image names, the couple's `headline` and `message`, and the shipping address arrive only in the two credentialed reads, which answer 401 without a `cire_session`. A stale `cire_claimed` hint changes nothing, because the server decides: both reads still answer 401 and the page shows the way in. Two end-to-end flows hold the gate on the real stack ([[testing-patterns#The end-to-end suite]]). They look for the gift titles, the `headline` and the `message` as text; the rest of the list is held by the two reads' status codes:
+
+| Flow | What it proves |
+| --- | --- |
+| `cire-registry-locked` | With no code, on both page addresses, and with a stale hint beside a session the browser sends and the API never issued: the list read answers 401, the page shows the locked panel, and none of the gifts, the headline or the message is in the page. The same strings are absent from the API's list answer, from the public invite payload and from the invitation, which shows no band |
+| `cire-registry-claimed` | The locked page sends the visitor to the invitation; the household's code opens the band and then the list, with every gift, the headline and the message. Signing out on the invitation locks the list again and deletes the household's session |
+
+The refusals in isolation (no cookie, a household of another wedding, the image route) stay in `cire/api/tests/routes/registry-guest.test.ts`. A browser that already holds a session opens the list for its 30 days whoever is at the keyboard: one that claimed before, or the organiser's own after **Preview invite**, which claims the wedding's host household through `?code=` without anyone typing it ([[cire-auth#Host preview code (organiser "Preview invite")]]). That is the gate working, not a gap in it.
+
+**Copy and theme.** `registry_*` copy columns reach both surfaces as `eyebrow` / `heading` / `body`; `null` means the built-in default (`With Love` / `Gift Registry`), the same contract as the details section. **They are public**: they travel in the invite payload, which reaches anyone with the link, and the gift page's masthead renders `eyebrow` and `heading` for every visitor. So only section furniture belongs in them; the couple's own words about their list belong in the registry module's `message`, which travels with the gated list. Where both exist, the invite's own section copy wins over the registry module's `headline` / `message`, because it is section furniture themed with every other header. Resolution is pure (`giftRegistryEyebrow` / `giftRegistryHeading` / `giftRegistryBody`) so the Astro shell can render the masthead server-side, and **blank counts as unset** — a bare `??` chain would let a heading saved as `""` beat both fallbacks, which on a page of its own is an empty browser tab. `ThemeSection` carries `"registry"`, so both surfaces take a tone through the same `sectionVars` allow-list as the rest, and the page's masthead reuses the invite hero's own server-blurred `hero-bg` variant at the same URL — already in cache for a guest who came from the invitation — with the organiser's crop honoured through `heroCropLayers`.
 
 **Where each half of that copy renders.** The masthead's eyebrow and heading come from the invite payload, which is public, so they are server-rendered; the module's own `headline` / `message` arrive with the gated list, so the **intro paragraph** is the island's and carries the whole chain (invite body, then module message). One paragraph, one place, and neither surface waits on the other.
 
