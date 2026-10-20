@@ -28,7 +28,11 @@
 //      is measured like any other file
 //   5b. only the adapter's top-level wrangler.json is skipped, not one nested
 //      deeper
-//   6. a *.map under the sibling dist/client -> exit 1
+//   6. a source map where the app is served publicly -> exit 1, before
+//      anything is measured: a *.map or an inline `sourceMappingURL=data:`
+//      map under worker mode's dist/client (read through a link, and a link
+//      that cannot be read refused), or anywhere under static mode's dist
+//      (any case of `.map`, in .js, .mjs or .css); a clean static dist passes
 //   7. static mode counts only *.js/*.css, ignoring everything else; a total
 //      exactly at its budget does not warn
 //   8. a package-dir with no row in the budgets file -> exit 1, naming the file
@@ -48,7 +52,7 @@
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const SCRIPT = new URL("../guard-bundle-size.sh", import.meta.url).pathname;
 
@@ -199,7 +203,143 @@ test("exits non-zero when dist/client holds a source map", async () => {
     const { exitCode, stdout } = await runCli(budgetsFile, root, pkgDir);
     expect(stdout).toContain("dist/client");
     expect(stdout).toContain("source map");
+    expect(stdout).toContain("served publicly");
+    expect(stdout).not.toContain("gzip total");
     expect(exitCode).not.toBe(0);
+  });
+});
+
+// A source map wherever an app's files are served publicly publishes its
+// unminified source, so it is refused in either form: a `*.map` file, or a
+// map inlined into a file as a `sourceMappingURL=data:` comment. Each case
+// below sets a budget nothing can reach and asserts nothing was measured, so
+// the refusal stands on its own, apart from the budget.
+const INLINE_MAP_BASE64 = btoa(
+  JSON.stringify({ version: 3, sources: ["../src/client.ts"], names: [], mappings: "AAAA" }),
+);
+
+// The comment the build appends with `vite.build.sourcemap: "inline"`.
+function withInlineMap(file: string, code: string): string {
+  return file.endsWith(".css")
+    ? `${code}/*# sourceMappingURL=data:application/json;base64,${INLINE_MAP_BASE64} */\n`
+    : `${code}//# sourceMappingURL=data:application/json;charset=utf-8;base64,${INLINE_MAP_BASE64}\n`;
+}
+
+test.each([
+  ["beside its chunk in dist/_astro", "dist/_astro/client.js.map"],
+  ["outside dist/_astro, as a copy from public/ lands", "dist/vendor/lib.js.map"],
+  ["named in upper case", "dist/_astro/CLIENT.JS.MAP"],
+])("static mode exits non-zero on a source map file %s", async (_where, mapPath) => {
+  await withFixture(["fixture-app/pkg static 999999999"], async ({ pkgDir, root, budgetsFile }) => {
+    await mkdir(join(pkgDir, "dist/_astro"), { recursive: true });
+    await writeFile(join(pkgDir, "dist/_astro/client.js"), "console.log(1);\n");
+    await mkdir(join(pkgDir, dirname(mapPath)), { recursive: true });
+    await writeFile(join(pkgDir, mapPath), sourceMapJson("client.js", 200));
+
+    const { exitCode, stdout } = await runCli(budgetsFile, root, pkgDir);
+    expect(stdout).toContain("::error::fixture-app/pkg dist holds 1 source map");
+    expect(stdout).toContain(mapPath);
+    expect(stdout).toContain("served publicly");
+    expect(stdout).not.toContain("gzip total");
+    expect(exitCode).not.toBe(0);
+  });
+});
+
+test.each([
+  "dist/_astro/client.js",
+  "dist/_astro/client.mjs",
+  "dist/_astro/style.css",
+  "dist/vendor/lib.js",
+])("static mode exits non-zero on an inline source map in %s", async (file) => {
+  await withFixture(["fixture-app/pkg static 999999999"], async ({ pkgDir, root, budgetsFile }) => {
+    await mkdir(join(pkgDir, "dist/_astro"), { recursive: true });
+    await writeFile(join(pkgDir, "dist/_astro/other.js"), "console.log(0);\n");
+    await mkdir(join(pkgDir, dirname(file)), { recursive: true });
+    await writeFile(join(pkgDir, file), withInlineMap(file, "console.log(1);\n"));
+
+    const { exitCode, stdout } = await runCli(budgetsFile, root, pkgDir);
+    expect(stdout).toContain(
+      "::error::fixture-app/pkg dist holds 1 file(s) with an inline source map",
+    );
+    expect(stdout).toContain(file);
+    expect(stdout).toContain("served publicly");
+    expect(stdout).not.toContain("gzip total");
+    expect(exitCode).not.toBe(0);
+  });
+});
+
+test("worker mode exits non-zero on an inline source map in dist/client", async () => {
+  await withFixture(["fixture-app/pkg worker 999999999"], async ({ pkgDir, root, budgetsFile }) => {
+    await mkdir(join(pkgDir, "dist/server"), { recursive: true });
+    await writeFile(join(pkgDir, "dist/server/entry.mjs"), "export default 1;\n");
+    await mkdir(join(pkgDir, "dist/client/_astro"), { recursive: true });
+    const file = "dist/client/_astro/client.js";
+    await writeFile(join(pkgDir, file), withInlineMap(file, "console.log(1);\n"));
+
+    const { exitCode, stdout } = await runCli(budgetsFile, root, pkgDir);
+    expect(stdout).toContain(
+      "::error::fixture-app/pkg dist/client holds 1 file(s) with an inline source map",
+    );
+    expect(stdout).toContain(file);
+    expect(stdout).toContain("served publicly");
+    expect(stdout).not.toContain("gzip total");
+    expect(exitCode).not.toBe(0);
+  });
+});
+
+// Static Assets serve the file a link points at, so a link is read through,
+// and one that cannot be read is refused rather than passed unchecked.
+test("worker mode reads an inline source map through a link in dist/client", async () => {
+  await withFixture(["fixture-app/pkg worker 999999999"], async ({ pkgDir, root, budgetsFile }) => {
+    await mkdir(join(pkgDir, "dist/server"), { recursive: true });
+    await writeFile(join(pkgDir, "dist/server/entry.mjs"), "export default 1;\n");
+    await mkdir(join(pkgDir, "dist/client/_astro"), { recursive: true });
+    const outside = join(root, "outside.js");
+    await writeFile(outside, withInlineMap(outside, "console.log(1);\n"));
+    await symlink(outside, join(pkgDir, "dist/client/_astro/linked.js"));
+
+    const { exitCode, stdout } = await runCli(budgetsFile, root, pkgDir);
+    expect(stdout).toContain("holds 1 file(s) with an inline source map");
+    expect(stdout).toContain("dist/client/_astro/linked.js");
+    expect(stdout).not.toContain("gzip total");
+    expect(exitCode).not.toBe(0);
+  });
+});
+
+test("worker mode exits non-zero on a link in dist/client it cannot read", async () => {
+  await withFixture(["fixture-app/pkg worker 999999999"], async ({ pkgDir, root, budgetsFile }) => {
+    await mkdir(join(pkgDir, "dist/server"), { recursive: true });
+    await writeFile(join(pkgDir, "dist/server/entry.mjs"), "export default 1;\n");
+    await mkdir(join(pkgDir, "dist/client/_astro"), { recursive: true });
+    await symlink(join(root, "does-not-exist.js"), join(pkgDir, "dist/client/_astro/gone.js"));
+
+    const { exitCode, stdout } = await runCli(budgetsFile, root, pkgDir);
+    expect(stdout).toContain("::error::fixture-app/pkg could not read dist/client/_astro/gone.js");
+    expect(stdout).not.toContain("gzip total");
+    expect(exitCode).not.toBe(0);
+  });
+});
+
+test("static mode passes a clean dist: pages, headers, chunks, styles and fonts, no source map", async () => {
+  await withFixture(["fixture-app/pkg static 999999999"], async ({ pkgDir, root, budgetsFile }) => {
+    await mkdir(join(pkgDir, "dist/_astro/fonts"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "dist/index.html"),
+      '<!doctype html><script type="module" src="/_astro/client.js"></script>\n',
+    );
+    await writeFile(join(pkgDir, "dist/_headers"), "/*\n  X-Frame-Options: DENY\n");
+    await writeFile(join(pkgDir, "dist/favicon.svg"), "<svg></svg>\n");
+    await writeFile(join(pkgDir, "dist/_astro/client.js"), "console.log(1);\n");
+    await writeFile(join(pkgDir, "dist/_astro/style.css"), "body{margin:0}\n");
+    await writeFile(
+      join(pkgDir, "dist/_astro/fonts/inter.woff2"),
+      crypto.getRandomValues(new Uint8Array(2000)),
+    );
+
+    const { exitCode, stdout } = await runCli(budgetsFile, root, pkgDir);
+    expect(stdout).toContain("fixture-app/pkg dist/_astro gzip total");
+    expect(stdout).not.toContain("::error::");
+    expect(exitCode).toBe(0);
   });
 });
 
