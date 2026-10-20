@@ -20,6 +20,12 @@ import {
   readPeopleLimit,
   upgradeTierFor,
 } from "../lib/people-limit";
+import {
+  readRunSheetScope,
+  RUN_SHEET_SCOPE_COPY,
+  RUN_SHEET_SCOPES,
+  type RunSheetScope,
+} from "../lib/run-sheet-scope";
 import { invalidateTasks, peekCachedTasks } from "../lib/tasks-store";
 import { type PaidTier, TIER_LABEL } from "../lib/tiers";
 import {
@@ -58,6 +64,9 @@ interface HostRow {
   addedByOsnProfileId?: string;
   /** The adder's handle when the batch lookup resolved it. */
   addedByHandle?: string;
+  /** How far into the run sheet a helper sees, as the API sent it: on helper
+   *  rows only. Read through `scopeOf`, which takes anything else as `own`. */
+  runSheetScope?: string;
 }
 
 /**
@@ -107,6 +116,8 @@ const SEAT_REFUSALS = {
   last_owner: "A wedding always keeps at least one owner. Make someone else an owner first.",
   host_cap_reached: "This wedding has as many hosts as it can hold, owners included.",
   already_host: "That person is already a host.",
+  not_a_helper:
+    "They aren't a helper any more, so there is no run sheet to change. Reload to see their role.",
 } as const;
 
 type SeatRefusal = keyof typeof SEAT_REFUSALS;
@@ -224,6 +235,12 @@ export default function HostsPanel(props: HostsPanelProps) {
   // has played, and the body names a person — without this it would blank
   // mid-fade. Built once, here: each call makes its own signal and effect.
   const shownPromotion = heldWhileClosing(pending);
+  // Profile id of the helper whose run-sheet scope write is in flight.
+  const [scopeBusyId, setScopeBusyId] = createSignal<string | null>(null);
+  // The helper whose run sheet is waiting on a yes before it is opened to every
+  // task. Held, not sent, like a promotion: see `selectScope`.
+  const [pendingScope, setPendingScope] = createSignal<HostRow | null>(null);
+  const shownScope = heldWhileClosing(pendingScope);
   // True row count from the API; compared against what we rendered.
   const [total, setTotal] = createSignal(0);
   const truncated = () => total() > hosts().length;
@@ -607,6 +624,66 @@ export default function HostsPanel(props: HostsPanelProps) {
   /** A name for a host that reads in a sentence. */
   const nameOf = (host: HostRow) => (host.handle ? `@${host.handle}` : host.osnProfileId);
 
+  /** What a helper row says they see. A row the API sent no scope for, or one
+   *  the portal does not know, reads as the narrow one. */
+  const scopeOf = (host: HostRow): RunSheetScope => readRunSheetScope(host.runSheetScope, "own");
+
+  /** A fresh copy of the row re-renders a select from what the seat still
+   *  holds: the option an owner picked changed the DOM, and nothing else would
+   *  put it back. */
+  const putBack = (host: HostRow) =>
+    setHosts((prev) => prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h } : h)));
+
+  /**
+   * The scope dropdown moved. Narrowing goes straight through: it takes away
+   * nothing an owner cannot hand straight back. Opening the whole run sheet asks
+   * first, because it shows the helper everyone else's jobs and names — and the
+   * select stays on the pick while it asks, as a promotion's does.
+   */
+  function selectScope(host: HostRow, next: RunSheetScope) {
+    if (next === "full") {
+      setPendingScope(host);
+      return;
+    }
+    void changeScope(host, next);
+  }
+
+  /** Set a helper's run-sheet scope (owner-only; the API re-checks). The
+   *  checklist reads no scope, so its seat cache stays as it is. */
+  async function changeScope(host: HostRow, next: RunSheetScope) {
+    setScopeBusyId(host.osnProfileId);
+    try {
+      const res = await authFetch(
+        `${endpoint()}/${encodeURIComponent(host.osnProfileId)}/run-sheet-scope`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scope: next }),
+        },
+      );
+      if (res.status === 401) return redirectToLogin();
+      if (!res.ok) {
+        haptic("reject");
+        const refusal = await readRefusal(res);
+        putBack(host);
+        toast.error(refusal.message ?? "Could not change what they see. Please try again.");
+        return;
+      }
+      haptic("commit");
+      setHosts((prev) =>
+        prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h, runSheetScope: next } : h)),
+      );
+      toast.success(`${nameOf(host)} now sees ${RUN_SHEET_SCOPE_COPY[next].phrase}.`);
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
+      putBack(host);
+      toast.error("Could not change what they see. Is the API running?");
+    } finally {
+      setScopeBusyId(null);
+    }
+  }
+
   /** The role this host's select should show while a promotion of theirs is
    *  waiting on a yes, or `null` when nothing of theirs is pending. */
   const pendingRoleFor = (host: HostRow): AssignableRole | null => {
@@ -657,7 +734,14 @@ export default function HostsPanel(props: HostsPanelProps) {
       haptic("commit");
       setHosts((prev) =>
         ownersFirst(
-          prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h, role: nextRole } : h)),
+          prev.map((h) =>
+            h.osnProfileId === host.osnProfileId
+              ? // The API resets the scope on every role change but helper to
+                // helper, which this select never sends — a seat that becomes
+                // a helper starts at its own tasks.
+                { ...h, role: nextRole, runSheetScope: "own" }
+              : h,
+          ),
         ),
       );
       // The checklist's assign popover names each seat with its role.
@@ -895,8 +979,11 @@ export default function HostsPanel(props: HostsPanelProps) {
           <ul class="flex flex-col gap-2">
             <For each={hosts()}>
               {(host) => (
+                // Wraps, so a helper's run-sheet line takes a line of its own
+                // under the name and the controls: at phone width there is no
+                // room beside them for a second select at its full width.
                 <li
-                  class="flex items-center justify-between gap-4 rounded-sm border px-4 py-3"
+                  class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-sm border px-4 py-3"
                   classList={{
                     "border-gold/40 bg-gold/5": host.role === "owner",
                     "border-border bg-surface/30": host.role !== "owner",
@@ -984,6 +1071,48 @@ export default function HostsPanel(props: HostsPanelProps) {
                       </Show>
                     </span>
                   </Show>
+                  {/* How far into the run sheet a helper sees: a helper's
+                      setting alone, so no other row names one. An owner sets
+                      it here; everyone else reads it. A line of its own. */}
+                  <Show when={host.role === "helper"}>
+                    <Show
+                      when={canManage()}
+                      fallback={
+                        <span class="font-body text-text-muted text-ui-xs tracking-ui-wide basis-full">
+                          Sees: {RUN_SHEET_SCOPE_COPY[scopeOf(host)].phrase}
+                        </span>
+                      }
+                    >
+                      <label class="font-body text-text-muted text-ui-xs tracking-ui-wide flex basis-full items-center gap-2">
+                        Sees:
+                        {/* The pick while the widening is being asked about,
+                            the seat's own scope otherwise — the same rule that
+                            puts the role select back. */}
+                        {/* `w-auto`: on a line of its own the control box's full
+                            width would run the select across the whole row. */}
+                        <Select
+                          size="sm"
+                          class="w-auto"
+                          value={
+                            pendingScope()?.osnProfileId === host.osnProfileId
+                              ? "full"
+                              : scopeOf(host)
+                          }
+                          disabled={scopeBusyId() === host.osnProfileId}
+                          aria-label={`What ${nameOf(host)} sees on the run sheet`}
+                          onChange={(e) =>
+                            selectScope(host, e.currentTarget.value as RunSheetScope)
+                          }
+                        >
+                          <For each={RUN_SHEET_SCOPES}>
+                            {(scope) => (
+                              <option value={scope}>{RUN_SHEET_SCOPE_COPY[scope].option}</option>
+                            )}
+                          </For>
+                        </Select>
+                      </label>
+                    </Show>
+                  </Show>
                 </li>
               )}
             </For>
@@ -1062,6 +1191,47 @@ export default function HostsPanel(props: HostsPanelProps) {
                   {promotion().ownSeat
                     ? "Yes, step down"
                     : `Yes, make them ${ROLE_COPY[promotion().to].label.toLowerCase()}`}
+                </Button>
+              </div>
+            </div>
+          )}
+        </Show>
+      </Modal>
+
+      {/* Opening a helper's run sheet to every task. Dropped in `onClose`
+          alone, for the reason the promotion dialog's is. */}
+      <Modal
+        open={pendingScope() !== null}
+        onClose={() => setPendingScope(null)}
+        label="Confirm showing the whole run sheet"
+        class="w-full max-w-md"
+      >
+        <Show when={shownScope()}>
+          {(helper) => (
+            <div class="flex flex-col gap-4">
+              <p class="font-display text-text text-ui-md font-light">
+                Show {nameOf(helper())} the whole run sheet?
+              </p>
+              <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                They will see every task for the day and who is doing each one, not only their own.
+                They still won't see the guest list, the budget or the replies. You can change it
+                back at any time.
+              </p>
+              <div class="flex flex-wrap justify-end gap-2">
+                <Button variant="quiet" type="button" onClick={() => setPendingScope(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  type="button"
+                  onClick={() => {
+                    // The signal, not the held copy, as for a promotion above.
+                    const confirmed = pendingScope();
+                    setPendingScope(null);
+                    if (confirmed) void changeScope(confirmed, "full");
+                  }}
+                >
+                  Yes, show the whole run sheet
                 </Button>
               </div>
             </div>
