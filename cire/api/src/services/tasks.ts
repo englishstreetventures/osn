@@ -9,8 +9,9 @@
  * even with a leaked task id — a mismatched (weddingId, taskId) fails
  * `TaskNotInWedding` rather than touching a row.
  */
-import { taskTemplateDismissals, tasks, weddingHosts, weddings } from "@cire/db";
+import { taskAssignees, taskTemplateDismissals, tasks, weddingHosts, weddings } from "@cire/db";
 import { and, asc, eq, exists, isNotNull, type SQL, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
@@ -18,7 +19,7 @@ import { bound, commitBatchResults, DbService, commitGroupedBatches, dbQuery } f
 import type { Db } from "../db";
 import type { TimeframeBucket } from "../lib/checklist-buckets";
 import { metricTaskAssignmentChanged } from "../metrics";
-import type { TaskAssignmentAction } from "../metrics";
+import type { TaskAssignmentAction, TaskAssignmentResult } from "../metrics";
 
 /** No task with this id under this wedding (missing or another wedding's). 404-class. */
 export class TaskNotInWedding extends Data.TaggedError("TaskNotInWedding") {}
@@ -51,8 +52,9 @@ export interface TaskDto {
   /** The item's key inside that template, or null. */
   templateItem: string | null;
   dueSource: TaskDueSource;
-  /** The seat (`wedding_hosts.id`) the task is assigned to, or null. */
-  assignedHostId: string | null;
+  /** The seats (`wedding_hosts.id`) holding the task, in the order they were
+   *  added; empty for a task nobody holds. */
+  assigneeHostIds: string[];
 }
 
 export interface CreateTaskInput {
@@ -87,10 +89,10 @@ export interface TaskRow {
   templateItem: string | null;
   dueOffsetDays: number | null;
   dueSource: TaskDueSource;
-  assignedHostId: string | null;
 }
 
-export const toDto = (r: TaskRow): TaskDto => ({
+/** A task row and the seats holding it, in the order they were added. */
+export const toDto = (r: TaskRow, assigneeHostIds: string[]): TaskDto => ({
   id: r.id,
   weddingId: r.weddingId,
   title: r.title,
@@ -104,8 +106,98 @@ export const toDto = (r: TaskRow): TaskDto => ({
   templateId: r.templateId,
   templateItem: r.templateItem,
   dueSource: r.dueSource,
-  assignedHostId: r.assignedHostId,
+  assigneeHostIds,
 });
+
+/** One (task, seat) row of `task_assignees`. */
+export interface AssigneeRow {
+  taskId: string;
+  hostId: string;
+}
+
+/** Holders in the order they were added. `assigned_at` is in seconds, so
+ *  rowid orders two seats added in the same second. */
+const ASSIGNMENT_ORDER = [asc(taskAssignees.assignedAt), asc(sql`rowid`)];
+
+/** Every holder of every task of `weddingId`, in the order they were added.
+ *  Returned unrun, so it rides in the batch that reads the tasks. */
+export const weddingAssignees = (db: Db, weddingId: string) =>
+  db
+    .select({ taskId: taskAssignees.taskId, hostId: taskAssignees.hostId })
+    .from(taskAssignees)
+    .where(eq(taskAssignees.weddingId, weddingId))
+    .orderBy(...ASSIGNMENT_ORDER);
+
+/** The holders of one task of `weddingId`, in the order they were added.
+ *  Returned unrun, for the batch that writes or reads the task. */
+const taskAssigneeIds = (db: Db, weddingId: string, taskId: string) =>
+  db
+    .select({ hostId: taskAssignees.hostId })
+    .from(taskAssignees)
+    .where(and(eq(taskAssignees.taskId, taskId), eq(taskAssignees.weddingId, weddingId)))
+    .orderBy(...ASSIGNMENT_ORDER);
+
+const hostIdsOf = (rows: unknown): string[] =>
+  (rows as readonly { hostId: string }[]).map((row) => row.hostId);
+
+/** A wedding's task rows as DTOs, each with its holders from `assigned`
+ *  ({@link weddingAssignees}, read in the same batch). */
+export function withAssignees(
+  rows: readonly TaskRow[],
+  assigned: readonly AssigneeRow[],
+): TaskDto[] {
+  const byTask = new Map<string, string[]>();
+  for (const { taskId, hostId } of assigned) {
+    const held = byTask.get(taskId);
+    if (held) held.push(hostId);
+    else byTask.set(taskId, [hostId]);
+  }
+  return rows.map((row) => toDto(row, byTask.get(row.id) ?? []));
+}
+
+/**
+ * One batch for a holder write: `write`, then the task and its holders as they
+ * stand after it. `task` is undefined when `taskId` is not `weddingId`'s;
+ * `changed` says whether `write` touched a row.
+ */
+function writeAssignee(
+  db: Db,
+  weddingId: string,
+  taskId: string,
+  write: BatchItem<"sqlite">,
+): Effect.Effect<{ task: TaskRow | undefined; holders: string[]; changed: boolean }> {
+  return Effect.map(
+    dbQuery(() =>
+      commitBatchResults(db, [
+        write,
+        db
+          .select()
+          .from(tasks)
+          .where(and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId))),
+        taskAssigneeIds(db, weddingId, taskId),
+      ]),
+    ),
+    (results) => ({
+      task: (results[1] as readonly TaskRow[])[0],
+      holders: hostIdsOf(results[2]),
+      changed: (results[0] as readonly unknown[]).length > 0,
+    }),
+  );
+}
+
+/** Count one holder write's outcome. */
+const countAssignment = (action: TaskAssignmentAction, result: TaskAssignmentResult) =>
+  Effect.sync(() => metricTaskAssignmentChanged(action, result));
+
+/** A holder write the database failed: counted and logged, then left to the
+ *  route's 500. */
+const onAssignmentDefect = (action: TaskAssignmentAction, weddingId: string) =>
+  Effect.tapDefect(() =>
+    countAssignment(action, "error").pipe(
+      Effect.andThen(Effect.logError("checklist holder write failed")),
+      Effect.annotateLogs({ weddingId, action }),
+    ),
+  );
 
 /**
  * A seeded task's due date: the wedding's STORED date moved by `offset` days,
@@ -145,15 +237,19 @@ export const tasksService = {
   list(weddingId: string): Effect.Effect<TaskDto[], never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const rows = yield* dbQuery(() =>
-        db
-          .select()
-          .from(tasks)
-          .where(eq(tasks.weddingId, weddingId))
-          .orderBy(asc(tasks.timeframeBucket), asc(tasks.sortOrder))
-          .all(),
+      // One batch: the tasks and every holder of them, so a checklist of any
+      // length costs two statements.
+      const [rows, assigned] = yield* dbQuery(() =>
+        commitBatchResults(db, [
+          db
+            .select()
+            .from(tasks)
+            .where(eq(tasks.weddingId, weddingId))
+            .orderBy(asc(tasks.timeframeBucket), asc(tasks.sortOrder)),
+          weddingAssignees(db, weddingId),
+        ]),
       );
-      return (rows as TaskRow[]).map(toDto);
+      return withAssignees(rows as TaskRow[], assigned as AssigneeRow[]);
     }).pipe(Effect.withSpan("cire.tasks.list"));
   },
 
@@ -191,10 +287,10 @@ export const tasksService = {
         templateItem: null,
         dueOffsetDays: null,
         dueSource: "manual",
-        assignedHostId: null,
       };
       yield* dbQuery(() => db.insert(tasks).values(row).run());
-      return toDto(row);
+      // A task with a fresh id has no holders to read.
+      return toDto(row, []);
     }).pipe(Effect.withSpan("cire.tasks.create"));
   },
 
@@ -231,86 +327,123 @@ export const tasksService = {
         }
       }
 
-      // Single round trip (as hosts.setRole): RETURNING reports whether a
-      // (task, wedding) row existed — zero rows maps to TaskNotInWedding with
-      // no separate existence SELECT. An empty patch degrades to a plain read
-      // (drizzle rejects an empty SET).
-      const [updated] = yield* dbQuery(() =>
-        Object.keys(set).length === 0
-          ? db
-              .select()
-              .from(tasks)
-              .where(and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId)))
-              .all()
-          : db
-              .update(tasks)
-              .set(set)
-              .where(and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId)))
-              .returning()
-              .all(),
+      // One batch: the UPDATE, whose RETURNING reports whether a (task,
+      // wedding) row existed — zero rows maps to TaskNotInWedding with no
+      // separate existence SELECT — and the task's holders, which no patch
+      // touches. An empty patch degrades to a plain read (drizzle rejects an
+      // empty SET).
+      const ours = and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId));
+      const results = yield* dbQuery(() =>
+        commitBatchResults(db, [
+          Object.keys(set).length === 0
+            ? db.select().from(tasks).where(ours)
+            : db.update(tasks).set(set).where(ours).returning(),
+          taskAssigneeIds(db, weddingId, taskId),
+        ]),
       );
+      const [updated] = results[0] as readonly TaskRow[];
       if (!updated) return yield* Effect.fail(new TaskNotInWedding());
-      return toDto(updated as TaskRow);
+      return toDto(updated, hostIdsOf(results[1]));
     }).pipe(Effect.withSpan("cire.tasks.update"));
   },
 
   /**
-   * Hand a task to a seat of its wedding (`wedding_hosts.id`), or to nobody
-   * when `hostId` is null. Any seat of the wedding may hold a task, whatever
-   * its role.
+   * Put a seat of the task's wedding (`wedding_hosts.id`) on a task. Any seat
+   * may hold a task, whatever its role, and a seat already on it keeps its
+   * place.
    *
-   * The seat check rides in the UPDATE's own WHERE, so a seat that is not the
-   * wedding's is never written, and one removed while this runs is either not
-   * found here or cleared by the foreign key's SET NULL after. RETURNING says
-   * whether anything was written; only when nothing was is the task read, to
-   * tell the two refusals apart: no task is `TaskNotInWedding`, a task left
-   * as it was is `HostNotInWedding`.
+   * One batch: the INSERT, guarded in its own WHERE by the task and the seat
+   * both being `weddingId`'s, then the task and its holders as they stand
+   * after it. No task is `TaskNotInWedding`. When nothing was inserted, the
+   * holders tell the two other answers apart: a seat among them was already
+   * there and is answered as it is; a seat not among them is not one of the
+   * wedding's — the foreign keys make every holder of a task a seat of its
+   * wedding — and is `HostNotInWedding`.
    */
-  assign(
+  addAssignee(
     weddingId: string,
     taskId: string,
-    hostId: string | null,
+    hostId: string,
   ): Effect.Effect<TaskDto, TaskNotInWedding | HostNotInWedding, DbService> {
-    const action: TaskAssignmentAction = hostId === null ? "unassign" : "assign";
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const ours = and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId));
-      // The wedding id is bound, not correlated to the task row: the UPDATE is
-      // already scoped to it, so the seat must be that same wedding's.
-      const seatOfWedding =
-        hostId === null
-          ? undefined
-          : exists(
-              db
-                .select({ one: sql`1` })
-                .from(weddingHosts)
-                .where(and(eq(weddingHosts.id, hostId), eq(weddingHosts.weddingId, weddingId))),
-            );
-      const [updated] = yield* dbQuery(() =>
-        db
-          .update(tasks)
-          .set({ assignedHostId: hostId })
-          .where(and(ours, seatOfWedding))
-          .returning()
-          .all(),
-      );
-      if (updated) return toDto(updated as TaskRow);
-      const [found] = yield* dbQuery(() =>
-        db.select({ id: tasks.id }).from(tasks).where(ours).all(),
-      );
-      return yield* Effect.fail(found ? new HostNotInWedding() : new TaskNotInWedding());
-    }).pipe(
-      Effect.tap(() => Effect.sync(() => metricTaskAssignmentChanged(action, "ok"))),
-      Effect.tapError((err) =>
-        Effect.sync(() =>
-          metricTaskAssignmentChanged(
-            action,
-            err._tag === "HostNotInWedding" ? "assignee_not_in_wedding" : "task_not_found",
+      const insert = db
+        .insert(taskAssignees)
+        .select(
+          // Every `task_assignees` column, in the table's order. The task row
+          // supplies its own id and wedding, so the row can only ever name the
+          // task's own wedding.
+          db
+            .select({
+              taskId: tasks.id,
+              hostId: bound(hostId, taskAssignees.hostId),
+              weddingId: tasks.weddingId,
+              assignedAt: bound(new Date(), taskAssignees.assignedAt),
+            })
+            .from(tasks)
+            .where(
+              and(
+                eq(tasks.id, taskId),
+                eq(tasks.weddingId, weddingId),
+                // Bound, not correlated to the task row: the statement is
+                // already scoped to the wedding, so the seat must be that
+                // same wedding's.
+                exists(
+                  db
+                    .select({ one: sql`1` })
+                    .from(weddingHosts)
+                    .where(and(eq(weddingHosts.id, hostId), eq(weddingHosts.weddingId, weddingId))),
+                ),
+              ),
+            ),
+        )
+        .onConflictDoNothing()
+        .returning({ hostId: taskAssignees.hostId });
+      const { task, holders, changed } = yield* writeAssignee(db, weddingId, taskId, insert);
+      if (!task) {
+        yield* countAssignment("add", "task_not_found");
+        return yield* Effect.fail(new TaskNotInWedding());
+      }
+      if (!changed && !holders.includes(hostId)) {
+        yield* countAssignment("add", "assignee_not_in_wedding");
+        return yield* Effect.fail(new HostNotInWedding());
+      }
+      yield* countAssignment("add", changed ? "ok" : "unchanged");
+      return toDto(task, holders);
+    }).pipe(onAssignmentDefect("add", weddingId), Effect.withSpan("cire.tasks.assign"));
+  },
+
+  /**
+   * Take a seat off a task. A seat the task does not hold — whether or not it
+   * is one of the wedding's — leaves the task as it is and is answered with
+   * it. One batch: the DELETE, scoped to the wedding, then the task and its
+   * holders after it. No task is `TaskNotInWedding`.
+   */
+  removeAssignee(
+    weddingId: string,
+    taskId: string,
+    hostId: string,
+  ): Effect.Effect<TaskDto, TaskNotInWedding, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const del = db
+        .delete(taskAssignees)
+        .where(
+          and(
+            eq(taskAssignees.taskId, taskId),
+            eq(taskAssignees.hostId, hostId),
+            eq(taskAssignees.weddingId, weddingId),
           ),
-        ),
-      ),
-      Effect.withSpan("cire.tasks.assign", { attributes: { "task.assignment": action } }),
-    );
+        )
+        .returning({ hostId: taskAssignees.hostId });
+      const { task, holders, changed } = yield* writeAssignee(db, weddingId, taskId, del);
+      if (!task) {
+        yield* countAssignment("remove", "task_not_found");
+        return yield* Effect.fail(new TaskNotInWedding());
+      }
+      yield* countAssignment("remove", changed ? "ok" : "unchanged");
+      return toDto(task, holders);
+    }).pipe(onAssignmentDefect("remove", weddingId), Effect.withSpan("cire.tasks.unassign"));
   },
 
   remove(weddingId: string, taskId: string): Effect.Effect<void, TaskNotInWedding, DbService> {

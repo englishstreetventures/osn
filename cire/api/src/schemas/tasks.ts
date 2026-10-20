@@ -37,14 +37,10 @@ export const UpdateTaskBody = Schema.Struct({
 });
 export type UpdateTaskBody = Schema.Schema.Type<typeof UpdateTaskBody>;
 
-// Assign: the seat (`wedding_hosts.id`) to hand the task to, or null for
-// nobody. Required, so a body that names neither is a 400 rather than a silent
-// unassign. Bounded well past a seat id's length; whether the seat is one of
-// this wedding's is the service's to say.
-export const AssignTaskBody = Schema.Struct({
-  assignedHostId: Schema.NullOr(Schema.NonEmptyString.check(Schema.isMaxLength(64))),
-});
-export type AssignTaskBody = Schema.Schema.Type<typeof AssignTaskBody>;
+// A task holder's seat id (`wedding_hosts.id`), from the path of the routes
+// that put a seat on a task or take it off. Bounded well past a seat id's
+// length; whether the seat is one of this wedding's is the service's to say.
+export const AssigneeHostId = Schema.NonEmptyString.check(Schema.isMaxLength(64));
 
 // Reorder: the new left-to-right order of task ids within one bucket.
 export const ReorderTasksBody = Schema.Struct({

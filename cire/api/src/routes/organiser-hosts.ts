@@ -47,19 +47,21 @@ const peopleLimitRefusal = (err: PeopleLimitReached) => ({
 /**
  * A person on the co-host panel. `handle` and `displayName` are absent — not
  * null — when the OSN display lookup couldn't resolve them, and the portal
- * falls back to the profile id.
+ * falls back to the profile id. `avatarUrl` is the profile's photo, an https
+ * URL, absent when there is none; the portal draws initials then.
  */
 interface HostPersonDto {
   osnProfileId: string;
   handle?: string;
   displayName?: string;
+  avatarUrl?: string;
 }
 
 /** A seat — an owner's or a co-host's: a {@link HostPersonDto} plus their role
  *  and the seat's attribution. */
 interface HostSeatDto extends HostPersonDto {
   /** The seat's own id (`wedding_hosts.id`): what a checklist task's
-   *  `assignedHostId` names, so the portal can show who holds a task. */
+   *  `assigneeHostIds` name, so the portal can show who holds a task. */
   hostId: string;
   role: WeddingRole;
   createdAt: number;
@@ -165,6 +167,7 @@ export const createOrganiserHostsReadRoutes = (
                     // last-resort fallback when the lookup couldn't resolve it.
                     if (display) row.handle = display.handle;
                     if (display?.displayName) row.displayName = display.displayName;
+                    if (display?.avatarUrl) row.avatarUrl = display.avatarUrl;
                     if (addedBy) row.addedByHandle = addedBy.handle;
                     return row;
                   }),

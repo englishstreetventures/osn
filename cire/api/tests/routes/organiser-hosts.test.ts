@@ -16,6 +16,7 @@ import type { AssignableHostRole } from "../../src/services/hosts";
 import type {
   OsnHandleResolver,
   OsnOrganiserEmailLookup,
+  OsnProfileDisplay,
   OsnProfileDisplayResolver,
 } from "../../src/services/osn-bridge";
 import { appRequest, jsonBody, setTier, TEST_CF_IP, TEST_ORIGIN } from "../test-helpers";
@@ -52,13 +53,14 @@ const throwingResolver: OsnHandleResolver = async () => {
 };
 
 /** Display-resolver stub: maps known profile ids to handle + display name. */
-const PROFILE_TO_DISPLAY: Record<string, { handle: string; displayName: string | null }> = {
-  [COHOST]: { handle: "bob", displayName: "Bob Jones" },
-  usr_carol: { handle: "carol", displayName: null },
-  [OWNER]: { handle: "alice_owner", displayName: "Alice Owner" },
+const BOB_PHOTO = "https://cdn.example.test/avatars/bob.png";
+const PROFILE_TO_DISPLAY: Record<string, OsnProfileDisplay> = {
+  [COHOST]: { handle: "bob", displayName: "Bob Jones", avatarUrl: BOB_PHOTO },
+  usr_carol: { handle: "carol", displayName: null, avatarUrl: null },
+  [OWNER]: { handle: "alice_owner", displayName: "Alice Owner", avatarUrl: null },
 };
 const stubDisplayResolver: OsnProfileDisplayResolver = async (profileIds) => {
-  const map = new Map<string, { handle: string; displayName: string | null }>();
+  const map = new Map<string, OsnProfileDisplay>();
   for (const id of profileIds) {
     const display = PROFILE_TO_DISPLAY[id];
     if (display) map.set(id, display);
@@ -631,6 +633,19 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     expect(body.hosts[1]!.osnProfileId).toBe(COHOST);
     expect(body.hosts[1]!.handle).toBe("bob");
     expect(body.hosts[1]!.displayName).toBe("Bob Jones");
+  });
+
+  // The checklist shows each holder's photo from this list. A seat whose
+  // profile has none carries no key, and the portal draws initials.
+  it("carries each seat's photo when OSN has one, and no key when it does not", async () => {
+    const { db, app } = buildApp({ resolveOsnProfileDisplays: stubDisplayResolver });
+    seedCohost(db);
+    const res = await req(app, "GET", hostsPath, COHOST);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hosts: { osnProfileId: string; avatarUrl?: string }[] };
+    const [owner, bob] = body.hosts;
+    expect(owner).not.toHaveProperty("avatarUrl");
+    expect(bob).toMatchObject({ osnProfileId: COHOST, avatarUrl: BOB_PHOTO });
   });
 
   it("falls back to profileId (no handle key) when the resolver returns an empty map", async () => {

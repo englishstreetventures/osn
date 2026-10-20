@@ -24,7 +24,14 @@ import {
   type ChecklistTemplateItem,
 } from "../lib/checklist-templates";
 import { metricChecklistTemplateApplied } from "../metrics";
-import { anchoredDueAt, type TaskDto, type TaskRow, toDto } from "./tasks";
+import {
+  anchoredDueAt,
+  type AssigneeRow,
+  type TaskDto,
+  type TaskRow,
+  weddingAssignees,
+  withAssignees,
+} from "./tasks";
 
 /** `new`: not on the checklist. `added`: already on it. `removed`: the couple
  *  deleted it, so it comes back only if they pick it. */
@@ -111,7 +118,8 @@ export const taskTemplatesService = {
    * Picking an item the couple removed is their confirmation to bring it
    * back, so its removal record is cleared in the same batch. One batch, no
    * read before it: the unique index skips an item already there, and each
-   * new task goes after the tasks already in its bucket.
+   * new task goes after the tasks already in its bucket. The checklist it
+   * answers with carries every task's holders, read in the same batch.
    */
   apply(input: {
     weddingId: string;
@@ -180,11 +188,17 @@ export const taskTemplatesService = {
             .from(tasks)
             .where(eq(tasks.weddingId, weddingId))
             .orderBy(asc(tasks.timeframeBucket), asc(tasks.sortOrder)),
+          // The holders of the tasks already there: the portal replaces its
+          // checklist with this answer.
+          weddingAssignees(db, weddingId),
         ]),
       );
       const added = rowsChanged(results[1]);
       metricChecklistTemplateApplied(templateId, added);
-      return { added, tasks: (results[2] as TaskRow[]).map(toDto) };
+      return {
+        added,
+        tasks: withAssignees(results[2] as TaskRow[], results[3] as AssigneeRow[]),
+      };
     }).pipe(Effect.withSpan("cire.tasks.template_apply"));
   },
 };

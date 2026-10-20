@@ -100,7 +100,7 @@ export const CIRE_METRICS = {
   plusOnePermissionSet: "cire.plus_one.permission.set",
   // Checklist tasks seeded from a template, by template.
   checklistTemplateApplied: "cire.tasks.template.applied",
-  // Checklist assignee writes, by action and outcome.
+  // Seats put on or taken off a checklist task, by action and outcome.
   taskAssignmentChanged: "cire.tasks.assignment.changed",
   // Organiser spreadsheet import.
   importApplied: "cire.import.applied",
@@ -497,11 +497,18 @@ export type PlusOneAction = "added" | "renamed" | "removed";
 export type PlusOneActor = "guest" | "organiser";
 type PlusOneChangedAttrs = { action: PlusOneAction; actor: PlusOneActor };
 type ChecklistTemplateAppliedAttrs = { template: ChecklistTemplateId };
-/** `assign` hands a task to a seat; `unassign` leaves it with nobody. */
-export type TaskAssignmentAction = "assign" | "unassign";
-/** `task_not_found` — no such task on the wedding; `assignee_not_in_wedding`
- *  — the seat named is not one of the wedding's. */
-export type TaskAssignmentResult = "ok" | "task_not_found" | "assignee_not_in_wedding";
+/** `add` puts a seat on a task; `remove` takes one off. */
+export type TaskAssignmentAction = "add" | "remove";
+/** `ok` — the write changed the task's holders; `unchanged` — the seat was
+ *  already on it (add) or not on it (remove); `task_not_found` — no such task
+ *  on the wedding; `assignee_not_in_wedding` — the seat named is not one of
+ *  the wedding's (add only); `error` — the database failed the write. */
+export type TaskAssignmentResult =
+  | "ok"
+  | "unchanged"
+  | "task_not_found"
+  | "assignee_not_in_wedding"
+  | "error";
 type TaskAssignmentChangedAttrs = {
   action: TaskAssignmentAction;
   result: TaskAssignmentResult;
@@ -925,7 +932,7 @@ const checklistTemplateApplied = createCounter<ChecklistTemplateAppliedAttrs>({
 
 const taskAssignmentChanged = createCounter<TaskAssignmentChangedAttrs>({
   name: CIRE_METRICS.taskAssignmentChanged,
-  description: "Checklist assignee writes, by action and outcome",
+  description: "Seats put on or taken off a checklist task, by action and outcome",
   unit: "{request}",
 });
 
@@ -1290,7 +1297,7 @@ export const metricChecklistTemplateApplied = (
   count: number,
 ): void => checklistTemplateApplied.add(count, { template });
 
-/** One assignee write on a checklist task, and how it ended. */
+/** One seat put on or taken off a checklist task, and how it ended. */
 export const metricTaskAssignmentChanged = (
   action: TaskAssignmentAction,
   result: TaskAssignmentResult,

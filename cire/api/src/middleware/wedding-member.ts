@@ -20,6 +20,7 @@ const fail = (status: number, error: string) => ({
   weddingId: undefined as string | undefined,
   weddingIsOwner: false,
   weddingRole: undefined as WeddingRole | undefined,
+  weddingHostId: undefined as string | undefined,
   weddingSlug: undefined as string | undefined,
   weddingTier: undefined as Tier | undefined,
   weddingInviteImages: undefined as InviteImageKeys | undefined,
@@ -30,6 +31,7 @@ const fail = (status: number, error: string) => ({
 const pass = (
   weddingId: string,
   role: WeddingRole,
+  hostId: string | null,
   slug: string,
   tier: Tier,
   inviteImages: InviteImageKeys | undefined,
@@ -38,6 +40,9 @@ const pass = (
   weddingId: weddingId as string | undefined,
   weddingIsOwner: role === "owner",
   weddingRole: role as WeddingRole | undefined,
+  // The caller's own seat id, from the row that found their seat. The
+  // checklist tells its reader which of a task's holders they are with it.
+  weddingHostId: (hostId ?? undefined) as string | undefined,
   // Read in the same query that found the caller's seat. The CSV exports name
   // their download after it, so they need not read the wedding row a second time.
   weddingSlug: slug as string | undefined,
@@ -74,7 +79,8 @@ function authorizeFor(weddingId: string, osnProfileId: string, options: WeddingM
  * for unknown weddings, 403 for callers who hold no such seat. Provides
  * `weddingId` (on success), `weddingIsOwner`, and `weddingRole` so a route can
  * keep an owner-only action gated even though co-hosts reach the shared
- * dashboard reads, plus `weddingSlug` from the same read.
+ * dashboard reads, plus `weddingSlug` and the caller's own seat id
+ * (`weddingHostId`) from the same read.
  *
  * Which roles those are is `policyFor()`'s to say, not this file's — see
  * `wedding-role.ts`. This gate does not enumerate the roles it excludes,
@@ -119,6 +125,7 @@ export function weddingMember(db: Db, options: WeddingMemberOptions = {}) {
       return pass(
         weddingId,
         result.role,
+        result.hostId,
         result.weddingSlug,
         result.weddingTier,
         result.inviteImages,

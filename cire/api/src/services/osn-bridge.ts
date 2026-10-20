@@ -284,11 +284,25 @@ export async function createHandleResolverFromEnv(env: {
 export interface OsnProfileDisplay {
   readonly handle: string;
   readonly displayName: string | null;
+  /** The profile's photo, only ever an https URL: every member's browser loads
+   *  it as an image. `null` when the profile has none, or osn-api sent
+   *  anything else. */
+  readonly avatarUrl: string | null;
+}
+
+/** `value` when it is an absolute https URL, else `null`. */
+function httpsUrlOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    return new URL(value).protocol === "https:" ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Batch-resolves a set of OSN profile ids (`usr_*`) to their display metadata
- * (handle + display name). Returns a `Map<profileId, display>` keyed by the id
+ * (handle, display name and photo). Returns a `Map<profileId, display>` keyed by the id
  * osn-api echoed back; ids osn-api doesn't recognise are simply absent from the
  * map. FAIL-SOFT: any transport/infra failure (osn-api down / 5xx / malformed
  * body) resolves to an EMPTY map, never a throw — the host list then degrades
@@ -333,7 +347,7 @@ export function createArcProfileDisplayResolver(
       if (!res.ok) return empty;
 
       const data = (await res.json()) as {
-        profiles?: { id?: unknown; handle?: unknown; displayName?: unknown }[];
+        profiles?: { id?: unknown; handle?: unknown; displayName?: unknown; avatarUrl?: unknown }[];
       };
       if (!Array.isArray(data.profiles)) return empty;
 
@@ -343,6 +357,7 @@ export function createArcProfileDisplayResolver(
         map.set(p.id, {
           handle: p.handle,
           displayName: typeof p.displayName === "string" ? p.displayName : null,
+          avatarUrl: httpsUrlOrNull(p.avatarUrl),
         });
       }
       return map;

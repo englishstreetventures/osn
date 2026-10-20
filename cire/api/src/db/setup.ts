@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS wedding_hosts (
 CREATE UNIQUE INDEX IF NOT EXISTS wedding_hosts_wedding_profile_uniq ON wedding_hosts(wedding_id, osn_profile_id);
 CREATE INDEX IF NOT EXISTS wedding_hosts_profile_idx ON wedding_hosts(osn_profile_id);
 CREATE INDEX IF NOT EXISTS wedding_hosts_wedding_idx ON wedding_hosts(wedding_id);
+CREATE UNIQUE INDEX IF NOT EXISTS wedding_hosts_id_wedding_unique ON wedding_hosts(id, wedding_id);
 
 CREATE TABLE IF NOT EXISTS families (
   id TEXT PRIMARY KEY,
@@ -326,12 +327,23 @@ CREATE TABLE IF NOT EXISTS tasks (
   template_id TEXT,
   template_item TEXT,
   due_offset_days INTEGER,
-  due_source TEXT NOT NULL DEFAULT 'manual',
-  assigned_host_id TEXT REFERENCES wedding_hosts(id) ON DELETE SET NULL
+  due_source TEXT NOT NULL DEFAULT 'manual'
 );
 CREATE INDEX IF NOT EXISTS tasks_wedding_bucket_sort_idx ON tasks(wedding_id, timeframe_bucket, sort_order);
 CREATE UNIQUE INDEX IF NOT EXISTS tasks_wedding_template_item_unique ON tasks(wedding_id, template_id, template_item) WHERE template_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS tasks_assigned_host_idx ON tasks(assigned_host_id) WHERE assigned_host_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_id_wedding_unique ON tasks(id, wedding_id);
+
+CREATE TABLE IF NOT EXISTS task_assignees (
+  task_id TEXT NOT NULL,
+  host_id TEXT NOT NULL,
+  wedding_id TEXT NOT NULL,
+  assigned_at INTEGER NOT NULL,
+  PRIMARY KEY (task_id, host_id),
+  FOREIGN KEY (task_id, wedding_id) REFERENCES tasks(id, wedding_id) ON DELETE CASCADE,
+  FOREIGN KEY (host_id, wedding_id) REFERENCES wedding_hosts(id, wedding_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS task_assignees_host_idx ON task_assignees(host_id);
+CREATE INDEX IF NOT EXISTS task_assignees_wedding_assigned_idx ON task_assignees(wedding_id, assigned_at);
 
 CREATE TABLE IF NOT EXISTS task_template_dismissals (
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,

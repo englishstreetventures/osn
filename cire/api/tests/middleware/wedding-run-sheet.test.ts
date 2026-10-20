@@ -155,9 +155,9 @@ describe("a helper scoped own receives no other person's assignments", () => {
   // output, so the two halves that sub-issue 3 has to compose are proven to
   // compose here.
   const RUN_SHEET = [
-    { id: "task_mine", title: "Carry the cake", assignedHostId: HELPER_SEAT },
-    { id: "task_theirs", title: "Mind the rings", assignedHostId: OTHER_SEAT },
-    { id: "task_nobodys", title: "Unassigned", assignedHostId: null },
+    { id: "task_mine", title: "Carry the cake", assigneeHostIds: [HELPER_SEAT] },
+    { id: "task_theirs", title: "Mind the rings", assigneeHostIds: [OTHER_SEAT] },
+    { id: "task_nobodys", title: "Unassigned", assigneeHostIds: [] },
   ];
 
   function buildRunSheetApp(profileId: string) {
@@ -207,21 +207,29 @@ describe("a helper scoped own receives no other person's assignments", () => {
 
 describe("runSheetVisibleTo", () => {
   const items = [
-    { assignedHostId: "whost_a" },
-    { assignedHostId: "whost_b" },
-    { assignedHostId: null },
+    { assigneeHostIds: ["whost_a"] },
+    { assigneeHostIds: ["whost_b"] },
+    { assigneeHostIds: ["whost_b", "whost_a"] },
+    { assigneeHostIds: [] },
   ];
 
   it("passes everything through at full scope", () => {
     expect(runSheetVisibleTo("full", "whost_a", items)).toEqual(items);
   });
 
-  it("keeps only the caller's own rows at own scope", () => {
-    expect(runSheetVisibleTo("own", "whost_a", items)).toEqual([{ assignedHostId: "whost_a" }]);
+  it("keeps only the rows the caller holds at own scope, shared ones included", () => {
+    expect(runSheetVisibleTo("own", "whost_a", items)).toEqual([
+      { assigneeHostIds: ["whost_a"] },
+      { assigneeHostIds: ["whost_b", "whost_a"] },
+    ]);
+    expect(runSheetVisibleTo("own", "whost_b", items)).toEqual([
+      { assigneeHostIds: ["whost_b"] },
+      { assigneeHostIds: ["whost_b", "whost_a"] },
+    ]);
   });
 
-  it("treats an unassigned row as nobody's, not everybody's", () => {
-    expect(runSheetVisibleTo("own", "whost_a", items)).not.toContainEqual({ assignedHostId: null });
+  it("treats a row nobody holds as nobody's, not everybody's", () => {
+    expect(runSheetVisibleTo("own", "whost_a", items)).not.toContainEqual({ assigneeHostIds: [] });
   });
 
   it("returns nothing at own scope when the caller has no seat id", () => {

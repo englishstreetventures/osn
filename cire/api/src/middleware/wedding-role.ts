@@ -87,16 +87,17 @@ export function runSheetScopeFor(role: WeddingRole, stored: RunSheetScope): RunS
 }
 
 /** The least a run-sheet row must carry for {@link runSheetVisibleTo} to judge
- *  it: which seat it is assigned to, or `null` for an unassigned one. */
-export type RunSheetAssignable = { assignedHostId: string | null };
+ *  it: the seats holding it, empty for a row nobody holds. */
+export type RunSheetAssignable = { assigneeHostIds: readonly string[] };
 
 /**
  * Narrow a run sheet to what `scope` entitles this caller to see.
  *
  * This is the enforcement, and it belongs on the server: a helper scoped `own`
  * who receives the whole run sheet and is shown a filtered view of it has been
- * given the whole run sheet. An unassigned row is nobody's, so `own` does not
- * include it.
+ * given the whole run sheet. `own` is every row the caller's seat holds, a row
+ * they share with other seats included; a row nobody holds is nobody's, so
+ * `own` does not include it.
  */
 export function runSheetVisibleTo<T extends RunSheetAssignable>(
   scope: RunSheetScope,
@@ -105,7 +106,7 @@ export function runSheetVisibleTo<T extends RunSheetAssignable>(
 ): T[] {
   if (scope === "full") return [...items];
   if (!callerHostId) return [];
-  return items.filter((item) => item.assignedHostId === callerHostId);
+  return items.filter((item) => item.assigneeHostIds.includes(callerHostId));
 }
 
 export type CapabilityDecision =

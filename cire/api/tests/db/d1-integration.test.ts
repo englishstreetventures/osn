@@ -19,6 +19,7 @@ import {
   registrySettings,
   rsvpChanges,
   rsvps,
+  taskAssignees,
   taskTemplateDismissals,
   tasks,
   unlockCodeRedemptions,
@@ -48,7 +49,7 @@ import {
   runInD1Session,
   withD1Session,
 } from "../../src/db/d1-session";
-import { commitBatch, createD1Db, DbService } from "../../src/db/index";
+import { commitBatch, createD1Db, DbService, driverErrorText } from "../../src/db/index";
 import type { Db } from "../../src/db/index";
 import { DDL } from "../../src/db/setup";
 import { CHECKLIST_TEMPLATES } from "../../src/lib/checklist-templates";
@@ -346,6 +347,7 @@ beforeEach(async () => {
     families,
     events,
     taskTemplateDismissals,
+    taskAssignees,
     tasks,
     registrySettings,
     weddingFaqs,
@@ -974,18 +976,26 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "a task's assignee is a seat of its wedding, and goes when the seat does, over D1",
+    "a task's holders are seats of its wedding, and go when the seat or the task does, over D1",
     async () => {
-      // The statements only D1 can judge: the assign UPDATE, guarded by EXISTS
-      // on a seat of the same wedding, with the task read that names a
-      // refusal, and the FK's ON DELETE SET NULL firing from the seat delete in
-      // hostsService.remove's batch.
+      // The statements only D1 can judge: the guarded INSERT … SELECT and the
+      // DELETE, each batched with the reads that name the answer; the composite
+      // foreign keys that refuse a task and a seat of different weddings; and
+      // both cascades, from the seat delete in hostsService.remove's batch and
+      // from the task delete.
       const now = new Date();
-      await db.insert(weddingHosts).values({
-        ...ownerSeat(BOOTSTRAP_WEDDING_ID, "usr_helper", now),
-        id: "whost_d1_helper",
-        role: "helper",
-      });
+      await db.insert(weddingHosts).values([
+        {
+          ...ownerSeat(BOOTSTRAP_WEDDING_ID, "usr_helper", now),
+          id: "whost_d1_helper",
+          role: "helper",
+        },
+        {
+          ...ownerSeat(BOOTSTRAP_WEDDING_ID, "usr_viewer", now),
+          id: "whost_d1_viewer",
+          role: "viewer",
+        },
+      ]);
       await db.insert(weddings).values({
         id: "wed_d1_other",
         slug: "other",
@@ -996,53 +1006,83 @@ describe("cire/api over real D1 (Miniflare)", () => {
       await db
         .insert(weddingHosts)
         .values({ ...ownerSeat("wed_d1_other", "usr_other", now), id: "whost_d1_other" });
-      const task = await run(
-        tasksService.create({
-          weddingId: BOOTSTRAP_WEDDING_ID,
-          title: "Carry the rings",
-          timeframeBucket: "day_of",
-          notes: null,
-          dueAt: null,
-        }),
-      );
+      const newTask = (title: string) =>
+        run(
+          tasksService.create({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            title,
+            timeframeBucket: "day_of",
+            notes: null,
+            dueAt: null,
+          }),
+        );
+      const task = await newTask("Carry the rings");
+      const doomed = await newTask("Mind the cake");
 
-      const assigned = await run(
-        tasksService.assign(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper"),
+      const add = (weddingId: string, taskId: string, hostId: string) =>
+        run(tasksService.addAssignee(weddingId, taskId, hostId));
+      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).assigneeHostIds).toEqual(
+        ["whost_d1_helper"],
       );
-      expect(assigned.assignedHostId).toBe("whost_d1_helper");
+      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer")).assigneeHostIds).toEqual(
+        ["whost_d1_helper", "whost_d1_viewer"],
+      );
+      // Already there: unchanged, still one row.
+      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).assigneeHostIds).toEqual(
+        ["whost_d1_helper", "whost_d1_viewer"],
+      );
+      await add(BOOTSTRAP_WEDDING_ID, doomed.id, "whost_d1_viewer");
 
-      const foreignSeat = await Effect.runPromiseExit(
-        tasksService
-          .assign(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_other")
-          .pipe(Effect.provideService(DbService, db)),
-      );
-      expect(Exit.isFailure(foreignSeat) && Cause.squash(foreignSeat.cause)).toMatchObject({
-        _tag: "HostNotInWedding",
-      });
-      const foreignTask = await Effect.runPromiseExit(
-        tasksService
-          .assign("wed_d1_other", task.id, "whost_d1_other")
-          .pipe(Effect.provideService(DbService, db)),
-      );
-      expect(Exit.isFailure(foreignTask) && Cause.squash(foreignTask.cause)).toMatchObject({
-        _tag: "TaskNotInWedding",
-      });
-      const stored = async () =>
+      const refusal = async (eff: Effect.Effect<unknown, unknown, DbService>) => {
+        const exit = await Effect.runPromiseExit(eff.pipe(Effect.provideService(DbService, db)));
+        return Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined;
+      };
+      expect(
+        await refusal(tasksService.addAssignee(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_other")),
+      ).toMatchObject({ _tag: "HostNotInWedding" });
+      expect(
+        await refusal(tasksService.addAssignee("wed_d1_other", task.id, "whost_d1_other")),
+      ).toMatchObject({ _tag: "TaskNotInWedding" });
+      expect(
+        await refusal(tasksService.removeAssignee("wed_d1_other", task.id, "whost_d1_helper")),
+      ).toMatchObject({ _tag: "TaskNotInWedding" });
+
+      // Past the service, the database itself refuses a row that pairs this
+      // wedding's task with another wedding's seat, whichever wedding it names.
+      for (const weddingId of [BOOTSTRAP_WEDDING_ID, "wed_d1_other"]) {
+        const written = await db
+          .insert(taskAssignees)
+          .values({ taskId: task.id, hostId: "whost_d1_other", weddingId, assignedAt: now })
+          .then(
+            () => "written",
+            (error: unknown) => driverErrorText(error),
+          );
+        expect(written, weddingId).toMatch(/FOREIGN KEY constraint failed/);
+      }
+
+      const stored = async (taskId: string) =>
         (
           await db
-            .select({ assignedHostId: tasks.assignedHostId })
-            .from(tasks)
-            .where(eq(tasks.id, task.id))
-        )[0]?.assignedHostId;
-      expect(await stored()).toBe("whost_d1_helper");
+            .select({ hostId: taskAssignees.hostId })
+            .from(taskAssignees)
+            .where(eq(taskAssignees.taskId, taskId))
+            .orderBy(asc(taskAssignees.assignedAt), asc(sql`rowid`))
+        ).map((r) => r.hostId);
+      expect(await stored(task.id)).toEqual(["whost_d1_helper", "whost_d1_viewer"]);
 
       await run(
         hostsService.remove({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_helper" }),
       );
-      expect(await stored()).toBeNull();
+      expect(await stored(task.id)).toEqual(["whost_d1_viewer"]);
 
-      const unassigned = await run(tasksService.assign(BOOTSTRAP_WEDDING_ID, task.id, null));
-      expect(unassigned.assignedHostId).toBeNull();
+      const removed = await run(
+        tasksService.removeAssignee(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer"),
+      );
+      expect(removed.assigneeHostIds).toEqual([]);
+      expect(await stored(task.id)).toEqual([]);
+
+      await run(tasksService.remove(BOOTSTRAP_WEDDING_ID, doomed.id));
+      expect(await stored(doomed.id)).toEqual([]);
     },
     MF_TIMEOUT_MS,
   );
