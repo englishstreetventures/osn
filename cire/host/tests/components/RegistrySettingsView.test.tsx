@@ -173,9 +173,22 @@ describe("publishing", () => {
         } as never,
       }),
     );
-    renderPanel();
+    const { unmount: unmountOpen } = renderPanel();
     const open = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
     expect(open.disabled).toBe(false);
+    unmountOpen();
+
+    // Half on is off: the switch off with Stripe charging, or the reverse.
+    for (const half of [
+      { cashGiftsEnabled: false, stripeConnected: true, stripeChargesEnabled: true },
+      { cashGiftsEnabled: true, stripeConnected: true, stripeChargesEnabled: false },
+    ]) {
+      setCachedRegistry("wed_1", snapshot({ items: funds, settings: half as never }));
+      const { unmount: unmountHalf } = renderPanel();
+      const halfOn = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
+      expect(halfOn.disabled).toBe(true);
+      unmountHalf();
+    }
   });
 
   it("never traps a couple whose published list lost its last gift", async () => {

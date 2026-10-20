@@ -1431,8 +1431,63 @@ describe("RegistryView — cash funds", () => {
     fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).not.toMatch(/https/);
-    expect(alert.textContent).toMatch(/fund/i);
+    expect(alert).toHaveTextContent(
+      "A cash fund takes a name, a goal, a description and a picture, and nothing else.",
+    );
+  });
+
+  it("answers each refused write in the words for its kind and its code", async () => {
+    // A fund refused for some other reason (a name too long, a goal too big).
+    setCachedRegistry("wed_1", snapshot());
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "Missing or invalid fields" }), { status: 400 }),
+    );
+    const first = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+    fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+    fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+    fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Check the fund’s name and goal.");
+    first.unmount();
+
+    // A gift refused with no code: the one field a gift can get wrong is its link.
+    __resetRegistryCache();
+    authFetch.mockReset();
+    setCachedRegistry("wed_1", snapshot());
+    authFetch.mockResolvedValueOnce(new Response("{}", { status: 400 }));
+    const second = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+    fireEvent.input(await screen.findByPlaceholderText(/copper pan/i), {
+      target: { value: "Wine fridge" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add gift/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "A link must be a full https:// address.",
+    );
+    second.unmount();
+
+    // A gift edit refused as a field of the other kind.
+    __resetRegistryCache();
+    authFetch.mockReset();
+    setCachedRegistry("wed_1", snapshot({ items: [item({ id: "a" })] }));
+    authFetch
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "invalid_item_fields" }), { status: 400 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(snapshot({ items: [item({ id: "a" })] })), { status: 200 }),
+      );
+    const third = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: /edit copper pan/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "A gift to reserve has no goal. Refresh and try again.",
+    );
+    third.unmount();
   });
 
   it("takes back a fund that a server not yet taking funds saved as a gift", async () => {
@@ -1461,6 +1516,85 @@ describe("RegistryView — cash funds", () => {
     expect(screen.queryByText("Honeymoon")).toBeNull();
   });
 
+  it("shows the couple a gift it could not take back, so they can remove it", async () => {
+    // The take-back failed, so a gift guests can reserve is on the list. The
+    // couple are told, and the list is read again so it is there to remove.
+    const saved = item({ id: "oops", title: "Honeymoon" });
+    for (const failure of [
+      () => Promise.resolve(new Response("{}", { status: 500 })),
+      () => Promise.reject(new Error("offline")),
+    ]) {
+      __resetRegistryCache();
+      authFetch.mockReset();
+      setCachedRegistry("wed_1", snapshot());
+      authFetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({ item: saved }), { status: 200 }))
+        .mockImplementationOnce(failure)
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(snapshot({ items: [saved] })), { status: 200 }),
+        );
+      const view = render(() => (
+        <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+      ));
+
+      fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+      fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+      fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/Remove it from your list/);
+      await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(3));
+      expect(String(authFetch.mock.calls[2]![0])).toMatch(/\/registry$/);
+      expect(await screen.findByText("Honeymoon")).toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  it("shows a fund with no goal without one, and edits it without inventing one", async () => {
+    setCachedRegistry("wed_1", snapshot({ items: [fund({ targetMinor: null })] }));
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ item: fund({ targetMinor: null }) }), { status: 200 }),
+    );
+    const { container } = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+
+    const [row] = await screen.findAllByRole("listitem");
+    expect(row!.textContent).not.toMatch(/Goal/);
+
+    fireEvent.click(screen.getByRole("button", { name: /edit honeymoon in kyoto/i }));
+    const editForm = container.querySelectorAll("form")[1]!;
+    expect((within(editForm).getByLabelText("Goal") as HTMLInputElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(authFetch.mock.calls[0]![1].body).targetMinor).toBeNull();
+  });
+
+  it("refuses a goal of nothing without asking the server", async () => {
+    setCachedRegistry("wed_1", snapshot());
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+    fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+    fireEvent.input(screen.getByLabelText("Goal (optional)"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("A goal must be a positive amount.");
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
+  it("sends the couple to sign in again when adding a fund answers 401", async () => {
+    setCachedRegistry("wed_1", snapshot());
+    redirectToLoginMock.mockClear();
+    authFetch.mockResolvedValueOnce(new Response("{}", { status: 401 }));
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+    fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+    fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+
+    await waitFor(() => expect(redirectToLoginMock).toHaveBeenCalledTimes(1));
+  });
+
   it("says when guests cannot see the funds, and not when they can", async () => {
     setCachedRegistry("wed_1", snapshot({ items: [fund()] }));
     const { unmount } = render(() => (
@@ -1468,6 +1602,27 @@ describe("RegistryView — cash funds", () => {
     ));
     expect(await screen.findByText(/only while money gifts are on/i)).toBeInTheDocument();
     unmount();
+
+    // Money gifts switched off with Stripe still charging is the ordinary way
+    // they are off; the funds are just as hidden.
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ settings: { ...takingMoney, cashGiftsEnabled: false }, items: [fund()] }),
+    );
+    const halfOn = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+    expect(await screen.findByText(/only while money gifts are on/i)).toBeInTheDocument();
+    halfOn.unmount();
+
+    // No fund, nothing to say, whatever the money settings.
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    const giftsOnly = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+    await screen.findByText("Copper pan");
+    expect(screen.queryByText(/only while money gifts are on/i)).toBeNull();
+    giftsOnly.unmount();
 
     setCachedRegistry("wed_1", snapshot({ settings: takingMoney, items: [fund()] }));
     render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);

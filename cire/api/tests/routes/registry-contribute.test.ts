@@ -649,6 +649,39 @@ describe("what reaches Stripe, and what does not", () => {
     expect(rows[0]?.stripeCheckoutSessionId).toBe("cs_1");
   });
 
+  /**
+   * Two presses that differ only in where the money goes are two gifts. A
+   * guest who opened a general gift and then chose a fund at the same amount
+   * must not be handed the general page, or the fund gift is paid with no fund
+   * on it — and the same the other way round.
+   */
+  it("never hands a fund gift the page of a general one, or the reverse", async () => {
+    for (const order of [
+      [null, "reg_fund"],
+      ["reg_fund", null],
+    ] as const) {
+      const stripe = stripeStub();
+      const { app, db } = buildApp({ stripe: stripe.client });
+      insertItem(db, "reg_fund", BOOTSTRAP_WEDDING_ID, "cash_fund", "Honeymoon in Kyoto");
+      const cookie = await guestCookie(app);
+
+      for (const itemId of order) {
+        const res = await contribute(app, cookie, { amountMinor: 5000, message: "aaa", itemId });
+        expect(res.status).toBe(200);
+      }
+
+      expect(stripe.sessions).toHaveLength(2);
+      expect(stripe.retrieved).toEqual([]);
+      const rows = db.select().from(registryContributions).all();
+      expect(rows.map((r) => [r.itemId, r.itemTitle]).toSorted()).toEqual(
+        [
+          [null, null],
+          ["reg_fund", "Honeymoon in Kyoto"],
+        ].toSorted(),
+      );
+    }
+  });
+
   it("never hands back a page priced in a currency the gate no longer approves", async () => {
     // The first page was opened in AUD. Stripe then pays the account out in
     // NZD and the couple move the wedding to NZD. The same press again must

@@ -184,10 +184,13 @@ describe("the amount a guest types", () => {
 describe("when it does not work", () => {
   it("says the couple are not taking money, without blaming the guest", async () => {
     stubFetch(json({ error: "cash_gifts_unavailable" }, 409));
-    const { container } = renderPanel();
+    const onFundClosed = vi.fn();
+    const { container } = renderPanel({ onFundClosed });
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
     const said = await screen.findByText("The couple aren’t taking money gifts at the moment.");
     expect(said).toBeTruthy();
+    // Only a closed fund asks the page for a fresh list.
+    expect(onFundClosed).not.toHaveBeenCalled();
   });
 
   it("hands back the way in when the session has lapsed", async () => {
@@ -292,10 +295,37 @@ describe("giving to a fund", () => {
     expect(choice.textContent).toContain("House deposit");
     const pictures = [...choice.querySelectorAll("img")];
     expect(pictures).toHaveLength(1);
+    // The small variant: the picture sits beside the name at thumbnail size.
     expect(pictures[0]?.getAttribute("src")).toContain("registry-honeymoon");
-    // No goal, no amount raised, no count: the only money on the panel is the
-    // amounts a guest may choose from.
-    expect(choice.textContent).not.toMatch(/\d/);
+    expect(pictures[0]?.getAttribute("src")).toContain("variant=thumb");
+  });
+
+  it("goes back to the couple when the guest changes their mind, and shows which is chosen", async () => {
+    const { calls } = stubFetch(json({ url: "https://checkout.stripe.com/c/pay/cs_1" }));
+    const { container } = renderPanel({
+      funds: [HONEYMOON, HOUSE],
+      fundImageBase: fundImage,
+      navigate: captureNavigation(),
+    });
+    const honeymoon = screen.getByRole("radio", { name: /Honeymoon in Kyoto/ }) as HTMLInputElement;
+    const general = screen.getByRole("radio", { name: /Wherever they choose/ }) as HTMLInputElement;
+    // The radios are visually hidden, so the border is all a sighted guest
+    // sees of their choice.
+    const card = (radio: HTMLInputElement) => radio.closest("label") as HTMLLabelElement;
+
+    fireEvent.click(honeymoon);
+    expect(honeymoon.checked).toBe(true);
+    expect(card(honeymoon).classList.contains("border-gold")).toBe(true);
+    expect(card(general).classList.contains("border-gold")).toBe(false);
+
+    fireEvent.click(general);
+    expect(general.checked).toBe(true);
+    expect(card(general).classList.contains("border-gold")).toBe(true);
+    expect(card(honeymoon).classList.contains("border-gold")).toBe(false);
+
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect((calls[0]?.body as { itemId: string | null } | undefined)?.itemId).toBeNull();
   });
 
   it("offers no choice of fund when the couple have none", () => {

@@ -352,8 +352,17 @@ export default function RegistryView(props: RegistryViewProps) {
       const { item } = (await res.json()) as { item: RegistryItem };
       if (item.kind !== "cash_fund") {
         haptic("reject");
-        setError("Cash funds aren’t available yet. Try again in a few minutes.");
-        await authFetch(itemUrl(item.id), { method: "DELETE" }).catch(() => undefined);
+        const removed = await authFetch(itemUrl(item.id), { method: "DELETE" }).catch(() => null);
+        if (removed?.ok) {
+          setError("Cash funds aren’t available yet. Try again in a few minutes.");
+          return;
+        }
+        // The gift is still on the list, where guests can reserve it. Show it
+        // to the couple so they can remove it themselves.
+        setError(
+          `Cash funds aren’t available yet, and “${item.title}” was saved as a gift guests can reserve. Remove it from your list.`,
+        );
+        void reload();
         return;
       }
       patchSnap((s) => ({ ...s, items: [...s.items, item] }));

@@ -311,6 +311,9 @@ describe("registry routes (Gold)", () => {
 
   it("authors a cash fund with a target the couple alone read back", async () => {
     const app = buildApp({ tier: "gold" });
+    const fundWrites = () =>
+      counterValue(CIRE_METRICS.registryItemWrite, { action: "create", kind: "cash_fund" });
+    const before = await fundWrites();
     const res = await req(app, "POST", `${base}/items`, EDITOR, {
       kind: "cash_fund",
       title: "Honeymoon in Kyoto",
@@ -323,6 +326,8 @@ describe("registry routes (Gold)", () => {
     expect(item.targetMinor).toBe(500_000);
     expect(item.priceMinor).toBeNull();
     expect(item.quantityWanted).toBe(1);
+    // Counted as a fund, so fund authoring shows apart from gifts.
+    expect((await fundWrites()) - before).toBe(1);
 
     const moved = await req(app, "PATCH", `${base}/items/${item.id}`, EDITOR, {
       targetMinor: 650_000,
@@ -363,6 +368,9 @@ describe("registry routes (Gold)", () => {
       { ...fund, category: "Travel" },
       { title: "Copper pan", targetMinor: 10_000 },
       { kind: "product", title: "Copper pan", targetMinor: 10_000 },
+      // One field of each kind at once belongs to no item at all.
+      { title: "Copper pan", priceMinor: 10_000, targetMinor: 10_000 },
+      { ...fund, priceMinor: 10_000, targetMinor: 10_000 },
     ]) {
       const res = await req(app, "POST", `${base}/items`, EDITOR, body);
       expect(res.status).toBe(400);
@@ -378,6 +386,8 @@ describe("registry routes (Gold)", () => {
       [fundId, { quantityWanted: 3 }],
       [fundId, { category: "Travel" }],
       [product.id, { targetMinor: 10_000 }],
+      [product.id, { priceMinor: 10_000, targetMinor: 10_000 }],
+      [fundId, { priceMinor: 10_000, targetMinor: 10_000 }],
     ] as const) {
       const res = await req(app, "PATCH", `${base}/items/${id}`, EDITOR, patch);
       expect(res.status).toBe(400);
@@ -395,9 +405,25 @@ describe("registry routes (Gold)", () => {
     expect(snap.items.find((i) => i.id === product.id)?.targetMinor).toBeNull();
   });
 
+  it("never changes an item's kind on edit, and refuses a kind it does not know", async () => {
+    // A gift holding claims turned into a fund would drop those claims from
+    // the guest list; `kind` is set when an item is created and only then.
+    const app = buildApp({ tier: "gold" });
+    const product = await seedItem(app);
+    const patched = await req(app, "PATCH", `${base}/items/${product.id}`, EDITOR, {
+      kind: "cash_fund",
+      title: "Copper saucepan",
+    });
+    expect(patched.status).toBe(200);
+    expect(((await patched.json()) as { item: RegistryItemDto }).item.kind).toBe("product");
+
+    const unknown = await req(app, "POST", `${base}/items`, EDITOR, { kind: "gift", title: "Pan" });
+    expect(unknown.status).toBe(400);
+  });
+
   it("refuses a target that is not a positive whole amount", async () => {
     const app = buildApp({ tier: "gold" });
-    for (const targetMinor of [0, -100, 12.5]) {
+    for (const targetMinor of [0, -100, 12.5, 9_000_000_000_001]) {
       const res = await req(app, "POST", `${base}/items`, EDITOR, {
         kind: "cash_fund",
         title: "Honeymoon",
