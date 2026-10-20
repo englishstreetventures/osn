@@ -10,17 +10,14 @@ import { describe, expect, it } from "vitest";
  * static-asset layer answers them and the Worker never runs. Any other path
  * with one segment reaches `src/pages/[slug].astro`, which looks the segment
  * up in cire-api as a wedding slug. The E2E suite cannot see the difference:
- * it runs `astro dev`, where Vite serves `public/` itself.
+ * it runs `astro dev`, where Vite serves `public/` itself. A missing file
+ * fails the tests that read it.
  */
 const appRoot = resolve(import.meta.dirname, "../..");
 const publicDir = join(appRoot, "public");
 
 describe("public/robots.txt", () => {
   const file = join(publicDir, "robots.txt");
-
-  it("exists, so the asset layer answers /robots.txt", () => {
-    expect(existsSync(file)).toBe(true);
-  });
 
   // The invite and gift pages stay out of search through `X-Robots-Tag:
   // noindex` (src/lib/security-headers.ts). A crawler that obeys a Disallow
@@ -70,10 +67,6 @@ function readIco(bytes: Buffer): IcoImage[] {
 
 describe("public/favicon.ico", () => {
   const file = join(publicDir, "favicon.ico");
-
-  it("exists, so the asset layer answers /favicon.ico", () => {
-    expect(existsSync(file)).toBe(true);
-  });
 
   it("is an ICO of PNG images whose sizes match the directory", () => {
     const images = readIco(readFileSync(file));
