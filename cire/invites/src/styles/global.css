@@ -443,10 +443,9 @@
      round a dress-code swatch. The contract needs it by name
      (`--ui-hairline-strong`). Derived per scheme like the prose tokens
      (`derivePalette`): the ink 55% of the way over the card, walked until it
-     clears. Solid, not `ink / 0.55`: a translucent value has no ratio any check
-     can measure, and the cream it was stayed on every scheme, about 1:1 on the
-     light ones. This is `derivePalette(evergreen)`'s value, pinned by the
-     lockstep test. */
+     clears. Solid, not translucent: contrast checks ignore alpha, so a
+     translucent value would go unmeasured. This is `derivePalette(evergreen)`'s
+     value, pinned by the lockstep test. */
   --color-border-strong: oklch(62.26% 0.0185 118.1);
   /* Solid, not `ink / 0.5`. The alpha form drifted from what `derivePalette`
      actually emits for this preset, and the drift is invisible where it matters

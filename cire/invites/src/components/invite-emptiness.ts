@@ -149,7 +149,7 @@ export function hasPinterest(pinterestUrl: string | null | undefined): boolean {
  * The venue row renders when something can open a map: an address, or an
  * organiser's http(s) maps link. The same test `MapPreview` makes before it
  * draws anything (`resolveMapsUrl`), so the row and its contents can never
- * disagree — a row whose map had nothing to show was an empty "Where".
+ * disagree.
  */
 export function hasVenue(
   address: string | null | undefined,

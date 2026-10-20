@@ -409,31 +409,45 @@ is for assistive technology, and a glyph in the metal says it on screen. The
 guest's own zone is read after mount, so the first render matches a server
 render wherever the server ran.
 
-- **Text actions, not boxes.** Add to calendar and Open in maps are
-  `@cire/ui`'s `link` variant at a 44px target, so the RSVP button stays the
-  one call to action. Open in maps is named by its own words, with no
+- **Text actions, not boxes.** Add to calendar, Open in maps and Open on
+  Pinterest are `@cire/ui`'s `touchLink` variant at a 44px target, so the RSVP
+  button stays the one call to action. `touchLink` carries its underline at
+  rest: the invite is read on a phone, where an underline that waits for hover
+  never shows, and colour alone does not mark words as something to press
+  (WCAG 1.4.1). Open in maps is named by its own words, with no
   `aria-label` over them.
 - **The calendar menu** keeps `role="menu"` and the menu-button keys: Enter,
   Space or ArrowDown on the trigger open it on the first item, ArrowUp on the
   last; the arrows wrap, Home and End jump, Escape closes it onto the trigger,
-  and Tab closes it and moves on. Every key it takes cancels its default, so
-  nothing scrolls the sheet under it. It opens upward when there is no room
-  below. Its items are 44px rows.
+  and Tab closes it and moves on. Choosing a calendar closes it onto the
+  trigger too, as the item goes with the menu and focus left on it would fall
+  outside the sheet. Every key it takes cancels its default, so nothing
+  scrolls the sheet under it. It opens under its trigger's left edge, upward
+  only when there is no room below, and never past the viewport's 8px gutter.
+  Its items are 44px rows.
 - **Swatches** are a list in a grid of 3.75rem columns (five across at
   390px), each name as the organiser wrote it, under a circle hidden from
   assistive technology. The circle's ring is `--color-border-strong`, held to
   3:1 on every scheme ([[cire-invite-builder#Contrast is enforced first, and warned about where it can't be]]),
   so a dark colour on a dark invite keeps an edge.
 - **Inspiration** is one block: where the board is, "Open on Pinterest", and
-  — while Pinterest moodboards are off — "Show it here", which says what it
-  switches on before it is pressed ([[cire-consent]]).
+  — while Pinterest moodboards are off and the link is a board that can be
+  embedded — "Show it here", which says what it switches on before it is
+  pressed ([[cire-consent]]). Pressing it leaves focus on the moodboard's own
+  wrapper, inside the sheet, as the block and its button give way to the
+  board. While the board is on, "Stop showing moodboards" sits under it and
+  says the page reloads; it ignores a press for the half second after "Show it
+  here", because near the foot of the sheet the scroll shifts as the block
+  gives way and the button can arrive under the finger that just pressed.
 
 Tests: `tests/components/DetailsPanel.test.tsx` (which rows and sections
 render, the words, the notice), `event-details.test.ts` and
 `invite-emptiness.test.ts` (the helpers, one case per failure mode), and
 `DetailsPanel.browser.test.tsx` (on every preset: each key fact at 4.5:1 and
 each swatch ring at 3:1 on the sheet; at 390px the date and venue on the first
-screen and every control 44px tall; the menu's keys and its flip).
+screen, every control 44px tall and every text action underlined at rest; the
+menu's keys, its focus return and its placement; focus after "Show it here"
+and the switch-off's double-tap guard).
 
 ## Adding a design
 

@@ -14,8 +14,10 @@ then the occasion: about, dress code and the moodboard.
 - **When** names both days for an event that ends on a later day ("Fri 6:00 pm
   – Sun 11:00 am"), spells the timezone out ("AEDT (Sydney time)"), and adds the
   guest's own time when their clock reads differently. Add to calendar is a
-  text action on that row. Its menu now answers the arrow keys, Home and End,
-  has 44px items, and opens upward when there is no room below.
+  text action on that row, underlined so it reads as one on a phone. Its menu
+  now answers the arrow keys, Home and End, has 44px items, opens upward when
+  there is no room below, and hands focus back to "Add to calendar" when a
+  calendar is chosen.
 - **Where** shows only when something can open a map. It holds the address, a
   compact map card drawn in the invite's own colours (or the Google map once
   the guest allows it), and "Open in maps".
@@ -26,9 +28,12 @@ then the occasion: about, dress code and the moodboard.
   that stays visible on every scheme.
 - **Inspiration** is one block: "Open on Pinterest" and "Show it here". The
   block says what showing it switches on, and nothing loads from Pinterest
-  before the guest says yes.
+  before the guest says yes. Once it is on, "Stop showing moodboards" under the
+  board switches it off again from the sheet, so taking it back is as quick as
+  giving it.
 - **Fixes:** the consent placeholder now reads as a sentence, every control in
-  the panel is at least 44px tall, and the timezone text meets 4.5:1.
+  the panel is at least 44px tall, the timezone text meets 4.5:1, and pressing
+  "Show it here" leaves focus inside the sheet.
 
 `@cire/theme` now derives `--color-border-strong` (the boundary of an unfilled
 control) per scheme. It is solid, and held to 3:1 against the card, raised and

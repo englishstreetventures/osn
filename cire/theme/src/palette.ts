@@ -524,12 +524,10 @@ export function derivePalette(
 
   // The boundary of a control with no fill, and the ring round a dress-code
   // swatch: a boundary a guest has to see, so 3:1 (WCAG 1.4.11). It starts as
-  // the ink 55% of the way over the card — what the built-in `ink / 0.55` it
-  // replaces meant on evergreen — and is walked against all three surfaces like
-  // the prose tokens, because the sheets paint `card` and a section's tone can
-  // be any of them. Solid, not translucent: nothing that measures contrast sees
-  // an alpha, which is how evergreen's cream at 0.55 stayed on every scheme and
-  // measured about 1:1 on the three light presets with nothing to say so.
+  // the ink 55% of the way over the card and is walked against all three
+  // surfaces like the prose tokens, because the sheets paint `card` and a
+  // section's tone can be any of them. Solid, not translucent: contrast checks
+  // ignore alpha, so a translucent value would go unmeasured.
   const borderStrong = [card, raised, ground].reduce(
     (colour, surface) => ensureContrast(colour, surface, WCAG_UI_MIN),
     mix(ink, card, 0.45),

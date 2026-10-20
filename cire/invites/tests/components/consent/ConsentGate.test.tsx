@@ -113,8 +113,8 @@ describe("ConsentGate", () => {
 
     it("names the vendor and what it would do, in a sentence that reads", () => {
       // The purpose is written for the privacy notice ("Pinterest moodboards —
-      // Shows the couple's…"), so splicing it after "would" gave "Pinterest
-      // would shows". The whole sentence is pinned so the grammar is too.
+      // Shows the couple's…"), so it follows "It" and must open on a
+      // third-person verb. The whole sentence is pinned so the grammar is too.
       const { container } = render(() => (
         <ConsentGate category="pinterest" vendor="pinterest">
           <div>content</div>

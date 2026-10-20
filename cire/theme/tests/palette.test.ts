@@ -169,8 +169,7 @@ describe("contrast is enforced, not advised", () => {
     ["--color-bloom", "--color-surface-raised"],
     // The boundary of a control with no fill, and the ring round a dress-code
     // swatch. A section's tone and the sheets put it on any of the three
-    // surfaces, so it has to clear all three — the cream it used to keep on
-    // every scheme measured about 1:1 on the three light presets.
+    // surfaces, so it has to clear all three.
     ["--color-border-strong", "--color-surface"],
     ["--color-border-strong", "--color-surface-raised"],
     ["--color-border-strong", "--color-bg"],
