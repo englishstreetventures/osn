@@ -3,14 +3,22 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/te
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Who holds each task, and the drawer that changes it, over a stubbed API.
+
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../test-support/mocks");
+  return rpAuthSolidMock();
+});
+
+vi.mock("../../src/lib/api", async () => {
+  const { organiserApiMock } = await import("../test-support/mocks");
+  return organiserApiMock();
+});
+
 import ChecklistView from "../../src/components/ChecklistView";
 import { __resetHostsCache, type HostSeat } from "../../src/lib/hosts-store";
 import { __resetTasksCache, setCachedTasks, type TaskRow } from "../../src/lib/tasks-store";
-
-// Who holds each task, and the drawer that changes it, over a stubbed API.
-
-const authFetch = vi.fn();
-vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
+import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 
 const row = (over: Partial<TaskRow>): TaskRow => ({
   id: "tsk_1",
@@ -35,12 +43,14 @@ const SAM: HostSeat = {
   role: "owner",
 };
 const JO: HostSeat = { hostId: "whost_jo", osnProfileId: "usr_jo", handle: "jo", role: "helper" };
+/** OSN could resolve neither a name nor a handle for this one. */
+const ANON: HostSeat = { hostId: "whost_anon", osnProfileId: "usr_anon", role: "viewer" };
 
 type Route = (init: RequestInit | undefined) => Response | Promise<Response>;
 
 /** The API, by path: the hosts list, the task list, and the assignee write. */
 function api(routes: { hosts?: Route; tasks?: Route; assign?: Route }) {
-  authFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+  authFetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
     const path = new URL(url, "https://api.test").pathname;
     if (path.endsWith("/hosts") && routes.hosts) return routes.hosts(init);
     if (path.endsWith("/assignee") && routes.assign) return routes.assign(init);
@@ -54,8 +64,15 @@ const json = (body: unknown, status = 200) =>
 const hostsAnswer = (hosts: HostSeat[]) => () =>
   json({ hosts, total: hosts.length, peopleLimit: null });
 
+/** A response the test hands over when it chooses. */
+function held() {
+  let answer: (res: Response) => void = () => {};
+  const route: Route = () => new Promise<Response>((resolve) => (answer = resolve));
+  return { route, answer: (res: Response) => answer(res) };
+}
+
 const calls = (suffix: string, method = "GET") =>
-  authFetch.mock.calls.filter(
+  authFetchMock.mock.calls.filter(
     ([url, init]) =>
       new URL(String(url), "https://api.test").pathname.endsWith(suffix) &&
       ((init as RequestInit | undefined)?.method ?? "GET") === method,
@@ -64,27 +81,46 @@ const calls = (suffix: string, method = "GET") =>
 /** A task's row on the checklist, by its checkbox — the drawer names the task too. */
 const rowOf = (title: string) => screen.getByRole("checkbox", { name: title }).closest("li")!;
 
+/** Open a task's drawer. */
+async function openDrawer(title: string) {
+  fireEvent.click(screen.getByRole("button", { name: `Edit ${title}` }));
+  const drawer = await screen.findByRole("dialog", { name: "Edit task" });
+  const select = (await within(drawer).findByLabelText("Assigned to")) as HTMLSelectElement;
+  return { drawer, select };
+}
+
+const selectedOption = (select: HTMLSelectElement) =>
+  select.options[select.selectedIndex]?.textContent ?? null;
+
 afterEach(() => {
   cleanup();
+  resetOrganiserMocks();
 });
 
 beforeEach(() => {
   __resetTasksCache();
   __resetHostsCache();
-  authFetch.mockReset();
 });
 
 describe("who holds a task", () => {
-  it("names each assignee, by display name or else by handle, for a viewer too", async () => {
+  it("names each assignee once the seats arrive — display name, else handle, else profile id — for a viewer too", async () => {
     setCachedTasks("wed_1", [
       row({ id: "a", title: "Book venue", assignedHostId: "whost_sam" }),
       row({ id: "b", title: "Carry the rings", assignedHostId: "whost_jo", sortOrder: 1 }),
+      row({ id: "c", title: "Mind the cake", assignedHostId: "whost_anon", sortOrder: 2 }),
     ]);
-    api({ hosts: hostsAnswer([SAM, JO]) });
+    const seats = held();
+    api({ hosts: seats.route });
     render(() => <ChecklistView weddingId="wed_1" canEdit={false} />);
+
+    // Until the seats answer there is no name to give, only the fact.
+    await waitFor(() => expect(within(rowOf("Book venue")).getByText("Assigned")).toBeVisible());
+    seats.answer(hostsAnswer([SAM, JO, ANON])());
 
     await waitFor(() => expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible());
     expect(within(rowOf("Carry the rings")).getByText("@jo")).toBeVisible();
+    expect(within(rowOf("Mind the cake")).getByText("usr_anon")).toBeVisible();
+    expect(within(rowOf("Book venue")).queryByText("Assigned")).not.toBeInTheDocument();
     expect(calls("/hosts")).toHaveLength(1);
   });
 
@@ -105,12 +141,26 @@ describe("who holds a task", () => {
     expect(within(rowOf("Carry the rings")).queryByText("Needs an owner")).not.toBeInTheDocument();
   });
 
+  it("treats a seat that has gone as nobody, on the row and in the drawer", async () => {
+    // The server cleared the assignment when the seat went; this list is older.
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue", assignedHostId: "whost_gone" })]);
+    api({ hosts: hostsAnswer([SAM, JO]) });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await waitFor(() =>
+      expect(within(rowOf("Book venue")).getByText("Needs an owner")).toBeVisible(),
+    );
+
+    const { select } = await openDrawer("Book venue");
+    await waitFor(() => expect(select).not.toBeDisabled());
+    expect(selectedOption(select)).toBe("Nobody yet");
+  });
+
   it("asks for nobody's names while no task is assigned", async () => {
     setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
     api({});
     render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
     await screen.findByText("Needs an owner");
-    expect(authFetch).not.toHaveBeenCalled();
+    expect(authFetchMock).not.toHaveBeenCalled();
   });
 
   it("offers a viewer no way to change who holds a task", async () => {
@@ -126,7 +176,7 @@ describe("the task drawer", () => {
   it("asks for the people afresh on every opening, and assigns and unassigns from it", async () => {
     setCachedTasks("wed_1", [
       row({ id: "a", title: "Book venue", assignedHostId: "whost_sam" }),
-      row({ id: "b", title: "Carry the rings", sortOrder: 1 }),
+      row({ id: "b", title: "Carry the rings", timeframeBucket: "day_of", sortOrder: 1 }),
     ]);
     const assigned: unknown[] = [];
     api({
@@ -134,22 +184,30 @@ describe("the task drawer", () => {
       assign: (init) => {
         const body = JSON.parse(String(init?.body)) as { assignedHostId: string | null };
         assigned.push(body);
-        return json({ task: row({ id: "b", title: "Carry the rings", sortOrder: 1, ...body }) });
+        // The answer is the task as stored, which another co-host may have
+        // dated in the meantime.
+        return json({
+          task: row({
+            id: "b",
+            title: "Carry the rings",
+            timeframeBucket: "day_of",
+            dueAt: "2027-06-05",
+            ...body,
+          }),
+        });
       },
     });
     render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
     await waitFor(() => expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible());
     expect(calls("/hosts")).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit Carry the rings" }));
-    const drawer = await screen.findByRole("dialog", { name: "Edit task" });
+    const { drawer, select } = await openDrawer("Carry the rings");
     // Opening asks again, so someone seated since the page loaded is offered.
     await waitFor(() => expect(calls("/hosts")).toHaveLength(2));
-    const select = (await within(drawer).findByLabelText("Assigned to")) as HTMLSelectElement;
-    await waitFor(() =>
-      expect(within(select).getByRole("option", { name: "@jo · Helper" })).toBeTruthy(),
-    );
-    expect(select.value).toBe("");
+    expect(within(drawer).getByText("Day of")).toBeVisible();
+    expect(within(select).getByRole("option", { name: "Sam Lee · Owner" })).toBeTruthy();
+    expect(within(select).getByRole("option", { name: "@jo · Helper" })).toBeTruthy();
+    expect(selectedOption(select)).toBe("Nobody yet");
 
     fireEvent.change(select, { target: { value: "whost_jo" } });
     await waitFor(() => expect(assigned).toEqual([{ assignedHostId: "whost_jo" }]));
@@ -160,6 +218,12 @@ describe("the task drawer", () => {
     expect((init as RequestInit).headers).toMatchObject({ "Content-Type": "application/json" });
     await waitFor(() => expect(within(rowOf("Carry the rings")).getByText("@jo")).toBeVisible());
     expect(within(rowOf("Carry the rings")).queryByText("Needs an owner")).not.toBeInTheDocument();
+    // The row takes the stored task from the answer.
+    await waitFor(() =>
+      expect(within(rowOf("Carry the rings")).getByText(/due 2027-06-05/)).toBeVisible(),
+    );
+    // Only the task picked for changed hands.
+    expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible();
 
     // The next pick waits for the first write to come back.
     await waitFor(() => expect(select).not.toBeDisabled());
@@ -170,35 +234,173 @@ describe("the task drawer", () => {
     await waitFor(() =>
       expect(within(rowOf("Carry the rings")).getByText("Needs an owner")).toBeVisible(),
     );
+
+    fireEvent.click(within(drawer).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(drawer).not.toHaveAttribute("open"));
   });
 
-  it("takes the pick back and asks again when that person is no longer on the wedding", async () => {
+  it("sends one write at a time, holding the select until the answer", async () => {
     setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    const write = held();
+    api({ hosts: hostsAnswer([SAM, JO]), assign: write.route });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+    const { select } = await openDrawer("Book venue");
+    await waitFor(() => expect(select).not.toBeDisabled());
+
+    fireEvent.change(select, { target: { value: "whost_jo" } });
+    await waitFor(() => expect(select).toBeDisabled());
+    fireEvent.change(select, { target: { value: "whost_sam" } });
+    expect(calls("/assignee", "PUT")).toHaveLength(1);
+
+    write.answer(json({ task: row({ id: "a", title: "Book venue", assignedHostId: "whost_jo" }) }));
+    await waitFor(() => expect(select).not.toBeDisabled());
+    expect(within(rowOf("Book venue")).getByText("@jo")).toBeVisible();
+  });
+
+  it("takes the pick back at once and asks again when that person is no longer on the wedding", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    const reread = held();
     api({
       hosts: hostsAnswer([SAM, JO]),
-      assign: () => json({ error: "assignee_not_in_wedding" }, 422),
-      tasks: () => json({ tasks: [row({ id: "a", title: "Book venue" })] }),
+      // Jo has gone; Sam has not.
+      assign: (init) => {
+        const { assignedHostId } = JSON.parse(String(init?.body)) as { assignedHostId: string };
+        return assignedHostId === "whost_jo"
+          ? json({ error: "assignee_not_in_wedding" }, 422)
+          : json({ task: row({ id: "a", title: "Book venue", assignedHostId }) });
+      },
+      tasks: reread.route,
     });
     render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
     await screen.findByText("Book venue");
-
-    fireEvent.click(screen.getByRole("button", { name: "Edit Book venue" }));
-    const drawer = await screen.findByRole("dialog", { name: "Edit task" });
-    const select = (await within(drawer).findByLabelText("Assigned to")) as HTMLSelectElement;
-    await waitFor(() =>
-      expect(within(select).getByRole("option", { name: "@jo · Helper" })).toBeTruthy(),
-    );
+    let { drawer, select } = await openDrawer("Book venue");
+    await waitFor(() => expect(select).not.toBeDisabled());
     const hostReadsBefore = calls("/hosts").length;
 
     fireEvent.change(select, { target: { value: "whost_jo" } });
 
     expect(await within(drawer).findByRole("alert")).toHaveTextContent("no longer on this wedding");
-    await waitFor(() =>
-      expect(within(rowOf("Book venue")).getByText("Needs an owner")).toBeVisible(),
-    );
+    // Taken back before the re-read answers.
+    expect(within(rowOf("Book venue")).getByText("Needs an owner")).toBeVisible();
     expect(within(rowOf("Book venue")).queryByText("@jo")).not.toBeInTheDocument();
     expect(select.value).toBe("");
-    await waitFor(() => expect(calls("/tasks")).toHaveLength(1));
+    expect(calls("/tasks")).toHaveLength(1);
     expect(calls("/hosts").length).toBeGreaterThan(hostReadsBefore);
+    reread.answer(json({ tasks: [row({ id: "a", title: "Book venue" })] }));
+
+    // A fresh opening starts without the old refusal.
+    fireEvent.click(within(drawer).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(drawer).not.toHaveAttribute("open"));
+    ({ drawer, select } = await openDrawer("Book venue"));
+    await waitFor(() => expect(select).not.toBeDisabled());
+    expect(within(drawer).queryByRole("alert")).not.toBeInTheDocument();
+
+    // And a pick that goes through clears one.
+    fireEvent.change(select, { target: { value: "whost_jo" } });
+    await within(drawer).findByRole("alert");
+    await waitFor(() => expect(select).not.toBeDisabled());
+    fireEvent.change(select, { target: { value: "whost_sam" } });
+    await waitFor(() => expect(within(drawer).queryByRole("alert")).not.toBeInTheDocument());
+    expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible();
+  });
+
+  it("puts the previous holder back and says so when the write fails", async () => {
+    const before = row({ id: "a", title: "Book venue", assignedHostId: "whost_sam" });
+    setCachedTasks("wed_1", [before]);
+    const reread = held();
+    api({
+      hosts: hostsAnswer([SAM, JO]),
+      assign: () => json({ error: "Internal error" }, 500),
+      tasks: reread.route,
+    });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+    const { drawer, select } = await openDrawer("Book venue");
+    await waitFor(() => expect(select).not.toBeDisabled());
+
+    fireEvent.change(select, { target: { value: "whost_jo" } });
+
+    expect(await within(drawer).findByRole("alert")).toHaveTextContent(
+      "Couldn't change who holds that task.",
+    );
+    // Put back before the re-read answers.
+    expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible();
+    expect(within(rowOf("Book venue")).queryByText("@jo")).not.toBeInTheDocument();
+    expect(calls("/tasks")).toHaveLength(1);
+    reread.answer(json({ tasks: [before] }));
+  });
+
+  it("says so when the wedding's people can't be read, and clears it once they can", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    let reads = 0;
+    api({
+      hosts: () => {
+        reads += 1;
+        return reads === 1 ? json({ error: "Internal error" }, 500) : hostsAnswer([SAM, JO])();
+      },
+    });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+
+    let { drawer, select } = await openDrawer("Book venue");
+    expect(await within(drawer).findByRole("alert")).toHaveTextContent(
+      "Couldn't load the people on this wedding",
+    );
+    expect(select).toBeDisabled();
+
+    fireEvent.click(within(drawer).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(drawer).not.toHaveAttribute("open"));
+    ({ drawer, select } = await openDrawer("Book venue"));
+    await waitFor(() => expect(select).not.toBeDisabled());
+    // The notice from the failed read was on screen; it goes once a read succeeds.
+    await waitFor(() => expect(within(drawer).queryByRole("alert")).not.toBeInTheDocument());
+  });
+});
+
+describe("a signed-out organiser", () => {
+  it("is sent to sign in when the seats read answers 401", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue", assignedHostId: "whost_sam" })]);
+    api({ hosts: () => new Response(null, { status: 401 }) });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={false} />);
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+  });
+
+  it("is sent to sign in when the write answers 401, or the session has expired", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    let writes = 0;
+    api({
+      hosts: hostsAnswer([SAM, JO]),
+      assign: () => {
+        writes += 1;
+        if (writes === 1) return new Response(null, { status: 401 });
+        throw new Error("AuthExpiredError");
+      },
+    });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+    const { drawer, select } = await openDrawer("Book venue");
+    await waitFor(() => expect(select).not.toBeDisabled());
+
+    fireEvent.change(select, { target: { value: "whost_jo" } });
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(select).not.toBeDisabled());
+    fireEvent.change(select, { target: { value: "whost_sam" } });
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalledTimes(2));
+    expect(within(drawer).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("is sent to sign in when the seats read finds the session expired", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    api({
+      hosts: () => {
+        throw new Error("AuthExpiredError");
+      },
+    });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+    const { drawer } = await openDrawer("Book venue");
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    expect(within(drawer).queryByRole("alert")).not.toBeInTheDocument();
   });
 });

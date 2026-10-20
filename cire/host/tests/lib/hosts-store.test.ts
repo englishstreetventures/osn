@@ -8,6 +8,7 @@ import {
   hostsAccessor,
   invalidateHosts,
 } from "../../src/lib/hosts-store";
+import { dropWeddingCaches, openWeddingCaches } from "../../src/lib/wedding-caches";
 import { __resetWeddingScope } from "../../src/lib/wedding-scope";
 
 const seat = (over: Partial<HostSeat>): HostSeat => ({
@@ -88,5 +89,82 @@ describe("hosts-store", () => {
     load.resolve([seat({})]);
     expect(await Promise.all([a, b])).toEqual([true, true]);
     expect(calls).toBe(1);
+  });
+});
+
+describe("hosts-store, what mutation testing asked of it", () => {
+  it("answers true from a fresh cache without asking again", async () => {
+    let calls = 0;
+    const fetcher = async () => {
+      calls += 1;
+      return [seat({})];
+    };
+    expect(await ensureHostsLoaded("wed_1", fetcher)).toBe(true);
+    expect(await ensureHostsLoaded("wed_1", fetcher)).toBe(true);
+    expect(calls).toBe(1);
+  });
+
+  it("asks again after a failed load instead of answering with the old failure", async () => {
+    let calls = 0;
+    const fails = async (): Promise<HostSeat[]> => {
+      calls += 1;
+      throw new Error("500");
+    };
+    await expect(ensureHostsLoaded("wed_1", fails)).rejects.toThrow("500");
+    expect(await ensureHostsLoaded("wed_1", async () => [seat({})])).toBe(true);
+    expect(calls).toBe(1);
+    expect(hostsAccessor("wed_1")()).toHaveLength(1);
+  });
+
+  it("lets a failure from before an invalidate blank nothing a newer load put there", async () => {
+    const old = held<HostSeat[]>();
+    const first = ensureHostsLoaded("wed_1", old.fetcher);
+    invalidateHosts("wed_1");
+    await ensureHostsLoaded("wed_1", async () => [seat({ hostId: "whost_new" })]);
+    old.reject(new Error("403"));
+    await expect(first).rejects.toThrow("403");
+    expect(hostsAccessor("wed_1")()?.map((s) => s.hostId)).toEqual(["whost_new"]);
+  });
+
+  it("keeps the newer load's slot when an older one settles, so callers still share it", async () => {
+    const old = held<HostSeat[]>();
+    const newer = held<HostSeat[]>();
+    let newerCalls = 0;
+    const newerFetcher = () => {
+      newerCalls += 1;
+      return newer.fetcher();
+    };
+    const first = ensureHostsLoaded("wed_1", old.fetcher);
+    invalidateHosts("wed_1");
+    const second = ensureHostsLoaded("wed_1", newerFetcher);
+    old.resolve([seat({ hostId: "whost_old" })]);
+    expect(await first).toBe(false);
+    const third = ensureHostsLoaded("wed_1", newerFetcher);
+    newer.resolve([seat({ hostId: "whost_new" })]);
+    expect(await Promise.all([second, third])).toEqual([true, true]);
+    expect(newerCalls).toBe(1);
+  });
+
+  it("discards a load from before an invalidate and a drop, even once the wedding is open again", async () => {
+    const old = held<HostSeat[]>();
+    const pending = ensureHostsLoaded("wed_1", old.fetcher);
+    invalidateHosts("wed_1");
+    dropWeddingCaches("wed_1");
+    openWeddingCaches("wed_1");
+    old.resolve([seat({ hostId: "whost_old" })]);
+    expect(await pending).toBe(false);
+    expect(hostsAccessor("wed_1")()).toBeNull();
+  });
+
+  it("loads afresh when the wedding is opened again while a dropped load is still out", async () => {
+    const old = held<HostSeat[]>();
+    void ensureHostsLoaded("wed_1", old.fetcher);
+    dropWeddingCaches("wed_1");
+    openWeddingCaches("wed_1");
+    expect(await ensureHostsLoaded("wed_1", async () => [seat({ hostId: "whost_new" })])).toBe(
+      true,
+    );
+    expect(hostsAccessor("wed_1")()?.map((s) => s.hostId)).toEqual(["whost_new"]);
+    old.resolve([]);
   });
 });

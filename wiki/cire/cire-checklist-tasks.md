@@ -188,15 +188,18 @@ Each row of `ChecklistView.tsx` names who holds the task — the display name,
 else `@handle`, else the profile id — or shows "Needs an owner" when it is open
 and nobody does, for a viewer too. The seats come from `lib/hosts-store.ts`, a
 cache with the contract in [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]];
-the checklist reads it only once some task is assigned.
+the checklist reads it only once some task is assigned. Until it answers, an
+assigned row says only "Assigned"; a seat the list no longer has has gone, and
+the row and the drawer treat its task as held by nobody.
 
 An owner or editor gets an **Edit** button on each row, which opens
 `TaskEditDrawer.tsx`: the shared `Modal` with `presentation="drawer"`. Its
 "Assigned to" select offers "Nobody yet" and every seat with its role. Each
 field in the drawer saves itself when it changes, the way a co-host's role
 select does, so a field added later brings its own write. The pick shows at
-once and rolls back if the API refuses it. Opening the drawer reads the seats
-again; a 422 reads the tasks and the seats again and says so inside the drawer.
+once and rolls back if the API refuses it, and the select waits for each answer
+before it takes another pick. Opening the drawer reads the seats again; a 422
+reads the tasks and the seats again and says so inside the drawer.
 Removing a seat on the co-host panel marks the tasks and the seats stale.
 
 ## Starter checklist

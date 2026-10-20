@@ -48,10 +48,6 @@ const NO_TASKS: TaskRow[] = [];
 const sameRows = <T,>(a: readonly T[], b: readonly T[]): boolean =>
   a.length === b.length && a.every((row, k) => row === b[k]);
 
-/** Who holds a task, as its row shows it. `unknown`: assigned, but the
- *  wedding's seats have not loaded, so there is no name to give yet. */
-type Holder = { kind: "seat"; name: string } | { kind: "unknown" } | { kind: "nobody" };
-
 interface ChecklistViewProps {
   weddingId: string;
   /** Owner/editor may add, edit, complete, reorder; a viewer sees a read-only list. */
@@ -91,7 +87,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
   // The seats are read only once some task is assigned: a checklist nobody is
   // on needs no names, and "Needs an owner" needs none either.
   const seats = hostsAccessor(props.weddingId);
-  const seatById = createMemo(() => new Map((seats() ?? []).map((s) => [s.hostId, s])));
+  const seatById = createMemo(() => new Map(seats()?.map((s) => [s.hostId, s])));
   const [seatsFailed, setSeatsFailed] = createSignal(false);
 
   const loadSeats = async (): Promise<HostSeat[]> => {
@@ -121,13 +117,17 @@ export default function ChecklistView(props: ChecklistViewProps) {
     if (anyAssigned()) void untrack(ensureSeats);
   });
 
-  /** A seat the loaded list no longer has has been removed, and the server has
-   *  already cleared its tasks: shown as nobody until the list is read again. */
-  const holderOf = (task: TaskRow): Holder => {
-    if (task.assignedHostId == null) return { kind: "nobody" };
-    if (seats() === null) return { kind: "unknown" };
+  /**
+   * The name of whoever holds a task: `null` for nobody, `undefined` while the
+   * seats have not loaded and there is no name to give yet. A seat the loaded
+   * list no longer has has been removed, and the server has already cleared
+   * its tasks: shown as nobody until the tasks are read again.
+   */
+  const holderName = (task: TaskRow): string | null | undefined => {
+    if (task.assignedHostId == null) return null;
+    if (seats() === null) return undefined;
     const seat = seatById().get(task.assignedHostId);
-    return seat ? { kind: "seat", name: seatName(seat) } : { kind: "nobody" };
+    return seat ? seatName(seat) : null;
   };
 
   // Refetch from the server and repopulate the cache (used after a write fails).
@@ -244,10 +244,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
 
   // ── The task drawer ────────────────────────────────────────────────────
   const [editingId, setEditingId] = createSignal<string | null>(null);
-  const editing = createMemo(() => {
-    const id = editingId();
-    return id === null ? null : ((tasks() ?? []).find((t) => t.id === id) ?? null);
-  });
+  const editing = createMemo(() => (tasks() ?? []).find((t) => t.id === editingId()) ?? null);
   const [assigning, setAssigning] = createSignal(false);
   const [assignError, setAssignError] = createSignal<string | null>(null);
 
@@ -266,8 +263,9 @@ export default function ChecklistView(props: ChecklistViewProps) {
    * since the drawer read the seats — so both lists are read again.
    */
   const assign = async (task: TaskRow, assignedHostId: string | null) => {
+    // One write at a time: the select waits for the answer, and so does this.
+    if (assigning()) return;
     const before = task.assignedHostId ?? null;
-    if (assigning() || before === assignedHostId) return;
     const show = (value: string | null) =>
       patchTasks((rows) =>
         rows.map((t) => (t.id === task.id ? { ...t, assignedHostId: value } : t)),
@@ -503,19 +501,19 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                           </span>
                                         </Show>
                                         {(() => {
-                                          const holder = holderOf(task);
-                                          if (holder.kind === "seat") {
-                                            return (
-                                              <span class="text-text-muted text-ui-xs block">
-                                                <span class="sr-only">Assigned to </span>
-                                                {holder.name}
-                                              </span>
-                                            );
-                                          }
-                                          if (holder.kind === "unknown") {
+                                          const name = holderName(task);
+                                          if (name === undefined) {
                                             return (
                                               <span class="text-text-muted text-ui-xs block">
                                                 Assigned
+                                              </span>
+                                            );
+                                          }
+                                          if (name !== null) {
+                                            return (
+                                              <span class="text-text-muted text-ui-xs block">
+                                                <span class="sr-only">Assigned to </span>
+                                                {name}
                                               </span>
                                             );
                                           }

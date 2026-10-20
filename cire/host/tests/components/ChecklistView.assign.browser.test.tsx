@@ -151,3 +151,24 @@ describe("who holds a task, painted", () => {
     }
   }
 });
+
+describe("a task whose seat has gone, in Chrome", () => {
+  // Chrome shows a blank select, not its first option, when the value names no
+  // option — so the drawer has to pick "Nobody yet" itself. happy-dom falls
+  // back to the first option and cannot tell.
+  it("selects “Nobody yet”, not a blank", async () => {
+    await page.viewport(1440, 900);
+    setCachedTasks("wed_1", [
+      row({ id: "g", title: "Mind the cake", assignedHostId: "whost_gone" }),
+    ]);
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    const list = await screen.findByTestId("tasks-day_of");
+    await waitFor(() => expect(within(list).getByText("Needs an owner")).toBeTruthy());
+    fireEvent.click(within(list).getByRole("button", { name: "Edit Mind the cake" }));
+    const drawer = await screen.findByRole("dialog", { name: "Edit task" });
+    const select = (await within(drawer).findByLabelText("Assigned to")) as HTMLSelectElement;
+    await waitFor(() => expect(select).not.toBeDisabled());
+    expect(select.selectedIndex).toBe(0);
+    expect(select.options[0]?.textContent).toBe("Nobody yet");
+  });
+});
