@@ -3,11 +3,20 @@ import { createSignal } from "solid-js";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
 import { DetailsPanel } from "../../src/components/DetailsPanel";
-import type { EventSummary } from "../../src/components/types";
+import type { EventSummary, FamilyMember } from "../../src/components/types";
 import { resetConsentForTest, seedConsentForTest } from "../test-support/consent";
 
 vi.mock("motion", () => ({
   animate: vi.fn(() => ({ finished: Promise.resolve() })),
+}));
+
+// The guest's zone is the machine's in a real browser; pinned here so the
+// "Your time" line does not depend on where the suite runs. Defaults to the
+// fixture's own zone, which shows no line.
+const guestZone = vi.hoisted(() => ({ value: "Australia/Sydney" }));
+vi.mock("../../src/components/event-details", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/components/event-details")>()),
+  guestTimeZone: () => guestZone.value,
 }));
 
 const SITE_URL = "https://invite.example.com/abc-123";
@@ -41,18 +50,57 @@ describe("DetailsPanel", () => {
     // which panel this is as well as which event.
     expect(getByRole("heading", { name: "Details, Mehndi" })).toBeTruthy();
     expect(getByText(/Friday\s+18 September 2026/)).toBeTruthy();
-    // Time range rendered in the event's own timezone (4pm–10pm Sydney).
-    expect(getByText(/4:00\s*pm\s*–\s*10:00\s*pm/i)).toBeTruthy();
+    // Time range rendered in the event's own timezone (4pm–10pm Sydney), with
+    // the zone spelt out.
+    expect(getByText(/4:00\s*pm\s*–\s*10:00\s*pm · AEST \(Sydney time\)/i)).toBeTruthy();
   });
 
-  it("renders the description in an About section", () => {
-    const { getByText } = renderPanel(baseEvent);
+  it("leads with the key facts as a description list, each named for a screen reader", () => {
+    const { container } = renderPanel(baseEvent);
+    const terms = [...container.querySelectorAll("dl > div > dt")].map((dt) => dt.textContent);
+    expect(terms).toEqual(["When", "Where"]);
+    // The glyph beside each term is decoration.
+    for (const svg of container.querySelectorAll("dt svg")) {
+      expect(svg.getAttribute("aria-hidden")).toBe("true");
+    }
+  });
+
+  it("collapses a sparse event to its title and its date", () => {
+    // Name, start and timezone only: no "Where" with nothing under it, no
+    // "About" over a description of spaces, and no hairline over nothing.
+    const { container, queryByText } = renderPanel({
+      ...baseEvent,
+      description: "   ",
+      endAt: "",
+      address: null,
+      mapsUrl: null,
+    });
+    expect(queryByText("Where")).toBeNull();
+    expect(queryByText("About")).toBeNull();
+    expect(container.querySelector(".border-t")).toBeNull();
+    expect(queryByText(/Friday\s+18 September 2026/)).toBeTruthy();
+  });
+
+  it("shows the Where row for a maps link alone", () => {
+    const { getByText, getByRole } = renderPanel({
+      ...baseEvent,
+      address: null,
+      mapsUrl: "https://maps.google.com/?q=x",
+    });
+    expect(getByText("Where")).toBeTruthy();
+    expect(getByRole("link", { name: "Open in maps" })).toBeTruthy();
+  });
+
+  it("renders the description in an About section, under one hairline", () => {
+    const { getByText, container } = renderPanel(baseEvent);
     expect(getByText("About")).toBeTruthy();
     expect(getByText("An evening of henna")).toBeTruthy();
+    // One rule between the key facts and the occasion, none between sections.
+    expect(container.querySelectorAll(".border-t")).toHaveLength(1);
   });
 
   it("renders palette and dress code description when present", () => {
-    const { getByText, getByLabelText } = renderPanel({
+    const { getByText, getAllByRole } = renderPanel({
       ...baseEvent,
       dressCodeDescription: "Bright, festive colours.",
       dressCodePalette: [
@@ -62,9 +110,25 @@ describe("DetailsPanel", () => {
     });
 
     expect(getByText("Bright, festive colours.")).toBeTruthy();
-    expect(getByLabelText("Marigold swatch")).toBeTruthy();
-    expect(getByLabelText("Fuchsia swatch")).toBeTruthy();
-    expect(getByText("Marigold")).toBeTruthy();
+    expect(getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Marigold", "Fuchsia"]);
+  });
+
+  it("writes swatch names as the organiser typed them, not in capitals", () => {
+    const { getByText } = renderPanel({
+      ...baseEvent,
+      dressCodePalette: [{ name: "Dusty rose", color: "#d8a7a7" }],
+    });
+    const name = getByText("Dusty rose");
+    expect(name.className.split(/\s+/)).not.toContain("uppercase");
+  });
+
+  it("outlines each swatch in the strong border, so a swatch the sheet's colour still shows", () => {
+    const { getByRole } = renderPanel({
+      ...baseEvent,
+      dressCodePalette: [{ name: "Gold", color: "#abcdef" }],
+    });
+    const circle = getByRole("listitem").querySelector<HTMLElement>("[aria-hidden='true']")!;
+    expect(circle.className.split(/\s+/)).toContain("border-border-strong");
   });
 
   it("omits the dress code section entirely when there is no dress code", () => {
@@ -79,6 +143,14 @@ describe("DetailsPanel", () => {
 
   it("omits the inspiration section for a whitespace-only pinterest URL", () => {
     const { queryByText } = renderPanel({ ...baseEvent, pinterestUrl: "   " });
+    expect(queryByText("Inspiration")).toBeNull();
+  });
+
+  it("omits the inspiration section for a URL the board would not draw", () => {
+    const { queryByText } = renderPanel({
+      ...baseEvent,
+      pinterestUrl: "https://evil.com/user/board",
+    });
     expect(queryByText("Inspiration")).toBeNull();
   });
 
@@ -99,28 +171,45 @@ describe("DetailsPanel", () => {
     expect(queryByText("Dress Code")).toBeNull();
   });
 
+  it("writes no description paragraph for a description of spaces beside a palette", () => {
+    const { getByText } = renderPanel({
+      ...baseEvent,
+      dressCodeDescription: "   ",
+      dressCodePalette: [{ name: "Sage", color: "#9cae8f" }],
+    });
+    const section = getByText("Dress Code").closest("section")!;
+    expect(section.querySelectorAll("p")).toHaveLength(0);
+  });
+
+  it("links the board by its URL without the spaces an organiser pasted round it", () => {
+    const { getByRole } = renderPanel({ ...baseEvent, pinterestUrl: "  https://pin.it/3xKp9Qd  " });
+    expect(getByRole("link", { name: /Open on Pinterest/ }).getAttribute("href")).toBe(
+      "https://pin.it/3xKp9Qd",
+    );
+  });
+
   it("renders only the palette when the dress code description is null", () => {
-    const { getByLabelText, queryByText } = renderPanel({
+    const { getByRole, queryByText } = renderPanel({
       ...baseEvent,
       dressCodePalette: [{ name: "Sage", color: "oklch(72.88% 0.0585 128.92)" }],
     });
 
-    expect(getByLabelText("Sage swatch")).toBeTruthy();
+    expect(getByRole("listitem").textContent).toBe("Sage");
     expect(queryByText("Dress Code")).toBeTruthy();
   });
 
   it("applies the supplied colour as an inline background-color", () => {
-    const { getByLabelText } = renderPanel({
+    const { getByRole } = renderPanel({
       ...baseEvent,
       dressCodePalette: [{ name: "Gold", color: "#abcdef" }],
     });
 
-    const swatch = getByLabelText("Gold swatch") as HTMLElement;
+    const swatch = getByRole("listitem").querySelector<HTMLElement>("[aria-hidden='true']")!;
     expect(swatch.style.backgroundColor.replace(/\s+/g, "")).toBe("rgb(171,205,239)");
   });
 
   it("does not render swatches whose colour fails validation", () => {
-    const { queryByLabelText, getByLabelText } = renderPanel({
+    const { container, getAllByRole } = renderPanel({
       ...baseEvent,
       dressCodePalette: [
         { name: "Evil", color: "expression(alert(1))" },
@@ -128,8 +217,8 @@ describe("DetailsPanel", () => {
       ],
     });
 
-    expect(queryByLabelText("Evil swatch")).toBeNull();
-    expect(getByLabelText("Safe swatch")).toBeTruthy();
+    expect(getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Safe"]);
+    expect(container.innerHTML).not.toContain("expression(");
   });
 
   it("gives the sheet a heading it can focus and name the dialog by", () => {
@@ -160,19 +249,23 @@ describe("DetailsPanel — the way to the RSVP form", () => {
     expect(queryByRole("button", { name: "RSVP for this event" })).toBeNull();
   });
 
-  it("makes it the call to action, with Add to Calendar beside it as the quieter one", () => {
+  it("makes it the call to action and the first control, with Add to calendar in the When row", () => {
     // Answering is the one act that matters on the invite, so the RSVP button
-    // takes the guest site's call-to-action shape and Add to Calendar steps
-    // down to its outline — the reverse would make the calendar the thing to do.
+    // takes the guest site's call-to-action shape and comes first; Add to
+    // calendar is a quiet text action beside the date it acts on.
     const onRsvp = vi.fn();
-    const { getByRole } = render(() => (
+    const { getByRole, container } = render(() => (
       <DetailsPanel event={baseEvent} siteUrl={SITE_URL} onRsvp={onRsvp} />
     ));
 
     const rsvp = getByRole("button", { name: "RSVP for this event" });
     expect(rsvp.className).toContain("base:border-ui-accent");
     expect(rsvp.className).toContain("base:hover:bg-ui-accent");
-    expect(getByRole("button", { name: /add to calendar/i }).className).not.toContain("bg-gold");
+    expect(container.querySelector("button, a[href]")).toBe(rsvp);
+
+    const calendar = getByRole("button", { name: "Add to calendar" });
+    expect(calendar.className).not.toContain("bg-gold");
+    expect(calendar.closest("dd")?.previousElementSibling?.textContent).toBe("When");
 
     fireEvent.click(rsvp);
     expect(onRsvp).toHaveBeenCalledTimes(1);
@@ -190,7 +283,32 @@ describe("DetailsPanel — the way to the RSVP form", () => {
     ));
 
     expect(queryByRole("button", { name: "RSVP for this event" })).toBeNull();
-    expect(getByRole("status").textContent).toBe("RSVPs closed on Sunday 1 September 2999.");
+    // A household with no reply hears where a reply can still go.
+    expect(getByRole("status").textContent).toBe(
+      "RSVPs closed on Sunday 1 September 2999. To reply now, please contact the couple directly.",
+    );
+  });
+
+  it("draws the closed line in the closed treatment every other closed notice uses", () => {
+    const { getByRole } = render(() => (
+      <DetailsPanel event={baseEvent} siteUrl={SITE_URL} rsvpClosed rsvpClosedOn="1 Sept" />
+    ));
+    const line = getByRole("status").querySelector("p")!;
+    for (const cls of [
+      "border",
+      "border-border",
+      "text-text-muted",
+      "rounded-sm",
+      "px-4",
+      "py-3",
+    ]) {
+      expect(line.className.split(/\s+/)).toContain(cls);
+    }
+  });
+
+  it("keeps the live region mounted, and empty, while replies are open", () => {
+    const { getByRole } = renderPanel(baseEvent);
+    expect(getByRole("status").textContent).toBe("");
   });
 
   it("offers a household that replied a way to view its RSVP after the deadline", () => {
@@ -209,8 +327,10 @@ describe("DetailsPanel — the way to the RSVP form", () => {
     expect(queryByRole("button", { name: "RSVP for this event" })).toBeNull();
     fireEvent.click(getByRole("button", { name: "View your RSVP" }));
     expect(onRsvp).toHaveBeenCalledTimes(1);
-    // The closed line still says when replies shut.
-    expect(getByRole("status").textContent).toBe("RSVPs closed on Sunday 1 September 2999.");
+    // The closed line still says when replies shut, and where a change goes.
+    expect(getByRole("status").textContent).toBe(
+      "RSVPs closed on Sunday 1 September 2999. To change your household's reply, please contact the couple directly.",
+    );
   });
 
   it("offers no way in after the deadline to a household that never replied", () => {
@@ -246,7 +366,9 @@ describe("DetailsPanel — the way to the RSVP form", () => {
     const { getByRole } = render(() => (
       <DetailsPanel event={baseEvent} siteUrl={SITE_URL} onRsvp={() => {}} rsvpClosed />
     ));
-    expect(getByRole("status").textContent).toBe("RSVPs have closed.");
+    expect(getByRole("status").textContent).toBe(
+      "RSVPs have closed. To reply now, please contact the couple directly.",
+    );
   });
 
   it("puts focus on its heading when the deadline removes the RSVP button from under it", () => {
@@ -292,6 +414,70 @@ describe("DetailsPanel — the way to the RSVP form", () => {
     setClosed(true);
 
     expect(document.activeElement).toBe(calendar);
+  });
+});
+
+describe("DetailsPanel — the guest's own time", () => {
+  afterEach(() => {
+    cleanup();
+    guestZone.value = "Australia/Sydney";
+  });
+
+  it("adds the guest's own time when their clock reads differently", () => {
+    guestZone.value = "Europe/London";
+    const { getByText } = renderPanel(baseEvent);
+    expect(getByText(/^Your time: Fri 7:00\s*am – 1:00\s*pm \((BST|GMT\+1)\)$/)).toBeTruthy();
+  });
+
+  it("says nothing more where the guest's clock reads the same", () => {
+    guestZone.value = "Australia/Melbourne";
+    const { queryByText } = renderPanel(baseEvent);
+    expect(queryByText(/Your time/)).toBeNull();
+  });
+
+  it("says nothing more where the browser names no zone", () => {
+    guestZone.value = "";
+    const { queryByText } = renderPanel(baseEvent);
+    expect(queryByText(/Your time/)).toBeNull();
+  });
+});
+
+describe("DetailsPanel — who's invited", () => {
+  afterEach(() => cleanup());
+
+  const member = (firstName: string, eventIds: string[], extra: Partial<FamilyMember> = {}) => ({
+    guestId: `g-${firstName}`,
+    firstName,
+    lastName: "Lee",
+    nickname: null,
+    eventIds,
+    ...extra,
+  });
+
+  it("names who is invited when not everyone the couple invited is", () => {
+    const members = [member("Ana", [baseEvent.id]), member("Ben", [])];
+    const { getByText, container } = render(() => (
+      <DetailsPanel event={baseEvent} siteUrl={SITE_URL} members={members} />
+    ));
+    const terms = [...container.querySelectorAll("dl > div > dt")].map((dt) => dt.textContent);
+    expect(terms).toContain("Who's invited");
+    const line = getByText("Ana", { exact: false });
+    expect(line.textContent).toBe("Invited: Ana");
+    // The visible prefix repeats the term, so a screen reader skips it.
+    expect(line.querySelector("[aria-hidden='true']")?.textContent).toBe("Invited: ");
+  });
+
+  it("has no row when the whole household is invited", () => {
+    const members = [member("Ana", [baseEvent.id]), member("Ben", [baseEvent.id])];
+    const { queryByText } = render(() => (
+      <DetailsPanel event={baseEvent} siteUrl={SITE_URL} members={members} />
+    ));
+    expect(queryByText("Who's invited")).toBeNull();
+  });
+
+  it("has no row without a household", () => {
+    const { queryByText } = renderPanel(baseEvent);
+    expect(queryByText("Who's invited")).toBeNull();
   });
 });
 
@@ -344,7 +530,7 @@ describe("DetailsPanel — each embed waits for its own switch", () => {
     // What stands in for them: the CSS map card naming the venue, and the
     // moodboard's own placeholder and link-out.
     expect(getByText("12 Banksia Lane, Strathfield")).toBeTruthy();
-    expect(container.textContent ?? "").toContain("Allow Pinterest moodboards");
+    expect(container.textContent ?? "").toContain("Show it here");
     expect(
       container.querySelector<HTMLAnchorElement>('a[href="' + PINTEREST_URL + '"]'),
     ).not.toBeNull();
@@ -366,7 +552,7 @@ describe("DetailsPanel — each embed waits for its own switch", () => {
     expect(trackerScript()).not.toBeNull();
 
     // And no permission notice standing in for either of them.
-    expect(container.textContent ?? "").not.toContain("Allow Pinterest moodboards");
+    expect(container.textContent ?? "").not.toContain("Show it here");
   });
 
   it("renders only the map when only Google Maps is allowed", () => {
@@ -408,6 +594,6 @@ describe("DetailsPanel — each embed waits for its own switch", () => {
       'a[href="' + PINTEREST_URL + '"]',
     );
     expect(moodboardLink).not.toBeNull();
-    expect(moodboardLink!.textContent).toContain("View moodboard on Pinterest");
+    expect(moodboardLink!.textContent).toContain("Open on Pinterest");
   });
 });

@@ -1,5 +1,7 @@
-import { type Accessor, createSignal, onCleanup, onMount, Show } from "solid-js";
+import Button, { buttonClass } from "@cire/ui/button";
+import { type Accessor, createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
 
+import { grantCategory } from "../lib/consent/store";
 import { ConsentGate } from "./consent/ConsentGate";
 import { isEmbeddablePinterestBoardUrl, isSafePinterestLinkUrl } from "./pinterest";
 
@@ -10,9 +12,10 @@ interface PinterestBoardProps {
 
 /**
  * Where the rich embed stands. `idle` means no embed is mounted at all — an
- * un-embeddable URL, or Pinterest moodboards not switched on — so the outbound
- * link is the only route to the board. `failed` means the embed was tried and
- * did not render. The link shows in exactly those two states.
+ * un-embeddable URL, or Pinterest moodboards not switched on. `failed` means
+ * the embed was tried and did not render. The moodboard block (and its link
+ * out to Pinterest) shows in exactly those two states, from one place each:
+ * see `PinterestBoard`.
  */
 type EmbedStatus = "idle" | "loading" | "rendered" | "failed";
 
@@ -118,16 +121,17 @@ function isEmbedTransformed(
 
 /**
  * Renders a Pinterest moodboard — the consent-gated rich embed on EVERY device
- * (touch included), or an outbound fallback link when the embed is not showing:
+ * (touch included), or the moodboard block when the embed is not showing:
  *
- * - The consent-gated rich embed: once the guest has allowed third-party
- *   content, Pinterest's board widget renders inline.
- * - The outbound fallback link: shown whenever no board is on screen or on its
- *   way — no consent, a non-embeddable URL, or an embed that errored or timed
- *   out — and hidden while the embed loads or once it has rendered. Because it
- *   shows for a refusal, refusing consent costs the guest nothing they cannot
- *   get another way — the moodboard stays one tap away either side of the
- *   decision, which is what makes the choice real.
+ * - The consent-gated rich embed: once the guest has switched on Pinterest
+ *   moodboards, Pinterest's board widget renders inline.
+ * - The moodboard block (`MoodboardBlock`), with its "Open on Pinterest" link:
+ *   shown whenever no board is on screen or on its way — not switched on, a
+ *   non-embeddable URL, or an embed that errored or timed out — and hidden
+ *   while the embed loads or once it has rendered. Because it shows for a
+ *   refusal, refusing consent costs the guest nothing they cannot get another
+ *   way — the moodboard stays one tap away either side of the decision, which
+ *   is what makes the choice real.
  *
  * The embed uses Pinterest's documented embed widget pattern
  * (https://developers.pinterest.com/docs/web-features/widgets/#board-widget),
@@ -146,7 +150,7 @@ function isEmbedTransformed(
  *
  * URL safety + graceful degradation: two separate gates (see `pinterest.ts`).
  * `isSafePinterestLinkUrl` (https + Pinterest-host allowlist, loose on path)
- * gates the outbound fallback link, so the moodboard stays
+ * gates the outbound link, so the moodboard stays
  * reachable even when the URL is a `pin.it` short link or some other shape the
  * board widget can't embed. `isEmbeddablePinterestBoardUrl` (the strict
  * `/user/board` shape) is the stricter gate before the URL ever lands in the
@@ -155,18 +159,28 @@ function isEmbedTransformed(
 export function PinterestBoard(props: PinterestBoardProps) {
   // Whether this URL can be rendered as an embedded board widget at all. A safe
   // Pinterest link that isn't an embeddable board shape (a `pin.it` short link,
-  // a bare pin/profile) still gets the fallback link below — it
-  // just never shows the consent placeholder or the embed anchor, because there
-  // is nothing to consent TO: no request to Pinterest would ever be made.
+  // a bare pin/profile) still gets the block with its link — it just never
+  // offers "Show it here" or mounts the gate, because there is nothing to
+  // consent TO: no request to Pinterest would ever be made.
   const embeddable = () => isEmbeddablePinterestBoardUrl(props.url);
   const [status, setStatus] = createSignal<EmbedStatus>("idle");
-  const showFallbackLink = () => status() === "idle" || status() === "failed";
 
+  // Exactly one moodboard block renders in any state, and so exactly one link:
+  //  - not embeddable: the block, outside any gate (no gate is mounted);
+  //  - embeddable, not switched on: the block with the offer, as the gate's own
+  //    fallback;
+  //  - switched on and failed: the "couldn't load" block, outside the gate,
+  //    because the gate is showing its (now empty) children;
+  //  - switched on and loading or rendered: no block.
   return (
     <Show when={isSafePinterestLinkUrl(props.url)}>
       <>
-        <Show when={embeddable()}>
-          <ConsentGate category="pinterest" vendor="pinterest">
+        <Show when={embeddable()} fallback={<MoodboardBlock url={props.url} state="link" />}>
+          <ConsentGate
+            category="pinterest"
+            vendor="pinterest"
+            fallback={<MoodboardBlock url={props.url} state="offer" />}
+          >
             <PinterestEmbed
               url={props.url}
               eventName={props.eventName}
@@ -174,22 +188,9 @@ export function PinterestBoard(props: PinterestBoardProps) {
               setStatus={setStatus}
             />
           </ConsentGate>
-        </Show>
-
-        {/* The outbound fallback link stands in for the board whenever the embed is */}
-        {/* not showing: refused, an un-embeddable URL, blocked, or timed out. It is */}
-        {/* hidden while the embed loads and once it has rendered. */}
-        <Show when={showFallbackLink()}>
-          <div class="mt-2 flex justify-center">
-            <a
-              href={props.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold text-ui-sm tracking-ui-wider inline-block rounded-sm border px-5 py-2.5 uppercase transition-colors duration-200"
-            >
-              View moodboard on Pinterest ↗
-            </a>
-          </div>
+          <Show when={status() === "failed"}>
+            <MoodboardBlock url={props.url} state="failed" />
+          </Show>
         </Show>
 
         {/* A failed embed takes its "Loading board…" status region with it, so */}
@@ -200,6 +201,59 @@ export function PinterestBoard(props: PinterestBoardProps) {
         </div>
       </>
     </Show>
+  );
+}
+
+/**
+ * The moodboard as one block: what it is, a link out to it, and — while
+ * Pinterest moodboards are switched off for an embeddable board — the offer to
+ * show it here, with what that costs said beside the button.
+ *
+ * "Show it here" switches on the `pinterest` category, which is one record for
+ * the whole guest site (one cookie, `Path=/`), so the copy says it holds for
+ * every invite opened in this browser rather than for this one. There is no
+ * "Privacy choices" button: the footer's standing control is the route to
+ * every switch at once.
+ */
+function MoodboardBlock(props: { url: string; state: "link" | "offer" | "failed" }) {
+  const costId = createUniqueId();
+
+  return (
+    <div class="border-border rounded-md border px-4 py-4">
+      <p class="font-body text-text-muted text-ui-base leading-ui-normal font-light">
+        {props.state === "failed"
+          ? "The couple's moodboard for this event couldn't load here."
+          : "The couple's moodboard for this event is on Pinterest."}
+      </p>
+      <Show when={props.state === "offer"}>
+        <p id={costId} class="font-body text-text-muted text-ui-sm mt-1.5 leading-relaxed">
+          Showing it here switches on Pinterest moodboards for invites you open in this browser.
+          They load from Pinterest's servers, which lets Pinterest see your IP address and browser.
+        </p>
+      </Show>
+      <div class="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1">
+        <a
+          href={props.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          class={`${buttonClass({ variant: "link", size: "md" })} min-h-11`}
+        >
+          Open on Pinterest
+          <span aria-hidden="true">↗</span>
+        </a>
+        <Show when={props.state === "offer"}>
+          <Button
+            variant="quiet"
+            size="sm"
+            class="min-h-11"
+            aria-describedby={costId}
+            onClick={() => grantCategory("pinterest")}
+          >
+            Show it here
+          </Button>
+        </Show>
+      </div>
+    </div>
   );
 }
 
@@ -251,7 +305,7 @@ function PinterestEmbed(props: PinterestEmbedProps) {
     observer?.disconnect();
     injectedScript?.remove();
     // No embed is mounted any more (consent withdrawn, or the sheet closed), so
-    // the parent's fallback link is the route to the board again.
+    // the parent's moodboard block is the route to the board again.
     props.setStatus("idle");
   });
 
@@ -328,8 +382,8 @@ function PinterestEmbed(props: PinterestEmbedProps) {
   }
 
   return (
-    // On failure the embed slot collapses to nothing and the parent's outbound
-    // link takes its place. It deliberately does NOT reinstate a consent
+    // On failure the embed slot collapses to nothing and the parent's
+    // "couldn't load" block takes its place. It deliberately does NOT reinstate a consent
     // prompt: consent was already given, and re-asking for permission we hold
     // would misrepresent a Pinterest-side failure as the guest's decision.
     <Show when={props.status() !== "failed"}>
@@ -340,7 +394,7 @@ function PinterestEmbed(props: PinterestEmbedProps) {
           this sits above it rather than replacing it. */}
       <Show when={props.status() === "loading"}>
         <div
-          class="font-body text-fg/70 text-ui-xs mt-2 flex items-center justify-center gap-2 text-center"
+          class="font-body text-text-muted text-ui-xs mt-2 flex items-center justify-center gap-2 text-center"
           role="status"
           aria-live="polite"
         >

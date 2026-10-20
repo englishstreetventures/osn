@@ -110,6 +110,22 @@ describe("EventSheet", () => {
     document.body.style.overflow = "";
   });
 
+  it("hands the details the household, so it can say who is invited", () => {
+    const ravi: FamilyMember = { ...priya, guestId: "guest-ravi", firstName: "Ravi", eventIds: [] };
+    const { getByText } = render(() => (
+      <EventSheet
+        event={event}
+        panel="details"
+        siteUrl="https://invite.example.com/abc"
+        members={[priya, ravi]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+    expect(getByText("Who's invited")).toBeTruthy();
+    expect(getByText("Priya", { exact: false }).textContent).toBe("Invited: Priya");
+  });
+
   it("hands the details its site origin, for the calendar invite's link", () => {
     // `siteUrl` is one of the sheet's own props, split off before the rest go
     // to the form. Lost in that split, the calendar entry would say
@@ -233,7 +249,9 @@ describe("EventSheet", () => {
       const { queryByRole, getByRole } = open("details", { closed: true });
 
       expect(queryByRole("button", { name: "RSVP for this event" })).toBeNull();
-      expect(getByRole("status").textContent).toBe("RSVPs closed on Sunday 1 September 2999.");
+      expect(getByRole("status").textContent).toBe(
+        "RSVPs closed on Sunday 1 September 2999. To reply now, please contact the couple directly.",
+      );
     });
 
     it("takes a household that replied from the details to its reply, read-only", () => {

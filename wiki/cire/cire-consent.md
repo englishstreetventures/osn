@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-invite-designs]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 # Cire site-wide consent framework
 
@@ -50,8 +50,11 @@ other.
 
 Vendors declare which category they belong to; the preferences sheet shows one
 switch per optional category, naming its company and linking its privacy
-policy. Granting from a blocked embed's in-place button ("Allow Pinterest
-moodboards") grants that switch and nothing else. There is deliberately **no
+policy. Granting from a blocked embed's in-place button ("Show it here" on the
+moodboard, "Allow …" on the standard placeholder) grants that switch and
+nothing else. A switch is one record for the whole guest origin — one cookie,
+`Path=/` — so it holds for every invite opened in that browser, and the
+moodboard's copy says so rather than "for this invite". There is deliberately **no
 `marketing`, `advertising`, `analytics` or preferences category**: the site
 does none of those, and an unused switch is a claim we would have to keep true.
 
@@ -67,9 +70,12 @@ Both switches are off until the guest allows them — prior consent, the
 ePrivacy posture for EU and UK visitors, applied to every guest. The prompt
 holds the invite's pages until it is answered, so in practice the guest
 decides on the first visit. Before then, and after a refusal, the map's place
-is taken by the CSS map card (venue named, maps link out) and the moodboard's
-by the standard placeholder and the outbound "View moodboard on Pinterest"
-link.
+is taken by the drawn map card (the address above it, "Open in maps" below)
+and the moodboard's by its own block: "Open on Pinterest" and "Show it here",
+with what showing it costs beside the button. Both embeds pass their own
+fallback, so the standard placeholder — vendor, purpose, "Allow …" and
+"Privacy choices" — is what a newly gated vendor gets. The footer's "Privacy
+choices" is the route to both switches at once from anywhere.
 
 ### Three grant maps, and why they can't be collapsed
 

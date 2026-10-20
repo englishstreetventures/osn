@@ -170,6 +170,11 @@ describe("contrast is enforced, not advised", () => {
     ["--invite-focus", "--color-bg"],
     ["--color-error", "--color-surface"],
     ["--color-success", "--color-surface"],
+    // The control and swatch edge: a boundary a guest has to see on whichever
+    // surface the sheet or section sits on.
+    ["--color-border-strong", "--color-surface"],
+    ["--color-border-strong", "--color-surface-raised"],
+    ["--color-border-strong", "--color-bg"],
   ] as const;
 
   for (const key of PALETTE_PRESET_KEYS) {
@@ -473,6 +478,33 @@ describe("contrast is enforced, not advised", () => {
  * the preset sweep below, and the directional test pinning each pair to the
  * surface its message names (the first cut had `card` and `raised` crossed).
  */
+describe("the strong border", () => {
+  test("is derived per scheme, so the guest site may set it from the palette", () => {
+    expect(DERIVED_TOKENS).toContain("--color-border-strong");
+  });
+
+  test("is solid, so what it measures is what paints on any surface", () => {
+    for (const key of PALETTE_PRESET_KEYS) {
+      const value = derivePalette(PALETTE_PRESETS[key])["--color-border-strong"];
+      expect({ key, value }).toEqual({ key, value: expect.not.stringContaining("/") });
+    }
+  });
+
+  test("a straddling scheme that leaves it short on the card is warned about", () => {
+    // A mid-grey page under a darker card: the walk settles on the page last,
+    // and the push that clears the page lands the edge on the card's own grey.
+    const seeds = { ground: "#a5a5a5", card: "#555555", ink: "#000000" };
+    const tokens = derivePalette(seeds);
+    const ratio = contrastRatio(
+      tokens["--color-border-strong"] as string,
+      tokens["--color-surface"] as string,
+    );
+    const warned = paletteContrastWarnings(tokens).some((w) => w.id === "border-strong-on-surface");
+    expect(ratio).toBeLessThan(WCAG_UI_MIN);
+    expect(warned).toBe(true);
+  });
+});
+
 describe("residual contrast warnings", () => {
   test("every curated preset is clean", () => {
     for (const key of PALETTE_PRESET_KEYS) {
@@ -683,6 +715,9 @@ describe("residual contrast warnings", () => {
         gilt: "#d4af37",
         bloom: "#e74c3c",
       }),
+      // A mid-grey page under a darker card leaves the strong border on the
+      // card's own grey.
+      derivePalette({ ground: "#a5a5a5", card: "#555555", ink: "#000000" }),
       // No derived palette can fire `label-on-gold`: the stronger of black
       // and white always clears 4.5:1 on any colour (the worst case is
       // 4.58), and the on-gold walk ends at that pole. The pair is a backstop
@@ -710,6 +745,7 @@ describe("residual contrast warnings", () => {
         "label-on-gold",
         "gilt-ink-on-raised",
         "gilt-ink-on-surface",
+        "border-strong-on-surface",
       ].toSorted(),
     );
   });

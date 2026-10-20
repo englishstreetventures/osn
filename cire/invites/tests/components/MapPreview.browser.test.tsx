@@ -7,11 +7,11 @@ import { EventSheet } from "../../src/components/EventSheet";
 import type { EventSummary } from "../../src/components/types";
 
 /**
- * The venue address in the details sheet's map footer, measured.
+ * The venue address in the details sheet's "Where" row, measured.
  *
  * `MapPreview.test.tsx` pins the *mechanism* — that the address carries no
- * `truncate` and does carry the wrap and clamp utilities, and that the action's
- * words move into a clipped span rather than out of the document. This file pins
+ * `truncate` and does carry the wrap and clamp utilities, and that the link is
+ * named by its words. This file pins
  * the *outcome*, and it has to exist because the two are not the same claim:
  *
  *   - Truncation clips **visually** and leaves the text node whole, so
@@ -28,26 +28,25 @@ import type { EventSummary } from "../../src/components/types";
  * ## Why it renders the event sheet rather than `MapPreview`
  *
  * The width the address gets is decided by a chain that starts outside the
- * component: the dialog's `max-w-[480px]`, the scrollport's `px-6`, the card's
- * border, then the footer's own `px-4` and `gap-3`. Rendering `MapPreview` bare
- * would measure a column no guest ever sees. `DetailsPanel`, inside
- * `EventSheet`, is its only render site.
+ * component: the dialog's `max-w-[480px]`, the scrollport's `px-6`, then the
+ * key-facts row's glyph column and gap. Rendering `MapPreview` bare would
+ * measure a column no guest ever sees. `DetailsPanel`, inside `EventSheet`, is
+ * its only render site.
  *
  * ## Why only the CSS-card branch
  *
- * Both branches render the same `FooterRow`, so the address element and the 44px
- * action box are the same elements with the same classes; the fast tier pins
- * that they carry identical sizing. Forcing the iframe branch here would make a
- * real Chromium fetch `www.google.com/maps/embed` on every run of this tier, and
- * a test that needs the network to be up is a test that goes red when it is not.
+ * Both branches render the same address element and the same link; only the
+ * map between them differs. Forcing the iframe branch here would make a real
+ * Chromium fetch `www.google.com/maps/embed` on every run of this tier, and a
+ * test that needs the network to be up is a test that goes red when it is not.
  *
  * ## The three widths
  *
  * 320 / 768 / 1440 are the widths the acceptance criterion names. The panel is
  * 480px wide at both 768 and 1440 (`max-w-[480px]`), so those two are not
  * independent layout cases — but they are not identical measurements either,
- * because the type scale is fluid: line-height, the footer's content box and the
- * action's own box all move between them. Every figure below is read off the
+ * because the type scale is fluid: line-height and the link's own box move
+ * between them. Every figure below is read off the
  * element at the width under test for that reason; nothing here hard-codes a
  * pixel except the target size, which is a fixed accessibility floor.
  */
@@ -78,7 +77,7 @@ const event: EventSummary = {
 };
 
 /**
- * Open the sheet at `width` showing `address`, and hand back the footer's parts,
+ * Open the sheet at `width` showing `address`, and hand back the row's parts,
  * settled.
  *
  * The viewport is set **before** the render, not after: it persists for the rest
@@ -117,11 +116,11 @@ async function open(width: number, address: string = ORDINARY) {
   // instead, and every measurement below would silently be of the other branch.
   expect(document.querySelector("iframe"), "expected the CSS-card branch").toBeNull();
 
-  const addressEl = view.getByText(address);
-  const label = view.getByText("Open in Maps");
-  const action = label.parentElement as HTMLElement;
-  const footer = addressEl.parentElement as HTMLElement;
-  return { address: addressEl, action, label, footer };
+  const addressEl = document.querySelector<HTMLElement>("[data-venue-address]")!;
+  expect(addressEl.textContent).toBe(address);
+  const action = view.getByRole("link", { name: "Open in maps" });
+  const row = addressEl.parentElement as HTMLElement;
+  return { address: addressEl, action, row };
 }
 
 /** Lines of text actually painted, from the element's own metrics. */
@@ -146,9 +145,10 @@ describe.each([320, 768, 1440])("the venue address at %ipx", (width) => {
 
   it("shows a full address, down to its country, in full", async () => {
     // This is what pins the line cap at three rather than two: 81 characters
-    // takes all three lines in the 180px column at 320px. If the type scale or
-    // the action's box moves, a real address starts being clipped here and the
-    // cap has to be re-decided — which is the failure this asserts.
+    // takes all three lines in the 238px column at 320px, and still three in
+    // the 308px column at 390px. If the type scale or the row's glyph column
+    // moves, a real address starts being clipped here and the cap has to be
+    // re-decided — which is the failure this asserts.
     const { address } = await open(width, FULL);
 
     expect(address.scrollHeight).toBeLessThanOrEqual(address.clientHeight + 1);
@@ -164,45 +164,20 @@ describe.each([320, 768, 1440])("the venue address at %ipx", (width) => {
     expect(getComputedStyle(address).whiteSpace).not.toBe("nowrap");
   });
 
-  it("keeps the action on the address's row, inside the footer", async () => {
-    // "Stays on its row and does not overflow", as two measurements: the footer
-    // has nothing hidden off its inline edge, and the action's box overlaps the
-    // address's vertically — which is what sharing a row means once the address
-    // is several lines tall and the action is one box.
-    const { address, action, footer } = await open(width, FULL);
+  it("puts Open in maps under the address as a 44px target inside the row", async () => {
+    // The link is the row's one action: below the address and the map, never
+    // pushed past the row's edge, and tall enough for a thumb.
+    const { address, action, row } = await open(width, FULL);
 
-    expect(footer.scrollWidth).toBeLessThanOrEqual(footer.clientWidth + 1);
-
-    const footerBox = footer.getBoundingClientRect();
+    expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth + 1);
+    const rowBox = row.getBoundingClientRect();
     const addressBox = address.getBoundingClientRect();
     const actionBox = action.getBoundingClientRect();
 
-    expect(actionBox.right).toBeLessThanOrEqual(footerBox.right + 1);
-    expect(actionBox.left).toBeGreaterThanOrEqual(footerBox.left - 1);
-    expect(actionBox.top).toBeLessThan(addressBox.bottom);
-    expect(actionBox.bottom).toBeGreaterThan(addressBox.top);
-  });
-
-  it("draws the action as a glyph and clips its words rather than removing them", async () => {
-    // The accessibility bug the icon could introduce, and the one a DOM
-    // assertion cannot distinguish: `sr-only` is a 1×1 clipped box that still
-    // names the control, `display: none` takes it out of the tree entirely.
-    const { action, label } = await open(width, ORDINARY);
-
-    const labelStyle = getComputedStyle(label);
-    expect(labelStyle.display).not.toBe("none");
-    expect(labelStyle.position).toBe("absolute");
-    expect(label.getBoundingClientRect().width).toBeLessThanOrEqual(1);
-
-    // The glyph is painted in its place, in a box that clears WCAG 2.2's target
-    // size. Both branches carry the same sizing classes; the fast tier pins
-    // that, and this measures that they resolve to a real box.
-    const box = action.getBoundingClientRect();
-    expect(box.width).toBeGreaterThanOrEqual(44);
-    expect(box.height).toBeGreaterThanOrEqual(44);
-    const glyph = action.querySelector("svg") as SVGElement;
-    expect(getComputedStyle(glyph).display).not.toBe("none");
-    expect(glyph.getBoundingClientRect().width).toBeGreaterThan(0);
+    expect(actionBox.top).toBeGreaterThanOrEqual(addressBox.bottom - 1);
+    expect(actionBox.left).toBeGreaterThanOrEqual(rowBox.left - 1);
+    expect(actionBox.right).toBeLessThanOrEqual(rowBox.right + 1);
+    expect(actionBox.height).toBeGreaterThanOrEqual(44);
   });
 });
 
@@ -212,7 +187,7 @@ describe("the venue address in the narrowest column", () => {
   it("genuinely wraps at 320px rather than happening to fit", async () => {
     // Without this the "in full" assertions above pass for the wrong reason: an
     // address on one line is trivially unclipped, and the bug this file exists
-    // to catch is about the ones that are not. The column is 180px here — wide
+    // to catch is about the ones that are not. The column is 238px here — wide
     // enough for a short address on one line, which is why this uses an
     // ordinary one rather than the shortest.
     const { address } = await open(320, ORDINARY);
@@ -222,15 +197,16 @@ describe("the venue address in the narrowest column", () => {
 
   it("bounds an address of unlimited length at three lines", async () => {
     // The cap doing the only job left to it. Nothing between the organiser's
-    // input and this element constrains the string, so without a cap the footer
-    // grows without limit and the action floats in the middle of a wall of
-    // text. A cap that cannot be shown to fire is indistinguishable from one
+    // input and this element constrains the string, so without a cap the row
+    // grows without limit and the link sinks below a wall of text. A cap that cannot be shown to fire is indistinguishable from one
     // that does nothing, so this fires it.
-    const { address, footer } = await open(320, UNBOUNDED);
+    const { address, action } = await open(320, UNBOUNDED);
 
     expect(lineCount(address)).toBeCloseTo(3, 1);
     expect(address.scrollHeight).toBeGreaterThan(address.clientHeight + 1);
-    // And the footer it sits in stays a footer.
-    expect(footer.getBoundingClientRect().height).toBeLessThan(100);
+    // And the link stays within reach, right under the bounded block.
+    expect(
+      action.getBoundingClientRect().top - address.getBoundingClientRect().bottom,
+    ).toBeLessThan(200);
   });
 });

@@ -333,7 +333,7 @@ on every preset, at rest and on hover).
 Each event card has two buttons, Event Details and the answer button
 ([[#Event card states]]). Both open one dialog, [`EventSheet`](../../cire/invites/src/components/EventSheet.tsx),
 holding two panels: [`DetailsPanel`](../../cire/invites/src/components/DetailsPanel.tsx)
-(when, where, Add to Calendar, about, dress code, moodboard) and
+(the key facts, then the occasion — [[#The details panel]]) and
 [`RsvpPanel`](../../cire/invites/src/components/RsvpPanel.tsx) (the reply
 form). Every pack mounts it the same way, from one `sheet` signal holding the
 event and the panel to open on.
@@ -342,9 +342,9 @@ event and the panel to open on.
   clears the sheet on every close, so nothing from an earlier visit carries
   over. That is the owner's choice over remembering the last panel per event.
 - **A button on each panel leads to the other** without closing the dialog.
-  On the details, "RSVP for this event" sits beside Add to Calendar and takes
-  the call-to-action shape, since answering is the act that matters; Add to
-  Calendar takes its outline. On the form, "View event details" is a quiet
+  On the details, "RSVP for this event" is the first control under the title
+  and takes the call-to-action shape, since answering is the act that matters.
+  On the form, "View event details" is a quiet
   link under the heading. It is withdrawn while a save is in flight and while
   the sheet closes itself on a saved reply.
 - **Nothing typed is lost.** A panel mounts the first time it shows and stays
@@ -375,15 +375,47 @@ event and the panel to open on.
 - **Past the RSVP deadline** the form is read-only: each member's answer on
   file is written out in place of the answer pair, and one line about stored
   dietary data takes the consent boxes' place ([[cire-rsvp-deadline]]). The
-  details panel says "RSVPs closed on …" in a live region present from the
-  start, so a deadline that passes with the sheet open is announced. A household with a reply on
+  details panel says "RSVPs closed on …" in the closed notice's bordered
+  treatment, followed by where a reply or a change can still go ("please
+  contact the couple directly"), inside a live region present from the start,
+  so a deadline that passes with the sheet open is announced. A household with a reply on
   file keeps its way into the form, relabelled "View your RSVP"; one with none
   loses it, and if focus was on that button when it went, focus moves to the
   details heading ([[cire-rsvp-deadline]]).
 - **The card's mark waits for the sheet.** `covered` holds the answer
   button's confirmation back while the sheet is open on either panel.
 
-Tests: `tests/components/EventSheet.test.tsx` (what mounts, hides, names and
+### The details panel
+
+Under the title and the RSVP button comes a description list of the key facts,
+each row a gold glyph (its `<dt>` term is `sr-only`) and the one action that
+belongs to that fact:
+
+| Row | Shows | Action | Renders when |
+|---|---|---|---|
+| When | The day; the time range with the zone spelt out ("AEDT (Sydney time)"); "Your time: …" when the guest's own clock reads differently | Add to calendar — a menu button with the APG arrow, Home, End, Escape and Tab keys, opening above the trigger when it does not fit below | The start parses |
+| Where | The address (wraps, three lines at most); a compact map — the consented Google embed, else a card drawn in the palette's tokens | Open in maps | `hasVenue`: an address or a usable `mapsUrl` |
+| Who's invited | "Invited: Ana and Cy" | — | Someone the couple invited is not invited to this event (`invitedNames`; plus-ones follow their inviter, so never trigger it) |
+
+A time range that ends on a later day names both days ("Fri 6:00 pm – Sun
+11:00 am"), and dates both ends from a week apart. The guest's zone is read in
+the browser after mount; nothing about it leaves the device.
+
+One hairline follows, then the occasion — About, Dress Code, Inspiration —
+with no rule between sections, and nothing at all when none has content.
+Dress-code swatches sit in a fixed grid, each a 44px circle edged in
+`--color-border-strong` (3:1 on every surface, [[cire-invite-builder#Contrast is enforced first, and warned about where it can't be]]) over its name as
+the organiser typed it. Inspiration is one block: "Open on Pinterest" and,
+while Pinterest moodboards are switched off for an embeddable board, "Show it
+here" ([[cire-consent]]).
+
+Every control in the panel is at least 44px tall.
+
+Tests: `tests/components/DetailsPanel.test.tsx` and `event-details.test.ts`
+(what renders when; the date, zone and household wording),
+`DetailsPanel.browser.test.tsx` (contrast on every preset, target sizes, the
+fold at 390×844, the calendar menu's keys and flip).
+`tests/components/EventSheet.test.tsx` (what mounts, hides, names and
 takes focus; the deadline), `EventSheet.browser.test.tsx` (in Chromium, see
 [[browser-tests]]), both packs' `InvitePage.test.tsx` (which panel each button
 opens, on every open) and `InvitePage.browser.test.tsx` (the round trip in each

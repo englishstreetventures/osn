@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import { createMemo, createSignal, createUniqueId, onCleanup, Show } from "solid-js";
 
 import { Z_CLASS } from "../lib/z-index";
@@ -10,12 +11,14 @@ interface AddToCalendarProps {
 }
 
 /**
- * The trigger: an outlined secondary button, like the card's quieter action.
- * In the details panel it sits beside "RSVP for this event", the call to
- * action, so it matches that button's 44px height to share its row evenly.
+ * Each menu item: a 44px row, filled gold while hovered or focused so the
+ * keyboard's position in the menu is as plain as the pointer's.
  */
-const TRIGGER_CLASS =
-  "border-border font-body text-text-muted hover:border-gold hover:text-gold-ink inline-flex min-h-11 items-center rounded-sm border bg-transparent px-5 py-2.5 text-ui-sm tracking-ui-wider uppercase transition-colors duration-200";
+const ITEM_CLASS =
+  "font-body text-text-muted hover:bg-gold hover:text-on-gold focus:bg-gold focus:text-on-gold text-ui-sm tracking-ui-wider inline-flex min-h-11 items-center rounded-sm px-3 uppercase transition-colors duration-200 focus:outline-none";
+
+/** What the menu measures before it has rendered once: two 44px items and its padding. */
+const MENU_HEIGHT_ESTIMATE = 110;
 
 interface PopoverPosition {
   top: number;
@@ -51,7 +54,7 @@ export function AddToCalendar(props: AddToCalendarProps) {
 
   let buttonRef: HTMLButtonElement | undefined;
   let popoverRef: HTMLDivElement | undefined;
-  let firstItemRef: HTMLAnchorElement | undefined;
+  const itemRefs: HTMLAnchorElement[] = [];
 
   const googleHref = createMemo(() => {
     const url = googleCalendarUrl(props.event, props.siteUrl);
@@ -97,7 +100,9 @@ export function AddToCalendar(props: AddToCalendarProps) {
   }
 
   /**
-   * Anchor the (position:fixed) popover beneath the button.
+   * Anchor the (position:fixed) popover to the button: beneath it when the
+   * menu fits there, above it when it fits there instead (the "When" row can
+   * sit near the bottom of a phone's screen), and beneath it when neither does.
    *
    * The coordinates are viewport coordinates, which is right because the menu
    * is in the top layer: its containing block is the viewport whatever the
@@ -114,14 +119,66 @@ export function AddToCalendar(props: AddToCalendarProps) {
     const panelWidth = 224;
     const maxLeft = Math.max(margin, window.innerWidth - panelWidth - margin);
     const left = Math.min(rect.left, maxLeft);
-    setPosition({ top: rect.bottom + 8, left });
+    const height = popoverRef?.offsetHeight || MENU_HEIGHT_ESTIMATE;
+    const below = rect.bottom + margin;
+    const above = rect.top - margin - height;
+    const fitsBelow = below + height <= window.innerHeight - margin;
+    const top = !fitsBelow && above >= margin ? above : below;
+    setPosition({ top, left });
   }
 
+  /** Focus menu item `index`, wrapping at both ends. Called only while the menu is open. */
+  function focusItem(index: number) {
+    const count = itemRefs.length;
+    itemRefs[((index % count) + count) % count]?.focus();
+  }
+
+  /**
+   * The menu-button keyboard, while the menu is open: the arrows move and wrap,
+   * Home and End jump, Escape closes back to the trigger. All four movement keys
+   * are claimed, because the menu's DOM sits inside the sheet's scrollport and
+   * an unclaimed arrow would scroll the sheet under the fixed menu. Tab closes
+   * to the trigger WITHOUT claiming the key, so the browser's own Tab then
+   * moves on from there, as it would from a closed menu.
+   */
   function onKeyDown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      close();
+    // The trigger handles its own keys (see `onTriggerKeyDown`).
+    if (e.target === buttonRef && e.key !== "Escape" && e.key !== "Tab") return;
+    const current = itemRefs.indexOf(document.activeElement as HTMLAnchorElement);
+    switch (e.key) {
+      case "Escape":
+        e.preventDefault();
+        close();
+        return;
+      case "Tab":
+        close();
+        return;
+      case "ArrowDown":
+        e.preventDefault();
+        focusItem(current + 1);
+        return;
+      case "ArrowUp":
+        e.preventDefault();
+        focusItem(current - 1);
+        return;
+      case "Home":
+        e.preventDefault();
+        focusItem(0);
+        return;
+      case "End":
+        e.preventDefault();
+        focusItem(itemRefs.length - 1);
+        return;
     }
+  }
+
+  /** ArrowDown or ArrowUp on the trigger opens the menu on its first or last item. */
+  function onTriggerKeyDown(e: KeyboardEvent) {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const target = e.key === "ArrowDown" ? 0 : -1;
+    if (open()) focusItem(target);
+    else openMenu(target);
   }
 
   function onDocumentPointer(e: MouseEvent) {
@@ -174,32 +231,38 @@ export function AddToCalendar(props: AddToCalendarProps) {
   // is no button left to focus.
   onCleanup(detachListeners);
 
+  function openMenu(focusIndex: number) {
+    ensureIcsHref();
+    updatePosition();
+    attachListeners();
+    setOpen(true);
+    queueMicrotask(() => focusItem(focusIndex));
+  }
+
   function toggle() {
     if (open()) {
       setOpen(false);
       detachListeners();
       return;
     }
-    ensureIcsHref();
-    updatePosition();
-    attachListeners();
-    setOpen(true);
-    queueMicrotask(() => firstItemRef?.focus());
+    openMenu(0);
   }
 
   return (
     <>
-      <button
+      <Button
         ref={buttonRef}
-        type="button"
-        class={TRIGGER_CLASS}
+        variant="link"
+        size="md"
+        class="min-h-11 self-start"
         aria-haspopup="menu"
         aria-expanded={open()}
         aria-controls={popoverId}
         onClick={toggle}
+        onKeyDown={onTriggerKeyDown}
       >
-        Add to Calendar
-      </button>
+        Add to calendar
+      </Button>
       <Show when={open()}>
         <div
           ref={(el) => {
@@ -229,7 +292,11 @@ export function AddToCalendar(props: AddToCalendarProps) {
             // element is inserted, and `showPopover()` on a disconnected
             // element throws `InvalidStateError`.
             queueMicrotask(() => {
-              if (el.isConnected) el.showPopover();
+              if (!el.isConnected) return;
+              el.showPopover();
+              // Now it has a height to measure, place it again: above the
+              // trigger if it does not fit below.
+              updatePosition();
             });
           }}
           id={popoverId}
@@ -243,21 +310,24 @@ export function AddToCalendar(props: AddToCalendarProps) {
           style={{ top: `${position().top}px`, left: `${position().left}px` }}
         >
           <a
-            ref={firstItemRef}
+            ref={(el) => (itemRefs[0] = el)}
             role="menuitem"
+            tabindex="-1"
             href={googleHref()}
             target="_blank"
             rel="noopener noreferrer"
-            class="font-body text-text-muted hover:bg-gold hover:text-on-gold focus:bg-gold focus:text-on-gold text-ui-sm tracking-ui-wider rounded-sm px-3 py-2 uppercase transition-colors duration-200"
+            class={ITEM_CLASS}
             onClick={() => setOpen(false)}
           >
             Google Calendar
           </a>
           <a
+            ref={(el) => (itemRefs[1] = el)}
             role="menuitem"
+            tabindex="-1"
             href={icsHref() ?? "#"}
             download={filename()}
-            class="font-body text-text-muted hover:bg-gold hover:text-on-gold focus:bg-gold focus:text-on-gold text-ui-sm tracking-ui-wider rounded-sm px-3 py-2 uppercase transition-colors duration-200"
+            class={ITEM_CLASS}
             onClick={() => setOpen(false)}
           >
             Apple / Outlook (.ics)

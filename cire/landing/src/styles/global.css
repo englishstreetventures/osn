@@ -29,8 +29,9 @@
      before it had a name — the guest site's claim-code box and its
      gift-registry fields — which is a token by any other measure, and one the
      contract needs by name (`--ui-hairline-strong`) to hold it to its 3:1
-     floor. */
-  --color-border-strong: oklch(94.62% 0.0111 89.72 / 0.55);
+     floor. Solid: `derivePalette` re-derives it per scheme, walked to 3:1 on
+     all three surfaces, and this is the value it gives the evergreen preset. */
+  --color-border-strong: oklch(62.26% 0.0185 118.1);
   /* Solid, not `text / 0.5`. The alpha form measured 4.24:1 composited over
      `--color-surface-raised`, under the 4.5 bar, and no contrast check sees an
      alpha — `contrastOklch` ignores it by design. This is the value

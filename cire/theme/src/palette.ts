@@ -252,6 +252,7 @@ export const DERIVED_TOKENS = [
   "--color-surface",
   "--color-surface-raised",
   "--color-border",
+  "--color-border-strong",
   "--color-text",
   "--color-text-muted",
   "--color-gold",
@@ -554,11 +555,24 @@ export function derivePalette(
     gilt,
   );
 
+  // The edge of a control or a dress-code swatch: a boundary a guest has to
+  // SEE, so it is held to the UI minimum against all three surfaces, walked in
+  // the same order as the prose tokens. Solid rather than ink at an alpha, so
+  // the colour measured here is the colour painted on any surface. A palette
+  // that straddles the lightness midpoint can still leave it short on the card
+  // (the walk settles on the page last), and `border-strong-on-surface` in
+  // `RESIDUAL_PAIRS` says so.
+  const borderStrong = [card, raised, ground].reduce(
+    (colour, surface) => ensureContrast(colour, surface, WCAG_UI_MIN),
+    mix(ink, card, 0.45),
+  );
+
   return {
     "--color-bg": formatOklch(ground),
     "--color-surface": formatOklch(card),
     "--color-surface-raised": formatOklch(raised),
     "--color-border": formatOklch(withAlpha(ink, 0.12)),
+    "--color-border-strong": formatOklch(borderStrong),
     "--color-text": formatOklch(ink),
     "--color-text-muted": formatOklch(muted),
     "--color-gold": formatOklch(gilt),
@@ -807,6 +821,16 @@ const RESIDUAL_PAIRS: {
     bg: "--color-surface",
     min: WCAG_TEXT_MIN,
     message: "Secondary text in the RSVP sheet and pop-ups is hard to read.",
+  },
+  {
+    // `--color-border-strong` is walked like the prose tokens, so it has the
+    // same gap on `card` for a straddling scheme. The card is the sheet's
+    // surface, where the dress-code swatches sit.
+    id: "border-strong-on-surface",
+    fg: "--color-border-strong",
+    bg: "--color-surface",
+    min: WCAG_UI_MIN,
+    message: "Swatch outlines and form-field edges are hard to see in the RSVP sheet and pop-ups.",
   },
   {
     // `--color-gold-ink` IS walked against all three surfaces, so this can only

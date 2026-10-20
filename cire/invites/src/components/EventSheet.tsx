@@ -210,6 +210,7 @@ export function EventSheet(props: EventSheetProps) {
               rsvpClosed={rsvp.closed}
               replied={own.replied}
               rsvpClosedOn={rsvp.closedOn}
+              members={rsvp.members}
               active={active() === "details"}
               titleId={titleIds.details}
               headingRef={(el) => (headings.details = el)}

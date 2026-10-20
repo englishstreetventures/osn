@@ -12,15 +12,20 @@
  *
  * These are the single source of truth for which invite segments render on the
  * guest site (InviteHeader hero + story, the packs' FAQ section, InviteClosing,
- * DetailsPanel inspiration + dress code). The organiser builder mirrors the
- * content predicates and the four state functions in
- * `cire/host/src/lib/invite-emptiness.ts`, so its
- * badges always match what a guest actually sees. The switch vocabulary and
- * `sectionState` itself are shared through `@cire/theme`; the content predicates
- * are two hand-kept copies. Keep them in lockstep.
+ * and the event sheet's Where, About, Dress Code and Inspiration).
+ *
+ * The organiser builder mirrors the PAGE-section predicates and the four state
+ * functions in `cire/host/src/lib/invite-emptiness.ts`, so its badges always
+ * match what a guest actually sees. The switch vocabulary and `sectionState`
+ * itself are shared through `@cire/theme`; those content predicates are two
+ * hand-kept copies. Keep them in lockstep. The per-event predicates at the end
+ * of this file have no organiser twin.
  */
 
 import { sectionState, type SectionState } from "@cire/theme";
+
+import { resolveMapsUrl } from "./event-details";
+import { isSafePinterestLinkUrl } from "./pinterest";
 
 /** A value is "present" when it is a non-empty, non-whitespace-only string. */
 export function hasText(value: string | null | undefined): boolean {
@@ -133,9 +138,31 @@ export function faqState(
   return sectionState(visible, isFaqEmpty(entries));
 }
 
-/** A pinterest URL is present (so the Inspiration segment renders) iff it has text. */
+/**
+ * A pinterest URL is present (so the Inspiration segment renders) when it has
+ * text AND is a safe Pinterest link — the gate `PinterestBoard` applies before
+ * it draws anything. Text alone left an "Inspiration" label over nothing.
+ */
 export function hasPinterest(pinterestUrl: string | null | undefined): boolean {
-  return hasText(pinterestUrl);
+  // The URL parser drops surrounding whitespace itself.
+  return hasText(pinterestUrl) && isSafePinterestLinkUrl(pinterestUrl!);
+}
+
+/**
+ * A venue is present (so the "Where" row renders) when there is something a
+ * guest can open in maps: the same answer `resolveMapsUrl` gives, so the row
+ * and the link inside it cannot disagree.
+ */
+export function hasVenue(
+  address: string | null | undefined,
+  mapsUrl: string | null | undefined,
+): boolean {
+  return resolveMapsUrl({ address: address ?? null, mapsUrl: mapsUrl ?? null }) !== null;
+}
+
+/** A description is present (so "About" renders) iff it has text. */
+export function hasDescription(description: string | null | undefined): boolean {
+  return hasText(description);
 }
 
 /**

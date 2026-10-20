@@ -157,6 +157,16 @@ describe("vendor registry shape", () => {
     }
   });
 
+  it("words every purpose as a third-person sentence", () => {
+    // The privacy notice prints "{name} — {purpose}" and the blocked-content
+    // placeholder prints "It {purpose}", so both read only while the purpose
+    // starts with a verb like "Shows". A base-form "Show" breaks both.
+    const offenders = CONSENT_VENDORS.filter(
+      (vendor) => !/^[A-Z][a-z]+s\b/.test(vendor.purpose),
+    ).map((vendor) => `${vendor.id}: ${vendor.purpose}`);
+    expect(offenders).toEqual([]);
+  });
+
   it("declares no origins for first-party-only entries", () => {
     expect(vendorById("cire-session")!.origins).toEqual([]);
     expect(vendorById("consent-record")!.origins).toEqual([]);

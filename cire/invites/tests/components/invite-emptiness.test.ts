@@ -3,10 +3,12 @@ import { describe, it, expect } from "vitest";
 import {
   faqState,
   footerState,
+  hasDescription,
   hasDressCode,
   hasFooterMessage,
   hasPinterest,
   hasText,
+  hasVenue,
   heroState,
   isFaqEmpty,
   isFooterEmpty,
@@ -74,6 +76,40 @@ describe("hasPinterest", () => {
 
   it("is true for a real URL", () => {
     expect(hasPinterest("https://pinterest.com/x")).toBe(true);
+    expect(hasPinterest("  https://pin.it/3xKp9Qd ")).toBe(true);
+  });
+
+  it("is false for a URL the board would refuse to draw", () => {
+    // `PinterestBoard` renders nothing for these, which used to leave an
+    // "Inspiration" label over an empty space.
+    expect(hasPinterest("https://evil.com/user/board")).toBe(false);
+    expect(hasPinterest("http://pinterest.com/user/board")).toBe(false);
+    expect(hasPinterest("javascript:alert(1)")).toBe(false);
+    expect(hasPinterest("not a url")).toBe(false);
+  });
+});
+
+describe("hasVenue", () => {
+  it("is true for an address, or for a usable maps link alone", () => {
+    expect(hasVenue("12 Banksia Lane", null)).toBe(true);
+    expect(hasVenue(null, "https://maps.google.com/?q=x")).toBe(true);
+    expect(hasVenue("   ", "https://maps.google.com/?q=x")).toBe(true);
+  });
+
+  it("is false when there is nothing a guest could open", () => {
+    // The "Where" row would have nothing to show for these.
+    expect(hasVenue(null, null)).toBe(false);
+    expect(hasVenue("   ", "  ")).toBe(false);
+    expect(hasVenue(null, "javascript:alert(1)")).toBe(false);
+    expect(hasVenue("  ", "ftp://example.com")).toBe(false);
+  });
+});
+
+describe("hasDescription", () => {
+  it("is false for whitespace, true for text", () => {
+    expect(hasDescription("")).toBe(false);
+    expect(hasDescription(" \n ")).toBe(false);
+    expect(hasDescription("An evening of henna")).toBe(true);
   });
 });
 

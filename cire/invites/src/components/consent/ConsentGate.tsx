@@ -82,14 +82,20 @@ export function ConsentGate(props: ConsentGateProps) {
 
 /**
  * The standard blocked-content notice: what would be here, who it comes from,
- * and two ways to act on it.
+ * and two ways to act on it. The default for any gate that passes no fallback
+ * of its own — today both embeds do (`MapPreview`'s map card, `PinterestBoard`'s
+ * moodboard block), so this is what a newly gated vendor gets.
  *
  * It shows both to a guest who refused and to one who has not answered yet,
  * so the copy says what the guest is not seeing and how to allow it, without
  * claiming which of the two they are — and it does not nag. Both routes are
  * offered on purpose: "Allow" turns just this switch on, so a guest who
- * changes their mind about the moodboard isn't sent through a settings sheet
- * to get it; "Privacy choices" opens both switches together.
+ * changes their mind isn't sent through a settings sheet to get it; "Privacy
+ * choices" opens every switch together.
+ *
+ * The vendor's purpose is quoted as its own sentence ("It shows…"). Purposes
+ * are written third-person because the privacy notice prints them after the
+ * vendor's name; putting "would" in front of one breaks it.
  */
 export function ConsentPlaceholder(props: { category: ConsentCategory; vendor: string }) {
   const vendor = () => vendorById(props.vendor);
@@ -102,20 +108,33 @@ export function ConsentPlaceholder(props: { category: ConsentCategory; vendor: s
         <Show when={vendor()?.purpose} fallback={<>Content from {vendorName()} is switched off.</>}>
           {(purpose) => (
             <>
-              {vendorName()} would {purpose().charAt(0).toLowerCase() + purpose().slice(1)}
+              Content from {vendorName()} would appear here. It{" "}
+              {purpose().charAt(0).toLowerCase() + purpose().slice(1)}
             </>
           )}
         </Show>
       </p>
-      <p class="font-body text-text-muted/80 text-ui-xs mt-1.5 leading-relaxed">
+      <p class="font-body text-text-muted text-ui-xs mt-1.5 leading-relaxed">
         It's switched off until you allow it. It loads from {vendorName()}'s servers, which lets
         them see your IP address and browser.
       </p>
       <div class="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-        <Button variant="cta" size="sm" type="button" onClick={() => grantCategory(props.category)}>
+        <Button
+          variant="quiet"
+          size="sm"
+          type="button"
+          class="min-h-11"
+          onClick={() => grantCategory(props.category)}
+        >
           Allow {categoryTitle()}
         </Button>
-        <Button variant="touchLink" size="sm" type="button" onClick={openConsentPreferences}>
+        <Button
+          variant="touchLink"
+          size="sm"
+          type="button"
+          class="min-h-11"
+          onClick={openConsentPreferences}
+        >
           Privacy choices
         </Button>
       </div>

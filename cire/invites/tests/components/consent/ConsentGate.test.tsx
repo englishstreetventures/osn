@@ -117,10 +117,14 @@ describe("ConsentGate", () => {
         </ConsentGate>
       ));
 
-      const text = container.textContent ?? "";
-      expect(text).toContain("Pinterest");
-      expect(text).toContain("inspiration moodboard");
-      expect(text).toContain("IP address");
+      // The purpose strings are third-person on purpose — `/privacy` prints
+      // them after a dash — so the sentence must not put "would" in front of
+      // one ("Pinterest would shows…").
+      const [lead, detail] = [...container.querySelectorAll("p")].map((p) => p.textContent);
+      expect(lead).toBe(
+        "Content from Pinterest would appear here. It shows the couple's inspiration moodboard for an event's dress code.",
+      );
+      expect(detail).toContain("IP address");
     });
 
     it("grants the category — and persists it — when the allow button is clicked", () => {

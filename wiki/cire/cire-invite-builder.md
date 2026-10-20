@@ -286,8 +286,8 @@ never paint an empty full-screen hero or an empty "Our Story" surface. "Absent"
 means null, empty-string, **or whitespace-only** (typing only spaces does not
 fill a field). The single source of truth for these predicates is
 `cire/invites/src/components/invite-emptiness.ts` (`hasText`, `isHeroEmpty`,
-`isStoryEmpty`, `hasFooterMessage`, `isFooterEmpty`, `isFaqEmpty`, `hasPinterest`,
-`hasDressCode`, and the switch-aware `heroState`, `storyState`, `faqState`,
+`isStoryEmpty`, `hasFooterMessage`, `isFooterEmpty`, `isFaqEmpty`, the per-event
+`hasVenue`, `hasDescription`, `hasPinterest` and `hasDressCode`, and the switch-aware `heroState`, `storyState`, `faqState`,
 `footerState`).
 
 The hero, Our Story, the FAQ and the closing section also carry a **visibility switch**
@@ -306,7 +306,9 @@ when it is switched on **and** has content:
 | **Hero** (full-screen)        | switched on, and it has an image **OR** a title **OR** a subtitle | `InviteHeader.tsx` (`showHero`, `heroState`) |
 | **Our Story**                 | switched on, and it has a heading **OR** a body **OR** a story image | `InviteHeader.tsx` (`showStory`, `storyState`) |
 | **FAQ**                       | switched on, and at least one entry has a question **AND** an answer, post-claim | each pack's `InvitePage.tsx` (`faqState`) |
-| **Event → Inspiration**       | the event has a `pinterestUrl`                             | `DetailsPanel.tsx` (`hasPinterest`)     |
+| **Event → Where**             | the event has an address **OR** a usable http(s) `mapsUrl` (what `resolveMapsUrl` accepts) | `DetailsPanel.tsx` (`hasVenue`) |
+| **Event → About**             | the event has a description                                | `DetailsPanel.tsx` (`hasDescription`)   |
+| **Event → Inspiration**       | the event has a `pinterestUrl` that is a safe https Pinterest link (the gate `PinterestBoard` draws behind) | `DetailsPanel.tsx` (`hasPinterest`) |
 | **Event → Dress Code**        | the event has a dress-code description **OR** a palette swatch | `DetailsPanel.tsx` (`hasDressCode`) |
 | **Closing section**           | switched on, and it has a note **OR** an image (whole section), post-claim | `InviteClosing.tsx` (`footerState`) |
 
@@ -518,6 +520,21 @@ identity:
 | `--color-text-muted` | venue lines, descriptions, the closed RSVP-by line | card, raised, ground @ 4.5:1 |
 | `--color-gold-ink` | the open RSVP-by line, the event-card date | card, raised, ground @ 4.5:1 |
 
+`--color-border-strong`, the edge of a form control or a dress-code swatch, is
+computed the same way at the UI floor: ink mixed 55% into the card, then walked
+against card, raised and ground @ 3:1. It is solid rather than ink at an alpha,
+so what is measured is what paints on any surface.
+
+| Preset | On card / raised / ground |
+|---|---|
+| evergreen | 4.71 / 4.07 / 5.02 |
+| jewel | 4.69 / 3.99 / 5.41 |
+| fog | 3.76 / 3.25 / 3.48 |
+| chapel | 3.83 / 3.30 / 3.40 |
+| garden | 3.72 / 3.21 / 3.16 |
+
+*Measured 2026-10-20 — `derivePalette(PALETTE_PRESETS[key])` from `@cire/theme`, `contrastRatio` of `--color-border-strong` against each surface*
+
 Two more tokens carry a label rather than sit under one, and are held to the
 text minimum against the fill the label is written on:
 
@@ -611,6 +628,12 @@ past the lightness midpoint, which sends the walk toward black where black
 tops out under 4.5. `label-on-gold` is a backstop: the on-gold walk always
 lands, so no derived palette fires it, and `palette.test.ts` pins that with a
 seeded sweep of 500 random schemes.
+
+**`border-strong-on-surface`** (`--color-border-strong` on `--color-surface`,
+3:1, "Swatch outlines and form-field edges are hard to see in the RSVP sheet
+and pop-ups") backstops the strong border's walk, which ends on ground and so
+can leave the card short when the surfaces straddle the midpoint — a mid-grey
+page under a darker card is one such scheme.
 
 The confirmation fill and tick are also no longer transient — and getting
 that right took three passes, all of them shipping green, which is the part
