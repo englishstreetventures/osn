@@ -1445,6 +1445,18 @@ describe("HostsPanel — the open wedding's members-changed signal", () => {
     expect(screen.getByText("@carol")).toBeTruthy();
   });
 
+  it("shows a failed first read, and clears it when a signalled read succeeds", async () => {
+    authFetchMock
+      .mockResolvedValueOnce(json({ error: "down" }, 500))
+      .mockResolvedValueOnce(json({ hosts: [bob] }));
+    const signal = renderWithSignal();
+    await waitFor(() => expect(screen.getByText(/Could not load hosts/)).toBeTruthy());
+
+    signal();
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+    expect(screen.queryByText(/Could not load hosts/)).toBeNull();
+  });
+
   it("reads once with no socket above it", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [bob] }));
     render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);

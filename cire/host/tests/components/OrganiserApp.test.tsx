@@ -836,7 +836,11 @@ describe("OrganiserApp Dashboard", () => {
 
     topic.onSignal?.({ reason: "message" });
     await waitFor(() => expect(shell().dataset.membersChanged).toBe("1"));
+    // A drop and a stop report no change to the seats of their own.
     topic.onSignal?.({ reason: "dropped" });
+    topic.onSignal?.({ reason: "stopped" });
+    await Promise.resolve();
+    expect(shell().dataset.membersChanged).toBe("1");
     topic.onSignal?.({ reason: "reconnected" });
     await waitFor(() => expect(shell().dataset.membersChanged).toBe("2"));
   });

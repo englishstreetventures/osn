@@ -11,6 +11,7 @@ import { commands } from "vitest/browser";
  */
 
 const realtime = vi.hoisted(() => ({ base: "" }));
+const reportFallback = vi.hoisted(() => vi.fn());
 const authFetchMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@shared/rp-auth/solid", async () => {
@@ -56,7 +57,7 @@ vi.mock("../../src/lib/api", async () => {
 vi.mock("../../src/lib/realtime", () => ({
   weddingTopicUrl: (weddingId: string) =>
     `${realtime.base}/realtime/${encodeURIComponent(`cire:wedding:${weddingId}`)}`,
-  reportRealtimeFallback: () => {},
+  reportRealtimeFallback: (outcome: string) => reportFallback(outcome),
 }));
 // Plain DOM nodes, not JSX, and built through `vi.hoisted`: a browser-mode
 // factory runs before the file's imports and top-level consts, and compiled
@@ -136,20 +137,24 @@ afterAll(async () => {
 afterEach(() => {
   cleanup();
   authFetchMock.mockReset();
+  reportFallback.mockReset();
   __resetWeddingScope();
   __resetVendorsCache();
   history.replaceState(null, "", window.location.pathname + window.location.search);
 });
 
-async function openRemovableWedding(): Promise<{ remove: () => void }> {
+async function openRemovableWedding(): Promise<{ remove: () => void; narrow: () => void }> {
   history.replaceState(null, "", "#/w/wed_a");
   let removed = false;
-  authFetchMock.mockImplementation(async () => listResponse(removed ? [] : [{ id: "wed_a" }]));
+  let role = "editor";
+  authFetchMock.mockImplementation(async () =>
+    listResponse(removed ? [] : [{ id: "wed_a", role }]),
+  );
   render(() => <OrganiserApp />);
   await waitFor(() => expect(screen.getByTestId("module-shell").textContent).toContain("wed_a"));
   setCachedVendors("wed_a", [vendorRow("wed_a")]);
   await expect.poll(() => commands.realtimeSocketCount()).toBe(1);
-  return { remove: () => (removed = true) };
+  return { remove: () => (removed = true), narrow: () => (role = "helper") };
 }
 
 describe("OrganiserApp — push, in a real browser", () => {
@@ -165,6 +170,19 @@ describe("OrganiserApp — push, in a real browser", () => {
     await expect.poll(() => commands.realtimeSocketCount()).toBe(0);
   });
 
+  it("drops a narrowed co-host's rows on a signal and shows the helper's seat", async () => {
+    const wedding = await openRemovableWedding();
+
+    wedding.narrow();
+    await commands.pushRealtime(SIGNAL);
+
+    await waitFor(() => expect(screen.getByText(/Helper access/i)).toBeTruthy());
+    expect(screen.queryByTestId("module-shell")).toBeNull();
+    expect(peekCachedVendors("wed_a")).toBeNull();
+    // A helper's seat does not listen.
+    await expect.poll(() => commands.realtimeSocketCount()).toBe(0);
+  });
+
   it("drops the rows when the hub revokes the socket with 1008 and no signal", async () => {
     // A removed member's socket is closed with 1008 after the signal; one past
     // its maximum age gets the close alone, so the close must be enough.
@@ -175,6 +193,8 @@ describe("OrganiserApp — push, in a real browser", () => {
 
     await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
     expect(peekCachedVendors("wed_a")).toBeNull();
+    // The real subscription calls the portal's `onFallback` with the reason.
+    expect(reportFallback).toHaveBeenCalledWith("refused");
   });
 
   it("does not reconnect after a 1008 close, even on a wedding it still shows", async () => {

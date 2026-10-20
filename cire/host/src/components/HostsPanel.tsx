@@ -428,6 +428,14 @@ export default function HostsPanel(props: HostsPanelProps) {
   // Each read's number; only the newest read's answer is kept.
   let loadSeq = 0;
 
+  /** Apply this panel's own write to the list. A read already in flight may
+   *  predate the write, so its answer is dropped; the write's own signal asks
+   *  again. */
+  function setLocalHosts(update: (prev: HostRow[]) => HostRow[]): void {
+    loadSeq += 1;
+    setHosts(update);
+  }
+
   /**
    * Read the seats. The first read fills the panel and shows its error; a
    * later one, prompted by the open wedding's socket, replaces the list
@@ -529,7 +537,7 @@ export default function HostsPanel(props: HostsPanelProps) {
       }
       const body = (await res.json()) as { host: HostRow; peopleLimit?: unknown };
       const added = withKnownRole(body.host);
-      setHosts((prev) => ownersFirst([...prev, added]));
+      setLocalHosts((prev) => ownersFirst([...prev, added]));
       keepPeopleLimit(readPeopleLimit(body.peopleLimit));
       noticeIfFormGone(hadForm);
       setHandle("");
@@ -569,7 +577,7 @@ export default function HostsPanel(props: HostsPanelProps) {
         return;
       }
       keepPeopleLimit(await peopleLimitIn(res));
-      setHosts((prev) => prev.filter((h) => h.osnProfileId !== host.osnProfileId));
+      setLocalHosts((prev) => prev.filter((h) => h.osnProfileId !== host.osnProfileId));
       haptic("commit");
       toast.success(`Removed ${label}.`);
     } catch (err) {
@@ -624,13 +632,15 @@ export default function HostsPanel(props: HostsPanelProps) {
         // The select already shows the refused role in the DOM, and its value
         // expression has not changed, so nothing would put it back. A fresh
         // copy of the seat re-renders the row from the role it still holds.
-        setHosts((prev) => prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h } : h)));
+        setLocalHosts((prev) =>
+          prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h } : h)),
+        );
         toast.error(refusal.message ?? "Could not change that host's role. Please try again.");
         return;
       }
       keepPeopleLimit(await peopleLimitIn(res));
       haptic("commit");
-      setHosts((prev) =>
+      setLocalHosts((prev) =>
         ownersFirst(
           prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h, role: nextRole } : h)),
         ),
