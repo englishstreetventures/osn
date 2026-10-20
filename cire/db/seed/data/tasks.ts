@@ -10,11 +10,6 @@
 // closed set the tasks HTTP schema validates against. Buckets run furthest-out
 // first (12m → day_of); `sortOrder` orders WITHIN a bucket and starts at 0 for
 // each one, which is what the reorder endpoint rewrites.
-//
-// Two day-of tasks are assigned to co-host seats from ./hosts.ts, so the
-// checklist shows both an assignee and "Needs an owner" on the dev tier.
-
-import { hosts } from "./hosts";
 
 export type SeedTask = {
   readonly id: string;
@@ -27,8 +22,6 @@ export type SeedTask = {
   readonly sortOrder: number;
   /** Days before seed time it was ticked off; null while open. */
   readonly completedDaysAgo: number | null;
-  /** The seat (`wedding_hosts.id`) it is assigned to; absent for nobody. */
-  readonly assignedHostId?: string;
 };
 
 const task = (n: number): string => `tsk_f7d3b1e0-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -211,8 +204,6 @@ export const tasks = [
     status: "open",
     sortOrder: 0,
     completedDaysAgo: null,
-    // The partner's seat.
-    assignedHostId: hosts[1].id,
   },
   {
     id: task(18),
@@ -223,7 +214,5 @@ export const tasks = [
     status: "open",
     sortOrder: 1,
     completedDaysAgo: null,
-    // The planner's seat.
-    assignedHostId: hosts[2].id,
   },
 ] as const satisfies readonly SeedTask[];

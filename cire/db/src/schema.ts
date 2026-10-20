@@ -4,6 +4,7 @@ import {
   text,
   integer,
   primaryKey,
+  foreignKey,
   index,
   uniqueIndex,
   check,
@@ -205,6 +206,9 @@ export const weddingHosts = sqliteTable(
     index("wedding_hosts_profile_idx").on(t.osnProfileId),
     // List all hosts of a wedding (the management panel) in one b-tree scan.
     index("wedding_hosts_wedding_idx").on(t.weddingId),
+    // The parent key `task_assignees` references, so an assignment can only
+    // name a seat together with that seat's own wedding (migration 0087).
+    uniqueIndex("wedding_hosts_id_wedding_unique").on(t.id, t.weddingId),
   ],
 );
 
@@ -450,29 +454,57 @@ export const tasks = sqliteTable(
     dueSource: text("due_source", { enum: ["manual", "template"] })
       .notNull()
       .default("manual"),
-    // ── Assignee (migration 0086) ───────────────────────────────────────────
-    // The seat (`wedding_hosts.id`) this task is assigned to, or NULL for a
-    // task nobody holds. A seat, not a profile: `runSheetVisibleTo` filters a
-    // helper's run sheet on it. The service only ever writes a seat of the
-    // task's own wedding. SET NULL, so a seat that is removed or leaves takes
-    // its assignments with it and the task survives, unassigned.
-    assignedHostId: text("assigned_host_id").references(() => weddingHosts.id, {
-      onDelete: "set null",
-    }),
   },
   (t) => [
     index("tasks_wedding_bucket_sort_idx").on(t.weddingId, t.timeframeBucket, t.sortOrder),
-    // The probe the SET NULL runs on every seat delete. Partial: most tasks
-    // are unassigned and need no entry.
-    index("tasks_assigned_host_idx")
-      .on(t.assignedHostId)
-      .where(sql`assigned_host_id IS NOT NULL`),
+    // The parent key `task_assignees` references, so an assignment can only
+    // name a task together with that task's own wedding (migration 0087).
+    uniqueIndex("tasks_id_wedding_unique").on(t.id, t.weddingId),
     // One task per template item per wedding, so applying a template twice —
     // or two applies racing — adds nothing the second time. Partial: a task
     // the couple typed has no template and needs no entry.
     uniqueIndex("tasks_wedding_template_item_unique")
       .on(t.weddingId, t.templateId, t.templateItem)
       .where(sql`template_id IS NOT NULL`),
+  ],
+);
+
+// Who holds a checklist task (migration 0087): one row per (task, seat), so a
+// task can be held by several seats of its wedding, or by none. A seat
+// (`wedding_hosts.id`), not a profile: the run sheet filters a helper's view on
+// it.
+//
+// `wedding_id` rides in BOTH foreign keys, so the database itself refuses an
+// assignment that pairs a task with a seat of another wedding. Each key
+// cascades: a task deleted takes its assignments, and a seat removed — or a
+// co-host leaving — takes theirs and leaves the task, with its other holders.
+// A wedding purge reaches these rows through both.
+//
+// `assigned_at` is in seconds; the service orders a task's holders by it, then
+// by rowid, so two seats added in the same second keep the order they were
+// added in.
+export const taskAssignees = sqliteTable(
+  "task_assignees",
+  {
+    taskId: text("task_id").notNull(),
+    hostId: text("host_id").notNull(),
+    weddingId: text("wedding_id").notNull(),
+    assignedAt: integer("assigned_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.taskId, t.hostId] }),
+    foreignKey({
+      columns: [t.taskId, t.weddingId],
+      foreignColumns: [tasks.id, tasks.weddingId],
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.hostId, t.weddingId],
+      foreignColumns: [weddingHosts.id, weddingHosts.weddingId],
+    }).onDelete("cascade"),
+    // The probe the seat cascade runs on every seat delete.
+    index("task_assignees_host_idx").on(t.hostId),
+    // A wedding's assignments in the order they were made: the checklist read.
+    index("task_assignees_wedding_assigned_idx").on(t.weddingId, t.assignedAt),
   ],
 );
 
