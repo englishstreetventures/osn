@@ -17,18 +17,20 @@ import {
   DB_FILES,
   ORIGINS,
 } from "../../src/config";
-import { expect, queryOne, test } from "../support/fixtures";
+import { expect, onSuiteClock, queryOne, test } from "../support/fixtures";
 
 /** The seeded Hindu ceremony (`cire/db/seed/data/events.ts`). */
 const HINDU_ID = "9f7a2c14-1b3d-4e5f-8a01-000000000003";
 
+type Reply = { first_name: string; status: string; created_at: number };
+
 /** The Sampleton household's rows for the Hindu ceremony, by first name. */
-function hinduReplies(): Record<string, string> {
-  const rows: Array<{ first_name: string; status: string }> = [];
+function hinduReplies(): Record<string, Reply> {
+  const rows: Reply[] = [];
   for (const name of [CIRE_PART_GUEST.answering, ...CIRE_PART_GUEST.silent]) {
-    const row = queryOne<{ first_name: string; status: string }>(
+    const row = queryOne<Reply>(
       DB_FILES.cire,
-      `SELECT g.first_name, r.status FROM rsvps r
+      `SELECT g.first_name, r.status, r.created_at FROM rsvps r
          JOIN guests g ON g.id = r.guest_id
          JOIN families f ON f.id = g.family_id
         WHERE f.public_id = ? AND g.first_name = ? AND r.event_id = ?`,
@@ -38,7 +40,7 @@ function hinduReplies(): Record<string, string> {
     );
     if (row) rows.push(row);
   }
-  return Object.fromEntries(rows.map((r) => [r.first_name, r.status]));
+  return Object.fromEntries(rows.map((r) => [r.first_name, r]));
 }
 
 test("cire-rsvp-partial-after-deadline", async ({ page, flow }) => {
@@ -79,7 +81,12 @@ test("cire-rsvp-partial-after-deadline", async ({ page, flow }) => {
   });
 
   const stored = hinduReplies();
-  flow.check("rsvps row for Bo at the Hindu ceremony", "attending", stored["Bo"] ?? "missing");
+  flow.check(
+    "rsvps row for Bo at the Hindu ceremony",
+    "attending",
+    stored["Bo"]?.status ?? "missing",
+  );
+  flow.check("rsvps row written on the suite clock", true, onSuiteClock(stored["Bo"]?.created_at));
   flow.check("no rsvps row for Cleo or Dot", 1, Object.keys(stored).length);
 
   await flow.step("move the browser past the deadline and reload", async () => {
