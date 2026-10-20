@@ -286,9 +286,9 @@ never paint an empty full-screen hero or an empty "Our Story" surface. "Absent"
 means null, empty-string, **or whitespace-only** (typing only spaces does not
 fill a field). The single source of truth for these predicates is
 `cire/invites/src/components/invite-emptiness.ts` (`hasText`, `isHeroEmpty`,
-`isStoryEmpty`, `hasFooterMessage`, `isFooterEmpty`, `isFaqEmpty`, `hasPinterest`,
-`hasDressCode`, and the switch-aware `heroState`, `storyState`, `faqState`,
-`footerState`).
+`isStoryEmpty`, `hasFooterMessage`, `isFooterEmpty`, `isFaqEmpty`, `hasVenue`,
+`hasPinterest`, `hasDressCode`, and the switch-aware `heroState`, `storyState`,
+`faqState`, `footerState`).
 
 The hero, Our Story, the FAQ and the closing section also carry a **visibility switch**
 ("Show on the invite" in the builder), so an organiser can hide a filled-in
@@ -306,7 +306,9 @@ when it is switched on **and** has content:
 | **Hero** (full-screen)        | switched on, and it has an image **OR** a title **OR** a subtitle | `InviteHeader.tsx` (`showHero`, `heroState`) |
 | **Our Story**                 | switched on, and it has a heading **OR** a body **OR** a story image | `InviteHeader.tsx` (`showStory`, `storyState`) |
 | **FAQ**                       | switched on, and at least one entry has a question **AND** an answer, post-claim | each pack's `InvitePage.tsx` (`faqState`) |
-| **Event → Inspiration**       | the event has a `pinterestUrl`                             | `DetailsPanel.tsx` (`hasPinterest`)     |
+| **Event → Where**             | the event has an address **OR** an http(s) `mapsUrl` — whatever can open a map (`resolveMapsUrl`) | `DetailsPanel.tsx` (`hasVenue`) |
+| **Event → About**             | the event has a description                                | `DetailsPanel.tsx` (`hasText`)          |
+| **Event → Inspiration**       | the event has a `pinterestUrl` that is a safe https Pinterest link | `DetailsPanel.tsx` (`hasPinterest`) |
 | **Event → Dress Code**        | the event has a dress-code description **OR** a palette swatch | `DetailsPanel.tsx` (`hasDressCode`) |
 | **Closing section**           | switched on, and it has a note **OR** an image (whole section), post-claim | `InviteClosing.tsx` (`footerState`) |
 
@@ -517,6 +519,26 @@ identity:
 |---|---|---|
 | `--color-text-muted` | venue lines, descriptions, the closed RSVP-by line | card, raised, ground @ 4.5:1 |
 | `--color-gold-ink` | the open RSVP-by line, the event-card date | card, raised, ground @ 4.5:1 |
+
+One boundary token is walked the same way, to the 3:1 a control's edge needs:
+
+| Token | What it paints | Walked against |
+|---|---|---|
+| `--color-border-strong` | the ring round a dress-code swatch in the event details, and `--ui-hairline-strong` for any shared control | card, raised, ground @ 3:1 |
+
+It starts as the ink 55% of the way over the card and is solid, not
+translucent, because no contrast check sees an alpha. The residual pair
+`border-strong-on-surface` warns where a scheme defeats the walk.
+
+| Preset | `--color-border-strong` | On card / raised / ground |
+|---|---|---|
+| evergreen | `oklch(62.26% 0.0185 118.1)` | 4.71 / 4.07 / 5.02 |
+| jewel | `oklch(64% 0.0311 19.75)` | 4.69 / 3.99 / 5.41 |
+| fog | `oklch(60.59% 0.0097 252.75)` | 3.76 / 3.25 / 3.48 |
+| chapel | `oklch(59.73% 0.0135 76.75)` | 3.83 / 3.30 / 3.40 |
+| garden | `oklch(60.96% 0.0313 5.75)` | 3.72 / 3.21 / 3.16 |
+
+*Measured 2026-10-20 — `derivePalette(PALETTE_PRESETS[key])` from `@cire/theme`, `contrastRatio` of `--color-border-strong` against `--color-surface`, `--color-surface-raised` and `--color-bg`*
 
 Two more tokens carry a label rather than sit under one, and are held to the
 text minimum against the fill the label is written on:

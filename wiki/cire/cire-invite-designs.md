@@ -333,7 +333,7 @@ on every preset, at rest and on hover).
 Each event card has two buttons, Event Details and the answer button
 ([[#Event card states]]). Both open one dialog, [`EventSheet`](../../cire/invites/src/components/EventSheet.tsx),
 holding two panels: [`DetailsPanel`](../../cire/invites/src/components/DetailsPanel.tsx)
-(when, where, Add to Calendar, about, dress code, moodboard) and
+(the key facts, then the occasion — [[#The details panel]]) and
 [`RsvpPanel`](../../cire/invites/src/components/RsvpPanel.tsx) (the reply
 form). Every pack mounts it the same way, from one `sheet` signal holding the
 event and the panel to open on.
@@ -342,10 +342,10 @@ event and the panel to open on.
   clears the sheet on every close, so nothing from an earlier visit carries
   over. That is the owner's choice over remembering the last panel per event.
 - **A button on each panel leads to the other** without closing the dialog.
-  On the details, "RSVP for this event" sits beside Add to Calendar and takes
-  the call-to-action shape, since answering is the act that matters; Add to
-  Calendar takes its outline. On the form, "View event details" is a quiet
-  link under the heading. It is withdrawn while a save is in flight and while
+  On the details, "RSVP for this event" is the first thing to press under the
+  heading and takes the call-to-action shape, since answering is the act that
+  matters; Add to calendar is a text action on the date row below it. On the
+  form, "View event details" is a quiet link under the heading. It is withdrawn while a save is in flight and while
   the sheet closes itself on a saved reply.
 - **Nothing typed is lost.** A panel mounts the first time it shows and stays
   mounted, hidden, until the sheet closes, so the form keeps its answers
@@ -375,8 +375,10 @@ event and the panel to open on.
 - **Past the RSVP deadline** the form is read-only: each member's answer on
   file is written out in place of the answer pair, and one line about stored
   dietary data takes the consent boxes' place ([[cire-rsvp-deadline]]). The
-  details panel says "RSVPs closed on …" in a live region present from the
-  start, so a deadline that passes with the sheet open is announced. A household with a reply on
+  details panel's closed notice says "RSVPs closed on …" and the household's
+  next step — to reply, or to change a reply, contact the couple directly — in
+  a live region present from the start, so a deadline that passes with the
+  sheet open is announced. A household with a reply on
   file keeps its way into the form, relabelled "View your RSVP"; one with none
   loses it, and if focus was on that button when it went, focus moves to the
   details heading ([[cire-rsvp-deadline]]).
@@ -388,6 +390,50 @@ takes focus; the deadline), `EventSheet.browser.test.tsx` (in Chromium, see
 [[browser-tests]]), both packs' `InvitePage.test.tsx` (which panel each button
 opens, on every open) and `InvitePage.browser.test.tsx` (the round trip in each
 pack, ending with focus on Event Details).
+
+### The details panel
+
+It leads with the plan — what a guest opens it for — and keeps the occasion
+for after.
+
+| Part | What it holds | Shown when |
+|---|---|---|
+| Header | The "Details, {event}" heading, the RSVP button, and the closed notice (the closed treatment of `RsvpDeadlineNotice`: a hairline box, muted ink) inside an always-mounted `role="status"` region | Always; the button per [[#Event card states]], the notice once RSVPs close |
+| When | The day; the time range, naming both days when the event ends on a later day in its own zone ("Fri 6:00 pm – Sun 11:00 am"); the zone spelt out ("AEDT (Sydney time)"); "Your time: …" when the guest's own clock reads differently; Add to calendar | The start parses |
+| Where | The address; a compact map — the consented Google embed, or a card drawn from the palette tokens; "Open in maps" | Something can open a map (`hasVenue`) |
+| Who's invited | "Invited: Alex and Sam" | Some member the couple invited is not invited to this event (`invitedNames`; plus-ones are named, never decide it) |
+| Occasion | About, Dress Code, Inspiration, under one hairline, with no hairline between them | Any of the three has content |
+
+The facts are a `<dl>`: each row's term ("When", "Where", "Who's invited")
+is for assistive technology, and a glyph in the metal says it on screen. The
+guest's own zone is read after mount, so the first render matches a server
+render wherever the server ran.
+
+- **Text actions, not boxes.** Add to calendar and Open in maps are
+  `@cire/ui`'s `link` variant at a 44px target, so the RSVP button stays the
+  one call to action. Open in maps is named by its own words, with no
+  `aria-label` over them.
+- **The calendar menu** keeps `role="menu"` and the menu-button keys: Enter,
+  Space or ArrowDown on the trigger open it on the first item, ArrowUp on the
+  last; the arrows wrap, Home and End jump, Escape closes it onto the trigger,
+  and Tab closes it and moves on. Every key it takes cancels its default, so
+  nothing scrolls the sheet under it. It opens upward when there is no room
+  below. Its items are 44px rows.
+- **Swatches** are a list in a grid of 3.75rem columns (five across at
+  390px), each name as the organiser wrote it, under a circle hidden from
+  assistive technology. The circle's ring is `--color-border-strong`, held to
+  3:1 on every scheme ([[cire-invite-builder#Contrast is enforced first, and warned about where it can't be]]),
+  so a dark colour on a dark invite keeps an edge.
+- **Inspiration** is one block: where the board is, "Open on Pinterest", and
+  — while Pinterest moodboards are off — "Show it here", which says what it
+  switches on before it is pressed ([[cire-consent]]).
+
+Tests: `tests/components/DetailsPanel.test.tsx` (which rows and sections
+render, the words, the notice), `event-details.test.ts` and
+`invite-emptiness.test.ts` (the helpers, one case per failure mode), and
+`DetailsPanel.browser.test.tsx` (on every preset: each key fact at 4.5:1 and
+each swatch ring at 3:1 on the sheet; at 390px the date and venue on the first
+screen and every control 44px tall; the menu's keys and its flip).
 
 ## Adding a design
 
