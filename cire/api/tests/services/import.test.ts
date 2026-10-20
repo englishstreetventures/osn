@@ -1435,6 +1435,21 @@ describe("applyImport — the guest cap holds inside the write", () => {
     expect(guestCount(db)).toBe(105);
   });
 
+  it("admits an over-cap wedding's import that only removes guests", async () => {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+    const seeded = seedHousehold(db, "fam_trim", 105);
+    const plan = planOf({ guestRemoves: [{ id: seeded[0]!, firstName: "Guest" }] });
+
+    await Effect.runPromise(
+      applyImport("imp_cap_trim", plan, BOOTSTRAP_WEDDING_ID).pipe(
+        Effect.provideService(DbService, db),
+      ),
+    );
+
+    expect(guestCount(db)).toBe(104);
+  });
+
   it("admits an over-cap wedding's import that ends within the cap", async () => {
     const db = createDb(":memory:");
     seedBootstrapWedding(db);

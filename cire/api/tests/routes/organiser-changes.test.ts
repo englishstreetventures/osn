@@ -22,7 +22,7 @@ import { MAX_EVENTS, MAX_ROWS } from "../../src/schemas/import";
 import { ChangeConflict } from "../../src/services/changes";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { createR2Stub } from "../../src/services/r2-imports";
-import { appRequest, beforeStatement, jsonBody, setTier } from "../test-helpers";
+import { appRequest, beforeStatement, failStatements, jsonBody, setTier } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -2213,6 +2213,21 @@ describe("POST /changes/revert — restores only the half the change saved", () 
     expect(row!.status).toBe("applied");
   });
 
+  it("answers 500, not 402, when a revert's write fails for another reason", async () => {
+    const { app, db } = buildApp();
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const changeId = ((await preview.clone().json()) as { changeId: string }).changeId;
+    await applyChange(app, preview);
+    failStatements(db, (q) => q.startsWith('delete from "families"'));
+
+    const res = await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId });
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Revert failed" });
+  });
+
   it("answers 402 when the guests a revert re-creates find the cap reached while it writes", async () => {
     const { app, db } = buildApp();
     const guestRows = (n: number) =>
@@ -2730,6 +2745,20 @@ describe("POST /changes/apply — 402 on capacity breach", () => {
     setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
     expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
     expect(db.select().from(guests).all()).toHaveLength(101);
+  });
+
+  it("answers 500, not 402, when the write fails for another reason", async () => {
+    const { app, db } = buildApp();
+    const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const { changeId } = (await previewRes.json()) as { changeId: string };
+    failStatements(db, (q) => q.startsWith('insert into "families"'));
+
+    const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Apply failed" });
   });
 
   it("answers 402 and moves the head when the cap is reached while the change writes", async () => {
