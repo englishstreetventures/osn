@@ -168,11 +168,17 @@ function buildApp({
 type App = ReturnType<typeof buildApp>["app"];
 type Db = ReturnType<typeof buildApp>["db"];
 
-/** A gift line on the given wedding. */
-function insertItem(db: Db, id: string, weddingId: string) {
+/** A gift line on the given wedding: a product to reserve, or a cash fund. */
+function insertItem(
+  db: Db,
+  id: string,
+  weddingId: string,
+  kind: "product" | "cash_fund" = "product",
+  title = kind === "cash_fund" ? "Honeymoon in Kyoto" : "Copper pan",
+) {
   const now = new Date();
   db.insert(registryItems)
-    .values({ id, weddingId, title: "Copper pan", createdAt: now, updatedAt: now })
+    .values({ id, weddingId, kind, title, createdAt: now, updatedAt: now })
     .run();
 }
 
@@ -393,13 +399,15 @@ describe("what reaches Stripe, and what does not", () => {
    * needs to take a payment. It also means nothing a connected account can type
    * into its own session's metadata can settle a gift here.
    */
-  it("sends Stripe one opaque id and nothing about the guest", async () => {
+  it("sends Stripe one opaque id and nothing about the guest or the fund", async () => {
     const stripe = stripeStub();
-    const { app } = buildApp({ stripe: stripe.client });
+    const { app, db } = buildApp({ stripe: stripe.client });
+    insertItem(db, "reg_fund", BOOTSTRAP_WEDDING_ID, "cash_fund", "Honeymoon in Kyoto");
     const cookie = await guestCookie(app);
 
     await contribute(app, cookie, {
       amountMinor: 12_500,
+      itemId: "reg_fund",
       message: "For the honeymoon",
       displayName: "The Ashworths",
     });
@@ -415,6 +423,11 @@ describe("what reaches Stripe, and what does not", () => {
     expect(serialised).not.toContain("For the honeymoon");
     expect(serialised).not.toContain("The Ashworths");
     expect(serialised).not.toContain(BOOTSTRAP_WEDDING_ID);
+    // What the couple are saving for is theirs: the guest's statement says
+    // "Wedding gift", whichever fund it went to.
+    expect(serialised).not.toContain("Kyoto");
+    expect(serialised).not.toContain("reg_fund");
+    expect(stripe.sessions[0]?.productName).toBe("Wedding gift");
   });
 
   it("writes the gift as pending BEFORE Stripe is asked for a page", async () => {
@@ -459,42 +472,71 @@ describe("what reaches Stripe, and what does not", () => {
     expect(rows[0]?.stripePaymentIntentId).toBeNull();
   });
 
-  it("drops an item id that is not this wedding's rather than refusing the gift", async () => {
+  it("gives to a cash fund of this wedding, and keeps the fund's name with the gift", async () => {
     const stripe = stripeStub();
     const { app, db } = buildApp({ stripe: stripe.client });
+    insertItem(db, "reg_fund", BOOTSTRAP_WEDDING_ID, "cash_fund", "Honeymoon in Kyoto");
     const cookie = await guestCookie(app);
 
-    await contribute(app, cookie, { amountMinor: 5000, itemId: "reg_other_pan" });
-
-    const rows = await db.select().from(registryContributions).all();
-    expect(rows[0]?.itemId).toBeNull();
-    expect(rows[0]?.amountMinor).toBe(5000);
-  });
-
-  it("keeps an item id that is this wedding's", async () => {
-    const stripe = stripeStub();
-    const { app, db } = buildApp({ stripe: stripe.client });
-    insertItem(db, "reg_pan", BOOTSTRAP_WEDDING_ID);
-    const cookie = await guestCookie(app);
-
-    await contribute(app, cookie, { amountMinor: 5000, itemId: "reg_pan" });
-
-    const rows = await db.select().from(registryContributions).all();
-    expect(rows[0]?.itemId).toBe("reg_pan");
-  });
-
-  it("drops an item that exists but belongs to another wedding", async () => {
-    // The item row is real, so only the wedding check can drop it.
-    const stripe = stripeStub();
-    const { app, db } = buildApp({ stripe: stripe.client });
-    insertItem(db, "reg_other_pan", "wed_other");
-    const cookie = await guestCookie(app);
-
-    const res = await contribute(app, cookie, { amountMinor: 5000, itemId: "reg_other_pan" });
+    const res = await contribute(app, cookie, { amountMinor: 5000, itemId: "reg_fund" });
 
     expect(res.status).toBe(200);
     const rows = await db.select().from(registryContributions).all();
-    expect(rows[0]?.itemId).toBeNull();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.itemId).toBe("reg_fund");
+    // Written with the row, so the couple's log names the fund even after
+    // they rename or delete it.
+    expect(rows[0]?.itemTitle).toBe("Honeymoon in Kyoto");
+  });
+
+  /**
+   * A guest who chose a fund chose where the money goes. Giving it to the
+   * couple in general instead, without saying so, would be a different gift
+   * from the one they made. Each id here names no fund of this wedding, and
+   * all get the same answer, so the refusal tells nobody which ids exist.
+   */
+  const notAFund: Array<[string, (db: Db) => void, string]> = [
+    ["a gift to reserve", (db) => insertItem(db, "reg_pan", BOOTSTRAP_WEDDING_ID), "reg_pan"],
+    [
+      "another wedding's fund",
+      (db) => insertItem(db, "reg_other_fund", "wed_other", "cash_fund"),
+      "reg_other_fund",
+    ],
+    ["no item at all", () => {}, "reg_no_such_item"],
+  ];
+
+  for (const [label, seed, itemId] of notAFund) {
+    it(`refuses ${label} before any row or Stripe call`, async () => {
+      const stripe = stripeStub();
+      const { app, db } = buildApp({ stripe: stripe.client });
+      seed(db);
+      const cookie = await guestCookie(app);
+
+      const res = await contribute(app, cookie, { amountMinor: 5000, itemId });
+
+      expect(res.status).toBe(409);
+      expect(await jsonBody(res)).toEqual({ error: "fund_unavailable" });
+      expect(db.select().from(registryContributions).all()).toEqual([]);
+      expect(stripe.sessions).toHaveLength(0);
+      expect(stripe.retrieved).toHaveLength(0);
+    });
+  }
+
+  it("answers that money is off before it says anything about the fund", async () => {
+    // A page left open after the couple stopped taking money: the fund is
+    // still theirs, but no gift can be given. The answer a guest can act on
+    // is that one, not "that fund has closed".
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ cashGiftsEnabled: false, stripe: stripe.client });
+    insertItem(db, "reg_fund", BOOTSTRAP_WEDDING_ID, "cash_fund");
+    const cookie = await guestCookie(app);
+
+    for (const itemId of ["reg_fund", "reg_no_such_item"]) {
+      const res = await contribute(app, cookie, { amountMinor: 5000, itemId });
+      expect(res.status).toBe(409);
+      expect(await jsonBody(res)).toEqual({ error: "cash_gifts_unavailable" });
+    }
+    expect(stripe.sessions).toHaveLength(0);
   });
 
   it("treats an empty item id as no item at all", async () => {
@@ -507,16 +549,17 @@ describe("what reaches Stripe, and what does not", () => {
     expect(res.status).toBe(200);
     const rows = await db.select().from(registryContributions).all();
     expect(rows[0]?.itemId).toBeNull();
+    expect(rows[0]?.itemTitle).toBeNull();
   });
 
-  it("checks the household and the item inside the registry gate's one statement", async () => {
+  it("checks the household and the fund inside the registry gate's one statement", async () => {
     const stripe = stripeStub();
     const { app, db } = buildApp({ stripe: stripe.client });
-    insertItem(db, "reg_pan", BOOTSTRAP_WEDDING_ID);
+    insertItem(db, "reg_fund", BOOTSTRAP_WEDDING_ID, "cash_fund");
     const cookie = await guestCookie(app);
     const statements = recordStatements(db);
 
-    expect((await contribute(app, cookie, { amountMinor: 5000, itemId: "reg_pan" })).status).toBe(
+    expect((await contribute(app, cookie, { amountMinor: 5000, itemId: "reg_fund" })).status).toBe(
       200,
     );
 

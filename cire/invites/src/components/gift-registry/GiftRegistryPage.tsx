@@ -25,6 +25,7 @@ import {
   type GiftRegistry,
   type GiftRegistryClaimBody,
   type GiftRegistryFetch,
+  type GiftRegistryFund,
   type GiftRegistryHouseholdClaim,
   type GiftRegistryHouseholdFetch,
   type GiftRegistryItem,
@@ -70,10 +71,9 @@ const GiftMoneyPanel = lazy(() =>
  * which they typed, echoed back to them.
  *
  * A CLAIM IS NOT A PURCHASE. It reserves, so the same pan is not offered to a
- * second household. Money — contributions to a cash fund — is a separate later
- * change; `kind: "cash_fund"` is a declared seam and renders exactly like any
- * other item here, on purpose. Inventing a contribute flow for a backend that
- * has none would be UI standing in for something that does not exist.
+ * second household. Money is the money panel's: a gift in general, or to one
+ * of the couple's cash funds, which arrive apart from the gifts (`funds`) and
+ * are offered there, never on the shelves — a fund is given to, not reserved.
  *
  * THE RACE IS THE ORDINARY CASE. A shared invite link means two guests tapping
  * the last item at the same moment, and the API answers the loser 409
@@ -229,6 +229,8 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
   // Sorted client-side by `sortOrder` then `id`, so a refetched list keeps the
   // same order whatever order the rows arrive in.
   const items = createMemo(() => sortGiftRegistryItems(registry()?.items ?? []));
+  /** The couple's cash funds, in their order. Absent from an older API: none. */
+  const funds = createMemo(() => sortGiftRegistryItems(registry()?.funds ?? []));
 
   /**
    * The list is rendered over IDS, not over the item objects.
@@ -289,8 +291,8 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
    */
   const shippingAddress = createMemo(() => household()?.shippingAddress?.trim() || null);
 
-  /** The item's image route, or `null` when the couple uploaded no picture. */
-  function imageBase(item: GiftRegistryItem): string | null {
+  /** The gift's or fund's image route, or `null` when the couple gave no picture. */
+  function imageBase(item: GiftRegistryItem | GiftRegistryFund): string | null {
     const name = item.imageName;
     return name === null ? null : giftRegistryImageBase(props.apiUrl, props.slug, name);
   }
@@ -522,6 +524,11 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                   currency={registry()?.currency ?? ""}
                   inviteHref={props.inviteHref}
                   preview={preview()}
+                  funds={funds()}
+                  fundImageBase={imageBase}
+                  // The fund closed while this page was open: the fresh list
+                  // drops it, and the panel's choice goes back to the couple.
+                  onFundClosed={() => void loadList()}
                 />
               </Suspense>
             </Show>
@@ -530,10 +537,14 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
               when={items().length > 0}
               fallback={
                 /* PUBLISHED BUT EMPTY — a real state, and not the same as an
-                   unpublished list, which answers the 404 above. */
-                <p class="font-body text-text-muted text-ui-base py-10 text-center">
-                  The couple haven’t added any gifts yet.
-                </p>
+                   unpublished list, which answers the 404 above. A list of
+                   cash funds and no gifts to reserve is not empty: the funds
+                   are in the money panel above. */
+                <Show when={funds().length === 0}>
+                  <p class="font-body text-text-muted text-ui-base py-10 text-center">
+                    The couple haven’t added any gifts yet.
+                  </p>
+                </Show>
               }
             >
               {/* The ledger: what is already yours, and nothing about how much of

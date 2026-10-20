@@ -6,10 +6,18 @@
  * and the household's own read answers 200. Signing out on the invitation
  * locks the list again and removes the household's session.
  *
+ * The couple also have a cash fund, and their own settings take money. This
+ * stack's cire-api has no Stripe key, so nothing a guest presses could reach
+ * a payment page: the list offers neither the money form nor the fund. The
+ * flow reads the fund's row and the couple's Stripe-ready settings from the
+ * database first, so the fund's absence is the deployment's doing, not a seed
+ * that lacks one.
+ *
  * The wedding is the gift-list one cire-api seeds for the suite
  * (`CIRE_GIFT_LIST`); every string the locked flow checks is absent is checked
- * here to be present, so a seed that drifts from the config fails this flow
- * rather than letting the locked one pass on nothing.
+ * here to be present — on the page, or for the fund, in the database — so a
+ * seed that drifts from the config fails this flow rather than letting the
+ * locked one pass on nothing.
  */
 
 import type { Page } from "@playwright/test";
@@ -95,10 +103,53 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
       await expect(page.getByRole("heading", { name: gift })).toBeVisible();
     }
     await expect(page.getByText(CIRE_GIFT_LIST.message)).toBeVisible();
-    return { list: listResponse.status(), mine: mineResponse.status() };
+    const body = (await listResponse.json()) as {
+      cashGiftsEnabled?: boolean;
+      funds?: unknown[];
+    };
+    const html = await page.content();
+    return {
+      list: listResponse.status(),
+      mine: mineResponse.status(),
+      // Absent reads as "offered", so a missing field fails the checks below.
+      moneyOffered: body.cashGiftsEnabled ?? true,
+      fundsOffered: body.funds?.length ?? -1,
+      moneyForm: await page.locator("[data-gift-money]").count(),
+      fundOnPage:
+        [CIRE_GIFT_LIST.fund.title, CIRE_GIFT_LIST.fund.description]
+          .filter((s) => html.includes(s))
+          .join(", ") || "none",
+    };
   });
   flow.check("list read after the claim", 200, after.list);
   flow.check("household read after the claim", 200, after.mine);
+
+  // The couple's side is ready to take money, and the fund is theirs. Read
+  // first, so what follows cannot pass on a seed with no fund in it.
+  const fund = queryOne<{ title: string; description: string; kind: string }>(
+    DB_FILES.cire,
+    `SELECT title, description, kind FROM registry_items WHERE id = ?`,
+    CIRE_GIFT_LIST.fund.id,
+  );
+  flow.check("the couple's fund is on their list", CIRE_GIFT_LIST.fund.title, fund?.title ?? "");
+  flow.check("the fund's words", CIRE_GIFT_LIST.fund.description, fund?.description ?? "");
+  flow.check("the fund is a cash fund", "cash_fund", fund?.kind ?? "");
+  const money = queryOne<{ ready: number }>(
+    DB_FILES.cire,
+    `SELECT (s.cash_gifts_enabled = 1 AND s.stripe_charges_enabled = 1
+             AND s.stripe_account_id IS NOT NULL
+             AND upper(s.stripe_default_currency) = upper(w.currency)) AS ready
+       FROM registry_settings s JOIN weddings w ON w.id = s.wedding_id
+      WHERE w.slug = ?`,
+    CIRE_GIFT_LIST.slug,
+  );
+  flow.check("the couple's settings take money", 1, money?.ready ?? 0);
+  // …and still nothing is offered, because this deployment cannot take a
+  // payment: no Stripe key, no contribute route.
+  flow.check("money offered on a stack with no Stripe", false, after.moneyOffered);
+  flow.check("funds offered on a stack with no Stripe", 0, after.fundsOffered);
+  flow.check("money form on the page", 0, after.moneyForm);
+  flow.check("fund on the page", "none", after.fundOnPage);
 
   const sessions = queryOne<{ n: number; created_at: number }>(
     DB_FILES.cire,

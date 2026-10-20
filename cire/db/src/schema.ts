@@ -831,9 +831,10 @@ export const registryItems = sqliteTable(
     weddingId: text("wedding_id")
       .notNull()
       .references(() => weddings.id, { onDelete: "cascade" }),
-    // v1 writes only `product`. `cash_fund` is the named-fund seam (honeymoon,
-    // house deposit, charity) — declared now so adding funds is UI work, not a
-    // migration.
+    // `product` is a thing a household reserves; `cash_fund` is a named purpose
+    // guests give money to (honeymoon, house deposit, charity). A fund is never
+    // claimed, and reaches guests only while the couple take money. Set at
+    // create and never changed.
     kind: text("kind", { enum: ["product", "cash_fund"] })
       .notNull()
       .default("product"),
@@ -855,7 +856,8 @@ export const registryItems = sqliteTable(
     quantityWanted: integer("quantity_wanted").notNull().default(1),
     // Group-gifting seam (many guests part-fund one item). Off in v1.
     allowPartial: integer("allow_partial", { mode: "boolean" }).notNull().default(false),
-    // Cash-fund goal, minor units of the wedding's currency. Unused in v1.
+    // A cash fund's goal, minor units of the wedding's currency, or NULL. The
+    // couple's planning number, never sent to a guest. Always NULL on a product.
     targetMinor: integer("target_minor"),
     category: text("category"),
     sortOrder: integer("sort_order").notNull().default(0),
@@ -965,8 +967,14 @@ export const registryContributions = sqliteTable(
     weddingId: text("wedding_id")
       .notNull()
       .references(() => weddings.id, { onDelete: "cascade" }),
-    // NULL for a general cash gift that isn't against a listed item.
+    // The cash fund this gift was given to; NULL for a gift to no fund.
     itemId: text("item_id").references(() => registryItems.id, { onDelete: "set null" }),
+    // The fund's name as the guest saw it, written with the row. `item_id` is
+    // SET NULL when the couple delete the fund, and a fund can be renamed, so
+    // the gift log reads the name from here: the couple's record says what the
+    // guest gave to, whatever happens to the listing afterwards. NULL for a
+    // gift to no fund. The couple's own words, never the guest's.
+    itemTitle: text("item_title"),
     familyId: text("family_id")
       .notNull()
       .references(() => families.id, { onDelete: "cascade" }),

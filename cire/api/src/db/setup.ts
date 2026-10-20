@@ -523,6 +523,7 @@ CREATE TABLE IF NOT EXISTS registry_contributions (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
   item_id TEXT REFERENCES registry_items(id) ON DELETE SET NULL,
+  item_title TEXT,
   family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'pending',
   amount_minor INTEGER NOT NULL,
@@ -780,11 +781,17 @@ export function applyE2eRsvpDeadline(
 
 /**
  * A second wedding for the E2E suite's gift-list flows: on Gold, with a
- * published list of three gifts, one household of one invited to one event,
- * and the wedding's host preview household. The values the flows check are
- * written out again in
+ * published list of three gifts and one cash fund, one household of one
+ * invited to one event, and the wedding's host preview household. The values
+ * the flows check are written out again in
  * `tools/e2e/src/config.ts` (`CIRE_GIFT_LIST`); a change here goes there too,
  * and the claimed flow fails until it does.
+ *
+ * The couple are taking money as far as their own settings go: money gifts
+ * on, a connected account that can charge and settles in the wedding's
+ * currency. The stack runs cire-api with no Stripe key, so no gift can be paid
+ * for there, and the guest list must offer neither the money form nor the
+ * fund. That is the deployment check the claimed flow holds.
  *
  * Its own wedding rather than the sample one, so the gift band that a
  * published list puts on the invite never appears in the other cire flows.
@@ -872,6 +879,11 @@ export function seedE2eGiftList(db: TestDb): void {
       published: true,
       headline: "Our gift list",
       message: "Your being there is the gift. This list is here if you would like it.",
+      cashGiftsEnabled: true,
+      stripeAccountId: "acct_e2e_gift_list",
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
+      stripeDefaultCurrency: "AUD",
       createdAt: now,
       updatedAt: now,
     })
@@ -906,6 +918,17 @@ export function seedE2eGiftList(db: TestDb): void {
         priceMinor: null,
         category: null,
         sortOrder: 2,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "reg_e2e_gift_fund",
+        weddingId,
+        kind: "cash_fund",
+        title: "Honeymoon in Kyoto",
+        description: "Trains, temples and a very good dinner.",
+        targetMinor: 500_000,
+        sortOrder: 3,
         createdAt: now,
         updatedAt: now,
       },

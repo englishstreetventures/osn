@@ -149,6 +149,35 @@ describe("publishing", () => {
     expect(publish.closest("fieldset")?.getAttribute("aria-describedby")).toBeNull();
   });
 
+  it("counts a cash fund only while guests can give to it", async () => {
+    // Guests see a fund only while money gifts are on. A list of funds alone,
+    // with money off, would publish a page with nothing on it.
+    const funds = [item({ kind: "cash_fund", title: "Honeymoon", targetMinor: 500_000 })];
+    setCachedRegistry("wed_1", snapshot({ items: funds }));
+    const { unmount } = renderPanel();
+    const blocked = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
+    expect(blocked.disabled).toBe(true);
+    expect(document.getElementById("registry-publish-blocked")?.textContent).toMatch(
+      /cash funds count once money gifts are on/i,
+    );
+    unmount();
+
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: funds,
+        settings: {
+          cashGiftsEnabled: true,
+          stripeConnected: true,
+          stripeChargesEnabled: true,
+        } as never,
+      }),
+    );
+    renderPanel();
+    const open = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
+    expect(open.disabled).toBe(false);
+  });
+
   it("never traps a couple whose published list lost its last gift", async () => {
     // Publishing is blocked, but an ALREADY published list must stay
     // switchable — otherwise deleting the last gift would freeze the radio

@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   GiftMoneyPanel,
   giftMoneyMessage,
 } from "../../../src/components/gift-registry/GiftMoneyPanel";
+import type { GiftRegistryFund } from "../../../src/lib/gift-registry";
 
 /**
  * The "give money" panel.
@@ -228,6 +230,118 @@ describe("when it does not work", () => {
 
     await screen.findByText(/Could not reach the payment page/);
     expect(button.disabled).toBe(false);
+  });
+});
+
+const HONEYMOON: GiftRegistryFund = {
+  id: "fund-honeymoon",
+  title: "Honeymoon in Kyoto",
+  description: "Trains, temples and a very good dinner.",
+  imageName: "registry-honeymoon",
+  imageCrop: null,
+  sortOrder: 0,
+};
+const HOUSE: GiftRegistryFund = {
+  id: "fund-house",
+  title: "House deposit",
+  description: null,
+  imageName: null,
+  imageCrop: null,
+  sortOrder: 1,
+};
+const fundImage = (fund: GiftRegistryFund) =>
+  fund.imageName === null ? null : `${API}/img/${fund.imageName}`;
+
+describe("giving to a fund", () => {
+  it("gives to the couple in general unless the guest chooses a fund", async () => {
+    const { calls } = stubFetch(json({ url: "https://checkout.stripe.com/c/pay/cs_1" }));
+    const { container } = renderPanel({
+      funds: [HONEYMOON, HOUSE],
+      fundImageBase: fundImage,
+      navigate: captureNavigation(),
+    });
+
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect((calls[0]?.body as { itemId: string | null } | undefined)?.itemId).toBeNull();
+  });
+
+  it("gives to the fund the guest chose", async () => {
+    const { calls } = stubFetch(json({ url: "https://checkout.stripe.com/c/pay/cs_1" }));
+    const { container } = renderPanel({
+      funds: [HONEYMOON, HOUSE],
+      fundImageBase: fundImage,
+      navigate: captureNavigation(),
+    });
+
+    fireEvent.click(screen.getByRole("radio", { name: /Honeymoon in Kyoto/ }));
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect((calls[0]?.body as { itemId: string | null } | undefined)?.itemId).toBe(
+      "fund-honeymoon",
+    );
+  });
+
+  it("shows each fund's name, picture and words, and no figure of its own", () => {
+    const { container } = renderPanel({ funds: [HONEYMOON, HOUSE], fundImageBase: fundImage });
+    const choice = container.querySelector("[data-gift-money-funds]") as HTMLElement;
+    expect(choice.textContent).toContain("Honeymoon in Kyoto");
+    expect(choice.textContent).toContain("Trains, temples and a very good dinner.");
+    expect(choice.textContent).toContain("House deposit");
+    const pictures = [...choice.querySelectorAll("img")];
+    expect(pictures).toHaveLength(1);
+    expect(pictures[0]?.getAttribute("src")).toContain("registry-honeymoon");
+    // No goal, no amount raised, no count: the only money on the panel is the
+    // amounts a guest may choose from.
+    expect(choice.textContent).not.toMatch(/\d/);
+  });
+
+  it("offers no choice of fund when the couple have none", () => {
+    const { container } = renderPanel();
+    expect(container.querySelector("[data-gift-money-funds]")).toBeNull();
+  });
+
+  it("says a closed fund has closed, asks for a fresh list, and falls back to the couple", async () => {
+    const onFundClosed = vi.fn();
+    const assign = captureNavigation();
+    const [funds, setFunds] = createSignal<readonly GiftRegistryFund[]>([HONEYMOON, HOUSE]);
+    stubFetch(json({ error: "fund_unavailable" }, 409));
+    const { container } = render(() => (
+      <GiftMoneyPanel
+        apiUrl={API}
+        slug={SLUG}
+        currency="AUD"
+        inviteHref={INVITE_HREF}
+        funds={funds()}
+        fundImageBase={fundImage}
+        onFundClosed={onFundClosed}
+        navigate={assign}
+      />
+    ));
+
+    fireEvent.click(screen.getByRole("radio", { name: /Honeymoon in Kyoto/ }));
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+
+    await screen.findByText(giftMoneyMessage({ kind: "fund-closed" }));
+    expect(onFundClosed).toHaveBeenCalledTimes(1);
+    expect(assign).not.toHaveBeenCalled();
+    // The fresh list no longer has it, so the choice goes back to the couple
+    // rather than pointing at something that is not there.
+    setFunds([HOUSE]);
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("radio", { name: /Wherever they choose/ }) as HTMLInputElement).checked,
+      ).toBe(true),
+    );
+  });
+
+  it("has words of its own for a fund that has closed, apart from money being off", () => {
+    expect(giftMoneyMessage({ kind: "fund-closed" })).not.toBe(
+      giftMoneyMessage({ kind: "unavailable" }),
+    );
+    expect(giftMoneyMessage({ kind: "fund-closed" })).toMatch(/fund/i);
   });
 });
 

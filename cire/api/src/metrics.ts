@@ -518,7 +518,9 @@ type PlusOnePermissionSetAttrs = { scope: PlusOnePermissionScope; allowed: "on" 
 type DietaryPresetAttrs = { preset: DietaryPreset };
 /** Which organiser write touched a registry item. Bounded, one per route. */
 export type RegistryItemAction = "create" | "update" | "remove";
-type RegistryItemWriteAttrs = { action: RegistryItemAction };
+/** Which kind of item it was: a gift to reserve, or a cash fund. Two values. */
+export type RegistryItemKindAttr = "product" | "cash_fund";
+type RegistryItemWriteAttrs = { action: RegistryItemAction; kind: RegistryItemKindAttr };
 /** What happened to a gift-log row. `thanked`/`unthanked` are the toggle's two
  *  directions — worth separating, since a couple un-thanking in bulk is a
  *  different (and more suspicious) signal than thanking. `note_hidden` /
@@ -827,7 +829,7 @@ const rsvpUpserted = createCounter<RsvpUpsertedAttrs>({
 
 const registryItemWrite = createCounter<RegistryItemWriteAttrs>({
   name: CIRE_METRICS.registryItemWrite,
-  description: "Organiser registry item writes, by action",
+  description: "Organiser registry item writes, by action and item kind",
   unit: "{write}",
 });
 
@@ -1302,8 +1304,10 @@ export const metricPlusOneBlocked = (reason: PlusOneBlockedReason): void =>
 export const metricPlusOnePermissionSet = (scope: PlusOnePermissionScope, allowed: boolean): void =>
   plusOnePermissionSet.inc({ scope, allowed: allowed ? "on" : "off" });
 
-export const metricRegistryItemWrite = (action: RegistryItemAction): void =>
-  registryItemWrite.inc({ action });
+export const metricRegistryItemWrite = (
+  action: RegistryItemAction,
+  kind: RegistryItemKindAttr,
+): void => registryItemWrite.inc({ action, kind });
 
 export const metricRegistryGift = (action: RegistryGiftAction): void =>
   registryGift.inc({ action });

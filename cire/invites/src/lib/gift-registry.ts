@@ -44,13 +44,35 @@ export interface GiftRegistryItem {
   sortOrder: number;
 }
 
+/**
+ * Mirrors `PublicRegistryFundDto` — one of the couple's cash funds. Its name,
+ * picture and the couple's words about it, and nothing else: a fund's goal,
+ * and how much has come in, are the couple's alone.
+ */
+export interface GiftRegistryFund {
+  id: string;
+  title: string;
+  description: string | null;
+  /** LAST SEGMENT of the R2 key (`registry-<uuid>`), not a URL. */
+  imageName: string | null;
+  imageCrop: string | null;
+  sortOrder: number;
+}
+
 /** Mirrors `PublicRegistryDto`. One primary currency for the whole list. */
 export interface GiftRegistry {
   headline: string | null;
   message: string | null;
   cashGiftsEnabled: boolean;
   currency: string;
+  /** The gifts to reserve. Never a cash fund. */
   items: GiftRegistryItem[];
+  /**
+   * The cash funds a guest may give to, present only while the couple take
+   * money. Optional because this site can reach production before the API
+   * that sends it; absent reads as none.
+   */
+  funds?: GiftRegistryFund[];
 }
 
 /** Mirrors `HouseholdClaimDto`'s `status` (a released claim is never returned). */
@@ -258,10 +280,14 @@ export async function fetchGiftRegistryHousehold(
  *
  * `preview` is the 403 `preview_read_only`: the organiser's preview session,
  * which never gives.
+ *
+ * `fund-closed` is the 409 `fund_unavailable`: the fund the guest chose is no
+ * longer on the couple's list. The page re-reads the list.
  */
 export type GiftContributionResult =
   | { kind: "ok"; url: string }
   | { kind: "unavailable" }
+  | { kind: "fund-closed" }
   | { kind: "signed-out" }
   | { kind: "rate-limited"; retryAfterSeconds: number | null }
   | { kind: "invalid" }
@@ -272,7 +298,7 @@ export type GiftContributionResult =
 export interface GiftContributionBody {
   /** Minor units of the wedding's currency. */
   amountMinor: number;
-  /** Giving TOWARDS a listed gift, rather than in general. */
+  /** Giving to one of the couple's cash funds, rather than in general. */
   itemId?: string | null;
   message?: string | null;
   displayName?: string | null;
@@ -302,7 +328,11 @@ export async function contributeGift(
       cache: "no-store",
     });
     if (res.status === 401) return { kind: "signed-out" };
-    if (res.status === 409) return { kind: "unavailable" };
+    if (res.status === 409) {
+      return (await errorCode(res)) === "fund_unavailable"
+        ? { kind: "fund-closed" }
+        : { kind: "unavailable" };
+    }
     if (res.status === 400) return { kind: "invalid" };
     if (res.status === 403 && (await errorCode(res)) === PREVIEW_READ_ONLY) {
       return { kind: "preview" };
@@ -509,9 +539,12 @@ export function giftRegistryQuantityHint(max: number, wanted: number): string | 
  * Sort as the API's own index does: `sort_order`, then `id` as the tie-break.
  * Re-sorted client-side rather than trusted, so a merged/refetched list is
  * stable no matter what order the rows arrived in. Copies — never sorts the
- * caller's array in place.
+ * caller's array in place. Gifts and cash funds share one order on the list,
+ * so it sorts either, or both together.
  */
-export function sortGiftRegistryItems(items: readonly GiftRegistryItem[]): GiftRegistryItem[] {
+export function sortGiftRegistryItems<T extends Pick<GiftRegistryItem, "id" | "sortOrder">>(
+  items: readonly T[],
+): T[] {
   return [...items].sort((a, b) =>
     a.sortOrder === b.sortOrder ? a.id.localeCompare(b.id) : a.sortOrder - b.sortOrder,
   );

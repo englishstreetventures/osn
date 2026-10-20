@@ -471,88 +471,106 @@ INSERT OR IGNORE INTO registry_settings (
 );
 
 -- ────────────────────────────────────────────────────────────────────────────
--- Registry items (10)
+-- Registry items (11)
 -- ────────────────────────────────────────────────────────────────────────────
 
 -- `image_key` is left NULL on every row: it is an R2 object key, and a key
 -- with no bytes behind it renders a broken image on both the organiser list and
 -- the guest site. The link-preview path fills it in normally.
 --
--- `kind` is 'product' throughout — 'cash_fund' is a declared seam with no UI in
--- v1, so seeding one would put a row on screen that nothing can edit.
+-- The last row is a cash fund with a goal. Money gifts are off here, so it
+-- shows in the organiser's list and not on the guest page.
 INSERT OR IGNORE INTO registry_items (
   id, wedding_id, kind, title, description,
-  external_url, price_minor, quantity_wanted, category, sort_order,
+  external_url, price_minor, quantity_wanted, category, target_minor, sort_order,
   created_at, updated_at
 ) VALUES
   (
     'reg_c4b8a2f1-0000-4000-8000-000000000001', 'wed_bootstrap', 'product', 'Cast-iron casserole, 26cm',
     'Anything oven-to-table. Blue if there''s a choice.',
     'https://example.com/kitchen/cast-iron-casserole',
-    45000, 1, 'Kitchen', 0,
+    45000, 1, 'Kitchen',
+    NULL, 0,
     unixepoch(), unixepoch()
   ),
   (
     'reg_c4b8a2f1-0000-4000-8000-000000000002', 'wed_bootstrap', 'product', 'Stand mixer',
     NULL,
     'https://example.com/kitchen/stand-mixer',
-    79900, 1, 'Kitchen', 1,
+    79900, 1, 'Kitchen',
+    NULL, 1,
     unixepoch(), unixepoch()
   ),
   (
     'reg_c4b8a2f1-0000-4000-8000-000000000003', 'wed_bootstrap', 'product', 'Espresso machine',
     'The one gift that gets used every single morning.',
     'https://example.com/kitchen/espresso-machine',
-    129900, 1, 'Kitchen', 2,
+    129900, 1, 'Kitchen',
+    NULL, 2,
     unixepoch(), unixepoch()
   ),
   (
     'reg_c4b8a2f1-0000-4000-8000-000000000004', 'wed_bootstrap', 'product', 'Wine glasses, set of six',
     'Two sets would not go astray.',
     'https://example.com/table/wine-glasses',
-    12000, 2, 'Table', 3,
+    12000, 2, 'Table',
+    NULL, 3,
     unixepoch(), unixepoch()
   ),
   (
     'reg_c4b8a2f1-0000-4000-8000-000000000005', 'wed_bootstrap', 'product', 'Cutlery set, 24 piece',
     NULL,
     'https://example.com/table/cutlery-set',
-    34900, 1, 'Table', 4,
+    34900, 1, 'Table',
+    NULL, 4,
     unixepoch(), unixepoch()
   ),
   (
     'reg_c4b8a2f1-0000-4000-8000-000000000006', 'wed_bootstrap', 'product', 'Hand-thrown serving platter',
     'Made in Bowral, so no two are the same.',
     'https://example.com/table/serving-platter',
-    18000, 1, 'Table', 5,
+    18000, 1, 'Table',
+    NULL, 5,
     unixepoch(), unixepoch()
   ),
   (
     'reg_c4b8a2f1-0000-4000-8000-000000000007', 'wed_bootstrap', 'product', 'Linen bedding set, queen',
     NULL,
     'https://example.com/home/linen-bedding',
-    39900, 1, 'Home', 6,
+    39900, 1, 'Home',
+    NULL, 6,
     unixepoch(), unixepoch()
   ),
   (
     'reg_c4b8a2f1-0000-4000-8000-000000000008', 'wed_bootstrap', 'product', 'Wool throw',
     NULL,
     'https://example.com/home/wool-throw',
-    24900, 2, 'Home', 7,
+    24900, 2, 'Home',
+    NULL, 7,
     unixepoch(), unixepoch()
   ),
   (
     'reg_c4b8a2f1-0000-4000-8000-000000000009', 'wed_bootstrap', 'product', 'Picnic hamper',
     'For the drive up the coast afterwards.',
     'https://example.com/outdoors/picnic-hamper',
-    15900, 1, 'Outdoors', 8,
+    15900, 1, 'Outdoors',
+    NULL, 8,
     unixepoch(), unixepoch()
   ),
   (
     'reg_c4b8a2f1-0000-4000-8000-000000000010', 'wed_bootstrap', 'product', 'A recipe you actually cook',
     'Written out, in your handwriting. That''s the whole gift.',
     NULL,
-    NULL, 1, NULL, 9,
+    NULL, 1, NULL,
+    NULL, 9,
+    unixepoch(), unixepoch()
+  ),
+  (
+    'reg_c4b8a2f1-0000-4000-8000-000000000011', 'wed_bootstrap', 'cash_fund', 'Honeymoon in Kyoto',
+    'Trains, temples and one very good dinner.',
+    NULL,
+    NULL, 1, NULL,
+    500000, 10,
     unixepoch(), unixepoch()
   );
 

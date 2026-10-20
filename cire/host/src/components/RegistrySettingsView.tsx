@@ -127,9 +127,20 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     apiUrl(weddingPath(props.weddingId, `/registry/stripe/${leaf}`));
 
   const settings = (): RegistrySettings | null => snapshot()?.settings ?? null;
-  const itemCount = () => snapshot()?.items.length ?? 0;
+  /**
+   * What a published list would show a guest. A cash fund counts only while
+   * money gifts are on and Stripe can take a charge, as saved: guests see a
+   * fund only then, so a list of funds alone with money off would publish an
+   * empty page.
+   */
+  const guestVisibleCount = () => {
+    const s = settings();
+    const fundsShow = s?.cashGiftsEnabled === true && s.stripeChargesEnabled;
+    return (snapshot()?.items ?? []).filter((it) => it.kind !== "cash_fund" || fundsShow).length;
+  };
+  const hasFunds = () => (snapshot()?.items ?? []).some((it) => it.kind === "cash_fund");
   /** Publishing an empty list is blocked — see the notice this drives. */
-  const canPublish = () => itemCount() > 0;
+  const canPublish = () => guestVisibleCount() > 0;
 
   const stripeState = createMemo<StripeState>(() => {
     const s = settings();
@@ -500,6 +511,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                 Add a gift before publishing. Guests reach the list — and the money-gift option with
                 it — only once it is published, so an empty published list is a page with nothing on
                 it.
+                <Show when={hasFunds()}> Cash funds count once money gifts are on.</Show>
               </Notice>
             </Show>
 

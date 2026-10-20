@@ -129,6 +129,16 @@ const Quantity = Schema.Number.check(
   Schema.isInt(),
   Schema.isBetween({ minimum: 1, maximum: MAX_QUANTITY }),
 );
+/**
+ * A cash fund's goal, in the wedding's minor units. At least one unit: a goal
+ * of nothing is no goal, and the couple say that by leaving it empty (null).
+ */
+const TargetMinor = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isGreaterThanOrEqualTo(1),
+  Schema.isLessThanOrEqualTo(MAX_MINOR),
+);
+const ItemKind = Schema.Literals(["product", "cash_fund"]);
 
 const SettingsFields = {
   published: Schema.optional(Schema.Boolean),
@@ -162,9 +172,15 @@ export type UpdateRegistrySettingsBody = Schema.Schema.Type<typeof UpdateRegistr
  *
  * `priceMinor` has NO currency field: it is denominated in the wedding's primary
  * currency (`weddings.currency`) by definition. Accepting a per-item currency
- * here is exactly the mistake that makes a gift list unreadable.
+ * here is exactly the mistake that makes a gift list unreadable. The same holds
+ * for a cash fund's `targetMinor`.
+ *
+ * `kind` picks a gift to reserve (`product`, the default) or a cash fund. Which
+ * fields each kind may carry is the service's check, not this schema's: the
+ * defaults below cannot tell "left out" from "sent as the default".
  */
 export const CreateRegistryItemBody = Schema.Struct({
+  kind: ItemKind.pipe(Schema.withDecodingDefaultType(Effect.succeed("product" as const))),
   title: Title,
   description: Schema.NullOr(Description).pipe(
     Schema.withDecodingDefaultType(Effect.succeed(null)),
@@ -174,11 +190,18 @@ export const CreateRegistryItemBody = Schema.Struct({
   priceMinor: Schema.NullOr(Minor).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
   quantityWanted: Quantity.pipe(Schema.withDecodingDefaultType(Effect.succeed(1))),
   category: Schema.NullOr(Category).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
+  targetMinor: Schema.NullOr(TargetMinor).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed(null)),
+  ),
 });
 export type CreateRegistryItemBody = Schema.Schema.Type<typeof CreateRegistryItemBody>;
 
-/** Update item: partial patch. Absent ⇒ unchanged; explicit null clears. */
+/**
+ * Update item: partial patch. Absent ⇒ unchanged; explicit null clears. An
+ * item's `kind` is set when it is created and never patched.
+ */
 export const UpdateRegistryItemBody = Schema.Struct({
+  targetMinor: Schema.optional(Schema.NullOr(TargetMinor)),
   title: Schema.optional(Title),
   description: Schema.optional(Schema.NullOr(Description)),
   imageKey: Schema.optional(Schema.NullOr(ImageKey)),
@@ -278,7 +301,7 @@ export const ContributionAmount = Schema.Number.check(
  */
 export const ContributeBody = Schema.Struct({
   amountMinor: ContributionAmount,
-  /** Contributing TOWARDS a listed gift, rather than in general. */
+  /** Giving to one of the couple's cash funds, rather than in general. */
   itemId: Schema.NullOr(Schema.String.check(Schema.isMaxLength(64))).pipe(
     Schema.withDecodingDefaultType(Effect.succeed(null)),
   ),

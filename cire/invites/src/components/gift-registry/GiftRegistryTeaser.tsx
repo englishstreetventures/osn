@@ -36,7 +36,6 @@ import {
   giftRegistryPath,
   sortGiftRegistryItems,
   type GiftRegistry,
-  type GiftRegistryItem,
 } from "../../lib/gift-registry";
 import { CLAIM_SESSION_EVENT, hasClaimedHint } from "../claim-session";
 import { buildSrcSet, variantSrc } from "../invite-images";
@@ -96,18 +95,18 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
     onCleanup(() => window.removeEventListener(CLAIM_SESSION_EVENT, onSessionChange));
   });
 
-  const items = createMemo(() => sortGiftRegistryItems(registry()?.items ?? []));
-
   /**
-   * The peek row: the first few gifts that HAVE a picture, in list order.
+   * The peek row: the first few gifts and cash funds that HAVE a picture, in
+   * the couple's order (`sortOrder`, then `id`, as the API's own index sorts).
    *
-   * Pictureless gifts are skipped rather than drawn as empty frames — a row of
+   * Pictureless ones are skipped rather than drawn as empty frames — a row of
    * blank boxes says less than no row at all, and the couple's own order still
-   * decides which pictures show.
+   * decides which pictures show. Funds arrive only while the couple take
+   * money, so a fund's picture here is one a guest can give to.
    */
   const previewItems = createMemo(() =>
-    items()
-      .filter((item) => item.imageName !== null)
+    sortGiftRegistryItems([...(registry()?.items ?? []), ...(registry()?.funds ?? [])])
+      .filter((entry) => entry.imageName !== null)
       .slice(0, GIFT_TEASER_PREVIEW_COUNT),
   );
 
@@ -115,7 +114,7 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
   const heading = createMemo(() => giftRegistryHeading(props.heading, registry()?.headline));
   const body = createMemo(() => giftRegistryBody(props.body, registry()?.message));
 
-  function imageBase(item: GiftRegistryItem): string {
+  function imageBase(item: { imageName: string | null }): string {
     // Only ever called for the filtered preview items, which all have a name.
     return giftRegistryImageBase(props.apiUrl, props.slug, item.imageName ?? "");
   }
