@@ -1,5 +1,13 @@
 # @osn/client
 
+## 2.18.6
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
 ## 2.18.5
 
 ### Patch Changes

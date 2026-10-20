@@ -1,5 +1,16 @@
 # @pulse/landing
 
+## 0.1.26
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
+- Updated dependencies [fa0f54a]
+  - @shared/legal@0.0.7
+
 ## 0.1.25
 
 ### Patch Changes

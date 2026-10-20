@@ -1,5 +1,16 @@
 # @shared/realtime
 
+## 0.1.1
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
+- Updated dependencies [fa0f54a]
+  - @shared/observability@0.18.9
+
 ## 0.1.0
 
 ### Minor Changes

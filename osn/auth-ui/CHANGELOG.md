@@ -1,5 +1,18 @@
 # @osn/ui
 
+## 3.0.12
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
+- Updated dependencies [fa0f54a]
+  - @osn/client@2.18.6
+  - @shared/toast@0.3.5
+  - @shared/ui@0.4.4
+
 ## 3.0.11
 
 ### Patch Changes

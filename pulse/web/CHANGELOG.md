@@ -1,5 +1,21 @@
 # @osn/pulse
 
+## 0.24.20
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
+- Updated dependencies [fa0f54a]
+  - @pulse/api@0.27.25
+  - @shared/design-tokens@0.3.6
+  - @shared/legal@0.0.7
+  - @shared/rp-auth@0.2.10
+  - @shared/toast@0.3.5
+  - @shared/ui@0.4.4
+
 ## 0.24.19
 
 ### Patch Changes

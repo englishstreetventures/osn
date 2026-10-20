@@ -1,5 +1,21 @@
 # @zap/api
 
+## 0.9.26
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
+- Updated dependencies [fa0f54a]
+  - @shared/crypto@0.14.5
+  - @shared/db-utils@0.7.6
+  - @shared/observability@0.18.9
+  - @shared/osn-auth-client@0.4.43
+  - @shared/rate-limit@0.3.7
+  - @zap/db@0.6.7
+
 ## 0.9.25
 
 ### Patch Changes

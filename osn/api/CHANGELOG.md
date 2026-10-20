@@ -1,5 +1,24 @@
 # @osn/osn
 
+## 3.29.6
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
+- Updated dependencies [fa0f54a]
+  - @osn/db@0.24.8
+  - @shared/crypto@0.14.5
+  - @shared/db-utils@0.7.6
+  - @shared/email@0.16.3
+  - @shared/observability@0.18.9
+  - @shared/openapi-tools@0.1.6
+  - @shared/rate-limit@0.3.7
+  - @shared/redis@0.8.5
+  - @shared/turnstile@0.2.32
+
 ## 3.29.5
 
 ### Patch Changes
