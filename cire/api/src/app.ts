@@ -126,13 +126,13 @@ const defaultClaimLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60_000
  */
 const defaultClaimSessionLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 /**
- * Default per-IP rate limiter for the account-link surface (S-L1): 20 req/min.
+ * Default per-IP rate limiter for the account-link surface: 20 req/min.
  * Higher than claim because a household legitimately polls GET link-status, but
  * still caps the POST's ARC-sign + S2S amplifier and the membership-probe oracle.
  */
 const defaultAccountLinkLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
 /**
- * Default per-IP limiter for organiser invite-builder writes (IB-S-L1). An
+ * Default per-IP limiter for organiser invite-builder writes. An
  * authenticated organiser could otherwise drive unbounded 5 MB R2 image writes;
  * 30 req/min is generous for hand-editing while capping the storage/cost
  * amplifier.
@@ -164,7 +164,7 @@ const defaultWeddingCreateLimiter = createRateLimiter({ maxRequests: 10, windowM
  */
 const defaultRemintLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 /**
- * Default per-USER limiter for the CSV + JSON RSVP export routes (CSV-S-L1).
+ * Default per-USER limiter for the CSV + JSON RSVP export routes.
  * An authenticated organiser (or a compromised organiser token) could otherwise
  * loop these reads and burn D1 read quota / Worker CPU on the Free tier.
  * 10 exports/min is generous for hand-use while capping the D1 amplifier.
@@ -211,7 +211,7 @@ const defaultWeddingLifecycleLimiter = createRateLimiter({ maxRequests: 5, windo
  */
 const defaultHandleSearchLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 /**
- * Default per-IP limiter for the vendor portal routes (S-L1). Covers both the
+ * Default per-IP limiter for the vendor portal routes. Covers both the
  * unauthenticated claim preview (DB-query amplifier) and the ARC-calling consume
  * endpoint; 20 req/min is generous for hand-use while bounding amplification.
  */
@@ -860,12 +860,12 @@ export function createApp(db: Db, options: AppOptions = {}) {
           set.status = 404;
           return { error: "Not found" };
         }
-        // S-M1: Elysia's default error renderer puts `error.message` in the
+        // Elysia's default error renderer puts `error.message` in the
         // response body, which leaks internals (D1 error strings, Effect
         // causes, table names) to callers — the claim endpoint is pre-auth.
         // Log the detail, return a generic body.
         //
-        // OBS-S-L2: log only NON-SENSITIVE identifiers — the Elysia error
+        // Log only NON-SENSITIVE identifiers — the Elysia error
         // `code`, the error `name`, and (for `Data.TaggedError` defects) the
         // tagged `_tag`. We deliberately do NOT log the free-form
         // `error.message`: `redact()` scrubs by object KEY, not by substring
@@ -927,7 +927,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // caller is the guest Worker's server render, whose fetch has no Origin.
       // It reads public invite data only — no cookie, no write.
       .use(createInviteResolveRoutes(db))
-      // C5 / S-L3: CSRF origin guard on every state-changing method, using the
+      // CSRF origin guard on every state-changing method, using the
       // same allowlist CORS echoes. Mounted before the route factories so it
       // gates the whole app. Empty allowlist (dev) disables it.
       .use(originGuard(corsOrigins))
