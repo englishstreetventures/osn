@@ -71,6 +71,13 @@ function held() {
   return { route, answer: (res: Response) => answer(res) };
 }
 
+/** Responses the test hands over one by one, by the order the requests came in. */
+function heldEach() {
+  const answers: ((res: Response) => void)[] = [];
+  const route: Route = () => new Promise<Response>((resolve) => answers.push(resolve));
+  return { route, answer: (k: number, res: Response) => answers[k]!(res) };
+}
+
 const calls = (suffix: string, method = "GET") =>
   authFetchMock.mock.calls.filter(
     ([url, init]) =>
@@ -222,8 +229,6 @@ describe("the task drawer", () => {
     // Only the task picked for changed hands.
     expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible();
 
-    // The next pick waits for the first write to come back.
-    await waitFor(() => expect(select).not.toBeDisabled());
     fireEvent.change(select, { target: { value: "" } });
     await waitFor(() =>
       expect(assigned).toEqual([{ assignedHostId: "whost_jo" }, { assignedHostId: null }]),
@@ -234,25 +239,6 @@ describe("the task drawer", () => {
 
     fireEvent.click(within(drawer).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(drawer).not.toHaveAttribute("open"));
-  });
-
-  it("sends one write at a time, holding the select until the answer", async () => {
-    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
-    const write = held();
-    api({ hosts: hostsAnswer([SAM, JO]), assign: write.route });
-    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
-    await screen.findByText("Book venue");
-    const { select } = await openDrawer("Book venue");
-    await waitFor(() => expect(select).not.toBeDisabled());
-
-    fireEvent.change(select, { target: { value: "whost_jo" } });
-    await waitFor(() => expect(select).toBeDisabled());
-    fireEvent.change(select, { target: { value: "whost_sam" } });
-    expect(calls("/assignee", "PUT")).toHaveLength(1);
-
-    write.answer(json({ task: row({ id: "a", title: "Book venue", assignedHostId: "whost_jo" }) }));
-    await waitFor(() => expect(select).not.toBeDisabled());
-    expect(within(rowOf("Book venue")).getByText("@jo")).toBeVisible();
   });
 
   it("takes the pick back at once and asks again when that person is no longer on the wedding", async () => {
@@ -413,6 +399,149 @@ describe("reading the people for the drawer", () => {
 
     await opened("Book venue");
     expect(calls("/hosts")).toHaveLength(1);
+  });
+});
+
+describe("picks made while a write is out", () => {
+  const stored = (assignedHostId: string | null) =>
+    json({ task: row({ id: "a", title: "Book venue", assignedHostId }) });
+  const sent = () =>
+    calls("/assignee", "PUT").map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+
+  async function drawerWithHeldWrites(tasks?: Route) {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    const writes = heldEach();
+    api({ hosts: hostsAnswer([SAM, JO]), assign: writes.route, tasks });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+    const { drawer, select } = await openDrawer("Book venue");
+    await waitFor(() => expect(select).not.toBeDisabled());
+    return { drawer, select, writes };
+  }
+
+  it("keeps the select usable while a write is out, and says it is busy", async () => {
+    const { select, writes } = await drawerWithHeldWrites();
+
+    fireEvent.change(select, { target: { value: "whost_jo" } });
+    expect(select).not.toBeDisabled();
+    expect(select).toHaveAttribute("aria-busy", "true");
+
+    writes.answer(0, stored("whost_jo"));
+    await waitFor(() => expect(select).not.toHaveAttribute("aria-busy"));
+  });
+
+  it("writes a pick made while a write is out once that write is back", async () => {
+    const { select, writes } = await drawerWithHeldWrites();
+
+    fireEvent.change(select, { target: { value: "whost_jo" } });
+    fireEvent.change(select, { target: { value: "whost_sam" } });
+    expect(sent()).toEqual([{ assignedHostId: "whost_jo" }]);
+
+    writes.answer(0, stored("whost_jo"));
+    await waitFor(() => expect(sent()).toHaveLength(2));
+    expect(sent()[1]).toEqual({ assignedHostId: "whost_sam" });
+    writes.answer(1, stored("whost_sam"));
+    await waitFor(() => expect(select).not.toHaveAttribute("aria-busy"));
+    expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible();
+  });
+
+  it("writes only the last of several picks made while a write is out", async () => {
+    const { select, writes } = await drawerWithHeldWrites();
+
+    fireEvent.change(select, { target: { value: "whost_jo" } });
+    fireEvent.change(select, { target: { value: "whost_sam" } });
+    fireEvent.change(select, { target: { value: "" } });
+
+    writes.answer(0, stored("whost_jo"));
+    await waitFor(() => expect(sent()).toHaveLength(2));
+    writes.answer(1, stored(null));
+    await waitFor(() => expect(select).not.toHaveAttribute("aria-busy"));
+    expect(sent()).toEqual([{ assignedHostId: "whost_jo" }, { assignedHostId: null }]);
+    expect(within(rowOf("Book venue")).getByText("Needs an owner")).toBeVisible();
+  });
+
+  it("keeps showing the latest pick when an earlier write answers", async () => {
+    const { select, writes } = await drawerWithHeldWrites();
+
+    fireEvent.change(select, { target: { value: "whost_jo" } });
+    fireEvent.change(select, { target: { value: "whost_sam" } });
+    expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible();
+
+    writes.answer(0, stored("whost_jo"));
+    await waitFor(() => expect(sent()).toHaveLength(2));
+    // The first answer would put Jo back under a keyboard user mid-way through.
+    expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible();
+    expect(select.value).toBe("whost_sam");
+    writes.answer(1, stored("whost_sam"));
+    await waitFor(() => expect(select).not.toHaveAttribute("aria-busy"));
+    expect(select.value).toBe("whost_sam");
+  });
+
+  it("lets the later pick decide when a write it replaced is refused", async () => {
+    const { drawer, select, writes } = await drawerWithHeldWrites();
+
+    fireEvent.change(select, { target: { value: "whost_jo" } });
+    fireEvent.change(select, { target: { value: "whost_sam" } });
+    writes.answer(0, json({ error: "assignee_not_in_wedding" }, 422));
+    await waitFor(() => expect(sent()).toHaveLength(2));
+    expect(within(drawer).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible();
+
+    writes.answer(1, stored("whost_sam"));
+    await waitFor(() => expect(select).not.toHaveAttribute("aria-busy"));
+    expect(within(drawer).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible();
+    expect(calls("/tasks")).toHaveLength(0);
+  });
+
+  it("puts back who the server last said holds the task when the last write fails", async () => {
+    const reread = held();
+    const { drawer, select, writes } = await drawerWithHeldWrites(reread.route);
+
+    fireEvent.change(select, { target: { value: "whost_jo" } });
+    fireEvent.change(select, { target: { value: "whost_sam" } });
+    writes.answer(0, stored("whost_jo"));
+    await waitFor(() => expect(sent()).toHaveLength(2));
+    writes.answer(1, json({ error: "Internal error" }, 500));
+
+    expect(await within(drawer).findByRole("alert")).toHaveTextContent(
+      "Couldn't change who holds that task.",
+    );
+    // Jo, whom the first write stored — not nobody, as before the picks.
+    expect(within(rowOf("Book venue")).getByText("@jo")).toBeVisible();
+    expect(select.value).toBe("whost_jo");
+    reread.answer(
+      json({ tasks: [row({ id: "a", title: "Book venue", assignedHostId: "whost_jo" })] }),
+    );
+  });
+
+  it("puts back who held the task before the picks when every write of them fails", async () => {
+    const reread = held();
+    const { drawer, select, writes } = await drawerWithHeldWrites(reread.route);
+
+    fireEvent.change(select, { target: { value: "whost_jo" } });
+    fireEvent.change(select, { target: { value: "whost_sam" } });
+    writes.answer(0, json({ error: "Internal error" }, 500));
+    await waitFor(() => expect(sent()).toHaveLength(2));
+    writes.answer(1, json({ error: "Internal error" }, 500));
+
+    expect(await within(drawer).findByRole("alert")).toHaveTextContent(
+      "Couldn't change who holds that task.",
+    );
+    expect(within(rowOf("Book venue")).getByText("Needs an owner")).toBeVisible();
+    expect(select.value).toBe("");
+    reread.answer(json({ tasks: [row({ id: "a", title: "Book venue" })] }));
+  });
+
+  it("sends no waiting pick once a write finds the session gone", async () => {
+    const { select, writes } = await drawerWithHeldWrites();
+
+    fireEvent.change(select, { target: { value: "whost_jo" } });
+    fireEvent.change(select, { target: { value: "whost_sam" } });
+    writes.answer(0, new Response(null, { status: 401 }));
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    await waitFor(() => expect(select).not.toHaveAttribute("aria-busy"));
+    expect(sent()).toEqual([{ assignedHostId: "whost_jo" }]);
   });
 });
 

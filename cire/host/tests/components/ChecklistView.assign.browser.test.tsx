@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 
@@ -29,7 +29,7 @@ vi.mock("../../src/lib/api", async (importOriginal) => ({
 }));
 
 import ChecklistView from "../../src/components/ChecklistView";
-import { __resetHostsCache, type HostSeat } from "../../src/lib/hosts-store";
+import { __resetHostsCache, ensureHostsLoaded, type HostSeat } from "../../src/lib/hosts-store";
 import { __resetTasksCache, setCachedTasks, type TaskRow } from "../../src/lib/tasks-store";
 
 const row = (over: Partial<TaskRow>): TaskRow => ({
@@ -98,9 +98,18 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // A `showModal()` dialog sits in the top layer and survives a render
+  // cleanup; the next test would mount behind it with its page inert.
+  for (const d of document.querySelectorAll("dialog[open]")) (d as HTMLDialogElement).close();
   cleanup();
   delete document.documentElement.dataset.theme;
 });
+
+const json = (body: unknown) =>
+  new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
 
 describe("who holds a task, painted", () => {
   for (const viewport of VIEWPORTS) {
@@ -170,5 +179,88 @@ describe("a task whose seat has gone, in Chrome", () => {
     await waitFor(() => expect(select).not.toBeDisabled());
     expect(select.selectedIndex).toBe(0);
     expect(select.options[0]?.textContent).toBe("Nobody yet");
+  });
+});
+
+describe("the assignee select, from the keyboard", () => {
+  // In Chrome on Windows and Linux, an arrow key on a closed select changes
+  // its value and fires `change` at once, so each key press is a pick. The
+  // select has to keep its focus through the writes that follow, and the task
+  // has to end up with whoever the arrowing stopped on.
+  it("keeps the focus through a run of arrow keys and stores the last pick", async () => {
+    await page.viewport(1440, 900);
+    setCachedTasks("wed_1", TASKS);
+    let releaseFirst: () => void = () => {};
+    const sent: unknown[] = [];
+    authFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/hosts"))
+        return json({ hosts: SEATS, total: SEATS.length, peopleLimit: null });
+      const body = JSON.parse(String(init?.body)) as { assignedHostId: string | null };
+      sent.push(body);
+      const answer = json({ task: { ...TASKS[1]!, ...body } });
+      // The first write is held until both keys have been pressed.
+      return sent.length === 1
+        ? new Promise<Response>((resolve) => (releaseFirst = () => resolve(answer)))
+        : answer;
+    });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    const list = await screen.findByTestId("tasks-day_of");
+    fireEvent.click(
+      within(list).getByRole("button", { name: "Edit Hand the rings to the best man" }),
+    );
+    const drawer = await screen.findByRole("dialog", { name: "Edit task" });
+    const select = (await within(drawer).findByLabelText("Assigned to")) as HTMLSelectElement;
+    await waitFor(() => expect(select).not.toBeDisabled());
+
+    select.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await userEvent.keyboard("{ArrowDown}");
+    expect(select.value).toBe("whost_jo");
+    expect(document.activeElement).toBe(select);
+    expect(select.disabled).toBe(false);
+    expect(select.getAttribute("aria-busy")).toBe("true");
+
+    releaseFirst();
+    await waitFor(() => expect(select.hasAttribute("aria-busy")).toBe(false));
+    expect(sent).toEqual([{ assignedHostId: "whost_long" }, { assignedHostId: "whost_jo" }]);
+    expect(document.activeElement).toBe(select);
+    expect(select.value).toBe("whost_jo");
+    expect(select.options[select.selectedIndex]?.textContent).toBe("@jo · Editor");
+    expect(within(list).getByText("@jo")).toBeTruthy();
+    await page.screenshot({ path: shot("drawer-keyboard") });
+  });
+});
+
+describe("a re-read of the seats while the drawer is open, in Chrome", () => {
+  // The first opening of a visit reads the seats again. Chrome shows the first
+  // option once the selected one is taken out, so a re-read must not replace
+  // the option of whoever holds the task.
+  it("keeps the holder selected", async () => {
+    await page.viewport(1440, 900);
+    await ensureHostsLoaded("wed_1", async () => SEATS);
+    setCachedTasks("wed_1", [row({ id: "j", title: "Mind the cake", assignedHostId: "whost_jo" })]);
+    const newcomer: HostSeat = {
+      hostId: "whost_new",
+      osnProfileId: "usr_new",
+      handle: "newcomer",
+      role: "viewer",
+    };
+    // New objects, as every read hands back, with one more seat on the end.
+    authFetch.mockImplementation(async () =>
+      json({ hosts: [...SEATS.map((seat) => ({ ...seat })), newcomer], peopleLimit: null }),
+    );
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    const list = await screen.findByTestId("tasks-day_of");
+    fireEvent.click(within(list).getByRole("button", { name: "Edit Mind the cake" }));
+    const drawer = await screen.findByRole("dialog", { name: "Edit task" });
+    const select = (await within(drawer).findByLabelText("Assigned to")) as HTMLSelectElement;
+    expect(select.value).toBe("whost_jo");
+
+    await within(select).findByRole("option", { name: "@newcomer · Viewer" });
+    expect(authFetch).toHaveBeenCalledTimes(1);
+    expect(select.value).toBe("whost_jo");
+    expect(select.options[select.selectedIndex]?.textContent).toBe("@jo · Editor");
+    await page.screenshot({ path: shot("drawer-reread") });
   });
 });

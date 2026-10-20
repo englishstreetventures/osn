@@ -263,54 +263,98 @@ export default function ChecklistView(props: ChecklistViewProps) {
     void ensureSeats();
   };
 
+  /** The latest pick for each task still to be written. A pick made while a
+   *  write is out waits here, replacing any earlier one for the same task. */
+  const picks = new Map<string, string | null>();
+  /** Who the server last said holds each task with picks under way: where a
+   *  refused write puts the row back. */
+  const heldBy = new Map<string, string | null>();
+
+  const showHolder = (taskId: string, value: string | null) =>
+    patchTasks((rows) => rows.map((t) => (t.id === taskId ? { ...t, assignedHostId: value } : t)));
+
   /**
-   * Hand a task to a seat, or to nobody. The row changes at once; a refusal
-   * puts it back. A 422 means the seat is not the wedding's any more — removed
-   * since the drawer read the seats — so both lists are read again.
+   * Hand a task to a seat, or to nobody. The row and the select change at
+   * once. The select stays usable while a write is out — a keyboard user
+   * arrowing through it picks once per key — so the writes go one at a time,
+   * and of the picks made during a write only the latest is written after it.
    */
-  const assign = async (task: TaskRow, assignedHostId: string | null) => {
-    // One write at a time: the select waits for the answer, and so does this.
-    if (assigning()) return;
-    const before = task.assignedHostId ?? null;
-    const show = (value: string | null) =>
-      patchTasks((rows) =>
-        rows.map((t) => (t.id === task.id ? { ...t, assignedHostId: value } : t)),
-      );
+  const assign = (task: TaskRow, assignedHostId: string | null) => {
+    if (!heldBy.has(task.id)) heldBy.set(task.id, task.assignedHostId);
+    picks.set(task.id, assignedHostId);
     setAssignError(null);
-    setAssigning(true);
-    show(assignedHostId);
+    showHolder(task.id, assignedHostId);
     haptic("commit");
+    if (!assigning()) void writePicks();
+  };
+
+  const writePicks = async () => {
+    setAssigning(true);
     try {
-      const res = await authFetch(
-        apiUrl(weddingPath(props.weddingId, `/tasks/${encodeURIComponent(task.id)}/assignee`)),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ assignedHostId }),
-        },
-      );
-      if (res.status === 401) return redirectToLogin();
-      if (res.status === 422) {
-        show(before);
-        haptic("reject");
-        setAssignError("That person is no longer on this wedding. Pick someone else.");
-        invalidateHosts(props.weddingId);
-        void ensureSeats();
-        void reload();
-        return;
+      while (picks.size > 0) {
+        const [taskId, hostId] = picks.entries().next().value!;
+        picks.delete(taskId);
+        // Signed out: the page is leaving, and nothing waiting is sent.
+        if (!(await writePick(taskId, hostId))) return;
       }
-      if (!res.ok) throw new Error(`assign ${res.status}`);
-      const { task: updated } = (await res.json()) as { task: TaskRow };
-      patchTasks((rows) => rows.map((t) => (t.id === updated.id ? updated : t)));
-    } catch (err) {
-      if (isAuthExpired(err)) return redirectToLogin();
-      show(before);
-      haptic("reject");
-      setAssignError("Couldn't change who holds that task.");
-      void reload();
     } finally {
       setAssigning(false);
     }
+  };
+
+  /**
+   * Write one pick; `false` once the session has gone. A later pick for the
+   * same task replaces this one's outcome on screen, so only the last write
+   * of a run shows its answer or its refusal. A refusal puts the row back to
+   * whoever the server last said holds it. A 422 means the seat is not the
+   * wedding's any more — removed since the drawer read the seats — so the
+   * seats are read again, and the tasks too when the row is put back.
+   */
+  const writePick = async (taskId: string, hostId: string | null): Promise<boolean> => {
+    const replaced = () => picks.has(taskId);
+    const refuse = (message: string) => {
+      if (replaced()) return;
+      showHolder(taskId, heldBy.get(taskId) ?? null);
+      heldBy.delete(taskId);
+      haptic("reject");
+      setAssignError(message);
+      void reload();
+    };
+    try {
+      const res = await authFetch(
+        apiUrl(weddingPath(props.weddingId, `/tasks/${encodeURIComponent(taskId)}/assignee`)),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assignedHostId: hostId }),
+        },
+      );
+      if (res.status === 401) {
+        redirectToLogin();
+        return false;
+      }
+      if (res.status === 422) {
+        invalidateHosts(props.weddingId);
+        void ensureSeats();
+        refuse("That person is no longer on this wedding. Pick someone else.");
+        return true;
+      }
+      if (!res.ok) throw new Error(`assign ${res.status}`);
+      const { task: updated } = (await res.json()) as { task: TaskRow };
+      if (replaced()) {
+        heldBy.set(taskId, updated.assignedHostId);
+      } else {
+        heldBy.delete(taskId);
+        patchTasks((rows) => rows.map((t) => (t.id === updated.id ? updated : t)));
+      }
+    } catch (err) {
+      if (isAuthExpired(err)) {
+        redirectToLogin();
+        return false;
+      }
+      refuse("Couldn't change who holds that task.");
+    }
+    return true;
   };
 
   /**
@@ -580,7 +624,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
           seatsFailed={seatsFailed()}
           busy={assigning()}
           error={assignError()}
-          onAssign={(task, hostId) => void assign(task, hostId)}
+          onAssign={assign}
           onClose={() => setEditingId(null)}
         />
       </Show>

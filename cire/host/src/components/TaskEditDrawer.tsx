@@ -17,11 +17,12 @@ interface TaskEditDrawerProps {
   seats: HostSeat[] | null;
   /** The seats could not be loaded, so there is nobody to offer. */
   seatsFailed: boolean;
-  /** A write is in flight; the controls wait for it. */
+  /** A write is out. The select says so and stays usable: a pick made
+   *  meanwhile is written once that write is back. */
   busy: boolean;
   /** Why the last write was refused, shown inside the drawer. */
   error: string | null;
-  /** Hand the task to a seat, or to nobody (`null`). Applies at once. */
+  /** Hand the task to a seat, or to nobody (`null`). Shows at once. */
   onAssign: (task: TaskRow, hostId: string | null) => void;
   onClose: () => void;
 }
@@ -45,6 +46,12 @@ export default function TaskEditDrawer(props: TaskEditDrawerProps) {
     const id = shown()?.assignedHostId;
     return id && props.seats?.some((s) => s.hostId === id) ? id : "";
   });
+  // The options go by seat id, not by seat object: a re-read of the seats
+  // then keeps every option still offered, so the selected one stays
+  // selected. Replaced, the browser would show the first option instead,
+  // whoever holds the task.
+  const seatIds = createMemo(() => (props.seats ?? []).map((s) => s.hostId));
+  const seatById = createMemo(() => new Map((props.seats ?? []).map((s) => [s.hostId, s])));
 
   return (
     <Modal
@@ -93,16 +100,24 @@ export default function TaskEditDrawer(props: TaskEditDrawerProps) {
                 <Select
                   {...field}
                   value={holder()}
-                  disabled={props.busy || props.seats === null}
+                  // Never disabled for a write: a disabled control drops the
+                  // keyboard focus of whoever is arrowing through it.
+                  disabled={props.seats === null}
+                  aria-busy={props.busy || undefined}
                   onChange={(e) => props.onAssign(task(), e.currentTarget.value || null)}
                 >
                   <option value="">Nobody yet</option>
-                  <For each={props.seats ?? []}>
-                    {(seat) => (
-                      <option value={seat.hostId}>
-                        {seatName(seat)} · {ROLE_COPY[seat.role].label}
-                      </option>
-                    )}
+                  <For each={seatIds()}>
+                    {(id) => {
+                      // An id leaves `seatIds` in the same update as its seat
+                      // leaves `seatById`, so the seat is there while its option is.
+                      const seat = () => seatById().get(id)!;
+                      return (
+                        <option value={id}>
+                          {seatName(seat())} · {ROLE_COPY[seat().role].label}
+                        </option>
+                      );
+                    }}
                   </For>
                 </Select>
               )}
