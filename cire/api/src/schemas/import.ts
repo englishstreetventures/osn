@@ -17,6 +17,23 @@ export const MAX_ROWS = 5000;
  */
 export const MAX_EVENTS = 200;
 
+/**
+ * The longest any one value may be, in characters: the sheet parser's cap on
+ * every cell (`services/spreadsheet.ts`), and the editor door's cap on the
+ * free-text fields it carries, so the two doors admit the same text.
+ */
+export const MAX_CELL_LENGTH = 10_000;
+
+/** A string of at most {@link MAX_CELL_LENGTH} characters. */
+const BoundedText = (field: string) =>
+  Schema.String.check(
+    Schema.makeFilter((s) =>
+      s.length <= MAX_CELL_LENGTH
+        ? undefined
+        : `${field} must be at most ${MAX_CELL_LENGTH} characters`,
+    ),
+  );
+
 // ── Parsed sheet shapes ───────────────────────────────────────────────────────
 
 /**
@@ -49,8 +66,19 @@ export const ParsedEvent = Schema.Struct({
   /** Optional in the sheet; "" ⇒ no stated end (matches the DB's "" sentinel). */
   endAt: Schema.String,
   timezone: Schema.String,
-  /** Optional venue name; only used as the address fallback at import-write time. */
-  location: Schema.NullOr(Schema.String),
+  /**
+   * The event's description, shown under About on the invite and in calendar
+   * entries. Optional, and ABSENT is not empty: a sheet with no Description
+   * column, and an editor too old to send one, leave the stored description as
+   * it is; `""` clears it. A create with none stores `""`.
+   */
+  description: Schema.optional(BoundedText("description")),
+  /**
+   * The venue's name — the sheet's Location column, the editor's Venue name.
+   * Same absent-is-not-empty rule as `description`; `null` clears it. A create
+   * with none stores NULL.
+   */
+  venueName: Schema.optional(Schema.NullOr(BoundedText("venueName"))),
   address: Schema.NullOr(Schema.String),
   dressCodeDescription: Schema.NullOr(Schema.String),
   dressCodePalette: Schema.Array(PaletteSwatch),
@@ -90,9 +118,9 @@ export const ParsedFamily = Schema.Struct({
    *  trim transform, so the diff still compares the exact submitted value. */
   familyName: Schema.String.check(
     Schema.makeFilter((s) =>
-      s.trim().length > 0 && s.length <= 10_000
+      s.trim().length > 0 && s.length <= MAX_CELL_LENGTH
         ? undefined
-        : "familyName must be non-blank and at most 10000 characters",
+        : `familyName must be non-blank and at most ${MAX_CELL_LENGTH} characters`,
     ),
   ),
   guests: Schema.Array(ParsedGuest),

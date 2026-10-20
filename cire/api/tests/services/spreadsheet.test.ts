@@ -96,36 +96,58 @@ describe("parseEventsCsv", () => {
     expect((error as MissingRequiredColumn).column).toBe("Start");
   });
 
-  it("parses a sheet with no Location column (optional) — location is null", async () => {
+  // A column the sheet does not carry is a field the parse leaves out, so the
+  // apply leaves the stored value alone: an organiser's own sheet that never
+  // had a Description or Location column must not wipe what the editor set.
+  it("leaves description and venueName out when the sheet has neither column", async () => {
     const csv = [
       "Event Name,Start,End,Timezone",
       "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney",
     ].join("\n");
     const events = await Effect.runPromise(parseEventsCsv(csv));
     expect(events).toHaveLength(1);
-    expect(events[0]!.location).toBeNull();
+    expect(events[0]).not.toHaveProperty("description");
+    expect(events[0]).not.toHaveProperty("venueName");
     expect(events[0]!.endAt).toBe("2026-09-18T22:00:00+10:00");
   });
 
-  it("treats an empty or whitespace-only Location cell as null", async () => {
+  // A column that is there but blank is a deliberate clear.
+  it("reads a blank Description cell as '' and a blank or whitespace Location cell as null", async () => {
     const csv = [
-      EVENTS_HEADER,
-      "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,,,,,,",
-      "Sangeet,2026-09-19T16:00:00+10:00,2026-09-19T22:00:00+10:00,Australia/Sydney,   ,,,,,",
+      `${EVENTS_HEADER},Description`,
+      "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,,,,,,,",
+      "Sangeet,2026-09-19T16:00:00+10:00,2026-09-19T22:00:00+10:00,Australia/Sydney,   ,,,,,,  ",
     ].join("\n");
     const events = await Effect.runPromise(parseEventsCsv(csv));
     expect(events).toHaveLength(2);
-    expect(events[0]!.location).toBeNull();
-    expect(events[1]!.location).toBeNull();
+    for (const event of events) {
+      expect(event.venueName).toBeNull();
+      expect(event.description).toBe("");
+    }
   });
 
-  it("parses a populated Location cell into `location`", async () => {
+  // Some spreadsheet tools drop a row's empty trailing cells, so a row can be
+  // shorter than the header. A column the row stops short of is blank.
+  it("reads a row that stops short of the Location and Description columns as blank", async () => {
     const csv = [
-      EVENTS_HEADER,
-      "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,Home,,,,,",
+      "Event Name,Start,Timezone,Location,Description",
+      "Mehndi,2026-09-18T16:00,Australia/Sydney",
+    ].join("\n");
+    const [event] = await Effect.runPromise(parseEventsCsv(csv));
+    expect(event).toMatchObject({ venueName: null, description: "" });
+  });
+
+  // The Location column is the venue's name. It no longer stands in for a
+  // blank Address: that stays blank.
+  it("parses a Location cell into venueName and leaves a blank Address null", async () => {
+    const csv = [
+      `${EVENTS_HEADER},Description`,
+      'Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,Home,,,,,,"Henna from 4.\nDinner at 7, music after."',
     ].join("\n");
     const events = await Effect.runPromise(parseEventsCsv(csv));
-    expect(events[0]!.location).toBe("Home");
+    expect(events[0]!.venueName).toBe("Home");
+    expect(events[0]!.address).toBeNull();
+    expect(events[0]!.description).toBe("Henna from 4.\nDinner at 7, music after.");
   });
 
   it("parses a sheet with no End column (optional) — endAt is the '' sentinel", async () => {
@@ -316,17 +338,18 @@ describe("parseEventsCsv", () => {
     // this copy must be updated in the same PR). Feeding it through the parser
     // guarantees the shipped starter CSV can never fail its own import.
     const template = [
-      "Event Name,Start,Timezone,End,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
-      'Ceremony,2026-11-14T15:00:00+11:00,Australia/Sydney,2026-11-14T16:00:00+11:00,St Mary\'s Cathedral,"St Marys Rd, Sydney NSW 2000, Australia",Formal — suits and cocktail dresses,Blush:#f4c2c2|Sage:#b2ac88,https://pinterest.com/example/ceremony,https://maps.google.com/?q=St+Marys+Cathedral+Sydney',
-      'Reception,2026-11-14T18:00:00+11:00,Australia/Sydney,,The Grounds of Alexandria,"7A/2 Huntley St, Alexandria NSW 2015, Australia",Black tie,Midnight:#191970|Gold:#d4af37,https://pinterest.com/example/reception,https://maps.google.com/?q=The+Grounds+of+Alexandria',
+      "Event Name,Start,Timezone,End,Location,Address,Description,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
+      'Ceremony,2026-11-14T15:00,Australia/Sydney,2026-11-14T16:00,St Mary\'s Cathedral,"St Marys Rd, Sydney NSW 2000, Australia",The service begins at 3 pm sharp. Please be seated by 2:45.,Formal — suits and cocktail dresses,Blush:#f4c2c2|Sage:#b2ac88,https://pinterest.com/example/ceremony,https://maps.google.com/?q=St+Marys+Cathedral+Sydney',
+      'Reception,2026-11-14T18:00,Australia/Sydney,,The Grounds of Alexandria,"7A/2 Huntley St, Alexandria NSW 2015, Australia","Dinner, speeches and dancing until late.",Black tie,Midnight:#191970|Gold:#d4af37,https://pinterest.com/example/reception,https://maps.google.com/?q=The+Grounds+of+Alexandria',
     ].join("\r\n");
     const events = await Effect.runPromise(parseEventsCsv(template));
     expect(events).toHaveLength(2);
     expect(events[0]!.endAt).toBe("2026-11-14T16:00:00+11:00");
     expect(events[1]!.endAt).toBe(""); // the template's open-ended example row
-    expect(events[0]!.location).toBe("St Mary's Cathedral");
-    expect(events[1]!.location).toBe("The Grounds of Alexandria");
+    expect(events[0]!.venueName).toBe("St Mary's Cathedral");
+    expect(events[1]!.venueName).toBe("The Grounds of Alexandria");
     expect(events[0]!.address).toBe("St Marys Rd, Sydney NSW 2000, Australia");
+    expect(events[1]!.description).toBe("Dinner, speeches and dancing until late.");
   });
 
   it("accepts http and https URLs", async () => {
@@ -347,7 +370,6 @@ describe("parseGuestsCsv", () => {
       startAt: "x",
       endAt: "x",
       timezone: "x",
-      location: "",
       address: null,
       dressCodeDescription: null,
       dressCodePalette: [],
@@ -360,7 +382,6 @@ describe("parseGuestsCsv", () => {
       startAt: "x",
       endAt: "x",
       timezone: "x",
-      location: "",
       address: null,
       dressCodeDescription: null,
       dressCodePalette: [],
@@ -490,7 +511,6 @@ describe("fidelity columns (E2 — honoured, not just ignored)", () => {
       startAt: "x",
       endAt: "x",
       timezone: "x",
-      location: "",
       address: null,
       dressCodeDescription: null,
       dressCodePalette: [],
@@ -503,7 +523,6 @@ describe("fidelity columns (E2 — honoured, not just ignored)", () => {
       startAt: "x",
       endAt: "x",
       timezone: "x",
-      location: "",
       address: null,
       dressCodeDescription: null,
       dressCodePalette: [],
@@ -996,6 +1015,33 @@ describe("parseEventsCsv — { snapshot: true } (checkpoint before-image)", () =
     const [event] = await Effect.runPromise(parseEventsCsv(csv, { snapshot: true }));
     expect(event!.name).toBe("'=Stored");
     expect(event!.address).toBe("'-12 Smith Street");
+  });
+
+  // A before-image is read by the same rule as an upload: a column it carries
+  // is restored, blank cells included, and one it lacks (a before-image older
+  // than the column) is left out, so the restore keeps what is stored.
+  it("restores Description and Location when the before-image carries them, and only then", async () => {
+    const withColumns = [
+      "Event Name,Start,Timezone,Location,Address,Description,Event ID",
+      'Mehndi,2026-11-14T15:00:00+11:00,Australia/Sydney,The Glasshouse,,"- henna\n- dinner",evt_1',
+      "Sangeet,2026-11-15T15:00:00+11:00,Australia/Sydney,,,,evt_2",
+    ].join("\n");
+    const [mehndi, sangeet] = await Effect.runPromise(
+      parseEventsCsv(withColumns, { snapshot: true }),
+    );
+    expect(mehndi).toMatchObject({ venueName: "The Glasshouse", description: "- henna\n- dinner" });
+    expect(sangeet).toMatchObject({ venueName: null, description: "" });
+
+    const [older] = await Effect.runPromise(
+      parseEventsCsv(
+        [HEADER, "Mehndi,2026-11-14T15:00:00+11:00,Australia/Sydney,,,,evt_1"].join("\n"),
+        {
+          snapshot: true,
+        },
+      ),
+    );
+    expect(older).not.toHaveProperty("description");
+    expect(older).not.toHaveProperty("venueName");
   });
 
   it("re-stamps the offset from a zone that resolves", async () => {

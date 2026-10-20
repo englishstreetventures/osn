@@ -1040,14 +1040,14 @@ export function applyImport(
           weddingId,
           slug: mintUniqueEventSlug(ec.event.name, usedSlugs),
           name: ec.event.name,
-          description: "",
+          // Absent (a sheet without the column, an older editor) creates the
+          // event with neither, as the columns' defaults would.
+          description: ec.event.description ?? "",
           startAt: ec.event.startAt,
           endAt: ec.event.endAt,
           timezone: ec.event.timezone,
-          // The sheet's venue-name Location has no column of its own — it fills
-          // in for a blank Address so the value still reaches the invite's
-          // "Where" instead of being silently dropped.
-          address: ec.event.address ?? ec.event.location,
+          venueName: ec.event.venueName ?? null,
+          address: ec.event.address,
           dressCodeDescription: ec.event.dressCodeDescription,
           dressCodePalette: JSON.stringify(ec.event.dressCodePalette),
           pinterestUrl: pinFor(ec.id, ec.event.pinterestUrl),
@@ -1061,25 +1061,25 @@ export function applyImport(
 
     // 3. event updates
     for (const eu of plan.eventUpdates) {
-      statements.push(
-        db
-          .update(events)
-          .set({
-            name: eu.event.name,
-            startAt: eu.event.startAt,
-            endAt: eu.event.endAt,
-            timezone: eu.event.timezone,
-            // Same Location → Address fallback as the create path above.
-            address: eu.event.address ?? eu.event.location,
-            dressCodeDescription: eu.event.dressCodeDescription,
-            dressCodePalette: JSON.stringify(eu.event.dressCodePalette),
-            pinterestUrl: pinFor(eu.id, eu.event.pinterestUrl),
-            mapsUrl: eu.event.mapsUrl,
-            sortOrder: eu.event.sortOrder,
-            updatedAt: now,
-          })
-          .where(eq(events.id, eu.id)),
-      );
+      const set: Partial<typeof events.$inferInsert> = {
+        name: eu.event.name,
+        startAt: eu.event.startAt,
+        endAt: eu.event.endAt,
+        timezone: eu.event.timezone,
+        address: eu.event.address,
+        dressCodeDescription: eu.event.dressCodeDescription,
+        dressCodePalette: JSON.stringify(eu.event.dressCodePalette),
+        pinterestUrl: pinFor(eu.id, eu.event.pinterestUrl),
+        mapsUrl: eu.event.mapsUrl,
+        sortOrder: eu.event.sortOrder,
+        updatedAt: now,
+      };
+      // Written only when the desired event states them: absent means the
+      // change says nothing about them (a sheet without the column, an older
+      // editor), so the stored values stay.
+      if (eu.event.description !== undefined) set.description = eu.event.description;
+      if (eu.event.venueName !== undefined) set.venueName = eu.event.venueName;
+      statements.push(db.update(events).set(set).where(eq(events.id, eu.id)));
     }
 
     // 4. family removes (cascade guests, rsvps, sessions)

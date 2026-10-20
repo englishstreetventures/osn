@@ -36,6 +36,13 @@
       "when": 1792476920558,
       "tag": "0085_release_preview_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "6",
+      "when": 1792498793263,
+      "tag": "0086_event_venue_name",
+      "breakpoints": true
     }
   ]
 }

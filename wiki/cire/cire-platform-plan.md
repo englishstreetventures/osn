@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[monorepo-structure]]"
   - "[[cire-guest-event-editor]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-20
 ---
 # Platform Plan — from digital invite to wedding management platform
 
@@ -52,9 +52,9 @@ Everything else builds on this. No new product surface; pure re-foundation.
 
 ### 3.1 Wedding profile
 
-Add to `weddings`: `wedding_date` (nullable — engaged couples often don't have one yet), `guest_count_estimate` (nullable int), `currency` (ISO 4217, default `AUD`), `budget_total_minor` (nullable int). New Settings view in the portal (name, slug, profile fields). The profile drives pricing estimates and checklist lead-time seeding. (The originally-planned `location_name` / `location_lat` / `location_lng` / `pricing_region` columns were shipped on `events` by 0030 and then **retired by 0036** — an event's place is its free-text `address`, the sole location source; see the retirement note below.)
+Add to `weddings`: `wedding_date` (nullable — engaged couples often don't have one yet), `guest_count_estimate` (nullable int), `currency` (ISO 4217, default `AUD`), `budget_total_minor` (nullable int). New Settings view in the portal (name, slug, profile fields). The profile drives pricing estimates and checklist lead-time seeding. (The originally-planned `location_name` / `location_lat` / `location_lng` / `pricing_region` columns were shipped on `events` by 0030 and then **retired by 0036** — an event's place is its venue name and free-text `address`; see the retirement note below.)
 
-**RETIRED (2026-07-16): the separate event location config is gone.** Product-owner decision — the free-text `events.address` already advises the venue and is the SOLE location source the guest site renders (the Maps embed is built from `address` alone; no lat/lng, no geocoding, no map API key). The stored coordinates + pricing region below were a redundant separate config whose only consumers were the UNBUILT Phase 3 planning features, so migration `0036_drop_event_location_config.sql` dropped `location_lat`/`location_lng`/`pricing_region` from `events` and removed the whole write path (the `event-location` route/service, the `settings/geocode` route + Google geocoder + `GOOGLE_GEOCODING_API_KEY`, the `lib/pricing-regions` derivation, `EventLocationsPanel`, and the event-location/geocode metrics). **If Phase 2/3 vendor-radius search or per-region pricing is ever built, geocode `address` on-demand then (YAGNI).** The paragraphs below record the original 0030 design for context only.
+**RETIRED (2026-07-16): the separate event location config is gone.** Product-owner decision — the free-text `events.address`, with the venue's name (`events.venue_name`), already advises the venue and is all the guest site renders (the Maps embed queries the address, else the name; no lat/lng, no geocoding, no map API key). The stored coordinates + pricing region below were a redundant separate config whose only consumers were the UNBUILT Phase 3 planning features, so migration `0036_drop_event_location_config.sql` dropped `location_lat`/`location_lng`/`pricing_region` from `events` and removed the whole write path (the `event-location` route/service, the `settings/geocode` route + Google geocoder + `GOOGLE_GEOCODING_API_KEY`, the `lib/pricing-regions` derivation, `EventLocationsPanel`, and the event-location/geocode metrics). **If Phase 2/3 vendor-radius search or per-region pricing is ever built, geocode `address` on-demand then (YAGNI).** The paragraphs below record the original 0030 design for context only.
 
 ~~**Location capture (decided 2026-07-08): key-optional Geocoding API now.**~~ The Settings form geocoded the organiser-typed address to lat/lng + locality server-side (Google Geocoding, same key-optional fail-soft pattern as Maps Embed / Turnstile: no key ⇒ manual lat/lng entry fallback, form still worked). `pricing_region` derived from the geocoded state/locality via a checked-in mapping (`lib/pricing-regions.ts`). All of this was removed by 0036.
 

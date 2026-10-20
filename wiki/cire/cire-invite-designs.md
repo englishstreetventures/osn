@@ -425,7 +425,7 @@ for after.
 |---|---|---|
 | Header | The "Details, {event}" heading and the closed notice (the closed treatment of `RsvpDeadlineNotice`: a hairline box, muted ink) inside an always-mounted `role="status"` region. The way to the form is the sheet's badge, not the panel's | Always; the notice once RSVPs close |
 | When | The day; the time range, naming both days when the event ends on a later day in its own zone ("Fri 6:00 pm – Sun 11:00 am"); the zone spelt out ("AEDT (Sydney time)"); "Your time: …" when the guest's own clock reads differently; Add to calendar | The start parses |
-| Where | The address; a compact map — the consented Google embed, or a card drawn from the palette tokens; "Open in maps" | Something can open a map (`hasVenue`) |
+| Where | The venue's name over its address (with no name, the address alone); a compact map — the consented Google embed, or a card drawn from the palette tokens; "Open in maps" | Something can open a map (`hasVenue`: an address, a venue name or a maps link) |
 | Who's invited | "Invited: Alex and Sam" | Some member the couple invited is not invited to this event (`invitedNames`; plus-ones are named, never decide it) |
 | Occasion | About, Dress Code, Inspiration, under one hairline, with no hairline between them | Any of the three has content |
 
@@ -434,6 +434,17 @@ is for assistive technology, and a glyph in the metal says it on screen. The
 guest's own zone is read after mount, so the first render matches a server
 render wherever the server ran.
 
+- **The venue reads as the day does.** With a name, the Where row's first line
+  is the name, set as the When row's day is (`text-ui-md`, body ink, two lines
+  at most), and the address follows in muted ink, as the time range does. The
+  map, its embed's title and "Open in maps" search for the address, or for the
+  name when there is none (`venueQuery` in `event-details.ts`). Calendar
+  entries put the name before the address ("The Glasshouse, 124 Sample
+  Avenue"), leaving it off when the address already starts with it
+  (`venueLocation`).
+- **About is the organiser's description**, line breaks kept. The event card
+  shows its first three lines and, on its venue line, the venue's name when
+  there is one (the address otherwise); the whole of both is in the sheet.
 - **Text actions, not boxes.** Add to calendar, Open in maps and Open on
   Pinterest are `@cire/ui`'s `touchLink` variant at a 44px target, so the
   sheet's badge stays the one way forward drawn as a control. `touchLink`
@@ -469,12 +480,16 @@ render wherever the server ran.
 
 Tests: `tests/components/DetailsPanel.test.tsx` (which rows and sections
 render, the words, the notice), `event-details.test.ts` and
-`invite-emptiness.test.ts` (the helpers, one case per failure mode), and
-`DetailsPanel.browser.test.tsx` (on every preset: each key fact at 4.5:1 and
-each swatch ring at 3:1 on the sheet; at 390px the date and venue on the first
+`invite-emptiness.test.ts` (the helpers, one case per failure mode),
+`calendar.test.ts` (the venue in the Google link), and
+`DetailsPanel.browser.test.tsx` (on every preset: each key fact at 4.5:1, the
+venue's name and its muted address included, and each swatch ring at 3:1 on the
+sheet; at 390px the date, the venue's name and its address on the first
 screen, every control 44px tall and every text action underlined at rest; the
 menu's keys, its focus return and its placement; focus after "Show it here"
-and the switch-off's double-tap guard).
+and the switch-off's double-tap guard). The `cire-event-details` end-to-end
+flow sets a venue name and a description in the organiser's drawer and reads
+them in the preview's sheet, its claim response and its `.ics` file.
 
 ## Adding a design
 

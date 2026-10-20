@@ -13,7 +13,7 @@ import {
   GUEST_SOURCE_HEADER,
 } from "../lib/sheet-headers";
 import { bucketParseReason, metricImportParseRejected } from "../metrics";
-import { MAX_EVENTS, MAX_ROWS } from "../schemas/import";
+import { MAX_CELL_LENGTH, MAX_EVENTS, MAX_ROWS } from "../schemas/import";
 import type { DesiredFamily, DesiredGuest, ParsedEvent, Provenance } from "../schemas/import";
 import {
   isFormulaCell,
@@ -154,8 +154,6 @@ function withSheet(sheet: SheetKind) {
 }
 
 // ── Hand-rolled RFC 4180 CSV parser ──────────────────────────────────────────
-
-const MAX_CELL_LENGTH = 10_000;
 
 /**
  * Strip a leading UTF-8 byte-order mark.
@@ -397,11 +395,29 @@ const unguardRows = (rows: readonly string[][]): string[][] =>
 // render and order an event on the invite. `End` is optional (column and cell):
 // an open-ended event stores `endAt: ""` (the DB column is NOT NULL with the ""
 // sentinel meaning "no stated end"; display + calendar + retention all handle
-// it). `Location` is optional too — the invite's "Where" + Open-in-Maps derive
-// from `Address` (see `cire/invites/src/components/event-details.ts`), and a
-// provided Location is only used as the address fallback at import-write time
-// when Address is blank (see `services/import.ts`).
+// it). `Location` (the venue's name) and `Description` are optional too, and a
+// sheet without one of those columns says nothing about it — see
+// {@link sheetText}.
 const REQUIRED_EVENT_COLUMNS = EVENT_SHEET_REQUIRED_HEADERS;
+
+/**
+ * The event's description and venue name as a sheet states them. A column
+ * the sheet does not carry leaves its field OUT, so the apply keeps what is
+ * stored: an organiser's own sheet that never had the column must not wipe a
+ * value the editor set. A column that is there is the whole truth, blank cells
+ * included: a blank Description is `""` and a blank Location is `null`, which
+ * clear on purpose. Both readers, the upload's and the before-image's, use it.
+ */
+function sheetText(
+  row: readonly string[],
+  idxDescription: number,
+  idxVenueName: number,
+): Pick<ParsedEvent, "description" | "venueName"> {
+  const out: Types.Mutable<Pick<ParsedEvent, "description" | "venueName">> = {};
+  if (idxDescription !== -1) out.description = nullableString(row[idxDescription] ?? "") ?? "";
+  if (idxVenueName !== -1) out.venueName = nullableString(row[idxVenueName] ?? "");
+  return out;
+}
 
 /** A stored Start/End that carries its own UTC offset (or `Z`). */
 const HAS_OFFSET_RE = /(?:Z|[+-]\d{2}:?\d{2})$/;
@@ -465,8 +481,9 @@ export function parseEventsCsv(
     const idxStart = indexOf("Start");
     const idxEnd = indexOf("End");
     const idxTz = indexOf("Timezone");
-    const idxLocation = indexOf("Location");
+    const idxVenueName = indexOf("Location");
     const idxAddress = indexOf("Address");
+    const idxDescription = indexOf("Description");
     const idxDressDesc = indexOf("Dress Code Description");
     const idxPalette = indexOf("Dress Code Palette");
     const idxPinterest = indexOf("Pinterest URL");
@@ -522,7 +539,7 @@ export function parseEventsCsv(
           startAt: zoneKnown ? stampEventOffset(startAt, timezone) : startAt,
           endAt: zoneKnown ? stampEventOffset(endAt, timezone) : endAt,
           timezone,
-          location: idxLocation === -1 ? null : nullableString(row[idxLocation] ?? ""),
+          ...sheetText(row, idxDescription, idxVenueName),
           address: idxAddress === -1 ? null : nullableString(row[idxAddress] ?? ""),
           dressCodeDescription:
             idxDressDesc === -1 ? null : nullableString(row[idxDressDesc] ?? ""),
@@ -631,7 +648,7 @@ export function parseEventsCsv(
         startAt: stampEventOffset(startAt, timezone),
         endAt: stampEventOffset(endAt, timezone),
         timezone,
-        location: idxLocation === -1 ? null : nullableString(row[idxLocation] ?? ""),
+        ...sheetText(row, idxDescription, idxVenueName),
         address: idxAddress === -1 ? null : nullableString(row[idxAddress] ?? ""),
         dressCodeDescription: idxDressDesc === -1 ? null : nullableString(row[idxDressDesc] ?? ""),
         dressCodePalette: idxPalette === -1 ? [] : parseDressCodePalette(row[idxPalette] ?? ""),

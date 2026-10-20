@@ -36,7 +36,10 @@ const event: EventSummary = {
   startAt: "2026-11-14T17:30:00+11:00",
   endAt: "2026-11-14T23:30:00+11:00",
   timezone: "Australia/Sydney",
-  address: "The Grounds of Alexandria, 7a/2 Huntley Street, Alexandria NSW 2015, Australia",
+  // The name over the address: the taller of the two venue rows, and the one
+  // whose second line is in muted ink.
+  venueName: "The Grounds of Alexandria",
+  address: "7a/2 Huntley Street, Alexandria NSW 2015, Australia",
   dressCodeDescription: "Black tie optional. Jewel tones encouraged.",
   // Midnight is the case the ring exists for: a near-black colour on a
   // near-black invite has no edge but its ring.
@@ -209,6 +212,7 @@ describe.each(PALETTE_PRESET_KEYS)("on the %s scheme", (palettePreset) => {
       line(/^Your time:/),
       within(dialog()).getByRole("button", { name: "Add to calendar" }),
       line(/The Grounds of Alexandria/),
+      line(/7a\/2 Huntley Street/),
       within(dialog()).getByRole("link", { name: "Open in maps" }),
     ];
     for (const el of facts) {
@@ -271,7 +275,11 @@ describe("on a phone", () => {
     await openSheet();
 
     const visible = Math.min(PHONE[1], scroller().getBoundingClientRect().bottom);
-    for (const text of ["Saturday 14 November 2026", /The Grounds of Alexandria/]) {
+    for (const text of [
+      "Saturday 14 November 2026",
+      /The Grounds of Alexandria/,
+      /7a\/2 Huntley Street/,
+    ]) {
       const box = line(text).getBoundingClientRect();
       expect(box.top).toBeGreaterThanOrEqual(0);
       expect(box.bottom).toBeLessThanOrEqual(visible);

@@ -235,7 +235,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
           </Fact>
         </Show>
 
-        <Show when={hasVenue(props.event.address, props.event.mapsUrl)}>
+        <Show when={hasVenue(props.event.address, props.event.mapsUrl, props.event.venueName)}>
           <Fact term="Where" icon={<PinGlyph />}>
             <MapPreview event={props.event} />
           </Fact>

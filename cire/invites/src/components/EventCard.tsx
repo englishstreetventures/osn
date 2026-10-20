@@ -8,7 +8,7 @@ import { buildSrcSet, variantSrc } from "./invite-images";
 const EVENT_DEFAULT_ASPECT = 4 / 3;
 import Button from "@cire/ui/button";
 
-import { formatEventDay, venueLine } from "./event-details";
+import { formatEventDay, venueLine, venueName } from "./event-details";
 import { TOTAL_DURATION_MS } from "./rsvp-responded";
 import type { EventSummary } from "./types";
 
@@ -269,10 +269,14 @@ export function EventCard(props: EventCardProps) {
               floor — which shipped this line at 3.58:1 on `chapel` and 3.91:1
               on `garden` (C-M2). */}
           <p class="font-body text-gold-ink text-ui-base mb-1">{formatEventDay(props.event)}</p>
-          <Show when={venueLine(props.event)}>
+          {/* One line about the venue: its name when it has one, which is
+              what a guest recognises; the address is in the details. */}
+          <Show when={venueName(props.event) ?? venueLine(props.event)}>
             {(venue) => <p class="font-body text-text-muted text-ui-base mb-3">{venue()}</p>}
           </Show>
-          <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-5 font-light">
+          {/* A teaser: the organiser can write paragraphs, and the whole of
+              it, line breaks kept, is under About in the details. */}
+          <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-5 line-clamp-3 font-light whitespace-pre-line">
             {props.event.description}
           </p>
           {/* One act matters on this page: answering. So "Respond" is the only

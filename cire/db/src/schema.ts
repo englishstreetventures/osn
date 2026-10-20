@@ -41,8 +41,8 @@ export const weddings = sqliteTable(
     //
     // Deliberately NO location columns here: a wedding is not a place — its
     // EVENTS are (a Sydney reception + Jaipur ceremonies is one wedding in two
-    // countries), and each event's place is its free-text `address` (the sole
-    // location source; see the events table). Money stays wedding-scoped: one
+    // countries), and each event's place is its venue name and free-text
+    // `address` (see the events table). Money stays wedding-scoped: one
     // MAIN currency the organiser thinks in, whatever countries the events land in.
     //
     // `wedding_date` is a date-only ISO string (`YYYY-MM-DD`, no time/zone —
@@ -349,8 +349,9 @@ export const guests = sqliteTable(
 );
 
 // `id` is a UUID v4 string. The canonical timing is `startAt` / `endAt` /
-// `timezone`; the canonical venue is the free-form `address`. (The legacy
-// `date` + `location` columns these superseded were dropped in migration 0025.)
+// `timezone`; the venue is its name (`venueName`) and its free-form `address`.
+// (The legacy `date` + `location` columns these superseded were dropped in
+// migration 0025.)
 export const events = sqliteTable(
   "events",
   {
@@ -371,6 +372,10 @@ export const events = sqliteTable(
     // and fall back to startAt where an instant is required.
     endAt: text("end_at").notNull(),
     timezone: text("timezone").notNull(),
+    // The venue's name ("The Grounds of Alexandria"), shown above the address
+    // on the invite and put before it in calendar entries. NULL ⇒ no name;
+    // the address (if any) stands alone. Migration 0086; no back-fill.
+    venueName: text("venue_name"),
     address: text("address"),
     dressCodeDescription: text("dress_code_description"),
     // JSON-encoded `Array<{name: string, color: string}>` — decoded by the
@@ -401,8 +406,8 @@ export const events = sqliteTable(
     // the event-image endpoints bump it on image/crop writes.
     createdAt: integer("created_at", { mode: "timestamp" }),
     updatedAt: integer("updated_at", { mode: "timestamp" }),
-    // No location config: the free-text `address` above is the SOLE location
-    // source (the only thing the guest map embed renders). The stored
+    // No location config: the free text above — `address`, else `venueName` —
+    // is the only thing the guest map embed and maps link query. The stored
     // coordinates + pricing_region a wedding could carry (migration 0030) were
     // dropped by 0036 — they only fed unbuilt Phase 3 planning features
     // (vendor-radius search, per-region pricing), never the invite. If Phase 3

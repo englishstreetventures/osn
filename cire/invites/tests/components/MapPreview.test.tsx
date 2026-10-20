@@ -149,6 +149,16 @@ describe("MapPreview", () => {
       expect(sandbox).not.toContain("allow-top-navigation");
     });
 
+    it("names the map after the venue when it has a name", () => {
+      vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
+      const { container } = render(() => (
+        <MapPreview event={{ ...baseEvent, venueName: "The Glasshouse" }} />
+      ));
+      expect(container.querySelector("iframe")!.getAttribute("title")).toBe(
+        "Map of The Glasshouse",
+      );
+    });
+
     it("keeps a real maps link beside the iframe, on the organiser's own destination", () => {
       // Not a duplicate of Google's in-frame "View larger map": that opens a
       // place query for the address, while this follows `resolveMapsUrl`, which

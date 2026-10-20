@@ -200,6 +200,145 @@ describe("dress-code palette colours are checked on the server", () => {
   });
 });
 
+// ── An event's description and venue name ──────────────────────────────────
+
+describe("an event's description and venue name", () => {
+  const LONG = "x".repeat(10_001);
+  /** The events editor's event, as the current host sends it. */
+  const editorEvent = (extra: object = {}) => ({
+    name: "Kitchen Tea",
+    startAt: "2026-11-20T16:00:00+11:00",
+    endAt: "",
+    timezone: "Australia/Sydney",
+    location: null,
+    address: "124 Sample Avenue",
+    dressCodeDescription: null,
+    dressCodePalette: [],
+    pinterestUrl: null,
+    mapsUrl: null,
+    sortOrder: 0,
+    ...extra,
+  });
+
+  async function previewAndApply(app: ReturnType<typeof buildApp>["app"], body: object) {
+    const preview = await editorPreview(app, { ...body, scope: "events" });
+    expect(preview.status).toBe(200);
+    const json = (await preview.json()) as {
+      changeId: string;
+      plan: { eventCreates: { event: object }[]; eventUpdates: { event: object }[] };
+    };
+    const apply = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: json.changeId });
+    expect(apply.status).toBe(200);
+    return json.plan;
+  }
+
+  const stored = (db: ReturnType<typeof buildApp>["db"]) =>
+    db
+      .select({
+        id: events.id,
+        description: events.description,
+        venueName: events.venueName,
+        address: events.address,
+      })
+      .from(events)
+      .all();
+
+  it("sets both from the editor, on create and on update, and the preview's plan carries them", async () => {
+    const { app, db } = buildApp();
+    const created = await previewAndApply(app, {
+      desiredState: {
+        events: [
+          editorEvent({ description: "High tea.\nGames after.", venueName: "The Glasshouse" }),
+        ],
+        families: [],
+      },
+    });
+    expect(created.eventCreates[0]!.event).toMatchObject({
+      description: "High tea.\nGames after.",
+      venueName: "The Glasshouse",
+    });
+    const [row] = stored(db);
+    expect(row).toMatchObject({
+      description: "High tea.\nGames after.",
+      venueName: "The Glasshouse",
+      address: "124 Sample Avenue",
+    });
+
+    const updated = await previewAndApply(app, {
+      desiredState: {
+        events: [editorEvent({ id: row!.id, description: "", venueName: null })],
+        families: [],
+      },
+    });
+    expect(updated.eventUpdates[0]!.event).toMatchObject({ description: "", venueName: null });
+    expect(stored(db)[0]).toMatchObject({ description: "", venueName: null });
+  });
+
+  // An older host sends `location: null` and neither field. Its save must not
+  // wipe what a newer host (or a sheet) stored.
+  it("keeps both when an older host's save carries neither", async () => {
+    const { app, db } = buildApp();
+    await previewAndApply(app, {
+      desiredState: {
+        events: [editorEvent({ description: "High tea.", venueName: "The Glasshouse" })],
+        families: [],
+      },
+    });
+    const [row] = stored(db);
+    await previewAndApply(app, {
+      desiredState: {
+        events: [editorEvent({ id: row!.id, address: "125 Sample Avenue" })],
+        families: [],
+      },
+    });
+    expect(stored(db)[0]).toMatchObject({
+      description: "High tea.",
+      venueName: "The Glasshouse",
+      address: "125 Sample Avenue",
+    });
+  });
+
+  // One event, so the body is far under the 1 MB caps and the field check is
+  // what answers.
+  for (const field of ["description", "venueName"] as const) {
+    it(`400s an editor draft whose ${field} is over 10,000 characters, and stores nothing`, async () => {
+      const { app, db } = buildApp();
+      const res = await editorPreview(app, {
+        desiredState: { events: [editorEvent({ [field]: LONG })], families: [] },
+        scope: "events",
+      });
+      expect(res.status).toBe(400);
+      expect(db.select().from(imports).all()).toHaveLength(0);
+
+      const atCap = await editorPreview(app, {
+        desiredState: { events: [editorEvent({ [field]: LONG.slice(1) })], families: [] },
+        scope: "events",
+      });
+      expect(atCap.status).toBe(200);
+    });
+  }
+
+  // A sheet previewed before this change re-parses at apply, so it takes the
+  // new rule: its Location is the venue's name, and a blank Address stays blank.
+  it("applies a sheet's Location to the venue name, leaving a blank Address NULL", async () => {
+    const { app, db } = buildApp();
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: [
+        "Event Name,Start,Timezone,Location,Address",
+        "Kitchen Tea,2026-11-20T16:00,Australia/Sydney,The Glasshouse,",
+      ].join("\n"),
+    });
+    expect(preview.status).toBe(200);
+    const { changeId } = (await preview.json()) as { changeId: string };
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
+    expect(stored(db)[0]).toMatchObject({
+      venueName: "The Glasshouse",
+      address: null,
+      description: "",
+    });
+  });
+});
+
 // ── Size of an editor draft ────────────────────────────────────────────────
 
 describe("an editor draft is bounded in events and households", () => {
@@ -784,6 +923,20 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
     };
     const res = await editorPreview(app, { desiredState: blankName });
     expect(res.status).toBe(400);
+  });
+
+  it("rejects a household name over 10,000 characters, and takes one of 10,000", async () => {
+    const { app } = buildApp();
+    const named = (familyName: string) => ({
+      ...desiredState,
+      families: [{ ...desiredState.families[0]!, familyName }],
+    });
+    expect((await editorPreview(app, { desiredState: named("x".repeat(10_001)) })).status).toBe(
+      400,
+    );
+    expect((await editorPreview(app, { desiredState: named("x".repeat(10_000)) })).status).toBe(
+      200,
+    );
   });
 
   it("saves a HOUSEHOLD NAME edit — id-matched rename writes through, code + guests survive", async () => {

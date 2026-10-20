@@ -462,7 +462,7 @@ function restoreBeforeImage(
  *
  * Non-goals ([[guest-event-editor]] §4), true of BOTH paths and not claimed
  * otherwise: a revert does not restore cascade-deleted RSVPs, nor the
- * image/crop/location of a re-created event — an id-matched update leaves those
+ * image/crop of a re-created event — an id-matched update leaves those
  * columns untouched, and a recreate cannot recover them. The revert plan
  * therefore never asserts it restores them.
  *

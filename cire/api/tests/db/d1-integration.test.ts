@@ -666,7 +666,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
               startAt: "2026-11-22T10:00",
               endAt: "2026-11-22T14:00",
               timezone: "Australia/Sydney",
-              location: "Hall",
+              venueName: "Hall",
               address: null,
               dressCodeDescription: null,
               dressCodePalette: [],

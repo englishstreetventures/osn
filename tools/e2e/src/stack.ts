@@ -13,9 +13,11 @@
 import { resolve } from "node:path";
 
 import {
+  CIRE_OIDC,
   CIRE_RSVP_DEADLINE,
   CLOCK_T0,
   DB_FILES,
+  DEV_LOGIN_SECRET,
   INTERNAL_SERVICE_SECRET,
   ORIGINS,
   PORTS,
@@ -25,6 +27,9 @@ import {
 } from "./config";
 
 export const CLOCK_MODULE = resolve(import.meta.dirname, "clock.mjs");
+
+/** `@cire/vendor`'s dev origin (`DEV_APPS`). Not booted; cire-api is told it. */
+export const VENDOR_PORTAL_ORIGIN = "http://localhost:4326";
 
 /**
  * The only variables a child inherits from the shell that starts the suite.
@@ -125,6 +130,10 @@ export function appSpecs(): AppSpec[] {
         RESEND_API_KEY: "re_e2e_local",
         RESEND_API_URL: ORIGINS.mail,
         OSN_EMAIL_FROM: "Musubi <no-reply@e2e.test>",
+        // The organiser signs in to cire's portal as the dev principal, which
+        // owns cire's sample wedding, and is sent back to the portal after.
+        DEV_LOGIN_SECRET,
+        DEV_LOGIN_RETURN_ORIGINS: ORIGINS.cireHost,
       },
     },
     {
@@ -161,7 +170,16 @@ export function appSpecs(): AppSpec[] {
         // Keeps the client address a request sends, so the organiser's claim
         // (`claimFromOrganiserAddress`) spends its own limiter window.
         CIRE_E2E_CLIENT_ADDRESS: "1",
-        WEB_ORIGIN: ORIGINS.cireInvites,
+        // Guest site, organiser portal, vendor portal — the order `local.ts`
+        // reads them in. The vendor portal is not in the stack; naming its
+        // dev origin keeps cire-api from minting production vendor links.
+        WEB_ORIGIN: [ORIGINS.cireInvites, ORIGINS.cireHost, VENDOR_PORTAL_ORIGIN].join(","),
+        // Organiser sign-in through osn-api, as a first-party client.
+        OSN_ISSUER_URL: ORIGINS.osnApi,
+        OSN_JWKS_URL: `${ORIGINS.osnApi}/.well-known/jwks.json`,
+        CIRE_API_ORIGIN: ORIGINS.cireApi,
+        CIRE_OIDC_CLIENT_ID: CIRE_OIDC.clientId,
+        CIRE_OIDC_CLIENT_SECRET: CIRE_OIDC.secret,
       },
     },
     {
@@ -190,6 +208,21 @@ export function appSpecs(): AppSpec[] {
       command: ["bun", "run", "dev:app", "--ignore-lock"],
       readyUrl: `${ORIGINS.cireInvites}/`,
       env: { PORT: String(PORTS.cireInvites), PUBLIC_API_URL: ORIGINS.cireApi },
+    },
+    {
+      // The organiser portal. Like cire landing, its font pipeline fetches
+      // Google Fonts when `astro dev` starts, and serves fallback faces when
+      // there is no network.
+      name: "cireHost",
+      dir: "cire/host",
+      command: ["bun", "run", "dev:app", "--ignore-lock"],
+      readyUrl: `${ORIGINS.cireHost}/login`,
+      env: {
+        PORT: String(PORTS.cireHost),
+        PUBLIC_CIRE_API_URL: ORIGINS.cireApi,
+        PUBLIC_CIRE_WEB_URL: ORIGINS.cireInvites,
+        PUBLIC_MARKETING_URL: ORIGINS.cireLanding,
+      },
     },
     {
       // cireweddings.com: static, no API. Its font pipeline fetches Google

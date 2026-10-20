@@ -467,6 +467,76 @@ describe("createGuestEventDraft — event editing (E6)", () => {
   });
 });
 
+describe("an event's description and venue name", () => {
+  // The server refuses either over its cell cap (`MAX_CELL_LENGTH`); the
+  // drawer says so before the save does.
+  it("flags a description or venue name longer than the server takes", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events[0]!.key;
+      store.updateEvent(key, { description: "x".repeat(10_001), venueName: "y".repeat(10_001) });
+      const messages = validateDraft(store.draft).map((e) => e.message);
+      expect(messages).toContain("Description is too long.");
+      expect(messages).toContain("Venue name is too long.");
+
+      store.updateEvent(key, { description: "x".repeat(10_000), venueName: "y".repeat(10_000) });
+      expect(validateDraft(store.draft)).toEqual([]);
+      dispose();
+    });
+  });
+
+  it("starts a new event with no description and no venue name", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.addEvent();
+      expect(store.draft.events.find((e) => e.key === key)).toMatchObject({
+        description: "",
+        venueName: null,
+      });
+      dispose();
+    });
+  });
+
+  // `location` stays on the wire, null, because an API older than the venue
+  // name requires the key; the current API ignores it.
+  it("sends both on the wire, with location null", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events[0]!.key;
+      store.updateEvent(key, { description: "Mass at 3.\nDrinks after.", venueName: "St Mary's" });
+      const [ceremony, reception] = toDesiredState(store.draft).events;
+      expect(ceremony).toMatchObject({
+        description: "Mass at 3.\nDrinks after.",
+        venueName: "St Mary's",
+        location: null,
+      });
+      expect(reception).toMatchObject({ description: "", venueName: null, location: null });
+      dispose();
+    });
+  });
+
+  it("keeps an unsaved description and venue name across a stale reload", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events[0]!.key;
+      store.updateEvent(key, { description: "Mass at 3.", venueName: "St Mary's" });
+      store.rebase(
+        EVENTS.map((e) => (e.id === "evt_1" ? { ...e, name: "Wedding Ceremony" } : e)),
+        GUESTS,
+        [],
+        "rev-2",
+      );
+      expect(store.draft.events[0]).toMatchObject({
+        name: "Wedding Ceremony",
+        description: "Mass at 3.",
+        venueName: "St Mary's",
+      });
+      expect(store.dirty()).toBe(true);
+      dispose();
+    });
+  });
+});
+
 describe("validateDraft — event field rules (E6)", () => {
   it("flags a blank name + start on a new event", () => {
     createRoot((dispose) => {
@@ -780,6 +850,8 @@ describe("replayDraft — keeping unsaved edits across a reload", () => {
       startAt: "2026-11-14T15:00:00+11:00",
       endAt: "",
       timezone: "Australia/Sydney",
+      description: "",
+      venueName: null,
       address: null,
       dressCodeDescription: null,
       dressCodePalette: [],
@@ -1009,6 +1081,8 @@ describe("replayDraft — edge branches", () => {
       startAt: "2026-11-14T15:00:00+11:00",
       endAt: "",
       timezone: "Australia/Sydney",
+      description: "",
+      venueName: null,
       address: null,
       dressCodeDescription: null,
       dressCodePalette: [],

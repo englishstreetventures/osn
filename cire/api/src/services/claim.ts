@@ -500,6 +500,7 @@ function buildInvite(
         startAt: e.startAt,
         endAt: e.endAt,
         timezone: e.timezone,
+        venueName: e.venueName ?? null,
         address: e.address ?? null,
         dressCodeDescription: e.dressCodeDescription ?? null,
         dressCodePalette: palette,
@@ -733,6 +734,7 @@ export const claimService = {
       startAt: string;
       endAt: string;
       timezone: string;
+      venueName: string | null;
       address: string | null;
       description: string;
       dressCodeDescription: string | null;
@@ -765,6 +767,7 @@ export const claimService = {
           startAt: row.startAt,
           endAt: row.endAt,
           timezone: row.timezone,
+          venueName: row.venueName,
           address: row.address,
           description: row.description,
           dressCodeDescription: row.dressCodeDescription,

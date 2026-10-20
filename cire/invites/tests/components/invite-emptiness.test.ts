@@ -98,6 +98,13 @@ describe("hasVenue", () => {
     expect(hasVenue("12 Banksia Lane", null)).toBe(true);
     expect(hasVenue("   ", "https://maps.app.goo.gl/x")).toBe(true);
   });
+
+  // A sheet's Location with a blank Address leaves a name and nothing else,
+  // and the row still names the venue and searches the map for it.
+  it("is true for a venue name alone, and false for a blank one", () => {
+    expect(hasVenue(null, null, "The Glasshouse")).toBe(true);
+    expect(hasVenue(null, null, "   ")).toBe(false);
+  });
 });
 
 describe("hasDressCode", () => {

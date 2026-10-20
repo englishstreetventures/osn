@@ -61,6 +61,10 @@ export interface DraftEvent {
   startAt: string;
   endAt: string;
   timezone: string;
+  /** The event's About text; `""` when it has none (the column is NOT NULL). */
+  description: string;
+  /** The venue's name, shown above the address; null when it has none. */
+  venueName: string | null;
   address: string | null;
   dressCodeDescription: string | null;
   dressCodePalette: { name: string; color: string }[];
@@ -79,6 +83,8 @@ export type EventPatch = Partial<
     | "startAt"
     | "endAt"
     | "timezone"
+    | "description"
+    | "venueName"
     | "address"
     | "dressCodeDescription"
     | "dressCodePalette"
@@ -140,7 +146,11 @@ interface WireEvent {
   startAt: string;
   endAt: string;
   timezone: string;
-  location: string | null;
+  /** Required by cire-api releases older than the venue name; the current API
+   *  ignores it. Always null. */
+  location: null;
+  description: string;
+  venueName: string | null;
   address: string | null;
   dressCodeDescription: string | null;
   dressCodePalette: { name: string; color: string }[];
@@ -185,6 +195,9 @@ function buildDraft(
       startAt: e.startAt,
       endAt: e.endAt,
       timezone: e.timezone,
+      description: e.description,
+      // Absent from an API older than the column: no name.
+      venueName: e.venueName ?? null,
       address: e.address,
       dressCodeDescription: e.dressCodeDescription,
       dressCodePalette: (e.dressCodePalette ?? []).map((s) => ({ name: s.name, color: s.color })),
@@ -257,9 +270,13 @@ export function toDesiredState(draft: DraftState): DesiredStateWire {
       startAt: e.startAt,
       endAt: e.endAt,
       timezone: e.timezone,
-      // The draft doesn't carry the venue-name fallback separately; `address` is
-      // authoritative (the reconcile writes `address ?? location`).
+      // Kept, null, so an API older than the venue name still decodes the save
+      // during a deploy or a rollback; the current API ignores it. That API
+      // drops `description` and `venueName` instead, so values typed while
+      // it serves are not stored.
       location: null,
+      description: e.description,
+      venueName: e.venueName,
       address: e.address,
       dressCodeDescription: e.dressCodeDescription,
       dressCodePalette: e.dressCodePalette.map((s) => ({ name: s.name, color: s.color })),
@@ -305,6 +322,8 @@ const EVENT_FIELDS = [
   "startAt",
   "endAt",
   "timezone",
+  "description",
+  "venueName",
   "address",
   "dressCodeDescription",
   "dressCodePalette",
@@ -623,8 +642,14 @@ export function validateDraft(draft: DraftState): FieldError[] {
       errors.push({ key: evt.key, message: "Timezone is too long." });
     }
 
+    if (evt.venueName && tooLong(evt.venueName)) {
+      errors.push({ key: evt.key, message: "Venue name is too long." });
+    }
     if (evt.address && tooLong(evt.address)) {
       errors.push({ key: evt.key, message: "Address is too long." });
+    }
+    if (tooLong(evt.description)) {
+      errors.push({ key: evt.key, message: "Description is too long." });
     }
     if (evt.dressCodeDescription && tooLong(evt.dressCodeDescription)) {
       errors.push({ key: evt.key, message: "Dress code description is too long." });
@@ -896,6 +921,8 @@ export function createGuestEventDraft(): GuestEventDraft {
           // "+10:00 in November" Sydney event happens). Still fully editable in
           // the drawer's dropdown.
           timezone: browserTimeZone(),
+          description: "",
+          venueName: null,
           address: null,
           dressCodeDescription: null,
           dressCodePalette: [],

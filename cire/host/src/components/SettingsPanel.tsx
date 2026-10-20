@@ -17,9 +17,9 @@ import LockedModuleDownloads from "./LockedModuleDownloads";
 import SectionIntro from "./SectionIntro";
 import UnlockCodeDialog from "./UnlockCodeDialog";
 /** The wedding profile as the settings API reads/writes it. Location is
- *  deliberately absent — an event's place is its free-text `address` (the sole
- *  location source, shown on the invite); the wedding holds one MAIN currency
- *  + budget. */
+ *  deliberately absent — an event's place is its venue name and free-text
+ *  `address`, shown on the invite; the wedding holds one MAIN currency +
+ *  budget. */
 interface WeddingProfile {
   id: string;
   slug: string;

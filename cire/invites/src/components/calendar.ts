@@ -1,3 +1,4 @@
+import { venueLocation } from "./event-details";
 import type { EventSummary } from "./types";
 
 /** Zero-pad a number to a fixed width (default 2). */
@@ -115,7 +116,7 @@ export function googleCalendarUrl(event: EventSummary, siteUrl: string): string 
     text: event.name,
     dates: `${start}/${end}`,
     details: `${event.description}\n\nInvite: ${siteUrl}`,
-    location: event.address ?? "",
+    location: venueLocation(event),
     ctz: event.timezone,
   });
 
@@ -132,7 +133,7 @@ export function icsBlob(event: EventSummary, siteUrl: string): Blob {
   const dtStart = localBasic(new Date(event.startAt), tz);
   const dtEnd = localBasic(new Date(effectiveEnd(event)), tz);
   const dtStamp = utcBasic(new Date());
-  const location = event.address ?? "";
+  const location = venueLocation(event);
 
   const rawLines: string[] = [
     "BEGIN:VCALENDAR",

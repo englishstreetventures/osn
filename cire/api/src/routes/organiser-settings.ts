@@ -32,7 +32,7 @@ const manualParse = { parse: () => ({}) };
  *    the worse failure.
  *
  * There is no separate event "location config" here: an event's place is its
- * free-text `address` (the sole location source the guest map renders). The
+ * venue name and free-text `address` (what the guest map queries). The
  * stored coordinates + pricing region that used to live on `events` (and the
  * geocode endpoint that fed them) were removed by migration 0036 — they only
  * ever served unbuilt Phase 3 planning features.

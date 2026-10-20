@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS events (
   start_at TEXT NOT NULL,
   end_at TEXT NOT NULL,
   timezone TEXT NOT NULL,
+  venue_name TEXT,
   address TEXT,
   dress_code_description TEXT,
   dress_code_palette TEXT,

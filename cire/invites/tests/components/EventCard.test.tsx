@@ -70,6 +70,30 @@ describe("EventCard", () => {
     expect(classes).not.toContain("text-gold");
   });
 
+  // The card has room for one line about the venue: its name when it has one,
+  // which is what a guest recognises; the address is in the details.
+  it("names the venue on its line when there is a venue name, and the address otherwise", () => {
+    const named = render(() => (
+      <EventCard
+        event={{ ...baseEvent, venueName: "The Glasshouse" }}
+        onRespond={noop}
+        onDetails={noop}
+      />
+    ));
+    expect(named.container.textContent).toContain("The Glasshouse");
+    expect(named.container.textContent).not.toContain("12 Banksia Lane");
+    cleanup();
+
+    const nameOnly = render(() => (
+      <EventCard
+        event={{ ...baseEvent, venueName: "The Glasshouse", address: null }}
+        onRespond={noop}
+        onDetails={noop}
+      />
+    ));
+    expect(nameOnly.container.textContent).toContain("The Glasshouse");
+  });
+
   it("omits the venue line entirely when the event has no address", () => {
     const noAddress: EventSummary = { ...baseEvent, address: null };
     const { container } = render(() => (

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * OSN auth + api helpers + toasts are stubbed; this asserts the load/seed, the
  * PUT body (incl. cents conversion and the slug never being sent — read-only),
  * and the co-host read-only gate. Location is deliberately NOT here —
- * an event's place is its free-text `address` (the sole location source).
+ * an event's place is its venue name and free-text `address`.
  */
 
 vi.mock("@shared/rp-auth/solid", async () => {

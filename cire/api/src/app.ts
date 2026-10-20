@@ -438,7 +438,8 @@ export interface AppOptions {
    * OIDC relying-party credentials for organiser sign-in. Absent ⇒ the
    * `/api/auth/oidc/*` routes answer 503 and nobody can sign in — which is the
    * honest state of a tier that has no client secret, not a silent downgrade.
-   * Built in `index.ts` from `OSN_ISSUER_URL` + `CIRE_OIDC_CLIENT_ID` +
+   * Built in `index.ts` (and in `local.ts` for the bun dev server) from
+   * `OSN_ISSUER_URL` + `CIRE_API_ORIGIN` + `CIRE_OIDC_CLIENT_ID` +
    * `CIRE_OIDC_CLIENT_SECRET`.
    */
   oidc?: OidcConfig | null;
@@ -1040,7 +1041,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createOrganiserChangeRoutes(db, r2, osnAuthOptions))
       // Wedding-profile Settings (platform Phase 0). Reads admit owner OR
       // co-host; the profile save is owner-only. No event location config —
-      // an event's place is its free-text `address` (the sole location source).
+      // an event's place is its venue name and free-text `address`.
       .use(createOrganiserSettingsRoutes(db, osnAuthOptions))
       // Organiser-recorded RSVPs (platform Phase 0). Editor records a
       // phone/paper RSVP on a guest's behalf into the SAME `rsvps` table the
