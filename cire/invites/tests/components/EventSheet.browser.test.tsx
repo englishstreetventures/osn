@@ -13,7 +13,7 @@
 import { cleanup, render, within } from "@solidjs/testing-library";
 import { createSignal, Show } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
-import { commands, page, userEvent } from "vitest/browser";
+import { cdp, commands, page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 import { EventCard } from "../../src/components/EventCard";
@@ -147,7 +147,7 @@ describe("EventSheet — moving between the panels", () => {
     const sheet = dialog();
     expect(sheet.matches(":modal")).toBe(true);
 
-    await userEvent.click(button("RSVP for this event"));
+    await userEvent.click(button("Give RSVP"));
     expect(document.activeElement?.textContent).toMatch(/Respond.*Mehndi/);
     expect(document.activeElement?.tagName).toBe("H3");
     await settle();
@@ -162,13 +162,13 @@ describe("EventSheet — moving between the panels", () => {
     const other = await within(fieldset).findByPlaceholderText(/no onion/i);
     await userEvent.type(other, "no curry leaves");
 
-    await userEvent.click(button("View event details"));
+    await userEvent.click(button("See details"));
     expect(document.activeElement?.textContent).toMatch(/Details.*Mehndi/);
     await settle();
     expect(getComputedStyle(wrapperOf("rsvp")).display).toBe("none");
     expect(getComputedStyle(wrapperOf("details")).display).not.toBe("none");
 
-    await userEvent.click(button("RSVP for this event"));
+    await userEvent.click(button("Give RSVP"));
     await settle();
     const back = within(sheet).getByRole("group", { name: /priya sharma/i });
     expect(within(back).getByText("Attending").getAttribute("aria-pressed")).toBe("true");
@@ -184,7 +184,7 @@ describe("EventSheet — moving between the panels", () => {
 
     await userEvent.click(opener);
     await settle();
-    await userEvent.click(button("RSVP for this event"));
+    await userEvent.click(button("Give RSVP"));
     await settle();
 
     await userEvent.keyboard("{Escape}");
@@ -201,7 +201,7 @@ describe("EventSheet — moving between the panels", () => {
 
     await userEvent.click(opener);
     await settle();
-    await userEvent.click(button("View event details"));
+    await userEvent.click(button("See details"));
     await settle();
 
     await userEvent.keyboard("{Escape}");
@@ -219,7 +219,7 @@ describe("EventSheet — moving between the panels", () => {
     scroller().scrollTop = scroller().scrollHeight;
     expect(scroller().scrollTop).toBeGreaterThan(0);
 
-    await userEvent.click(button("View event details"));
+    await userEvent.click(button("See details"));
     await settle();
 
     expect(scroller().scrollTop).toBe(0);
@@ -241,7 +241,7 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(cardButton("Event Details"));
     await settle();
 
-    button("RSVP for this event").click();
+    button("Give RSVP").click();
     const form = wrapperOf("rsvp");
     const [slide] = form.getAnimations();
     expect((slide as CSSAnimation).animationName).toBe("panel-from-end");
@@ -272,7 +272,7 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(cardButton("Respond"));
     await settle();
 
-    button("View event details").click();
+    button("See details").click();
     const [slide] = wrapperOf("details").getAnimations();
     expect((slide as CSSAnimation).animationName).toBe("panel-from-start");
     slide!.pause();
@@ -300,7 +300,7 @@ describe("EventSheet — the motion", () => {
     await settle();
     const before = dialog().offsetHeight;
 
-    button("View event details").click();
+    button("See details").click();
     const resize = dialog()
       .getAnimations()
       .find((a) => (a.effect as KeyframeEffect).getKeyframes().some((k) => "height" in k));
@@ -321,7 +321,7 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(cardButton("Event Details"));
     await settle();
 
-    await userEvent.click(button("RSVP for this event"));
+    await userEvent.click(button("Give RSVP"));
     await settle();
 
     const bar = button("Save").parentElement as HTMLElement;
@@ -336,7 +336,7 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(cardButton("Respond"));
     await settle();
 
-    button("View event details").click();
+    button("See details").click();
     const details = wrapperOf("details");
     expect(Number.parseFloat(getComputedStyle(details).animationDuration)).toBeLessThan(0.001);
     await new Promise(requestAnimationFrame);
@@ -359,7 +359,7 @@ describe("EventSheet — the motion", () => {
     render(() => <Harness />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
-    await userEvent.click(button("RSVP for this event"));
+    await userEvent.click(button("Give RSVP"));
     await settle();
     const spinner = document.createElement("span");
     wrapperOf("details").append(spinner);
@@ -368,7 +368,7 @@ describe("EventSheet — the motion", () => {
       iterations: Infinity,
     });
 
-    button("View event details").click();
+    button("See details").click();
     const [slide] = wrapperOf("details").getAnimations();
     slide!.finish();
     await settle();
@@ -388,7 +388,7 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(cardButton("Event Details"));
     await settle();
 
-    button("RSVP for this event").click();
+    button("Give RSVP").click();
     // Hold the first resize halfway, so the height on screen is neither
     // panel's own.
     const first = dialog()
@@ -400,7 +400,7 @@ describe("EventSheet — the motion", () => {
     const [fromKeyframe, toKeyframe] = (first.effect as KeyframeEffect).getKeyframes();
     expect(`${midway}px`).not.toBe(fromKeyframe!.height);
     expect(`${midway}px`).not.toBe(toKeyframe!.height);
-    button("View event details").click();
+    button("See details").click();
     const [slide] = wrapperOf("details").getAnimations();
     slide!.pause();
     slide!.currentTime = 0;
@@ -419,20 +419,572 @@ describe("EventSheet — the motion", () => {
   });
 });
 
-describe("EventSheet — the switch buttons", () => {
-  it("gives each a 44px target on a phone, and Add to Calendar the same height", async () => {
-    // Both sit in rows a thumb has to hit; "View event details" is drawn as a
-    // link, which would otherwise be only as tall as its line of text.
+describe("EventSheet — the badge", () => {
+  it("gives it a 44px target on both panels, level with the close button", async () => {
+    // A thumb has to hit it; drawn as a small pill, it would otherwise be only
+    // as tall as its line of text.
     await page.viewport(...PHONE);
     render(() => <Harness />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
 
-    expect(button("RSVP for this event").getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    const close = button("Close").getBoundingClientRect();
+    const give = button("Give RSVP").getBoundingClientRect();
+    expect(give.height).toBeGreaterThanOrEqual(44);
+    expect(give.top).toBe(close.top);
+    expect(give.right).toBeLessThanOrEqual(close.left);
     expect(button(/add to calendar/i).getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
 
-    await userEvent.click(button("RSVP for this event"));
+    await userEvent.click(button("Give RSVP"));
     await settle();
-    expect(button("View event details").getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    expect(button("See details").getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  });
+
+  it("is a pill, not the house's square corner", async () => {
+    await page.viewport(...PHONE);
+    render(() => <Harness />);
+    await userEvent.click(cardButton("Event Details"));
+    await settle();
+    const badge = button("Give RSVP");
+    const radius = Number.parseFloat(getComputedStyle(badge).borderTopLeftRadius);
+    expect(radius).toBeGreaterThanOrEqual(badge.getBoundingClientRect().height / 2);
+    // Opaque, because the sheet's content scrolls underneath it — and filled
+    // like the close button beside it.
+    expect(getComputedStyle(badge).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(badge).backgroundColor).toBe(
+      getComputedStyle(button("Close")).backgroundColor,
+    );
+  });
+
+  it("keeps the heading clear of the badge row on a 320px phone", async () => {
+    await page.viewport(320, 640);
+    render(() => <Harness />);
+    await userEvent.click(cardButton("Event Details"));
+    await settle();
+    const row = button("Close").parentElement!.getBoundingClientRect();
+    const heading = dialog().querySelector("h3")!.getBoundingClientRect();
+    expect(heading.top).toBeGreaterThanOrEqual(row.bottom);
+  });
+
+  it("does not take the second tap of a double tap straight back", async () => {
+    // The badge sits in the same corner on both panels, so on two panels of a
+    // height the second tap of a double tap lands on its twin.
+    await page.viewport(...PHONE);
+    render(() => <Harness members={party} />);
+    await userEvent.click(cardButton("Event Details"));
+    await settle();
+    const at = centre(button("Give RSVP"));
+    await mouseClick(at);
+    // A thumb's double tap: the second lands some 60ms after the first.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(document.elementFromPoint(at.x, at.y)?.closest("button")?.textContent).toContain(
+      "See details",
+    );
+    await mouseClick(at);
+    await settle();
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+    expect(wrapperOf("details").hidden).toBe(true);
+  });
+
+  it("does not close when the second tap lands outside a sheet that shrank", async () => {
+    // The form for one guest is shorter than the details: by the second tap
+    // the bottom sheet has eased down, and the tap meets the backdrop.
+    await page.viewport(...PHONE);
+    render(() => <Harness />);
+    await userEvent.click(cardButton("Event Details"));
+    await settle();
+    const at = centre(button("Give RSVP"));
+    await mouseClick(at);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(document.elementFromPoint(at.x, at.y)).toBe(dialog());
+    await mouseClick(at);
+    await settle();
+    expect(dialog().open).toBe(true);
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+  });
+
+  it("still closes on a backdrop tap once the panels are still", async () => {
+    await page.viewport(...PHONE);
+    render(() => <Harness />);
+    await userEvent.click(cardButton("Event Details"));
+    await settle();
+    await userEvent.click(button("Give RSVP"));
+    await settle();
+    await mouseClick({ x: 10, y: 10 });
+    await afterTheCloseEvent();
+    expect(document.querySelector("dialog")).toBeNull();
+  });
+});
+
+// ── Swiping ─────────────────────────────────────────────────────────────
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+function centre(el: Element): Point {
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
+/**
+ * This frame's point in the top-level page's coordinates, which is where CDP
+ * input lands: the tests run in an iframe that may be offset and scaled.
+ */
+function toTop(p: Point): Point {
+  const frame = window.frameElement?.getBoundingClientRect();
+  if (!frame) return p;
+  const scale = frame.width / window.innerWidth;
+  return { x: frame.left + p.x * scale, y: frame.top + p.y * scale };
+}
+
+async function mouseClick(p: Point) {
+  const { x, y } = toTop(p);
+  const session = cdp();
+  await session.send("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x,
+    y,
+    button: "left",
+    clickCount: 1,
+  });
+  await session.send("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x,
+    y,
+    button: "left",
+    clickCount: 1,
+  });
+}
+
+/**
+ * A finger from `from` to `to` over `ms`, in `steps` moves, through the
+ * browser's real input pipeline — so `touch-action` and the browser's own
+ * scroll decide what reaches the page, as on a phone. Each event carries its
+ * own timestamp, so the speed is the one written here, not the test runner's.
+ * `end` is how the touch finishes; `"hold"` leaves the finger down.
+ */
+async function touchDrag(
+  from: Point,
+  to: Point,
+  {
+    ms = 300,
+    steps = 10,
+    end = "lift",
+  }: { ms?: number; steps?: number; end?: "lift" | "cancel" | "hold" } = {},
+) {
+  const session = cdp();
+  const t0 = Date.now() / 1000;
+  const point = (p: Point) => ({ ...toTop(p), id: 1 });
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [point(from)],
+    timestamp: t0,
+  });
+  for (let i = 1; i <= steps; i++) {
+    const f = i / steps;
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [point({ x: from.x + (to.x - from.x) * f, y: from.y + (to.y - from.y) * f })],
+      timestamp: t0 + (ms / 1000) * f,
+    });
+  }
+  if (end === "hold") return;
+  await session.send("Input.dispatchTouchEvent", {
+    type: end === "lift" ? "touchEnd" : "touchCancel",
+    touchPoints: [],
+    timestamp: t0 + ms / 1000 + 0.01,
+  });
+}
+
+async function mouseDrag(from: Point, to: Point) {
+  const session = cdp();
+  const a = toTop(from);
+  const b = toTop(to);
+  await session.send("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    ...a,
+    button: "left",
+    clickCount: 1,
+  });
+  for (let i = 1; i <= 10; i++) {
+    const f = i / 10;
+    await session.send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: a.x + (b.x - a.x) * f,
+      y: a.y + (b.y - a.y) * f,
+      button: "left",
+      buttons: 1,
+    });
+  }
+  await session.send("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    ...b,
+    button: "left",
+    clickCount: 1,
+  });
+}
+
+/** A point in the middle of a panel's body, clear of every control. */
+function bodyOf(panel: EventPanel): Point {
+  const heading = wrapperOf(panel).querySelector("h3")!.getBoundingClientRect();
+  return { x: heading.left + heading.width / 2, y: heading.top + heading.height / 2 };
+}
+
+/** Wait for the swipe's settle, which is a transition rather than an animation. */
+async function settleSwipe() {
+  await settle();
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  await settle();
+}
+
+async function openOn(panel: EventPanel, members?: FamilyMember[]) {
+  await page.viewport(...PHONE);
+  render(() => <Harness members={members} />);
+  await userEvent.click(cardButton(panel === "details" ? "Event Details" : "Respond"));
+  await settle();
+}
+
+/** Every running animation or transition on `el` itself. */
+function moving(el: Element): Animation[] {
+  return el.getAnimations().filter((a) => a.playState === "running");
+}
+
+describe("EventSheet — swiping between the panels", () => {
+  it("keeps the panel under the finger following it when it arrived by a swipe", async () => {
+    // A panel that arrived by a swipe and is now swiped away must not replay
+    // its entry slide: that would fade it and pull it off the finger.
+    await openOn("details");
+    let start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
+    await settleSwipe();
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+
+    start = bodyOf("rsvp");
+    // Two moves, read at once: a replayed 280ms slide would still be running.
+    await touchDrag(start, { x: start.x + 60, y: start.y }, { steps: 2, end: "hold" });
+    await new Promise(requestAnimationFrame);
+    const form = wrapperOf("rsvp");
+    expect(form.style.transform).toBe("translateX(60px)");
+    expect(moving(form)).toEqual([]);
+    expect(getComputedStyle(form).opacity).toBe("1");
+    expect(form.getBoundingClientRect().left - scroller().getBoundingClientRect().left).toBeCloseTo(
+      60 + Number.parseFloat(getComputedStyle(scroller()).paddingLeft),
+      0,
+    );
+
+    await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    await settleSwipe();
+  });
+
+  it("draws the details level with the top of a scrolled form, clipped at its sides", async () => {
+    await openOn("rsvp", party);
+    scroller().scrollTop = 200;
+    const start = bodyOf("rsvp");
+    // The heading is scrolled away: start in the visible part of the form.
+    const from = { x: start.x, y: scroller().getBoundingClientRect().top + 200 };
+    await touchDrag(from, { x: from.x + 100, y: from.y }, { end: "hold" });
+    await new Promise(requestAnimationFrame);
+
+    const details = wrapperOf("details");
+    const port = scroller().getBoundingClientRect();
+    const padTop = Number.parseFloat(getComputedStyle(scroller()).paddingTop);
+    expect(details.hidden).toBe(false);
+    expect(details.inert).toBe(true);
+    expect(details.getBoundingClientRect().top).toBeCloseTo(port.top + padTop, 0);
+    // A panel's width to the left of the form, moved with the finger.
+    const rail = details.parentElement!;
+    expect(details.style.transform).toBe(`translateX(${100 - rail.clientWidth}px)`);
+    expect(getComputedStyle(rail).overflowX).toBe("clip");
+
+    await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    await settleSwipe();
+    expect(getComputedStyle(rail).overflowX).not.toBe("clip");
+  });
+
+  it("eases a released panel to rest rather than snapping it", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 60, y: start.y }, { ms: 1000 });
+    await new Promise(requestAnimationFrame);
+    const transitions = moving(wrapperOf("details")).filter(
+      (a) => (a as CSSTransition).transitionProperty === "transform",
+    );
+    expect(transitions).toHaveLength(1);
+    await settleSwipe();
+  });
+
+  it("follows the first finger only, and settles cleanly when a second joins it", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    const session = cdp();
+    const t0 = Date.now() / 1000;
+    const one = (x: number) => toTop({ x, y: start.y });
+    const two = toTop({ x: start.x, y: start.y + 120 });
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ ...one(start.x), id: 1 }],
+      timestamp: t0,
+    });
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ ...one(start.x - 80), id: 1 }],
+      timestamp: t0 + 0.4,
+    });
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [
+        { ...one(start.x - 80), id: 1 },
+        { ...two, id: 2 },
+      ],
+      timestamp: t0 + 0.5,
+    });
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [
+        { ...one(start.x - 90), id: 1 },
+        { x: two.x - 200, y: two.y, id: 2 },
+      ],
+      timestamp: t0 + 0.9,
+    });
+    await new Promise(requestAnimationFrame);
+    expect(wrapperOf("details").style.transform).toBe("translateX(-90px)");
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+      timestamp: t0 + 1,
+    });
+    await settleSwipe();
+
+    // One panel on screen, nothing of the drag left on either.
+    expect(wrapperOf("details").hidden).not.toBe(wrapperOf("rsvp").hidden);
+    expect(wrapperOf("details").style.transform).toBe("");
+    expect(wrapperOf("rsvp").style.transform).toBe("");
+  });
+
+  it("stands down while the guest has pinch-zoomed in, leaving the drag to pan the view", async () => {
+    await openOn("details");
+    const viewport = window.visualViewport!;
+    Object.defineProperty(viewport, "scale", { configurable: true, get: () => 2 });
+    try {
+      viewport.dispatchEvent(new Event("resize"));
+      await new Promise(requestAnimationFrame);
+      const rail = wrapperOf("details").parentElement!;
+      // `touch-action: auto`, so the browser pans the zoomed view sideways.
+      expect(getComputedStyle(rail).touchAction).toBe("auto");
+
+      const start = bodyOf("details");
+      await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
+      await settleSwipe();
+      expect(dialog().querySelector('[data-panel="rsvp"]')).toBeNull();
+      // The badge still moves between the panels.
+      await userEvent.click(button("Give RSVP"));
+      expect(wrapperOf("rsvp").hidden).toBe(false);
+    } finally {
+      delete (viewport as unknown as { scale?: number }).scale;
+      viewport.dispatchEvent(new Event("resize"));
+      await settle();
+    }
+  });
+
+  it("draws the form in beside the details under the finger, inert until it lands", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 120, y: start.y }, { end: "hold" });
+    await new Promise(requestAnimationFrame);
+
+    const details = wrapperOf("details");
+    const form = wrapperOf("rsvp");
+    expect(details.style.transform).toBe("translateX(-120px)");
+    expect(form.hidden).toBe(false);
+    expect(form.inert).toBe(true);
+    // A panel's width to the right of the details, so the two travel as one.
+    const offset = form.getBoundingClientRect().left - details.getBoundingClientRect().left;
+    expect(offset).toBeCloseTo(details.parentElement!.clientWidth, 0);
+
+    await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    await settleSwipe();
+  });
+
+  it("carries on to the form past a third of the way, with focus on its heading at the top", async () => {
+    await openOn("details");
+    scroller().scrollTop = 40;
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
+    await settleSwipe();
+
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+    expect(wrapperOf("details").hidden).toBe(true);
+    expect(document.activeElement?.textContent).toContain("Respond");
+    expect(scroller().scrollTop).toBe(0);
+    // Nothing of the swipe is left behind.
+    expect(wrapperOf("rsvp").style.transform).toBe("");
+    expect(wrapperOf("rsvp").inert).toBe(false);
+    expect(wrapperOf("rsvp").className).not.toContain("absolute");
+  });
+
+  it("brings the details back with a swipe the other way", async () => {
+    await openOn("rsvp");
+    const start = bodyOf("rsvp");
+    await touchDrag(start, { x: start.x + 250, y: start.y }, { ms: 600 });
+    await settleSwipe();
+
+    expect(wrapperOf("details").hidden).toBe(false);
+    expect(wrapperOf("rsvp").hidden).toBe(true);
+    expect(document.activeElement?.textContent).toContain("Details");
+  });
+
+  it("carries on after a quick flick that is short of a third", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 60, y: start.y }, { ms: 80, steps: 4 });
+    await settleSwipe();
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+  });
+
+  it("springs back from a short drag, and leaves no trace of it", async () => {
+    // 20px: past the slop, so the drag begins, but under the shortest flick,
+    // so it springs back however fast the browser says the finger moved.
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 20, y: start.y }, { ms: 1000 });
+    await settleSwipe();
+
+    expect(wrapperOf("details").hidden).toBe(false);
+    expect(wrapperOf("details").style.transform).toBe("");
+    expect(wrapperOf("rsvp").hidden).toBe(true);
+    // A button switch afterwards still slides the form in.
+    await userEvent.click(button("Give RSVP"));
+    expect(wrapperOf("rsvp").className).toContain("animate-panel-from-end");
+    await settle();
+  });
+
+  it("springs back when the finger rests before it lifts, however fast it moved", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 80, y: start.y }, { ms: 60, steps: 3, end: "hold" });
+    // The finger stays still for a moment, then lifts. The lift carries no
+    // timestamp of its own, so its time is the real one, well past the moves.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await cdp().send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await settleSwipe();
+    expect(wrapperOf("details").hidden).toBe(false);
+    expect(wrapperOf("rsvp").hidden).toBe(true);
+  });
+
+  it("springs back when the touch is cancelled mid-drag", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600, end: "cancel" });
+    await settleSwipe();
+
+    expect(wrapperOf("details").hidden).toBe(false);
+    expect(wrapperOf("details").style.transform).toBe("");
+    expect(wrapperOf("rsvp").hidden).toBe(true);
+  });
+
+  it("does nothing for a drag toward the side with no panel", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x + 120, y: start.y }, { end: "hold" });
+    await new Promise(requestAnimationFrame);
+    expect(wrapperOf("details").style.transform).toBe("");
+    expect(dialog().querySelector('[data-panel="rsvp"]')).toBeNull();
+    await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+  });
+
+  it("leaves a vertical drag to the browser's scroll", async () => {
+    await openOn("rsvp", party);
+    const start = bodyOf("rsvp");
+    await touchDrag({ x: start.x, y: start.y + 300 }, { x: start.x - 20, y: start.y }, { ms: 300 });
+    await settleSwipe();
+    expect(scroller().scrollTop).toBeGreaterThan(0);
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+    expect(dialog().querySelector('[data-panel="details"]')).toBeNull();
+  });
+
+  it("ignores a mouse drag, which is text selection on a desktop", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await mouseDrag(start, { x: start.x - 250, y: start.y });
+    await settleSwipe();
+    expect(wrapperOf("details").hidden).toBe(false);
+    expect(dialog().querySelector('[data-panel="rsvp"]')).toBeNull();
+  });
+
+  it("leaves a drag on the dietary chips to their own sideways scroll", async () => {
+    await openOn("rsvp");
+    await userEvent.click(within(dialog()).getByText("Attending"));
+    await settle();
+    const track = [...dialog().querySelectorAll<HTMLElement>("*")].find(
+      (el) => getComputedStyle(el).overflowX === "auto" && el.scrollWidth > el.clientWidth,
+    );
+    expect(track, "a sideways-scrolling dietary track at phone width").toBeTruthy();
+    const r = track!.getBoundingClientRect();
+    const start = { x: r.left + 30, y: r.top + r.height / 2 };
+    await touchDrag(start, { x: start.x + 200, y: start.y }, { ms: 300 });
+    await settleSwipe();
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+    expect(dialog().querySelector('[data-panel="details"]')).toBeNull();
+  });
+
+  it("does not leave the form while a reply is saving", async () => {
+    let release!: () => void;
+    const original = window.fetch;
+    window.fetch = () =>
+      new Promise<Response>((resolve) => {
+        release = () => resolve(new Response(JSON.stringify({ error: "boom" }), { status: 500 }));
+      });
+    try {
+      await openOn("rsvp");
+      await userEvent.click(within(dialog()).getByText("Attending"));
+      await userEvent.click(button("Save"));
+      expect(button("See details").disabled).toBe(true);
+
+      const start = bodyOf("rsvp");
+      await touchDrag(start, { x: start.x + 250, y: start.y }, { ms: 600 });
+      await settleSwipe();
+      expect(wrapperOf("rsvp").hidden).toBe(false);
+      expect(dialog().querySelector('[data-panel="details"]')).toBeNull();
+    } finally {
+      release?.();
+      window.fetch = original;
+      await settle();
+    }
+  });
+
+  it("offers no swipe into the form past the deadline to a household with no reply", async () => {
+    await page.viewport(...PHONE);
+    render(() => (
+      <EventSheet
+        event={event}
+        panel="details"
+        siteUrl="https://invite.test/w"
+        members={[priya]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+    await settle();
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
+    await settleSwipe();
+    expect(dialog().querySelector('[data-panel="rsvp"]')).toBeNull();
+    expect(wrapperOf("details").style.transform).toBe("");
+  });
+
+  it("settles at once under reduced motion", async () => {
+    await emulate({ reducedMotion: "reduce" });
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
+    // No wait for a 280ms transition: two frames and the switch has happened.
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+    expect(wrapperOf("details").hidden).toBe(true);
   });
 });

@@ -1,14 +1,4 @@
-import Button from "@cire/ui/button";
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  createUniqueId,
-  For,
-  onMount,
-  Show,
-  type JSX,
-} from "solid-js";
+import { createMemo, createSignal, createUniqueId, For, onMount, Show, type JSX } from "solid-js";
 
 import { AddToCalendar } from "./AddToCalendar";
 import { isValidColor, truncateSwatchName } from "./dress-code-render";
@@ -34,32 +24,16 @@ export interface DetailsPanelProps {
    * member the couple invited is not invited to this event. Absent ⇒ no line.
    */
   members?: readonly FamilyMember[];
-  /**
-   * Moves the sheet to the event's RSVP form. Absent ⇒ no "RSVP for this
-   * event" button (a panel rendered on its own).
-   */
-  onRsvp?: () => void;
-  /**
-   * The wedding's RSVP deadline has passed, and a notice says so. The RSVP
-   * button follows the event card's: a household with a reply on file
-   * (`replied`) keeps a way in, relabelled "View your RSVP", to the sheet's
-   * read-only form; one with none loses it.
-   */
+  /** The wedding's RSVP deadline has passed, and a notice says so. */
   rsvpClosed?: boolean;
   /**
    * True once any invited member of the household has a reply on file for
    * this event (`hasAnyHouseholdReply`). Only matters once `rsvpClosed`: it
-   * keeps the RSVP button, and it decides the closed notice's next step.
+   * decides the closed notice's next step.
    */
   replied?: boolean;
   /** The deadline day in words, for the closed notice ("RSVPs closed on …"). */
   rsvpClosedOn?: string;
-  /**
-   * Whether this panel is the one on screen. Default true. `EventSheet` keeps a
-   * panel mounted, hidden, after the guest moves to the other one; a hidden
-   * panel must not take focus for itself.
-   */
-  active?: boolean;
   /** `id` for the heading, which names the sheet while this panel shows. */
   titleId?: string;
   /** Receives the heading, which takes focus when the guest switches here. */
@@ -146,18 +120,19 @@ function PeopleGlyph() {
 
 /**
  * The holistic "everything about this event" view, one of `EventSheet`'s two
- * panels.
+ * panels. The way to the RSVP form is the sheet's, in its chrome beside the
+ * close button (`EventSheet`).
  *
  * It leads with the plan, the facts a guest opens it for, as a short list under
- * the heading and the way to the RSVP form: when (in the event's own zone,
+ * the heading: when (in the event's own zone,
  * spelt out, and on the guest's own clock where that reads differently, with
  * Add to calendar on the row), where (the address, a small map and Open in
  * maps), and — for a household not all of whom are asked — who is invited.
  * One hairline, then the occasion: about, the dress code, and the moodboard.
  *
  * Every row and section renders only when it has content, so a sparse event —
- * a name, a start and a timezone — collapses to its heading, the RSVP button
- * and its date, with no empty label and no hairline over nothing.
+ * a name, a start and a timezone — collapses to its heading and its date,
+ * with no empty label and no hairline over nothing.
  */
 export function DetailsPanel(props: DetailsPanelProps) {
   // Memos: each is read by its `Show` and again inside it.
@@ -165,8 +140,6 @@ export function DetailsPanel(props: DetailsPanelProps) {
   const timeRange = createMemo(() => formatTimeRange(props.event));
   const zone = createMemo(() => timezoneName(props.event));
   const titleId = props.titleId ?? createUniqueId();
-  const rsvpOffered = () =>
-    props.onRsvp !== undefined && (props.rsvpClosed !== true || props.replied === true);
   const invited = () => invitedNames(props.members ?? [], props.event.id);
   const description = () => (hasText(props.event.description) ? props.event.description : null);
   const swatches = () =>
@@ -201,25 +174,6 @@ export function DetailsPanel(props: DetailsPanelProps) {
     return `${when} ${next}`;
   };
 
-  // The deadline can pass while this panel is open, and for a household with
-  // no reply the RSVP button goes with it. (One with a reply keeps the same
-  // button under a new label, so its focus never moves.) If focus was ON that
-  // button, the browser drops it to `<body>` —
-  // outside a modal dialog, with no keyboard way back in — so focus goes to
-  // this panel's heading instead. It acts only on that loss: focus resting on
-  // any real element is left where the guest put it. And only while this panel
-  // is the one on screen, so a hidden panel never pulls focus into itself.
-  let heading: HTMLHeadingElement | undefined;
-  let wasOffered = rsvpOffered();
-  createEffect(() => {
-    const offered = rsvpOffered();
-    const withdrawn = wasOffered && !offered;
-    wasOffered = offered;
-    if (!withdrawn || !heading || props.active === false) return;
-    const focused = document.activeElement;
-    if (!focused || focused === document.body) heading.focus();
-  });
-
   return (
     <>
       <header class="mb-6">
@@ -230,10 +184,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
             for the ear only. */}
         <h3
           id={titleId}
-          ref={(el) => {
-            heading = el;
-            props.headingRef?.(el);
-          }}
+          ref={(el) => props.headingRef?.(el)}
           tabindex="-1"
           class="font-display text-text text-ui-xl mb-5 leading-tight font-light italic"
         >
@@ -243,19 +194,6 @@ export function DetailsPanel(props: DetailsPanelProps) {
           </span>{" "}
           {props.event.name}
         </h3>
-        {/* Answering is the one act that matters on the invite (see
-            `EventCard`), so the way to the RSVP form is the call to action
-            here, the first thing to press under the heading. */}
-        <div class="flex flex-wrap items-center gap-3">
-          <Show when={rsvpOffered() ? props.onRsvp : undefined}>
-            {(openRsvp) => (
-              <Button variant="cta" class="min-h-11" onClick={() => openRsvp()()}>
-                {props.rsvpClosed ? "View your RSVP" : "RSVP for this event"}
-                <span aria-hidden="true">→</span>
-              </Button>
-            )}
-          </Show>
-        </div>
         {/* Rendered whether or not RSVPs have closed, and empty while they
             are open: assistive tech announces a change inside a live region
             it was already watching, so a deadline that passes with this
@@ -269,10 +207,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
             {(notice) => (
               // The closed treatment `RsvpDeadlineNotice` gives the same
               // fact: a hairline box, muted ink, nothing washed behind it.
-              <p
-                class="font-body text-ui-sm leading-ui-normal border-border text-text-muted rounded-sm border px-4 py-3"
-                classList={{ "mt-4": rsvpOffered() }}
-              >
+              <p class="font-body text-ui-sm leading-ui-normal border-border text-text-muted rounded-sm border px-4 py-3">
                 {notice()}
               </p>
             )}

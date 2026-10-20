@@ -1,5 +1,4 @@
-import { render, cleanup, fireEvent } from "@solidjs/testing-library";
-import { createSignal } from "solid-js";
+import { render, cleanup } from "@solidjs/testing-library";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
 import { DetailsPanel } from "../../src/components/DetailsPanel";
@@ -264,157 +263,55 @@ describe("DetailsPanel", () => {
   });
 });
 
-describe("DetailsPanel — the way to the RSVP form", () => {
+describe("DetailsPanel — the deadline", () => {
   afterEach(() => cleanup());
 
-  it("offers none on its own", () => {
+  it("offers no way to the RSVP form of its own: that is the sheet's", () => {
     const { queryByRole } = renderPanel(baseEvent);
-    expect(queryByRole("button", { name: "RSVP for this event" })).toBeNull();
+    expect(queryByRole("button", { name: /RSVP/ })).toBeNull();
   });
 
-  it("makes it the call to action, the first thing to press, with Add to calendar a text action", () => {
-    // Answering is the one act that matters on the invite, so the RSVP button
-    // takes the guest site's call-to-action shape and comes first under the
-    // heading; Add to calendar is a text action on the date row below — the
-    // reverse would make the calendar the thing to do.
-    const onRsvp = vi.fn();
-    const { getByRole, container } = render(() => (
-      <DetailsPanel event={baseEvent} siteUrl={SITE_URL} onRsvp={onRsvp} />
-    ));
-
-    const rsvp = getByRole("button", { name: "RSVP for this event" });
-    expect(rsvp.className).toContain("base:border-ui-accent");
-    expect(rsvp.className).toContain("base:hover:bg-ui-accent");
-    expect(container.querySelector("a[href], button")).toBe(rsvp);
-    const calendar = getByRole("button", { name: /add to calendar/i });
-    expect(calendar.className).not.toContain("bg-gold");
-    expect(calendar.className.split(/\s+/)).toContain("base:border-transparent");
-
-    fireEvent.click(rsvp);
-    expect(onRsvp).toHaveBeenCalledTimes(1);
-  });
-
-  it("gives way to a line saying the replies have closed, once they have", () => {
-    const { queryByRole, getByRole } = render(() => (
+  it("says the replies have closed, on which day, and the household's next step", () => {
+    const { getByRole } = render(() => (
       <DetailsPanel
         event={baseEvent}
         siteUrl={SITE_URL}
-        onRsvp={() => {}}
         rsvpClosed
         rsvpClosedOn="Sunday 1 September 2999"
       />
     ));
-
-    expect(queryByRole("button", { name: "RSVP for this event" })).toBeNull();
-    // With the button gone, the notice gives the household its next step.
     expect(getByRole("status").textContent).toBe(
       "RSVPs closed on Sunday 1 September 2999. To reply now, please contact the couple directly.",
     );
   });
 
-  it("offers a household that replied a way to view its RSVP after the deadline", () => {
-    const onRsvp = vi.fn();
-    const { getByRole, queryByRole } = render(() => (
+  it("tells a household with a reply on file how to change it", () => {
+    const { getByRole } = render(() => (
       <DetailsPanel
         event={baseEvent}
         siteUrl={SITE_URL}
-        onRsvp={onRsvp}
         rsvpClosed
         replied
         rsvpClosedOn="Sunday 1 September 2999"
       />
     ));
-
-    expect(queryByRole("button", { name: "RSVP for this event" })).toBeNull();
-    fireEvent.click(getByRole("button", { name: "View your RSVP" }));
-    expect(onRsvp).toHaveBeenCalledTimes(1);
-    // The closed notice still says when replies shut, and who changes a reply.
     expect(getByRole("status").textContent).toBe(
       "RSVPs closed on Sunday 1 September 2999. To change your household's reply, please contact the couple directly.",
     );
   });
 
-  it("offers no way in after the deadline to a household that never replied", () => {
-    const { queryByRole } = render(() => (
-      <DetailsPanel event={baseEvent} siteUrl={SITE_URL} onRsvp={() => {}} rsvpClosed />
-    ));
-    expect(queryByRole("button", { name: "View your RSVP" })).toBeNull();
-    expect(queryByRole("button", { name: "RSVP for this event" })).toBeNull();
-  });
-
-  it("keeps focus on the button when the deadline relabels it for a household that replied", () => {
-    const [closed, setClosed] = createSignal(false);
-    const { getByRole } = render(() => (
-      <DetailsPanel
-        event={baseEvent}
-        siteUrl={SITE_URL}
-        onRsvp={() => {}}
-        replied
-        rsvpClosed={closed()}
-      />
-    ));
-    const button = getByRole("button", { name: "RSVP for this event" });
-    button.focus();
-
-    setClosed(true);
-
-    // The same control, renamed: focus stays where the guest left it.
-    expect(button.textContent).toContain("View your RSVP");
-    expect(document.activeElement).toBe(button);
-  });
-
   it("says the replies have closed without a date when it has none", () => {
     const { getByRole } = render(() => (
-      <DetailsPanel event={baseEvent} siteUrl={SITE_URL} onRsvp={() => {}} rsvpClosed />
+      <DetailsPanel event={baseEvent} siteUrl={SITE_URL} rsvpClosed />
     ));
     expect(getByRole("status").textContent).toBe(
       "RSVPs have closed. To reply now, please contact the couple directly.",
     );
   });
 
-  it("puts focus on its heading when the deadline removes the RSVP button from under it", () => {
-    const [closed, setClosed] = createSignal(false);
-    const { getByRole } = render(() => (
-      <DetailsPanel event={baseEvent} siteUrl={SITE_URL} onRsvp={() => {}} rsvpClosed={closed()} />
-    ));
-    getByRole("button", { name: "RSVP for this event" }).focus();
-
-    setClosed(true);
-
-    expect(document.activeElement).toBe(getByRole("heading", { name: "Details, Mehndi" }));
-  });
-
-  it("leaves focus alone when it is not the panel on screen", () => {
-    // A hidden panel holds no focus the guest can see; pulling focus into it
-    // would put the guest somewhere invisible.
-    const [closed, setClosed] = createSignal(false);
-    const { getByRole } = render(() => (
-      <DetailsPanel
-        event={baseEvent}
-        siteUrl={SITE_URL}
-        onRsvp={() => {}}
-        rsvpClosed={closed()}
-        active={false}
-      />
-    ));
-    getByRole("button", { name: "RSVP for this event" }).focus();
-
-    setClosed(true);
-
-    expect(document.activeElement).toBe(document.body);
-  });
-
-  it("leaves focus where the guest put it if it was not on the RSVP button", () => {
-    const [closed, setClosed] = createSignal(false);
-    const { getByRole } = render(() => (
-      <DetailsPanel event={baseEvent} siteUrl={SITE_URL} onRsvp={() => {}} rsvpClosed={closed()} />
-    ));
-    const calendar = getByRole("button", { name: /add to calendar/i });
-    calendar.focus();
-
-    setClosed(true);
-
-    expect(document.activeElement).toBe(calendar);
+  it("says nothing while replies are open", () => {
+    const { getByRole } = renderPanel(baseEvent);
+    expect(getByRole("status").textContent).toBe("");
   });
 });
 
