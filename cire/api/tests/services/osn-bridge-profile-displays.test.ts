@@ -58,6 +58,9 @@ describe("createArcProfileDisplayResolver", () => {
       "//cdn.example/a.png",
       "not a url",
       "",
+      // An array of one URL stringifies to that URL, so only the type check
+      // keeps it out.
+      ["https://cdn.example/a.png"],
       42,
       null,
       undefined,

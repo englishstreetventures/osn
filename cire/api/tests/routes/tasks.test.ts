@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, guests, taskAssignees, tasks, weddingHosts } from "@cire/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, DEV_OWNER_SEAT_ID, seedDb } from "../../src/db/setup";
@@ -404,7 +404,7 @@ describe("the people holding a task", () => {
       ["PUT", "whost_helper", 'insert into "task_assignees"'],
       ["DELETE", "whost_viewer", 'delete from "task_assignees"'],
     ] as const) {
-      const failure = failStatements(db, (sql) => sql.startsWith(statement));
+      const failure = failStatements(db, (text) => text.startsWith(statement));
       const res = await req(app, method, seatPath(id, seat), EDITOR);
       expect(failure.failed(), method).toBe(1);
       expect(res.status, method).toBe(500);
@@ -505,6 +505,40 @@ describe("the people holding a task", () => {
       "whost_editor",
       DEV_OWNER_SEAT_ID,
     ]);
+  });
+
+  // The index the checklist read uses happens to return holders in the order
+  // they were added; the order must not rest on which index the database picks.
+  it("keeps the order seats were added in, whichever index the database reads them through", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
+    const id = await createTask(app);
+    // Written out of order: by row, editor, viewer, helper; by seat id, editor,
+    // helper, viewer; by when they were added, viewer, helper, editor.
+    const second = Math.floor(Date.now() / 1000);
+    for (const [hostId, offset] of [
+      ["whost_editor", 2],
+      ["whost_viewer", 0],
+      ["whost_helper", 1],
+    ] as const) {
+      db.insert(taskAssignees)
+        .values({
+          taskId: id,
+          hostId,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          assignedAt: new Date((second + offset) * 1000),
+        })
+        .run();
+    }
+    const added = ["whost_viewer", "whost_helper", "whost_editor"];
+    const answers = async () => {
+      const patched = await req(app, "PATCH", `${base}/${id}`, EDITOR, {});
+      return [await holdersOf(app, id), ((await patched.json()) as TaskBody).task.assigneeHostIds];
+    };
+
+    expect(await answers()).toEqual([added, added]);
+    db.run(sql`DROP INDEX task_assignees_wedding_assigned_idx`);
+    expect(await answers()).toEqual([added, added]);
   });
 
   it("keeps a task's holders when it is ticked off and opened again", async () => {
