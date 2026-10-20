@@ -196,7 +196,7 @@ Each of these has shipped in this repository's pull requests.
 | Said three times | A table, a comma-joined `Closes #1, closes #2` line and four single lines for the same four issues | One `Closes` line per issue |
 | Tracker finding in public | A tracker reference beside its finding ID; a decision headed by a finding ID; prose saying how the fixed defect was reached | The bare reference; the rest in the tracker issue |
 | Gate with no commit | A test plan that never says which commit it ran on | The `Commit` column |
-| Gate left to CI | "`skill-eval.yml` runs it on this PR" as a result | `NOT RUN — left to CI` |
+| Gate left to CI | "`ci.yml` runs it on this PR" as a result | `NOT RUN — left to CI` |
 | No test plan | Five sections and no `## Test plan` | The skeleton, first |
 | Buried owner action | Production migrations in a `## Follow-ups` section at the bottom; a post-merge workflow run in the middle of the Summary | At the end of `## Impact`, as a bold lead-in |
 | Change without why | "Adds a `resend` route and an `INVITE_RESEND_KEY` secret", and nothing on who needed it | `## Impact`: who is better off, and by how much |

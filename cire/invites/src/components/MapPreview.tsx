@@ -219,7 +219,7 @@ function FooterRow(props: { href: string; venue: string | null; interactive?: bo
       <Show
         when={isLink()}
         fallback={
-          <span class="border-gold text-gold-ink group-hover:bg-gold group-hover:text-bg inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-sm border transition-colors duration-200">
+          <span class="border-gold text-gold-ink group-hover:bg-gold group-hover:text-on-gold inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-sm border transition-colors duration-200">
             <OpenIcon />
             <span class="sr-only">Open in Maps</span>
           </span>
@@ -233,7 +233,7 @@ function FooterRow(props: { href: string; venue: string | null; interactive?: bo
           // inside and wins over it. The label is what names this action in the
           // card path, where the element carrying it is not a link.
           aria-label={`Open ${props.venue ?? "the venue"} in maps`}
-          class="border-gold text-gold-ink hover:bg-gold hover:text-bg focus-visible:ring-gold/60 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-sm border transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+          class="border-gold text-gold-ink hover:bg-gold hover:text-on-gold focus-visible:ring-gold/60 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-sm border transition-colors duration-200 focus:outline-none focus-visible:ring-2"
         >
           <OpenIcon />
           <span class="sr-only">Open in Maps</span>

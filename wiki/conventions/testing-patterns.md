@@ -9,7 +9,8 @@ related:
   - "[[bundle-size-guards]]"
   - "[[devloop-urls]]"
   - "[[browser-tests]]"
-last-reviewed: 2026-10-16
+  - "[[realtime]]"
+last-reviewed: 2026-10-20
 ---
 
 # Testing Patterns
@@ -52,6 +53,8 @@ The bar for keeping any non-E2E test: **name the real bug it catches that no E2E
 The ports are the `PORTLESS=0` ones from `DEV_APPS` in `@shared/dev-urls`, and `tools/e2e/tests/config.test.ts` keeps the two lists equal. Children get an explicit environment, not your shell's: `PATH`, `HOME` and a few proxy and certificate variables, plus every sibling origin set by name. The APIs also start with `--no-env-file`, so neither a `.env` file nor your shell's `REDIS_URL`, `OSN_ENV` or Turnstile key reaches them. The frontends still read their own `.env*` files, as Vite and Astro always do. Every variable the suite relies on there (each API origin, the Turnstile site keys) is set in their environment, and that beats a `.env` value.
 
 **The clock.** Every server and every browser page starts at `2026-10-01T00:00:00Z` and then ticks in real time. The APIs load `tools/e2e/src/clock.mjs` with `--preload`. Vite and Astro load it through `NODE_OPTIONS`. Each page gets `page.clock.install`. The date is fixed so that seeded deadlines and "must be in the future" checks resolve the same way whatever the real date is. Time still moves so that debounces and timers in the UI still fire. Each flow checks that the rows it wrote carry a timestamp on the suite clock, so a server that missed the preload fails on the day it breaks, not on the day a seeded deadline passes.
+
+**A deadline the browser can pass.** cire-api's sample wedding carries the RSVP deadline `CIRE_RSVP_DEADLINE` (`2099-01-01`, from `tools/e2e/src/config.ts`), which `cire/api/src/local.ts` reads as `CIRE_E2E_RSVP_DEADLINE`. It is far past the suite clock, so the server takes replies on every run. A flow that needs the closed invite moves only its own page past it, with `page.clock.setSystemTime(Date.parse(CIRE_RSVP_CLOSED_ISO))` and a reload, as `cire-rsvp-after-deadline.flow.ts` does; the invite decides "closed" from the browser's clock. What the server refuses past a deadline is proven in cire-api's own tests, not here.
 
 ### Reading the artifact
 
@@ -620,6 +623,7 @@ Reach for these before hand-rolling setup:
 | `cire/api/tests/test-helpers.ts` → `appRequest()` | Elysia requests with `cf-connecting-ip` + `Origin` pre-injected. |
 | `cire/host/tests/test-support/mocks.ts` | The `@shared/rp-auth/solid` + `@shared/toast` + `lib/api` mock trio, their spies, and `resetOrganiserMocks()`. |
 | `pulse/web/tests/helpers/toast.ts` → `toastMock()` | Same idea for the Pulse app. |
+| `cire/invites/tests/test-support/consent.ts` → `seedConsentForTest()` / `resetConsentForTest()` | A returning guest's consent cookie, written with the app's own record encoder under the http name `cire_consent` (an https origin reads only `__Host-cire_consent`, so it ignores the seed), and a reset that deletes both consent cookie names and returns the store to before hydration. For any `cire/invites` suite that renders a consent-gated component on the default http origin. See [[cire-consent]]. |
 | `cire/api/tests/test-helpers/metrics-harness.ts` → `counterValue()` | Reading a counter back in a `@cire/api` test. See [[#Asserting a metric]]. |
 
 Call `makeAccessTokenSigner()` once per suite in `beforeAll` — there is no reason to re-key per test.
@@ -727,17 +731,19 @@ yet; their metric suites today assert only that a call does not throw.
 
 ## The D1 integration lane
 
-Each API package has a `tests/d1/d1-integration.test.ts` (cire's is `tests/db/d1-integration.test.ts`) that runs against a real workerd-backed D1 via Miniflare. They are the only coverage of the **asynchronous** D1 driver that dev/staging/prod actually use, as opposed to the synchronous `bun:sqlite` every other suite runs on.
+Each API package has a `tests/d1/d1-integration.test.ts` (cire's is `tests/db/d1-integration.test.ts`) that runs against a real workerd-backed D1 via Miniflare. They are the only coverage of the **asynchronous** D1 driver that dev/staging/prod actually use, as opposed to the synchronous `bun:sqlite` every other suite runs on. `shared/realtime` joins this lane too, though its `tests/d1/hub.test.ts` covers `TopicHub` on workerd rather than D1 — the hibernation API it exercises exists only in the runtime, so it needs the same Miniflare tier for the same reason.
 
-How the fast tier avoids them differs by runner, and the difference is worth knowing before you read a CI log:
+How the fast tier avoids these files differs by runner, and the difference is worth knowing before you read a CI log:
 
-| Package | Fast-tier runner | Does `bun run test` load the D1 file? |
+| Package | Fast-tier runner | Does `bun run test` load the D1/Miniflare file? |
 |---|---|---|
-| `osn/api`, `pulse/api`, `zap/api` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
+| `osn/api`, `pulse/api`, `zap/api`, `shared/realtime` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
 | `cire/api` | bare `bun test` | **Yes.** `bun test` discovers recursively and takes no exclude, so the Miniflare suite runs twice per CI run — once inside `@cire/api#test`, once under `test:d1`. A workerd failure reddens cire's fast tier too, and a workerd timeout can stop it outright: see [[#Miniflare in cire's fast tier]]. `tests/db/migrate-wrapper.test.ts`, which runs real wrangler, skips unless `CIRE_D1_TIER=1`, which only `test:d1` sets. |
 
+See [[realtime]] for what `hub.test.ts` covers.
+
 ```bash
-bun run test:d1            # all four packages, serially
+bun run test:d1            # every D1/Miniflare package, serially
 bun run --cwd zap/api test:d1
 ```
 

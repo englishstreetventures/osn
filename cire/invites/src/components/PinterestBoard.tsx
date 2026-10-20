@@ -185,7 +185,7 @@ export function PinterestBoard(props: PinterestBoardProps) {
               href={props.url}
               target="_blank"
               rel="noopener noreferrer"
-              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg text-ui-sm tracking-ui-wider inline-block rounded-sm border px-5 py-2.5 uppercase transition-colors duration-200"
+              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold text-ui-sm tracking-ui-wider inline-block rounded-sm border px-5 py-2.5 uppercase transition-colors duration-200"
             >
               View moodboard on Pinterest ↗
             </a>

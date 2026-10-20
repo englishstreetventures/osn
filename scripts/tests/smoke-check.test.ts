@@ -15,7 +15,6 @@ import {
   annotation,
   type Deployment,
   deployedVersion,
-  FORCED_FAILURE_PATH,
   judge,
   type Outcome,
   probeOnce,
@@ -554,6 +553,22 @@ describe("a broken deploy", () => {
     expect(invites.apiCalls.every((c) => c.url === deploymentsUrl("cire-invites"))).toBe(true);
   });
 
+  test("rolls back osn-api's dev Worker on dev, and reports the restored version healthy", async () => {
+    // Every round of the check fails; the round after the rollback passes.
+    const rounds = 7;
+    const health = "https://id.dev.musubi.social/health";
+    const result = await smoke(["osn_api", "dev"], {
+      [health]: (call) => (call <= rounds ? MISCONFIGURED() : HEALTHY()),
+      "https://id.dev.musubi.social/.well-known/jwks.json": JWKS,
+    });
+    expect(result.code).toBe(1);
+    expect(fetchesOf(result, health)).toBe(rounds + 1);
+    expect(result.posts).toHaveLength(1);
+    expect(result.apiCalls.map((c) => c.url)).toEqual(Array(3).fill(deploymentsUrl("osn-api-dev")));
+    expect(result.output).toContain("the restored version answers healthy");
+    expect(result.output).not.toContain("still failing");
+  });
+
   test("after the rollback, one more round says whether the restored version answers", async () => {
     // Every round of the check fails; the round after the rollback passes.
     const rounds = 7;
@@ -571,6 +586,16 @@ describe("a broken deploy", () => {
     });
     expect(still.code).toBe(1);
     expect(still.output).toContain("::error title=Still failing after rollback::");
+
+    // The restored version is judged on every probe, not the first one alone.
+    const keyless = await smoke(["osn_api", "production"], {
+      "https://id.musubi.social/health": (call) => (call <= rounds ? MISCONFIGURED() : HEALTHY()),
+      "https://id.musubi.social/.well-known/jwks.json": () => json({ keys: [] }),
+    });
+    expect(keyless.code).toBe(1);
+    expect(keyless.posts).toHaveLength(1);
+    expect(keyless.output).toContain("::error title=Still failing after rollback::");
+    expect(keyless.output).not.toContain("answers healthy");
   });
 
   test("Cloudflare's refusal over changed secrets is kept: nothing is forced through", async () => {
@@ -979,65 +1004,6 @@ describe("the guest site's dev host sits behind Cloudflare Access", () => {
   });
 });
 
-describe("the dry run", () => {
-  test("SMOKE_FORCE_FAIL on dev asks for a path the Worker answers 404, rolls back, and reports the restored version healthy", async () => {
-    const forced = `https://id.dev.musubi.social${FORCED_FAILURE_PATH}`;
-    const result = await smoke(
-      ["osn_api", "dev"],
-      {
-        "https://id.dev.musubi.social/health": HEALTHY,
-        "https://id.dev.musubi.social/.well-known/jwks.json": JWKS,
-        [forced]: new Response("NOT_FOUND", { status: 404 }),
-      },
-      { env: { SMOKE_FORCE_FAIL: "true" } },
-    );
-    expect(result.code).toBe(1);
-    expect(fetchesOf(result, forced)).toBe(8);
-    expect(result.posts).toHaveLength(1);
-    expect(result.apiCalls.every((c) => c.url === deploymentsUrl("osn-api-dev"))).toBe(true);
-    expect(result.output).toContain(forced);
-    // The forced probe fails on every version; it is no verdict on the one restored.
-    expect(result.output).toContain("the restored version answers healthy");
-    expect(result.output).not.toContain("still failing");
-  });
-
-  test("SMOKE_FORCE_FAIL false is an ordinary check", async () => {
-    const result = await smoke(
-      ["osn_api", "dev"],
-      {
-        "https://id.dev.musubi.social/health": HEALTHY,
-        "https://id.dev.musubi.social/.well-known/jwks.json": JWKS,
-      },
-      { env: { SMOKE_FORCE_FAIL: "false" } },
-    );
-    expect(result.code).toBe(0);
-  });
-
-  test("the dry run runs even with no Access token, and Access then fails it without a rollback", async () => {
-    const login = redirect("https://wispy-sun-215a.cloudflareaccess.com/cdn-cgi/access/login/x");
-    const result = await smoke(
-      ["cire_invites", "dev"],
-      {
-        "https://invite.dev.cireweddings.com/": login,
-        "https://invite.dev.cireweddings.com/smoke-check-no-such-wedding": login,
-        [`https://invite.dev.cireweddings.com${FORCED_FAILURE_PATH}`]: login,
-      },
-      { env: { SMOKE_FORCE_FAIL: "true" } },
-    );
-    expect(result.code).toBe(1);
-    expect(result.posts).toEqual([]);
-  });
-
-  test("production refuses the dry run before asking anything", async () => {
-    const result = await smoke(["osn_api", "production"], OSN_PROD, {
-      env: { SMOKE_FORCE_FAIL: "true" },
-    });
-    expect(result.code).toBe(2);
-    expect(result.calls).toEqual([]);
-    expect(result.apiCalls).toEqual([]);
-  });
-});
-
 describe("usage", () => {
   test.each([
     [["osn_api"]],
@@ -1051,11 +1017,6 @@ describe("usage", () => {
     expect(result.calls).toEqual([]);
     expect(result.apiCalls).toEqual([]);
     expect(result.output).toContain("::error");
-  });
-
-  test("SMOKE_FORCE_FAIL takes true or false only", async () => {
-    const result = await smoke(["osn_api", "dev"], {}, { env: { SMOKE_FORCE_FAIL: "yes" } });
-    expect(result.code).toBe(2);
   });
 });
 

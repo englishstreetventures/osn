@@ -1,7 +1,7 @@
 /**
  * Test helpers for the consent framework.
  *
- * Shipped as a normal module rather than inlined into each spec because three
+ * One shared module rather than inlined into each spec because three
  * separate suites (the gate, the banner, and every gated component) all need to
  * put the store into a known state, and a copy-pasted cookie-poke in each one
  * would quietly drift from the real encoding the moment the record shape
@@ -10,15 +10,15 @@
  * against a record the application would actually have written — not a
  * hand-rolled approximation of one that might no longer parse.
  */
-import type { ConsentCategory } from "./categories";
-import { CONSENT_COOKIE_NAME, PREFIXED_CONSENT_COOKIE_NAME } from "./cookie";
+import type { ConsentCategory } from "../../src/lib/consent/categories";
+import { CONSENT_COOKIE_NAME, PREFIXED_CONSENT_COOKIE_NAME } from "../../src/lib/consent/cookie";
 import {
   type ConsentGrants,
   defaultGrants,
   encodeConsentRecord,
   makeConsentRecord,
-} from "./record";
-import { resetConsentStoreForTest } from "./store";
+} from "../../src/lib/consent/record";
+import { resetConsentStoreForTest } from "../../src/lib/consent/store";
 
 /**
  * Delete the consent cookie — both names, since a browser-tier test running
@@ -37,6 +37,10 @@ export function resetConsentForTest(): void {
  * Simulate a returning guest who already decided: write a real consent cookie
  * and reset the store so the next mount hydrates from it, exactly as a fresh
  * page load would.
+ *
+ * It writes the http name, `cire_consent`. An https origin reads only
+ * `__Host-cire_consent`, so inside `onSecureOriginWithJar` the seed is ignored
+ * and the store stays undecided.
  */
 export function seedConsentForTest(granted: Partial<Record<ConsentCategory, boolean>>): void {
   const grants: ConsentGrants = { ...defaultGrants(), ...granted };

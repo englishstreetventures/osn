@@ -1,0 +1,4 @@
+# Invite and gift pages send X-Robots-Tag: noindex. A crawler only sees that
+# header if it may fetch the page, so nothing here is disallowed.
+User-agent: *
+Allow: /

@@ -14,7 +14,7 @@ related:
   - "[[dev-environment]]"
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-19
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -1359,8 +1359,8 @@ How it decides:
   offers it again, the same content included, until the cause is fixed (§5.0 item 7);
   on dev the dev gate holds the change back from production.
 - A rollback restores code only. The migrations the job applied stay (§4).
-- Dispatching **Deploy** with `smoke_fail` set to a dev Worker forces that Worker's
-  check to fail — the dry run of the rollback path ([[dev-environment]] §2).
+- The rollback path has run on dev. The record, and how to prove it again by hand,
+  are in [[dev-environment]] §2, *Proving the rollback path*.
 
 ### The checks
 

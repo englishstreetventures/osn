@@ -140,34 +140,45 @@ Production is not in this workflow. `production-release.yml` ships it in release
 ([[production-deploy]] §5.5),
 and `deploy-zap-api` lives there only — zap has no dev tier.
 
-### The dry run of the rollback path
+### Proving the rollback path
 
-**Actions → Deploy → Run workflow** with `smoke_fail` set to `cire_api`,
-`cire_invites` or `osn_api` deploys every dev surface as usual, but that Worker's
-check also asks for `/smoke-check-forced-failure`, which every Worker answers 404.
-Its job should roll the Worker back and go red. Run it when no **Deploy** run is in
-progress: `deploy-cire-api-dev` cancels a run in progress, and a push whose cire-api
-deploy is cancelled leaves no successful dev record of its content, so the dev gate
-holds it back until dev deploys it again. The guest site's dry run needs the Access
-token; without it, Access answers and the job fails without a rollback.
+The rollback path has run for real. On 2026-10-16, **Deploy** run 38869446427
+forced osn-api's dev check to fail. Its job `Deploy osn/api — dev` (116870013485)
+rolled `osn-api-dev` back, reported that the restored version answers healthy, and
+left its Deployment record in state `failure`. **Deploy** run 38869743088 then put
+a fresh deploy out.
 
-A dispatch leaves one Deployment record per job for the same commit, so find the
-forced job's record by the job its status links:
+*Measured 2026-10-16 — `gh run view 38869446427 --log --job 116870013485`, and
+`gh api repos/englishstreetventures/osn/deployments/7113807729/statuses`*
 
-```bash
-SHA=<the run's commit>; R=repos/englishstreetventures/osn
-for id in $(gh api "$R/deployments?environment=dev&sha=$SHA" --jq '.[].id'); do
-  gh api "$R/deployments/$id/statuses" \
-    --jq '.[0] | "\(.state) \(.log_url | capture("job/(?<j>[0-9]+)").j)"'
-done | while read -r state job; do
-  echo "$state $(gh api "$R/actions/jobs/$job" --jq .name)"
-done
-```
+To prove it again, deploy a version that answers wrongly and run the check by hand
+(§7), when no **Deploy** run is in progress.
 
-The forced job's line reads `failure Deploy osn/api — dev` (or its surface's name).
-Afterwards, dispatch **Deploy** again with `smoke_fail: none`. Until a deploy goes out,
-the Worker's newest uploaded version is not the one serving, and `wrangler secret
-put` — the `set-osn-api-secret` workflow included — refuses on that Worker.
+1. **Make a token for this run only.** `CLOUDFLARE_API_TOKEN_DEV` exists only on
+   the `dev` Environment, so create a Cloudflare token of your own with the rows of
+   the table under *Where the tokens live* that osn-api's dev deploy uses:
+   `Workers Scripts: Edit`, `D1: Edit`, `Account Settings: Read`, `Zone: Read` and
+   `Workers Routes: Edit`. It needs no Pages or R2 grant. **This token can write
+   production Workers too**: `Workers Scripts: Edit` is account-wide and both tiers
+   share one Cloudflare account (*What the split does not buy*, below). So set its
+   expiry to today, filter it to your own IP address where you can, and delete it
+   once the check has run.
+2. **Deploy a broken build.** On a scratch branch, make `handler.fetch` in
+   [`osn/api/src/index.ts`](../../osn/api/src/index.ts) return
+   `misconfigured("rollback proof")` before anything else, so every route,
+   `/health` included, answers 503. With the token exported as
+   `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` beside it, run
+   `bunx wrangler deploy --env dev` in `osn/api`.
+3. **Run the check.** `bun run scripts/smoke-check.ts osn_api dev` from the
+   repository root. It should roll the Worker back and exit 1.
+
+*Unverified — nobody has run this sequence end to end. With
+`WRANGLER_OUTPUT_FILE_PATH` unset, the check takes the newest deployment to be its
+own (the header of [`scripts/smoke-check.ts`](../../scripts/smoke-check.ts)).*
+
+Afterwards, dispatch **Deploy**. Until a deploy goes out, the Worker's newest
+uploaded version is not the one serving, and `wrangler secret put` — the
+`set-osn-api-secret` workflow included — refuses on that Worker.
 
 ### Two Environments, two tokens
 
@@ -273,9 +284,9 @@ whole point of the swap.
 
 Before adding a workflow that touches Cloudflare, check what scope it resolves
 at rather than trusting this page: `grep -l CLOUDFLARE .github/workflows/*.yml`,
-then read each hit for an `environment:` line. As of 2026-10-16 the other five
+then read each hit for an `environment:` line. As of 2026-10-16 the other four
 (`deploy.yml`, `production-release.yml`, `cire-dev-db-rebuild.yml`,
-`deploy-osn-pulse-landing.yml`, `set-osn-api-secret.yml`) all declare one. A workflow that declares none and
+`set-osn-api-secret.yml`) all declare one. A workflow that declares none and
 needs to write has no credential to read — that is the design. Give it an
 Environment, or a job that can be approved; do not answer it by putting a
 writing token back at repository scope.

@@ -39,6 +39,29 @@ export function hasHouseholdResponded(
 }
 
 /**
+ * True once ANY member of the household invited to this event has an RSVP row
+ * on file for it — the same rows `hasHouseholdResponded` counts (invited, not a
+ * plus-one, any status), but "some" where that one needs "every".
+ *
+ * This decides what an event offers after the RSVP deadline. A household that
+ * answered only in part can no longer finish, but what it did send is still
+ * worth seeing, so its card reads "RSVP given" and opens the read-only sheet.
+ * It never drives the fill or tick: those keep meaning everyone answered.
+ */
+export function hasAnyHouseholdReply(
+  event: Pick<EventSummary, "id">,
+  members: ReadonlyArray<Pick<FamilyMember, "guestId" | "eventIds" | "plusOneOf">>,
+  rsvps: ReadonlyArray<Pick<RsvpSummary, "guestId" | "eventId">>,
+): boolean {
+  return members.some(
+    (m) =>
+      m.eventIds.includes(event.id) &&
+      !isPlusOne(m) &&
+      rsvps.some((r) => r.guestId === m.guestId && r.eventId === event.id),
+  );
+}
+
+/**
  * Timing contract for the Respond button's confirmation, played on
  * `EventCard` once a household's reply for that event is recorded (PR #380
  * shipped this choreography on the RSVP sheet's Save button instead — a

@@ -21,6 +21,7 @@
 "@shared/openapi-tools": patch
 "@shared/osn-auth-client": patch
 "@shared/rate-limit": patch
+"@shared/realtime": patch
 "@shared/redis": patch
 "@shared/rp-auth": patch
 "@shared/sortable": patch

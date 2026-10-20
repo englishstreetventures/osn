@@ -11,7 +11,7 @@ related:
   - "[[drag-and-drop]]"
   - "[[cire-development]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-19
 ---
 
 # Gift registry
@@ -606,7 +606,7 @@ A transport failure that is _not_ the first answer changes nothing at all: a lis
 
 **The predicate is the count, not the claimant.** A gift reads as Reserved when nothing is left *and* this household holds none of it. Not "another household has claimed it": a couple who asked for six of something can have five held elsewhere and a sixth this guest can still take. A household holding its own claim keeps working Change and Release controls whatever the count says, and is never faded.
 
-**"Reserved" is a real `disabled` button, and the fade is only ever the picture.** Opacity alone is not a state indicator, so the word carries the state, and the native `disabled` attribute is what earns the WCAG 1.4.3 exemption for drawing the control dimmed at all. `aria-disabled` is the opposite trade and is right where it is used — `cire/host/src/components/invite/DesignPicker.tsx` and `cire/invites/src/components/EventCard.tsx` both keep a further explanation behind the control that a keyboard user has to be able to reach, and neither may dim as a result. Here the word is the whole message, there is nothing behind it, and a page carries up to 500 of these, so a dead tab stop each is a real cost.
+**"Reserved" is a real `disabled` button, and the fade is only ever the picture.** Opacity alone is not a state indicator, so the word carries the state, and the native `disabled` attribute is what earns the WCAG 1.4.3 exemption for drawing the control dimmed at all. `aria-disabled` is the opposite trade and is right where it is used — `cire/host/src/components/invite/DesignPicker.tsx` keeps a further explanation behind the control that a keyboard user has to be able to reach, and may not dim as a result. Here the word is the whole message, there is nothing behind it, and a page carries up to 500 of these, so a dead tab stop each is a real cost.
 
 The card's **text** is never faded. The palette is derived per wedding (`derivePalette`) and held *to* the WCAG floors rather than comfortably above them, so an opacity over a wedding that lands at 4.51∶1 puts it under — and the conformance harness measures the evergreen fallback, so nothing would catch it. Only the picture dims, which is decorative (`alt=""`) and carries no floor. A gift with no picture therefore shows no fade at all, and the button is its only carrier. That is the accessible reading either way: the state is in the word, never in the opacity.
 

@@ -14,6 +14,7 @@
     "build": "astro build && ../../scripts/guard-bundle-size.sh .",
     "preview": "astro preview",
     "check": "bunx --bun astro check && bunx --bun tsc --noEmit -p tests/tsconfig.json",
+    "favicon": "bun scripts/favicon.ts",
     "test": "vitest run --project unit --project ssr",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
     "test:browser": "vitest run --project browser"

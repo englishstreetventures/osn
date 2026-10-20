@@ -13,6 +13,7 @@
 import { resolve } from "node:path";
 
 import {
+  CIRE_RSVP_DEADLINE,
   CLOCK_T0,
   DB_FILES,
   INTERNAL_SERVICE_SECRET,
@@ -154,6 +155,7 @@ export function appSpecs(): AppSpec[] {
       env: {
         PORT: String(PORTS.cireApi),
         CIRE_LOCAL_DB_PATH: DB_FILES.cire,
+        CIRE_E2E_RSVP_DEADLINE: CIRE_RSVP_DEADLINE,
         WEB_ORIGIN: ORIGINS.cireInvites,
       },
     },

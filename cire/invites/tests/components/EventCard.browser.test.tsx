@@ -55,7 +55,7 @@ const noop = () => {};
 
 function respondButton(container: HTMLElement) {
   return [...container.querySelectorAll("button")].find(
-    (b) => b.textContent === "Respond",
+    (b) => b.textContent === "Respond" || b.textContent === "RSVP given",
   ) as HTMLButtonElement;
 }
 

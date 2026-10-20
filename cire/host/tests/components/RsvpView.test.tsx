@@ -853,6 +853,48 @@ describe("RsvpView", () => {
     expect(within(rowFor("Ada Sharma")).queryByText("Host-updated")).toBeNull();
   });
 
+  it("reads each badge's explanation to a screen reader, not from a hover title", async () => {
+    // Ada's reply came from her household, sent through a linked account; Bo's
+    // a host recorded; Dev's status a host changed since.
+    const [ada, bo, dev] = VIEW.events[0]!.guests;
+    const view = {
+      events: [
+        {
+          ...VIEW.events[0]!,
+          guests: [
+            {
+              ...ada!,
+              consentSource: "inviter_attested" as const,
+              submittedBy: { guestId: "g9", firstName: "Maya", viaLink: true },
+            },
+            bo,
+            { ...dev!, statusRecordedByHost: true },
+          ],
+        },
+      ],
+    };
+    authFetchMock.mockResolvedValueOnce(json(view));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+
+    const cellNamed = (text: string) =>
+      screen.getByRole("cell", { name: (name) => name.includes(text) });
+    expect(
+      cellNamed(
+        "Household-entered Given by the household that brought them, not by the plus-one. A host may have changed the status since; the dietary requirements are the household's.",
+      ),
+    ).toBeTruthy();
+    expect(cellNamed("linked musubi Sent from a signed-in linked musubi account")).toBeTruthy();
+    expect(cellNamed("Host-entered Recorded by a host (phone/paper RSVP)")).toBeTruthy();
+    expect(
+      cellNamed(
+        "Host-updated A host last set this status. The dietary requirements are still the ones the guest or their household gave.",
+      ),
+    ).toBeTruthy();
+    // A title beside the text would hand a screen reader the same words twice.
+    expect(document.querySelector("tbody [title]")).toBeNull();
+  });
+
   it.each([
     ["an answer that is not JSON", () => new Response("ok", { status: 200 })],
     ["a reply for a guest the page does not hold", () => json(saved("gone", "attending", "guest"))],
