@@ -592,10 +592,13 @@ The row's shape — the columns that carry a trust decision are listed in
 > one-click stop links in RSVP digest emails already sent ([[cire-rsvp-changes]]);
 > the Overview switch keeps working.
 
-**Local development** needs its own row in the **local** D1 with a
-`http://localhost:8787/api/auth/oidc/callback` redirect URI, and the secret in
-`cire/api/.dev.vars`. Without them `/api/auth/oidc/*` answers 503 and the portal shows
-"sign-in unavailable" — which is the correct inert state, not a bug.
+**Local development** needs its own row in the **local** OSN database whose redirect URI
+is exactly `<CIRE_API_ORIGIN>/api/auth/oidc/callback` for the devloop in use
+(`http://localhost:8787` under `wrangler dev`, the worktree's portless host under
+`bun run dev:cire`), and the secret where that devloop reads it — `cire/api/.dev.vars`
+or `cire/api/.env`; [[cire-development]] has the details. Without them
+`/api/auth/oidc/*` sends the browser back to `/login?auth_error=sign_in_unavailable` and
+the portal shows "sign-in unavailable" — which is the correct inert state, not a bug.
 
 ---
 
