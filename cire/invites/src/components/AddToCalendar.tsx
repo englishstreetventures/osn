@@ -12,9 +12,9 @@ interface AddToCalendarProps {
 
 /**
  * The trigger: a text action on the date row of the details panel's key facts,
- * like "Open in maps" on the venue row under it. Not a box: the panel's call to
- * action is the RSVP button above, and a second outlined button in the same
- * sheet would compete with it. `touchLink`, because the invite is read on a
+ * like "Open in maps" on the venue row under it. Not a box: the sheet's way
+ * forward is its badge to the RSVP form, and a boxed button in the content
+ * would compete with it. `touchLink`, because the invite is read on a
  * phone, where an underline that waits for hover never shows, and nothing else
  * would mark these words as something to press. `min-h-11` keeps a 44px target
  * round a line of text.

@@ -7,9 +7,9 @@
 The event details sheet leads with its key facts
 
 On the guest invite, the details panel now opens on what a guest came for.
-Under the heading and the RSVP button (unchanged) comes a short list: when,
-where and, for a household not all of whom are invited, who is. One hairline,
-then the occasion: about, dress code and the moodboard.
+Under the heading comes a short list: when, where and, for a household not all
+of whom are invited, who is. One hairline, then the occasion: about, dress code
+and the moodboard.
 
 - **When** names both days for an event that ends on a later day ("Fri 6:00 pm
   – Sun 11:00 am"), spells the timezone out ("AEDT (Sydney time)"), and adds the

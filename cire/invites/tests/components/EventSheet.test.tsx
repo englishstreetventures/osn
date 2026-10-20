@@ -374,6 +374,12 @@ describe("EventSheet", () => {
         />
       ));
 
+      // The sheet tells the details the household has a reply on file, so the
+      // notice gives the next step that fits it (F24).
+      expect(getByRole("status").textContent).toBe(
+        "RSVPs closed on Sunday 1 September 2999. To change your household's reply, please contact the couple directly.",
+      );
+
       fireEvent.click(getByRole("button", { name: "View your RSVP" }));
       expect(getByRole("heading", { name: "Your RSVP, Mehndi" })).toBeTruthy();
 
