@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
 # Guard the size of an Astro app's deployed bundle.
 #
-# Tracker #287: cire/invites' SSR Worker bundle reached 470 KB gzip unnoticed,
-# from two separate mistakes. Three `.motion.ts` modules dragged the whole
-# `motion` library into the SSR module graph though nothing there ever ran it
-# (fixed by stubbing `motion` out of the SSR build only, see
-# cire/invites/astro.config.mjs); and three drift-guard tests sat un-prefixed
-# under `src/pages`, so Astro routed them, deployed them, and pulled 119 KB
-# gzip of vitest along with them (fixed by the `_` prefix Astro's router
-# excludes). This guard measures the same total again on every build and
-# warns the moment it grows past a set point, rather than the growth being
-# found from a tracker issue months later. Going over a budget is a warning
-# (`::warning::`, exit 0), visible in a local build's output and annotated on
-# the CI run; everything else this script refuses (a public source map, a
-# missing or empty measured directory, a symlink, a bad budgets file) still
-# fails.
+# A bundle can grow by a whole library with nobody noticing. cire/invites' SSR
+# Worker bundle once reached 470 KB gzip from two separate mistakes. Three
+# `.motion.ts` modules dragged the whole `motion` library into the SSR module
+# graph though nothing there ever ran it (`motion` is stubbed out of the
+# SSR build only, see cire/invites/astro.config.mjs); and three drift-guard
+# tests sat un-prefixed under `src/pages`, so Astro routed them, deployed them,
+# and pulled 119 KB gzip of vitest along with them
+# (scripts/check-astro-test-routes.ts refuses a routable test file). This
+# guard measures the same total on every build and warns the moment it grows
+# past a set point, so growth shows up in the build that caused it.
 #
-# Tracker #619 generalised it: cire/invites is the only `output: "server"`
-# Astro app in the repo (it emits `dist/server`, a Worker, plus `dist/client`,
+# Going over a budget is a warning (`::warning::`, exit 0): it shows in a local
+# build's output and is annotated on the CI or deploy run, and nothing fails.
+# Everything else this script refuses fails with exit 1: a source map where
+# the app is served publicly, a measured directory that is missing, empty or
+# holds a symlink, `bun` missing in worker mode, and a budgets file that is
+# absent or malformed or has no row for the app.
+#
+# Every Astro app in the repo is guarded. cire/invites is the only
+# `output: "server"` app (it emits `dist/server`, a Worker, plus `dist/client`,
 # its Static Assets). `cire/host`, `cire/landing`, `cire/vendor`, `musubi/landing`
 # and `pulse/landing` are all `output: "static"` — no Worker, no `dist/server`,
 # no `dist/client` split; they deploy `dist` wholesale to Cloudflare Pages. The
@@ -321,9 +324,9 @@ run_guard() {
       # allowlist cannot see bytes that never reach that directory. Measured
       # on musubi/landing: 5 inline style blocks + 4 inline script blocks in
       # `dist/index.html` alone, ~3116 bytes gzip-equivalent — real budget
-      # this guard is blind to. Tracker #636 holds the two ways to
-      # close it (parse the HTML too, or force `inlineStylesheets: "never"`);
-      # this script deliberately does neither on its own.
+      # this guard is blind to. There are two ways to close it (parse the HTML
+      # too, or force `inlineStylesheets: "never"`), and choosing one is a
+      # product decision this script does not make.
       while IFS= read -r -d '' f; do
         size=$(gzip -nc "$f" | wc -c)
         total=$((total + size))
@@ -363,7 +366,7 @@ run_guard() {
     # it is nowhere near Cloudflare Pages' limits — it watches the
     # trajectory, it is not a check against a hard cap.
     if [ "$total" -gt "$threshold" ]; then
-      echo "::warning::${label} ${measure_dir} gzip total ${total} bytes exceeds the ${threshold} byte guard (tracker #287, #619). Something may be pulling a new dependency into the bundle that does not need to ship — check what is newly reachable from an import that runs in this build, the way motion was for cire/invites — or re-baseline scripts/bundle-size-budgets.txt if the growth is intended."
+      echo "::warning::${label} ${measure_dir} gzip total ${total} bytes exceeds the ${threshold} byte guard. Something may be pulling a new dependency into the bundle that does not need to ship — check what is newly reachable from an import that runs in this build, the way motion was for cire/invites — or re-baseline scripts/bundle-size-budgets.txt if the growth is intended."
     fi
   )
 }
