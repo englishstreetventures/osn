@@ -10,6 +10,25 @@
 import { invitedMembers } from "./plus-one";
 import type { EventSummary, FamilyMember } from "./types";
 
+/**
+ * One `Intl.DateTimeFormat` per locale and set of options, the zone included.
+ * Building a formatter costs far more than calling one, and a sheet's lines ask
+ * for the same few again and again. The map is bounded: a zone that does not
+ * exist throws before anything is stored, so its keys come from the IANA zones
+ * times the handful of option sets in this file.
+ */
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+function formatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `${locale} ${JSON.stringify(options)}`;
+  let cached = formatters.get(key);
+  if (!cached) {
+    cached = new Intl.DateTimeFormat(locale, options);
+    formatters.set(key, cached);
+  }
+  return cached;
+}
+
 /** Resolve the canonical venue string from the free-form `address`, or null when unset. */
 export function venueLine(event: Pick<EventSummary, "address">): string | null {
   const address = event.address?.trim();
@@ -24,7 +43,7 @@ export function venueLine(event: Pick<EventSummary, "address">): string | null {
 export function formatEventDay(event: Pick<EventSummary, "startAt" | "timezone">): string {
   const date = new Date(event.startAt);
   if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("en-AU", {
+  return formatter("en-AU", {
     timeZone: event.timezone,
     weekday: "long",
     day: "numeric",
@@ -42,7 +61,7 @@ function instant(iso: string): Date | null {
 
 /** A wall-clock time in `timeZone`, e.g. "4:00 pm". */
 function clock(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-AU", {
+  return formatter("en-AU", {
     timeZone,
     hour: "numeric",
     minute: "2-digit",
@@ -52,7 +71,7 @@ function clock(date: Date, timeZone: string): string {
 
 /** The calendar day of an instant in `timeZone`, as a sortable `YYYY-MM-DD`. */
 function dayKey(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-CA", {
+  return formatter("en-CA", {
     timeZone,
     year: "numeric",
     month: "2-digit",
@@ -72,13 +91,13 @@ function dayLabel(date: Date, timeZone: string, withDate: boolean): string {
     options.day = "numeric";
     options.month = "short";
   }
-  return new Intl.DateTimeFormat("en-AU", options).format(date);
+  return formatter("en-AU", options).format(date);
 }
 
 /** The short name of `timeZone` at `date`, e.g. "AEDT" or "GMT+5:30". */
 function zoneLabel(date: Date, timeZone: string): string {
   return (
-    new Intl.DateTimeFormat("en-AU", { timeZone, timeZoneName: "short" })
+    formatter("en-AU", { timeZone, timeZoneName: "short" })
       .formatToParts(date)
       .find((p) => p.type === "timeZoneName")?.value ?? ""
   );

@@ -1,5 +1,14 @@
 import Button from "@cire/ui/button";
-import { createEffect, createSignal, createUniqueId, For, onMount, Show, type JSX } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  createUniqueId,
+  For,
+  onMount,
+  Show,
+  type JSX,
+} from "solid-js";
 
 import { AddToCalendar } from "./AddToCalendar";
 import { isValidColor, truncateSwatchName } from "./dress-code-render";
@@ -151,9 +160,10 @@ function PeopleGlyph() {
  * and its date, with no empty label and no hairline over nothing.
  */
 export function DetailsPanel(props: DetailsPanelProps) {
-  const day = () => formatEventDay(props.event);
-  const timeRange = () => formatTimeRange(props.event);
-  const zone = () => timezoneName(props.event);
+  // Memos: each is read by its `Show` and again inside it.
+  const day = createMemo(() => formatEventDay(props.event));
+  const timeRange = createMemo(() => formatTimeRange(props.event));
+  const zone = createMemo(() => timezoneName(props.event));
   const titleId = props.titleId ?? createUniqueId();
   const rsvpOffered = () =>
     props.onRsvp !== undefined && (props.rsvpClosed !== true || props.replied === true);
@@ -173,10 +183,10 @@ export function DetailsPanel(props: DetailsPanelProps) {
   // render matches a server render whatever zone the server ran in.
   const [guestZone, setGuestZone] = createSignal<string | null>(null);
   onMount(() => setGuestZone(browserTimeZone()));
-  const localTime = () => {
+  const localTime = createMemo(() => {
     const theirs = guestZone();
     return theirs ? guestLocalTime(props.event, theirs) : null;
-  };
+  });
 
   // Past the deadline: when replies shut, and the one way still open to the
   // household — the couple, directly — as the RSVP form's own notice puts it.
