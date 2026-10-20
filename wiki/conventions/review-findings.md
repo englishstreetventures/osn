@@ -5,7 +5,7 @@ tags: [convention, review]
 related:
   - "[[contributing]]"
   - "[[stacked-prs]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-20
 ---
 
 # Review Finding IDs
@@ -30,8 +30,8 @@ All review skills (`/review-security`, `/review-performance`, `/review-tests`) t
 | `T-S` | review-tests | Suggestion |
 | `C-C` | review-security (compliance section) | Critical compliance — blocks deploy / triggers regulatory exposure |
 | `C-H` | review-security (compliance section) | High compliance — fix before next release |
-| `C-M` | review-security (compliance section) | Medium compliance — schedule into next sprint |
-| `C-L` | review-security (compliance section) | Low compliance — opportunistic fix or hardening |
+| `C-M` | review-security (compliance section) | Medium compliance — fix on this branch or a follow-up PR |
+| `C-L` | review-security (compliance section) | Low compliance — fix on this branch or a follow-up PR |
 
 ## Numbering
 
@@ -54,36 +54,71 @@ Each finding uses a four-field format:
 | **Solution** | Concrete fix or mitigation |
 | **Rationale** | Why this solution is the right approach |
 
-## Critical and high findings are not deferrable
+## Fix findings; do not file them
 
-> [!important] A `critical` or `high` finding is fixed on the branch that found
-> it, or in a pull request opened immediately after and linked before that
-> branch merges. Filing it and moving on is not one of the options.
+> [!important] A session fixes what its reviews find. Every finding, test gap,
+> stale page or bug found on the way goes down the ladder below, and an issue
+> left open for later is the last rung, reached only through a named exception.
 
-Everything below this line is about how a finding is *recorded*. This rule is
-about whether it is allowed to stay open, and it comes first because the
-recording convention exists to serve it rather than to substitute for it.
+An open issue is work handed to a future session that knows less than this one
+does. A branch that closes one issue and leaves five behind has made the
+backlog longer, so the measure of a session is what it **leaves open**, not
+what it files. An issue the session files and its own pull request closes adds
+nothing to that count; one filed and left open is a debt.
+
+### The ladder
+
+Take the first rung that fits:
+
+1. **Fix it on this branch.** The default, at every severity. Anything in code
+   the branch touches, in a package it already changes, or a fix a reviewer
+   could read in one sitting belongs here.
+2. **Fix it in a follow-up pull request, in this session.** When the fix would
+   blur the branch — another package, an unrelated domain, a change that
+   deserves its own review — cut a second branch (stacked on this one when it
+   needs this one's code, from `main` otherwise, see [[stacked-prs]]), fix it
+   there, and open that pull request before the session ends. Its issue, when
+   it needs one, is closed by that pull request's merge.
+3. **Leave an issue open**, only when one of these holds and the report names
+   which:
+   - **It needs the owner.** Two defensible designs, money, or a change to a
+     public contract: write the proposal and add `needs:decision` (see
+     [[#When the fix needs a decision from the owner]]).
+   - **It needs what the session cannot have.** Production access, a secret,
+     a third party, a deploy.
+   - **It is a project of its own.** `rate-complexity` would rate it 5 or 8:
+     several packages, or a shape nobody knows yet.
+
+Not on that list, and so never a reason to file and move on: "out of scope for
+this branch", "pre-existing", "low severity", "would make the diff bigger", or
+the review running late. A session that runs out of budget says which rungs it
+did not reach, to the person, rather than filing them silently.
+
+Some findings are not issues at all. An `info` finding, a `T-S` suggestion, a
+nit or an observation is fixed on this branch or recorded in the report, never
+filed.
+
+**More than two left open by one pull request means the ladder was skipped.**
+Before filing a third, put the list to the owner; with no owner to ask, take
+the remainder to rung 2.
+
+### Critical and high
+
+A `critical` or `high` finding gets only the first two rungs: fixed on the
+branch that found it, or in a pull request opened immediately after and linked
+before that branch merges. Neither exception in rung 3 applies; one that truly
+needs the owner is put to them before the branch merges.
 
 The reasoning is the same one that makes the tracker private. A filed-and-open
 `critical` or `high` is a live, unpatched defect whose location is now written
-down; the issue is an attack map with a timer on it, and every day it stays
-open is a day that map exists for a defect nobody is fixing. A finding fixed in
-the same breath as it is found never becomes that.
+down; the issue is an attack map with a timer on it. A finding fixed in the
+same breath as it is found never becomes that.
 
-`medium` and below may be filed and scheduled. `info` records an observation
-and asks for no fix at all.
-
-Two consequences worth stating, because they are the ones people work around:
-
-- **"Out of scope for this branch" is not a deferral.** If the finding is real
-  and it is `high`, the follow-up pull request is opened now, not added to a
-  backlog. A tracked follow-up that exists as a link in the PR body satisfies
-  this; one that exists as an intention does not.
-- **Downgrading severity to avoid the rule is the failure mode.** Severity
-  comes from the tier letter in the finding ID, which the review assigns
-  before anyone knows what fixing it would cost. Re-rating it afterwards to
-  make it deferrable is the same contamination as re-rating an issue's
-  complexity once its token cost is on screen.
+**Downgrading severity to avoid the rule is the failure mode.** Severity comes
+from the tier letter in the finding ID, which the review assigns before anyone
+knows what fixing it would cost. Re-rating it afterwards to make it deferrable
+is the same contamination as re-rating an issue's complexity once its token
+cost is on screen.
 
 ## Filing a finding
 
@@ -127,7 +162,7 @@ Rules:
 - File new findings from PR reviews immediately, in `/prep-pr` Step 7.
 - Several findings from one piece of work go on **stacked PRs**, one fix per PR, base of each set to the one below it -- see [[stacked-prs]].
 
-`T-*` test findings are not filed. They are coverage gaps, not defects -- `/prep-pr` Step 4 raises them and they get closed in the branch or waved through.
+`T-*` test findings are not filed. They are coverage gaps, not defects -- `/prep-pr` Step 4 raises them and the branch writes the missing tests before it opens. A `T-S` suggestion the branch declines is a line in the report, not an issue.
 
 ## When the fix needs a decision from the owner
 

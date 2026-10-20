@@ -129,6 +129,10 @@ Part of #9001
 
 - #9102 — Cire: show organisers when a resent invite was opened
 - englishstreetventures/osn-tracker#<n>
+
+**Follow-up pull requests**
+
+- #9104 — Cire: index invites by household before the resend lookup
 ```
 
 1. **The branch closes every issue it fixes**: the issue `new-feat` took or opened, any other public issue the work finished, every tracker issue for a finding it fixed. Every branch traces to an issue, so a body with neither a `Closes` nor a `Part of` line has lost one: find it, or open it with `write-issue`. Only when you can do neither — no network, nothing to search — write one line under `## Issues` saying the branch closes no issue and why, and name in your report the issue you would open.
@@ -136,7 +140,7 @@ Part of #9001
 3. **A tracker issue is `Closes englishstreetventures/osn-tracker#N`**, after the public lines, and nothing more. No finding ID, no title, no word about the defect — not here, not in the title or any other section, not in the branch name or a commit message. `englishstreetventures/osn` is public and the tracker is not. The line closes the issue on merge, because the owner can see both repositories; a reader who cannot sees a reference that goes nowhere.
 4. **An issue the branch only partly fixes is `Part of #N`**, never `Closes`.
 5. **A closing keyword closes wherever it sits.** `close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves` or `resolved` directly before an issue reference closes that issue on merge, in prose as much as in the closing block: "this fixes #9001 in part" closes #9001. Reword it, or write `Part of`.
-6. **Raised against this branch** lists every issue raised by its own review or split out of its work, whoever filed it and whenever: a follow-up, a deferral, a finding. A public one by number and title; a tracker one by its bare reference. An issue found while auditing another package goes in one line under **Out of scope**, not here.
+6. **Raised against this branch** lists every issue raised by its own review or split out of its work, whoever filed it and whenever: a follow-up, a deferral, a finding. A public one by number and title; a tracker one by its bare reference. An issue found while auditing another package goes in one line under **Out of scope**, not here. Most of what a review finds is fixed rather than raised (`prep-pr` Step 6), so this list is short; `None` is the usual answer. **Follow-up pull requests**, after it, lists each pull request this session opened to fix what the branch's review found outside it, by number and title, after **Raised against this branch**. Leave the lead-in out when there are none.
 7. **Never open a public issue to stand in for a tracker one**, whatever the body would otherwise lack. When the tracker lines are refused (Step 6) and no public issue closes, `## Issues` reads `Tracked privately.`
 
 ### Decisions

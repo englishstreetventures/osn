@@ -263,7 +263,7 @@ step name.
 | What you find | Whose it is | What to do |
 |---|---|---|
 | The same test or error line failed in a recent run on `main` | main's | Find its issue, or open one with `write-issue`. Do not fix it on this branch. The test-plan row names main's run. Whether to merge over it is the owner's decision; never `gh pr merge --admin` |
-| It passes on `main` and the branch changes nothing in that package | probably a flake | `gh run rerun <run-id> --failed`, once. Green: say so, and open an issue for the flake if none exists. Red again: treat it as the branch's |
+| It passes on `main` and the branch changes nothing in that package | probably a flake | `gh run rerun <run-id> --failed`, once. Green: say so, and make the test robust in a follow-up pull request (`prep-pr` Step 6); an issue only when the cause needs more than this session has. Red again: treat it as the branch's |
 | The branch changes that package, or the test fails here and passes on `origin/main` | the branch's | Step 6 fixes it |
 
 Run the failing test in this worktree as well. Passing here while failing in CI
@@ -291,10 +291,11 @@ is a finding too, fixed when Step 7 rewrites the body.
 ## Step 6 — Fix every finding on this branch
 
 Fix the pull request's findings here, on the rule `orchestrate` Step 4 sets:
-Critical, High and Medium at minimum, Low and Info when cheap, and Critical and
-High never deferred (`prep-pr` Step 6). Missing tests from `review-tests` get
-written. A finding about code this pull request does not touch gets an issue
-(`prep-pr` Step 7), not a fix here.
+every severity, Info fixed or noted in the report, and Critical and High never
+deferred (`prep-pr` Step 6). Missing tests from `review-tests` get
+written. A finding about code this pull request does not touch is fixed in a follow-up
+pull request this session opens, not filed for later — the ladder in `prep-pr`
+Step 6; an issue is left open only under one of its named exceptions.
 
 One code-writing agent in this worktree at a time. Commit each fix, re-run the
 gates it touched, and note the commit each gate ran on.

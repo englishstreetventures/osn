@@ -14,6 +14,20 @@ Two things this skill does not own, and links to instead:
 - **A review finding** (`S-`, `P-`, `C-`): its four fields (Issue / Why / Solution / Rationale), its labels and its severity are in `wiki/conventions/review-findings.md` §Filing a finding. A worked example is `.claude/skills/prep-pr/references/issue-filing-example.md`. The writing rules below still apply to what goes in each field.
 - **The label and type scheme**: `wiki/conventions/github-issues-setup.md` §3 and §4.
 
+## Step 0 — Whether it should be an issue at all
+
+A follow-up, a deferral or a finding is fixed, not filed, wherever the session
+can fix it: on the branch, or in a follow-up pull request the same session
+opens. An issue left open is the last rung of the ladder in
+`wiki/conventions/review-findings.md` §Fix findings; do not file them, and it
+needs one of that ladder's named exceptions — the owner's decision, access the
+session cannot have, or a project of its own. Name the exception in the body's
+**Notes**; with none to name, go and fix it instead. An issue filed so a pull
+request this session opens can close it needs no exception.
+
+Planned work someone asked for, and the issue `new-feat` opens for a branch,
+are not deferrals; this step does not apply to them.
+
 ## Step 1 — Where it goes, and whether it exists
 
 | The issue is | Repository |
