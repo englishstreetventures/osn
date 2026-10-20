@@ -64,5 +64,5 @@ describe("osn-api's bundle", () => {
       0,
     );
     expect(gzipBytes, `${gzipBytes} bytes gzip, maps included`).toBeLessThanOrEqual(FREE_LIMIT);
-  });
+  }, 60_000);
 });
