@@ -1114,6 +1114,30 @@ describe("HostsPanel", () => {
       expect(scopeSelect("@bob").value).toBe("full");
     });
 
+    it("lands a role change whose answer has no body, or names no seat, at their own tasks", async () => {
+      const viewer = (handle: string, createdAt: number) => ({
+        hostId: `whost_${handle}`,
+        osnProfileId: `usr_${handle}`,
+        handle,
+        role: "viewer",
+        createdAt,
+      });
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [viewer("bob", 1), viewer("cy", 2)] }));
+      authFetchMock.mockResolvedValueOnce(new Response(null, { status: 200 }));
+      authFetchMock.mockResolvedValueOnce(json({}));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      fireEvent.change(roleSelect("@bob"), { target: { value: "helper" } });
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(1));
+      fireEvent.change(roleSelect("@cy"), { target: { value: "helper" } });
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(2));
+
+      expect(toastError).not.toHaveBeenCalled();
+      expect(scopeSelect("@bob").value).toBe("own");
+      expect(scopeSelect("@cy").value).toBe("own");
+    });
+
     it("brings a helper opened to the whole run sheet back at their own tasks after a role change", async () => {
       // The API resets the scope on every role change but helper to helper.
       authFetchMock.mockResolvedValueOnce(
