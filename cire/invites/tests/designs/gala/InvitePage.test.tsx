@@ -114,13 +114,16 @@ const claimBothEvents: ClaimResult = {
   members: [{ ...claim.members[0]!, eventIds: ["event-1", "event-2"] }],
 };
 
-/** The real (unmocked) EventCard's Respond button for a given event's card. */
+/**
+ * The real (unmocked) EventCard's answer button for a given event's card —
+ * "Respond", or "RSVP given" once the household's reply is on file.
+ */
 function respondButtonFor(container: HTMLElement, eventName: string) {
   const card = [...container.querySelectorAll("[data-event-card]")].find((el) =>
     el.textContent?.includes(eventName),
   ) as HTMLElement;
   return [...card.querySelectorAll("button")].find(
-    (b) => b.textContent === "Respond" || b.textContent === "RSVPs closed",
+    (b) => b.textContent === "Respond" || b.textContent === "RSVP given",
   ) as HTMLButtonElement;
 }
 
@@ -217,12 +220,13 @@ describe("gala InvitePage", () => {
     // column is wide enough that this row never wraps, so DOM order is the
     // whole of its story; the painted result is measured against classic's
     // narrower column in `tests/components/EventCard.actions.browser.test.tsx`.
-    for (const card of cards) {
-      expect([...card.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
-        "Event Details",
-        "Respond",
-      ]);
-    }
+    // `claim` has Mehndi answered, so its answer button reads "RSVP given".
+    expect(
+      [...cards].map((card) => [...card.querySelectorAll("button")].map((b) => b.textContent)),
+    ).toEqual([
+      ["Event Details", "RSVP given"],
+      ["Event Details", "Respond"],
+    ]);
 
     // Drain handleClaimed's own async reveal (dynamic import + mocked
     // unlockRevealSequence call) before the next test runs — otherwise it can
@@ -326,7 +330,7 @@ describe("gala InvitePage", () => {
       ),
     );
 
-    const { getAllByRole, getByText, getByPlaceholderText, queryByText } = render(() => (
+    const { getByText, getByPlaceholderText, queryByText } = render(() => (
       <InvitePage apiUrl="https://api.test" />
     ));
 
@@ -334,10 +338,10 @@ describe("gala InvitePage", () => {
     fireEvent.click(getByText("Open Invitation"));
     await waitFor(() => expect(getByText("Dear Priya")).toBeTruthy(), { timeout: 2000 });
 
-    await waitFor(() => expect(getAllByRole("button", { name: /Respond/i })[0]).toBeTruthy(), {
+    await waitFor(() => expect(respondButtonFor(document.body, "Mehndi")).toBeTruthy(), {
       timeout: 2000,
     });
-    fireEvent.click(getAllByRole("button", { name: /Respond/i })[0]!);
+    fireEvent.click(respondButtonFor(document.body, "Mehndi"));
     await waitFor(() => expect(capturedProps.value).not.toBeNull());
     // The page writes the saved reply back into its claim result.
     (capturedProps.value!.onSubmitted as (r: RsvpSummary[]) => void)(claim.rsvps);
@@ -532,10 +536,10 @@ describe("gala InvitePage", () => {
 
     // Two events are present (per fixture) — the first is enough to exercise
     // the theme-threading wiring shared by every card.
-    await waitFor(() => expect(getAllByRole("button", { name: /Respond/i })[0]).toBeTruthy(), {
+    await waitFor(() => expect(respondButtonFor(document.body, "Mehndi")).toBeTruthy(), {
       timeout: 2000,
     });
-    fireEvent.click(getAllByRole("button", { name: /Respond/i })[0]!);
+    fireEvent.click(respondButtonFor(document.body, "Mehndi"));
     await waitFor(() => expect(getByTestId("rsvp-sheet-stub")).toBeTruthy());
     const rsvpVars = capturedProps.value?.themeVars as Record<string, string>;
     expect(rsvpVars["--invite-section-bg"]).toBe("var(--color-surface-raised)");
@@ -600,7 +604,7 @@ describe("gala InvitePage", () => {
       ),
     );
 
-    const { getByText, getByPlaceholderText, getAllByRole } = render(() => (
+    const { getByText, getByPlaceholderText } = render(() => (
       <InvitePage apiUrl="https://api.test" />
     ));
 
@@ -610,10 +614,10 @@ describe("gala InvitePage", () => {
     fireEvent.click(getByText("Open Invitation"));
 
     // Two events are present (per fixture) — respond to the first.
-    await waitFor(() => expect(getAllByRole("button", { name: /Respond/i })[0]).toBeTruthy(), {
+    await waitFor(() => expect(respondButtonFor(document.body, "Mehndi")).toBeTruthy(), {
       timeout: 2000,
     });
-    fireEvent.click(getAllByRole("button", { name: /Respond/i })[0]!);
+    fireEvent.click(respondButtonFor(document.body, "Mehndi"));
 
     await waitFor(() => expect(capturedProps.value).not.toBeNull());
 
@@ -637,8 +641,8 @@ describe("gala InvitePage", () => {
 
     (props.onClose as () => void)();
     capturedProps.value = null;
-    await waitFor(() => expect(getAllByRole("button", { name: /Respond/i })[0]).toBeTruthy());
-    fireEvent.click(getAllByRole("button", { name: /Respond/i })[0]!);
+    await waitFor(() => expect(respondButtonFor(document.body, "Mehndi")).toBeTruthy());
+    fireEvent.click(respondButtonFor(document.body, "Mehndi"));
 
     await waitFor(() => expect(capturedProps.value).not.toBeNull());
     expect(capturedProps.value!.existingRsvps).toEqual(updated);
@@ -790,7 +794,7 @@ describe("gala InvitePage", () => {
     });
     vi.stubGlobal("fetch", noSession(fetchMock as typeof fetch));
 
-    const { getByText, getAllByRole, getByPlaceholderText, findByLabelText } = render(() => (
+    const { getByText, getByPlaceholderText, findByLabelText } = render(() => (
       <InvitePage apiUrl="https://api.test" />
     ));
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
@@ -803,7 +807,7 @@ describe("gala InvitePage", () => {
     fireEvent.click(getByText("Add guest"));
     await waitFor(() => expect(getByText("Sam Park")).toBeTruthy());
 
-    fireEvent.click(getAllByRole("button", { name: /Respond/i })[0]!);
+    fireEvent.click(respondButtonFor(document.body, "Mehndi"));
     await waitFor(() => expect(capturedProps.value).not.toBeNull());
     const members = capturedProps.value!.members as ClaimResult["members"];
     expect(members.map((m) => m.guestId)).toEqual(["guest-1", "guest-sam"]);
@@ -1109,13 +1113,13 @@ describe("gala InvitePage", () => {
     // the same reference; the list must keep its rows, so an answer the guest
     // has open stays open.
     it("keeps an open answer open across an RSVP save", async () => {
-      const { container, getAllByRole } = await claimWith({ faq: FAQ });
+      const { container } = await claimWith({ faq: FAQ });
       await waitFor(() => expect(faqSection(container)).toBeTruthy());
       const details = faqSection(container)!.querySelector("details")!;
       details.open = true;
 
-      await waitFor(() => expect(getAllByRole("button", { name: /Respond/i })[0]).toBeTruthy());
-      fireEvent.click(getAllByRole("button", { name: /Respond/i })[0]!);
+      await waitFor(() => expect(respondButtonFor(document.body, "Mehndi")).toBeTruthy());
+      fireEvent.click(respondButtonFor(document.body, "Mehndi"));
       await waitFor(() => expect(capturedProps.value).not.toBeNull());
       (capturedProps.value!.onSubmitted as (r: RsvpSummary[]) => void)([
         {
@@ -1170,12 +1174,15 @@ describe("gala InvitePage", () => {
   });
 
   describe("RSVP deadline", () => {
-    async function claimWithDeadline(rsvpDeadline: ClaimResult["rsvpDeadline"]) {
+    async function claimWithDeadline(
+      rsvpDeadline: ClaimResult["rsvpDeadline"],
+      extra: Partial<ClaimResult> = {},
+    ) {
       vi.stubGlobal(
         "fetch",
         noSession(
           vi.fn().mockResolvedValue(
-            new Response(JSON.stringify({ ...claim, preview: true, rsvpDeadline }), {
+            new Response(JSON.stringify({ ...claim, preview: true, rsvpDeadline, ...extra }), {
               status: 200,
               headers: { "Content-Type": "application/json" },
             }),
@@ -1215,8 +1222,22 @@ describe("gala InvitePage", () => {
       );
     }
 
+    /** The "RSVPs closed" badges beside the event names. */
+    function closedBadges() {
+      return [...document.querySelectorAll("[data-event-card] span")].filter(
+        (s) => s.textContent === "RSVPs closed",
+      );
+    }
+
+    /** Each card's buttons, by label, in card order. */
+    function cardButtons(container: HTMLElement) {
+      return [...container.querySelectorAll("[data-event-card]")].map((card) =>
+        [...card.querySelectorAll("button")].map((b) => b.textContent),
+      );
+    }
+
     it("invites a reply by the date while the deadline is ahead", async () => {
-      const { getAllByRole } = await claimWithDeadline({
+      const { container } = await claimWithDeadline({
         date: "2999-09-01",
         timezone: "Australia/Sydney",
         closesAt: "2999-09-01T13:59:59.999Z",
@@ -1226,8 +1247,12 @@ describe("gala InvitePage", () => {
       expect(document.getElementById("rsvp-deadline-notice")?.textContent).toBe(
         "Kindly respond by Sunday 1 September 2999.",
       );
-      const responds = getAllByRole("button", { name: "Respond" }) as HTMLButtonElement[];
-      expect(responds.every((b) => !b.disabled)).toBe(true);
+      // `claim` has Mehndi answered and Reception not.
+      expect(respondButtonFor(container, "Mehndi").textContent).toBe("RSVP given");
+      expect(respondButtonFor(container, "Reception").textContent).toBe("Respond");
+      expect(respondButtonFor(container, "Mehndi").disabled).toBe(false);
+      expect(respondButtonFor(container, "Reception").disabled).toBe(false);
+      expect(closedBadges()).toEqual([]);
     });
 
     it("states the date in the claim panel too, where the guest lands", async () => {
@@ -1284,6 +1309,7 @@ describe("gala InvitePage", () => {
 
       // Only the answer is near, not gone.
       expect(document.querySelector("[aria-disabled='true']")).toBeNull();
+      expect(closedBadges()).toEqual([]);
     });
 
     it("sits below the header rule, directly on top of the event cards", async () => {
@@ -1328,24 +1354,26 @@ describe("gala InvitePage", () => {
       expect(classes.filter((c) => c.startsWith("bg-"))).toEqual([]);
     });
 
-    it("locks every card and states the date once the deadline has passed", async () => {
-      const { getAllByRole } = await claimWithDeadline({
+    it("keeps the answered event viewable, drops the unanswered one's button, and states the date once the deadline has passed", async () => {
+      const { container } = await claimWithDeadline({
         date: "2020-09-01",
         timezone: "Australia/Sydney",
         closesAt: "2020-09-01T13:59:59.999Z",
         closed: true,
       });
 
-      const closed = getAllByRole("button", { name: "RSVPs closed" }) as HTMLButtonElement[];
-      expect(closed.length).toBeGreaterThan(0);
-      // `aria-disabled`, not the native attribute — see EventCard for the same pattern.
-      expect(closed.every((b) => b.getAttribute("aria-disabled") === "true")).toBe(true);
-      // Each closed button points at the section notice — the copy that states
-      // the date AND the one that has to survive into the closed state for the
-      // reference to resolve at all.
-      expect(
-        closed.every((b) => b.getAttribute("aria-describedby") === "rsvp-deadline-notice"),
-      ).toBe(true);
+      // `claim` has Mehndi answered and nobody invited to Reception has.
+      expect(cardButtons(container)).toEqual([["Event Details", "RSVP given"], ["Event Details"]]);
+      expect(closedBadges().length).toBe(2);
+      const given = respondButtonFor(container, "Mehndi");
+      expect(given.hasAttribute("aria-disabled")).toBe(false);
+      // It points at the section notice — the copy that states the date AND
+      // the one that has to survive into the closed state for the reference to
+      // resolve at all.
+      expect(given.getAttribute("aria-describedby")).toBe("rsvp-deadline-notice");
+      fireEvent.click(given);
+      await waitFor(() => expect(capturedProps.value?.panel).toBe("rsvp"));
+      expect(capturedProps.value!.closed).toBe(true);
       const notice = document.getElementById("rsvp-deadline-notice")!;
       expect(notice.textContent).toBe("RSVPs closed on Tuesday 1 September 2020.");
       // The ink recedes and the box turns neutral — a different shape from the
@@ -1360,33 +1388,38 @@ describe("gala InvitePage", () => {
       );
     });
 
-    it("renders no notice and no lock when the wedding has no deadline", async () => {
-      const { queryByText, getAllByRole } = await claimWithDeadline(null);
+    it("renders no notice, no badge and no lock when the wedding has no deadline", async () => {
+      const { queryByText, container } = await claimWithDeadline(null);
 
       expect(queryByText(/Kindly respond by/)).toBeNull();
       expect(queryByText(/RSVPs closed/)).toBeNull();
-      const responds = getAllByRole("button", { name: "Respond" }) as HTMLButtonElement[];
-      expect(responds.every((b) => !b.disabled)).toBe(true);
+      expect(closedBadges()).toEqual([]);
+      expect(cardButtons(container)).toEqual([
+        ["Event Details", "RSVP given"],
+        ["Event Details", "Respond"],
+      ]);
+      expect(respondButtonFor(container, "Mehndi").disabled).toBe(false);
+      expect(respondButtonFor(container, "Reception").disabled).toBe(false);
     });
 
     it("threads the closed state and the deadline day into the RSVP sheet", async () => {
-      const { getAllByRole } = await claimWithDeadline({
+      const { container } = await claimWithDeadline({
         date: "2999-09-01",
         timezone: "Australia/Sydney",
         closesAt: "2999-09-01T13:59:59.999Z",
         closed: false,
       });
 
-      fireEvent.click(getAllByRole("button", { name: "Respond" })[0]!);
+      fireEvent.click(respondButtonFor(container, "Mehndi"));
       await waitFor(() => expect(capturedProps.value).not.toBeNull());
       expect(capturedProps.value!.closed).toBe(false);
       expect(capturedProps.value!.closedOn).toBe("Sunday 1 September 2999");
     });
 
     it("opens the sheet on the details after the deadline, told that RSVPs have closed", async () => {
-      // Past the deadline Respond is locked and Event Details is the one way
-      // into the sheet. The details then offer no way into the form — which
-      // they can only do if the page tells the sheet the replies have closed.
+      // The details offer the way into the form only to a household with a
+      // reply on file — which they can only do if the page tells the sheet the
+      // replies have closed, and whether this household replied.
       const { container } = await claimWithDeadline({
         date: "2020-09-01",
         timezone: "Australia/Sydney",
@@ -1397,7 +1430,50 @@ describe("gala InvitePage", () => {
       fireEvent.click(detailsButtonFor(container, "Mehndi"));
       await waitFor(() => expect(capturedProps.value?.panel).toBe("details"));
       expect(capturedProps.value!.closed).toBe(true);
+      expect(capturedProps.value!.replied).toBe(true);
       expect(capturedProps.value!.closedOn).toBe("Tuesday 1 September 2020");
+
+      // Reception has no reply on file, so its details say so.
+      capturedProps.value = null;
+      fireEvent.click(detailsButtonFor(container, "Reception"));
+      await waitFor(() => expect(capturedProps.value?.panel).toBe("details"));
+      expect(capturedProps.value!.replied).toBe(false);
+    });
+
+    it("keeps a part-answered event viewable after the deadline, unmarked", async () => {
+      // Two members invited to Mehndi, one reply on file: "someone replied"
+      // and "everyone replied" disagree, which is the case that tells the
+      // any-reply wiring from the all-replies one.
+      const { container } = await claimWithDeadline(
+        {
+          date: "2020-09-01",
+          timezone: "Australia/Sydney",
+          closesAt: "2020-09-01T13:59:59.999Z",
+          closed: true,
+        },
+        {
+          members: [
+            claim.members[0]!,
+            {
+              guestId: "guest-2",
+              firstName: "Raj",
+              lastName: "Sharma",
+              nickname: null,
+              eventIds: ["event-1"],
+            },
+          ],
+        },
+      );
+
+      const given = respondButtonFor(container, "Mehndi");
+      expect(given.textContent).toBe("RSVP given");
+      // The fill and tick mean everyone answered; Raj has not.
+      expect(given.hasAttribute("data-rsvp-confirmed")).toBe(false);
+      expect(given.querySelector("svg")).toBeNull();
+
+      fireEvent.click(detailsButtonFor(container, "Mehndi"));
+      await waitFor(() => expect(capturedProps.value?.panel).toBe("details"));
+      expect(capturedProps.value!.replied).toBe(true);
     });
   });
 

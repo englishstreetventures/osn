@@ -110,6 +110,18 @@ describe("EventSheet", () => {
     document.body.style.overflow = "";
   });
 
+  it("hands the details its site origin, for the calendar invite's link", () => {
+    // `siteUrl` is one of the sheet's own props, split off before the rest go
+    // to the form. Lost in that split, the calendar entry would say
+    // "Invite: undefined".
+    const { getByRole, getByText } = open("details");
+    fireEvent.click(getByRole("button", { name: /add to calendar/i }));
+    const google = getByText("Google Calendar") as HTMLAnchorElement;
+    expect(new URL(google.href).searchParams.get("details")).toContain(
+      "Invite: https://invite.example.com/abc",
+    );
+  });
+
   it("opens on the details when asked, and mounts nothing of the RSVP form", () => {
     const { getByRole, queryByRole } = open("details");
 
@@ -222,6 +234,38 @@ describe("EventSheet", () => {
 
       expect(queryByRole("button", { name: "RSVP for this event" })).toBeNull();
       expect(getByRole("status").textContent).toBe("RSVPs closed on Sunday 1 September 2999.");
+    });
+
+    it("takes a household that replied from the details to its reply, read-only", () => {
+      const { getByRole } = render(() => (
+        <EventSheet
+          event={event}
+          panel="details"
+          siteUrl="https://invite.example.com/abc"
+          members={[priya]}
+          existingRsvps={[
+            {
+              guestId: "guest-priya",
+              eventId: "event-1",
+              status: "declined",
+              dietary: "",
+              dietaryPresets: [],
+              dietaryConsentCurrent: false,
+            },
+          ]}
+          apiUrl="https://api.test"
+          closed
+          replied
+          closedOn="Sunday 1 September 2999"
+          onClose={() => {}}
+        />
+      ));
+
+      fireEvent.click(getByRole("button", { name: "View your RSVP" }));
+      expect(getByRole("heading", { name: "Your RSVP, Mehndi" })).toBeTruthy();
+
+      expect(within(fieldsetFor("Priya")).getByText("Not attending")).toBeTruthy();
+      expect(document.querySelector("button[type='submit']")).toBeNull();
     });
 
     it("says nothing in that line while the replies are open", () => {

@@ -54,6 +54,8 @@ The ports are the `PORTLESS=0` ones from `DEV_APPS` in `@shared/dev-urls`, and `
 
 **The clock.** Every server and every browser page starts at `2026-10-01T00:00:00Z` and then ticks in real time. The APIs load `tools/e2e/src/clock.mjs` with `--preload`. Vite and Astro load it through `NODE_OPTIONS`. Each page gets `page.clock.install`. The date is fixed so that seeded deadlines and "must be in the future" checks resolve the same way whatever the real date is. Time still moves so that debounces and timers in the UI still fire. Each flow checks that the rows it wrote carry a timestamp on the suite clock, so a server that missed the preload fails on the day it breaks, not on the day a seeded deadline passes.
 
+**A deadline the browser can pass.** cire-api's sample wedding carries the RSVP deadline `CIRE_RSVP_DEADLINE` (`2099-01-01`, from `tools/e2e/src/config.ts`), which `cire/api/src/local.ts` reads as `CIRE_E2E_RSVP_DEADLINE`. It is far past the suite clock, so the server takes replies on every run. A flow that needs the closed invite moves only its own page past it, with `page.clock.setSystemTime(Date.parse(CIRE_RSVP_CLOSED_ISO))` and a reload, as `cire-rsvp-after-deadline.flow.ts` does; the invite decides "closed" from the browser's clock. What the server refuses past a deadline is proven in cire-api's own tests, not here.
+
 ### Reading the artifact
 
 ```

@@ -193,6 +193,55 @@ describe("DetailsPanel — the way to the RSVP form", () => {
     expect(getByRole("status").textContent).toBe("RSVPs closed on Sunday 1 September 2999.");
   });
 
+  it("offers a household that replied a way to view its RSVP after the deadline", () => {
+    const onRsvp = vi.fn();
+    const { getByRole, queryByRole } = render(() => (
+      <DetailsPanel
+        event={baseEvent}
+        siteUrl={SITE_URL}
+        onRsvp={onRsvp}
+        rsvpClosed
+        replied
+        rsvpClosedOn="Sunday 1 September 2999"
+      />
+    ));
+
+    expect(queryByRole("button", { name: "RSVP for this event" })).toBeNull();
+    fireEvent.click(getByRole("button", { name: "View your RSVP" }));
+    expect(onRsvp).toHaveBeenCalledTimes(1);
+    // The closed line still says when replies shut.
+    expect(getByRole("status").textContent).toBe("RSVPs closed on Sunday 1 September 2999.");
+  });
+
+  it("offers no way in after the deadline to a household that never replied", () => {
+    const { queryByRole } = render(() => (
+      <DetailsPanel event={baseEvent} siteUrl={SITE_URL} onRsvp={() => {}} rsvpClosed />
+    ));
+    expect(queryByRole("button", { name: "View your RSVP" })).toBeNull();
+    expect(queryByRole("button", { name: "RSVP for this event" })).toBeNull();
+  });
+
+  it("keeps focus on the button when the deadline relabels it for a household that replied", () => {
+    const [closed, setClosed] = createSignal(false);
+    const { getByRole } = render(() => (
+      <DetailsPanel
+        event={baseEvent}
+        siteUrl={SITE_URL}
+        onRsvp={() => {}}
+        replied
+        rsvpClosed={closed()}
+      />
+    ));
+    const button = getByRole("button", { name: "RSVP for this event" });
+    button.focus();
+
+    setClosed(true);
+
+    // The same control, renamed: focus stays where the guest left it.
+    expect(button.textContent).toContain("View your RSVP");
+    expect(document.activeElement).toBe(button);
+  });
+
   it("says the replies have closed without a date when it has none", () => {
     const { getByRole } = render(() => (
       <DetailsPanel event={baseEvent} siteUrl={SITE_URL} onRsvp={() => {}} rsvpClosed />
