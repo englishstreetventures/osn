@@ -1,10 +1,17 @@
+import guestNotice from "@cire/ui/guest-privacy-notice.astro?raw";
 import { LEGAL_ENTITY, isPlaceholder } from "@shared/legal";
 import { describe, expect, it } from "vitest";
 
 import footer from "../src/components/SiteFooter.astro?raw";
-import privacy from "../src/pages/privacy.astro?raw";
+import privacyPage from "../src/pages/privacy.astro?raw";
 import refunds from "../src/pages/refunds.astro?raw";
 import terms from "../src/pages/terms.astro?raw";
+
+/**
+ * The privacy page renders the guest notice from `@cire/ui` on its Guests tab,
+ * so the fields it publishes are the page's and the notice's together.
+ */
+const privacy = `${privacyPage}\n${guestNotice}`;
 
 const legalPages = { terms, privacy, refunds };
 
