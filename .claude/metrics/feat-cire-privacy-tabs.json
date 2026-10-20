@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1606,
+    "branch": "feat/cire-privacy-tabs",
+    "base_sha": "0cff792c2d95a8c996563148c9fc8e78d3e0fd07",
+    "head_sha": "5209101bc797b45d00dd54a0a614c912e9e1dd63",
+    "generated_at": "2026-10-20T06:09:25.497Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1601,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:5",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 0,
+    "first_ts": null,
+    "last_ts": null,
+    "span_seconds": 0,
+    "active_seconds": 0,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "thinking": 0,
+      "cache_write_5m": 0,
+      "cache_write_1h": 0,
+      "cache_read": 0
+    },
+    "by_model": {},
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {},
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 9,
+      "docs": 12,
+      "config": 2,
+      "source": 17
+    },
+    "loc": {
+      "generated": {
+        "added": 37,
+        "deleted": 0
+      },
+      "test": {
+        "added": 725,
+        "deleted": 223
+      },
+      "docs": {
+        "added": 133,
+        "deleted": 37
+      },
+      "config": {
+        "added": 5,
+        "deleted": 1
+      },
+      "source": {
+        "added": 855,
+        "deleted": 386
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/invites",
+      "cire/landing",
+      "cire/ui",
+      "cire/{invites",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 10
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {},
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}
