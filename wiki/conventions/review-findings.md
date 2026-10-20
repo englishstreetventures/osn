@@ -56,9 +56,10 @@ Each finding uses a four-field format:
 
 ## Fix findings; do not file them
 
-> [!important] A session fixes what its reviews find. Every finding, test gap,
-> stale page or bug found on the way goes down the ladder below, and an issue
-> left open for later is the last rung, reached only through a named exception.
+> [!important] A session fixes what its reviews find. Everything within the
+> feature's scope is fixed on the branch; an issue is left open only for work
+> out of the feature's scope, something unrelated found mid-task, or a larger
+> piece of work.
 
 An open issue is work handed to a future session that knows less than this one
 does. A branch that closes one issue and leaves five behind has made the
@@ -66,48 +67,53 @@ backlog longer, so the measure of a session is what it **leaves open**, not
 what it files. An issue the session files and its own pull request closes adds
 nothing to that count; one filed and left open is a debt.
 
-### The ladder
+### In scope is fixed; three things may stay open
 
-Take the first rung that fits:
+**Within the feature's scope, everything is fixed on this branch, at every
+severity.** The scope is what the branch's issue needs to be done well: the
+code it changes and the packages it touches, the tests and docs for them, and
+every finding in that code, whether the branch introduced it or found it there.
 
-1. **Fix it on this branch.** The default, at every severity. Anything in code
-   the branch touches, in a package it already changes, or a fix a reviewer
-   could read in one sitting belongs here.
-2. **Fix it in a follow-up pull request, in this session.** When the fix would
-   blur the branch — another package, an unrelated domain, a change that
-   deserves its own review — cut a second branch (stacked on this one when it
-   needs this one's code, from `main` otherwise, see [[stacked-prs]]), fix it
-   there, and open that pull request before the session ends. Its issue, when
-   it needs one, is closed by that pull request's merge.
-3. **Leave an issue open**, only when one of these holds and the report names
-   which:
-   - **It needs the owner.** Two defensible designs, money, or a change to a
-     public contract: write the proposal and add `needs:decision` (see
-     [[#When the fix needs a decision from the owner]]).
-   - **It needs what the session cannot have.** Production access, a secret,
-     a third party, a deploy.
-   - **It is a project of its own.** `rate-complexity` would rate it 5 or 8:
-     several packages, or a shape nobody knows yet.
+An issue is left open only for something in one of these three, and the report
+names which:
 
-Not on that list, and so never a reason to file and move on: "out of scope for
-this branch", "pre-existing", "low severity", "would make the diff bigger", or
-the review running late. A session that runs out of budget says which rungs it
-did not reach, to the person, rather than filing them silently.
+1. **Out of scope for the feature.** Real work that belongs to a different
+   feature or surface than the one this branch delivers.
+2. **Unrelated, and found mid-task.** Something that looks irrelevant to the
+   task and only came to light while doing it: a bug in a neighbouring
+   package, a flaky test elsewhere, a stale page about another system.
+3. **A larger piece of work.** A project of its own — `rate-complexity` would
+   rate it 5 or 8 — or one that needs what the session cannot supply: the
+   owner's choice between designs, money or a public contract (write the
+   proposal and add `needs:decision`, see
+   [[#When the fix needs a decision from the owner]]), or production access, a
+   secret, a third party or a deploy.
+
+When something in the first two is small, a follow-up pull request the same
+session opens beats an issue: cut a second branch (stacked on this one when it
+needs this one's code, from `main` otherwise, see [[stacked-prs]]), fix it, and
+open it before the session ends. Its issue, when it needs one, is closed by that
+pull request's merge.
+
+Never reasons to leave something in scope open: "low severity", "pre-existing",
+"would make the diff bigger", "a later pull request can tidy it", or the review
+running late. A session that runs out of budget says what it did not reach, to
+the person, rather than filing it silently.
 
 Some findings are not issues at all. An `info` finding, a `T-S` suggestion, a
 nit or an observation is fixed on this branch or recorded in the report, never
 filed.
 
-**More than two left open by one pull request means the ladder was skipped.**
-Before filing a third, put the list to the owner; with no owner to ask, take
-the remainder to rung 2.
+**More than two left open by one pull request means something in scope was
+filed.** Before filing a third, put the list to the owner; with no owner to
+ask, fix the in-scope ones and keep only what fits the three.
 
 ### Critical and high
 
-A `critical` or `high` finding gets only the first two rungs: fixed on the
-branch that found it, or in a pull request opened immediately after and linked
-before that branch merges. Neither exception in rung 3 applies; one that truly
-needs the owner is put to them before the branch merges.
+A `critical` or `high` finding is never left open, whichever of the three it
+falls in: it is fixed on the branch that found it, or in a pull request opened
+immediately after and linked before that branch merges. One that truly needs
+the owner is put to them before the branch merges.
 
 The reasoning is the same one that makes the tracker private. A filed-and-open
 `critical` or `high` is a live, unpatched defect whose location is now written

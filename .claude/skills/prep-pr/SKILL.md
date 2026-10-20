@@ -14,8 +14,9 @@ Two files, always, whatever else fails:
 2. A **report** of what was checked, what would fail in CI (named exactly, with
    its fix), whether the branch is ready, and the **finding tally**: how many
    findings the reviews raised, how many were fixed on this branch, which
-   follow-up pull requests fixed the rest (by number), and each issue left
-   open with the exception that allowed it.
+   follow-up pull requests fixed (by number), and each issue left open with
+   which of the three allowed it — out of scope, unrelated and found mid-task,
+   or a larger piece of work.
 
 If the task named the files, use those names; otherwise `PR-BODY.md` and
 `PREP-PR-REPORT.md` at the repo root.
@@ -337,26 +338,35 @@ Wait for both agents to complete, and collect or stop both before this run retur
 
 ### Fix what the reviews found
 
-**The reviews' findings are this run's work, not its paperwork.** Every one goes
-down the ladder in `wiki/conventions/review-findings.md` §Fix findings; do not
-file them — read it now if you have not this session:
+**The reviews' findings are this run's work, not its paperwork.** The rule is
+`wiki/conventions/review-findings.md` §Fix findings; do not file them — read it
+now if you have not this session:
 
-1. **Fix it on this branch**, at any severity, when it is in code the branch
-   touches or a package it already changes.
-2. **Otherwise fix it in a follow-up pull request this session opens**: cut a
-   second branch (stacked when it needs this one's code), fix it, and run this
-   skill on it once this one is open. Name the follow-up in the report.
-3. **Only then leave an issue open**, and only for a named exception: it needs
-   the owner's decision, it needs access the session cannot have, or it is a
-   project of its own (it would rate 5 or more).
+- **Everything within the feature's scope is fixed on this branch**, at every
+  severity: the code the branch changes, the packages it touches, their tests
+  and docs, and every finding in that code, introduced here or found there.
+- **An issue is left open only for one of three things**, named in the report:
+  1. **out of scope for the feature** — work that belongs to a different
+     feature or surface than this branch delivers;
+  2. **unrelated, and found mid-task** — something that looks irrelevant to the
+     task and only came to light while doing it;
+  3. **a larger piece of work** — a project of its own (it would rate 5 or
+     more), or one that needs the owner's decision or access the session
+     cannot have.
+- **When one of the first two is small, a follow-up pull request beats an
+  issue**: cut a second branch (stacked when it needs this one's code), fix it,
+  and run this skill on it once this one is open.
 
-"Out of scope", "pre-existing", "low", "the diff would grow" and "the reviews ran
-late" are not exceptions. `info` findings, nits and `T-S` suggestions are fixed
-or noted in the report, never filed. **More than two issues left open by one
-pull request means the ladder was skipped**: put the list to the user before
-filing a third; with no user, take the rest to rung 2.
+"Low", "pre-existing", "the diff would grow", "a later pull request can tidy
+it" and "the reviews ran late" never leave something in scope open. `info`
+findings, nits and `T-S` suggestions are fixed or noted in the report, never
+filed. **More than two issues left open by one pull request means something in
+scope was filed**: put the list to the user before filing a third; with no
+user, fix the in-scope ones and keep only what fits the three.
 
-**A `critical` or `high` finding gets only the first two rungs.** A filed-and-open
+**A `critical` or `high` finding is never left open**, whichever of the three
+it falls in: fix it here, or in a follow-up pull request opened now and linked
+before this one merges. A filed-and-open
 `high` is a live unpatched defect whose location is now written down; the issue
 is an attack map with a timer on it. Severity comes from the tier letter in the
 finding ID, assigned by the review before anyone knows what fixing it costs.
@@ -391,7 +401,7 @@ Auditing a defect class — when a finding is an instance of a class, enumerate 
 
 One tracker issue per `S-`, `P-` or `C-` finding at `low` or above, so that its record stays private and the public PR body can carry it as a bare reference:
 
-- each finding left open under a named exception from Step 6 — the exception goes in the body's **Rationale**;
+- each finding left open as one of Step 6's three — which one goes in the body's **Rationale**;
 - each finding a follow-up pull request fixes, so that pull request closes it;
 - each finding it **fixes** that has no issue yet — filed before the PR opens, so the merge closes it;
 - each finding **dismissed** as no defect — filed, then closed at once as not planned (`gh issue close <n> --repo englishstreetventures/osn-tracker --reason "not planned"`), with the reasoning in its body.
@@ -411,12 +421,12 @@ Labels, exactly one of each:
 - **`Bug`** for an `S-*` or `P-*` finding: something behaves wrongly and wants fixing
 - **`Task`** for a `C-*` compliance item, and for any finding filed at `severity:info` — it records an observation and asks for no fix
 
-### A deferral is the last rung, and it leaves an issue behind, not a paragraph
+### A deferral leaves an issue behind, not a paragraph
 
-Before you defer anything, take it down Step 6's ladder: most of what a session
-is tempted to defer — a rule left at `warn`, a workaround standing in for the
-real fix — is a follow-up pull request it can open now. What survives the
-ladder gets an issue, and the code carries the link and nothing more
+Defer only what Step 6 lets stay open: out of scope for the feature, unrelated
+and found mid-task, or a larger piece of work. A rule left at `warn` or a
+workaround standing in for the real fix, in code this feature changes, is in
+scope and is finished here. What is deferred gets an issue, and the code carries the link and nothing more
 (`// Bounded until englishstreetventures/osn#412 lands.`). A comment that explains the deferral
 instead has no owner and appears in no backlog, so it is found only by whoever
 next opens the file.
@@ -444,7 +454,7 @@ from the public repo. **Never delete an issue**; close it.
 the Up Next promotion, and the docs pass — what to check in `AGENTS.md` and the
 wiki, and how to verify the wikilinks you wrote resolve.
 
-Report the issues opened, which of them stay open and under which exception,
+Report the issues opened, which of them stay open and which of the three each is,
 the follow-up pull requests, and the issue numbers this branch closes — Step 8
 needs them all.
 

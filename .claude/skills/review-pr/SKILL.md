@@ -293,9 +293,9 @@ is a finding too, fixed when Step 7 rewrites the body.
 Fix the pull request's findings here, on the rule `orchestrate` Step 4 sets:
 every severity, Info fixed or noted in the report, and Critical and High never
 deferred (`prep-pr` Step 6). Missing tests from `review-tests` get
-written. A finding about code this pull request does not touch is fixed in a follow-up
-pull request this session opens, not filed for later — the ladder in `prep-pr`
-Step 6; an issue is left open only under one of its named exceptions.
+written. A finding about code this pull request does not touch is out of its scope:
+a follow-up pull request this session opens when it is small, an issue
+otherwise (`prep-pr` Step 6).
 
 One code-writing agent in this worktree at a time. Commit each fix, re-run the
 gates it touched, and note the commit each gate ran on.

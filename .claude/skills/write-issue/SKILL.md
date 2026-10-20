@@ -16,13 +16,13 @@ Two things this skill does not own, and links to instead:
 
 ## Step 0 — Whether it should be an issue at all
 
-A follow-up, a deferral or a finding is fixed, not filed, wherever the session
-can fix it: on the branch, or in a follow-up pull request the same session
-opens. An issue left open is the last rung of the ladder in
-`wiki/conventions/review-findings.md` §Fix findings; do not file them, and it
-needs one of that ladder's named exceptions — the owner's decision, access the
-session cannot have, or a project of its own. Name the exception in the body's
-**Notes**; with none to name, go and fix it instead. An issue filed so a pull
+A follow-up, a deferral or a finding within the feature's scope is fixed on the
+branch, not filed. An issue for later is only for one of three things
+(`wiki/conventions/review-findings.md` §Fix findings; do not file them): work
+out of the feature's scope, something unrelated found mid-task, or a larger
+piece of work. Say which in the body's **Notes**; when it is none of them, go
+and fix it instead, and when it is one of the first two and small, a follow-up
+pull request beats an issue. An issue filed so a pull
 request this session opens can close it needs no exception.
 
 Planned work someone asked for, and the issue `new-feat` opens for a branch,

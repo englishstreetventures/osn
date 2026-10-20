@@ -279,7 +279,7 @@ where that is fixed.
 **4. A suggestion with no owner is not a finding.** Same rule as a deferral: it
 is a change made on this branch, or in a follow-up pull request this session
 opens, or a sentence said to the person — and an issue only when none of those
-fits (`prep-pr` Step 6's ladder). A paragraph in a chat reply is discovered by nobody.
+fits (`prep-pr` Step 6). A paragraph in a chat reply is discovered by nobody.
 
 **5. Do not re-file what `prep-pr` filed.** Its Step 7 already opened issues for
 every `S-`, `P-` and `C-` finding. This skill files what those findings *imply
@@ -299,9 +299,9 @@ rest, and say how many you cut. A list of nine is a list nobody reads.
 | Anything about the brief | **No issue.** It goes in `RETRO.md` and is said plainly in the reply | — |
 | A security, performance or compliance defect | `englishstreetventures/osn-tracker`, and only if `prep-pr` did not already file it | per `wiki/conventions/review-findings.md` |
 
-A retro that ends with more issues than changes has filed instead of fixed; the
-ladder and its exceptions are `wiki/conventions/review-findings.md` §Fix
-findings; do not file them, and they hold here too.
+A retro that ends with more issues than changes has filed instead of fixed.
+What may stay open is in `wiki/conventions/review-findings.md` §Fix findings;
+do not file them, and it holds here too.
 
 Write each issue with the `write-issue` skill, which also rates it through
 `rate-complexity` before work starts (`complexity:unconfirmed` on an unattended
