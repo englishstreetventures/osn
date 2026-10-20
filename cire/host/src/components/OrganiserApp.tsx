@@ -31,6 +31,7 @@ import {
   serializeRoute,
 } from "../lib/dashboard-route";
 import { watchForbidden } from "../lib/forbidden-watch";
+import { MembersChangedContext } from "../lib/members-changed";
 import { CIRE_API_URL } from "../lib/osn";
 import { reportRealtimeFallback, weddingTopicUrl } from "../lib/realtime";
 import { initTheme } from "../lib/theme";
@@ -573,9 +574,15 @@ function Dashboard() {
   // A message, a reconnect and a stop each pass the time they arrived, so one
   // that lands after a re-read started sends a fresh one. A dropped socket
   // passes none and joins a re-read in flight: it reports no change of its
-  // own, and when it is an eviction, the signal just before it already started
-  // a read that postdates the change. A change missed while the socket was down
-  // is caught by the reconnect's fresh read, or by the stop's.
+  // own. A change missed while the socket was down is caught by the
+  // reconnect's fresh read, or by the stop's. A removed member's socket is
+  // closed for good after the signal, and the stop that follows is the last
+  // prompt it gets.
+  //
+  // A signal or a reconnect also tells the co-host panel, if it is open, to
+  // read the seats again (`MembersChangedContext`), so it shows an added,
+  // re-roled or removed member from the same socket.
+  const [membersChanged, setMembersChanged] = createSignal(0);
   useTopic(
     () => {
       const wedding = selected();
@@ -583,7 +590,12 @@ function Dashboard() {
         ? weddingTopicUrl(wedding.id)
         : null;
     },
-    (event) => void recheckWeddings(event.reason === "dropped" ? undefined : Date.now()),
+    (event) => {
+      void recheckWeddings(event.reason === "dropped" ? undefined : Date.now());
+      if (event.reason === "message" || event.reason === "reconnected") {
+        setMembersChanged((count) => count + 1);
+      }
+    },
     { onFallback: reportRealtimeFallback },
   );
 
@@ -803,108 +815,110 @@ function Dashboard() {
 
   return (
     <AuthContext.Provider value={watchedAuth}>
-      <TopBar
-        session={session()}
-        wedding={selected()}
-        weddings={weddings() ?? []}
-        sectionLabel={sectionLabel()}
-        onWedding={selectWedding}
-        onAll={backToList}
-        onSecurity={() => selectView("security")}
-        onSignOut={() => void signOut()}
-        onOpenPalette={() => setPalette(true)}
-      />
+      <MembersChangedContext.Provider value={membersChanged}>
+        <TopBar
+          session={session()}
+          wedding={selected()}
+          weddings={weddings() ?? []}
+          sectionLabel={sectionLabel()}
+          onWedding={selectWedding}
+          onAll={backToList}
+          onSecurity={() => selectView("security")}
+          onSignOut={() => void signOut()}
+          onOpenPalette={() => setPalette(true)}
+        />
 
-      {/* No Suspense fallback on purpose: the palette is an overlay, and a
+        {/* No Suspense fallback on purpose: the palette is an overlay, and a
           spinner where an overlay is about to be is worse than the overlay
           arriving a frame later. */}
-      <Show when={paletteSummoned()}>
-        <Suspense>
-          <CommandPalette
-            open={paletteOpen()}
-            onOpenChange={setPalette}
-            wedding={selected()}
-            weddings={weddings() ?? []}
-            onModule={selectModule}
-            onWedding={selectWedding}
-            onAll={backToList}
-            onSecurity={() => selectView("security")}
-            onSignOut={() => void signOut()}
-          />
-        </Suspense>
-      </Show>
+        <Show when={paletteSummoned()}>
+          <Suspense>
+            <CommandPalette
+              open={paletteOpen()}
+              onOpenChange={setPalette}
+              wedding={selected()}
+              weddings={weddings() ?? []}
+              onModule={selectModule}
+              onWedding={selectWedding}
+              onAll={backToList}
+              onSecurity={() => selectView("security")}
+              onSignOut={() => void signOut()}
+            />
+          </Suspense>
+        </Show>
 
-      {/* `@container/page` is the outermost query context for the views that sit
+        {/* `@container/page` is the outermost query context for the views that sit
           outside the module shell (the wedding list, the create form). The main
           element carries the page measure: the bar above is full-bleed so its
           hairline runs edge to edge, while its contents share this gutter. */}
-      <main class="page-frame @container/page flex flex-col gap-8 py-8 @2xl/frame:py-10">
-        <Show when={view() === "security"}>
-          <SecurityPanel />
-        </Show>
+        <main class="page-frame @container/page flex flex-col gap-8 py-8 @2xl/frame:py-10">
+          <Show when={view() === "security"}>
+            <SecurityPanel />
+          </Show>
 
-        <Show when={view() === "weddings"}>
-          <Show when={loaded()} fallback={<Loading label="Loading weddings…" />}>
-            <Show when={loadError()}>
-              {(message) => <Notice tone="danger">{message()}</Notice>}
-            </Show>
+          <Show when={view() === "weddings"}>
+            <Show when={loaded()} fallback={<Loading label="Loading weddings…" />}>
+              <Show when={loadError()}>
+                {(message) => <Notice tone="danger">{message()}</Notice>}
+              </Show>
 
-            <Show when={!loadError() && weddings()}>
-              {(list) => (
-                <Show
-                  when={selected()}
-                  fallback={
-                    <WeddingList
-                      weddings={list()}
-                      deleted={deletedWeddings()}
-                      onSelect={(w) => selectWedding(w)}
-                      onCreated={handleCreated}
-                      onRestored={(id) => void handleWeddingRestored(id)}
-                      onRestoreExpired={handleRestoreExpired}
-                    />
-                  }
-                >
-                  {(wedding) => (
-                    // Keyed on the id: another wedding is another dashboard,
-                    // mounted fresh, with its own cache scope. The key is the
-                    // function's argument on purpose — Show only calls a
-                    // children function that takes one, and an unused `()`
-                    // would make `keyed` do nothing.
-                    <Show when={wedding().id} keyed>
-                      {(weddingId) => {
-                        const summary = summaryFor(weddingId);
-                        return (
-                          <WeddingDashboard
-                            weddingId={weddingId}
-                            wedding={summary()}
-                            module={() => {
-                              const r = route();
-                              return r.view === "weddings" ? r.module : DEFAULT_MODULE;
-                            }}
-                            sub={() => {
-                              const r = route();
-                              return r.view === "weddings" ? r.sub : defaultSub(DEFAULT_MODULE);
-                            }}
-                            onModule={selectModule}
-                            onSub={selectSub}
-                            onWeddingUpdated={(patch) => handleWeddingUpdated(weddingId, patch)}
-                            onWeddingDeleted={(restoreUntil) =>
-                              handleWeddingDeleted(weddingId, restoreUntil)
-                            }
-                            onTierRaised={(tier) => void handleTierRaised(weddingId, tier)}
-                            onLeft={() => handleLeftWedding(weddingId)}
-                            onOwnRoleChanged={(role) => handleOwnRoleChanged(weddingId, role)}
-                          />
-                        );
-                      }}
-                    </Show>
-                  )}
-                </Show>
-              )}
+              <Show when={!loadError() && weddings()}>
+                {(list) => (
+                  <Show
+                    when={selected()}
+                    fallback={
+                      <WeddingList
+                        weddings={list()}
+                        deleted={deletedWeddings()}
+                        onSelect={(w) => selectWedding(w)}
+                        onCreated={handleCreated}
+                        onRestored={(id) => void handleWeddingRestored(id)}
+                        onRestoreExpired={handleRestoreExpired}
+                      />
+                    }
+                  >
+                    {(wedding) => (
+                      // Keyed on the id: another wedding is another dashboard,
+                      // mounted fresh, with its own cache scope. The key is the
+                      // function's argument on purpose — Show only calls a
+                      // children function that takes one, and an unused `()`
+                      // would make `keyed` do nothing.
+                      <Show when={wedding().id} keyed>
+                        {(weddingId) => {
+                          const summary = summaryFor(weddingId);
+                          return (
+                            <WeddingDashboard
+                              weddingId={weddingId}
+                              wedding={summary()}
+                              module={() => {
+                                const r = route();
+                                return r.view === "weddings" ? r.module : DEFAULT_MODULE;
+                              }}
+                              sub={() => {
+                                const r = route();
+                                return r.view === "weddings" ? r.sub : defaultSub(DEFAULT_MODULE);
+                              }}
+                              onModule={selectModule}
+                              onSub={selectSub}
+                              onWeddingUpdated={(patch) => handleWeddingUpdated(weddingId, patch)}
+                              onWeddingDeleted={(restoreUntil) =>
+                                handleWeddingDeleted(weddingId, restoreUntil)
+                              }
+                              onTierRaised={(tier) => void handleTierRaised(weddingId, tier)}
+                              onLeft={() => handleLeftWedding(weddingId)}
+                              onOwnRoleChanged={(role) => handleOwnRoleChanged(weddingId, role)}
+                            />
+                          );
+                        }}
+                      </Show>
+                    )}
+                  </Show>
+                )}
+              </Show>
             </Show>
           </Show>
-        </Show>
-      </main>
+        </main>
+      </MembersChangedContext.Provider>
     </AuthContext.Provider>
   );
 }

@@ -118,6 +118,7 @@ vi.mock("../../src/components/WeddingList", () => ({
 let shellMounts = 0;
 vi.mock("../../src/components/ModuleShell", async () => {
   const { useAuth } = await import("@shared/rp-auth/solid");
+  const { useMembersChanged } = await import("../../src/lib/members-changed");
   return {
     default: (props: {
       weddingId: string;
@@ -135,6 +136,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
       onOwnRoleChanged?: (role: "owner" | "editor" | "viewer" | "helper") => void;
     }) => {
       const { authFetch } = useAuth();
+      const membersChanged = useMembersChanged();
       shellMounts += 1;
       const mount = shellMounts;
       return (
@@ -146,6 +148,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
           data-sub={props.sub}
           data-tier={props.tier}
           data-mount={String(mount)}
+          data-members-changed={String(membersChanged())}
         >
           {props.weddingId}
           <button onClick={() => props.onModule("guests")}>go-guests</button>
@@ -820,6 +823,22 @@ describe("OrganiserApp Dashboard", () => {
     await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
     expect(listCalls()).toBe(2);
     expect(peekCachedVendors("wed_a")).toBeNull();
+  });
+
+  it("tells the open wedding's views its seats may have changed on a signal or a reconnect", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    expect(shell().dataset.membersChanged).toBe("0");
+
+    topic.onSignal?.({ reason: "message" });
+    await waitFor(() => expect(shell().dataset.membersChanged).toBe("1"));
+    topic.onSignal?.({ reason: "dropped" });
+    topic.onSignal?.({ reason: "reconnected" });
+    await waitFor(() => expect(shell().dataset.membersChanged).toBe("2"));
   });
 
   it("re-reads at once on a signal, inside the once-a-minute window", async () => {

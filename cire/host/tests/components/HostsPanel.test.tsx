@@ -37,7 +37,10 @@ vi.mock("../../src/components/UpgradeDialog", () => ({
   ),
 }));
 
+import { createSignal } from "solid-js";
+
 import HostsPanel from "../../src/components/HostsPanel";
+import { MembersChangedContext } from "../../src/lib/members-changed";
 import {
   activeProfileIdMock,
   authFetchMock,
@@ -1374,5 +1377,78 @@ describe("HostsPanel", () => {
       await waitFor(() => expect(screen.getByText(/6 of 6 people/)).toBeTruthy());
       expect(screen.queryByRole("alert")).toBeNull();
     });
+  });
+});
+
+describe("HostsPanel — the open wedding's members-changed signal", () => {
+  afterEach(() => {
+    cleanup();
+    resetOrganiserMocks();
+  });
+
+  const bob = { osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 };
+  const carol = { osnProfileId: "usr_carol", handle: "carol", role: "viewer", createdAt: 2 };
+
+  function renderWithSignal() {
+    const [changed, setChanged] = createSignal(0);
+    render(() => (
+      <MembersChangedContext.Provider value={changed}>
+        <HostsPanel weddingId="wed_a" callerRole="viewer" />
+      </MembersChangedContext.Provider>
+    ));
+    return () => setChanged((n) => n + 1);
+  }
+
+  it("reads the seats again on each signal and shows the new list", async () => {
+    authFetchMock
+      .mockResolvedValueOnce(json({ hosts: [bob, carol] }))
+      .mockResolvedValueOnce(json({ hosts: [{ ...bob, role: "viewer" }] }));
+    const signal = renderWithSignal();
+    await waitFor(() => expect(screen.getByText("@carol")).toBeTruthy());
+
+    signal();
+    await waitFor(() => expect(screen.queryByText("@carol")).toBeNull());
+    expect(screen.getByText("@bob")).toBeTruthy();
+    expect(authFetchMock).toHaveBeenCalledTimes(2);
+    expect(String(authFetchMock.mock.calls[1]![0])).toBe(
+      "https://api.test/api/organiser/weddings/wed_a/hosts",
+    );
+  });
+
+  it("keeps the list on screen, with no error, when a signalled read fails", async () => {
+    authFetchMock
+      .mockResolvedValueOnce(json({ hosts: [bob] }))
+      .mockResolvedValueOnce(json({ error: "down" }, 500));
+    const signal = renderWithSignal();
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+    signal();
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("@bob")).toBeTruthy();
+    expect(screen.queryByText(/Could not load hosts/)).toBeNull();
+  });
+
+  it("keeps only the newest read's answer when two overlap", async () => {
+    let releaseFirst: (res: Response) => void = () => {};
+    authFetchMock
+      .mockResolvedValueOnce(json({ hosts: [bob] }))
+      .mockReturnValueOnce(new Promise<Response>((resolve) => (releaseFirst = resolve)))
+      .mockResolvedValueOnce(json({ hosts: [bob, carol] }));
+    const signal = renderWithSignal();
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+    signal();
+    signal();
+    await waitFor(() => expect(screen.getByText("@carol")).toBeTruthy());
+    releaseFirst(json({ hosts: [] }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(screen.getByText("@carol")).toBeTruthy();
+  });
+
+  it("reads once with no socket above it", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [bob] }));
+    render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
   });
 });

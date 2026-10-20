@@ -165,6 +165,30 @@ describe("OrganiserApp — push, in a real browser", () => {
     await expect.poll(() => commands.realtimeSocketCount()).toBe(0);
   });
 
+  it("drops the rows when the hub revokes the socket with 1008 and no signal", async () => {
+    // A removed member's socket is closed with 1008 after the signal; one past
+    // its maximum age gets the close alone, so the close must be enough.
+    const wedding = await openRemovableWedding();
+
+    wedding.remove();
+    await commands.dropRealtime(1008);
+
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    expect(peekCachedVendors("wed_a")).toBeNull();
+  });
+
+  it("does not reconnect after a 1008 close, even on a wedding it still shows", async () => {
+    await openRemovableWedding();
+
+    await commands.dropRealtime(1008);
+
+    // Past the first retry's longest wait (1 s), no socket has reopened, and
+    // the dashboard is still open on the wedding.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(await commands.realtimeSocketCount()).toBe(0);
+    expect(screen.getByTestId("module-shell").textContent).toContain("wed_a");
+  });
+
   it("re-reads when the socket is dropped, as on a deploy or an eviction", async () => {
     const wedding = await openRemovableWedding();
 

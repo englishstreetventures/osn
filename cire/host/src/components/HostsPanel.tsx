@@ -7,10 +7,11 @@ import { Field, Fieldset } from "@shared/ui/ui/field";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
+import { useMembersChanged } from "../lib/members-changed";
 import {
   atPeopleLimit,
   peopleCountLabel,
@@ -424,7 +425,16 @@ export default function HostsPanel(props: HostsPanelProps) {
     }
   }
 
-  onMount(async () => {
+  // Each read's number; only the newest read's answer is kept.
+  let loadSeq = 0;
+
+  /**
+   * Read the seats. The first read fills the panel and shows its error; a
+   * later one, prompted by the open wedding's socket, replaces the list
+   * quietly and keeps what is on screen if it fails.
+   */
+  async function loadHosts(first: boolean) {
+    const seq = ++loadSeq;
     try {
       const res = await authFetch(endpoint());
       if (res.status === 401) return redirectToLogin();
@@ -434,19 +444,27 @@ export default function HostsPanel(props: HostsPanelProps) {
         total?: number;
         peopleLimit?: unknown;
       };
+      if (seq !== loadSeq) return;
       setHosts(ownersFirst(body.hosts.map(withKnownRole)));
       keepPeopleLimit(readPeopleLimit(body.peopleLimit));
       // `total` > the rows we got means the API truncated. Surfaced rather than
       // ignored: an owner shown a partial list has no way to know that someone
       // who can read their guests' data is missing from it.
       setTotal(body.total ?? body.hosts.length);
+      setError(null);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
-      setError("Could not load hosts. Is the API running?");
+      if (first && seq === loadSeq) setError("Could not load hosts. Is the API running?");
     } finally {
-      setLoading(false);
+      if (first) setLoading(false);
     }
-  });
+  }
+
+  onMount(() => void loadHosts(true));
+
+  // The open wedding's socket says its seats may have changed, from someone
+  // else's tab or this one's own write: read them again.
+  createEffect(on(useMembersChanged(), () => void loadHosts(false), { defer: true }));
 
   function add(e: Event) {
     e.preventDefault();
