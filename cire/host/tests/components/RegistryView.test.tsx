@@ -1616,7 +1616,7 @@ describe("RegistryView — cash funds", () => {
     halfOn.unmount();
 
     // No fund, nothing to say, whatever the money settings.
-    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    setCachedRegistry("wed_1", snapshot({ items: [item({})] }));
     const giftsOnly = render(() => (
       <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
     ));
