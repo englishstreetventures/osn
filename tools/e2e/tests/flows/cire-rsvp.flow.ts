@@ -130,19 +130,30 @@ test("cire-rsvp", async ({ page, context, flow }) => {
   });
   flow.check("a vertical drag leaves the details on screen", true, await details.isVisible());
 
-  await flow.step("drag the details partway, slowly, and let go", async () => {
-    await sheet.evaluate((d) => ((d.lastElementChild as HTMLElement).scrollTop = 0));
+  // 20px: past the slop, so the drag begins and the form is drawn in, but
+  // under the shortest flick, so the release springs back however fast the
+  // browser reads the finger's moves (it may not honour their timestamps).
+  await flow.step("drag the details a little and let go", async () => {
+    // Back to the top, until it stays there: a fling left by the drag above
+    // may still be scrolling.
     await expect
-      .poll(() => sheet.evaluate((d) => (d.lastElementChild as HTMLElement).scrollTop))
+      .poll(() =>
+        sheet.evaluate(async (d) => {
+          const port = d.lastElementChild as HTMLElement;
+          port.scrollTop = 0;
+          await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+          return port.scrollTop;
+        }),
+      )
       .toBe(0);
     const at = await onHeading("details");
-    const finger = await swipe(page, at, { x: at.x - 60, y: at.y }, 1000, false);
-    await expect(details).toHaveAttribute("style", /translateX\(-60px\)/);
+    const finger = await swipe(page, at, { x: at.x - 20, y: at.y }, 1000, false);
+    await expect(details).toHaveAttribute("style", /translateX\(-20px\)/);
     await expect(form).toBeVisible();
     await finger.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await expect(form).toBeHidden();
   });
-  flow.check("a slow, short drag springs back to the details", true, await details.isVisible());
+  flow.check("a short drag springs back to the details", true, await details.isVisible());
 
   await flow.step("swipe left to the RSVP form", async () => {
     await page.screenshot({

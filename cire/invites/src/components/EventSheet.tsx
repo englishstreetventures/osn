@@ -401,6 +401,9 @@ export function EventSheet(props: EventSheetProps) {
     if (!state || e.pointerId !== state.id) return;
     touch = null;
     if (state.state !== "dragging") return;
+    // Where and when the finger lifted: a finger that rested before lifting
+    // is no flick, however fast it moved before it stopped.
+    state.samples.push({ x: e.clientX, t: e.timeStamp });
     const commit =
       e.type === "pointerup" &&
       shouldCommit({

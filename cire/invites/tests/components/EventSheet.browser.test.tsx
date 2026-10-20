@@ -843,10 +843,12 @@ describe("EventSheet — swiping between the panels", () => {
     expect(wrapperOf("rsvp").hidden).toBe(false);
   });
 
-  it("springs back from a slow, short drag, and leaves no trace of it", async () => {
+  it("springs back from a short drag, and leaves no trace of it", async () => {
+    // 20px: past the slop, so the drag begins, but under the shortest flick,
+    // so it springs back however fast the browser says the finger moved.
     await openOn("details");
     const start = bodyOf("details");
-    await touchDrag(start, { x: start.x - 60, y: start.y }, { ms: 1000 });
+    await touchDrag(start, { x: start.x - 20, y: start.y }, { ms: 1000 });
     await settleSwipe();
 
     expect(wrapperOf("details").hidden).toBe(false);
@@ -856,6 +858,19 @@ describe("EventSheet — swiping between the panels", () => {
     await userEvent.click(button("Give RSVP"));
     expect(wrapperOf("rsvp").className).toContain("animate-panel-from-end");
     await settle();
+  });
+
+  it("springs back when the finger rests before it lifts, however fast it moved", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 80, y: start.y }, { ms: 60, steps: 3, end: "hold" });
+    // The finger stays still for a moment, then lifts. The lift carries no
+    // timestamp of its own, so its time is the real one, well past the moves.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await cdp().send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await settleSwipe();
+    expect(wrapperOf("details").hidden).toBe(false);
+    expect(wrapperOf("rsvp").hidden).toBe(true);
   });
 
   it("springs back when the touch is cancelled mid-drag", async () => {
