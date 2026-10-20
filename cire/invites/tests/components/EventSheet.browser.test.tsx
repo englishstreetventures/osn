@@ -1129,6 +1129,7 @@ describe("EventSheet — the form a swipe draws in", () => {
       scroller().scrollTop = c.scroll;
       expect(scroller().scrollTop).toBe(c.scroll);
       const port = scroller().getBoundingClientRect();
+      const range = scroller().scrollHeight;
       const from = { x: port.left + port.width / 2, y: port.top + port.height / 2 };
 
       await touchDrag(from, { x: from.x - 120, y: from.y }, { end: "hold" });
@@ -1137,6 +1138,10 @@ describe("EventSheet — the form a swipe draws in", () => {
       try {
         expect(form?.inert).toBe(true);
         expect(barOf(form).getBoundingClientRect().bottom).toBeCloseTo(port.bottom, 0);
+        // And no further: the form ends on the edge rather than past it, where
+        // the sticky bar would hide the overshoot but the sheet would gain
+        // scroll room under the finger.
+        expect(scroller().scrollHeight).toBe(range);
       } finally {
         // Sprung back. Lifted even when an assertion above fails, or the next
         // test's touch would start as a second finger.
