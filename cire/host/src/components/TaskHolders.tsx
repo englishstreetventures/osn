@@ -298,10 +298,21 @@ function PeopleList(props: TaskHoldersProps) {
     if (active() >= count) setActive(Math.max(0, count - 1));
   });
 
-  // Follow the highlight with the scroll, so arrowing past the fold works.
+  // Follow the highlight with the list's own scroll, so arrowing past the fold
+  // works. Only the list moves, never the page: `scrollIntoView` scrolls every
+  // ancestor that scrolls, the page included, and the panel mounts at the
+  // page's top left and is put beside its trigger a frame later, so on a
+  // scrolled page it would carry the page up to that corner. Offsets, not
+  // boxes: they are the list's own layout, untouched by the panel's spring.
   createEffect(() => {
-    const index = active();
-    listRef?.querySelector(`[id="${optionId(index)}"]`)?.scrollIntoView?.({ block: "nearest" });
+    const option = listRef?.querySelector<HTMLElement>(`[id="${optionId(active())}"]`);
+    if (!listRef || !option) return;
+    const top = option.offsetTop;
+    const bottom = top + option.offsetHeight;
+    if (top < listRef.scrollTop) listRef.scrollTop = top;
+    else if (bottom > listRef.scrollTop + listRef.clientHeight) {
+      listRef.scrollTop = bottom - listRef.clientHeight;
+    }
   });
 
   // The seats can arrive after the popover opened on the list alone. When
@@ -386,7 +397,8 @@ function PeopleList(props: TaskHoldersProps) {
         tabindex={searchable() ? -1 : 0}
         onKeyDown={(e) => onKeyDown(e, true)}
         // The house ring, drawn inside: the panel clips anything outside it.
-        class="flex min-h-0 flex-col overscroll-contain p-1 focus-visible:-outline-offset-2"
+        // Positioned, so each person's offset is measured from the list.
+        class="relative flex min-h-0 flex-col overscroll-contain p-1 focus-visible:-outline-offset-2"
         classList={{ "max-h-[14.75rem] overflow-y-auto": searchable() }}
       >
         <For each={results()}>

@@ -419,34 +419,94 @@ describe("the assign popover, painted", () => {
 });
 
 describe("opening the popover on a scrolled phone", () => {
+  // Room below the checklist, so the row sits mid-screen rather than at the
+  // page's very end. There, anything below it growing shorter — a holder who
+  // is not one of the seats leaving a stack as the names land — pulls the
+  // scroll up with it, popover or no popover.
+  const scrolledPhone = () => {
+    render(() => (
+      <div style={{ padding: "16px" }}>
+        <ChecklistView weddingId="wed_1" canEdit={true} />
+        <div style={{ height: "844px" }} />
+      </div>
+    ));
+  };
+
+  /** The panel inside a 390 by 844 screen. */
+  const onScreen = (dialog: HTMLElement) => {
+    const panel = dialog.getBoundingClientRect();
+    expect(panel.left).toBeGreaterThanOrEqual(0);
+    expect(panel.right).toBeLessThanOrEqual(390);
+    expect(panel.top).toBeGreaterThanOrEqual(0);
+    expect(panel.bottom).toBeLessThanOrEqual(844);
+  };
+
   it.each([
     ["four people", FOUR, "Hand the rings to the best man"],
     ["eight people", SEATS, "Set up the welcome table"],
   ])(
-    "leaves the page where it was, and keeps the panel on the screen — %s",
+    "leaves the page where it was, with the people read before it opens — %s",
     async (_, seats, title) => {
       await page.viewport(390, 844);
       answering(seats);
       seedTasks(TASKS);
-      render(() => (
-        <div style={{ padding: "16px" }}>
-          <ChecklistView weddingId="wed_1" canEdit={true} />
-        </div>
-      ));
-      await screen.findByTestId("tasks-day_of");
+      scrolledPhone();
+      // The checklist reads the people as it loads, so for anyone who opens a
+      // popover after that, the list is whole the moment the panel mounts.
+      await waitFor(() =>
+        expect(within(rowOf(title)).getByText(/^Held by /).textContent).not.toMatch(/^Held by \d/),
+      );
       rowOf(title).scrollIntoView({ block: "center" });
       const scrolled = window.scrollY;
       expect(scrolled).toBeGreaterThan(0);
 
       const { dialog } = await openPopover(title);
-      // The panel is put beside its trigger a frame after it opens; focusing
-      // it before then, with a scroll, jumped the page to the top.
+      // The panel mounts at the page's top left and is put beside its trigger
+      // a frame later: bringing its highlighted person into view before then
+      // would scroll the page up to that corner.
       expect(window.scrollY).toBe(scrolled);
-      const panel = dialog.getBoundingClientRect();
-      expect(panel.left).toBeGreaterThanOrEqual(0);
-      expect(panel.right).toBeLessThanOrEqual(390);
-      expect(panel.top).toBeGreaterThanOrEqual(0);
-      expect(panel.bottom).toBeLessThanOrEqual(844);
+      onScreen(dialog);
+    },
+  );
+
+  // Where the focus ends: four people stay on the list it opened on; eight
+  // bring a search, which takes it.
+  it.each([
+    ["four people", FOUR, "Hand the rings to the best man", "listbox"],
+    ["eight people", SEATS, "Set up the welcome table", "combobox"],
+  ] as const)(
+    "leaves the page where it was, with the people arriving after it opened — %s",
+    async (_, seats, title, focused) => {
+      await page.viewport(390, 844);
+      const held: (() => void)[] = [];
+      authFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/hosts")) {
+          return new Promise<Response>((resolve) => held.push(() => resolve(hostsAnswer(seats))));
+        }
+        throw new Error(`unexpected ${init?.method ?? "GET"} ${url}`);
+      });
+      seedTasks(TASKS);
+      scrolledPhone();
+      await screen.findByTestId("tasks-day_of");
+      rowOf(title).scrollIntoView({ block: "center" });
+      const scrolled = window.scrollY;
+      expect(scrolled).toBeGreaterThan(0);
+
+      fireEvent.click(screen.getByRole("button", { name: `Assign people to ${title}` }));
+      const dialog = await screen.findByRole("dialog", { name: "Assign people" });
+      await Promise.all(dialog.getAnimations({ subtree: true }).map((a) => a.finished));
+      expect(within(dialog).queryAllByRole("option")).toHaveLength(0);
+      expect(window.scrollY).toBe(scrolled);
+
+      // The people land: the list fills in, and past five a search comes
+      // with them.
+      for (const answer of held) answer();
+      await waitFor(() => expect(within(dialog).getAllByRole("option")).toHaveLength(seats.length));
+      await Promise.all(dialog.getAnimations({ subtree: true }).map((a) => a.finished));
+      await photosSettled();
+      expect(document.activeElement).toBe(within(dialog).getByRole(focused));
+      expect(window.scrollY).toBe(scrolled);
+      onScreen(dialog);
     },
   );
 });
@@ -573,7 +633,7 @@ describe("the popover from the keyboard, in Chrome", () => {
 });
 
 describe("the popover's list, in Chrome", () => {
-  it("paints the highlight and the ticks, follows the highlight down, keeps the focus in the search, and hands it back on Tab", async () => {
+  it("paints the highlight and the ticks, follows the highlight down and back up, keeps the focus in the search, and hands it back on Tab", async () => {
     await page.viewport(1280, 800);
     seedTasks(TASKS);
     render(() => (
@@ -606,10 +666,34 @@ describe("the popover's list, in Chrome", () => {
       getComputedStyle(circle("false")).color,
     );
 
-    await userEvent.keyboard("{End}");
+    // One past the fold, the list scrolls just far enough to show the
+    // highlighted person whole: their bottom edge on the list's.
+    const listBottom = () => listbox.getBoundingClientRect().bottom;
+    const cut = options.findIndex((o) => o.getBoundingClientRect().bottom > listBottom() + 1);
+    expect(cut).toBeGreaterThan(0);
+    await userEvent.keyboard("{ArrowDown}".repeat(cut));
     await waitFor(() => expect(listbox.scrollTop).toBeGreaterThan(0));
-    expect(options.at(-1)!.getBoundingClientRect().bottom).toBeLessThanOrEqual(
-      listbox.getBoundingClientRect().bottom + 1,
+    expect(
+      Math.abs(options[cut]!.getBoundingClientRect().bottom - listBottom()),
+    ).toBeLessThanOrEqual(1);
+
+    await userEvent.keyboard("{End}");
+    await waitFor(() =>
+      expect(options.at(-1)!.getBoundingClientRect().bottom).toBeLessThanOrEqual(listBottom() + 1),
+    );
+    // A person already in view moves nothing.
+    const atEnd = listbox.scrollTop;
+    await userEvent.keyboard("{ArrowUp}");
+    await waitFor(() =>
+      expect(search.getAttribute("aria-activedescendant")).toBe(options.at(-2)!.id),
+    );
+    expect(listbox.scrollTop).toBe(atEnd);
+    // And back up: Home brings the first person back over the top edge.
+    await userEvent.keyboard("{Home}");
+    await waitFor(() =>
+      expect(options[0]!.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+        listbox.getBoundingClientRect().top - 1,
+      ),
     );
 
     await userEvent.click(optionNamed(listbox, "Ben Okafor"));
