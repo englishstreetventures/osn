@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-20
 ---
 # Host Portal Layout System
 
@@ -421,7 +421,9 @@ drops the rows. The re-read runs on:
   `cire:wedding:<id>` with `useTopic` (`@shared/realtime/solid`) while a
   wedding's dashboard is open, and not for a helper's seat. A signal, a
   dropped socket, a reconnect and a stop each re-read the list at once,
-  outside the once-a-minute limit. See [[realtime]].
+  outside the once-a-minute limit. A member removed, who left, or narrowed to
+  `helper` gets the signal and then a 1008 close, so their tab re-reads and
+  stops listening. See [[realtime]].
 - **a 403 from a wedding route.** `Dashboard` provides its own `AuthContext`
   whose `authFetch` is wrapped by `watchForbidden` (`lib/forbidden-watch.ts`).
   Every request below it is watched.
@@ -436,8 +438,7 @@ Concurrent triggers share one request. The exceptions are a 403 on a request
 sent after the shared request started, and a push signal, reconnect or stop
 that arrives after it started: the answer may predate the change they report,
 so a new request goes out. A dropped socket reports no change of its own, so
-it joins a request in flight. After an eviction, that request is the one the
-signal just before the drop started. A request unanswered after 30 s is
+it joins a request in flight. A request unanswered after 30 s is
 abandoned, and only the newest request's answer is applied. A failed answer,
 or one without a list, changes nothing. The list is also written locally: a
 created wedding, a rename, or the upgrade return's own refresh. An answer
@@ -446,11 +447,18 @@ asked for once more.
 
 Push stops in a tab when no hub is bound on the tier, when the socket is
 blocked, after six failed attempts, or when the hub closes the socket with
-1008 (for example at the member's socket cap). It stays stopped in that tab
+1008 (access revoked, or the member's socket cap). It stays stopped in that tab
 until the open wedding changes or the page reloads. Until then, a tab left
 untouched waits for its next request, move or return to view. Each time push
 stops, the tab reports it to `POST /api/realtime/fallback`
 ([realtime.ts](../../cire/host/src/lib/realtime.ts)).
+
+The co-host panel (`HostsPanel`) reads the seats from the same socket, not a
+socket of its own. `Dashboard` counts each signal and each reconnect in
+`MembersChangedContext` ([members-changed.ts](../../cire/host/src/lib/members-changed.ts)),
+and an open panel reads `GET /hosts` again on each change, so it shows an
+added, re-roled or removed member within seconds. A failed re-read keeps the
+list on screen, and only the newest read's answer is applied.
 
 ## Testing
 

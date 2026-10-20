@@ -42,9 +42,8 @@ last-reviewed: 2026-10-20
 | **Upstash Redis** | `@osn/api` (rate limiters + the stateful auth stores: step-up JTI, rotated-session, recovery lockout, ceremonies) when `REDIS_URL` / `UPSTASH_*` is set | **cire-api** (no Redis at all — see below), Pulse/Zap client apps |
 | **Cloudflare Workers** | `osn-api`, **cire-api** (both are Workers) | static Pages sites |
 | **Cloudflare D1** | `osn-db-prod` (osn-api), `cire-db` (cire-api) | — |
-| **Cloudflare Durable Objects** | nothing deployed yet: `@shared/realtime`'s `TopicHub` is the one class the repo defines, and no Worker binds it (cire's adoption is englishstventures/osn#1249) | every deployed Worker today |
 | **Cloudflare Pages** | `cire/invites` (guest), `cire/host`, `@musubi/social`, `@musubi/landing` | the Worker APIs |
-| **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter), `REALTIME_RATE_LIMITER` (realtime subscribe) | osn-api (uses Upstash) |
+| **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter) and the other bindings in its `wrangler.toml` | osn-api (uses Upstash) |
 | **Cloudflare Durable Objects** | **cire-api** `REALTIME_HUB` (`TopicHub`, realtime push — [[realtime]]) | osn-api |
 | **Turnstile** (widget live; the cire gate is inert — see the 2026-07-20 incident below) | osn-api register + passkey-login, cire-api guest claim + RSVP — gated only while the Worker secret is set | — |
 
@@ -186,7 +185,9 @@ once both APIs are in production. Re-verify pricing.
 
 **Source:** [DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) · [DO limits](https://developers.cloudflare.com/durable-objects/platform/limits/) · [state API](https://developers.cloudflare.com/durable-objects/api/state/) · [lifecycle](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/) — re-verify.
 
-Durable Objects run on Workers Free since 2025-04-07, **SQLite storage backend only**. `@shared/realtime`'s `TopicHub` is the one class the repo defines ([[realtime]]). No Worker binds it yet; the figures below are what the first product to bind it (cire, englishstventures/osn#1249) runs within.
+Durable Objects run on Workers Free since 2025-04-07, **SQLite storage backend only**. `@shared/realtime`'s `TopicHub` is the one class the repo defines ([[realtime]]), and cire-api binds it as `REALTIME_HUB` on both tiers. Production may rely on it only once englishstventures/osn#1585 has measured the ping cost below.
+
+**cire's bound.** Each organiser is admitted at most 300 subscribes a UTC day (`REALTIME_SUBSCRIBES_PER_DAY` in `cire/api/src/services/realtime.ts`), so spending the allowance on subscribes alone takes more than 300 accounts. The count lives in D1 (`realtime_subscribe_budget`): each admitted subscribe writes one D1 row, from the same account-wide 100,000 a day, and a refusal at the ceiling writes none.
 
 | Limit | Free value (re-verify) |
 |---|---|
@@ -425,7 +426,7 @@ fail-open vs fail-closed split is NOT uniform — read this table, don't guess.*
 | **D1** down / over daily rows quota | cire-api + osn-api | **fail-CLOSED** — cire `index.ts` returns **503** on absent/erroring `env.DB` | App-wide 503 on DB routes | CF D1 metrics vs daily line; 503 in Workers Logs | Wait for UTC reset, free storage, or upgrade to Workers Paid (D1 paid tier). |
 | **A Worker** over daily request quota | osn-api / cire-api | CF edge **429** before handler runs | Site-wide 429 (resets UTC midnight) | account Requests metric vs 100K | Upgrade to **Workers Paid** ($5/mo). |
 | **Pages** build cap | static sites | already-deployed site keeps serving; new deploys queue/fail | stale deploys, build failures | Pages build history | Wait for month reset or Pages Pro. |
-| **Durable Objects** over daily quota | realtime push (`@shared/realtime`), once a product binds the hub | **fail-SOFT** — `subscribe()` answers 503, `publish()` logs and counts `result="error"` (`shared/realtime/src/server/subscribe.ts`, `publish.ts`) | Tabs stop receiving push and refetch on focus or next request, as before push existed | DO requests/duration vs the daily line in the dashboard; `realtime subscribe failed` and `realtime publish failed` in the product's logs | Wait for the UTC reset, or upgrade to Workers Paid. |
+| **Durable Objects** over daily quota | realtime push (`@shared/realtime`): cire-api's `REALTIME_HUB` | **fail-SOFT** — `subscribe()` answers 503, `publish()` logs and counts `result="error"` (`shared/realtime/src/server/subscribe.ts`, `publish.ts`) | Tabs stop receiving push and refetch on focus or next request, as before push existed | DO requests/duration vs the daily line in the dashboard; `realtime subscribe failed` and `realtime publish failed` in the product's logs | Wait for the UTC reset, or upgrade to Workers Paid. |
 
 > The Upstash split above matters: **rate limiters + step-up JTI +
 > ceremonies fail closed; rotated-session + recovery lockout fail OPEN.** If you

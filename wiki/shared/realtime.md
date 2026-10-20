@@ -18,7 +18,7 @@ last-reviewed: 2026-10-20
 
 `@shared/realtime` tells open browser tabs that something on the server changed, so they re-read it through the product's normal API. A signal names a **topic** and a **kind**. It never carries data. The product API's per-request role check stays the only authorisation boundary.
 
-No product uses it yet. cire is the first to adopt it (englishstventures/osn#1249), so `cire` is the one entry in `REALTIME_PRODUCTS`.
+cire is the one product that uses it, so `cire` is the one entry in `REALTIME_PRODUCTS`. See [Adopters](#adopters).
 
 ## Topics
 
@@ -126,7 +126,10 @@ For one change, a member who keeps access and is evicted gets three signals: the
 
 ## Adopters
 
-- **cire** — hub bound as `REALTIME_HUB` in [wrangler.toml](../../cire/api/wrangler.toml) (entry `src/entry.ts`); route `GET /realtime/:topic`; publishes `members-changed` on `cire:wedding:<id>` after a co-host add, role change or removal (a removal only when a seat went), in the request's `waitUntil` ([realtime.ts](../../cire/api/src/services/realtime.ts)); a removal, or a role change to one without the dashboard (`helper`), evicts the co-host whose seat changed, while a change between `editor` and `viewer` evicts nobody, since their socket's access still holds; the host portal's `Dashboard` listens on the open wedding. The portal passes `onFallback` and reports the outcome to `POST /api/realtime/fallback`. See [[cire-auth]] and [[cire-host-portal-layout]].
+- **cire** — hub bound as `REALTIME_HUB` in [wrangler.toml](../../cire/api/wrangler.toml) (entry `src/entry.ts`).
+  - **Route.** `GET /realtime/:topic` ([routes/realtime.ts](../../cire/api/src/routes/realtime.ts)) checks a per-IP limit of 30 a minute before anything else. Its `allow` is 30 a minute per organiser and its `allowDaily` is 300 a day per organiser (`REALTIME_SUBSCRIBES_PER_DAY`), counted in D1 (`realtime_subscribe_budget`), so every isolate reads the same count. The per-IP and per-organiser limits count in memory, per isolate. A per-IP refusal answers 429 and logs `realtime subscribe refused` with `outcome: "ip_rate_limited"`, never the address. See [[cire-auth]].
+  - **Publish.** `members-changed` on `cire:wedding:<id>` after a seat is added, re-roled, removed or left, and after the wedding is deleted, in the request's `waitUntil` ([services/realtime.ts](../../cire/api/src/services/realtime.ts)). A removal or leave publishes only when a seat went, and a role change only when the role changed. A removal, a leave, and a role change to one without the dashboard (`helper`) **revoke** that member, so their sockets close with 1008 and their tab stops. Any other change closes nobody, since the member's access still holds.
+  - **Portal.** `Dashboard` listens on the open wedding and re-reads the wedding list on every event. A signal or a reconnect also makes an open co-host panel (`HostsPanel`) read the seats again, from the same socket. When push stops, the portal reports the outcome to `POST /api/realtime/fallback`. See [[cire-host-portal-layout]].
 
 ## Observability
 

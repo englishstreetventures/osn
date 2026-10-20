@@ -12,7 +12,7 @@ related:
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-20
 ---
 
 # Cire auth model
@@ -162,7 +162,7 @@ Every organiser of a wedding — its owners included — holds exactly one **sea
 
 Two routes the organiser portal calls sit outside these gates:
 
-- **`GET /realtime/:topic`** ([realtime.ts](../../cire/api/src/routes/realtime.ts)) — not an Elysia route: the Worker entry answers it before the app, because Elysia rebuilds a returned `Response` and a rebuilt 101 loses its socket. It resolves the organiser as `osnAuth()` does (`resolveOsnProfileId`), limits them per organiser (`REALTIME_RATE_LIMITER`, 30/min), then applies the `member` capability exactly as `weddingMember()` does: owner, editor and viewer are admitted, and a helper, a stranger or an unknown wedding all get the same **403**. `Origin` must equal the organiser portal's exactly (`WEB_ORIGIN` entry `[1]`). It never upgrades a refusal. See [[realtime]].
+- **`GET /realtime/:topic`** ([realtime.ts](../../cire/api/src/routes/realtime.ts)) — not an Elysia route: the Worker entry answers it before the app, because Elysia rebuilds a returned `Response` and a rebuilt 101 loses its socket. So the app's middleware never runs for it, and the route puts its own **per-IP limit** first (30 a minute, in memory, per isolate): a refusal, or a request with no resolvable client address, gets **429** before the session is looked up. Then it resolves the organiser as `osnAuth()` does (`resolveOsnProfileId`), limits them per organiser (30 a minute, in memory) and per UTC day (300, counted in D1's `realtime_subscribe_budget`, so every isolate reads one count; a refusal at the ceiling writes nothing), then applies the `member` capability exactly as `weddingMember()` does: owner, editor and viewer are admitted, and a helper, a stranger or an unknown wedding all get the same **403**. `Origin` must equal the organiser portal's exactly (`WEB_ORIGIN` entry `[1]`). It never upgrades a refusal. A seat removed, left, or narrowed to `helper` is **revoked** on the wedding's hub: its sockets close with 1008 and the tab stops listening. See [[realtime]].
 - **`POST /api/realtime/fallback`** ([realtime-fallback.ts](../../cire/api/src/routes/realtime-fallback.ts)) — the portal's report that a tab's push subscription gave up. **Unauthenticated on purpose**, and it records no id: no wedding, profile or session, only the outcome, counted by product. The app-wide Origin guard admits any cire origin (`WEB_ORIGIN`) and answers **403** to a foreign or missing one. A per-IP in-memory limiter allows 10 a minute. Past the Origin guard, it always answers **204** with no body. The body is the outcome word, `refused` or `exhausted`, as plain text; anything else is dropped.
 
 **Every one of the four gates also reads the wedding's plan tier.** Each selects `weddings.tier` in the statement it already runs to authorise the caller and parks it on the context as `weddingTier`, so a `weddingTier(db, "gold" | "crimson")` gate mounted directly behind it answers its 402 without a query of its own. The order is auth (401), then role (403), then tier (402), then a per-organiser rate limiter (429). A per-IP limiter, on a route that has one, answers before all of them. The organiser RSVP write (`PUT …/guests/:guestId/rsvps/:eventId`) has no tier gate and puts its per-organiser limiter before the role gate, so a refused request costs no gate query. See [[cire-entitlements]].
