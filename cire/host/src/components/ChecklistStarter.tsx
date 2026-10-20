@@ -219,9 +219,7 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
             </Notice>
           </Show>
           <Show when={!preview() && !loadError()}>
-            <p class="text-text-muted text-ui-sm" role="status">
-              Loading…
-            </p>
+            <output class="text-text-muted text-ui-sm block">Loading…</output>
           </Show>
           <Show when={preview()}>
             {(shown) => (
