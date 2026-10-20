@@ -7,7 +7,12 @@ import Overview from "../../src/components/Overview";
 import { __resetBudgetCache } from "../../src/lib/budget-store";
 import { setCachedEvents } from "../../src/lib/events-store";
 import { setCachedGuests } from "../../src/lib/guests-store";
-import { __resetTasksCache, setCachedTasks, type TaskRow } from "../../src/lib/tasks-store";
+import {
+  __resetTasksCache,
+  setCachedTasks,
+  type TaskRow,
+  viewerHostIdOf,
+} from "../../src/lib/tasks-store";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -54,7 +59,7 @@ const row = (over: Partial<TaskRow>): TaskRow => ({
   sortOrder: 0,
   createdAt: 1,
   completedAt: null,
-  assignedHostId: null,
+  assigneeHostIds: [],
   ...over,
 });
 
@@ -72,6 +77,21 @@ afterEach(() => {
 });
 
 describe("Overview checklist widget", () => {
+  it("keeps the reader's own seat from its read of the tasks, for the checklist's holder order", async () => {
+    const answer = authFetch.getMockImplementation()!;
+    authFetch.mockImplementation(async (url: string) =>
+      url.endsWith("/tasks")
+        ? json({ tasks: [row({ id: "a" })], viewerHostId: "whost_me" })
+        : answer(url),
+    );
+    try {
+      render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={() => {}} />);
+      await waitFor(() => expect(viewerHostIdOf("wed_1")).toBe("whost_me"));
+    } finally {
+      authFetch.mockImplementation(answer);
+    }
+  });
+
   it("shows the N-of-M completion line", async () => {
     setCachedTasks("wed_1", [row({ id: "a", status: "open" }), row({ id: "b", status: "done" })]);
     render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={() => {}} />);

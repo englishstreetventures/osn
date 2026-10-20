@@ -562,7 +562,7 @@ describe("HostsPanel", () => {
   });
 
   describe("the checklist's caches", () => {
-    const task = (assignedHostId: string | null): TaskRow => ({
+    const task = (assigneeHostIds: string[]): TaskRow => ({
       id: "tsk_1",
       weddingId: "wed_a",
       title: "Carry the rings",
@@ -573,13 +573,14 @@ describe("HostsPanel", () => {
       sortOrder: 0,
       createdAt: 1,
       completedAt: null,
-      assignedHostId,
+      assigneeHostIds,
     });
     const BOB = {
       hostId: "whost_bob",
       osnProfileId: "usr_bob",
       handle: "bob",
       displayName: "Bob Ray",
+      avatarUrl: "https://photos.example/bob.jpg",
       role: "helper",
       createdAt: 1,
     };
@@ -603,6 +604,7 @@ describe("HostsPanel", () => {
           osnProfileId: "usr_bob",
           handle: "bob",
           displayName: "Bob Ray",
+          avatarUrl: "https://photos.example/bob.jpg",
           role: "helper",
         },
         { hostId: "whost_amy", osnProfileId: "usr_amy", role: "owner" },
@@ -670,11 +672,12 @@ describe("HostsPanel", () => {
     });
 
     it("marks the checklist stale after removing a seat one of its tasks names", async () => {
-      // The server clears a removed seat's assignments; a checklist cached
-      // before the removal still names them until it is read again.
+      // The server takes a removed seat off its tasks; a checklist cached
+      // before the removal still names them until it is read again. Bob holds
+      // one task of two, beside Amy.
       await ensureTasksLoaded("wed_a", async () => [
-        task("whost_bob"),
-        { ...task(null), id: "tsk_2" },
+        task(["whost_amy", "whost_bob"]),
+        { ...task([]), id: "tsk_2" },
       ]);
       authFetchMock.mockResolvedValueOnce(json({ hosts: [BOB] }));
       authFetchMock.mockResolvedValueOnce(json({ removed: true }));
@@ -690,8 +693,8 @@ describe("HostsPanel", () => {
 
     it("leaves the checklist fresh after removing a seat none of its tasks names", async () => {
       await ensureTasksLoaded("wed_a", async () => [
-        task("whost_amy"),
-        { ...task(null), id: "tsk_2" },
+        task(["whost_amy"]),
+        { ...task([]), id: "tsk_2" },
       ]);
       authFetchMock.mockResolvedValueOnce(json({ hosts: [BOB, AMY] }));
       authFetchMock.mockResolvedValueOnce(json({ removed: true }));
@@ -719,7 +722,7 @@ describe("HostsPanel", () => {
     it("marks the checklist stale after removing someone added in this visit, whose seat id it never saw", async () => {
       // The add answers without the seat id, so the panel cannot tell whether
       // a task names them.
-      await ensureTasksLoaded("wed_a", async () => [task(null)]);
+      await ensureTasksLoaded("wed_a", async () => [task([])]);
       authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
       authFetchMock.mockResolvedValueOnce(
         json(

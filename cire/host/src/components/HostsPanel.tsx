@@ -39,7 +39,7 @@ import UpgradeDialog from "./UpgradeDialog";
 /** A seat on the wedding — an owner's or a co-host's. Owners are seats like
  *  everyone else, so one shape serves both. */
 interface HostRow {
-  /** The seat id a checklist task's `assignedHostId` names. Absent on the add
+  /** The seat id a checklist task's `assigneeHostIds` name. Absent on the add
    *  response, which does not echo it. */
   hostId?: string;
   osnProfileId: string;
@@ -48,6 +48,9 @@ interface HostRow {
   handle?: string;
   /** The person's OSN display name, when the list's lookup resolved one. */
   displayName?: string;
+  /** The person's OSN photo, an https URL, when the list's lookup found one.
+   *  The panel draws none; it hands it to the checklist's holder faces. */
+  avatarUrl?: string;
   role: WeddingRole;
   createdAt: number;
   /** Who created this seat. Absent on the add response (it is by definition the
@@ -87,9 +90,9 @@ const withKnownRole = (host: HostRow): HostRow => ({
  */
 function asSeats(rows: readonly HostRow[]): HostSeat[] | null {
   const seats: HostSeat[] = [];
-  for (const { hostId, osnProfileId, handle, displayName, role } of rows) {
+  for (const { hostId, osnProfileId, handle, displayName, avatarUrl, role } of rows) {
     if (!hostId) return null;
-    seats.push({ hostId, osnProfileId, handle, displayName, role });
+    seats.push({ hostId, osnProfileId, handle, displayName, avatarUrl, role });
   }
   return seats;
 }
@@ -580,13 +583,14 @@ export default function HostsPanel(props: HostsPanelProps) {
       }
       keepPeopleLimit(await peopleLimitIn(res));
       setHosts((prev) => prev.filter((h) => h.osnProfileId !== host.osnProfileId));
-      // The server cleared this seat's checklist assignments with it, so a
-      // cached checklist that names the seat names someone who holds nothing;
-      // one that does not name it is unchanged. A seat added on this visit has
-      // no id here, so it might be named.
+      // The server took this seat off its checklist tasks with it, so a cached
+      // checklist that names the seat among a task's holders names someone who
+      // holds nothing; one that does not name it is unchanged. A seat added on
+      // this visit has no id here, so it might be named.
+      const { hostId } = host;
       if (
-        host.hostId === undefined ||
-        peekCachedTasks(props.weddingId)?.some((t) => t.assignedHostId === host.hostId)
+        hostId === undefined ||
+        peekCachedTasks(props.weddingId)?.some((t) => t.assigneeHostIds.includes(hostId))
       ) {
         invalidateTasks(props.weddingId);
       }
@@ -656,7 +660,7 @@ export default function HostsPanel(props: HostsPanelProps) {
           prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h, role: nextRole } : h)),
         ),
       );
-      // The checklist's task drawer names each seat with its role.
+      // The checklist's assign popover names each seat with its role.
       invalidateHosts(props.weddingId);
       if (isMe(host)) {
         toast.success(

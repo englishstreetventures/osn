@@ -18,13 +18,23 @@ export interface TaskRow {
   sortOrder: number;
   createdAt: number;
   completedAt: number | null;
-  /** The seat (`hostId` in `GET …/hosts`) holding the task, or null for nobody. */
-  assignedHostId: string | null;
+  /** The seats (`hostId` in `GET …/hosts`) holding the task, in the order they
+   *  were put on it; empty for nobody. */
+  assigneeHostIds: string[];
+}
+
+/** `GET …/tasks` as the API answers it. */
+export interface TaskList {
+  tasks: TaskRow[];
+  /** The caller's own seat on the wedding. Absent from an API older than it. */
+  viewerHostId?: string | null;
 }
 
 interface CacheEntry {
   tasks: Accessor<TaskRow[] | null>;
   setTasks: Setter<TaskRow[] | null>;
+  viewerHostId: Accessor<string | null>;
+  setViewerHostId: Setter<string | null>;
 }
 
 const cache = new Map<string, CacheEntry>();
@@ -33,7 +43,8 @@ function entryFor(weddingId: string): CacheEntry {
   let entry = cache.get(weddingId);
   if (!entry) {
     const [tasks, setTasks] = createSignal<TaskRow[] | null>(null);
-    entry = { tasks, setTasks };
+    const [viewerHostId, setViewerHostId] = createSignal<string | null>(null);
+    entry = { tasks, setTasks, viewerHostId, setViewerHostId };
     cache.set(weddingId, entry);
   }
   return entry;
@@ -41,6 +52,23 @@ function entryFor(weddingId: string): CacheEntry {
 
 export function tasksAccessor(weddingId: string): Accessor<TaskRow[] | null> {
   return entryFor(weddingId).tasks;
+}
+
+/**
+ * Take a `GET …/tasks` answer apart: keep the caller's own seat id, which the
+ * checklist puts first among a task's holders, and hand back the rows for the
+ * loader to return. Every reader of the list goes through here, so the seat is
+ * known whichever module read the tasks first.
+ */
+export function readTaskList(weddingId: string, list: TaskList): TaskRow[] {
+  if (!isWeddingClosed(weddingId)) entryFor(weddingId).setViewerHostId(list.viewerHostId ?? null);
+  return list.tasks;
+}
+
+/** The caller's own seat on the wedding, as the last task read named it;
+ *  `null` before one. Reactive, and subscribes from a cold cache too. */
+export function viewerHostIdOf(weddingId: string): string | null {
+  return entryFor(weddingId).viewerHostId();
 }
 
 /** Subscribes only when the entry already exists — a read from a cold cache
