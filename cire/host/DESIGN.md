@@ -368,8 +368,11 @@ heads the list and it shows about four and a half rows, the half saying it
 scrolls. The list draws the house focus ring inside its own edge, and the
 search field turns its border and a 1px ring `--focus` while it has the focus:
 the panel clips anything drawn outside it, for the droplet's rounded corners.
-A popover that focuses something as it opens focuses it without scrolling: Kobalte opens the panel at the page's top left and moves it beside
-its trigger a frame later, and a scrolling focus jumps the page to the top first.
+A popover that focuses something as it opens focuses it without scrolling, and
+a list in it follows its highlight by setting its own `scrollTop`, never with
+`scrollIntoView`, which scrolls the page as well: Kobalte opens the panel at the
+page's top left and moves it beside its trigger a frame later, and anything that
+scrolls toward the panel before then jumps the page up to that corner.
 
 ### Two rules that apply to all of them
 
