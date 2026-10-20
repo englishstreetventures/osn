@@ -188,6 +188,16 @@ export function appSpecs(): AppSpec[] {
       readyUrl: `${ORIGINS.cireInvites}/`,
       env: { PORT: String(PORTS.cireInvites), PUBLIC_API_URL: ORIGINS.cireApi },
     },
+    {
+      // cireweddings.com: static, no API. Its font pipeline fetches Google
+      // Fonts when `astro dev` starts; with no network it warns and serves
+      // fallback faces rather than failing to start.
+      name: "cireLanding",
+      dir: "cire/landing",
+      command: ["bun", "run", "dev:app", "--ignore-lock"],
+      readyUrl: `${ORIGINS.cireLanding}/privacy`,
+      env: { PORT: String(PORTS.cireLanding) },
+    },
   ];
 }
 
