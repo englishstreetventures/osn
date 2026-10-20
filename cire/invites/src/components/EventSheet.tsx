@@ -88,6 +88,13 @@ function otherPanel(panel: EventPanel): EventPanel {
   return panel === "details" ? "rsvp" : "details";
 }
 
+/** `panels` less `panel`, as a new set. */
+function without(panels: ReadonlySet<EventPanel>, panel: EventPanel): ReadonlySet<EventPanel> {
+  const next = new Set(panels);
+  next.delete(panel);
+  return next;
+}
+
 /** A touch on the panels, from the moment it goes down. */
 interface Touch {
   id: number;
@@ -168,11 +175,19 @@ interface Touch {
  * - The wrapper is `touch-action: pan-y pinch-zoom`, so the browser keeps the
  *   vertical scroll and the zoom and leaves sideways movement to us; a touch
  *   it takes for a scroll arrives here as `pointercancel` and springs back.
+ * - Not while the guest has pinch-zoomed in. A sideways drag then pans the
+ *   zoomed view, which a guest who zoomed to read needs, so the wrapper goes
+ *   back to `touch-action: auto` and the swipe stands down; the badge still
+ *   moves between the panels.
  * - A touch in a text field, or in a box that scrolls sideways of its own
  *   (the dietary chips, the moodboard), belongs to that, not to the sheet.
  * - The arriving panel is `inert` until it has arrived, and its entry slide
  *   is suppressed (`quiet`) for as long as it is on screen: it is already in
  *   place, and adding the animation class to a shown element would play it.
+ *   That holds for the panel under the finger too, when it arrived by an
+ *   earlier swipe and the guest is now swiping it away.
+ * - Both panels are `will-change: transform` while they move, so the drag
+ *   moves two composited layers rather than repainting the sheet each frame.
  * - Released, both panels ease to their resting places on
  *   `transition-panel-settle`, the slide's own duration and curve, read back
  *   from the computed style so the reduced-motion clamp reaches it. A
@@ -199,9 +214,12 @@ export function EventSheet(props: EventSheetProps) {
   const [busy, setBusy] = createSignal(false);
   // The panel a swipe is drawing in, from the drag's start to its settle.
   const [gesture, setGesture] = createSignal<{ target: EventPanel } | null>(null);
-  // The panel whose entry slide is suppressed: it arrived by a swipe and is
-  // still on screen. Cleared in the same update that hides it.
-  const [quiet, setQuiet] = createSignal<EventPanel | null>(null);
+  // The panels whose entry slide is suppressed: each arrived by a swipe, or is
+  // arriving, and is still on screen. One leaves the set in the same update
+  // that hides it.
+  const [quiet, setQuiet] = createSignal<ReadonlySet<EventPanel>>(new Set());
+  // The guest has pinch-zoomed in; see "The swipe".
+  const [zoomed, setZoomed] = createSignal(false);
 
   const titleIds = {
     details: createUniqueId(),
@@ -247,12 +265,14 @@ export function EventSheet(props: EventSheetProps) {
    * Switch to `next`. `arrived` is a swipe's: the panel is already in place,
    * so it gets no slide of its own, and the resize takes the swipe's timing.
    */
-  function show(next: EventPanel, arrived?: { duration: number; easing: string }) {
+  function show(next: EventPanel, arrived?: { duration: number; easing: string; from: number }) {
     if (next === active() || (!arrived && gesture())) return;
     const dialog = scroller?.parentElement ?? null;
     // Measured before anything moves, and before a resize still running from
     // a quick earlier switch is cancelled: this is the height on screen now.
-    const from = dialog?.offsetHeight ?? 0;
+    // A swipe measured it before its own style writes, so nothing forces a
+    // layout to read it here.
+    const from = arrived?.from ?? dialog?.offsetHeight ?? 0;
     resize?.cancel();
     const token = ++switchToken;
     const leaving = active();
@@ -261,7 +281,7 @@ export function EventSheet(props: EventSheetProps) {
       setShown((panels) => new Set(panels).add(next));
       setSwitched(true);
       setGesture(null);
-      if (quiet() === leaving) setQuiet(null);
+      setQuiet((panels) => without(panels, leaving));
       if (!arrived) setEntering(next);
       setActive(next);
     });
@@ -293,6 +313,15 @@ export function EventSheet(props: EventSheetProps) {
 
   // ── The swipe ───────────────────────────────────────────────────────────
 
+  // A pinch-zoom shows on the visual viewport as a scale above 1.
+  const viewport = typeof window === "undefined" ? undefined : window.visualViewport;
+  if (viewport) {
+    const readZoom = () => setZoomed(viewport.scale > 1);
+    readZoom();
+    viewport.addEventListener("resize", readZoom);
+    onCleanup(() => viewport.removeEventListener("resize", readZoom));
+  }
+
   let touch: Touch | null = null;
   let settling = false;
   let settleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -317,20 +346,24 @@ export function EventSheet(props: EventSheetProps) {
 
   function beginDrag(state: Touch) {
     const target = otherPanel(active());
+    // Read before the batch shows the incoming panel, so it forces no layout.
+    const top = scroller?.scrollTop ?? 0;
     batch(() => {
       setShown((panels) => new Set(panels).add(target));
-      setQuiet(target);
+      setQuiet((panels) => new Set(panels).add(target));
       setGesture({ target });
     });
     state.state = "dragging";
     const incoming = wrappers[target];
     // Level with the scrollport's top, wherever the panel on screen is
     // scrolled to: the wrapper's own top is the scroll content's.
-    if (incoming) incoming.style.top = `${scroller?.scrollTop ?? 0}px`;
+    if (incoming) incoming.style.top = `${top}px`;
   }
 
   function onPointerDown(e: PointerEvent) {
-    if (e.pointerType !== "touch" || touch || settling || entering() !== null) return;
+    if (e.pointerType !== "touch" || touch || settling || entering() !== null || zoomed()) {
+      return;
+    }
     if (!(e.target instanceof Element) || !rail) return;
     if (startsInside(e.target, rail, (el) => getComputedStyle(el))) return;
     touch = {
@@ -404,17 +437,19 @@ export function EventSheet(props: EventSheetProps) {
       incoming?.removeEventListener("transitionend", onEnd);
       if (disposed || !settling) return;
       settling = false;
+      // Before the writes below, which would force a layout to read it after.
+      const from = scroller?.parentElement?.offsetHeight ?? 0;
       for (const el of moving) {
         el.classList.remove("transition-panel-settle");
         el.style.transform = "";
         el.style.top = "";
       }
       if (commit) {
-        show(target as EventPanel, { duration, easing });
+        show(target as EventPanel, { duration, easing, from });
       } else {
         batch(() => {
           setGesture(null);
-          setQuiet(null);
+          setQuiet((panels) => without(panels, target as EventPanel));
         });
       }
     }
@@ -483,15 +518,20 @@ export function EventSheet(props: EventSheetProps) {
           `inset-x-6`. */}
       <div
         ref={(el) => (rail = el)}
-        class="-mx-6 touch-pan-y touch-pinch-zoom px-6"
+        class="-mx-6 px-6"
         classList={{
+          "touch-pan-y": !zoomed(),
+          "touch-pinch-zoom": !zoomed(),
           "overflow-x-clip": entering() !== null || gesture() !== null,
           relative: gesture() !== null,
         }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerEnd}
-        onPointerCancel={onPointerEnd}
+        // Bound on the element rather than delegated: Solid delegates pointer
+        // events to `document`, where every pointer move on the page would
+        // run its dispatcher for a gesture that only happens here.
+        on:pointerdown={onPointerDown}
+        on:pointermove={onPointerMove}
+        on:pointerup={onPointerEnd}
+        on:pointercancel={onPointerEnd}
       >
         <Show when={shown().has("details")}>
           <div
@@ -500,10 +540,11 @@ export function EventSheet(props: EventSheetProps) {
             hidden={active() !== "details" && gesture()?.target !== "details"}
             inert={gesture()?.target === "details"}
             classList={{
-              "animate-panel-from-start": switched() && quiet() !== "details",
+              "animate-panel-from-start": switched() && !quiet().has("details"),
               "pointer-events-none": entering() === "details",
               absolute: gesture()?.target === "details",
               "inset-x-6": gesture()?.target === "details",
+              "will-change-transform": gesture() !== null,
             }}
           >
             <DetailsPanel
@@ -523,10 +564,11 @@ export function EventSheet(props: EventSheetProps) {
             hidden={active() !== "rsvp" && gesture()?.target !== "rsvp"}
             inert={gesture()?.target === "rsvp"}
             classList={{
-              "animate-panel-from-end": switched() && quiet() !== "rsvp",
+              "animate-panel-from-end": switched() && !quiet().has("rsvp"),
               "pointer-events-none": entering() === "rsvp",
               absolute: gesture()?.target === "rsvp",
               "inset-x-6": gesture()?.target === "rsvp",
+              "will-change-transform": gesture() !== null,
             }}
           >
             <RsvpPanel

@@ -448,6 +448,12 @@ describe("EventSheet — the badge", () => {
     const badge = button("Give RSVP");
     const radius = Number.parseFloat(getComputedStyle(badge).borderTopLeftRadius);
     expect(radius).toBeGreaterThanOrEqual(badge.getBoundingClientRect().height / 2);
+    // Opaque, because the sheet's content scrolls underneath it — and filled
+    // like the close button beside it.
+    expect(getComputedStyle(badge).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(badge).backgroundColor).toBe(
+      getComputedStyle(button("Close")).backgroundColor,
+    );
   });
 
   it("keeps the heading clear of the badge row on a 320px phone", async () => {
@@ -640,7 +646,148 @@ async function openOn(panel: EventPanel, members?: FamilyMember[]) {
   await settle();
 }
 
+/** Every running animation or transition on `el` itself. */
+function moving(el: Element): Animation[] {
+  return el.getAnimations().filter((a) => a.playState === "running");
+}
+
 describe("EventSheet — swiping between the panels", () => {
+  it("keeps the panel under the finger following it when it arrived by a swipe", async () => {
+    // A panel that arrived by a swipe and is now swiped away must not replay
+    // its entry slide: that would fade it and pull it off the finger.
+    await openOn("details");
+    let start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
+    await settleSwipe();
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+
+    start = bodyOf("rsvp");
+    // Two moves, read at once: a replayed 280ms slide would still be running.
+    await touchDrag(start, { x: start.x + 60, y: start.y }, { steps: 2, end: "hold" });
+    await new Promise(requestAnimationFrame);
+    const form = wrapperOf("rsvp");
+    expect(form.style.transform).toBe("translateX(60px)");
+    expect(moving(form)).toEqual([]);
+    expect(getComputedStyle(form).opacity).toBe("1");
+    expect(form.getBoundingClientRect().left - scroller().getBoundingClientRect().left).toBeCloseTo(
+      60 + Number.parseFloat(getComputedStyle(scroller()).paddingLeft),
+      0,
+    );
+
+    await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    await settleSwipe();
+  });
+
+  it("draws the details level with the top of a scrolled form, clipped at its sides", async () => {
+    await openOn("rsvp", party);
+    scroller().scrollTop = 200;
+    const start = bodyOf("rsvp");
+    // The heading is scrolled away: start in the visible part of the form.
+    const from = { x: start.x, y: scroller().getBoundingClientRect().top + 200 };
+    await touchDrag(from, { x: from.x + 100, y: from.y }, { end: "hold" });
+    await new Promise(requestAnimationFrame);
+
+    const details = wrapperOf("details");
+    const port = scroller().getBoundingClientRect();
+    const padTop = Number.parseFloat(getComputedStyle(scroller()).paddingTop);
+    expect(details.hidden).toBe(false);
+    expect(details.inert).toBe(true);
+    expect(details.getBoundingClientRect().top).toBeCloseTo(port.top + padTop, 0);
+    // A panel's width to the left of the form, moved with the finger.
+    const rail = details.parentElement!;
+    expect(details.style.transform).toBe(`translateX(${100 - rail.clientWidth}px)`);
+    expect(getComputedStyle(rail).overflowX).toBe("clip");
+
+    await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    await settleSwipe();
+    expect(getComputedStyle(rail).overflowX).not.toBe("clip");
+  });
+
+  it("eases a released panel to rest rather than snapping it", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 60, y: start.y }, { ms: 1000 });
+    await new Promise(requestAnimationFrame);
+    const transitions = moving(wrapperOf("details")).filter(
+      (a) => (a as CSSTransition).transitionProperty === "transform",
+    );
+    expect(transitions).toHaveLength(1);
+    await settleSwipe();
+  });
+
+  it("follows the first finger only, and settles cleanly when a second joins it", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    const session = cdp();
+    const t0 = Date.now() / 1000;
+    const one = (x: number) => toTop({ x, y: start.y });
+    const two = toTop({ x: start.x, y: start.y + 120 });
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ ...one(start.x), id: 1 }],
+      timestamp: t0,
+    });
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ ...one(start.x - 80), id: 1 }],
+      timestamp: t0 + 0.4,
+    });
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [
+        { ...one(start.x - 80), id: 1 },
+        { ...two, id: 2 },
+      ],
+      timestamp: t0 + 0.5,
+    });
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [
+        { ...one(start.x - 90), id: 1 },
+        { x: two.x - 200, y: two.y, id: 2 },
+      ],
+      timestamp: t0 + 0.9,
+    });
+    await new Promise(requestAnimationFrame);
+    expect(wrapperOf("details").style.transform).toBe("translateX(-90px)");
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+      timestamp: t0 + 1,
+    });
+    await settleSwipe();
+
+    // One panel on screen, nothing of the drag left on either.
+    expect(wrapperOf("details").hidden).not.toBe(wrapperOf("rsvp").hidden);
+    expect(wrapperOf("details").style.transform).toBe("");
+    expect(wrapperOf("rsvp").style.transform).toBe("");
+  });
+
+  it("stands down while the guest has pinch-zoomed in, leaving the drag to pan the view", async () => {
+    await openOn("details");
+    const viewport = window.visualViewport!;
+    Object.defineProperty(viewport, "scale", { configurable: true, get: () => 2 });
+    try {
+      viewport.dispatchEvent(new Event("resize"));
+      await new Promise(requestAnimationFrame);
+      const rail = wrapperOf("details").parentElement!;
+      // `touch-action: auto`, so the browser pans the zoomed view sideways.
+      expect(getComputedStyle(rail).touchAction).toBe("auto");
+
+      const start = bodyOf("details");
+      await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
+      await settleSwipe();
+      expect(dialog().querySelector('[data-panel="rsvp"]')).toBeNull();
+      // The badge still moves between the panels.
+      await userEvent.click(button("Give RSVP"));
+      expect(wrapperOf("rsvp").hidden).toBe(false);
+    } finally {
+      delete (viewport as unknown as { scale?: number }).scale;
+      viewport.dispatchEvent(new Event("resize"));
+      await settle();
+    }
+  });
+
   it("draws the form in beside the details under the finger, inert until it lands", async () => {
     await openOn("details");
     const start = bodyOf("details");

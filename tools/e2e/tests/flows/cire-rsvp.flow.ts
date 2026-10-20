@@ -145,7 +145,10 @@ test("cire-rsvp", async ({ page, context, flow }) => {
   flow.check("a slow, short drag springs back to the details", true, await details.isVisible());
 
   await flow.step("swipe left to the RSVP form", async () => {
-    await page.screenshot({ path: resolve(SCREENSHOT_DIR, "cire-rsvp--sheet-details.png") });
+    await page.screenshot({
+      path: resolve(SCREENSHOT_DIR, "cire-rsvp--sheet-details.png"),
+      animations: "disabled",
+    });
     const at = await onHeading("details");
     await swipe(page, at, { x: at.x - 200, y: at.y }, 150);
     await expect(sheet.getByRole("heading", { name: /^Respond.*Catholic Ceremony/ })).toBeFocused();
@@ -160,7 +163,10 @@ test("cire-rsvp", async ({ page, context, flow }) => {
   await flow.step("choose Attending, unsaved", async () => {
     await attending.click();
     await expect(attending).toHaveAttribute("aria-pressed", "true");
-    await page.screenshot({ path: resolve(SCREENSHOT_DIR, "cire-rsvp--sheet-rsvp.png") });
+    await page.screenshot({
+      path: resolve(SCREENSHOT_DIR, "cire-rsvp--sheet-rsvp.png"),
+      animations: "disabled",
+    });
   });
 
   await flow.step("swipe right back to the details", async () => {
