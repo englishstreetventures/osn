@@ -22,7 +22,7 @@ function httpsOnly(url: string | undefined): string | null {
  *
  * A photo that will not load — a dead link, a response that is not an image,
  * or a host the portal's CSP `img-src` does not list, which today is every
- * avatar host (englishstventures/osn#1207) — falls back to the empty avatar.
+ * avatar host (englishstreetventures/osn#1207) — falls back to the empty avatar.
  * The failure is kept per URL, so a new photo gets its own try.
  *
  * Decorative: the caller names the person in text. The circle's size comes in
