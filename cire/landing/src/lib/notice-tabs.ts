@@ -82,7 +82,7 @@ export function enhanceNoticeTabs(root: HTMLElement): void {
   });
 
   /** The tab a key moves to from `index`; arrows wrap, as the WAI-ARIA tabs pattern has them. */
-  function target(key: string, index: number): number | null {
+  function keyTarget(key: string, index: number): number | null {
     switch (key) {
       case "ArrowRight":
         return (index + 1) % tabs.length;
@@ -99,7 +99,7 @@ export function enhanceNoticeTabs(root: HTMLElement): void {
 
   list.addEventListener("keydown", (event) => {
     const index = tabs.indexOf(document.activeElement as HTMLAnchorElement);
-    const next = index === -1 ? null : target(event.key, index);
+    const next = index === -1 ? null : keyTarget(event.key, index);
     if (next === null) return;
     event.preventDefault();
     choose(idOf(tabs[next]!));
