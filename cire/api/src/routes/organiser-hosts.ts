@@ -58,6 +58,9 @@ interface HostPersonDto {
 /** A seat — an owner's or a co-host's: a {@link HostPersonDto} plus their role
  *  and the seat's attribution. */
 interface HostSeatDto extends HostPersonDto {
+  /** The seat's own id (`wedding_hosts.id`): what a checklist task's
+   *  `assignedHostId` names, so the portal can show who holds a task. */
+  hostId: string;
   role: WeddingRole;
   createdAt: number;
   addedByOsnProfileId: string;
@@ -149,6 +152,7 @@ export const createOrganiserHostsReadRoutes = (
                     const display = displays?.get(h.osnProfileId);
                     const addedBy = displays?.get(h.addedByOsnProfileId);
                     const row: HostSeatDto = {
+                      hostId: h.id,
                       osnProfileId: h.osnProfileId,
                       role: h.role,
                       createdAt: h.createdAt.getTime(),

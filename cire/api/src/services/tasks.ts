@@ -9,17 +9,23 @@
  * even with a leaked task id — a mismatched (weddingId, taskId) fails
  * `TaskNotInWedding` rather than touching a row.
  */
-import { taskTemplateDismissals, tasks, weddings } from "@cire/db";
-import { and, asc, eq, isNotNull, type SQL, sql } from "drizzle-orm";
+import { taskTemplateDismissals, tasks, weddingHosts, weddings } from "@cire/db";
+import { and, asc, eq, exists, isNotNull, type SQL, sql } from "drizzle-orm";
 import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
 import { bound, commitBatchResults, DbService, commitGroupedBatches, dbQuery } from "../db";
 import type { Db } from "../db";
 import type { TimeframeBucket } from "../lib/checklist-buckets";
+import { metricTaskAssignmentChanged } from "../metrics";
+import type { TaskAssignmentAction } from "../metrics";
 
 /** No task with this id under this wedding (missing or another wedding's). 404-class. */
 export class TaskNotInWedding extends Data.TaggedError("TaskNotInWedding") {}
+
+/** The seat named for a task is not one of the task's wedding: another
+ *  wedding's seat, a guest's id, or no seat at all. 422-class. */
+export class HostNotInWedding extends Data.TaggedError("HostNotInWedding") {}
 
 export type TaskStatus = "open" | "done";
 
@@ -45,6 +51,8 @@ export interface TaskDto {
   /** The item's key inside that template, or null. */
   templateItem: string | null;
   dueSource: TaskDueSource;
+  /** The seat (`wedding_hosts.id`) the task is assigned to, or null. */
+  assignedHostId: string | null;
 }
 
 export interface CreateTaskInput {
@@ -79,6 +87,7 @@ export interface TaskRow {
   templateItem: string | null;
   dueOffsetDays: number | null;
   dueSource: TaskDueSource;
+  assignedHostId: string | null;
 }
 
 export const toDto = (r: TaskRow): TaskDto => ({
@@ -95,6 +104,7 @@ export const toDto = (r: TaskRow): TaskDto => ({
   templateId: r.templateId,
   templateItem: r.templateItem,
   dueSource: r.dueSource,
+  assignedHostId: r.assignedHostId,
 });
 
 /**
@@ -181,6 +191,7 @@ export const tasksService = {
         templateItem: null,
         dueOffsetDays: null,
         dueSource: "manual",
+        assignedHostId: null,
       };
       yield* dbQuery(() => db.insert(tasks).values(row).run());
       return toDto(row);
@@ -241,6 +252,65 @@ export const tasksService = {
       if (!updated) return yield* Effect.fail(new TaskNotInWedding());
       return toDto(updated as TaskRow);
     }).pipe(Effect.withSpan("cire.tasks.update"));
+  },
+
+  /**
+   * Hand a task to a seat of its wedding (`wedding_hosts.id`), or to nobody
+   * when `hostId` is null. Any seat of the wedding may hold a task, whatever
+   * its role.
+   *
+   * The seat check rides in the UPDATE's own WHERE, so a seat that is not the
+   * wedding's is never written, and one removed while this runs is either not
+   * found here or cleared by the foreign key's SET NULL after. The task read
+   * shares the batch only to tell the two refusals apart: no task is
+   * `TaskNotInWedding`, a task with nothing updated is `HostNotInWedding`.
+   */
+  assign(
+    weddingId: string,
+    taskId: string,
+    hostId: string | null,
+  ): Effect.Effect<TaskDto, TaskNotInWedding | HostNotInWedding, DbService> {
+    const action: TaskAssignmentAction = hostId === null ? "unassign" : "assign";
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const ours = and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId));
+      // The wedding id is bound, not correlated to the task row: the UPDATE is
+      // already scoped to it, so the seat must be that same wedding's.
+      const seatOfWedding =
+        hostId === null
+          ? undefined
+          : exists(
+              db
+                .select({ one: sql`1` })
+                .from(weddingHosts)
+                .where(and(eq(weddingHosts.id, hostId), eq(weddingHosts.weddingId, weddingId))),
+            );
+      const results = yield* dbQuery(() =>
+        commitBatchResults(db, [
+          db.select({ id: tasks.id }).from(tasks).where(ours),
+          db
+            .update(tasks)
+            .set({ assignedHostId: hostId })
+            .where(and(ours, seatOfWedding))
+            .returning(),
+        ]),
+      );
+      const [updated] = results[1] as readonly TaskRow[];
+      if (updated) return toDto(updated);
+      const [found] = results[0] as readonly { id: string }[];
+      return yield* Effect.fail(found ? new HostNotInWedding() : new TaskNotInWedding());
+    }).pipe(
+      Effect.tap(() => Effect.sync(() => metricTaskAssignmentChanged(action, "ok"))),
+      Effect.tapError((err) =>
+        Effect.sync(() =>
+          metricTaskAssignmentChanged(
+            action,
+            err._tag === "HostNotInWedding" ? "assignee_not_in_wedding" : "task_not_found",
+          ),
+        ),
+      ),
+      Effect.withSpan("cire.tasks.assign", { attributes: { "task.assignment": action } }),
+    );
   },
 
   remove(weddingId: string, taskId: string): Effect.Effect<void, TaskNotInWedding, DbService> {

@@ -974,6 +974,79 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "a task's assignee is a seat of its wedding, and goes when the seat does, over D1",
+    async () => {
+      // The statements only D1 can judge: the assign batch (its UPDATE guarded
+      // by EXISTS on a seat of the same wedding), and the FK's ON DELETE SET
+      // NULL firing from the seat delete in hostsService.remove's batch.
+      const now = new Date();
+      await db.insert(weddingHosts).values({
+        ...ownerSeat(BOOTSTRAP_WEDDING_ID, "usr_helper", now),
+        id: "whost_d1_helper",
+        role: "helper",
+      });
+      await db.insert(weddings).values({
+        id: "wed_d1_other",
+        slug: "other",
+        displayName: "Other",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db
+        .insert(weddingHosts)
+        .values({ ...ownerSeat("wed_d1_other", "usr_other", now), id: "whost_d1_other" });
+      const task = await run(
+        tasksService.create({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title: "Carry the rings",
+          timeframeBucket: "day_of",
+          notes: null,
+          dueAt: null,
+        }),
+      );
+
+      const assigned = await run(
+        tasksService.assign(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper"),
+      );
+      expect(assigned.assignedHostId).toBe("whost_d1_helper");
+
+      const foreignSeat = await Effect.runPromiseExit(
+        tasksService
+          .assign(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_other")
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(foreignSeat) && Cause.squash(foreignSeat.cause)).toMatchObject({
+        _tag: "HostNotInWedding",
+      });
+      const foreignTask = await Effect.runPromiseExit(
+        tasksService
+          .assign("wed_d1_other", task.id, "whost_d1_other")
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(foreignTask) && Cause.squash(foreignTask.cause)).toMatchObject({
+        _tag: "TaskNotInWedding",
+      });
+      const stored = async () =>
+        (
+          await db
+            .select({ assignedHostId: tasks.assignedHostId })
+            .from(tasks)
+            .where(eq(tasks.id, task.id))
+        )[0]?.assignedHostId;
+      expect(await stored()).toBe("whost_d1_helper");
+
+      await run(
+        hostsService.remove({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_helper" }),
+      );
+      expect(await stored()).toBeNull();
+
+      const unassigned = await run(tasksService.assign(BOOTSTRAP_WEDDING_ID, task.id, null));
+      expect(unassigned.assignedHostId).toBeNull();
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "tasks.reorder commits its per-row updates over the D1 batch path",
     async () => {
       // Regression guard: reorder used to run through db.transaction(), which the
