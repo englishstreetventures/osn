@@ -248,7 +248,7 @@ describe("a re-read of the seats while the drawer is open, in Chrome", () => {
     };
     // New objects, as every read hands back, with one more seat on the end.
     authFetch.mockImplementation(async () =>
-      json({ hosts: [...SEATS.map((seat) => ({ ...seat })), newcomer], peopleLimit: null }),
+      json({ hosts: [...structuredClone(SEATS), newcomer], peopleLimit: null }),
     );
     render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
     const list = await screen.findByTestId("tasks-day_of");

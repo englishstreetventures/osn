@@ -294,7 +294,10 @@ export default function ChecklistView(props: ChecklistViewProps) {
       while (picks.size > 0) {
         const [taskId, hostId] = picks.entries().next().value!;
         picks.delete(taskId);
-        // Signed out: the page is leaving, and nothing waiting is sent.
+        // Sequential by design: a pick waiting here is written only once the
+        // write before it is back, so the later one is what the server keeps.
+        // Signed out, the page is leaving, and nothing waiting is sent.
+        // eslint-disable-next-line no-await-in-loop
         if (!(await writePick(taskId, hostId))) return;
       }
     } finally {
