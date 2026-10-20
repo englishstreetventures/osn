@@ -1,3 +1,4 @@
+import { buttonClass } from "@cire/ui/button";
 import { Show } from "solid-js";
 
 import { ConsentGate } from "./consent/ConsentGate";
@@ -9,45 +10,45 @@ interface MapPreviewProps {
 }
 
 /**
- * Map preview for a wedding event's "Where" section.
+ * The venue row of the event details: the address, a map, and "Open in maps".
  *
- * Two render paths share one footer (venue line + an "Open in Maps" icon):
+ * The map is one of two things:
  *
  *  - **Real map** — when `PUBLIC_GOOGLE_MAPS_EMBED_KEY` is configured at build
  *    time AND the event has a venue address AND the guest has switched on
- *    Google Maps, the top of the card is a Google Maps Embed API
- *    `place` iframe keyed on the free-text address (no lat/lng, no geocoding,
- *    no schema change). The key is referrer-restricted at the Maps Platform
- *    console, which is what makes baking it into static HTML safe. The iframe
- *    is sandboxed and uses a strict referrer policy so the slug-bearing invite
- *    path is never leaked to Google (see S-L1 / S-L2).
+ *    Google Maps: a Google Maps Embed API `place` iframe keyed on the free-text
+ *    address (no lat/lng, no geocoding, no schema change). The key is
+ *    referrer-restricted at the Maps Platform console, which is what makes
+ *    baking it into static HTML safe. The iframe is sandboxed and sends only
+ *    the page's origin as its referrer, so the slug-bearing invite path never
+ *    reaches Google.
  *
- *  - **CSS card (fallback)** — when no key is configured, when there is no
- *    address to query, OR when the guest has not switched on Google Maps,
- *    the top is a self-contained CSS-drawn "cartographic" card (gold contour
- *    rings + street grid + marker pin) that ships no image, needs no secret,
- *    and makes no network request. This keeps the page working before any key
- *    exists, so shipping the key is a pure enhancement.
+ *  - **Drawn card (fallback)** — when no key is configured, when there is no
+ *    address to query, OR when the guest has not switched on Google Maps: a
+ *    small card drawn in CSS from the invite's own palette — a wash of the gold
+ *    round a pin and faint roads in the ink, on the page colour — so it belongs
+ *    to every scheme. It ships no image, needs no secret, makes no request, and
+ *    is decoration: hidden from assistive technology, and not a link.
  *
- * CONSENT (added 2026-07-29): the iframe loads `www.google.com/maps/embed`,
- * which hands Google the guest's IP and user-agent — the same class of transfer
- * to the same class of US recipient that the Pinterest moodboard was already
- * gated for, but which shipped ungated here simply because this component was
- * written without one. It now sits behind the site-wide `embeds` category (see
- * `lib/consent/`).
+ * The iframe hands Google the guest's IP address and browser, so it sits behind
+ * the `maps` consent switch (see `lib/consent/`), off until the guest allows it.
+ * The un-consented fallback is the drawn card rather than the generic "content
+ * switched off" placeholder, deliberately: the address above it names the venue
+ * and "Open in maps" below it opens the guest's own maps app — a navigation the
+ * guest makes, which needs no consent — so a guest who has not allowed Google
+ * Maps loses the interactive tiles and nothing else. The route to the tiles is
+ * the standing "Privacy choices" control at the foot of the invite, not a
+ * permission prompt sitting in the layout of every venue on it.
  *
- * The un-consented fallback is the CSS card rather than the generic "content
- * blocked" placeholder, deliberately: the card is a genuinely useful thing to
- * put where a map goes — it names the venue and the card is itself a link to the
- * guest's own maps app, which is a plain outbound navigation the guest
- * initiates and so needs no consent. A guest who refuses loses the interactive
- * tiles and nothing else. The cost is that the card gives no hint that a richer
- * map is available; the standing "Privacy choices" control in the site footer
- * is the route back, rather than a permission prompt sitting in the layout of
- * every venue on the invite.
+ * "Open in maps" is a link in both cases, and the row's only one. It follows
+ * `resolveMapsUrl`, which prefers the organiser's own `mapsUrl` — a pinned
+ * entrance or car park — where Google's in-frame control opens a place query
+ * for the address. Its words are its name; nothing overrides them, so a guest
+ * using voice control can say what they see.
  *
- * The whole component renders nothing when there is no usable maps target at all
- * (no `mapsUrl` and no address) — no dead button, no broken tile.
+ * The whole component renders nothing when there is no usable maps target at
+ * all (no http(s) `mapsUrl` and no address) — `hasVenue` makes the same test, so
+ * the details panel leaves the row out rather than show an empty one.
  *
  * Security: the address is the only interpolated value and is always
  * `encodeURIComponent`-escaped (in `resolveMapsEmbedUrl`); organiser text never
@@ -64,200 +65,113 @@ export function MapPreview(props: MapPreviewProps) {
   return (
     <Show when={mapsHref()}>
       {(href) => (
-        <Show when={embedSrc()} fallback={<MapCard href={href()} venue={venue()} />}>
-          {(src) => (
-            <ConsentGate
-              category="maps"
-              vendor="google-maps"
-              fallback={<MapCard href={href()} venue={venue()} />}
-            >
-              <MapEmbed href={href()} venue={venue()} src={src()} />
-            </ConsentGate>
-          )}
-        </Show>
+        <>
+          <Show when={venue()}>
+            {(line) => (
+              // The address wraps rather than being cut off: it is the one
+              // thing this row exists to say, and an ellipsis in place of the
+              // suburb tells a guest nothing. `wrap-anywhere` gives a single
+              // unbreakable token somewhere to break, so no address can push
+              // the row wider than the sheet; the four-line cap bounds one of
+              // unlimited length, since nothing between the organiser's input
+              // and here constrains it. A full address down to its country
+              // takes three lines in the narrowest column this row renders in.
+              <p class="font-body text-text text-ui-base line-clamp-4 font-light wrap-anywhere">
+                {line()}
+              </p>
+            )}
+          </Show>
+          <Show when={embedSrc()} fallback={<MapCard />}>
+            {(src) => (
+              <ConsentGate category="maps" vendor="google-maps" fallback={<MapCard />}>
+                <MapEmbed venue={venue()} src={src()} />
+              </ConsentGate>
+            )}
+          </Show>
+          <a
+            href={href()}
+            target="_blank"
+            rel="noopener noreferrer"
+            class={`${buttonClass({ variant: "touchLink", size: "md" })} mt-1 min-h-11`}
+          >
+            Open in maps
+            <span aria-hidden="true">↗</span>
+          </a>
+        </>
       )}
     </Show>
   );
 }
 
-/**
- * The real Google Maps Embed iframe + the shared footer. The iframe captures
- * pointer events, so (unlike the CSS card) the actionable "open in maps" link
- * lives in the footer rather than wrapping the whole card.
- *
- * That link is not a duplicate of Google's own in-frame control. It follows
- * `resolveMapsUrl`, which prefers the organiser's `mapsUrl` — a pinned entrance
- * or car park — where Google's control opens a place query for the address.
- */
-function MapEmbed(props: { href: string; venue: string | null; src: string }) {
+/** The real Google Maps Embed iframe. */
+function MapEmbed(props: { venue: string | null; src: string }) {
   const title = () => `Map of ${props.venue ?? "the venue"}`;
 
   return (
-    <div class="border-border bg-bg overflow-hidden rounded-md border">
+    <div class="border-border bg-bg mt-3 overflow-hidden rounded-md border">
       <iframe
         src={props.src}
         title={title()}
         loading="lazy"
-        // S-L2: strict-origin matches the page-level referrer policy
+        // Strict-origin matches the page-level referrer policy
         // (`index.astro` sets `strict-origin-when-cross-origin` to keep the
         // slug-/`?code=`-bearing path out of cross-origin Referer headers).
         // Google's referrer key-restriction only needs the origin, which this
         // still sends, so the embed and the key restriction keep working.
         referrerpolicy="strict-origin-when-cross-origin"
-        // S-L1: least-privilege sandbox. The Maps Embed needs scripts +
+        // A least-privilege sandbox. The Maps Embed needs scripts +
         // same-origin (to google.com) + popups (the "View larger map" link);
         // withholding allow-top-navigation/allow-forms removes the frame's
         // ability to navigate the guest page or submit forms.
         sandbox="allow-scripts allow-same-origin allow-popups"
-        // Fully constrained box (h-36 = 9rem tall, full-width) matching the
-        // CSS-card path, so the iframe reserves its space up front and never
-        // shifts layout as the embed loads.
+        // A fully constrained box (h-36 = 9rem tall, full-width), so the
+        // iframe reserves its space up front and never shifts layout as the
+        // embed loads.
         class="block h-36 w-full border-0"
       />
-      <FooterRow href={props.href} venue={props.venue} />
     </div>
-  );
-}
-
-/** The CSS-drawn cartographic fallback card; the whole card is the maps link. */
-function MapCard(props: { href: string; venue: string | null }) {
-  return (
-    <a
-      href={props.href}
-      target="_blank"
-      rel="noopener noreferrer"
-      class="group border-border bg-bg focus-visible:ring-gold/60 relative block overflow-hidden rounded-md border focus:outline-none focus-visible:ring-2"
-      aria-label={`Open ${props.venue ?? "the venue"} in maps`}
-    >
-      {/* Decorative cartographic backdrop — contour rings + street grid,
-          drawn entirely in CSS so it ships no image and needs no key. */}
-      <div
-        aria-hidden="true"
-        class="relative h-36 w-full motion-safe:transition-transform motion-safe:duration-500 motion-safe:group-hover:scale-103"
-        style={{
-          "background-color": "var(--color-surface)",
-          "background-image": [
-            // concentric "contour" glow around the pin
-            "radial-gradient(circle at 50% 58%, oklch(74.99% 0.0854 82.08 / 0.16) 0%, transparent 42%)",
-            // diagonal "roads"
-            "repeating-linear-gradient(38deg, oklch(85.51% 0.069 144.94 / 0.07) 0 1px, transparent 1px 26px)",
-            "repeating-linear-gradient(-52deg, oklch(85.51% 0.069 144.94 / 0.07) 0 1px, transparent 1px 34px)",
-            // faint base grid
-            "repeating-linear-gradient(0deg, oklch(85.51% 0.069 144.94 / 0.04) 0 1px, transparent 1px 22px)",
-            "repeating-linear-gradient(90deg, oklch(85.51% 0.069 144.94 / 0.04) 0 1px, transparent 1px 22px)",
-          ].join(", "),
-        }}
-      >
-        {/* Marker pin, centred over the contour glow. */}
-        <div class="absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-3/5 flex-col items-center">
-          <svg
-            width="26"
-            height="26"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            class="text-gold drop-shadow-pin"
-            aria-hidden="true"
-          >
-            <path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11Z" />
-            <circle cx="12" cy="10" r="2.4" />
-          </svg>
-          {/* pin shadow ellipse on the "ground" */}
-          <span class="bg-gold/30 blur-ground-shadow mt-0.5 h-1 w-3 rounded-full" />
-        </div>
-      </div>
-
-      <FooterRow href={props.href} venue={props.venue} interactive={false} />
-    </a>
   );
 }
 
 /**
- * Shared footer: the venue line and the "Open in Maps" action.
- *
- * **The action is an icon, and the words are clipped rather than dropped.** A
- * `sr-only` span carries "Open in Maps" at every width, so the wording is still
- * there for a screen reader while the glyph stands in for it on screen. The
- * words cost the venue address 140px of a 236px row at phone widths, which is
- * more of the footer than the thing the footer exists to say.
- *
- * **It is a link on one path and a decoration on the other**, and the two must
- * not be flattened into each other. In the iframe path the map captures pointer
- * events, so this is the only element that can carry the destination — and the
- * destination is worth carrying, because it is the organiser's own `mapsUrl`
- * where they set one, which is not the place Google's in-frame control opens.
- * In the CSS-card path the enclosing `<a>` is already that link, so this is a
- * non-interactive `<span>`: the visible signal that the card is clickable, never
- * a second tab stop for one destination.
+ * The drawn card: a pin over a wash of the scheme's gold, faint roads in its
+ * ink, on its page colour. Every colour is a token, mixed with transparency, so
+ * the card is the invite's own on every palette rather than one scheme's.
  */
-function FooterRow(props: { href: string; venue: string | null; interactive?: boolean }) {
-  const isLink = () => props.interactive !== false;
-
+function MapCard() {
   return (
-    <div class="border-border/70 bg-surface-raised flex items-center justify-between gap-3 border-t px-4 py-3">
-      <Show
-        when={props.venue}
-        fallback={<span class="font-body text-text-muted text-ui-sm italic">View on map</span>}
-      >
-        {(line) => (
-          // The address wraps rather than being cut off: it is the one thing
-          // this footer exists to say, and an ellipsis in place of the suburb
-          // tells a guest nothing. `wrap-anywhere` gives a single unbreakable
-          // token somewhere to break, so no address can push the row wider than
-          // the card; the three-line cap bounds one of unlimited length, since
-          // nothing between the organiser's input and here constrains it. Three
-          // is what the narrowest column this footer renders in fits, and a full
-          // address with its country needs all of them there.
-          <span class="font-body text-text-muted text-ui-sm line-clamp-3 min-w-0 flex-1 text-left wrap-anywhere">
-            {line()}
-          </span>
-        )}
-      </Show>
-      <Show
-        when={isLink()}
-        fallback={
-          <span class="border-gold text-gold-ink group-hover:bg-gold group-hover:text-bg inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-sm border transition-colors duration-200">
-            <OpenIcon />
-            <span class="sr-only">Open in Maps</span>
-          </span>
-        }
-      >
-        <a
-          href={props.href}
-          target="_blank"
-          rel="noopener noreferrer"
-          // Names the venue, so it is more specific than the clipped label
-          // inside and wins over it. The label is what names this action in the
-          // card path, where the element carrying it is not a link.
-          aria-label={`Open ${props.venue ?? "the venue"} in maps`}
-          class="border-gold text-gold-ink hover:bg-gold hover:text-bg focus-visible:ring-gold/60 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-sm border transition-colors duration-200 focus:outline-none focus-visible:ring-2"
-        >
-          <OpenIcon />
-          <span class="sr-only">Open in Maps</span>
-        </a>
-      </Show>
-    </div>
-  );
-}
-
-function OpenIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2.4"
-      stroke-linecap="round"
-      stroke-linejoin="round"
+    <div
       aria-hidden="true"
+      class="border-border relative mt-3 h-24 w-full overflow-hidden rounded-md border"
+      style={{
+        "background-color": "var(--color-bg)",
+        "background-image": [
+          // the wash round the pin
+          "radial-gradient(circle at 50% 55%, color-mix(in oklab, var(--color-gold) 18%, transparent) 0%, transparent 45%)",
+          // diagonal "roads"
+          "repeating-linear-gradient(38deg, color-mix(in oklab, var(--color-text) 8%, transparent) 0 1px, transparent 1px 26px)",
+          "repeating-linear-gradient(-52deg, color-mix(in oklab, var(--color-text) 8%, transparent) 0 1px, transparent 1px 34px)",
+        ].join(", "),
+      }}
     >
-      <path d="M7 17 17 7" />
-      <path d="M8 7h9v9" />
-    </svg>
+      <div class="absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-3/5 flex-col items-center">
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="text-gold drop-shadow-pin"
+        >
+          <path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11Z" />
+          <circle cx="12" cy="10" r="2.4" />
+        </svg>
+        {/* the pin's shadow on the "ground" */}
+        <span class="bg-gold/30 blur-ground-shadow mt-0.5 h-1 w-3 rounded-full" />
+      </div>
+    </div>
   );
 }

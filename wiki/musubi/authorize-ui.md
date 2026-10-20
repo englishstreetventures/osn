@@ -217,7 +217,7 @@ screen shows even when consent is on record (pinned in
   The previous account's refresh session is left live server-side, and the
   whole browser, not only this request, is now signed in as the new account.
   Whether to call `POST /logout` before the switch is open:
-  englishstventures/osn#1344.
+  englishstreetventures/osn#1344.
 - A failed context read that is not terminal — a 429, a dropped connection —
   gets its own screen with the message and a retry, not an endless spinner.
 - The page runs **outside `AuthProvider`**. Mounting it calls `POST /token`,

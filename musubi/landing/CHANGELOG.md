@@ -1,5 +1,17 @@
 # @osn/landing
 
+## 0.2.13
+
+### Patch Changes
+
+- fa0f54a: The footer's Docs link falls back to `https://github.com/englishstreetventures/osn#readme` when `PUBLIC_DOCS_URL` is unset. It fell back to an `osn-social` repository that does not exist.
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
+- Updated dependencies [fa0f54a]
+  - @shared/legal@0.0.7
+
 ## 0.2.12
 
 ### Patch Changes
@@ -217,7 +229,7 @@
 
 ### Patch Changes
 
-- b78deb7: Rewrite every private-tracker comment reference in these packages to state the durable constraint directly (xchromo/osn#924's highest-priority batch).
+- b78deb7: Rewrite every private-tracker comment reference in these packages to state the durable constraint directly (englishstreetventures/osn#924's highest-priority batch).
 
   A comment citing `osn-tracker#N` (or the shorter `tracker#N` spelling, also found live and now caught by `house/no-tracker-ref-in-comment` too) means nothing to a reader who cannot open the private tracker, and stops resolving once the finding closes — this repo is public, the tracker is not, so the number was a disclosure as well as a dead end. Every citation is now the fact it stood for: which D1 bind-parameter cap a query respects and why, which cookie-scoping attack a `__Host-` prefix defeats, which reflow guard a `resize-none` textarea keeps sound, why a response is never cached. One citation (`#130`) is to a finding that is still **open** — its replacement states the constraint as a live rule rather than implying a fix that hasn't happened, and links nothing.
 

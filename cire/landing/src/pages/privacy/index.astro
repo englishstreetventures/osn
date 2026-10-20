@@ -1,0 +1,80 @@
+---
+// The common privacy page: who runs Cire, the stance the three notices share,
+// and who to contact, with links to each notice. Every statement here is one
+// the notices already make (`hosts.astro`, `vendors.astro`, and `@cire/ui`'s
+// guest notice); change a notice and check this page still agrees with it.
+import LegalLayout from '../../layouts/LegalLayout.astro'
+import PrivacyNav from '../../components/PrivacyNav.astro'
+import { LEGAL_ENTITY, draftPending, isPlaceholder } from '@shared/legal'
+
+// Highlight a detail only while THAT detail is still a placeholder. A page-wide
+// flag would mark a filled field as pending the moment any other one wasn't.
+const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
+
+// Name every field this page publishes that the shared identity check does
+// not already cover. Leave one out and the banner can go while that field
+// is still a token.
+const draft = draftPending(LEGAL_ENTITY.regulator)
+---
+<LegalLayout title="Privacy">
+  {draft && (
+    <div class="draft-banner">
+      <strong>Draft</strong> — this page is not final. Some details of the operator are
+      still to be confirmed, and this banner disappears once they are.
+    </div>
+  )}
+
+  <h1>Privacy at Cire</h1>
+  <PrivacyNav current="overview" />
+  <p class="meta">Last updated: 2026-10-20</p>
+
+  <p>
+    <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>, trading as Cire, runs this
+    marketing site, the invitation sites couples send their guests, the organiser portal and
+    the vendor portal. What we do with personal information is set out in three notices, one for
+    each kind of person who uses Cire:
+  </p>
+  <ul>
+    <li><a href="/privacy/hosts"><strong>Hosts</strong></a> — couples, co-hosts and organisers.</li>
+    <li><a href="/privacy/guests"><strong>Guests</strong></a> — invited households and the
+      people they bring.</li>
+    <li><a href="/privacy/vendors"><strong>Vendors</strong></a> — wedding suppliers.</li>
+  </ul>
+
+  <h2>What the notices say, in short</h2>
+  <p>Each of these is said in full in the notices; where a notice says more, the notice applies.</p>
+  <ul>
+    <li>Guests don&rsquo;t create accounts. An invitation asks only for the small amount of
+      information hosts need to plan the day and cater for their guests.</li>
+    <li>Dietary and access details are optional, and kept only with explicit consent, which can
+      be withdrawn at any time.</li>
+    <li>We do not sell personal information, and we do not use it for third-party advertising.</li>
+    <li>We run no third-party analytics or advertising trackers, and use only the cookies the
+      service needs to work.</li>
+    <li>The two parts of an invitation served by other companies — the venue map and the
+      moodboard — each stay off until the guest allows them.</li>
+    <li>Guest information is deleted one year after the wedding&rsquo;s final event, now and then
+      up to 30 days later. That window is set by us and applies to every wedding — an organiser
+      cannot extend it.</li>
+    <li>We never see card details: purchases go through our merchant of record, and money gifts
+      through Stripe on the couple&rsquo;s own account.</li>
+    <li>Our primary region is Australia.</li>
+  </ul>
+
+  <h2>Your rights, and who to contact</h2>
+  <p>
+    You may have rights to access, correct, delete or port your information, and to object to
+    certain uses — under the Australian Privacy Act, and for people in the EEA or UK, the GDPR and
+    UK GDPR. To exercise them, contact us at
+    <a href={`mailto:${LEGAL_ENTITY.contactEmail}`}>
+      <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span></a>. Guests can
+    also ask their hosts, who can act on most of it immediately. You can also complain to a
+    regulator — in Australia, the
+    <span class={ph(LEGAL_ENTITY.regulator)}>{LEGAL_ENTITY.regulator}</span>, or your local data
+    protection authority.
+  </p>
+  <p>
+    <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> (trading as Cire),
+    <span class={ph(LEGAL_ENTITY.postalAddress)}>{LEGAL_ENTITY.postalAddress}</span>.
+  </p>
+</LegalLayout>

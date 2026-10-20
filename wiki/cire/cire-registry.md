@@ -11,7 +11,9 @@ related:
   - "[[drag-and-drop]]"
   - "[[cire-development]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-10-15
+  - "[[cire-auth]]"
+  - "[[testing-patterns]]"
+last-reviewed: 2026-10-20
 ---
 
 # Gift registry
@@ -66,6 +68,16 @@ Two CHECK constraints: `quantity_wanted >= 1` and `kind in ('product','cash_fund
 `wedding_id` is denormalised from the item so the gift log filters without a join and a wedding delete cascades even once the item is gone. `display_name` covers "thank Auntie Ros", where the household name isn't who to write to.
 
 **Unique `(item_id, family_id)`.** One row per household per item — re-claiming updates it rather than stacking rows, which is what makes the quantity arithmetic below tractable.
+
+**A host preview household holds no live claim.** The claim and release statements act only for a `kind = 'guest'` household (see [Guest routes](#guest-routes)), and migration 0085 sets every live claim a host household holds to `released`. Released rows stay, so the gift log and `gifts.csv` show them as they show a guest's release.
+
+A Worker without that check can still write one: the one serving between a release's migrations and its deploy, or one a smoke check rolls back to. Running 0085's statement again releases it and touches nothing else:
+
+```bash
+bunx wrangler d1 execute cire-db --env production --remote --command "UPDATE registry_claims SET status = 'released', updated_at = unixepoch() WHERE status <> 'released' AND family_id IN (SELECT id FROM families WHERE kind = 'host')"
+```
+
+Run it from `cire/api`, where `wrangler.toml` lives; for the dev tier, use `cire-db-dev` and `--env dev`. Never clear such a row by deleting the gift: claims cascade from their item, so that also deletes every household's claim on it.
 
 CHECK `quantity between 1 and 99` and `status in ('reserved','purchased','released')`. The 99 ceiling matches `MAX_CLAIM_QUANTITY` in the service: a claim is a household saying how many of a listed gift they will bring, so a four-digit quantity is a typo or an attack, never a fact.
 
@@ -236,6 +248,8 @@ INSERT INTO registry_claims (…)
 SELECT …, ri.wedding_id, ri.id, …
 FROM registry_items ri
 WHERE ri.id = ? AND ri.wedding_id = ?
+  AND EXISTS (SELECT 1 FROM families f
+              WHERE f.id = ? AND f.wedding_id = ? AND f.kind = 'guest')
   AND ? + coalesce((
         SELECT sum(rc.quantity) FROM registry_claims rc
         WHERE rc.item_id = ri.id AND rc.status <> 'released'
@@ -250,7 +264,7 @@ Two details are load-bearing:
 - **`rc.family_id <> ?` excludes the caller's own row**, so a household raising its own quantity is measured against _other_ households' claims. That is what lets one statement serve both the first claim and a later change, via the `ON CONFLICT` arm.
 - **Success is decided by `RETURNING`**, never by re-reading the `(item_id, family_id)` pair. A household that had _released_ this item still has a row there, so the re-read would report success for a claim the guard refused. There is a test named for exactly this.
 
-Zero rows returned means one of two things; only that failure path pays for a second query to tell `ItemFullyClaimed` (409) from `RegistryItemNotInWedding` (404).
+Zero rows returned means one of four things; only that failure path pays for a second pair of reads, run together, to tell them apart, in this order: a household of another wedding (`FamilyNotInWedding`, 404), the wedding's host preview household (`RegistryPreviewSession`, 403), an item of another wedding (`RegistryItemNotInWedding`, 404), and a gift already taken (`ItemFullyClaimed`, 409).
 
 **Timestamps.** This statement writes `created_at` / `updated_at` directly rather than through a Date-valued insert, so it must match drizzle's `integer({ mode: "timestamp" })` unit — **epoch seconds, not milliseconds**. Getting it wrong still writes the row, just dated to the year 58000, so `toEpochSeconds` is pinned by a test against what a normal drizzle insert produces.
 
@@ -279,11 +293,12 @@ Under `/api/invite/:slug/registry`. **The list is not public.** It names what a 
 | Route                                                   | Gate                              |
 | ------------------------------------------------------- | --------------------------------- |
 | `GET /registry` — the published list, with claim counts | `sessionAuth` + family-in-wedding |
-| `GET /registry/mine` — this household's own claims      | `sessionAuth`                     |
+| `GET /registry/mine` — this household's own claims      | `sessionAuth` + family-in-wedding |
 | `POST \| DELETE /registry/items/:itemId/claim`          | per-IP limiter, then `sessionAuth` |
+| `POST /registry/contribute` — a Stripe Checkout URL     | its own per-IP limiter, then `sessionAuth`; mounted only with Stripe configured |
 | `GET /registry/image/:name` — a gift's image bytes      | none — see below                  |
 
-**Every gated route checks the family against the WEDDING**, and they must not drift: the list, `/mine` and contribute fold the check into the guest gate's own statement (`resolveVisibleRegistry` with a `familyId`; contribute also passes its `itemId`, answered as `itemBelongs` rather than as a refusal), claim reads the family inside its own write, and release runs the shared `familyInWedding` read on its failure path. A `cire_session` names a household, not a wedding, so without it one leaked code reaches every couple's list on the platform. All three answer the same `registry_not_found` a missing, below-Gold or unpublished registry gives:
+**Every gated route checks the family against the WEDDING**, and they must not drift: the list, `/mine` and contribute fold the check into the guest gate's own statement (`resolveVisibleRegistry` with a `familyId`; contribute also passes its `itemId`, answered as `itemBelongs` rather than as a refusal), claim reads the family inside its own write, and release runs `householdKind` on its failure path. A `cire_session` names a household, not a wedding, so without it one leaked code reaches every couple's list on the platform. All three answer the same `registry_not_found` a missing, below-Gold or unpublished registry gives:
 
 | Route                                          | A household of another wedding gets                                                    |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -294,6 +309,18 @@ Under `/api/invite/:slug/registry`. **The list is not public.** It names what a 
 `/registry/mine` must not answer an empty list to a stranger household. An empty `200` for a visible registry beside a `404` for an invisible one would let anyone holding any valid session walk slugs and learn which weddings have a published gift list — the one fact the single 404 code exists to hide.
 
 The order in `registryService.claim` is the security property, not a detail. Checking the item first told a cookie-holder whether the id they guessed exists on a wedding they cannot read; checking the family first tells them only what they already knew. `releaseClaim` pays one extra point read on its failure path for the same reason — "matched no claim row" would otherwise answer item-shaped on a visible registry and registry-shaped on an invisible one, which is a probe for which weddings have a list.
+
+**The host preview household reads the list and never writes to it.** The organiser's **Preview invite** claims the wedding's `kind = 'host'` household ([[cire-auth#Host preview code (organiser "Preview invite")]]), whose session reaches every route here. A reservation it held would read as taken to every real guest, so, as `POST /api/rsvp` does, every write refuses it:
+
+| Route | The host preview household gets |
+| --- | --- |
+| `GET /registry` | `200`, the list as guests see it |
+| `GET /registry/mine` | `200`, with `preview: true` (absent for every guest household) |
+| `POST /registry/items/:itemId/claim` (reserve, or `status: "purchased"`) | `403 preview_read_only`; no row is written |
+| `DELETE /registry/items/:itemId/claim` | `403 preview_read_only`; no row is released, its own included |
+| `POST /registry/contribute` | `403 preview_read_only`, before any row is written or Stripe is asked anything |
+
+The refusal rides in the statements that already check the household, so it costs no D1 round trip: the claim's `EXISTS` and the release's `UPDATE` require `kind = 'guest'`, and the gate reads the household's kind in place of a bare `EXISTS` (`family_kind`, NULL for a household of another wedding) and returns it as `familyKind`. All three writes use the same allow-list: contribute refuses any kind but `guest`, and `/mine` says `preview` for `host`. A 403 rather than the shared 404 tells nothing: the session is valid for this wedding, and the gate's 404 for a missing, below-Gold or unpublished list still comes first. The code is machine-readable because the origin guard answers 403 too; the gift page reads `preview_read_only` by its code.
 
 The image route stays **unauthenticated on purpose**. A name is `registry-<uuid>`, minted per save and reachable only from the list the session gates, so the bytes are not enumerable without that read — while authenticating them would put a session lookup on every image request on the page, the one place on the guest surface where requests arrive in dozens. If the couple's pictures ever become sensitive on their own, that route moves and `visibility: "public"` moves with it.
 
@@ -306,7 +333,7 @@ So an image URL is a **bearer credential while its gift is on a published list**
 
 The route passes `lifetime: "revocable"` to `serveTransformedImage` for this, as the organiser's own registry image route and the invite's gated image slots do. An image route whose gate cannot close keeps `max-age=31536000, immutable`, because its URL changes with its bytes, so a long life never serves a stale picture.
 
-**The gate is one D1 statement.** The slug read, the wedding's tier (a column of the same `weddings` row, checked against Gold in JavaScript), the settings row (a `LEFT JOIN`; no row reads as the defaults, so unpublished), the wedding's currency and, when the caller asks, the item check (image route) and the household check (list and `/mine`) are all keyed on the wedding id the slug produces, so they are folded into that one read. Every guest route pays the gate, and the image route pays it per image.
+**The gate is one D1 statement.** The slug read, the wedding's tier (a column of the same `weddings` row, checked against Gold in JavaScript), the settings row (a `LEFT JOIN`; no row reads as the defaults, so unpublished), the wedding's currency and, when the caller asks, the item check (image route) and the household check and kind (list, `/mine` and contribute) are all keyed on the wedding id the slug produces, so they are folded into that one read. Every guest route pays the gate, and the image route pays it per image.
 
 **A revalidation after the hour costs the gate and nothing else.** A `revocable` image carries a weak `ETag` built from what its cache key is built from — the server-derived version, the variant and the format — because the bytes under one key never change. When the browser's hour runs out it asks again with `If-None-Match`, and once the gate has passed `serveTransformedImage` answers `304` with the same `Cache-Control` and `Vary`, before any Worker-cache lookup, R2 read or transform. The check sits inside `serveTransformedImage`, which the route calls only after the gate, so a withdrawn gift still answers `404`, not `304`. Immutable images carry no tag: they are never revalidated.
 
@@ -336,7 +363,7 @@ Below Gold the Registry module itself is locked in the portal, so the download m
 
 The export exists because the two things above are in tension. The portal reads the log **a page at a time** and the retention sweep **deletes the detail after a year**, leaving only the aggregate summary. Between those, the couple have no way to hold the whole thing. A download is that way.
 
-- **It reads the same two tables with the same joins and filters as `registryService.giftLog`** — the same `failed`-contribution exclusion, the same LEFT join for a cash gift with no item, and no host-family exclusion. The rule is that the file matches what the portal shows and nothing else; an export that quietly differs from the screen is a second, unreviewed disclosure surface. A parity test in `cire/api/tests/services/gift-export.test.ts` seeds every claim and contribution status, a host-household gift, a gift whose item was deleted and a second wedding, and fails if any printed column differs from the portal's log.
+- **It reads the same two tables with the same joins and filters as `registryService.giftLog`** — the same `failed`-contribution exclusion, the same LEFT join for a cash gift with no item, and no host-family exclusion: the log shows every row as it is, a host household's included (see [`registry_claims`](#registry_claims) for when one can exist). The rule is that the file matches what the portal shows and nothing else; an export that quietly differs from the screen is a second, unreviewed disclosure surface. A parity test in `cire/api/tests/services/gift-export.test.ts` seeds every claim and contribution status, a host-household gift, a gift whose item was deleted and a second wedding, and fails if any printed column differs from the portal's log.
 - **A household is named, never coded.** `families.public_id` is the claim code — a bearer credential that opens that household's invite on its own, and the `HOST-*` code opens every event. The portal's gift log does not return it, so neither does the file. A thank-you list needs the household name and the giver's chosen display name; it does not need a set of working sign-ins sitting in a spreadsheet on a laptop or in a mail attachment.
 - **One query, cut in SQLite.** Claims and cash gifts are one `UNION ALL`, ordered newest first and limited to the ceiling plus one row, so the Worker never receives a row it will not print. Each branch walks its `(wedding_id, created_at)` index in order, and SQLite merges the two and stops at the limit. The branches match by position, so each lists the same columns in the same order, with an aliased `NULL` where a column belongs to the other table; the `created_at` alias is required, because a compound `SELECT` can only `ORDER BY` a name its first branch declares with `AS`.
 - **Bounded at 2,000 rows** (`MAX_GIFT_EXPORT_ROWS`). An export cannot page, so it is capped instead, and a read that hits the cap **logs a warning** rather than truncating in silence — a portability answer that drops rows without saying so is worse than no answer. The number comes from the **CPU budget, not from how many gifts a wedding plausibly has**: Workers Free allows 10 ms of CPU per invocation ([[free-tier-limits]]), and building the file is dominated by `serialiseCsv`, measured at roughly 6 ms for 2,000 rows and 11 ms for 5,000. **Streaming the response would not raise it.** Workers counts the CPU spent running the Worker's code, and serialising rows into a stream is still that code; memory is not the limit either, against the 128 MB an isolate may use ([Workers limits](https://developers.cloudflare.com/workers/platform/limits/)). Raising the ceiling means cutting what `serialiseCsv` spends per row. The warning carries `weddingId`, `exportCap` and `truncated: true`, and no row count: the read stops one row past the ceiling, so any count it gave would be that.
@@ -353,7 +380,7 @@ The portal side is a single quiet button in the Gifts tab of `RegistryView.tsx`,
 
 ### External URLs
 
-`external_url` must be an absolute `https:` URL, checked at the boundary by parsing it — not by shape-matching. It reaches an `<a href>` on the guest site, and an unvalidated URL there is a same-origin script sink: a `javascript:` value runs on the guest site's origin when a guest clicks it. The consent vendors' `privacyUrl` links keep the same rule, pinned by a test in `cire/invites/tests/lib/consent/vendors.test.ts`. The guest renderer re-checks rather than trusting the column, because a row can also arrive from a migration or a fixture.
+`external_url` must be an absolute `https:` URL, checked at the boundary by parsing it — not by shape-matching. It reaches an `<a href>` on the guest site, and an unvalidated URL there is a same-origin script sink: a `javascript:` value runs on the guest site's origin when a guest clicks it. The consent vendors' `privacyUrl` links keep the same rule, pinned by a test in `cire/ui/tests/consent-vendors.test.ts`. The guest renderer re-checks rather than trusting the column, because a row can also arrive from a migration or a fixture.
 
 The parse also **rejects embedded credentials** (`https://evil.com@retailer.example/…`, which reads as the retailer to a guest and resolves to `evil.com` to the browser) and **stores the parsed `URL.href`**, not the raw input — so what the column holds is the normalised form the browser would resolve, and two spellings of the same URL can't diverge between the check and the render.
 
@@ -606,13 +633,13 @@ A transport failure that is _not_ the first answer changes nothing at all: a lis
 
 **The predicate is the count, not the claimant.** A gift reads as Reserved when nothing is left *and* this household holds none of it. Not "another household has claimed it": a couple who asked for six of something can have five held elsewhere and a sixth this guest can still take. A household holding its own claim keeps working Change and Release controls whatever the count says, and is never faded.
 
-**"Reserved" is a real `disabled` button, and the fade is only ever the picture.** Opacity alone is not a state indicator, so the word carries the state, and the native `disabled` attribute is what earns the WCAG 1.4.3 exemption for drawing the control dimmed at all. `aria-disabled` is the opposite trade and is right where it is used — `cire/host/src/components/invite/DesignPicker.tsx` and `cire/invites/src/components/EventCard.tsx` both keep a further explanation behind the control that a keyboard user has to be able to reach, and neither may dim as a result. Here the word is the whole message, there is nothing behind it, and a page carries up to 500 of these, so a dead tab stop each is a real cost.
+**"Reserved" is a real `disabled` button, and the fade is only ever the picture.** Opacity alone is not a state indicator, so the word carries the state, and the native `disabled` attribute is what earns the WCAG 1.4.3 exemption for drawing the control dimmed at all. `aria-disabled` is the opposite trade and is right where it is used — `cire/host/src/components/invite/DesignPicker.tsx` keeps a further explanation behind the control that a keyboard user has to be able to reach, and may not dim as a result. Here the word is the whole message, there is nothing behind it, and a page carries up to 500 of these, so a dead tab stop each is a real cost.
 
 The card's **text** is never faded. The palette is derived per wedding (`derivePalette`) and held *to* the WCAG floors rather than comfortably above them, so an opacity over a wedding that lands at 4.51∶1 puts it under — and the conformance harness measures the evergreen fallback, so nothing would catch it. Only the picture dims, which is decorative (`alt=""`) and carries no floor. A gift with no picture therefore shows no fade at all, and the button is its only carrier. That is the accessible reading either way: the state is in the word, never in the opacity.
 
 **The control renders signed in or out.** Whether a gift is taken is a fact about the gift, not about the viewer's session. A guest whose session has lapsed still sees the disabled button — without it a dimmed card would carry no word saying why, which is the failure the word exists to prevent.
 
-**No optimistic update anywhere, on purpose.** Every count a guest reads came from a read the server had just answered. A claim that returns 409 `item_fully_claimed` refetches **both** reads, then says: _"Another guest reserved the last "X" a moment ago. The list below is up to date."_ — and leaves the guest's form open with what they typed still in it. `applyOutcome` is the single place that decides what a write means: `ok` / `fully-claimed` / `item-gone` re-read both, `hidden` re-reads the list (which then 404s, and the page says the couple have closed their list, with a link back to the invitation), `signed-out` drops to the signed-out surface, and rate-limited / invalid / transport errors re-read nothing because nothing moved.
+**No optimistic update anywhere, on purpose.** Every count a guest reads came from a read the server had just answered. A claim that returns 409 `item_fully_claimed` refetches **both** reads, then says: _"Another guest reserved the last "X" a moment ago. The list below is up to date."_ — and leaves the guest's form open with what they typed still in it. `applyOutcome` is the single place that decides what a write means: `ok` / `fully-claimed` / `item-gone` re-read both, `hidden` re-reads the list (which then 404s, and the page says the couple have closed their list, with a link back to the invitation), `signed-out` drops to the signed-out surface, and rate-limited / invalid / preview / transport errors re-read nothing because nothing moved.
 
 **The list is keyed by id, not by item — and the shelves by category string.** `<For>` reconciles by reference and every refetch parses fresh objects, so iterating the items would dispose and re-create every row on each re-read — throwing away the open claim form at precisely the moment the 409 path re-reads in order to show the new counts _beside_ the words the guest just wrote. Rows iterate ids and look the item up in `itemsById()`; shelves iterate `groupKeys()` (the category string, `null` for the unlabelled tail — both primitives that compare equal) and look the group up in `groupsByKey()`. Keying the shelves on the rebuilt group objects would take every open form under them down with the shelf.
 
@@ -634,7 +661,19 @@ The hint is wired with `aria-describedby`, conditional on there being a hint —
 
 **States that look alike and are not.** An unpublished registry, or one on a wedding below Gold, 404s: the page says the couple have closed their list and the band renders nothing at all on the invite. A visitor with no claim gets a 401, which is a different page again — a way in, not a refusal. A published empty list renders its masthead and "The couple haven't added any gifts yet." The shipping address renders only when the household read actually returned one — the field is optional on the wire and carries no reason, so absent covers both "the couple set none" and "you may not see it", and there is nothing honest to print in its place.
 
-**Copy and theme.** `registry_*` copy columns reach both surfaces as `eyebrow` / `heading` / `body`; `null` means the built-in default (`With Love` / `Gift Registry`), the same contract as the details section. Where both exist, the invite's own section copy wins over the registry module's `headline` / `message`, because it is section furniture themed with every other header. Resolution is pure (`giftRegistryEyebrow` / `giftRegistryHeading` / `giftRegistryBody`) so the Astro shell can render the masthead server-side, and **blank counts as unset** — a bare `??` chain would let a heading saved as `""` beat both fallbacks, which on a page of its own is an empty browser tab. `ThemeSection` carries `"registry"`, so both surfaces take a tone through the same `sectionVars` allow-list as the rest, and the page's masthead reuses the invite hero's own server-blurred `hero-bg` variant at the same URL — already in cache for a guest who came from the invitation — with the organiser's crop honoured through `heroCropLayers`.
+**What a visitor without a claim receives.** The page's server render carries the invite's public payload and nothing from the list: the couple's colours, hero photo and the section copy below. Gift titles, prices, counts and image names, the couple's `headline` and `message`, and the shipping address arrive only in the two credentialed reads, which answer 401 without a `cire_session`. A stale `cire_claimed` hint changes nothing, because the server decides: both reads still answer 401 and the page shows the way in. Two end-to-end flows hold the gate on the real stack ([[testing-patterns#The end-to-end suite]]), and a third holds the preview's refusal. The first two look for the gift titles, the `headline` and the `message` as text; the rest of the list is held by the two reads' status codes:
+
+| Flow | What it proves |
+| --- | --- |
+| `cire-registry-locked` | With no code, on both page addresses, and with a stale hint beside a session the browser sends and the API never issued: the list read answers 401, the page shows the locked panel, and none of the gifts, the headline or the message is in the page. The same strings are absent from the API's list answer, from the public invite payload and from the invitation, which shows no band |
+| `cire-registry-claimed` | The locked page sends the visitor to the invitation; the household's code opens the band and then the list, with every gift, the headline and the message. Signing out on the invitation locks the list again and deletes the household's session |
+| `cire-registry-preview` | The invitation opened at the host preview code, as **Preview invite** opens it, claims on load. The gift page reads the list and `/mine` (with `preview: true`), shows the "Preview mode" note and every Reserve disabled. A reservation sent from the page anyway answers `403 preview_read_only`, and no claim row exists for the host household |
+
+The refusals in isolation (no cookie, a household of another wedding, the host preview household on each write, the image route) stay in `cire/api/tests/routes/registry-guest.test.ts` and `registry-contribute.test.ts`. A browser that already holds a session opens the list for its 30 days whoever is at the keyboard: one that claimed before, or the organiser's own after **Preview invite**, which claims the wedding's host household through `?code=` without anyone typing it ([[cire-auth#Host preview code (organiser "Preview invite")]]). That is the gate working, not a gap in it; what a preview may not do is write.
+
+**The organiser's preview.** `/mine` answers `preview: true` for the host household. The page then shows a "Preview mode" note above the list, in the same style as the session-ended note and opening with the invite's own "Preview mode." words, renders each card's Reserve as a disabled button (as "Reserved" is), offers no Change or Release, and disables the money panel's button. A write sent from a page whose household read did not say `preview` (one loaded under a guest's session before the browser claimed the preview code) maps `403 preview_read_only` to its own "Preview mode." message; any other 403 stays a generic failure.
+
+**Copy and theme.** `registry_*` copy columns reach both surfaces as `eyebrow` / `heading` / `body`; `null` means the built-in default (`With Love` / `Gift Registry`), the same contract as the details section. **They are public**: they travel in the invite payload, which reaches anyone with the link, and the gift page's masthead renders `eyebrow` and `heading` for every visitor. So only section furniture belongs in them; the couple's own words about their list belong in the registry module's `message`, which travels with the gated list. Where both exist, the invite's own section copy wins over the registry module's `headline` / `message`, because it is section furniture themed with every other header. Resolution is pure (`giftRegistryEyebrow` / `giftRegistryHeading` / `giftRegistryBody`) so the Astro shell can render the masthead server-side, and **blank counts as unset** — a bare `??` chain would let a heading saved as `""` beat both fallbacks, which on a page of its own is an empty browser tab. `ThemeSection` carries `"registry"`, so both surfaces take a tone through the same `sectionVars` allow-list as the rest, and the page's masthead reuses the invite hero's own server-blurred `hero-bg` variant at the same URL — already in cache for a guest who came from the invitation — with the organiser's crop honoured through `heroCropLayers`.
 
 **Where each half of that copy renders.** The masthead's eyebrow and heading come from the invite payload, which is public, so they are server-rendered; the module's own `headline` / `message` arrive with the gated list, so the **intro paragraph** is the island's and carries the whole chain (invite body, then module message). One paragraph, one place, and neither surface waits on the other.
 
@@ -664,4 +703,4 @@ Every handler runs `Effect.tapDefect` before its catch-all, so a defect is **log
 
 ## Still to land
 
-- **A guest paying in their own currency** is not offered; until it is, the four FX columns stay NULL and there is no rate to capture (see [Money](#money)). Part of englishstventures/osn#482.
+- **A guest paying in their own currency** is not offered; until it is, the four FX columns stay NULL and there is no rate to capture (see [Money](#money)). Part of englishstreetventures/osn#482.

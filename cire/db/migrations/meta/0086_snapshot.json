@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "bdd9a401-591b-4e5a-bf74-8f973f00db7f",
-  "prevId": "e6402b6e-9b89-4b7e-8a12-d1155c24d33c",
+  "id": "983e4c15-e3fb-40fb-91d5-6df07a9410b1",
+  "prevId": "d3890306-b3f2-46ef-b3d2-f16dbe7b7ebb",
   "tables": {
     "budget_items": {
       "name": "budget_items",
@@ -2854,13 +2854,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'manual'"
-        },
-        "assigned_host_id": {
-          "name": "assigned_host_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -2872,14 +2865,6 @@
             "sort_order"
           ],
           "isUnique": false
-        },
-        "tasks_assigned_host_idx": {
-          "name": "tasks_assigned_host_idx",
-          "columns": [
-            "assigned_host_id"
-          ],
-          "isUnique": false,
-          "where": "assigned_host_id IS NOT NULL"
         },
         "tasks_wedding_template_item_unique": {
           "name": "tasks_wedding_template_item_unique",
@@ -2904,19 +2889,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "tasks_assigned_host_id_wedding_hosts_id_fk": {
-          "name": "tasks_assigned_host_id_wedding_hosts_id_fk",
-          "tableFrom": "tasks",
-          "tableTo": "wedding_hosts",
-          "columnsFrom": [
-            "assigned_host_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

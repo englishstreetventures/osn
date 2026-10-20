@@ -14,7 +14,7 @@ related:
   - "[[dev-environment]]"
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-20
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -98,7 +98,7 @@ marked **TBD** blocks the deploy.
 | cire `OSN_JWKS_URL` / `OSN_ISSUER_URL` | cire-api | **DONE — `https://id.musubi.social/.well-known/jwks.json` / `https://id.musubi.social`** (must equal osn-api's own `OSN_ISSUER_URL`, so these flip in the **same** deploy as osn-api's) |
 | `CIRE_API_ARC_PRIVATE_KEY` + `CIRE_API_ARC_KEY_ID` + `OSN_API_URL` | cire-api | needed only if guest account-linking is enabled (section 6.2) |
 | cire/invites `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/invites **SSR Worker** | **DONE — `https://api.cireweddings.com` / `https://invite.cireweddings.com`** (set in `production-release.yml`). No `PUBLIC_WEDDING_SLUG` — wedding resolved from the path. `invite.` is served by the `cire-invites` Worker (custom-domain route), not a Pages project — see §3.3. The apex serves the marketing landing site. |
-| cire/host `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ACCOUNT_URL`, `PUBLIC_CIRE_WEB_URL` (build-time) | cire/host Pages | **DONE — `https://api.cireweddings.com` / `https://musubi.social` / `https://invite.cireweddings.com`** (set in `production-release.yml`). `PUBLIC_OSN_ISSUER_URL` is **gone** as of the 2026-07-27 OIDC swap — the frontends never call the issuer |
+| cire/host `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ACCOUNT_URL`, `PUBLIC_CIRE_WEB_URL`, `PUBLIC_MARKETING_URL` (build-time) | cire/host Pages | **DONE — `https://api.cireweddings.com` / `https://musubi.social` / `https://invite.cireweddings.com` / `https://cireweddings.com`** (set in `production-release.yml`). `PUBLIC_OSN_ISSUER_URL` is **gone** as of the 2026-07-27 OIDC swap — the frontends never call the issuer |
 | `CIRE_OIDC_CLIENT_SECRET` + the `oauth_clients` row for cire | cire-api (secret) + osn D1 | **DONE 2026-07-27** — client `cid_cire` seeded in prod D1, secret set on the production cire-api Worker (§3.2, §6.3). The row's `redirect_uris` still lists the dead `api-preview` callback; pruning it is an open prod-D1 write |
 | musubi/social `VITE_OSN_ISSUER_URL` (build-time) | musubi/social Pages (`osn-social`) | **DONE — `https://id.musubi.social`** (set in `production-release.yml`, job `deploy-osn-social`) |
 | musubi/social `VITE_TURNSTILE_SITEKEY` (build-time) | musubi/social Pages (`osn-social`) | **DONE — `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}`** in `deploy-osn-social`. **Not optional**: osn-api holds `TURNSTILE_SECRET_KEY`, and musubi.social is now the only origin running the OSN ceremonies, so a blank sitekey means `400 turnstile_failed` on every sign-in and registration (this is exactly what broke on 2026-07-27). [[turnstile]] |
@@ -419,6 +419,7 @@ quietly accepting tokens from anywhere.
 | `CIRE_OIDC_CLIENT_ID` | `wrangler.toml` `[env.production.vars]` | **Yes** | **`cid_cire`** — the registered client. Not a secret. |
 | `CIRE_OIDC_CLIENT_SECRET` | `wrangler secret put CIRE_OIDC_CLIENT_SECRET --env production` | **Yes** | The client secret, presented as `client_secret_post` at the token endpoint. Must be the pre-image of `oauth_clients.client_secret_hash` in osn's D1 — **rotate both together or organiser sign-in dies at the exchange** (§3.5). Any of the four OIDC values absent ⇒ `/api/auth/oidc/*` answers **503 `sign_in_unavailable`** and nothing else changes (`src/index.ts:291-308`). |
 | `CIRE_OPS_EMAIL` | `wrangler secret put CIRE_OPS_EMAIL --env production` | **Optional** | The operator address for the daily "vendor claims are waiting for review" email and the R2 orphan reconcilers' alerts ([[backup-dr]]). A secret because the repo is public. Needs `RESEND_API_KEY` on this Worker too; with either unset no email is sent and the cron's log line is the only signal (`src/index.ts` `scheduled`). [[cire-vendors]] |
+| `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` | `wrangler secret put CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS --env production` | **Optional** | Comma-separated wedding ids whose households get the household member step ("Who are you?", reply attribution, `member_required`, "Answered by") only while `cire.account-linking` is on for them (and the ARC bridge is configured); every other guest household always gets it. A secret because the repo is public and a wedding id is the couple's; never a `[vars]` entry, since a declared var's name cannot also be a secret. Unset or empty ⇒ no wedding excluded. Find an id by hand, never in a pull request, issue or changeset: `bunx wrangler d1 execute cire-db --env production --remote --command "SELECT id FROM weddings WHERE slug = '<slug>'"`. Set it **before** approving the release that first deploys the code reading it, or that wedding's households are asked "Who are you?" and their replies stamped until it lands; rows stamped by then keep their stamp. An isolate reads it once when it builds the app and logs `member step exclusion loaded` with the count (a warning when an entry is not a `wed_…` id), never the ids; a later change needs a forced `production-release.yml` run (`force`, surface `cire_api`). [[cire-auth]] |
 | `CIRE_R2_RECONCILE_DISABLED` | `wrangler.toml` `[env.production.vars]` (and every other tier's vars block) | **Yes — `"false"` or `"true"`** | Tier-wide switch for the cron's two R2 orphan reconcilers. `"true"` (any value but `"false"`) leaves both out of `scheduled`, logs `r2 reconcile disabled by CIRE_R2_RECONCILE_DISABLED` and emails `CIRE_OPS_EMAIL` each run; every other cron job still runs. It changes only with a deploy; to stop the reconcilers at once, around a `cire-db` restore, put `reconcile/stop` in each bucket instead ([[backup-dr]]). A dashboard edit is written back by the next deploy. Never a secret: it is a declared var. `tests/services/r2-reconcile.test.ts` fails unless every tier holds `"false"` or `"true"`. |
 | `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). In a deployed tier cire-api refuses it: no mail is sent, and `email disabled: Resend misconfigured` is logged. The production deploy job refuses to run while it exists as a secret. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | `wrangler secret put` | Recommended | Worker observability. [[observability-setup]] |
@@ -485,10 +486,11 @@ build outside CI, export these before `bun run --cwd <site> build`.
 |---|---|---|---|---|
 | `PUBLIC_API_URL` | cire/invites | **Yes** | `https://api.cireweddings.com` | cire-api prod origin, read server-side (`[slug].astro` / `index.astro` via `src/lib/invite.ts`) **and** by the islands (dev default `http://localhost:8787`). |
 | `PUBLIC_SITE_URL` | cire/invites | Recommended | `https://invite.cireweddings.com` | Guest site canonical URL. The apex serves the marketing landing site since the 2026-07-16 reshuffle. |
-| `PUBLIC_GOOGLE_MAPS_EMBED_KEY` | cire/invites | Optional | _(unset)_ | Google Maps Platform key with the **Maps Embed API** enabled. When set, the event "Where" section renders a real Maps Embed iframe (queried by the free-text venue address — no coordinates, no geocoding); when unset/blank it falls back to the CSS-drawn map card, so it is a pure enhancement (`cire/invites/src/components/MapPreview.tsx`). **Human step:** create the key, **enable only the Maps Embed API**, and **restrict it by HTTP referrer** to the guest-site origin(s) — the key bakes into static HTML, and a referrer-restricted Embed-only key is safe to ship. |
+| `PUBLIC_GOOGLE_MAPS_EMBED_KEY` | cire/invites | Optional | _(unset)_ | Google Maps Platform key with the **Maps Embed API** enabled. When set, the venue row of the event details renders a real Maps Embed iframe once the guest allows Google Maps (queried by the free-text venue address — no coordinates, no geocoding); when unset/blank it falls back to the CSS-drawn map card, so it is a pure enhancement (`cire/invites/src/components/MapPreview.tsx`). **Human step:** create the key, **enable only the Maps Embed API**, and **restrict it by HTTP referrer** to the guest-site origin(s) — the key bakes into static HTML, and a referrer-restricted Embed-only key is safe to ship. |
 | `PUBLIC_CIRE_API_URL` | cire/host | **Yes** | `https://api.cireweddings.com` | cire-api prod origin (`cire/host/src/lib/osn.ts`; `PUBLIC_API_URL` honoured as legacy fallback). |
 | `PUBLIC_OSN_ACCOUNT_URL` | cire/host **and** cire/vendor | Recommended | `https://musubi.social` | Where "Manage your account" links point — passkeys, recovery codes and connected apps all live on musubi's own origin now. **Replaced `PUBLIC_OSN_ISSUER_URL` on 2026-07-27**: the frontends no longer talk to the issuer at all. Sign-in is a top-level redirect to cire-api (`/api/auth/oidc/start`), which runs the code exchange server-side. [[cire-auth]], [[oidc-provider]] |
 | `PUBLIC_CIRE_WEB_URL` | cire/host | Recommended | `https://invite.cireweddings.com` | Guest site URL used in organiser preview links (`osn.ts`). |
+| `PUBLIC_MARKETING_URL` | cire/host **and** cire/invites | Recommended | `https://cireweddings.com` | The marketing site's origin. The guest site sends its bare `/` there; the organiser portal's RSVP editor links its `/privacy` (`osn.ts`). |
 | `VITE_OSN_ISSUER_URL` | musubi/social | **Yes** | `https://id.musubi.social` | osn-api prod origin for the identity app **and** the `/authorize` consent screen (`musubi/social/src/lib/auth.ts`, dev default `http://localhost:4000`). A Vite SPA, so this bakes into the bundle: unset, the deployed app dials the visitor's own localhost. Set in `production-release.yml` (`deploy-osn-social`). A second job, `deploy-osn-social-dev` in `deploy.yml`, builds the same app with `https://id.dev.musubi.social` for `dev.musubi.social` — change one and change the other, or dev silently dials prod identity. [[dev-environment]] |
 | `PUBLIC_TURNSTILE_SITEKEY` | cire/invites | Optional (key-optional) | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Cloudflare Turnstile **sitekey** (public — safe to embed in client HTML). When set, the guest claim form (cire/invites) renders the Turnstile challenge and gates submit on it; when unset/blank no widget renders and no token is sent. Wired in the `deploy-cire-invites` build step (and `deploy-cire-invites-dev`), and the repo **Variable** is set (#160). Genuinely optional **here**, because the matching `TURNSTILE_SECRET_KEY` is **unset on cire-api** today (§3.2). The organiser and vendor builds do not read it: since the 2026-07-27 OIDC swap they render no OSN ceremony form. |
 | `VITE_TURNSTILE_SITEKEY` | musubi/social | **Yes — see note** | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Same widget, same repo Variable; the name differs only because Vite exposes `VITE_*` where Astro exposes `PUBLIC_*`. Feeds `turnstileSiteKey` into `SignIn` + `Register` (`@shared/ui`) at all three call sites — the sidebar dialogs and the `/authorize` sign-in island — via `musubi/social/src/lib/auth.ts`, which normalises blank to `undefined`. **Key-optional in code but required in production:** osn-api's `TURNSTILE_SECRET_KEY` is set, so a blank sitekey fails every gated call closed with `400 turnstile_failed`. Set in `production-release.yml` (`deploy-osn-social`), and again in `deploy.yml` (`deploy-osn-social-dev`) — so `dev.musubi.social` needs its own widget **Domains** entry alongside `musubi.social`, or dev sign-in fails closed the same way. [[turnstile]] [[dev-environment]] |
@@ -990,6 +992,7 @@ bun run scripts/smoke-check.ts cire_invites production   # the check CI runs (§
 PUBLIC_CIRE_API_URL=https://api.cireweddings.com \
 PUBLIC_OSN_ACCOUNT_URL=https://musubi.social \
 PUBLIC_CIRE_WEB_URL=https://invite.cireweddings.com \
+PUBLIC_MARKETING_URL=https://cireweddings.com \
   bun run --cwd cire/host build
 bunx wrangler pages deploy cire/host/dist --project-name cire-organiser
 ```
@@ -1137,7 +1140,7 @@ dispatch it by hand, or open the scheduled one, and read the plan before approvi
 > cutover and 2026-09-13. The `Preflight — required prod secrets are set` step in
 > `production-release.yml` guards against exactly this, but it only asserts the names
 > in its own `required` list, which today holds `OSN_PAIRWISE_SALT` alone — **a new
-> fail-closed secret is caught only if somebody adds its name there** (englishstventures/osn#1021
+> fail-closed secret is caught only if somebody adds its name there** (englishstreetventures/osn#1021
 > is extending the list to the whole set). The smoke check after the deploy (§7) catches
 > the 503 and rolls osn-api back, but only after the new version has served for up to a
 > minute. So before approving a release that introduces one, diff the names yourself:
@@ -1226,7 +1229,7 @@ counts with no Checklist or Budget card, its Checklist, Budget and Registry rows
 say "Included with Gold" and Vendors "Included with Crimson"; a migrated Crimson
 wedding opens every module.
 
-The release that follows — englishstventures/osn#1315, which deletes the legacy
+The release that follows — englishstreetventures/osn#1315, which deletes the legacy
 entitlement rows and drops the portal's fallback and the list's legacy keys —
 ships only once this one is live on both jobs.
 
@@ -1359,8 +1362,8 @@ How it decides:
   offers it again, the same content included, until the cause is fixed (§5.0 item 7);
   on dev the dev gate holds the change back from production.
 - A rollback restores code only. The migrations the job applied stay (§4).
-- Dispatching **Deploy** with `smoke_fail` set to a dev Worker forces that Worker's
-  check to fail — the dry run of the rollback path ([[dev-environment]] §2).
+- The rollback path has run on dev. The record, and how to prove it again by hand,
+  are in [[dev-environment]] §2, *Proving the rollback path*.
 
 ### The checks
 
@@ -1388,7 +1391,7 @@ How it decides:
    without `OSN_TOTP_ENCRYPTION_KEY` from the 2026-07-27 cutover to 2026-09-13. The smoke
    check fails such a deploy and rolls it back, after up to a minute of 503s; re-read
    §0 against `wrangler secret list --env <tier>` when the list above grows. Extending
-   the preflight to the whole set is englishstventures/osn#1021.
+   the preflight to the whole set is englishstreetventures/osn#1021.
 
    `/.well-known/jwks.json` must also return an ES256 (`alg:"ES256"`, P-256) JWK; the
    smoke check asks for one.
@@ -1711,7 +1714,7 @@ Set `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` to the value **currently live** in
 > `printf '%s' "$OLD_KEY" | base64 -d | wc -c` must print `32`.
 
 ```bash
-gh secret set OSN_TOTP_ENCRYPTION_KEY_PREVIOUS --repo englishstventures/osn --env production
+gh secret set OSN_TOTP_ENCRYPTION_KEY_PREVIOUS --repo englishstreetventures/osn --env production
 # then run the `set-osn-api-secret` workflow: secret=OSN_TOTP_ENCRYPTION_KEY_PREVIOUS, tier=production
 # or, by hand — read the warning above first:
 cd osn/api && printf '%s' "$OLD_KEY" | bunx wrangler secret put OSN_TOTP_ENCRYPTION_KEY_PREVIOUS --env production
@@ -1732,7 +1735,7 @@ Generate the new key, **keep a copy**, set it, redeploy.
 
 ```bash
 openssl rand -base64 32          # keep this value; you will need it to rotate again
-gh secret set OSN_TOTP_ENCRYPTION_KEY --repo englishstventures/osn --env production
+gh secret set OSN_TOTP_ENCRYPTION_KEY --repo englishstreetventures/osn --env production
 # then run the `set-osn-api-secret` workflow: secret=OSN_TOTP_ENCRYPTION_KEY, tier=production
 ```
 

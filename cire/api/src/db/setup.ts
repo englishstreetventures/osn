@@ -10,6 +10,7 @@ import {
 import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { DEFAULT_RSVP_DEADLINE_TIMEZONE, resolveRsvpDeadline } from "../lib/rsvp-deadline";
 import type { Db } from "./index";
 
 // Re-exported for the seed path + tests. The single source of truth lives in
@@ -740,4 +741,187 @@ export function repointDevOwnerSeat(db: TestDb, osnProfileId: string): void {
     .set({ osnProfileId, addedByOsnProfileId: osnProfileId, role: "owner" })
     .where(eq(schema.weddingHosts.id, DEV_OWNER_SEAT_ID))
     .run();
+}
+
+/**
+ * Gives the sample wedding an RSVP deadline: the last moment of `date`
+ * (`YYYY-MM-DD`) in UTC. The local dev server calls it when
+ * `CIRE_E2E_RSVP_DEADLINE` is set; the E2E suite sets one far in the future,
+ * so this server keeps taking replies on the suite clock while a flow moves
+ * the browser's clock past the deadline.
+ *
+ * `seedDb` sets no deadline, so every test on the real clock sees RSVPs open.
+ * A date that is not a real calendar day throws instead of being stored: it
+ * would read back as no deadline at all.
+ */
+export function setSampleRsvpDeadline(db: TestDb, date: string): void {
+  if (resolveRsvpDeadline(date, DEFAULT_RSVP_DEADLINE_TIMEZONE, new Date()) === null) {
+    throw new Error(`RSVP deadline is not a YYYY-MM-DD calendar date: "${date}"`);
+  }
+  db.update(schema.weddings)
+    .set({ rsvpDeadline: date, rsvpDeadlineTimezone: DEFAULT_RSVP_DEADLINE_TIMEZONE })
+    .where(eq(schema.weddings.id, schema.BOOTSTRAP_WEDDING_ID))
+    .run();
+}
+
+/**
+ * The local dev server's reading of `CIRE_E2E_RSVP_DEADLINE`: set, it gives the
+ * sample wedding that deadline (`setSampleRsvpDeadline`); unset or empty, the
+ * seed's open RSVPs stand, which is what every `bun run dev` without the E2E
+ * suite gets.
+ */
+export function applyE2eRsvpDeadline(
+  db: TestDb,
+  env: Readonly<Record<string, string | undefined>>,
+): void {
+  const date = env.CIRE_E2E_RSVP_DEADLINE;
+  if (date) setSampleRsvpDeadline(db, date);
+}
+
+/**
+ * A second wedding for the E2E suite's gift-list flows: on Gold, with a
+ * published list of three gifts, one household of one invited to one event,
+ * and the wedding's host preview household. The values the flows check are
+ * written out again in
+ * `tools/e2e/src/config.ts` (`CIRE_GIFT_LIST`); a change here goes there too,
+ * and the claimed flow fails until it does.
+ *
+ * Its own wedding rather than the sample one, so the gift band that a
+ * published list puts on the invite never appears in the other cire flows.
+ * No `image_key` on any gift: the local asset store starts empty.
+ */
+export function seedE2eGiftList(db: TestDb): void {
+  const now = new Date();
+  const weddingId = "wed_e2e_gift_list";
+  const eventId = "evt_e2e_gift_reception";
+  const familyId = "fam_e2e_gift_list";
+  const guestId = "gst_e2e_gift_list";
+
+  db.insert(schema.weddings)
+    .values({
+      id: weddingId,
+      slug: "gift-wedding",
+      displayName: "Gift Wedding",
+      tier: "gold",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.events)
+    .values({
+      id: eventId,
+      weddingId,
+      slug: "reception",
+      name: "Reception",
+      startAt: "2099-06-20T16:00:00+00:00",
+      endAt: "2099-06-20T22:00:00+00:00",
+      timezone: "UTC",
+    })
+    .run();
+  db.insert(schema.families)
+    .values({
+      id: familyId,
+      weddingId,
+      publicId: "TESTGFT-FIG-EE55",
+      familyName: "Giftfamily",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guests)
+    .values({
+      id: guestId,
+      familyId,
+      firstName: "Gil",
+      lastName: "Giftfamily",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guestEvents).values({ guestId, eventId }).run();
+
+  // The wedding's host preview household, as `hostCodeService.ensureForWedding`
+  // makes it for "Preview invite", with a fixed code so a flow can open the
+  // preview link without the organiser portal.
+  db.insert(schema.families)
+    .values({
+      id: "fam_e2e_gift_host",
+      weddingId,
+      publicId: "HOST-E2E00000000000000000000000000001",
+      familyName: "Host Preview",
+      kind: "host",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guests)
+    .values({
+      id: "gst_e2e_gift_host",
+      familyId: "fam_e2e_gift_host",
+      firstName: "Wedding",
+      lastName: "Host",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guestEvents).values({ guestId: "gst_e2e_gift_host", eventId }).run();
+
+  db.insert(schema.registrySettings)
+    .values({
+      weddingId,
+      published: true,
+      headline: "Our gift list",
+      message: "Your being there is the gift. This list is here if you would like it.",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.registryItems)
+    .values([
+      {
+        id: "reg_e2e_gift_0001",
+        weddingId,
+        title: "Copper saucepan",
+        priceMinor: 32_000,
+        category: "Kitchen",
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "reg_e2e_gift_0002",
+        weddingId,
+        title: "Stoneware mixing bowls",
+        priceMinor: 14_500,
+        quantityWanted: 2,
+        category: "Kitchen",
+        sortOrder: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "reg_e2e_gift_0003",
+        weddingId,
+        title: "A walk on the beach together",
+        priceMinor: null,
+        category: null,
+        sortOrder: 2,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ])
+    .run();
+}
+
+/**
+ * The local dev server's reading of `CIRE_E2E_REGISTRY`: `"1"` adds the
+ * gift-list wedding (`seedE2eGiftList`); anything else, unset included, leaves
+ * the seed as it is, which is what every `bun run dev` without the E2E suite
+ * gets.
+ */
+export function applyE2eGiftList(
+  db: TestDb,
+  env: Readonly<Record<string, string | undefined>>,
+): void {
+  if (env.CIRE_E2E_REGISTRY === "1") seedE2eGiftList(db);
 }

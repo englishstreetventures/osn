@@ -287,7 +287,7 @@ function tierGrantStatement(
  * portal build that reads keys rather than `tier` locks exactly what the tier
  * leaves locked.
  */
-// Removed by englishstventures/osn#1315.
+// Removed by englishstreetventures/osn#1315.
 export function legacyEntitlementKeys(tier: Tier, holdsPremiumTemplates: boolean): string[] {
   const keys: string[] =
     tier === "crimson"

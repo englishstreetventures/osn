@@ -4,8 +4,7 @@
 "@cire/landing": patch
 ---
 
-Five findings from a self-hosted-fonts follow-up (englishstventures/osn-tracker#128,
-#129, #130, #131, #132):
+Five fixes from a self-hosted-fonts follow-up:
 
 - `bun run build` now fails loudly instead of shipping a fontless site when
   Astro's build-time Google Fonts fetch silently drops every font

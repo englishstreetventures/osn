@@ -5,7 +5,7 @@ tags: [convention, review]
 related:
   - "[[contributing]]"
   - "[[stacked-prs]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-20
 ---
 
 # Review Finding IDs
@@ -28,10 +28,10 @@ All review skills (`/review-security`, `/review-performance`, `/review-tests`) t
 | `T-E` | review-tests | Error path |
 | `T-R` | review-tests | Route test |
 | `T-S` | review-tests | Suggestion |
-| `C-C` | review-security (compliance section) | Critical compliance — blocks deploy / triggers regulatory exposure |
-| `C-H` | review-security (compliance section) | High compliance — fix before next release |
-| `C-M` | review-security (compliance section) | Medium compliance — schedule into next sprint |
-| `C-L` | review-security (compliance section) | Low compliance — opportunistic fix or hardening |
+| `C-C` | review-security (compliance section) | Critical compliance — blocks deploy; fix on this branch or a follow-up PR opened before it merges |
+| `C-H` | review-security (compliance section) | High compliance — fix on this branch or a follow-up PR opened before it merges |
+| `C-M` | review-security (compliance section) | Medium compliance — fix on this branch or a follow-up PR |
+| `C-L` | review-security (compliance section) | Low compliance — fix on this branch or a follow-up PR |
 
 ## Numbering
 
@@ -54,40 +54,106 @@ Each finding uses a four-field format:
 | **Solution** | Concrete fix or mitigation |
 | **Rationale** | Why this solution is the right approach |
 
-## Critical and high findings are not deferrable
+## Fix findings; do not file them
 
-> [!important] A `critical` or `high` finding is fixed on the branch that found
-> it, or in a pull request opened immediately after and linked before that
-> branch merges. Filing it and moving on is not one of the options.
+> [!important] A session fixes what its reviews find. Everything within the
+> feature's scope is fixed on the branch; an issue is left open only for work
+> out of the feature's scope, something unrelated found mid-task, or a larger
+> piece of work.
 
-Everything below this line is about how a finding is *recorded*. This rule is
-about whether it is allowed to stay open, and it comes first because the
-recording convention exists to serve it rather than to substitute for it.
+An open issue is work handed to a future session that knows less than this one
+does. A branch that closes one issue and leaves five behind has made the
+backlog longer, so the measure of a session is what it **leaves open**, not
+what it files. An issue the session files and its own pull request closes adds
+nothing to that count; one filed and left open is a debt.
+
+### In scope is fixed; three things may stay open
+
+**Within the feature's scope, everything is fixed on this branch, at every
+severity.** The scope is the files the branch changes, their tests and their
+docs, and every finding in those files, whether the branch introduced it or
+found it there.
+
+An issue is left open only for something in one of these three, and the report
+names which:
+
+1. **Out of scope for the feature.** Real work that belongs to a different
+   feature or surface than the one this branch delivers.
+2. **Unrelated, and found mid-task.** Something that looks irrelevant to the
+   task and only came to light while doing it: a finding in a file the branch
+   does not change, even in the same package, a flaky test elsewhere, a stale
+   page about another system.
+3. **A larger piece of work.** A project of its own — `rate-complexity` would
+   rate it 5 or 8 — or one that needs what the session cannot supply: the
+   owner's choice between designs, money or a public contract (write the
+   proposal and add `needs:decision`, see
+   [[#When the fix needs a decision from the owner]]), or production access, a
+   secret, a third party or a deploy.
+
+Never reasons to leave something in scope open: "low severity", "pre-existing",
+"would make the diff bigger", "a later pull request can tidy it", or the review
+running late. A session that runs out of budget, or whose fix failed, says
+what it did not reach, to the person, and still files each unfixed `S-`, `P-`
+or `C-` finding in the tracker so it keeps an owner — as unfinished work, not
+as one of the three.
+
+Some findings ask for no work. An `info` finding is filed in the tracker for
+its record and closed at once, so it never counts as open. A `T-S` suggestion, a
+nit or an observation is fixed on this branch or recorded in the report, never
+filed.
+
+### One follow-up pull request, not one per fix
+
+What is small in the first two goes on **one** follow-up pull request rather
+than into issues: every such fix as its own commit on a single second branch
+(stacked on this one when it needs this one's code, from `main` otherwise, see
+[[stacked-prs]]), opened after this branch's pull request and before the
+session ends. Its issues are closed by its merge. Its own reviews do not spawn a
+third pull request: what they find out of its scope becomes an issue.
+
+The session that found the work does not cut that branch itself. A session
+that cuts two branches leaves its spend on neither metrics card, so it
+dispatches a subagent whose prompt opens `TASK-BRANCH: <follow-up branch>`,
+which cuts the branch, fixes, and runs `prep-pr`. When any fix is for an `S-`,
+`P-` or `C-` finding, the branch name, commit messages and title name the area
+or the tracker number, never the defect — `new-feat` Step 0's rule, applied
+before the first commit, because the public repository's branch list
+publishes the name before the fix lands.
+
+### More than two left open
+
+Count the issues a pull request leaves open that no open pull request will
+close. **More than two means something in scope was filed.** Before filing a
+third, put the list to the owner; with no owner to ask, fix the in-scope ones
+and keep only what fits the three. A reviewer of the work — the orchestrator,
+or the owner — checks the count against the tally in the `prep-pr` report and
+names any issue that fits none of the three.
+
+### Critical and high
+
+A `critical` or `high` finding is never left open, whichever of the three it
+falls in: it is fixed on the branch that found it, or in a pull request opened
+immediately after and linked before that branch merges. One that truly needs
+the owner — a design choice, a secret, production access — **blocks the merge**
+until the fix lands or the owner accepts the risk in writing on its tracker
+issue; adding `needs:decision` does not release it. A run with no owner to ask
+fixes every `critical` and `high` itself, and one that cannot names each as
+blocking and does not call the branch ready.
 
 The reasoning is the same one that makes the tracker private. A filed-and-open
 `critical` or `high` is a live, unpatched defect whose location is now written
-down; the issue is an attack map with a timer on it, and every day it stays
-open is a day that map exists for a defect nobody is fixing. A finding fixed in
-the same breath as it is found never becomes that.
+down; the issue is an attack map with a timer on it. A finding fixed in the
+same breath as it is found never becomes that.
 
-`medium` and below may be filed and scheduled. `info` records an observation
-and asks for no fix at all.
-
-Two consequences worth stating, because they are the ones people work around:
-
-- **"Out of scope for this branch" is not a deferral.** If the finding is real
-  and it is `high`, the follow-up pull request is opened now, not added to a
-  backlog. A tracked follow-up that exists as a link in the PR body satisfies
-  this; one that exists as an intention does not.
-- **Downgrading severity to avoid the rule is the failure mode.** Severity
-  comes from the tier letter in the finding ID, which the review assigns
-  before anyone knows what fixing it would cost. Re-rating it afterwards to
-  make it deferrable is the same contamination as re-rating an issue's
-  complexity once its token cost is on screen.
+**Downgrading severity to avoid the rule is the failure mode.** Severity comes
+from the tier letter in the finding ID, which the review assigns before anyone
+knows what fixing it would cost. Re-rating it afterwards to make it deferrable
+is the same contamination as re-rating an issue's complexity once its token
+cost is on screen.
 
 ## Filing a finding
 
-Findings live in **`englishstventures/osn-tracker`**, a private repo. `englishstventures/osn` is public, and a finding names an unpatched route -- filing one there publishes an attack map. Route by *kind*, never by severity: an `S-`, `P-`, or `C-` ID goes to the tracker however minor it looks.
+Findings live in **`englishstreetventures/osn-tracker`**, a private repo. `englishstreetventures/osn` is public, and a finding names an unpatched route -- filing one there publishes an attack map. Route by *kind*, never by severity: an `S-`, `P-`, or `C-` ID goes to the tracker however minor it looks.
 
 ### The body has to stand alone
 
@@ -102,7 +168,7 @@ An issue is read once, months later, by someone with no branch checked out and n
 One issue per finding, with the ID leading the title and the four fields as the body:
 
 ```bash
-gh issue create --repo englishstventures/osn-tracker \
+gh issue create --repo englishstreetventures/osn-tracker \
   --title "S-M3 -- No rate limit on /foo endpoint" \
   --type Bug \
   --label "area:security" --label "severity:medium" --label "product:cire"
@@ -123,11 +189,11 @@ Rules:
 - **Close a finding, never delete it** -- the history matters, and a closed issue keeps the body, the fix commit, and the discussion. Deleting an issue is out of bounds for every script and command in this repo.
 - A finding fixed on a branch is closed by that branch's merge: its pull request carries a bare `Closes englishstreetventures/osn-tracker#<n>` line. A finding found and fixed on the same branch is filed first, in `/prep-pr` Step 7, so the merge has an issue to close and the tracker keeps the record. A finding dismissed as no defect is filed and closed as not planned, its reasoning in the body.
 - A public pull request -- its title, body, comments and commits -- carries a tracker issue only as that bare reference: never the finding ID, the title, the file and line, or a word about the defect. The `write-pr` skill (`.claude/skills/write-pr/SKILL.md`) holds the rule and what to do when the reference itself is refused.
-- Sorting is a filter now, not a file convention: `gh issue list --repo englishstventures/osn-tracker --label severity:high --state open`.
+- Sorting is a filter now, not a file convention: `gh issue list --repo englishstreetventures/osn-tracker --label severity:high --state open`.
 - File new findings from PR reviews immediately, in `/prep-pr` Step 7.
-- Several findings from one piece of work go on **stacked PRs**, one fix per PR, base of each set to the one below it -- see [[stacked-prs]].
+- Findings one branch cannot fix in its own files go on **one** follow-up pull request, one commit per fix -- see [[#One follow-up pull request, not one per fix]] and [[stacked-prs]].
 
-`T-*` test findings are not filed. They are coverage gaps, not defects -- `/prep-pr` Step 4 raises them and they get closed in the branch or waved through.
+`T-*` test findings are not filed. They are coverage gaps, not defects -- `/prep-pr` Step 4 raises them and the branch writes the missing tests before it opens. A `T-S` suggestion the branch declines is a line in the report, not an issue.
 
 ## When the fix needs a decision from the owner
 
@@ -136,7 +202,7 @@ Some issues cannot be closed by anyone but the repo owner: the fix is a choice b
 Label it and move on:
 
 ```bash
-gh issue edit <n> --repo englishstventures/osn-tracker --add-label "needs:decision"
+gh issue edit <n> --repo englishstreetventures/osn-tracker --add-label "needs:decision"
 ```
 
 `needs:decision` exists on both repos. It is orthogonal to `product:`, `area:` and `severity:` -- it says the issue is parked on a person, not what kind of work it is.
@@ -151,8 +217,8 @@ A body that says no more than "blocked, needs input" is not an issue, it is an i
 Filter for them when the owner sits down to clear the queue:
 
 ```bash
-gh issue list --repo englishstventures/osn --label needs:decision --state open --limit 1000
-gh issue list --repo englishstventures/osn-tracker --label needs:decision --state open --limit 1000
+gh issue list --repo englishstreetventures/osn --label needs:decision --state open --limit 1000
+gh issue list --repo englishstreetventures/osn-tracker --label needs:decision --state open --limit 1000
 ```
 
 Remove the label once the decision is recorded in a comment; the issue then goes back to being ordinary work.
@@ -180,4 +246,4 @@ gh issue list --repo englishstreetventures/osn-tracker --search "S-M34 in:title"
 
 - [[contributing]] -- PR workflow and conventions
 - [[stacked-prs]] -- opening a PR on top of another PR
-- `englishstventures/osn-tracker` -- the private repo holding every security, performance, and compliance finding
+- `englishstreetventures/osn-tracker` -- the private repo holding every security, performance, and compliance finding

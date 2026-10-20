@@ -23,7 +23,9 @@ import {
   contrastOklch,
   ensureContrast,
   formatOklch,
+  luminance,
   type Oklch,
+  oklchToRgb,
   parseColor,
   shiftLightness,
   WCAG_TEXT_MIN,
@@ -127,7 +129,11 @@ export const PALETTE_PRESETS = {
     card: "oklch(98.8% 0.006 25)",
     ink: "oklch(30% 0.052 350)",
     gilt: "oklch(57% 0.101 15)",
-    bloom: "oklch(58% 0.068 128)",
+    // 50% rather than a lighter olive: bloom carries the "RSVP given" label in
+    // the page colour, so it has to clear 4.5:1 against this blush ground
+    // (4.81 here). A lighter seed would be walked darker by `derivePalette`,
+    // and the swatch the builder shows would stop matching what guests see.
+    bloom: "oklch(50% 0.068 128)",
   },
 } as const satisfies Record<string, PaletteSeeds>;
 
@@ -246,11 +252,13 @@ export const DERIVED_TOKENS = [
   "--color-surface",
   "--color-surface-raised",
   "--color-border",
+  "--color-border-strong",
   "--color-text",
   "--color-text-muted",
   "--color-gold",
   "--color-gold-dim",
   "--color-gold-ink",
+  "--color-on-gold",
   "--color-bloom",
   "--color-bloom-dim",
   "--color-error",
@@ -362,6 +370,98 @@ function semantic(hue: number, chroma: number, card: Oklch, darkStart = 0.72): s
 }
 
 /**
+ * Whether an OKLCH colour lies inside sRGB: its linear-light channels, before
+ * any clamping, all within [0, 1]. The converters `@shared/color` exports
+ * clamp, which hides exactly what this asks, so the OKLab → linear sRGB step
+ * (Björn Ottosson's matrices, as `oklchToRgb` uses) is written out here.
+ */
+function inSrgb(l: number, c: number, hue: Hue): boolean {
+  const a = c * hue.cos;
+  const b = c * hue.sin;
+  const L = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const M = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const S = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  const EPSILON = 1e-9;
+  const inRange = (v: number) => v >= -EPSILON && v <= 1 + EPSILON;
+  return (
+    inRange(4.0767416621 * L - 3.3077115913 * M + 0.2309699292 * S) &&
+    inRange(-1.2684380046 * L + 2.6097574011 * M - 0.3413193965 * S) &&
+    inRange(-0.0041960863 * L - 0.7034186147 * M + 1.707614701 * S)
+  );
+}
+
+/** A hue's cosine and sine, taken once for every gamut probe at that hue. */
+interface Hue {
+  cos: number;
+  sin: number;
+}
+
+/**
+ * The colour with its chroma lowered, if it must be, to the most its
+ * lightness and hue hold inside sRGB. A binary search: in-gamut chroma at a
+ * fixed lightness and hue is one unbroken range from zero. Floored to the four
+ * decimals `formatOklch` writes, so rounding the token cannot push it back out.
+ */
+function intoSrgb(colour: Oklch, hue: Hue): Oklch {
+  if (inSrgb(colour.l, colour.c, hue)) return colour;
+  let inside = 0;
+  let outside = colour.c;
+  for (let i = 0; i < 20; i++) {
+    const c = (inside + outside) / 2;
+    if (inSrgb(colour.l, c, hue)) inside = c;
+    else outside = c;
+  }
+  return { ...colour, c: Math.floor(inside * 1e4) / 1e4 };
+}
+
+/**
+ * The label colour for anything painted on the metal: every gold button, and
+ * the open RSVP button on an event card.
+ *
+ * The page colour first, then the ink — the two colours the invite already
+ * uses, so a scheme whose gold reads under either keeps its look. When neither
+ * reaches 4.5:1 (a mid-tone brass between a cream page and a dark ink), one of
+ * them is walked toward black or white, whichever pole contrasts more with the
+ * gold, and only as far as the bar. The direction comes from that measurement,
+ * not from the gold's lightness: a gold just past the lightness midpoint can
+ * still contrast more with white than with black, and `ensureContrast`'s
+ * "darker on a light backdrop" rule would walk it to pure black and still miss.
+ * The organiser's gold is never moved to make room.
+ */
+function onGoldInk(gilt: Oklch, ground: Oklch, ink: Oklch): Oklch {
+  // The gold is the backdrop of every comparison here, so its luminance is
+  // taken once; each candidate costs one conversion.
+  const giltY = luminance(oklchToRgb(gilt));
+  const ratioTo = (y: number) => (Math.max(y, giltY) + 0.05) / (Math.min(y, giltY) + 0.05);
+  const reads = (colour: Oklch) => ratioTo(luminance(oklchToRgb(colour))) >= WCAG_TEXT_MIN;
+
+  for (const colour of [ground, ink]) {
+    if (reads(colour)) return colour;
+  }
+  const lighter = ratioTo(1) >= ratioTo(0);
+  // Of the two, the one nearer that pole, so the label keeps the scheme's own
+  // tint: the page's on a light label, the ink's on a dark one.
+  const start = ground.l > ink.l === lighter ? ground : ink;
+  // `start` already failed above, so the walk begins one step out. The
+  // stronger pole clears 4.58:1 against any colour, so it always stops on the
+  // bar; fifty steps of 0.02 span the whole lightness range.
+  const STEP = 0.02;
+  const hr = (start.h * Math.PI) / 180;
+  const hue: Hue = { cos: Math.cos(hr), sin: Math.sin(hr) };
+  let label = start;
+  for (let i = 1; i <= 50; i++) {
+    const l = Math.min(1, Math.max(0, start.l + (lighter ? i : -i) * STEP));
+    // The start's own chroma where this lightness can hold it, less where it
+    // cannot: near either pole sRGB holds very little colour, and a label
+    // outside it would be painted as whatever the browser maps it to rather
+    // than the colour measured here.
+    label = intoSrgb({ ...start, l }, hue);
+    if (reads(label)) break;
+  }
+  return label;
+}
+
+/**
  * Derive the full token set from a scheme: five seeds laid over the preset they
  * were chosen from.
  *
@@ -422,14 +522,27 @@ export function derivePalette(
     mix(ink, ground, 0.34),
   );
 
+  // The boundary of a control with no fill, and the ring round a dress-code
+  // swatch: a boundary a guest has to see, so 3:1 (WCAG 1.4.11). It starts as
+  // the ink 55% of the way over the card and is walked against all three
+  // surfaces like the prose tokens, because the sheets paint `card` and a
+  // section's tone can be any of them. Solid, not translucent: contrast checks
+  // ignore alpha, so a translucent value would go unmeasured.
+  const borderStrong = [card, raised, ground].reduce(
+    (colour, surface) => ensureContrast(colour, surface, WCAG_UI_MIN),
+    mix(ink, card, 0.45),
+  );
+
   // Gold carries large display text, rules and buttons; hold it to the UI
   // minimum rather than the text minimum so a genuinely gold gold survives
   // instead of being bleached into a cream.
   const gilt = ensureContrast(giltSeed, ground, WCAG_UI_MIN);
-  // Bloom carries the RSVP confirmation button's sweep fill and its
-  // permanent tick — a filled background and an icon glyph, not prose — so
-  // it gets the same UI floor as gilt rather than the text minimum.
-  const bloom = ensureContrast(bloomSeed, ground, WCAG_UI_MIN);
+  // Bloom fills the answered RSVP button, and the button's label and tick are
+  // written on it in `--color-bg`. That label is normal-size text, so bloom is
+  // held to the text minimum against the page colour — the pair the label
+  // actually makes. A page too close to the midpoint for any bloom to get
+  // there is reported by `label-on-bloom` in `RESIDUAL_PAIRS`.
+  const bloom = ensureContrast(bloomSeed, ground, WCAG_TEXT_MIN);
 
   // Gold that is READ rather than seen. The 3:1 floor above is the right bar
   // for a rule, a border or a display heading, and the wrong one for a
@@ -458,12 +571,14 @@ export function derivePalette(
     "--color-surface": formatOklch(card),
     "--color-surface-raised": formatOklch(raised),
     "--color-border": formatOklch(withAlpha(ink, 0.12)),
+    "--color-border-strong": formatOklch(borderStrong),
     "--color-text": formatOklch(ink),
     "--color-text-muted": formatOklch(muted),
     "--color-gold": formatOklch(gilt),
     // The built-in dim gold is gold at 0.35 alpha; keep that exact relationship.
     "--color-gold-dim": formatOklch(withAlpha(gilt, 0.35)),
     "--color-gold-ink": formatOklch(giltInk),
+    "--color-on-gold": formatOklch(onGoldInk(gilt, ground, ink)),
     "--color-bloom": formatOklch(bloom),
     "--color-bloom-dim": formatOklch(withAlpha(bloom, 0.3)),
     "--color-error": semantic(21.48, 0.1401, card),
@@ -548,8 +663,8 @@ export function paletteAdjustments(
   }
 
   const bloomSeed = seed(seeds?.bloom, "bloom", base);
-  if (contrastOklch(bloomSeed, ground) < WCAG_UI_MIN) {
-    out.push({ token: "bloom", reason: "Adjusted so accents stay visible on the page." });
+  if (contrastOklch(bloomSeed, ground) < WCAG_TEXT_MIN) {
+    out.push({ token: "bloom", reason: "Adjusted so the RSVP button's label stays readable." });
   }
 
   return out;
@@ -598,10 +713,18 @@ export function paletteAdjustments(
  *     land on any of the three surfaces — which is why both prose tokens are
  *     walked against all three rather than against this one.
  *
- *   - `--color-bloom` on `--color-surface-raised` — the RSVP confirmation
- *     button's sweep fill and its permanent tick, both on `EventCard`. Held
- *     to the UI floor like `gilt-on-raised` below it: the fill is a filled
- *     background and the tick is an icon glyph, neither is prose.
+ *   - `--color-bloom` on `--color-surface-raised` — the answered RSVP button's
+ *     fill against the event card it sits on. Held to the UI floor like
+ *     `gilt-on-raised` below it: here the fill is the shape of a control.
+ *
+ * Two pairs measure a label on its fill rather than a colour on a surface:
+ *
+ *   - `--color-bg` on `--color-bloom` — the "RSVP given" label and its tick.
+ *     Bloom is walked against the page at the text minimum, so this fires only
+ *     where that walk runs out of range: a page close to the lightness midpoint.
+ *   - `--color-on-gold` on `--color-gold` — every gold button's label. The
+ *     on-gold ink is walked to the text minimum against the gold toward the
+ *     stronger pole, so this fires only where neither pole reaches it.
  */
 const RESIDUAL_PAIRS: {
   id: string;
@@ -652,16 +775,29 @@ const RESIDUAL_PAIRS: {
     message: "Buttons and rules are hard to see on event cards.",
   },
   {
-    // `bloom` is derived the same way `gilt` is — walked against `ground`
-    // only, at the UI floor — so it can miss the same way on the same
-    // straddling schemes. Its one render site, the RSVP confirmation
-    // button's sweep fill and permanent tick, lives on `EventCard`, i.e.
+    // `bloom` is walked against `ground` only, like `gilt`, so it can miss the
+    // same way on the same straddling schemes. Its one render site, the
+    // answered RSVP button's fill, lives on `EventCard`, i.e.
     // `--color-surface-raised`.
     id: "bloom-on-raised",
     fg: "--color-bloom",
     bg: "--color-surface-raised",
     min: WCAG_UI_MIN,
     message: "The RSVP confirmation fill and tick are hard to see on event cards.",
+  },
+  {
+    id: "label-on-bloom",
+    fg: "--color-bg",
+    bg: "--color-bloom",
+    min: WCAG_TEXT_MIN,
+    message: "The “RSVP given” label is hard to read on its button.",
+  },
+  {
+    id: "label-on-gold",
+    fg: "--color-on-gold",
+    bg: "--color-gold",
+    min: WCAG_TEXT_MIN,
+    message: "Labels on gold buttons are hard to read.",
   },
   {
     // The pair the first cut of this table missed. The walk is sequential and
@@ -684,6 +820,16 @@ const RESIDUAL_PAIRS: {
     bg: "--color-surface",
     min: WCAG_TEXT_MIN,
     message: "Secondary text in the RSVP sheet and pop-ups is hard to read.",
+  },
+  {
+    // The control boundary is walked in the same order as the prose tokens, so
+    // it has the same gap on `card` — the surface of the event-details sheet,
+    // where the dress-code swatches wear it as their ring.
+    id: "border-strong-on-surface",
+    fg: "--color-border-strong",
+    bg: "--color-surface",
+    min: WCAG_UI_MIN,
+    message: "Dress-code colour swatches are hard to see in the event details.",
   },
   {
     // `--color-gold-ink` IS walked against all three surfaces, so this can only

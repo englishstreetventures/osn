@@ -33,15 +33,22 @@
     {
       "idx": 85,
       "version": "6",
-      "when": 1792454593246,
-      "tag": "0085_task_templates",
+      "when": 1792476920558,
+      "tag": "0085_release_preview_claims",
       "breakpoints": true
     },
     {
       "idx": 86,
       "version": "6",
-      "when": 1792478720917,
-      "tag": "0086_task_assigned_host",
+      "when": 1792500170870,
+      "tag": "0086_task_templates",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "6",
+      "when": 1792500179146,
+      "tag": "0087_task_assigned_host",
       "breakpoints": true
     }
   ]

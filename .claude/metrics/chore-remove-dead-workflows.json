@@ -1,0 +1,171 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1559,
+    "branch": "chore/remove-dead-workflows",
+    "base_sha": "3321751c3ff0eca36f290b16c58d29168351ce41",
+    "head_sha": "4c5b9af3bad406194d11c1d350e4fb6fa5c35531",
+    "generated_at": "2026-10-19T06:45:33.416Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1545,
+    "type": "Task",
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:2",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-16T07:58:01.426Z",
+    "last_ts": "2026-10-19T06:11:43.844Z",
+    "span_seconds": 252822,
+    "active_seconds": 2573,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 28.249546,
+    "tokens": {
+      "input": 846,
+      "output": 4553,
+      "thinking": 247,
+      "cache_write_5m": 1202212,
+      "cache_write_1h": 0,
+      "cache_read": 55360105
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 846,
+          "output": 4553,
+          "thinking": 247,
+          "cache_write_5m": 1202212,
+          "cache_write_1h": 0,
+          "cache_read": 55360105
+        },
+        "usd_equivalent": 28.249546,
+        "messages": 419
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 846,
+          "output": 4553,
+          "thinking": 247,
+          "cache_write_5m": 1202212,
+          "cache_write_1h": 0,
+          "cache_read": 55360105
+        },
+        "usd_equivalent": 28.249546,
+        "messages": 420
+      }
+    },
+    "effort": {
+      "high": 63,
+      "xhigh": 356
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 0,
+      "test": 4,
+      "docs": 9,
+      "config": 6,
+      "source": 3
+    },
+    "loc": {
+      "generated": {
+        "added": 0,
+        "deleted": 0
+      },
+      "test": {
+        "added": 43,
+        "deleted": 174
+      },
+      "docs": {
+        "added": 124,
+        "deleted": 133
+      },
+      "config": {
+        "added": 2,
+        "deleted": 625
+      },
+      "source": {
+        "added": 24,
+        "deleted": 144
+      }
+    },
+    "packages": [],
+    "touches_migration": false,
+    "commits": 5
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 362,
+      "Edit": 64,
+      "Read": 48,
+      "Skill": 13,
+      "Write": 7,
+      "SubagentHandback": 5,
+      "Agent": 4
+    },
+    "edit_churn": {
+      "files_edited_3plus": 8,
+      "max_edits_one_file": 12
+    },
+    "skills": {
+      "new-feat": 2,
+      "stress-plan": 1,
+      "write-wiki": 2,
+      "obsidian:obsidian-markdown": 2,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-security": 1,
+      "review-docs": 1,
+      "write-issue": 1,
+      "rate-complexity": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 3
+    }
+  }
+}

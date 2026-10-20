@@ -33,11 +33,12 @@ Which name a new package takes is in `wiki/shared/osn-and-musubi.md`; the full t
 
 Work is tracked in GitHub Issues, never the wiki.
 
-- `englishstventures/osn` (public) holds product work, ops, docs and schema.
+- `englishstreetventures/osn` (public) holds product work, ops, docs and schema.
 - `englishstreetventures/osn-tracker` (private) holds **every** security (`S-`), performance (`P-`) and compliance (`C-`) finding, however minor. Route by kind, not severity: a finding names an unpatched route. Public files and pull-request prose never name or describe a tracker finding — no ID, title or detail; a file states the constraint instead. A pull request carries a tracker issue only as a bare repo-qualified reference, and closes one it fixes with a bare `Closes englishstreetventures/osn-tracker#N` line.
 - Each issue carries one `product:` label, an org type (`Feature`, `Bug`, `Task`) and a `complexity:` rating set **before** work starts (the `rate-complexity` skill). The full label scheme is in `wiki/conventions/github-issues-setup.md`; how to file a finding is in `wiki/conventions/review-findings.md`.
 - Write every issue with the `write-issue` skill (`.claude/skills/write-issue/SKILL.md`): the repository, title, type, labels and a body someone can act on months later with nothing checked out.
 - Write every PR body with the `write-pr` skill (`.claude/skills/write-pr/SKILL.md`): the title, the six sections with the change's impact first, a `Closes` line for every issue the branch fixes, a test plan that says what ran on which commit, and the REST command that opens it.
+- **Fix what you find; do not file it.** Everything in the feature's scope — the files the branch changes, their tests and docs, every finding in them — is fixed on the branch. An issue is left open only for work out of the feature's scope, something unrelated found mid-task, or a larger piece of work; the small ones of the first two go on one follow-up pull request instead. A critical or high finding is never left open. More than two left open by one pull request means something in scope was filed: `wiki/conventions/review-findings.md` §Fix findings; do not file them.
 - When the next step needs a choice only the owner can make, write the proposal, add `needs:decision`, and move to another issue.
 - Never delete an issue; close it.
 
@@ -52,7 +53,7 @@ Work is tracked in GitHub Issues, never the wiki.
 - **Cross-origin cookies.** The identity API is on a different origin from every app, so any browser `fetch` that sets or reads the session cookie must pass `credentials: "include"`. Without it the browser drops `Set-Cookie` silently. Check this first when a sign-in "succeeds" but the user stays signed out.
 - **Code search.** `LSP` answers a definition, a type or the callers inside one package; it skips packages it has not loaded, with no sign. "Who uses X" across packages, and every rename, delete or signature change of an export, comes from `git grep -w` over the whole repository. Cloud sessions have no `LSP`. See `wiki/conventions/agent-tooling.md` §Code search.
 - **Comments** state what the code guarantees now — never a tracker ID, finding tag or history. See `wiki/conventions/code-comments.md`.
-- **Deferrals** get an issue, and the code carries only the link: `// Bounded until englishstventures/osn#412 lands.` A settled choice with its reason can stay inline.
+- **Deferrals** get an issue, and the code carries only the link: `// Bounded until englishstreetventures/osn#412 lands.` A settled choice with its reason can stay inline.
 - **Instruction files state the present.** This file, a `SKILL.md` or a wiki page says what to do now, never how it came to be; `git log` holds that. A reason that stops a mistake stays.
 - **House lint rules** (`house/*` in `tools/oxlint/house`) and why they exist: `wiki/conventions/house-lint-rules.md`. Agent skills, evals and vendored trees: `wiki/conventions/agent-tooling.md`.
 - Lefthook formats and lints staged files on commit and type-checks on push.

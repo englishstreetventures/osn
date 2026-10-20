@@ -25,7 +25,7 @@ Today every table serves the invite (see `cire/db/src/schema.ts`):
 - **`wedding_invite_customisations` is a clean presentational overlay** (1:1 with `weddings`, null = defaults) — already correctly separated.
 - **`weddings` has no planning context.** No wedding date, no canonical location, no guest-count estimate, no currency/budget. (Events have `startAt`/`address`, but the *wedding* — the thing vendors are booked for and estimates are priced against — has no profile.)
 - **Vendors, budget, tasks, timeline, seating: absent.** No tables, routes, services, or components. Greenfield.
-- Auth is ready to grow: `weddingOwner()` / `weddingMember()` gates exist, and `wedding_hosts.role` is an enum with only `'host'` today, explicitly reserved for `editor`/`viewer` (the co-host-roles issue in `englishstventures/osn`).
+- Auth is ready to grow: `weddingOwner()` / `weddingMember()` gates exist, and `wedding_hosts.role` is an enum with only `'host'` today, explicitly reserved for `editor`/`viewer` (the co-host-roles issue in `englishstreetventures/osn`).
 
 The refactor thesis: **promote Guests and Schedule to first-class, invite-independent modules; give the wedding a planning profile; then build the new modules (Vendors, Budget, Checklist, Seating, Comms) against those sources of truth.** RSVP data flows *up* from the invite into the same records the seating chart and caterer head-counts read from.
 

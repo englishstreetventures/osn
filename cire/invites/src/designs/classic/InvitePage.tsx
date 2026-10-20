@@ -17,7 +17,7 @@ import { createSessionRestore } from "../../components/claim-session";
 import { createRsvpDeadlineState } from "../../components/createRsvpDeadlineState";
 import type { EventPanel } from "../../components/EventSheet";
 import { faqEntries } from "../../components/faq-entries";
-import { memberRequired } from "../../components/household-member";
+import { chosenMember, memberRequired } from "../../components/household-member";
 import { faqState } from "../../components/invite-emptiness";
 import {
   createInviteRetry,
@@ -34,7 +34,7 @@ import { InviteClosing } from "../../components/InviteClosing";
 import { LoginSection } from "../../components/LoginSection";
 import { prefetchOnIdle } from "../../components/prefetch-idle";
 import { formatDeadlineDay, RSVP_NOTICE_ID } from "../../components/rsvp-deadline";
-import { hasHouseholdResponded } from "../../components/rsvp-responded";
+import { hasAnyHouseholdReply, hasHouseholdResponded } from "../../components/rsvp-responded";
 import { RsvpDeadlineNotice } from "../../components/RsvpDeadlineNotice";
 import type { ClaimResult, EventSummary, RsvpSummary } from "../../components/types";
 import { Z_CLASS } from "../../lib/z-index";
@@ -251,6 +251,15 @@ export default function InvitePage(props: InvitePageProps) {
         .map((e) => e.id),
     );
   });
+  // Which events have ANY reply from this household on file — what keeps a
+  // card's button, as "RSVP given", once RSVPs close. A superset of the above.
+  const repliedEventIds = createMemo(() => {
+    const data = claimResult();
+    if (!data) return new Set<string>();
+    return new Set(
+      data.events.filter((e) => hasAnyHouseholdReply(e, data.members, data.rsvps)).map((e) => e.id),
+    );
+  });
 
   let loginFormRef: HTMLDivElement;
   let welcomeRef: HTMLDivElement;
@@ -419,6 +428,7 @@ export default function InvitePage(props: InvitePageProps) {
                           rsvpClosed={rsvpClosed()}
                           rsvpClosedNoticeId={RSVP_NOTICE_ID}
                           responded={respondedEventIds().has(event.id)}
+                          replied={repliedEventIds().has(event.id)}
                           justResponded={justRespondedEventId() === event.id}
                           // While this event's sheet is up it covers this button, so the
                           // card holds its mark back until the sheet is gone — otherwise
@@ -505,10 +515,12 @@ export default function InvitePage(props: InvitePageProps) {
               // Host preview keeps the RSVP interactive but makes submit a no-op.
               preview={claimResult()!.preview}
               // Past the deadline the RSVP panel is a read-only view of the reply
-              // already on file, and the details offer no way into it — normally
-              // unreachable (Respond is disabled), but the deadline can pass with
-              // the sheet open.
+              // already on file. A household with a reply reaches it from the
+              // card's "RSVP given" or the details' "View your RSVP"; one with
+              // none has no way in, unless the deadline passes with the sheet
+              // already open.
               closed={rsvpClosed()}
+              replied={repliedEventIds().has(open.event.id)}
               closedOn={rsvpDeadline() ? formatDeadlineDay(rsvpDeadline()!) : undefined}
               // The sheet is the events section's expanded surface — it follows
               // the "details" theme (the modal renders outside the themed
@@ -525,6 +537,8 @@ export default function InvitePage(props: InvitePageProps) {
               onConfirmed={() => setJustRespondedEventId(open.event.id)}
               // Save waits until the household says who is answering.
               memberRequired={memberRequired(claimResult())}
+              // The member the page shows, so the save is recorded under them.
+              answeringAs={chosenMember(claimResult())?.guestId ?? null}
               // The write asked for a member the payload did not: show the
               // step ("Who are you?") from the members already on the page.
               onMemberRequired={() => {

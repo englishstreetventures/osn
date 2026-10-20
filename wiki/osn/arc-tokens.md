@@ -20,7 +20,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-19
 ---
 # ARC Tokens (S2S Auth)
 
@@ -232,8 +232,7 @@ to each downstream — otherwise the first `/internal/account-deleted` POST is
 > identical scope union from every registration call site**, or the registrations
 > clobber each other on boot races / rotations and randomly fail-close S2S calls;
 > (b) per-key least privilege between a service's own keys does not exist — any of
-> its keys can mint any scope in the service union. The per-key `allowed_scopes`
-> schema fix is open as S-M1 (arc-key-scopes) in `englishstventures/osn-tracker`. Keep
+> its keys can mint any scope in the service union. Keep
 > `pulse/api/src/services/graphBridge.ts` `REGISTERED_SCOPES` and
 > `pulse/api/src/lib/outbound-arc.ts` `ALLOWED_SCOPES` in lockstep.
 
@@ -243,7 +242,7 @@ Revocation is immediate *in the process that performs it* (it calls `evictPublic
 
 - TTL defaults to **300 s** and is overridable via the `ARC_PUBLIC_KEY_CACHE_TTL_SECONDS` env var (kept finite; a lower value shrinks the window at the cost of more DB lookups).
 - So the **worst-case cross-process revocation latency is ≤ the configured TTL (≤5 min by default)**. The DB row is updated synchronously, so a process with a cold/expired cache rejects the revoked key immediately — only warm caches on *other* nodes lag.
-- A Redis pub/sub fan-out that evicts `(kid)` across all processes on revoke (closing this window to ~0) is an open issue in `englishstventures/osn`.
+- A Redis pub/sub fan-out that evicts `(kid)` across all processes on revoke (closing this window to ~0) is an open issue in `englishstreetventures/osn`.
 
 ## Issuer binding (X1)
 

@@ -9,6 +9,7 @@ import { Effect, Layer } from "effect";
 import { type AppOptions, createApp } from "./app";
 import { createD1Db, DbService } from "./db";
 import { createSessionRoutedClient, runInD1Session } from "./db/d1-session";
+import { parseWeddingIdList } from "./lib/account-linking";
 import { claimReviewAlertTarget, sendClaimReviewAlert } from "./lib/claim-review-email";
 import { setExecutionCtx } from "./lib/execution-ctx";
 import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
@@ -197,6 +198,12 @@ export interface Env {
   GROWTHBOOK_CLIENT_KEY?: string;
   GROWTHBOOK_API_HOST?: string;
   KV_GB_PAYLOAD?: KVNamespace;
+  // Comma-separated wedding ids whose households get the household member step
+  // only while `cire.account-linking` is on for them. A SECRET, never a
+  // committed var: a wedding id belongs to the couple, not to this public repo.
+  // Unset or empty ⇒ every guest household gets the step. Read once per isolate,
+  // when the app is built. Typed `unknown` and parsed by `parseWeddingIdList`.
+  CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS?: unknown;
   // Stop flag for the two R2 orphan reconcilers in `scheduled`, declared
   // "false" in every wrangler.toml tier. Anything but absent, `false` or the
   // text "false" leaves both off and logs a warning each run; the other cron
@@ -442,6 +449,22 @@ const handler: ExportedHandler<Env> = {
         apiHost: env.GROWTHBOOK_API_HOST,
         kv: env.KV_GB_PAYLOAD,
       });
+      // Weddings kept off the member step unless linking is on for them. A
+      // list with any entry is logged once per isolate as counts, never the
+      // ids, so the owner can see in Workers Logs that a deploy picked it up
+      // and that every entry has a wedding id's shape.
+      const memberStepExclusion = parseWeddingIdList(env.CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS);
+      if (memberStepExclusion.weddings.size > 0 || memberStepExclusion.malformed > 0) {
+        const counts = {
+          listed: memberStepExclusion.weddings.size,
+          malformed: memberStepExclusion.malformed,
+        };
+        await runCire(
+          memberStepExclusion.malformed > 0
+            ? Effect.logWarning("member step exclusion has malformed entries", counts)
+            : Effect.logInfo("member step exclusion loaded", counts),
+        );
+      }
       // OIDC relying-party config for organiser sign-in. All four pieces or
       // none: a half-configured client cannot complete a single exchange, so
       // `null` (⇒ 503 on the sign-in routes) is the honest state. Loud in a
@@ -493,6 +516,7 @@ const handler: ExportedHandler<Env> = {
         // client secret; the cron below signs them from the same value.
         digestStopSecret: env.CIRE_OIDC_CLIENT_SECRET ?? null,
         resolveOsnAccountId,
+        memberStepExcludedWeddings: memberStepExclusion.weddings,
         resolveOsnProfileByHandle,
         resolveOsnProfileDisplays,
         // Owner notices need both a way to find the owners' addresses and a
@@ -588,7 +612,7 @@ const handler: ExportedHandler<Env> = {
   //     holds a login-time snapshot of an OSN profile, so it is a retention
   //     question too.
   //  3. Guest-data retention sweep — enforces the published privacy promise
-  //     (cire/invites privacy.astro): guest PII (guests/families/rsvps incl. dietary
+  //     (cire/ui guest-privacy-notice.astro): guest PII (guests/families/rsvps incl. dietary
   //     + consent, plus imports bookkeeping) is deleted 1 year after a wedding's
   //     final event. Reaps the `cire-sheets` CSVs it orphans (env.SHEETS).
   //  4. `cire-assets` orphan reconciliation — best-effort deletes invite-image

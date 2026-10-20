@@ -15,5 +15,5 @@ the couple set, stays where it is. A seeded task the couple deletes is not
 brought back by a later apply unless they pick it. Without a wedding date the
 tasks are added without due dates, and the preview asks for the date.
 
-Migration `0085_task_templates.sql` adds the provenance columns and a unique
+Migration `0086_task_templates.sql` adds the provenance columns and a unique
 index to `tasks`, and the `task_template_dismissals` table.

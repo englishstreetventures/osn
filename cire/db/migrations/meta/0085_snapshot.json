@@ -1,8 +1,8 @@
 {
+  "id": "d3890306-b3f2-46ef-b3d2-f16dbe7b7ebb",
+  "prevId": "3189a182-e966-4ca3-b7b7-6fe0ed195cbc",
   "version": "6",
   "dialect": "sqlite",
-  "id": "e6402b6e-9b89-4b7e-8a12-d1155c24d33c",
-  "prevId": "3189a182-e966-4ca3-b7b7-6fe0ed195cbc",
   "tables": {
     "budget_items": {
       "name": "budget_items",
@@ -115,15 +115,15 @@
         "budget_items_wedding_id_weddings_id_fk": {
           "name": "budget_items_wedding_id_weddings_id_fk",
           "tableFrom": "budget_items",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -153,15 +153,15 @@
         "directory_vendor_categories_directory_vendor_id_directory_vendors_id_fk": {
           "name": "directory_vendor_categories_directory_vendor_id_directory_vendors_id_fk",
           "tableFrom": "directory_vendor_categories",
-          "tableTo": "directory_vendors",
           "columnsFrom": [
             "directory_vendor_id"
           ],
+          "tableTo": "directory_vendors",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -505,15 +505,15 @@
         "events_wedding_id_weddings_id_fk": {
           "name": "events_wedding_id_weddings_id_fk",
           "tableFrom": "events",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -623,23 +623,23 @@
           "columns": [
             "wedding_id"
           ],
-          "isUnique": true,
-          "where": "kind = 'host'"
+          "where": "kind = 'host'",
+          "isUnique": true
         }
       },
       "foreignKeys": {
         "families_wedding_id_weddings_id_fk": {
           "name": "families_wedding_id_weddings_id_fk",
           "tableFrom": "families",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -748,41 +748,41 @@
         "guest_account_links_guest_id_guests_id_fk": {
           "name": "guest_account_links_guest_id_guests_id_fk",
           "tableFrom": "guest_account_links",
-          "tableTo": "guests",
           "columnsFrom": [
             "guest_id"
           ],
+          "tableTo": "guests",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "guest_account_links_family_id_families_id_fk": {
           "name": "guest_account_links_family_id_families_id_fk",
           "tableFrom": "guest_account_links",
-          "tableTo": "families",
           "columnsFrom": [
             "family_id"
           ],
+          "tableTo": "families",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "guest_account_links_wedding_id_weddings_id_fk": {
           "name": "guest_account_links_wedding_id_weddings_id_fk",
           "tableFrom": "guest_account_links",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -820,28 +820,28 @@
         "guest_events_guest_id_guests_id_fk": {
           "name": "guest_events_guest_id_guests_id_fk",
           "tableFrom": "guest_events",
-          "tableTo": "guests",
           "columnsFrom": [
             "guest_id"
           ],
+          "tableTo": "guests",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "guest_events_event_id_events_id_fk": {
           "name": "guest_events_event_id_events_id_fk",
           "tableFrom": "guest_events",
-          "tableTo": "events",
           "columnsFrom": [
             "event_id"
           ],
+          "tableTo": "events",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -962,36 +962,36 @@
           "columns": [
             "plus_one_of_guest_id"
           ],
-          "isUnique": true,
-          "where": "plus_one_of_guest_id IS NOT NULL"
+          "where": "plus_one_of_guest_id IS NOT NULL",
+          "isUnique": true
         }
       },
       "foreignKeys": {
         "guests_family_id_families_id_fk": {
           "name": "guests_family_id_families_id_fk",
           "tableFrom": "guests",
-          "tableTo": "families",
           "columnsFrom": [
             "family_id"
           ],
+          "tableTo": "families",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "guests_plus_one_of_guest_id_guests_id_fk": {
           "name": "guests_plus_one_of_guest_id_guests_id_fk",
           "tableFrom": "guests",
-          "tableTo": "guests",
           "columnsFrom": [
             "plus_one_of_guest_id"
           ],
+          "tableTo": "guests",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1052,15 +1052,15 @@
         "host_rsvp_notices_wedding_id_weddings_id_fk": {
           "name": "host_rsvp_notices_wedding_id_weddings_id_fk",
           "tableFrom": "host_rsvp_notices",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -1185,15 +1185,15 @@
         "imports_wedding_id_weddings_id_fk": {
           "name": "imports_wedding_id_weddings_id_fk",
           "tableFrom": "imports",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1433,15 +1433,15 @@
         "payments_budget_item_id_budget_items_id_fk": {
           "name": "payments_budget_item_id_budget_items_id_fk",
           "tableFrom": "payments",
-          "tableTo": "budget_items",
           "columnsFrom": [
             "budget_item_id"
           ],
+          "tableTo": "budget_items",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1661,41 +1661,41 @@
         "registry_claims_wedding_id_weddings_id_fk": {
           "name": "registry_claims_wedding_id_weddings_id_fk",
           "tableFrom": "registry_claims",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "registry_claims_item_id_registry_items_id_fk": {
           "name": "registry_claims_item_id_registry_items_id_fk",
           "tableFrom": "registry_claims",
-          "tableTo": "registry_items",
           "columnsFrom": [
             "item_id"
           ],
+          "tableTo": "registry_items",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "registry_claims_family_id_families_id_fk": {
           "name": "registry_claims_family_id_families_id_fk",
           "tableFrom": "registry_claims",
-          "tableTo": "families",
           "columnsFrom": [
             "family_id"
           ],
+          "tableTo": "families",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1912,41 +1912,41 @@
         "registry_contributions_wedding_id_weddings_id_fk": {
           "name": "registry_contributions_wedding_id_weddings_id_fk",
           "tableFrom": "registry_contributions",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "registry_contributions_item_id_registry_items_id_fk": {
           "name": "registry_contributions_item_id_registry_items_id_fk",
           "tableFrom": "registry_contributions",
-          "tableTo": "registry_items",
           "columnsFrom": [
             "item_id"
           ],
+          "tableTo": "registry_items",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         },
         "registry_contributions_family_id_families_id_fk": {
           "name": "registry_contributions_family_id_families_id_fk",
           "tableFrom": "registry_contributions",
-          "tableTo": "families",
           "columnsFrom": [
             "family_id"
           ],
+          "tableTo": "families",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2096,15 +2096,15 @@
         "registry_items_wedding_id_weddings_id_fk": {
           "name": "registry_items_wedding_id_weddings_id_fk",
           "tableFrom": "registry_items",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2259,15 +2259,15 @@
         "registry_settings_wedding_id_weddings_id_fk": {
           "name": "registry_settings_wedding_id_weddings_id_fk",
           "tableFrom": "registry_settings",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2362,8 +2362,8 @@
           "columns": [
             "created_at"
           ],
-          "isUnique": false,
-          "where": "actor_osn_profile_id IS NULL"
+          "where": "actor_osn_profile_id IS NULL",
+          "isUnique": false
         },
         "rsvp_changes_family_idx": {
           "name": "rsvp_changes_family_idx",
@@ -2377,28 +2377,28 @@
         "rsvp_changes_wedding_id_weddings_id_fk": {
           "name": "rsvp_changes_wedding_id_weddings_id_fk",
           "tableFrom": "rsvp_changes",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "rsvp_changes_family_id_families_id_fk": {
           "name": "rsvp_changes_family_id_families_id_fk",
           "tableFrom": "rsvp_changes",
-          "tableTo": "families",
           "columnsFrom": [
             "family_id"
           ],
+          "tableTo": "families",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2532,49 +2532,49 @@
           "columns": [
             "submitted_by_guest_id"
           ],
-          "isUnique": false,
-          "where": "submitted_by_guest_id IS NOT NULL"
+          "where": "submitted_by_guest_id IS NOT NULL",
+          "isUnique": false
         }
       },
       "foreignKeys": {
         "rsvps_guest_id_guests_id_fk": {
           "name": "rsvps_guest_id_guests_id_fk",
           "tableFrom": "rsvps",
-          "tableTo": "guests",
           "columnsFrom": [
             "guest_id"
           ],
+          "tableTo": "guests",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "rsvps_event_id_events_id_fk": {
           "name": "rsvps_event_id_events_id_fk",
           "tableFrom": "rsvps",
-          "tableTo": "events",
           "columnsFrom": [
             "event_id"
           ],
+          "tableTo": "events",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "rsvps_submitted_by_guest_id_guests_id_fk": {
           "name": "rsvps_submitted_by_guest_id_guests_id_fk",
           "tableFrom": "rsvps",
-          "tableTo": "guests",
           "columnsFrom": [
             "submitted_by_guest_id"
           ],
+          "tableTo": "guests",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -2654,100 +2654,39 @@
           "columns": [
             "member_guest_id"
           ],
-          "isUnique": false,
-          "where": "member_guest_id IS NOT NULL"
+          "where": "member_guest_id IS NOT NULL",
+          "isUnique": false
         }
       },
       "foreignKeys": {
         "sessions_family_id_families_id_fk": {
           "name": "sessions_family_id_families_id_fk",
           "tableFrom": "sessions",
-          "tableTo": "families",
           "columnsFrom": [
             "family_id"
           ],
+          "tableTo": "families",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "sessions_member_guest_id_guests_id_fk": {
           "name": "sessions_member_guest_id_guests_id_fk",
           "tableFrom": "sessions",
-          "tableTo": "guests",
           "columnsFrom": [
             "member_guest_id"
           ],
+          "tableTo": "guests",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "task_template_dismissals": {
-      "name": "task_template_dismissals",
-      "columns": {
-        "wedding_id": {
-          "name": "wedding_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "template_id": {
-          "name": "template_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "template_item": {
-          "name": "template_item",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "dismissed_at": {
-          "name": "dismissed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "task_template_dismissals_wedding_id_weddings_id_fk": {
-          "name": "task_template_dismissals_wedding_id_weddings_id_fk",
-          "tableFrom": "task_template_dismissals",
-          "tableTo": "weddings",
-          "columnsFrom": [
-            "wedding_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "task_template_dismissals_wedding_id_template_id_template_item_pk": {
-          "columns": [
-            "wedding_id",
-            "template_id",
-            "template_item"
-          ],
-          "name": "task_template_dismissals_wedding_id_template_id_template_item_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -2825,35 +2764,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "template_id": {
-          "name": "template_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "template_item": {
-          "name": "template_item",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "due_offset_days": {
-          "name": "due_offset_days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "due_source": {
-          "name": "due_source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'manual'"
         }
       },
       "indexes": {
@@ -2865,31 +2775,21 @@
             "sort_order"
           ],
           "isUnique": false
-        },
-        "tasks_wedding_template_item_unique": {
-          "name": "tasks_wedding_template_item_unique",
-          "columns": [
-            "wedding_id",
-            "template_id",
-            "template_item"
-          ],
-          "isUnique": true,
-          "where": "template_id IS NOT NULL"
         }
       },
       "foreignKeys": {
         "tasks_wedding_id_weddings_id_fk": {
           "name": "tasks_wedding_id_weddings_id_fk",
           "tableFrom": "tasks",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2956,28 +2856,28 @@
         "unlock_code_redemptions_code_id_unlock_codes_id_fk": {
           "name": "unlock_code_redemptions_code_id_unlock_codes_id_fk",
           "tableFrom": "unlock_code_redemptions",
-          "tableTo": "unlock_codes",
           "columnsFrom": [
             "code_id"
           ],
+          "tableTo": "unlock_codes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "unlock_code_redemptions_wedding_id_weddings_id_fk": {
           "name": "unlock_code_redemptions_wedding_id_weddings_id_fk",
           "tableFrom": "unlock_code_redemptions",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -3141,15 +3041,15 @@
         "vendor_claims_directory_vendor_id_directory_vendors_id_fk": {
           "name": "vendor_claims_directory_vendor_id_directory_vendors_id_fk",
           "tableFrom": "vendor_claims",
-          "tableTo": "directory_vendors",
           "columnsFrom": [
             "directory_vendor_id"
           ],
+          "tableTo": "directory_vendors",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -3292,36 +3192,36 @@
             "updated_at",
             "id"
           ],
-          "isUnique": false,
-          "where": "status = 'open' AND zap_chat_id IS NULL AND pending_body IS NOT NULL"
+          "where": "status = 'open' AND zap_chat_id IS NULL AND pending_body IS NOT NULL",
+          "isUnique": false
         }
       },
       "foreignKeys": {
         "vendor_enquiries_wedding_id_weddings_id_fk": {
           "name": "vendor_enquiries_wedding_id_weddings_id_fk",
           "tableFrom": "vendor_enquiries",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "vendor_enquiries_vendor_id_vendors_id_fk": {
           "name": "vendor_enquiries_vendor_id_vendors_id_fk",
           "tableFrom": "vendor_enquiries",
-          "tableTo": "vendors",
           "columnsFrom": [
             "vendor_id"
           ],
+          "tableTo": "vendors",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -3448,23 +3348,23 @@
             "wedding_id",
             "directory_vendor_id"
           ],
-          "isUnique": true,
-          "where": "directory_vendor_id IS NOT NULL"
+          "where": "directory_vendor_id IS NOT NULL",
+          "isUnique": true
         }
       },
       "foreignKeys": {
         "vendors_wedding_id_weddings_id_fk": {
           "name": "vendors_wedding_id_weddings_id_fk",
           "tableFrom": "vendors",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -3522,15 +3422,15 @@
         "wedding_entitlements_wedding_id_weddings_id_fk": {
           "name": "wedding_entitlements_wedding_id_weddings_id_fk",
           "tableFrom": "wedding_entitlements",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -3614,15 +3514,15 @@
         "wedding_faqs_wedding_id_weddings_id_fk": {
           "name": "wedding_faqs_wedding_id_weddings_id_fk",
           "tableFrom": "wedding_faqs",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -3712,15 +3612,15 @@
         "wedding_hosts_wedding_id_weddings_id_fk": {
           "name": "wedding_hosts_wedding_id_weddings_id_fk",
           "tableFrom": "wedding_hosts",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -4087,15 +3987,15 @@
         "wedding_invite_customisations_wedding_id_weddings_id_fk": {
           "name": "wedding_invite_customisations_wedding_id_weddings_id_fk",
           "tableFrom": "wedding_invite_customisations",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -4240,23 +4140,23 @@
           "columns": [
             "wedding_id"
           ],
-          "isUnique": true,
-          "where": "status = 'pending'"
+          "where": "status = 'pending'",
+          "isUnique": true
         }
       },
       "foreignKeys": {
         "wedding_upgrade_purchases_wedding_id_weddings_id_fk": {
           "name": "wedding_upgrade_purchases_wedding_id_weddings_id_fk",
           "tableFrom": "wedding_upgrade_purchases",
-          "tableTo": "weddings",
           "columnsFrom": [
             "wedding_id"
           ],
+          "tableTo": "weddings",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -4438,8 +4338,8 @@
           "columns": [
             "deleted_at"
           ],
-          "isUnique": false,
-          "where": "deleted_at IS NOT NULL"
+          "where": "deleted_at IS NOT NULL",
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -4451,9 +4351,9 @@
   "views": {},
   "enums": {},
   "_meta": {
+    "columns": {},
     "schemas": {},
-    "tables": {},
-    "columns": {}
+    "tables": {}
   },
   "internal": {
     "indexes": {}

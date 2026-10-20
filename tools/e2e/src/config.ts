@@ -19,12 +19,52 @@ export const TRACE_DIR = resolve(ARTIFACT_DIR, "traces");
 export const LOG_DIR = resolve(ARTIFACT_DIR, "logs");
 export const STATE_DIR = resolve(ARTIFACT_DIR, "state");
 
-/**
- * The suite's clock starts here. Before the seeded cire wedding's RSVP deadline
- * (`cire/db/seed/data/wedding.ts`), so the guest flow is open on every run.
- */
+/** The suite's clock starts here. */
 export const CLOCK_T0_ISO = "2026-10-01T00:00:00.000Z";
 export const CLOCK_T0 = Date.parse(CLOCK_T0_ISO);
+
+/**
+ * The sample wedding's RSVP deadline on the E2E stack (`CIRE_E2E_RSVP_DEADLINE`,
+ * read by `cire/api/src/local.ts`). The in-memory seed sets none, and the
+ * deadline the D1 seed carries never reaches this stack. Far past the suite
+ * clock, so cire-api takes replies on every run; a flow that needs the invite
+ * closed moves only the browser's clock, to `CIRE_RSVP_CLOSED_ISO`.
+ */
+export const CIRE_RSVP_DEADLINE = "2099-01-01";
+/** A browser instant past `CIRE_RSVP_DEADLINE` (the end of that day in UTC). */
+export const CIRE_RSVP_CLOSED_ISO = "2099-01-02T00:00:00.000Z";
+
+/**
+ * The gift-list wedding cire-api adds when the stack sets `CIRE_E2E_REGISTRY=1`
+ * (`seedE2eGiftList` in `cire/api/src/db/setup.ts`, which these values copy):
+ * on Gold, with a published list, one household of one, and the wedding's host
+ * preview household. The locked flow checks that none of `gifts`, `headline`
+ * or `message` reaches a visitor without a claim; the claimed flow checks that
+ * each of them reaches the household, so a value that drifts from the seed
+ * fails that flow. `previewCode` is the host household's code, which "Preview
+ * invite" opens the invitation with.
+ */
+export const CIRE_GIFT_LIST = {
+  slug: "gift-wedding",
+  code: "TESTGFT-FIG-EE55",
+  previewCode: "HOST-E2E00000000000000000000000000001",
+  guestName: "Gil",
+  gifts: ["Copper saucepan", "Stoneware mixing bowls", "A walk on the beach together"],
+  /** The first gift's id, for a write a flow sends by hand. */
+  firstGiftId: "reg_e2e_gift_0001",
+  headline: "Our gift list",
+  message: "Your being there is the gift. This list is here if you would like it.",
+} as const;
+
+/**
+ * The client address a flow's organiser claims from (TEST-NET-1, never routed).
+ * The organiser previews from their own network, not the guests', so their
+ * claim spends its own per-address window of cire-api's claim limit. The
+ * stack's cire-api keeps a `cf-connecting-ip` the request sends
+ * (`CIRE_E2E_CLIENT_ADDRESS`, `localClientAddress` in cire/api); any other
+ * local cire-api replaces it with the socket peer.
+ */
+export const ORGANISER_ADDRESS = "192.0.2.10";
 
 /**
  * The fixed ports `PORTLESS=0` uses. Written out rather than imported because
@@ -39,6 +79,7 @@ export const PORTS = {
   musubi: 1422,
   pulseWeb: 1420,
   cireInvites: 4321,
+  cireLanding: 4323,
   /** The Resend stand-in osn-api sends OTP mail to. Not a dev app. */
   mail: 4590,
 } as const;
@@ -78,6 +119,42 @@ export const CIRE_GUEST = {
   slug: "cire-wedding",
   code: "TESTONE-IVY-AA11",
   guestName: "Ada",
+} as const;
+
+/**
+ * A second seeded cire household, for the after-the-deadline flow: Nori, a
+ * household of one, invited to the Catholic and Hindu ceremonies. Not Ada's,
+ * so `cire-rsvp` still finds Ada with no reply on file, whichever flow runs
+ * first.
+ */
+export const CIRE_LATE_GUEST = {
+  code: "TESTTRE-DEW-CC33",
+  guestName: "Nori",
+} as const;
+
+/**
+ * The household for the part-answered flow: Sampleton, three members all
+ * invited to the Hindu ceremony. Only Bo answers, so "someone replied" and
+ * "everyone replied" disagree — the case no single-member household can show.
+ */
+export const CIRE_PART_GUEST = {
+  code: "TESTTWO-OAK-BB22",
+  answering: "Bo",
+  silent: ["Cleo", "Dot"],
+} as const;
+
+/**
+ * Seeded cire household of several: the second canonical family in
+ * `cire/db/seed/data/guests.ts` (Bo, Cleo, Dot; Bo and Cleo are invited to the
+ * Reception). `member` is who says they are answering.
+ */
+export const CIRE_HOUSEHOLD = {
+  slug: "cire-wedding",
+  code: "TESTTWO-OAK-BB22",
+  members: ["Bo", "Cleo", "Dot"],
+  member: "Cleo",
+  /** Who a second tab says is answering, after "Not you?". */
+  otherMember: "Bo",
 } as const;
 
 /** Identities the flows create. Fixed, so every run registers the same people. */

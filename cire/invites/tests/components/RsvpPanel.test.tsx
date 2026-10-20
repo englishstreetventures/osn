@@ -296,6 +296,8 @@ describe("RsvpPanel", () => {
         onClose={() => {}}
         onSubmitted={onSubmitted}
         onConfirmed={onConfirmed}
+        // A page that shows nobody answering: the API refuses a null member.
+        answeringAs={null}
       />
     ));
 
@@ -311,6 +313,7 @@ describe("RsvpPanel", () => {
     const parsed = JSON.parse(fetchSpy.mock.calls[0]![1].body);
     expect(parsed.rsvps).toHaveLength(1);
     expect(parsed.rsvps[0]).toMatchObject({ guestId: "guest-priya", eventId: "event-1" });
+    expect(parsed).not.toHaveProperty("memberGuestId");
     expect(onSubmitted).toHaveBeenCalledWith(updatedRsvps);
 
     // A partial reply gets the toast, same as a complete one, but not the
@@ -1386,13 +1389,363 @@ describe("RsvpPanel", () => {
     expect(getByText("Close")).toBeTruthy();
     expect(queryByText("Cancel")).toBeNull();
 
-    // The reply already on file is still visible, and frozen.
+    // The reply already on file is still visible, and frozen. The answer is
+    // written out rather than shown as a pressed button: with nothing left to
+    // press, which of two greyed buttons is lit would be the only cue, and
+    // colour alone is not one.
     const fs = fieldsetFor("Priya");
-    const attending = within(fs).getByText("Attending") as HTMLButtonElement;
-    expect(attending.getAttribute("aria-pressed")).toBe("true");
-    expect(attending.disabled).toBe(true);
-    expect((within(fs).getByText("Not attending") as HTMLButtonElement).disabled).toBe(true);
+    expect(within(fs).getByText("Attending").tagName).toBe("P");
+    expect(within(fs).queryByRole("button", { name: /attending/i })).toBeNull();
     expect(openOtherText(fs).disabled).toBe(true);
+  });
+
+  it("writes each member's answer on file as words once closed", () => {
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya, raj, { ...naina, eventIds: ["event-1"] }]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+          {
+            guestId: "guest-raj",
+            eventId: "event-1",
+            status: "declined",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+
+    expect(within(fieldsetFor("Priya")).getByText("Attending")).toBeTruthy();
+    expect(within(fieldsetFor("Raj")).getByText("Not attending")).toBeTruthy();
+    // Naina is invited and has nothing on file.
+    expect(within(fieldsetFor("Naina")).getByText("No reply")).toBeTruthy();
+    expect(document.querySelectorAll("fieldset button")).toHaveLength(0);
+  });
+
+  it("states what is stored in place of the consent boxes once closed", () => {
+    // Past the deadline the boxes cannot be pressed, so they would read as
+    // the record — and an unticked "I agree" beside stored dietary data says
+    // the guest refused what is in fact stored, here on a basis the guest's
+    // box never recorded (`dietaryConsentCurrent: false`).
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[bo, sam]}
+        existingRsvps={[
+          {
+            guestId: "guest-bo",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "No nuts",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+          {
+            guestId: "guest-sam",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: ["vegan"],
+            dietaryConsentCurrent: false,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+
+    expect(queryOwnBox()).toBeNull();
+    expect(queryAttestBox()).toBeNull();
+    const line = screen.getByText(/Dietary requirements on file are shared with the caterers/);
+    expect(line.textContent).toBe(
+      "Dietary requirements on file are shared with the caterers for this wedding. See our privacy notice.",
+    );
+    expect(within(line).getByRole("link", { name: "privacy notice" }).getAttribute("href")).toBe(
+      "/privacy",
+    );
+  });
+
+  it.each([
+    ["only the household's own members", "guest-bo", "guest-sam"],
+    ["only a plus-one", "guest-sam", "guest-bo"],
+  ])("states it once closed when %s have dietary data on file", (_, withData, without) => {
+    const row = (guestId: string, dietary: string) => ({
+      guestId,
+      eventId: "event-1",
+      status: "attending" as const,
+      dietary,
+      dietaryPresets: [],
+      dietaryConsentCurrent: true,
+    });
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[bo, sam]}
+        existingRsvps={[row(withData, "No nuts"), row(without, "")]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+    expect(screen.getByText(/Dietary requirements on file are shared/)).toBeTruthy();
+    expect(queryOwnBox()).toBeNull();
+    expect(queryAttestBox()).toBeNull();
+  });
+
+  it("says nothing about dietary data once closed when none is on file", () => {
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+    expect(screen.queryByText(/Dietary requirements on file/)).toBeNull();
+  });
+
+  it("shows a plus-one's reply and both households' dietary answers read-only once closed", () => {
+    // "RSVP given" opens this view after the deadline, so everything a
+    // household sent has to be on it and none of it editable: the plus-one's
+    // fieldset, the dietary picks and text, and both consent boxes.
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[bo, sam]}
+        existingRsvps={[
+          {
+            guestId: "guest-bo",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: ["vegan"],
+            dietaryConsentCurrent: true,
+          },
+          {
+            guestId: "guest-sam",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "No shellfish",
+            dietaryPresets: ["other"],
+            dietaryConsentCurrent: true,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+
+    for (const name of ["Bo", "Sam"]) {
+      const fs = fieldsetFor(name);
+      expect({ name, answer: within(fs).queryByText("Attending")?.tagName }).toEqual({
+        name,
+        answer: "P",
+      });
+      const boxes = within(fs).getAllByRole("checkbox") as HTMLInputElement[];
+      expect({ name, enabled: boxes.filter((b) => !b.disabled).map((b) => b.value) }).toEqual({
+        name,
+        enabled: [],
+      });
+    }
+    expect(
+      (within(fieldsetFor("Bo")).getByRole("checkbox", { name: /vegan/i }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    const samText = within(fieldsetFor("Sam")).getByPlaceholderText(/onion/i) as HTMLInputElement;
+    expect(samText.value).toBe("No shellfish");
+    expect(samText.disabled).toBe(true);
+    expect(document.querySelector("button[type='submit']")).toBeNull();
+  });
+
+  it("says “Not decided” for a member whose reply on file is maybe, once closed", () => {
+    // The sheet's buttons are binary, so a stored "maybe" opens with neither
+    // pressed. Past the deadline that would read as "no answer" on a sheet
+    // the guest opened from "RSVP given"; the line says what is on file.
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya, raj]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "maybe",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+          {
+            guestId: "guest-raj",
+            eventId: "event-1",
+            status: "declined",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+
+    const priyaSet = fieldsetFor("Priya");
+    expect(within(priyaSet).getByText("Not decided")).toBeTruthy();
+    expect(within(priyaSet).queryByRole("button", { name: "Attending" })).toBeNull();
+    // A decided member reads as their decision.
+    expect(within(fieldsetFor("Raj")).getByText("Not attending")).toBeTruthy();
+    expect(within(fieldsetFor("Raj")).queryByText("Not decided")).toBeNull();
+  });
+
+  it("shows a maybe member's dietary data on file once closed, and says it is shared", () => {
+    // The caterers' sheet carries every reply that is not a decline, so a
+    // "maybe" with dietary data is shared. The read-only view states the same.
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "maybe",
+            dietary: "",
+            dietaryPresets: ["vegan"],
+            dietaryConsentCurrent: true,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+
+    const vegan = within(fieldsetFor("Priya")).getByRole("checkbox", {
+      name: /vegan/i,
+    }) as HTMLInputElement;
+    expect({ checked: vegan.checked, disabled: vegan.disabled }).toEqual({
+      checked: true,
+      disabled: true,
+    });
+    expect(screen.getByText(/Dietary requirements on file are shared/)).toBeTruthy();
+  });
+
+  it("shows only what is on file when the deadline passes over unsaved edits", async () => {
+    // Priya has no reply stored; Raj's stored decline is being changed. Neither
+    // edit was saved, so the closed view says what is on file and nothing else.
+    const [closed, setClosed] = createSignal(false);
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya, raj]}
+        existingRsvps={[
+          {
+            guestId: "guest-raj",
+            eventId: "event-1",
+            status: "declined",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed={closed()}
+        onClose={() => {}}
+      />
+    ));
+    for (const name of ["Priya", "Raj"]) {
+      const fs = fieldsetFor(name);
+      fireEvent.click(within(fs).getByRole("button", { name: "Attending" }));
+      pickPreset(fs, /vegan/i);
+    }
+
+    setClosed(true);
+
+    await waitFor(() => expect(within(fieldsetFor("Priya")).getByText("No reply")).toBeTruthy());
+    expect(within(fieldsetFor("Raj")).getByText("Not attending")).toBeTruthy();
+    for (const name of ["Priya", "Raj"]) {
+      expect({ name, boxes: within(fieldsetFor(name)).queryAllByRole("checkbox").length }).toEqual({
+        name,
+        boxes: 0,
+      });
+    }
+    expect(screen.queryByText(/Dietary requirements on file/)).toBeNull();
+  });
+
+  it("says “Not decided” only for that member's own maybe on this event", () => {
+    // Raj has no reply to this event — only a stray "maybe" on another one —
+    // and Priya's "maybe" here is hers, not his. Nothing is on file for him.
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya, raj]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "maybe",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+          {
+            guestId: "guest-raj",
+            eventId: "event-2",
+            status: "maybe",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+
+    const rajSet = fieldsetFor("Raj");
+    expect(within(rajSet).queryByText("Not decided")).toBeNull();
+    expect(within(rajSet).getByText("No reply")).toBeTruthy();
+  });
+
+  it("titles the closed sheet as the household's RSVP rather than asking for one", () => {
+    const { getByRole, queryByRole } = render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+    expect(getByRole("heading", { name: "Your RSVP, Mehndi" })).toBeTruthy();
+    expect(queryByRole("heading", { name: "Respond, Mehndi" })).toBeNull();
   });
 
   it("never POSTs from a closed sheet, even on a form-level submit", async () => {
@@ -1462,6 +1815,27 @@ describe("RsvpPanel", () => {
     await waitFor(() => expect(document.querySelector("button[type='submit']")).toBeNull());
     // Focus landed on the sheet's dismiss button, not on <body>.
     expect(document.activeElement).not.toBe(document.body);
+    expect((document.activeElement as HTMLElement).textContent).toContain("Close");
+  });
+
+  it("rescues focus the same way when the deadline passes with an answer button focused", async () => {
+    // Closed, the answer pair gives way to the answer in words, so a focused
+    // "Attending" leaves the DOM just as Save does.
+    const [closed, setClosed] = createSignal(false);
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya]}
+        apiUrl="https://api.test"
+        closed={closed()}
+        onClose={() => {}}
+      />
+    ));
+    within(fieldsetFor("Priya")).getByRole("button", { name: "Attending" }).focus();
+
+    setClosed(true);
+
+    await waitFor(() => expect(within(fieldsetFor("Priya")).getByText("No reply")).toBeTruthy());
     expect((document.activeElement as HTMLElement).textContent).toContain("Close");
   });
 
@@ -2678,70 +3052,29 @@ describe("RsvpPanel — the heading and the way to the details", () => {
     expect(received).toBe(heading);
   });
 
-  it("offers no way to the details on its own", () => {
-    const { queryByRole } = render(() => (
-      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
-    ));
-    expect(queryByRole("button", { name: "View event details" })).toBeNull();
-  });
-
-  it("offers the details as a quiet link, outside the form", () => {
-    const onShowDetails = vi.fn();
-    const { getByRole } = render(() => (
-      <RsvpPanel
-        event={event}
-        members={[priya]}
-        apiUrl="https://api.test"
-        onClose={() => {}}
-        onShowDetails={onShowDetails}
-      />
-    ));
-
-    const link = getByRole("button", { name: "View event details" });
-    // Not in the form: it is not part of the reply, and it must not send one.
-    expect(link.closest("form")).toBeNull();
-    fireEvent.click(link);
-    expect(onShowDetails).toHaveBeenCalledTimes(1);
-  });
-
-  it("stays available once RSVPs have closed — the details still are", () => {
-    const { getByRole } = render(() => (
-      <RsvpPanel
-        event={event}
-        members={[priya]}
-        apiUrl="https://api.test"
-        closed
-        onClose={() => {}}
-        onShowDetails={() => {}}
-      />
-    ));
-    expect(
-      (getByRole("button", { name: "View event details" }) as HTMLButtonElement).disabled,
-    ).toBe(false);
-  });
-
-  it("is withdrawn while a save is in flight and while the sheet closes on a saved reply", async () => {
-    // Nothing to come back to: the sheet closes itself one dwell after a save.
+  it("tells the sheet it is busy while a save is in flight and once the reply has saved", async () => {
+    // Nothing to come back to: the sheet closes itself one dwell after a save,
+    // so it offers no way to the details meanwhile.
     let resolve!: (r: Response) => void;
     vi.stubGlobal(
       "fetch",
       vi.fn(() => new Promise<Response>((r) => (resolve = r))),
     );
+    const busy: boolean[] = [];
     const { getByRole } = render(() => (
       <RsvpPanel
         event={event}
         members={[priya]}
         apiUrl="https://api.test"
         onClose={() => {}}
-        onShowDetails={() => {}}
+        onBusyChange={(b) => busy.push(b)}
       />
     ));
-    const link = () => getByRole("button", { name: "View event details" }) as HTMLButtonElement;
-    expect(link().disabled).toBe(false);
+    expect(busy.at(-1)).toBe(false);
 
     fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
     fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
-    await waitFor(() => expect(link().disabled).toBe(true));
+    await waitFor(() => expect(busy.at(-1)).toBe(true));
 
     resolve(
       new Response(JSON.stringify({ rsvps: [] }), {
@@ -2750,7 +3083,7 @@ describe("RsvpPanel — the heading and the way to the details", () => {
       }),
     );
     await waitFor(() => expect(getByRole("button", { name: "Saved" })).toBeTruthy());
-    expect(link().disabled).toBe(true);
+    expect(busy.at(-1)).toBe(true);
   });
 
   it.each([
@@ -2759,17 +3092,18 @@ describe("RsvpPanel — the heading and the way to the details", () => {
       "the server fails",
       () => Promise.resolve(new Response(JSON.stringify({ error: "boom" }), { status: 500 })),
     ],
-  ])("comes back once a save fails because %s", async (_why, reply) => {
+  ])("is no longer busy once a save fails because %s", async (_why, reply) => {
     // A guest whose save failed is still in the sheet, with the error showing,
     // and may well want the details before trying again.
     vi.stubGlobal("fetch", vi.fn(reply));
+    const busy: boolean[] = [];
     const { getByRole } = render(() => (
       <RsvpPanel
         event={event}
         members={[priya]}
         apiUrl="https://api.test"
         onClose={() => {}}
-        onShowDetails={() => {}}
+        onBusyChange={(b) => busy.push(b)}
       />
     ));
 
@@ -2777,8 +3111,7 @@ describe("RsvpPanel — the heading and the way to the details", () => {
     fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
     await waitFor(() => expect(getByRole("alert")).toBeTruthy());
 
-    expect(
-      (getByRole("button", { name: "View event details" }) as HTMLButtonElement).disabled,
-    ).toBe(false);
+    expect(busy).toContain(true);
+    expect(busy.at(-1)).toBe(false);
   });
 });

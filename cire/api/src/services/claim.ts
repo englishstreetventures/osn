@@ -15,6 +15,7 @@ import { alias } from "drizzle-orm/sqlite-core";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { memberStepOn } from "../lib/account-linking";
 import { resolveRsvpDeadline } from "../lib/rsvp-deadline";
 import {
   measureClaimLookup,
@@ -175,6 +176,8 @@ export interface AccountLinkGate {
   resolveAccountId?: OsnAccountResolver;
   /** Hosts a profile picture may load from. */
   avatarOrigins?: readonly string[];
+  /** Weddings whose member step rides the linking flag (`memberStepOn`). */
+  memberStepExcludedWeddings?: ReadonlySet<string>;
 }
 
 const LINKING_OFF: AccountLinkState = { enabled: false };
@@ -270,28 +273,34 @@ function buildClaimResponse(
   }).pipe(
     Effect.flatMap(([invite, { state: linkState, facts }]) =>
       Effect.gen(function* () {
-        // The member step rides the same flag answer as the link box, so the
-        // two can never disagree within one payload. Off: the payload keeps
-        // the shape it had before the step existed.
-        if (!linkState.enabled || !gate) {
+        // No member step, and no "Answered by" on the replies shown: a host
+        // preview is not a guest seat, and an excluded wedding's household
+        // gets the step only with the link box.
+        if (
+          family.kind === "host" ||
+          !memberStepOn(gate?.memberStepExcludedWeddings, family.weddingId, linkState.enabled)
+        ) {
           return {
             ...invite,
             rsvps: invite.rsvps.map(withoutSubmitter),
             accountLink: linkState,
           };
         }
+        // Everywhere else the flag decides only the link box beside the step,
+        // so a flag that is off, slow or failing never costs a household it.
         let state = linkState;
-        let member = gate.memberGuestId ?? null;
+        let member = gate?.memberGuestId ?? null;
         // A one-member household has nobody to choose between, so the server
         // chooses for it. The caller writes the choice to the session.
         if (member === null) {
-          const only = singleChoosableMember(invite.members);
-          if (only !== null && facts !== null) {
-            member = only;
+          member = singleChoosableMember(invite.members);
+          // The link state was read before the member was known. `facts` is
+          // null whenever linking is off, and then there is nothing to redo.
+          if (member !== null && facts !== null) {
             state = yield* linkStateFor(facts, {
               guestId: member,
-              resolveAccountId: gate.resolveAccountId,
-              avatarOrigins: gate.avatarOrigins,
+              resolveAccountId: gate?.resolveAccountId,
+              avatarOrigins: gate?.avatarOrigins,
             });
           }
         }
@@ -586,8 +595,9 @@ function buildInvite(
 export const claimService = {
   /**
    * Resolve a claim code to its household's invite. `gate` supplies the
-   * account-link state; without one (service tests, the D1 tier) the payload
-   * reports linking as off.
+   * account-link state and the session's member; without one (service tests,
+   * the D1 tier) the payload reports linking as off and names no member but
+   * the one of a one-member household.
    */
   lookup(
     publicId: string,

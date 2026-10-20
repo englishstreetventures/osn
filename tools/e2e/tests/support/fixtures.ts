@@ -19,9 +19,18 @@ import {
   type BrowserContext,
   type CDPSession,
   type Page,
+  type Route,
 } from "@playwright/test";
 
-import { API_LABELS, BIRTHDATE, CLOCK_T0, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
+import {
+  API_LABELS,
+  BIRTHDATE,
+  CIRE_GIFT_LIST,
+  CLOCK_T0,
+  ORGANISER_ADDRESS,
+  ORIGINS,
+  SCREENSHOT_DIR,
+} from "../../src/config";
 import { requestLine, requestSet, type Assertion, type FlowRecord } from "../../src/record";
 import { RECORD_ATTACHMENT } from "../../src/reporter";
 
@@ -208,6 +217,32 @@ export function queryOne<T>(
   }
 }
 
+/**
+ * Sends `context`'s invitation claims (`POST /api/claim`) from
+ * `ORGANISER_ADDRESS` rather than from the machine the suite runs on.
+ *
+ * cire-api limits claims per client address, five a minute, and every other
+ * flow claims from the same one; an organiser previews from their own network,
+ * so this flow's claim spends its own window. The headers are the request's
+ * own (`allHeaders`, which keeps `Origin` for the origin guard) plus the
+ * address. `tools/e2e/tests/flows.test.ts` counts such flows apart.
+ *
+ * The route stays for the rest of the flow, on purpose. While any route is
+ * installed Playwright pauses every request in the context, and removing the
+ * route while the page is still loading strands whichever request was paused
+ * at that moment: a module import the claim's reveal waits on never settles,
+ * and the invitation stays on its code form.
+ */
+export async function claimFromOrganiserAddress(context: BrowserContext): Promise<void> {
+  await context.route(`${ORIGINS.cireApi}/api/claim`, async (route: Route) => {
+    const request = route.request();
+    if (request.method() !== "POST") return route.continue();
+    return route.continue({
+      headers: { ...(await request.allHeaders()), "cf-connecting-ip": ORGANISER_ADDRESS },
+    });
+  });
+}
+
 /** A cookie in `context` by name, or undefined. */
 export async function cookieNamed(context: BrowserContext, url: string, name: string) {
   return (await context.cookies(url)).find((c) => c.name === name);
@@ -221,4 +256,15 @@ export async function cookieNamed(context: BrowserContext, url: string, name: st
 export function onSuiteClock(unixSeconds: number | undefined): boolean {
   const start = Math.floor(CLOCK_T0 / 1000);
   return unixSeconds !== undefined && unixSeconds >= start && unixSeconds < start + 3600;
+}
+
+/**
+ * Which of the gift list's private strings (`CIRE_GIFT_LIST`: every gift title,
+ * the couple's headline and their message) `text` holds, comma-joined, or
+ * `"none"`. Read off a page's HTML or an API body: what a visitor without a
+ * claim must never receive.
+ */
+export function giftListTextIn(text: string): string {
+  const secret = [...CIRE_GIFT_LIST.gifts, CIRE_GIFT_LIST.headline, CIRE_GIFT_LIST.message];
+  return secret.filter((s) => text.includes(s)).join(", ") || "none";
 }

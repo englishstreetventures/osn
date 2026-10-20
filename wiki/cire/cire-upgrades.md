@@ -197,7 +197,7 @@ read also returns rows that are `expired`, hold a session, buy a product that
 is not a tier, and opened less than a day ago (`CHECKOUT_SESSION_LIFETIME_MS`).
 Each is probed: an open one is expired at Stripe; one that is `complete`, that
 Stripe will not expire, or that cannot be probed answers **409 `processing`**.
-englishstventures/osn#1315 removes this with the legacy rows.
+englishstreetventures/osn#1315 removes this with the legacy rows.
 
 Then it resolves the pending purchase **before** it ever reaches an insert:
 
@@ -369,7 +369,7 @@ the wedding's paid purchases of anything above the new tier `refunded`, then
 lowers the tier. Stripe redelivers a completed session after a failed delivery
 and an operator can resend one from the dashboard; settle grants nothing for a
 `refunded` purchase, so the refund holds. The customer-facing wording is
-englishstventures/osn#1317.
+englishstreetventures/osn#1317.
 
 The purchase row's statuses: `pending`, `succeeded`, `failed`, `expired`,
 `refunded` (an operator took it back) and `mismatch` (paid, nothing granted).

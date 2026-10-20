@@ -96,12 +96,12 @@ Four rules about that pair:
 
 - **Let `--resolve-issue` do the lookup; never hand-roll it in the shell.**
   `.closingIssuesReferences[0].number` drops the repository, so a follow-up
-  `gh issue view <n> --repo englishstventures/osn` **succeeds** against a different
+  `gh issue view <n> --repo englishstreetventures/osn` **succeeds** against a different
   repository's issue of the same number and writes a stranger's `complexity:`
   label in as this branch's denominator. `resolveIdentity` in
   `tools/pr-metrics/index.ts` compares the reference's own repository.
 - **Labels are read only from an issue in this repository.** Most work here
-  closes a finding in the private `englishstventures/osn-tracker`, and that issue's
+  closes a finding in the private `englishstreetventures/osn-tracker`, and that issue's
   `severity:`/`area:` labels must never reach a card committed to a public
   repository. The flag withholds them and records
   `complexity.method: "not-fetched"`, which is **not** `"none"` — a rating may
@@ -277,8 +277,9 @@ about missing dependencies in a remote session are noise; the repository is not
 where that is fixed.
 
 **4. A suggestion with no owner is not a finding.** Same rule as a deferral: it
-goes to an issue, or it is a change made on this branch, or it is a sentence
-said to the person. A paragraph in a chat reply is discovered by nobody.
+is a change made on this branch, or in a follow-up pull request this session
+opens, or a sentence said to the person — and an issue only when none of those
+fits (`prep-pr` Step 6). A paragraph in a chat reply is discovered by nobody.
 
 **5. Do not re-file what `prep-pr` filed.** Its Step 7 already opened issues for
 every `S-`, `P-` and `C-` finding. This skill files what those findings *imply
@@ -293,11 +294,15 @@ rest, and say how many you cut. A list of nine is a list nobody reads.
 
 | Kind | Where | Labels |
 |---|---|---|
-| A wiki page or `AGENTS.md` change | Make it **on this branch** if it is small and the pull request is still open; otherwise an issue in `englishstventures/osn` | `area:docs`, `product:` of the surface, `--type Task` |
-| A missing test, house rule or CI gate | Issue in `englishstventures/osn` | `area:ops` or `area:schema` as it fits, `--type Task` |
-| A skill or agent-definition change | Issue in `englishstventures/osn` | `area:ops`, `product:shared`, `--type Task` |
+| A wiki page change | **Make it on this branch** while the pull request is open — a plain wiki edit needs no fresh review | — |
+| An `AGENTS.md`, skill or agent-definition change | **Make it on the follow-up pull request** (`prep-pr` Step 6), which gets its own reviews; never on this branch after its reviews have run | — |
+| A missing test, house rule or CI gate | **Make it** on the follow-up pull request when it fits in one package; an issue in `englishstreetventures/osn` only when it is a project of its own | `area:ops` or `area:schema` as it fits, `--type Task` |
 | Anything about the brief | **No issue.** It goes in `RETRO.md` and is said plainly in the reply | — |
-| A security, performance or compliance defect | `englishstventures/osn-tracker`, and only if `prep-pr` did not already file it | per `wiki/conventions/review-findings.md` |
+| A security, performance or compliance defect | `englishstreetventures/osn-tracker`, and only if `prep-pr` did not already file it | per `wiki/conventions/review-findings.md` |
+
+A retro that ends with more issues than changes has filed instead of fixed.
+What may stay open is in `wiki/conventions/review-findings.md` §Fix findings;
+do not file them, and it holds here too.
 
 Write each issue with the `write-issue` skill, which also rates it through
 `rate-complexity` before work starts (`complexity:unconfirmed` on an unattended
@@ -327,7 +332,7 @@ cost, against what was declared, and whether those agree.>
   shows it.
 - **Cost** — what it cost this time. A number where the card has one.
 - **Fix** — the concrete change, in a named file.
-- **Landed** — `englishstventures/osn#N`, or "changed on this branch", or "told the user".
+- **Landed** — `englishstreetventures/osn#N`, or "changed on this branch", or "told the user".
 
 ### 2. …
 

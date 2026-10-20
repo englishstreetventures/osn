@@ -45,7 +45,7 @@ export interface SubscriptionOptions {
   readonly fallbackMemory?: Map<string, number>;
   /**
    * Called once when the subscription gives up for good. The client records
-   * no metric of its own until englishstventures/osn#1242 lands.
+   * no metric of its own until englishstreetventures/osn#1242 lands.
    */
   readonly onFallback?: () => void;
   /** The WebSocket constructor; tests pass a stand-in. */

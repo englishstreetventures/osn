@@ -1,5 +1,19 @@
 # @shared/dev-urls
 
+## 0.1.11
+
+### Patch Changes
+
+- 58063cc: Give `@cire/host` the cire marketing site's origin as `PUBLIC_MARKETING_URL` in local dev.
+
+## 0.1.10
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
 ## 0.1.9
 
 ### Patch Changes

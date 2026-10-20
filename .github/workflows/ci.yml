@@ -162,8 +162,7 @@ jobs:
       # `scripts/` is in no workspace, so `turbo check` never reaches it and a
       # type error there ships. One did: `skill-evals.ts` read an optional
       # `scenario.path` unguarded, which crashed `ready`, `compare` and `record`
-      # on a payload the API really returns, and inside the eval poll that reads
-      # as "the run was never scored" for a run that was.
+      # on a payload the API really returns.
       #
       # It lives here rather than in `script-tests` because that job does no
       # `bun install` on purpose, and `scripts/tsconfig.json` inherits
@@ -210,7 +209,7 @@ jobs:
       # `provider: fontProviders.google()`, which makes `astro build` fetch
       # `https://fonts.google.com/metadata/fonts` — Astro's own font
       # metadata cache for that fetch lives at each package's default
-      # `cacheDir`, `node_modules/.astro` (englishstventures/osn-tracker#128). None of
+      # `cacheDir`, `node_modules/.astro`. None of
       # this job's other caches cover it: the bun cache above only holds
       # installed packages, and the turbo cache is keyed per-commit on
       # purpose (see the `typecheck` job's comment on why) so it can't be
@@ -486,7 +485,7 @@ jobs:
       # amount of data, and that number only grows. Thirteen merges spent
       # 104,091 rows written on 2026-09-09 against a free-tier ceiling of
       # 100,000 a day account-wide, with no commit doing anything wrong
-      # (englishstventures/osn#979). The budget is a row in
+      # (englishstreetventures/osn#979). The budget is a row in
       # scripts/d1-migration-cost-budgets.txt, not an argument here.
       #
       # It needs no install: the script imports bun:sqlite and Node built-ins
@@ -540,7 +539,7 @@ jobs:
         run: git diff --exit-code shared/openapi/
 
   # The end-to-end suite (`tools/e2e`): boots osn-api, pulse-api, cire-api and
-  # three frontends on their PORTLESS=0 ports, drives Chromium through each
+  # four frontends on their PORTLESS=0 ports, drives Chromium through each
   # product's flows, and runs the whole thing twice so a results.json that
   # differs between runs fails here rather than in someone's review. Not in the
   # `ci` aggregator's `needs` yet, so it reports without gating merges while it

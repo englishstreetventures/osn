@@ -17,6 +17,6 @@ carries `assignedHostId`, and `GET /hosts` names each seat by its id
 (`hostId`). Removing a co-host or leaving the wedding clears their assignments
 and keeps the tasks.
 
-Migration `0086_task_assigned_host.sql` adds `tasks.assigned_host_id`, a
+Migration `0087_task_assigned_host.sql` adds `tasks.assigned_host_id`, a
 reference to `wedding_hosts(id)` with ON DELETE SET NULL, and a partial index
 on it.

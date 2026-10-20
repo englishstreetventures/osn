@@ -118,13 +118,16 @@ const claimTwoEvents: ClaimResult = {
   ],
 };
 
-/** The real (unmocked) EventCard's Respond button for a given event's card. */
+/**
+ * The real (unmocked) EventCard's answer button for a given event's card —
+ * "Respond", or "RSVP given" once the household's reply is on file.
+ */
 function respondButtonFor(container: HTMLElement, eventName: string) {
   const card = [...container.querySelectorAll("[data-event-card]")].find((el) =>
     el.textContent?.includes(eventName),
   ) as HTMLElement;
   return [...card.querySelectorAll("button")].find(
-    (b) => b.textContent === "Respond" || b.textContent === "RSVPs closed",
+    (b) => b.textContent === "Respond" || b.textContent === "RSVP given",
   ) as HTMLButtonElement;
 }
 
@@ -187,11 +190,12 @@ describe("InvitePage", () => {
     // `order-*` class to the pair, so this DOM order is what a guest reads and
     // what the keyboard walks. Asserted per pack because "both packs agree" is
     // the claim, and one of them quietly rendering its own row is how that
-    // claim would stop being true.
+    // claim would stop being true. `claim` has Mehndi answered, so its answer
+    // button reads "RSVP given".
     for (const card of container.querySelectorAll("[data-event-card]")) {
       expect([...card.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
         "Event Details",
-        "Respond",
+        "RSVP given",
       ]);
     }
   });
@@ -224,9 +228,10 @@ describe("InvitePage", () => {
     // RSVP is NO LONGER disabled in preview — the host can try it. `findBy*`,
     // not `getBy*`: the cards now arrive through a lazy import, so the button
     // exists a microtask after the preview banner rather than in the same tick.
+    // `claim` already has Mehndi answered, so its button reads "RSVP given".
     const respond = (await findByRole(
       "button",
-      { name: /Respond/i },
+      { name: "RSVP given" },
       { timeout: 2000 },
     )) as HTMLButtonElement;
     expect(respond.disabled).toBe(false);
@@ -332,10 +337,10 @@ describe("InvitePage", () => {
       />
     ));
 
-    await waitFor(() => expect(getByRole("button", { name: /Respond/i })).toBeTruthy(), {
+    await waitFor(() => expect(getByRole("button", { name: "RSVP given" })).toBeTruthy(), {
       timeout: 2000,
     });
-    fireEvent.click(getByRole("button", { name: /Respond/i }));
+    fireEvent.click(getByRole("button", { name: "RSVP given" }));
     await waitFor(() => expect(getByTestId("rsvp-sheet-stub")).toBeTruthy());
 
     const themeVars = capturedProps.value?.themeVars as Record<string, string>;
@@ -987,9 +992,10 @@ describe("InvitePage", () => {
     });
     fireEvent.click(getByText("Open Invitation"));
 
-    // Wait for the event card "Respond" button
-    await waitFor(() => expect(getByText(/Respond/i)).toBeTruthy(), { timeout: 2000 });
-    fireEvent.click(getByText(/Respond/i));
+    // Wait for the event card's answer button — "RSVP given", since `claim`
+    // already has Mehndi answered.
+    await waitFor(() => expect(getByText("RSVP given")).toBeTruthy(), { timeout: 2000 });
+    fireEvent.click(getByText("RSVP given"));
 
     await waitFor(() => expect(capturedProps.value).not.toBeNull());
 
@@ -1019,8 +1025,8 @@ describe("InvitePage", () => {
     // it's already open. Instead close + reopen by simulating onClose then click.)
     (props.onClose as () => void)();
     capturedProps.value = null;
-    await waitFor(() => expect(getByText(/Respond/i)).toBeTruthy());
-    fireEvent.click(getByText(/Respond/i));
+    await waitFor(() => expect(getByText("RSVP given")).toBeTruthy());
+    fireEvent.click(getByText("RSVP given"));
 
     await waitFor(() => expect(capturedProps.value).not.toBeNull());
     expect(capturedProps.value!.existingRsvps).toEqual(updated);
@@ -1062,7 +1068,7 @@ describe("InvitePage", () => {
     });
     vi.stubGlobal("fetch", noSession(fetchMock as typeof fetch));
 
-    const { getByText, getAllByRole, getByPlaceholderText, findByLabelText } = render(() => (
+    const { getByText, getByRole, getByPlaceholderText, findByLabelText } = render(() => (
       <InvitePage apiUrl="https://api.test" />
     ));
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
@@ -1075,7 +1081,9 @@ describe("InvitePage", () => {
     fireEvent.click(getByText("Add guest"));
     await waitFor(() => expect(getByText("Sam Park")).toBeTruthy());
 
-    fireEvent.click(getAllByRole("button", { name: /Respond/i })[0]!);
+    // Mehndi is already answered by Priya; a plus-one is not waited for, so
+    // the button still reads "RSVP given".
+    fireEvent.click(getByRole("button", { name: "RSVP given" }));
     await waitFor(() => expect(capturedProps.value).not.toBeNull());
     const members = capturedProps.value!.members as ClaimResult["members"];
     expect(members.map((m) => m.guestId)).toEqual(["guest-1", "guest-sam"]);
@@ -1381,13 +1389,14 @@ describe("InvitePage", () => {
     // the same reference; the list must keep its rows, so an answer the guest
     // has open stays open.
     it("keeps an open answer open across an RSVP save", async () => {
-      const { container, getAllByRole } = await claimWith({ faq: FAQ });
+      const { container, getByRole } = await claimWith({ faq: FAQ });
       await waitFor(() => expect(faqSection(container)).toBeTruthy());
       const details = faqSection(container)!.querySelector("details")!;
       details.open = true;
 
-      await waitFor(() => expect(getAllByRole("button", { name: /Respond/i })[0]).toBeTruthy());
-      fireEvent.click(getAllByRole("button", { name: /Respond/i })[0]!);
+      // `claim` has Mehndi answered, so its button reads "RSVP given".
+      await waitFor(() => expect(getByRole("button", { name: "RSVP given" })).toBeTruthy());
+      fireEvent.click(getByRole("button", { name: "RSVP given" }));
       await waitFor(() => expect(capturedProps.value).not.toBeNull());
       (capturedProps.value!.onSubmitted as (r: RsvpSummary[]) => void)([
         {
@@ -1443,12 +1452,15 @@ describe("InvitePage", () => {
 
   describe("RSVP deadline", () => {
     /** Claim through the ?code= deep-link with a given deadline attached. */
-    async function claimWithDeadline(rsvpDeadline: ClaimResult["rsvpDeadline"]) {
+    async function claimWithDeadline(
+      rsvpDeadline: ClaimResult["rsvpDeadline"],
+      extra: Partial<ClaimResult> = {},
+    ) {
       vi.stubGlobal(
         "fetch",
         noSession(
           vi.fn().mockResolvedValue(
-            new Response(JSON.stringify({ ...claim, preview: true, rsvpDeadline }), {
+            new Response(JSON.stringify({ ...claim, preview: true, rsvpDeadline, ...extra }), {
               status: 200,
               headers: { "Content-Type": "application/json" },
             }),
@@ -1488,6 +1500,13 @@ describe("InvitePage", () => {
       );
     }
 
+    /** The "RSVPs closed" badges beside the event names. */
+    function closedBadges() {
+      return [...document.querySelectorAll("[data-event-card] span")].filter(
+        (s) => s.textContent === "RSVPs closed",
+      );
+    }
+
     it("invites a reply by the date while the deadline is ahead", async () => {
       const { getByRole } = await claimWithDeadline({
         date: "2999-09-01",
@@ -1499,7 +1518,11 @@ describe("InvitePage", () => {
       expect(document.getElementById("rsvp-deadline-notice")?.textContent).toBe(
         "Kindly respond by Sunday 1 September 2999.",
       );
-      expect((getByRole("button", { name: "Respond" }) as HTMLButtonElement).disabled).toBe(false);
+      // `claim` has Mehndi answered, so its button reads "RSVP given".
+      expect((getByRole("button", { name: "RSVP given" }) as HTMLButtonElement).disabled).toBe(
+        false,
+      );
+      expect(closedBadges()).toEqual([]);
     });
 
     it("states the date in the claim panel too, where the guest lands", async () => {
@@ -1555,6 +1578,7 @@ describe("InvitePage", () => {
 
       // Only the answer is near, not gone.
       expect(document.querySelector("[aria-disabled='true']")).toBeNull();
+      expect(closedBadges()).toEqual([]);
     });
 
     it("sits directly on top of the event cards, not in the centred header", async () => {
@@ -1597,21 +1621,27 @@ describe("InvitePage", () => {
       expect(classes.filter((c) => c.startsWith("bg-"))).toEqual([]);
     });
 
-    it("locks every card and states the date once the deadline has passed", async () => {
-      const { getByRole } = await claimWithDeadline({
+    it("keeps an answered event's reply viewable and states the date once the deadline has passed", async () => {
+      const { getByRole, container } = await claimWithDeadline({
         date: "2020-09-01",
         timezone: "Australia/Sydney",
         closesAt: "2020-09-01T13:59:59.999Z",
         closed: true,
       });
 
-      const respond = getByRole("button", { name: "RSVPs closed" }) as HTMLButtonElement;
-      // `aria-disabled`, not the native attribute. The button stays focusable
-      // and points at the notice, which is the copy that states the date and
-      // the one that has to survive into the closed state for the reference to
+      // `claim` has Mehndi answered: its button stays, as "RSVP given", and
+      // opens the sheet read-only.
+      const given = getByRole("button", { name: "RSVP given" }) as HTMLButtonElement;
+      expect(respondButtonFor(container, "Mehndi")).toBe(given);
+      expect(given.hasAttribute("aria-disabled")).toBe(false);
+      // It points at the notice, which is the copy that states the date and the
+      // one that has to survive into the closed state for the reference to
       // resolve at all.
-      expect(respond.getAttribute("aria-disabled")).toBe("true");
-      expect(respond.getAttribute("aria-describedby")).toBe("rsvp-deadline-notice");
+      expect(given.getAttribute("aria-describedby")).toBe("rsvp-deadline-notice");
+      expect(closedBadges().length).toBe(1);
+      fireEvent.click(given);
+      await waitFor(() => expect(capturedProps.value?.panel).toBe("rsvp"));
+      expect(capturedProps.value!.closed).toBe(true);
       const notice = document.getElementById("rsvp-deadline-notice")!;
       expect(notice.textContent).toBe("RSVPs closed on Tuesday 1 September 2020.");
       // The ink recedes and the box turns neutral — a different shape from the
@@ -1626,19 +1656,40 @@ describe("InvitePage", () => {
       );
     });
 
-    it("renders no notice and no lock when the wedding has no deadline", async () => {
+    it("drops the answer button from an event nobody answered once the deadline has passed", async () => {
+      const { container } = await claimWithDeadline(
+        {
+          date: "2020-09-01",
+          timezone: "Australia/Sydney",
+          closesAt: "2020-09-01T13:59:59.999Z",
+          closed: true,
+        },
+        { rsvps: [], householdReplied: false },
+      );
+
+      const card = container.querySelector("[data-event-card]")!;
+      expect([...card.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
+        "Event Details",
+      ]);
+      expect(closedBadges().length).toBe(1);
+    });
+
+    it("renders no notice, no badge and no lock when the wedding has no deadline", async () => {
       // Also the shape a mid-deploy payload from an older API has.
       const { queryByText, getByRole } = await claimWithDeadline(null);
 
       expect(queryByText(/Kindly respond by/)).toBeNull();
       expect(queryByText(/RSVPs closed/)).toBeNull();
-      expect((getByRole("button", { name: "Respond" }) as HTMLButtonElement).disabled).toBe(false);
+      expect(closedBadges()).toEqual([]);
+      // `claim` has Mehndi answered, so its button reads "RSVP given".
+      expect((getByRole("button", { name: "RSVP given" }) as HTMLButtonElement).disabled).toBe(
+        false,
+      );
     });
 
     it("threads the closed state and the deadline day into the RSVP sheet", async () => {
-      // The sheet is normally unreachable once closed (Respond is disabled), but
-      // the deadline can pass with it already open — so the props still have to
-      // be wired, and a stale sheet has to say when the door shut.
+      // A stale sheet, open when the deadline passes, has to say when the door
+      // shut — so the props are wired while RSVPs are still open too.
       const { getByText } = await claimWithDeadline({
         date: "2999-09-01",
         timezone: "Australia/Sydney",
@@ -1646,16 +1697,16 @@ describe("InvitePage", () => {
         closed: false,
       });
 
-      fireEvent.click(getByText("Respond"));
+      fireEvent.click(getByText("RSVP given"));
       await waitFor(() => expect(capturedProps.value).not.toBeNull());
       expect(capturedProps.value!.closed).toBe(false);
       expect(capturedProps.value!.closedOn).toBe("Sunday 1 September 2999");
     });
 
     it("opens the sheet on the details after the deadline, told that RSVPs have closed", async () => {
-      // Past the deadline Respond is locked and Event Details is the one way
-      // into the sheet. The details then offer no way into the form — which
-      // they can only do if the page tells the sheet the replies have closed.
+      // The details offer the way into the form only to a household with a
+      // reply on file — which they can only do if the page tells the sheet the
+      // replies have closed, and whether this household replied.
       const { container } = await claimWithDeadline({
         date: "2020-09-01",
         timezone: "Australia/Sydney",
@@ -1666,6 +1717,7 @@ describe("InvitePage", () => {
       fireEvent.click(detailsButtonFor(container, "Mehndi"));
       await waitFor(() => expect(capturedProps.value?.panel).toBe("details"));
       expect(capturedProps.value!.closed).toBe(true);
+      expect(capturedProps.value!.replied).toBe(true);
       expect(capturedProps.value!.closedOn).toBe("Tuesday 1 September 2020");
     });
   });

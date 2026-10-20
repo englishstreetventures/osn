@@ -3,7 +3,7 @@
 Date: 2026-09-26 · Status: approved in conversation, awaiting written-spec review
 
 > [!note] The design as approved, not a description of the code
-> `@shared/realtime` departs from this record in detail. `wiki/shared/realtime.md` and `shared/realtime/src/` say what is true. Where they differ from what follows: hubs are addressed with `getByName(topic)`, not `idFromName`; sockets are tagged with the admitted subject, not the topic; `subscribe()` checks for a bound hub before authenticating, and runs a short-window and a daily limiter before membership; publish failures are counted as `result="error"` on `realtime.signal.published`, not a separate counter; and the client records no fallback metric of its own (englishstventures/osn#1242).
+> `@shared/realtime` departs from this record in detail. `wiki/shared/realtime.md` and `shared/realtime/src/` say what is true. Where they differ from what follows: hubs are addressed with `getByName(topic)`, not `idFromName`; sockets are tagged with the admitted subject, not the topic; `subscribe()` checks for a bound hub before authenticating, and runs a short-window and a daily limiter before membership; publish failures are counted as `result="error"` on `realtime.signal.published`, not a separate counter; and the client records no fallback metric of its own (englishstreetventures/osn#1242).
 
 ## Goal
 

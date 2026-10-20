@@ -1,10 +1,10 @@
+import { CATEGORY_LIST, type ConsentCategory } from "@cire/ui/consent-categories";
+import { gatedVendorsInCategory } from "@cire/ui/consent-vendors";
 import { Modal } from "@shared/ui/ui/modal";
 import { createSignal, createUniqueId, For, type JSX, Show } from "solid-js";
 
-import { CATEGORY_LIST, type ConsentCategory } from "../../lib/consent/categories";
 import type { ConsentGrants } from "../../lib/consent/record";
 import { closeConsentPreferences, currentGrants, saveConsent } from "../../lib/consent/store";
-import { gatedVendorsInCategory } from "../../lib/consent/vendors";
 
 /** The switches the sheet offers: every category but the required one. */
 const SWITCHES = CATEGORY_LIST.filter((category) => !category.required);
@@ -94,7 +94,7 @@ export function ConsentPreferences() {
         <button
           type="button"
           onClick={() => saveConsent(draft())}
-          class="border-gold bg-gold text-bg font-body hover:text-gold-ink focus-visible:ring-gold/60 text-ui-xs tracking-ui-wider rounded-sm border px-5 py-2 uppercase transition-colors duration-200 hover:bg-transparent focus:outline-none focus-visible:ring-2"
+          class="border-gold bg-gold text-on-gold font-body hover:text-gold-ink focus-visible:ring-gold/60 text-ui-xs tracking-ui-wider rounded-sm border px-5 py-2 uppercase transition-colors duration-200 hover:bg-transparent focus:outline-none focus-visible:ring-2"
         >
           Save choices
         </button>

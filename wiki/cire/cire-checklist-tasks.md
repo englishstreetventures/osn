@@ -24,8 +24,8 @@ reorder tasks within a bucket. A couple can also seed the list from the
 ## `tasks` table
 
 Built by the baseline `0001_initial.sql` (`migrations-archive/0038_tasks.sql`
-first); `0085_task_templates.sql` added the four template columns and the
-unique index, and `0086_task_assigned_host.sql` the assignee, both with
+first); `0086_task_templates.sql` added the four template columns and the
+unique index, and `0087_task_assigned_host.sql` the assignee, both with
 `ALTER TABLE ADD` and no rebuild.
 
 | Column | Type | Notes |

@@ -1,13 +1,13 @@
 {
   "name": "@shared/crypto",
-  "version": "0.14.4",
+  "version": "0.14.5",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/englishstventures/osn.git"
+    "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "exports": {
     ".": "./src/index.ts",

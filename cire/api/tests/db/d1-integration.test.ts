@@ -1181,7 +1181,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "guest registry gate: one joined read decides the list, and the image, on D1",
     async () => {
-      // The correlated EXISTS columns and the LEFT JOIN's NULL settings run
+      // The correlated subquery columns and the LEFT JOIN's NULL settings run
       // through the D1 driver's positional row mapping here, not only through
       // bun:sqlite's.
       const now = new Date();
@@ -1217,6 +1217,137 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(
         Exit.isFailure(await visible(registryGuestService.visibleImageKey("w", "registry-gone"))),
       ).toBe(true);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "guest registry: the host preview household reads the list and every write refuses it, on D1",
+    async () => {
+      // The household's kind is read inside the gate's statement, the claim's
+      // INSERT … SELECT and the release's UPDATE, so each runs here through the
+      // D1 driver, with a foreign household beside it for the gate's NULL.
+      const now = new Date();
+      const HOST = "fam_d1_host";
+      const failure = async <A, E extends { _tag: string }>(
+        eff: Effect.Effect<A, E, DbService>,
+      ): Promise<string> => (await run(Effect.flip(eff)))._tag;
+      await db.update(weddings).set({ tier: "gold" }).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+      await db.insert(weddings).values({
+        id: "wed_d1_other",
+        slug: "other",
+        displayName: "Other",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(families).values([
+        {
+          id: HOST,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          publicId: "HOST-D1",
+          familyName: "Host",
+          kind: "host",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "fam_d1_foreign",
+          weddingId: "wed_d1_other",
+          publicId: "FOREIGN-D1",
+          familyName: "Foreign",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+      await db.insert(registrySettings).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        published: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(registryItems).values([
+        {
+          id: "ritem_free",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title: "Pan",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "ritem_held",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title: "Bowl",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+      await db.insert(registryClaims).values({
+        id: "rcl_d1_host",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: "ritem_held",
+        familyId: HOST,
+        quantity: 1,
+        status: "reserved",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const claimAs = (familyId: string, itemId = "ritem_free") =>
+        registryService.claim({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          itemId,
+          familyId,
+          quantity: 1,
+          status: itemId === "ritem_free" ? "reserved" : "purchased",
+          note: null,
+          displayName: null,
+        });
+
+      // Reads stay open, and the household read says it is a preview.
+      expect(
+        (await run(registryGuestService.guestView({ slug: "w", familyId: HOST }))).items,
+      ).toHaveLength(2);
+      expect(await run(registryGuestService.householdView({ slug: "w", familyId: HOST }))).toEqual({
+        claims: [
+          { itemId: "ritem_held", quantity: 1, status: "reserved", note: null, displayName: null },
+        ],
+        preview: true,
+      });
+
+      // Every write refuses it, and writes nothing: a new claim, and a change
+      // to the one it holds (the statement's update arm).
+      expect(await failure(claimAs(HOST))).toBe("RegistryPreviewSession");
+      expect(await failure(claimAs(HOST, "ritem_held"))).toBe("RegistryPreviewSession");
+      expect(
+        await failure(
+          registryService.releaseClaim({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            itemId: "ritem_held",
+            familyId: HOST,
+          }),
+        ),
+      ).toBe("RegistryPreviewSession");
+      // Cash gifts are off, so the order shows too: a guest would hear
+      // `CashGiftsUnavailable`, the preview is refused before that.
+      expect(
+        await failure(registryService.contributionContext({ slug: "w", familyId: HOST })),
+      ).toBe("RegistryPreviewSession");
+      expect(
+        await db
+          .select({ itemId: registryClaims.itemId, status: registryClaims.status })
+          .from(registryClaims)
+          .where(eq(registryClaims.familyId, HOST)),
+      ).toEqual([{ itemId: "ritem_held", status: "reserved" }]);
+
+      // A guest household still writes; a household of another wedding still
+      // fails the gate.
+      await run(claimAs(FAMILY_ID));
+      expect(
+        "preview" in
+          (await run(registryGuestService.householdView({ slug: "w", familyId: FAMILY_ID }))),
+      ).toBe(false);
+      expect(
+        await failure(registryGuestService.guestView({ slug: "w", familyId: "fam_d1_foreign" })),
+      ).toBe("RegistryNotVisible");
     },
     MF_TIMEOUT_MS,
   );

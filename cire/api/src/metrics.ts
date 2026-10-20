@@ -14,7 +14,7 @@
  * Export caveat (workerd): cire/api runs on Cloudflare Workers, which has no
  * long-lived process to flush a `PeriodicExportingMetricReader`. Until a
  * workerd metric reader is attached (otel-cf-workers / Analytics Engine — see
- * an open issue in `englishstventures/osn`), the `.inc()` / `.record()` calls resolve to a
+ * an open issue in `englishstreetventures/osn`), the `.inc()` / `.record()` calls resolve to a
  * no-op meter and cost ~nothing. Defining them now pins the naming +
  * cardinality contract and makes the call-sites permanent.
  */
@@ -469,13 +469,16 @@ type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" 
  *  `plus_one_dietary` = dietary data on a plus-one's reply without the
  *  household's attestation in the wording this API stamps, or attested for a
  *  name the plus-one no longer has — found by the route's read, or inside the
- *  write when a rename lands between the two. */
+ *  write when a rename lands between the two. `member_required` = a household
+ *  of several that has said nobody is answering; `member_changed` = the page
+ *  showed a member the session no longer holds. */
 export type RsvpBlockedReason =
   | "deadline"
   | "preview"
   | "dietary_consent"
   | "plus_one_dietary"
-  | "member_required";
+  | "member_required"
+  | "member_changed";
 type RsvpBlockedAttrs = { reason: RsvpBlockedReason };
 type RsvpChangeRecordedAttrs = { kind: RsvpChangeKind };
 type RsvpChangeSweptAttrs = { result: "ok" | "error" };

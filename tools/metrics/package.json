@@ -1,6 +1,6 @@
 {
   "name": "@tools/metrics",
-  "version": "0.2.25",
+  "version": "0.2.27",
   "private": true,
   "description": "Session-metrics dashboard — charts over the pull-request cards in .claude/metrics, local only",
   "type": "module",
@@ -8,7 +8,7 @@
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/englishstventures/osn.git"
+    "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "scripts": {
     "dev": "portless",

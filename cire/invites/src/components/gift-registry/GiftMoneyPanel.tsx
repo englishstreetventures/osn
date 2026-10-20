@@ -42,6 +42,11 @@ export interface GiftMoneyPanelProps {
   currency: string;
   /** Back to the invitation, for the one failure a guest can act on. */
   inviteHref: string;
+  /**
+   * The organiser's preview session, which never gives. The panel is shown as
+   * a guest sees it, with its button disabled; the page says why.
+   */
+  preview?: boolean;
   /** Giving TOWARDS a listed gift. Absent ⇒ a gift in general. */
   itemId?: string | null;
   /**
@@ -68,6 +73,8 @@ export function giftMoneyMessage(result: GiftContributionResult): string {
         : `That was a lot of tries at once. Try again in ${result.retryAfterSeconds} seconds.`;
     case "invalid":
       return "That amount is outside what this page can take. Try another.";
+    case "preview":
+      return "Preview mode. Nothing can be given from a preview.";
     case "error":
       return "Could not reach the payment page. Check your connection and try again.";
   }
@@ -94,7 +101,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     const amount = amountMinor();
-    if (amount === null || busy()) return;
+    if (amount === null || busy() || props.preview) return;
     setBusy(true);
     setStatus("");
     const trimmedName = displayName().trim();
@@ -210,7 +217,12 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
           </label>
         </div>
 
-        <Button type="submit" variant="cta" size="lg" disabled={amountMinor() === null || busy()}>
+        <Button
+          type="submit"
+          variant="cta"
+          size="lg"
+          disabled={amountMinor() === null || busy() || props.preview === true}
+        >
           {busy() ? "Taking you to pay…" : "Continue to payment"}
         </Button>
 

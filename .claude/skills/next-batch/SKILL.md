@@ -44,7 +44,7 @@ gh api 'repos/englishstreetventures/osn/pulls?state=open&per_page=100' \
   --jq '[.[] | {number, ref: .head.ref, title, body}]' > /tmp/open-prs.json
 ```
 
-- The owner is `englishstreetventures`. `gh issue` and `gh pr` follow the old `englishstventures` redirect; the project calls do not.
+- The owner is `englishstreetventures`.
 - `--paginate` follows every page. The GraphQL way, `gh project item-list`, returns 30 items by default and truncates at `--limit` without a warning: it needs `--limit 2000` and `.items|length` equal to `.totalCount`.
 - `/tmp/board.json` holds each item's REST id (`item`), status, labels, title and body, and `/tmp/open-prs.json` every open PR. Triage works from these two files; §Claim is the one deliberate second read.
 - Standing owner rules at the top of `ORCHESTRATE.md` (scope, products to skip) still apply. Ask about any that looks out of date rather than dropping it.

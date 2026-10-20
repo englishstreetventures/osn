@@ -94,7 +94,7 @@ function respondButton(): HTMLButtonElement {
     el.textContent?.includes("Mehndi"),
   ) as HTMLElement;
   return [...card.querySelectorAll("button")].find(
-    (b) => b.textContent === "Respond",
+    (b) => b.textContent === "Respond" || b.textContent === "RSVP given",
   ) as HTMLButtonElement;
 }
 
@@ -361,7 +361,7 @@ describe.each([
 
     await userEvent.click(
       [...sheet.querySelectorAll("button")].find((b) =>
-        b.textContent?.includes("RSVP for this event"),
+        b.textContent?.includes("Give RSVP"),
       ) as HTMLButtonElement,
     );
     expect(document.activeElement?.textContent).toMatch(/Respond.*Mehndi/);
@@ -369,7 +369,7 @@ describe.each([
 
     await userEvent.click(
       [...sheet.querySelectorAll("button")].find((b) =>
-        b.textContent?.includes("View event details"),
+        b.textContent?.includes("See details"),
       ) as HTMLButtonElement,
     );
     expect(document.activeElement?.textContent).toMatch(/Details.*Mehndi/);

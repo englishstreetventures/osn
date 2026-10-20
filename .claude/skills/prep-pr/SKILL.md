@@ -1,6 +1,6 @@
 ---
 name: prep-pr
-description: Use when preparing the current branch for a pull request — resolving the base branch, checking changesets, running builds and reviews, filing findings as issues, and opening the PR with the mandatory six-section body, impact first, that the write-pr skill writes.
+description: Use when preparing the current branch for a pull request — resolving the base branch, checking changesets, running builds and reviews, fixing what they find on this branch or in a follow-up pull request rather than filing it, and opening the PR with the mandatory six-section body, impact first, that the write-pr skill writes.
 ---
 
 Prepare the current branch for a pull request.
@@ -12,7 +12,11 @@ Two files, always, whatever else fails:
 1. A **PR body** with exactly six `##` sections, filled in at Step 8 with the
    `write-pr` skill.
 2. A **report** of what was checked, what would fail in CI (named exactly, with
-   its fix), and whether the branch is ready.
+   its fix), whether the branch is ready, and the **finding tally**: how many
+   findings the reviews raised, how many were fixed on this branch, which
+   follow-up pull requests fixed (by number), and each issue left open with
+   which of the three allowed it — out of scope, unrelated and found mid-task,
+   or a larger piece of work.
 
 If the task named the files, use those names; otherwise `PR-BODY.md` and
 `PREP-PR-REPORT.md` at the repo root.
@@ -108,7 +112,7 @@ forbids modifying files, the docs step is the same: name the pages this branch
 would change and say what would go in them. Neither is a reason to read the
 wiki, and neither is a reason to dispatch an agent.
 
-Five steps ask the user something. With no user, take the conservative default
+Several steps ask the user something. With no user, take the conservative default
 that step names, record the choice under `## Decisions`, and continue. Waiting
 for an answer that cannot come is a failed run.
 
@@ -264,7 +268,7 @@ Otherwise, dispatch a **`reviewer`** agent (`.claude/agents/reviewer.md`) to run
 
 Wait for it to complete. **Do not return while a reviewer you started is still running.** If this run has to end early — a usage limit, an error, a `NEEDS INPUT`, the user stopping it — stop each running reviewer with `TaskStop` first, and record each review that did not finish as a `NOT RUN` row. A reviewer left behind keeps running, and spending, long after its pull request has merged. If the build fails or any tests fail, record the failures in the report and in `## Test plan`, and continue. If the tooling itself is unavailable — no package manager, no dependencies installed — record every gate as **not run**. That is the honest `## Test plan` entry, and it is never a tick.
 
-If coverage gaps are reported, present them to the user and ask whether they want to address them before continuing.
+**Write the missing tests the review reports**, on this branch, before Step 6, for the files the branch changes — a coverage gap is the cheapest finding there is, and none is filed (`wiki/conventions/review-findings.md`). Dispatch them to a `mechanic` when the review spells out the cases, to an `implementer` when it does not, one code-writing agent at a time. A `T-S` suggestion you decline is a line in the report with the reason. Then re-run the gates the new tests touch.
 
 ---
 
@@ -332,11 +336,54 @@ Invoke the `review-security` skill (`.claude/skills/review-security/SKILL.md`) a
 
 Wait for both agents to complete, and collect or stop both before this run returns, as Step 4 says. Present both reports to the user in full, using the finding IDs from each review (e.g. S-H1, P-W2) so they can be referred to in discussion, in the report and in the tracker issues Step 7 files. The PR is public and never carries a finding ID; `write-pr` says what it carries instead.
 
-**A `critical` or `high` finding is not deferrable.** Fix it on this branch, or open the follow-up pull request immediately and link it from this one before either merges. That is the whole option set — filing it and continuing is not in it, and neither is "out of scope for this branch". A filed-and-open `high` is a live unpatched defect whose location is now written down; the issue is an attack map with a timer on it. `medium` and below may be filed and scheduled.
+### Fix what the reviews found
 
-Severity comes from the tier letter in the finding ID, assigned by the review before anyone knows what fixing it costs. Re-rating it afterwards to make it deferrable is the failure mode this rule exists to prevent — the same contamination as re-rating an issue's complexity once its token cost is on screen.
+**The reviews' findings are this run's work, not its paperwork.** The full rule
+is `wiki/conventions/review-findings.md` §Fix findings; do not file them. Its
+working parts:
 
-Ask the user: "Do you want to address any findings before pushing?" If yes, pause and let the user make changes, then re-run steps 3 and 4 before continuing. With no user, fix every `critical` and `high` on the branch and re-run steps 3 and 4; list what you fixed and what you deferred in the report, file each as Step 7 says, and continue. A run that cannot fix them — no tooling, no network — says so plainly and names them as blocking rather than reporting the branch ready.
+- **Everything in scope is fixed on this branch**, at every severity: the files
+  the branch changes, their tests and docs, and every finding in those files.
+- **An issue is left open only for one of three**, named in the report: out of
+  scope for the feature; unrelated and found mid-task (including a finding in
+  a file the branch does not change); or a larger piece of work — rated 5 or
+  more, or needing the owner's decision or access the session cannot have.
+- **What is small in the first two goes on one follow-up pull request**, one
+  commit per fix, after this one is open: dispatch a subagent whose prompt
+  opens `TASK-BRANCH: <follow-up branch>` to cut it, fix and run this skill.
+  Name that branch, its commits and its title by area or tracker number, never
+  by a defect (`new-feat` Step 0). Run from a follow-up, this step opens no
+  further follow-up: what its reviews find out of its scope becomes an issue.
+- `info` findings are filed and closed (Step 7); nits and `T-S` suggestions are
+  fixed or noted in the report. "Low", "pre-existing", "the diff would grow"
+  and "the reviews ran late" never leave something in scope open.
+- **More than two issues left open that no open pull request will close means
+  something in scope was filed**: put the list to the user before filing a
+  third; with no user, fix the in-scope ones and keep only what fits the three.
+
+**A `critical` or `high` finding is never left open**, whichever of the three
+it falls in: fix it here, or on the follow-up pull request opened now and
+linked before this one merges. Filing it and continuing is not an option, and
+`needs:decision` does not release it: one whose fix is the owner's choice
+blocks the merge until the owner accepts the risk in writing on its tracker
+issue. With no user, fix every `critical` and `high` yourself. A filed-and-open
+`high` is a live unpatched defect whose location is now written down; the issue
+is an attack map with a timer on it. Severity comes from the tier letter in the
+finding ID, assigned by the review before anyone knows what fixing it costs.
+Re-rating it afterwards to make it deferrable is the failure mode this rule
+exists to prevent — the same contamination as re-rating an issue's complexity
+once its token cost is on screen.
+
+Dispatch the fixes as Step 4 does — `mechanic` when the finding spells out the
+fix, `implementer` when it needs a design, one code-writing agent in the
+worktree at a time; a fix that adds an export or a route writes its tests in
+the same dispatch. Then commit (Step 3), re-run the gates the fixes touched —
+Step 4's build and tests, not its review agent — and go to Step 7. **The
+reviews run once per branch**: Steps 4 and 6 do not dispatch again after a fix
+round. Tell the user what you are fixing and where; ask only about a finding
+whose fix is the owner's choice. A run that cannot fix — no tooling, no
+network — says so plainly, names every unfixed `critical` and `high` as
+blocking, and does not report the branch ready.
 
 ---
 
@@ -346,18 +393,21 @@ Work is tracked in GitHub Issues, not in a markdown checklist. Two repos:
 
 | Kind of item                          | Repo                                |
 | ------------------------------------- | ----------------------------------- |
-| Review findings — `S-*`, `P-*`, `C-*` | **`englishstventures/osn-tracker`** (private) |
-| Planned work, features, bugs          | **`englishstventures/osn`** (public)          |
+| Review findings — `S-*`, `P-*`, `C-*` | **`englishstreetventures/osn-tracker`** (private) |
+| Planned work, features, bugs          | **`englishstreetventures/osn`** (public)          |
 
-`englishstventures/osn` is public. A finding names an unpatched route, so filing one there publishes it. **Route by kind, not by severity** — an `S-`, `P-`, or `C-` ID always goes to the tracker, however minor it looks.
+`englishstreetventures/osn` is public. A finding names an unpatched route, so filing one there publishes it. **Route by kind, not by severity** — an `S-`, `P-`, or `C-` ID always goes to the tracker, however minor it looks.
 
 Auditing a defect class — when a finding is an instance of a class, enumerate the *shapes* the defect can take rather than re-grepping the first form you found. Recipe and the D1 bind-cap case study: `references/auditing-defect-classes.md`.
 
 ### New findings from Step 6
 
-One tracker issue per finding, so that its record stays private and the public PR body can carry it as a bare reference:
+One tracker issue per `S-`, `P-` or `C-` finding, so that its record stays private and the public PR body can carry it as a bare reference:
 
-- each finding this branch does **not** fix;
+- each finding left open as one of Step 6's three — which one goes in the body's **Rationale**;
+- each finding in scope that this run did not manage to fix — the fix failed, the budget ran out, the tooling could not run — so it keeps an owner; the report names it as unfinished, not as one of the three;
+- each `info` finding, filed and closed at once as not planned, so the tracker keeps its record without it counting as open — `write-issue` skips the rating and the board for an issue closed at filing;
+- each finding the follow-up pull request fixes, so that pull request closes it;
 - each finding it **fixes** that has no issue yet — filed before the PR opens, so the merge closes it;
 - each finding **dismissed** as no defect — filed, then closed at once as not planned (`gh issue close <n> --repo englishstreetventures/osn-tracker --reason "not planned"`), with the reasoning in its body.
 
@@ -378,10 +428,11 @@ Labels, exactly one of each:
 
 ### A deferral leaves an issue behind, not a paragraph
 
-Anything this branch decides **not** to do — a finding you are not fixing, a rule
-left at `warn`, a limitation you are accepting, a workaround standing in for the
-real fix — gets an issue, and the code carries the link and nothing more
-(`// Bounded until englishstventures/osn#412 lands.`). A comment that explains the deferral
+Defer only what Step 6 lets stay open: out of scope for the feature, unrelated
+and found mid-task, or a larger piece of work. A rule left at `warn` or a
+workaround standing in for the real fix, in code this feature changes, is in
+scope and is finished here. What is deferred gets an issue, and the code carries the link and nothing more
+(`// Bounded until englishstreetventures/osn#412 lands.`). A comment that explains the deferral
 instead has no owner and appears in no backlog, so it is found only by whoever
 next opens the file.
 
@@ -397,7 +448,9 @@ disclosure. State the constraint and leave the finding unnamed.
 
 Findings this branch **fixes** are closed by the merge, not by hand: their
 tracker issues go in the PR body as bare
-`Closes englishstreetventures/osn-tracker#<n>` lines (`write-pr`). A fixed finding that
+`Closes englishstreetventures/osn-tracker#<n>` lines (`write-pr`), and only
+there — an issue this run filed and the branch fixed is never also listed as
+raised against the branch, since that reads as work the merge leaves behind. A fixed finding that
 predates the branch already has an issue — find it by ID, since the ID leads the
 title. Planned work this branch completes goes in the same list, as `Closes #N`
 from the public repo. **Never delete an issue**; close it.
@@ -406,8 +459,9 @@ from the public repo. **Never delete an issue**; close it.
 the Up Next promotion, and the docs pass — what to check in `AGENTS.md` and the
 wiki, and how to verify the wikilinks you wrote resolve.
 
-Report the issues opened and the issue numbers this branch closes — Step 8 needs
-both.
+Report the issues opened, which of them stay open and which of the three each is,
+the follow-up pull requests, and the issue numbers this branch closes — Step 8
+needs them all.
 
 ## Step 8 — Write the PR body
 
