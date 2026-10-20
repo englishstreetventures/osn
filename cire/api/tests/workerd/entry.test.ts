@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
+import type { HubStub } from "@shared/realtime/server";
 import { Miniflare } from "miniflare";
 
 /**
@@ -61,11 +62,12 @@ describe("src/entry.ts on workerd", () => {
 
   it("runs the hub class it exports, with the whole module evaluated in its isolate", async () => {
     const hub = await mf.getDurableObjectNamespace("REALTIME_HUB");
-    const stub = hub.get(hub.idFromName("cire:wedding:wed_1")) as unknown as {
-      publish(signal: unknown, evict: readonly string[]): Promise<number>;
-    };
+    const stub = hub.get(hub.idFromName("cire:wedding:wed_1")) as unknown as HubStub;
     expect(
-      await stub.publish({ topic: "cire:wedding:wed_1", kind: "members-changed", at: 1 }, []),
+      await stub.publish(
+        { topic: "cire:wedding:wed_1", kind: "members-changed", at: 1 },
+        { evict: [], revoke: [] },
+      ),
     ).toBe(0);
   });
 });

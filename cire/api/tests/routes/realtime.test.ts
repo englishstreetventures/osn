@@ -1,10 +1,10 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { realtimeSubscribeBudget, weddingHosts } from "@cire/db";
+import { realtimeSubscribeBudget, weddingHosts, weddings } from "@cire/db";
 import { hashToken } from "@shared/crypto/tokens";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { HubNamespace } from "@shared/realtime/server";
-import { DrizzleQueryError } from "drizzle-orm";
+import { DrizzleQueryError, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { AppOptions } from "../../src/app";
@@ -171,6 +171,16 @@ describe("createRealtimeRoute — refused", () => {
     expect(hub.upgrades).toEqual([]);
   });
 
+  it("refuses a wedding its owner deleted, as an unknown one", async () => {
+    const { db, route, hub } = setup();
+    db.update(weddings)
+      .set({ deletedAt: new Date(), deletedByOsnProfileId: OWNER })
+      .where(eq(weddings.id, WEDDING_ID))
+      .run();
+    expect((await upgrade(route, await bearer(OWNER))).status).toBe(403);
+    expect(hub.upgrades).toEqual([]);
+  });
+
   it("refuses a stranger, and an unknown wedding, with the same 403", async () => {
     const { route } = setup();
     expect((await upgrade(route, await bearer("usr_stranger"))).status).toBe(403);
@@ -205,6 +215,8 @@ describe("createRealtimeRoute — refused", () => {
       () => makeOsnTestAuth().then((other) => other.sign(OWNER)),
     ],
     ["expired", () => auth.sign(OWNER, { expiresIn: "-120s" })],
+    ["from a foreign issuer", () => auth.sign(OWNER, { issuer: "https://elsewhere.example" })],
+    ["for another audience", () => auth.sign(OWNER, { audience: "some-other-aud" })],
   ])("401s a Bearer token %s", async (_label, mint) => {
     const { route, hub } = setup();
     expect((await upgrade(route, { authorization: `Bearer ${await mint()}` })).status).toBe(401);
@@ -228,6 +240,8 @@ describe("createRealtimeRoute — refused", () => {
   it.each([
     ["another product's topic", "osn:org:org_1"],
     ["an entity cire does not publish", "cire:vendor:ven_1"],
+    ["a wedding id under another entity", "cire:guest:wed_live"],
+    ["a wedding id with something before its prefix", "cire:wedding:xwed_live"],
     ["an id that is not a wedding id", "cire:wedding:WED_1"],
     ["a wedding id with nothing after its prefix", "cire:wedding:wed_"],
     ["a wedding id one character past the cap", `cire:wedding:wed_${"a".repeat(61)}`],
@@ -278,6 +292,20 @@ describe("createRealtimeRoute — refused", () => {
     });
     expect(other.status).toBe(503);
     expect(hub.upgrades).toHaveLength(1);
+  });
+
+  it("counts no request from another origin against the per-IP limit", async () => {
+    // A page on another site opening sockets from a visitor's browser must not
+    // use up the limit the visitor's own portal needs.
+    const { route, hub } = setup({
+      realtimeIpLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    });
+    const headers = await bearer(OWNER);
+    for (let i = 0; i < 3; i += 1) {
+      const foreign = await upgrade(route, { ...headers, origin: "https://elsewhere.example" });
+      expect(foreign.status).toBe(403);
+    }
+    expect(await upgrade(route, headers)).toBe(hub.response);
   });
 
   it("429s a request with no resolvable client address", async () => {

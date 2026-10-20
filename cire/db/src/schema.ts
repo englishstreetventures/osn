@@ -1254,8 +1254,8 @@ export const ownerNoticeBudget = sqliteTable(
  * is a Durable Object request from an allowance the whole Cloudflare account
  * shares, and an in-memory counter counts per isolate, so the ceiling lives
  * here where every isolate reads the same count. Rows older than the current
- * day are deleted by the next subscribe; the `day` index keeps that delete
- * from reading today's rows.
+ * day are deleted by the next subscribe and by the daily cron. `day` leads the
+ * primary key, so that delete reads only the rows it removes.
  */
 export const realtimeSubscribeBudget = sqliteTable(
   "realtime_subscribe_budget",
@@ -1265,10 +1265,7 @@ export const realtimeSubscribeBudget = sqliteTable(
     day: text("day").notNull(),
     subscribes: integer("subscribes").notNull().default(0),
   },
-  (t) => [
-    primaryKey({ columns: [t.osnProfileId, t.day] }),
-    index("realtime_subscribe_budget_day_idx").on(t.day),
-  ],
+  (t) => [primaryKey({ columns: [t.day, t.osnProfileId] })],
 );
 
 export const sessions = sqliteTable(

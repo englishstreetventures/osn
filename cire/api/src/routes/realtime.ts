@@ -79,11 +79,13 @@ const ipRateLimited = () =>
  *
  * Returns `undefined` for any other path, so the caller hands the request to
  * the app. Because the app's middleware never sees this path, the route puts
- * its own per-IP limit first, before the session lookup; an unresolved client
- * address is refused as `rateLimitMiddleware` refuses it. Then `subscribe()`
- * admits only the organiser portal's origin, an organiser signed in the same
- * way as every organiser route, within the per-organiser limit and the daily
- * ceiling, who may read the wedding's dashboard.
+ * its own per-IP limit before the session lookup; an unresolved client address
+ * is refused as `rateLimitMiddleware` refuses it. Only a request from the
+ * organiser portal's origin is counted, so a page on another site cannot use
+ * up a visitor's limit: `subscribe()` refuses any other origin before it looks
+ * anything up. `subscribe()` then admits an organiser signed in the same way as
+ * every organiser route, within the per-organiser limit and the daily ceiling,
+ * who may read the wedding's dashboard.
  */
 export function createRealtimeRoute(db: Db, options: AppOptions = {}): RealtimeRoute {
   const auth = organiserAuthOptions(db, options);
@@ -94,8 +96,10 @@ export function createRealtimeRoute(db: Db, options: AppOptions = {}): RealtimeR
   const hub = options.realtimeHub;
 
   const admit = async (request: Request, segment: string): Promise<Response> => {
-    const ip = getClientIp(request.headers);
-    if (isUnresolvedIp(ip) || !(await ipLimiter.check(ip))) return ipRateLimited();
+    if (allowedOrigins.includes(request.headers.get("origin") ?? "")) {
+      const ip = getClientIp(request.headers);
+      if (isUnresolvedIp(ip) || !(await ipLimiter.check(ip))) return ipRateLimited();
+    }
     return runCire(
       subscribe(request, segment, {
         product: "cire",

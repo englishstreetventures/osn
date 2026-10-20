@@ -888,6 +888,28 @@ export const hostsService = {
    * doesn't exist or is soft-deleted (caller maps to 404); `role` is `null`
    * when the caller holds no seat.
    */
+  /**
+   * Every profile seated on `weddingId`, whether or not the wedding is live:
+   * whose access ends when it is deleted. Bounded by the seat cap. Fails with
+   * the driver's error rather than dying, so a caller can carry on without it.
+   */
+  seatHolders(weddingId: string) {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const rows = yield* Effect.tryPromise(() =>
+        Promise.resolve(
+          db
+            .select({ osnProfileId: weddingHosts.osnProfileId })
+            .from(weddingHosts)
+            .where(eq(weddingHosts.weddingId, weddingId))
+            .limit(MAX_HOSTS_PER_WEDDING)
+            .all(),
+        ),
+      );
+      return rows.map((row) => row.osnProfileId);
+    }).pipe(Effect.withSpan("cire.host.seatHolders"));
+  },
+
   authorize(
     weddingId: string,
     osnProfileId: string,

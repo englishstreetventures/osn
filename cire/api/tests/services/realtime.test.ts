@@ -8,7 +8,11 @@ import { DbService } from "../../src/db";
 import type { Db } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import { setExecutionCtx } from "../../src/lib/execution-ctx";
-import { createWeddingSignals, spendRealtimeSubscribe } from "../../src/services/realtime";
+import {
+  createWeddingSignals,
+  spendRealtimeSubscribe,
+  sweepRealtimeSubscribeBudget,
+} from "../../src/services/realtime";
 import { counterValue } from "../test-helpers/metrics-harness";
 
 function recordingHub(answer: () => Promise<number> = async () => 1) {
@@ -31,7 +35,7 @@ describe("wedding signals", () => {
   it("publishes members-changed on the wedding's topic, closing nobody by default", async () => {
     const { hub, calls } = recordingHub();
     await Effect.runPromise(createWeddingSignals(hub).membersChanged("wed_1", request()));
-    expect(calls).toEqual([
+    expect(calls).toStrictEqual([
       {
         name: "cire:wedding:wed_1",
         kind: "members-changed",
@@ -43,9 +47,9 @@ describe("wedding signals", () => {
   it("revokes the member who lost the dashboard, rather than evicting them", async () => {
     const { hub, calls } = recordingHub();
     await Effect.runPromise(
-      createWeddingSignals(hub).membersChanged("wed_1", request(), "usr_bob"),
+      createWeddingSignals(hub).membersChanged("wed_1", request(), ["usr_bob", "usr_carol"]),
     );
-    expect(calls[0]?.targets).toEqual({ evict: [], revoke: ["usr_bob"] });
+    expect(calls[0]?.targets).toStrictEqual({ evict: [], revoke: ["usr_bob", "usr_carol"] });
   });
 
   it("sends nothing and never fails with no hub, counting the signal as disabled", async () => {
@@ -93,7 +97,7 @@ describe("spendRealtimeSubscribe — the daily ceiling", () => {
     expect(await spend(db, "usr_a", 2, MORNING)).toBe(true);
     expect(await spend(db, "usr_a", 2, MORNING)).toBe(false);
     expect(await spend(db, "usr_a", 2, MORNING)).toBe(false);
-    expect(rows(db)).toEqual([{ osnProfileId: "usr_a", day: "2026-10-20", subscribes: 2 }]);
+    expect(rows(db)).toStrictEqual([{ osnProfileId: "usr_a", day: "2026-10-20", subscribes: 2 }]);
   });
 
   it("counts each organiser apart", async () => {
@@ -109,11 +113,34 @@ describe("spendRealtimeSubscribe — the daily ceiling", () => {
     expect(await spend(db, "usr_b", 1, MORNING)).toBe(true);
     expect(await spend(db, "usr_a", 1, new Date("2026-10-20T23:59:59Z"))).toBe(false);
     expect(await spend(db, "usr_a", 1, new Date("2026-10-21T00:00:00Z"))).toBe(true);
-    expect(rows(db)).toEqual([{ osnProfileId: "usr_a", day: "2026-10-21", subscribes: 1 }]);
+    expect(rows(db)).toStrictEqual([{ osnProfileId: "usr_a", day: "2026-10-21", subscribes: 1 }]);
   });
 
-  it("refuses everything at a ceiling of zero", async () => {
+  it("refuses everything at a ceiling of zero, and writes nothing", async () => {
     const db = createDb(":memory:");
     expect(await spend(db, "usr_a", 0, MORNING)).toBe(false);
+    expect(rows(db)).toStrictEqual([]);
+  });
+});
+
+describe("sweepRealtimeSubscribeBudget — the daily cron's cleanup", () => {
+  it("deletes every earlier day's rows and keeps today's", async () => {
+    const db = createDb(":memory:");
+    db.insert(realtimeSubscribeBudget)
+      .values([
+        { osnProfileId: "usr_a", day: "2026-10-18", subscribes: 3 },
+        { osnProfileId: "usr_b", day: "2026-10-19", subscribes: 1 },
+        { osnProfileId: "usr_a", day: "2026-10-20", subscribes: 2 },
+      ])
+      .run();
+    const deleted = await Effect.runPromise(
+      sweepRealtimeSubscribeBudget(new Date("2026-10-20T04:00:00Z")).pipe(
+        Effect.provideService(DbService, db),
+      ),
+    );
+    expect(deleted).toBe(2);
+    expect(db.select().from(realtimeSubscribeBudget).all()).toStrictEqual([
+      { osnProfileId: "usr_a", day: "2026-10-20", subscribes: 2 },
+    ]);
   });
 });

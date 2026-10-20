@@ -1,13 +1,11 @@
 -- The realtime subscribe budget: admitted subscribes per organiser per UTC
 -- day, read by every Worker isolate. Keyed on the opaque OSN profile id, with
--- no foreign key, like owner_notice_budget's actor keys. Each subscribe deletes
--- the rows of earlier days, through the `day` index, so the table holds at most
--- one row per organiser who subscribed today.
+-- no foreign key, like owner_notice_budget's actor keys. `day` leads the key,
+-- so deleting earlier days (each subscribe, and the daily cron) reads only the
+-- rows it removes.
 CREATE TABLE `realtime_subscribe_budget` (
 	`osn_profile_id` text NOT NULL,
 	`day` text NOT NULL,
 	`subscribes` integer DEFAULT 0 NOT NULL,
-	PRIMARY KEY(`osn_profile_id`, `day`)
+	PRIMARY KEY(`day`, `osn_profile_id`)
 );
---> statement-breakpoint
-CREATE INDEX `realtime_subscribe_budget_day_idx` ON `realtime_subscribe_budget` (`day`);

@@ -702,10 +702,10 @@ describe("D1 session routing at the entry points", () => {
     // Sharing would couple unrelated delete-heavy sweeps to a single bookmark
     // each of them keeps advancing, so every read would be forwarded to the
     // primary regardless. With no mail transport the digest does not run, so
-    // ten sweeps.
+    // eleven sweeps.
     const { pending, probe } = await runCron();
-    expect(pending).toHaveLength(10);
-    expect(probe.constraints).toEqual(Array.from({ length: 10 }, () => D1_SESSION_CONSTRAINT));
+    expect(pending).toHaveLength(11);
+    expect(probe.constraints).toEqual(Array.from({ length: 11 }, () => D1_SESSION_CONSTRAINT));
     expect(probe.bindingQueries).toEqual([]);
   }, 30_000);
 
@@ -758,7 +758,7 @@ describe("D1 session routing at the entry points", () => {
         put: () => Promise.resolve(),
       };
       const { pending, probe } = await runCron({ SHEETS: sheets });
-      expect(pending).toHaveLength(10);
+      expect(pending).toHaveLength(11);
       const reconcile = probe.sessionQueries.filter((queries) =>
         queries.some((q) => q.startsWith("WITH listed(r2_key)")),
       );
@@ -821,8 +821,8 @@ describe("D1 session routing at the entry points", () => {
       off = await runCron({ SHEETS: bucket, ASSETS: bucket, CIRE_R2_RECONCILE_DISABLED: "true" });
     });
     // Every other sweep still runs, each in a session of its own.
-    expect(off?.pending).toHaveLength(8);
-    expect(off?.probe.constraints).toEqual(Array.from({ length: 8 }, () => D1_SESSION_CONSTRAINT));
+    expect(off?.pending).toHaveLength(9);
+    expect(off?.probe.constraints).toEqual(Array.from({ length: 9 }, () => D1_SESSION_CONSTRAINT));
     expect(listed).toBe(0);
     expect(logs).toContain("r2 reconcile disabled by CIRE_R2_RECONCILE_DISABLED");
 
@@ -831,7 +831,7 @@ describe("D1 session routing at the entry points", () => {
       ASSETS: bucket,
       CIRE_R2_RECONCILE_DISABLED: "false",
     });
-    expect(on.pending).toHaveLength(10);
+    expect(on.pending).toHaveLength(11);
     expect(listed).toBe(2);
   }, 30_000);
 
@@ -861,7 +861,7 @@ describe("D1 session routing at the entry points", () => {
       const { pending } = await runCron({ CIRE_R2_RECONCILE_DISABLED: "true", ...opsMail }, () =>
         events.push("handoff"),
       );
-      expect(pending).toHaveLength(8);
+      expect(pending).toHaveLength(9);
       expect(resend.sent).toEqual([
         expect.objectContaining({
           to: ["ops@example.test"],
@@ -902,13 +902,13 @@ describe("D1 session routing at the entry points", () => {
     const arc = { CIRE_API_ARC_PRIVATE_KEY: jwk, CIRE_API_ARC_KEY_ID: "kid_test" };
 
     const full = await runCron({ ...mail, ...arc });
-    expect(full.pending).toHaveLength(11);
-    expect(full.probe.constraints).toEqual(Array.from({ length: 11 }, () => D1_SESSION_CONSTRAINT));
+    expect(full.pending).toHaveLength(12);
+    expect(full.probe.constraints).toEqual(Array.from({ length: 12 }, () => D1_SESSION_CONSTRAINT));
     expect(full.probe.bindingQueries).toEqual([]);
 
     // Either half missing: no digest.
-    expect((await runCron(mail)).pending).toHaveLength(10);
-    expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(10);
+    expect((await runCron(mail)).pending).toHaveLength(11);
+    expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(11);
   }, 30_000);
 
   it("skips the RSVP digest when WEB_ORIGIN fails the boot check", async () => {
@@ -925,7 +925,7 @@ describe("D1 session routing at the entry points", () => {
         WEB_ORIGIN: "http://localhost:4321",
       });
     });
-    expect(result?.pending).toHaveLength(10);
+    expect(result?.pending).toHaveLength(11);
     expect(logs).toContain("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured");
   }, 30_000);
 
@@ -950,8 +950,8 @@ describe("D1 session routing at the entry points", () => {
         () => sink.log(handedOff),
       );
     });
-    expect(result?.pending).toHaveLength(10);
-    expect(logs.split(handedOff).length - 1).toBe(10);
+    expect(result?.pending).toHaveLength(11);
+    expect(logs.split(handedOff).length - 1).toBe(11);
     expect(logs.indexOf("email disabled: Resend misconfigured")).toBeGreaterThan(
       logs.lastIndexOf(handedOff),
     );

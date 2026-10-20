@@ -1,4 +1,5 @@
 import { realtimeSubscribeBudget } from "@cire/db";
+import { rowsChanged } from "@shared/db-utils";
 import { publish, type HubNamespace } from "@shared/realtime/server";
 import { lt, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -13,28 +14,25 @@ export const weddingTopic = (weddingId: string): string => `cire:wedding:${weddi
 export interface WeddingSignals {
   /**
    * The wedding's seats changed. Call after the write has committed.
-   * `revokedOsnProfileId` names a member who lost the dashboard: the hub sends
-   * them the signal, then closes their sockets with 1008, so their tab re-reads
-   * once and stops listening instead of reconnecting to be refused. `request`
-   * is the write's own request: when the Worker registered an execution context
-   * for it, the publish runs after the response in `waitUntil`, so the write
-   * never waits on the hub. Never fails.
+   * `revoked` names the members who lost the dashboard: the hub sends them the
+   * signal, then closes their sockets with 1008, so their tabs re-read once and
+   * stop listening instead of reconnecting to be refused. `request` is the
+   * write's own request: when the Worker registered an execution context for
+   * it, the publish runs after the response in `waitUntil`, so the write never
+   * waits on the hub. Never fails.
    */
   membersChanged(
     weddingId: string,
     request: Request,
-    revokedOsnProfileId?: string,
+    revoked?: readonly string[],
   ): Effect.Effect<void>;
 }
 
 export const createWeddingSignals = (hub: HubNamespace | undefined): WeddingSignals => ({
-  membersChanged: (weddingId, request, revokedOsnProfileId) => {
-    const work = publish(
-      hub,
-      weddingTopic(weddingId),
-      "members-changed",
-      revokedOsnProfileId === undefined ? {} : { revokeSubjects: [revokedOsnProfileId] },
-    );
+  membersChanged: (weddingId, request, revoked = []) => {
+    const work = publish(hub, weddingTopic(weddingId), "members-changed", {
+      revokeSubjects: revoked,
+    });
     const waitUntil = getWaitUntil(request);
     // Inline with no execution context (unit tests, the local Bun server), and
     // with no hub, where the publish only counts and sends nothing.
@@ -67,6 +65,7 @@ export const spendRealtimeSubscribe = (
   now: Date = new Date(),
 ) =>
   Effect.gen(function* () {
+    if (perDay <= 0) return false;
     const db = yield* DbService;
     const day = utcDay(now);
     const [, spent] = yield* Effect.tryPromise(() =>
@@ -83,5 +82,26 @@ export const spendRealtimeSubscribe = (
           .returning({ subscribes: realtimeSubscribeBudget.subscribes }),
       ]),
     );
-    return (spent as readonly unknown[]).length > 0 && perDay > 0;
+    return (spent as readonly unknown[]).length > 0;
   });
+
+/**
+ * Delete the budget rows of every day before `now`'s, for the daily cron. A
+ * subscribe deletes them too, but nothing subscribes while push is off, and
+ * the rows name organisers. Answers how many went.
+ */
+export const sweepRealtimeSubscribeBudget = (now: Date = new Date()) =>
+  Effect.gen(function* () {
+    const db = yield* DbService;
+    const result = yield* Effect.tryPromise(() =>
+      Promise.resolve(
+        db
+          .delete(realtimeSubscribeBudget)
+          .where(lt(realtimeSubscribeBudget.day, utcDay(now)))
+          .run(),
+      ),
+    );
+    const deleted = rowsChanged(result);
+    yield* Effect.logInfo("realtime subscribe budget sweep complete", { deleted });
+    return deleted;
+  }).pipe(Effect.withSpan("cire.realtime.sweepSubscribeBudget"));

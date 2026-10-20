@@ -7,6 +7,7 @@ import type { FallbackOutcome } from "@shared/realtime";
 import { createApp } from "../../src/app";
 import { createDb } from "../../src/db/setup";
 import { createRealtimeRoute } from "../../src/routes/realtime";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { countedStream, streamedInit } from "../test-helpers/streamed-body";
 
@@ -107,10 +108,42 @@ describe("POST /api/realtime/fallback — dropped, still 204", () => {
     ["an unknown word", "gave-up"],
     ["an empty body", ""],
     ["JSON", '{"outcome":"refused"}'],
-  ])("drops %s", async (_label, body) => {
+  ])("drops %s, counting and logging nothing", async (_label, body) => {
     const app = buildApp();
     const before = await allFallbacks();
-    await expectNoContent(await beacon(app, body));
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await beacon(app, body);
+    });
+    await expectNoContent(res!);
+    expect(await allFallbacks()).toBe(before);
+    // Nothing reaches the counter under any outcome, which the two series
+    // above cannot show alone: the warning goes out with every count.
+    expect(logs).not.toContain("realtime client fell back");
+  });
+
+  it("drops a body that fails part-way through the read", async () => {
+    const app = buildApp();
+    const before = await allFallbacks();
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        if (pulls === 1) controller.enqueue(new TextEncoder().encode("ref"));
+        else controller.error(new Error("connection reset"));
+      },
+    });
+    const res = await app.fetch(
+      new Request(
+        `http://localhost${PATH}`,
+        streamedInit(body, {
+          Origin: ORIGIN,
+          "cf-connecting-ip": nextIp(),
+          "Content-Type": "text/plain;charset=UTF-8",
+        }),
+      ),
+    );
+    await expectNoContent(res);
     expect(await allFallbacks()).toBe(before);
   });
 

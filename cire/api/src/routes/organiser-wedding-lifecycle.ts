@@ -13,6 +13,7 @@ import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingOwner, weddingOwnerIncludingDeleted } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
 import { DeleteWeddingBody } from "../schemas/wedding";
+import { hostsService } from "../services/hosts";
 import type { WeddingSignals } from "../services/realtime";
 import { weddingLifecycleService } from "../services/wedding-lifecycle";
 import type { LifecycleRefusal } from "../services/wedding-lifecycle";
@@ -69,8 +70,10 @@ const failed = (set: SetStatus, error: string) =>
  *
  * Once the delete has committed, every other owner is emailed who deleted it
  * and until when it can be restored (`ownerNotices`; none when not configured),
- * and every tab open on the wedding is signalled (`signals`), so it re-reads
- * the wedding list, finds the wedding gone and drops its rows.
+ * and every seat holder is revoked on the wedding's hub (`signals`): each open
+ * tab is signalled, re-reads the wedding list, finds the wedding gone and
+ * drops its rows, and its socket closes for good. If the seats cannot be read,
+ * the signal still goes, closing nothing.
  */
 export const createOrganiserWeddingDeleteRoute = (
   db: Db,
@@ -115,7 +118,13 @@ export const createOrganiserWeddingDeleteRoute = (
                   .pipe(Effect.provideService(DbService, db)),
               );
             }
-            if (signals) yield* signals.membersChanged(weddingId, request);
+            if (signals) {
+              const seated = yield* hostsService.seatHolders(weddingId).pipe(
+                Effect.tapError(() => Effect.logError("wedding delete: seat read for push failed")),
+                Effect.orElseSucceed((): string[] => []),
+              );
+              yield* signals.membersChanged(weddingId, request, seated);
+            }
             return {
               deleted: true,
               weddingId: deleted.weddingId,

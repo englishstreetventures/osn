@@ -396,7 +396,7 @@ export const createOrganiserHostsWriteRoutes = (
                   yield* signals.membersChanged(
                     weddingId,
                     request,
-                    decideCapability(host.role, "member").allowed ? undefined : host.osnProfileId,
+                    decideCapability(host.role, "member").allowed ? [] : [host.osnProfileId],
                   );
                 }
                 // An owner moved below owner, the caller's own step-down
@@ -488,7 +488,7 @@ export const createOrganiserHostsWriteRoutes = (
                 // changes nobody's access.
                 Effect.tap(({ removed }) =>
                   removed
-                    ? signals.membersChanged(weddingId, request, params.osnProfileId)
+                    ? signals.membersChanged(weddingId, request, [params.osnProfileId])
                     : Effect.void,
                 ),
                 Effect.tap(({ removed }) =>
@@ -554,7 +554,7 @@ export const createOrganiserHostsWriteRoutes = (
               Effect.provideService(DbService, db),
               Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "self"))),
               Effect.tap(({ removed }) =>
-                removed ? signals.membersChanged(weddingId, request, osnProfileId) : Effect.void,
+                removed ? signals.membersChanged(weddingId, request, [osnProfileId]) : Effect.void,
               ),
               Effect.tap(({ removed }) =>
                 removed?.role === "owner"

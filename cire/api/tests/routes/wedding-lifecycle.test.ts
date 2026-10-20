@@ -10,7 +10,7 @@ import {
 } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
-import type { HubNamespace } from "@shared/realtime/server";
+import type { CloseTargets, HubNamespace } from "@shared/realtime/server";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -227,12 +227,12 @@ describe("DELETE /api/organiser/weddings/:weddingId", () => {
     },
   );
 
-  it("signals every tab open on the wedding once a delete commits, and not for a refused one", async () => {
-    const publishes: string[] = [];
+  it("revokes every seat holder on the wedding's hub once a delete commits, and not for a refused one", async () => {
+    const publishes: { name: string; targets: CloseTargets }[] = [];
     const realtimeHub: HubNamespace = {
       getByName: (name) => ({
-        publish: async () => {
-          publishes.push(name);
+        publish: async (_signal, targets) => {
+          publishes.push({ name, targets });
           return 1;
         },
         fetch: async () => new Response(null, { status: 426 }),
@@ -241,9 +241,41 @@ describe("DELETE /api/organiser/weddings/:weddingId", () => {
     const { app } = buildApp(1000, { realtimeHub });
     expect((await del(app, CREATOR, { confirmSlug: "not-the-slug" })).status).not.toBe(200);
     expect((await del(app, "usr_editor")).status).toBe(403);
-    expect(publishes).toEqual([]);
+    expect(publishes).toStrictEqual([]);
     expect((await del(app, CREATOR)).status).toBe(200);
-    expect(publishes).toEqual([`cire:wedding:${BOOTSTRAP_WEDDING_ID}`]);
+    expect(publishes).toHaveLength(1);
+    expect(publishes[0]!.name).toBe(`cire:wedding:${BOOTSTRAP_WEDDING_ID}`);
+    expect(publishes[0]!.targets.evict).toStrictEqual([]);
+    expect([...(publishes[0]!.targets.revoke ?? [])].toSorted()).toStrictEqual(
+      [CREATOR, SECOND, "usr_editor", "usr_helper", "usr_viewer"].toSorted(),
+    );
+  });
+
+  it("still signals, closing nobody, when the seats cannot be read after the delete", async () => {
+    const publishes: CloseTargets[] = [];
+    const realtimeHub: HubNamespace = {
+      getByName: () => ({
+        publish: async (_signal, targets) => {
+          publishes.push(targets);
+          return 1;
+        },
+        fetch: async () => new Response(null, { status: 426 }),
+      }),
+    };
+    const { app, db } = buildApp(1000, { realtimeHub });
+    // Only the seat read fails: the gate's own read joins `weddings`, and the
+    // seat read selects from `wedding_hosts` alone.
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    client.prepare = ((sql: string) => {
+      if (sql.startsWith('select "osn_profile_id" from "wedding_hosts"')) {
+        throw new Error("D1_ERROR: read failed");
+      }
+      return prepare(sql);
+    }) as typeof client.prepare;
+    expect((await del(app, CREATOR)).status).toBe(200);
+    expect(weddingRow(db)!.deletedAt).not.toBeNull();
+    expect(publishes).toStrictEqual([{ evict: [], revoke: [] }]);
   });
 
   it("needs a signed-in organiser", async () => {

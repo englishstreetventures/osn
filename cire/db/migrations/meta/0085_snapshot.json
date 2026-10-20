@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6b574176-4a5a-4f53-bc0c-d7557db147bb",
+  "id": "d54fa581-8023-413f-9fd5-038b8688b171",
   "prevId": "3189a182-e966-4ca3-b7b7-6fe0ed195cbc",
   "tables": {
     "budget_items": {
@@ -1534,23 +1534,15 @@
           "default": 0
         }
       },
-      "indexes": {
-        "realtime_subscribe_budget_day_idx": {
-          "name": "realtime_subscribe_budget_day_idx",
-          "columns": [
-            "day"
-          ],
-          "isUnique": false
-        }
-      },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "realtime_subscribe_budget_osn_profile_id_day_pk": {
+        "realtime_subscribe_budget_day_osn_profile_id_pk": {
           "columns": [
-            "osn_profile_id",
-            "day"
+            "day",
+            "osn_profile_id"
           ],
-          "name": "realtime_subscribe_budget_osn_profile_id_day_pk"
+          "name": "realtime_subscribe_budget_day_osn_profile_id_pk"
         }
       },
       "uniqueConstraints": {},

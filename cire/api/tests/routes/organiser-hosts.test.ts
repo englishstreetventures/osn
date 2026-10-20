@@ -1539,7 +1539,7 @@ describe("seat writes publish members-changed", () => {
     const { app } = buildApp({ realtimeHub: hub });
     const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
     expect(res.status).toBe(201);
-    expect(publishes).toEqual([nobody]);
+    expect(publishes).toStrictEqual([nobody]);
   });
 
   it.each([
@@ -1554,7 +1554,7 @@ describe("seat writes publish members-changed", () => {
       seedHostSeat(db, COHOST, from);
       const res = await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: to });
       expect(res.status).toBe(200);
-      expect(publishes).toEqual([revoking(COHOST)]);
+      expect(publishes).toStrictEqual([revoking(COHOST)]);
     },
   );
 
@@ -1571,7 +1571,7 @@ describe("seat writes publish members-changed", () => {
       seedHostSeat(db, COHOST, from);
       const res = await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: to });
       expect(res.status).toBe(200);
-      expect(publishes).toEqual([nobody]);
+      expect(publishes).toStrictEqual([nobody]);
     },
   );
 
@@ -1581,7 +1581,7 @@ describe("seat writes publish members-changed", () => {
     seedHostSeat(db, COHOST, "viewer");
     const res = await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: "viewer" });
     expect(res.status).toBe(200);
-    expect(publishes).toEqual([]);
+    expect(publishes).toStrictEqual([]);
   });
 
   it("after a removal, revoking the removed member", async () => {
@@ -1590,7 +1590,7 @@ describe("seat writes publish members-changed", () => {
     seedHostSeat(db, COHOST, "editor");
     const res = await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER);
     expect(res.status).toBe(200);
-    expect(publishes).toEqual([revoking(COHOST)]);
+    expect(publishes).toStrictEqual([revoking(COHOST)]);
   });
 
   it("after a leave, revoking the member who left", async () => {
@@ -1599,7 +1599,7 @@ describe("seat writes publish members-changed", () => {
     seedHostSeat(db, COHOST, "helper");
     const res = await req(app, "DELETE", `${hostsPath}/me`, COHOST);
     expect(res.status).toBe(200);
-    expect(publishes).toEqual([revoking(COHOST)]);
+    expect(publishes).toStrictEqual([revoking(COHOST)]);
   });
 
   it("never for a refused write", async () => {
@@ -1616,7 +1616,7 @@ describe("seat writes publish members-changed", () => {
     // The wedding's only owner can neither be removed nor leave.
     expect((await req(app, "DELETE", `${hostsPath}/${OWNER}`, OWNER)).status).toBe(409);
     expect((await req(app, "DELETE", `${hostsPath}/me`, OWNER)).status).toBe(409);
-    expect(publishes).toEqual([]);
+    expect(publishes).toStrictEqual([]);
   });
 
   it("not for removing a profile that holds no seat", async () => {
@@ -1624,7 +1624,7 @@ describe("seat writes publish members-changed", () => {
     const { app } = buildApp({ realtimeHub: hub });
     const res = await req(app, "DELETE", `${hostsPath}/${STRANGER}`, OWNER);
     expect(res.status).toBe(200);
-    expect(publishes).toEqual([]);
+    expect(publishes).toStrictEqual([]);
   });
 
   it("not for a removal the database fails, which answers 500", async () => {
@@ -1635,7 +1635,7 @@ describe("seat writes publish members-changed", () => {
     const res = await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER);
     expect(res.status).toBe(500);
     expect(await jsonBody(res)).toEqual({ error: "Could not remove host" });
-    expect(publishes).toEqual([]);
+    expect(publishes).toStrictEqual([]);
     expect(db.select().from(weddingHosts).all()).toHaveLength(2);
   });
 
