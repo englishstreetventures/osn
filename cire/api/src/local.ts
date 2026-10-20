@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import { createApp } from "./app";
 import {
   applyE2eGiftList,
+  applyE2eOrganiser,
   applyE2eRsvpDeadline,
   createDb,
   repointDevOwnerSeat,
@@ -30,11 +31,14 @@ const db = createDb(process.env.CIRE_LOCAL_DB_PATH || ":memory:");
 // here rather than booting a server with no deadline.
 //
 // The seed has no gift list. `CIRE_E2E_REGISTRY=1` (the E2E suite) adds a
-// second wedding on Gold with a published one, for the gift-list flows.
+// second wedding on Gold with a published one, for the gift-list flows, and
+// `CIRE_E2E_ORGANISER=1` three Gold weddings the dev profile owns, for the
+// organiser portal's flows.
 db.$client.transaction(() => {
   seedDb(db);
   applyE2eRsvpDeadline(db, process.env);
   applyE2eGiftList(db, process.env);
+  applyE2eOrganiser(db, process.env);
 })();
 
 // Dev convenience: the in-memory seed gives the sample wedding's owner seat to

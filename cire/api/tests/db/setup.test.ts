@@ -12,6 +12,7 @@ import {
   repointDevOwnerSeat,
   seedDb,
   applyE2eGiftList,
+  applyE2eOrganiser,
   applyE2eRsvpDeadline,
   setSampleRsvpDeadline,
   type TestDb,
@@ -351,6 +352,27 @@ describe("applyE2eGiftList", () => {
       expect(slugs).toEqual(["cire-wedding"]);
       expect(db.select().from(schema.registrySettings).all()).toEqual([]);
       expect(db.select().from(schema.registryItems).all()).toEqual([]);
+    }
+  });
+});
+
+describe("applyE2eOrganiser", () => {
+  it("adds no organiser weddings when the dev server boots without CIRE_E2E_ORGANISER", () => {
+    // Every `bun run dev:cire` outside the E2E suite: no variable, an empty
+    // one, or one that is not "1". The dev profile signs in to the local
+    // portal; three test weddings with made-up co-hosts must not appear there.
+    for (const env of [{}, { CIRE_E2E_ORGANISER: "" }, { CIRE_E2E_ORGANISER: "0" }]) {
+      const db = createDb();
+      seedDb(db);
+      applyE2eOrganiser(db, env);
+      const slugs = db
+        .select({ slug: schema.weddings.slug })
+        .from(schema.weddings)
+        .all()
+        .map((w) => w.slug);
+      expect(slugs).toEqual(["cire-wedding"]);
+      expect(db.select().from(schema.weddingHosts).all()).toHaveLength(1);
+      expect(db.select().from(schema.tasks).all()).toEqual([]);
     }
   });
 });
