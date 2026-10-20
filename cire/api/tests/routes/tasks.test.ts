@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { createApp } from "../../src/app";
 import { createDb, DEV_OWNER_SEAT_ID, seedDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
-import { appRequest, jsonBody, setTier } from "../test-helpers";
+import { appRequest, failStatements, jsonBody, setTier } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -307,6 +307,7 @@ describe("assigning a task to a seat", () => {
     ]) {
       const res = await req(app, "PUT", assignee(id), EDITOR, body);
       expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
     }
     const garbled = await appRequest(app, assignee(id), {
       method: "PUT",
@@ -361,6 +362,22 @@ describe("assigning a task to a seat", () => {
     });
     expect(missing.status).toBe(404);
     expect(await jsonBody(missing)).toEqual({ error: "task_not_found" });
+  });
+
+  it("answers 500 and writes nothing when the database fails the write", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
+    const id = await createTask(app);
+    const failure = failStatements(db, (sql) =>
+      sql.startsWith('update "tasks" set "assigned_host_id"'),
+    );
+
+    const res = await req(app, "PUT", assignee(id), EDITOR, { assignedHostId: "whost_helper" });
+    expect(failure.failed()).toBe(1);
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+    failure.restore();
+    expect(await assigneeOf(app, id)).toBeNull();
   });
 
   it("keeps the task, unassigned, when an owner removes the seat it was assigned to", async () => {
