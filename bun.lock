@@ -562,7 +562,7 @@
     },
     "shared/dev-urls": {
       "name": "@shared/dev-urls",
-      "version": "0.1.10",
+      "version": "0.1.11",
       "bin": {
         "dev-env": "./src/cli.ts",
       },
