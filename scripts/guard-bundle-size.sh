@@ -24,10 +24,13 @@
 # two shapes need different measurements, so this script takes a MODE rather
 # than trying to force one glob to fit both:
 #
-#   worker  — cire/invites. Measures `dist/server`, and separately refuses any
-#             `*.map` under the sibling `dist/client`.
+#   worker  — cire/invites. Measures `dist/server`, and separately refuses a
+#             source map, as a `*.map` file or inlined, under the sibling
+#             `dist/client` it serves publicly.
 #   static  — the other five. Measures `dist/_astro/*.js` and
-#             `dist/_astro/*.css` only.
+#             `dist/_astro/*.css` only, and separately refuses a source map,
+#             as a `*.map` file or inlined, anywhere under `dist`, all of
+#             which it serves publicly.
 #
 # Every app's mode and threshold is a row in scripts/bundle-size-budgets.txt —
 # that file, not this script, not a workflow, not a package.json, is the
@@ -153,6 +156,49 @@ is_source_map() {
   [ "$verdict" = "source-map" ]
 }
 
+# Refuses a source map in a directory that is served publicly, in either form
+# the build can write one: a `*.map` file, or a map inlined into a script or
+# stylesheet as a `sourceMappingURL=data:` comment (`vite.build.sourcemap:
+# "inline"` appends one to every `dist/_astro/*.js`). Either form publishes the
+# app's unminified source, sourcesContent included, to anyone who asks. Runs
+# before anything is measured, so no budget can hide it.
+#
+# A file is read through a symlink, because a link is served as the file it
+# points at; one that cannot be read is refused rather than passed unchecked.
+# Called from inside run_guard's subshell, so its `exit` ends only that app's
+# run. Args: <label> <public dir> <how it is served> <how to fix it>.
+refuse_public_source_maps() {
+  local label="$1" public_dir="$2" served="$3" fix="$4" maps count f rc
+  maps=$(find "$public_dir" -iname '*.map' ! -type d)
+  if [ -n "$maps" ]; then
+    count=$(printf '%s\n' "$maps" | wc -l | tr -d ' ')
+    echo "::error::${label} ${public_dir} holds ${count} source map file(s), including ${maps%%$'\n'*}. ${public_dir} is served publicly ${served}, so a source map there publishes the app's unminified source. ${fix}"
+    exit 1
+  fi
+
+  count=0
+  local first=""
+  while IFS= read -r -d '' f; do
+    rc=0
+    grep -qF -- 'sourceMappingURL=data:' "$f" || rc=$?
+    case "$rc" in
+      0)
+        count=$((count + 1))
+        [ -n "$first" ] || first="$f"
+        ;;
+      1) ;;
+      *)
+        echo "::error::${label} could not read ${f} to check it for an inline source map. ${public_dir} is served publicly ${served}, so every script and stylesheet in it is checked."
+        exit 1
+        ;;
+    esac
+  done < <(find "$public_dir" \( -type f -o -type l \) \( -iname '*.js' -o -iname '*.mjs' -o -iname '*.css' \) -print0)
+  if [ "$count" -ne 0 ]; then
+    echo "::error::${label} ${public_dir} holds ${count} file(s) with an inline source map (sourceMappingURL=data:), including ${first}. ${public_dir} is served publicly ${served}, so an inline map there publishes the app's unminified source. ${fix}"
+    exit 1
+  fi
+}
+
 # Runs the actual measurement for one app, in a subshell so its `cd` and any
 # `exit` never escape to affect a sibling record in --all's loop. Args:
 # <label for messages> <directory to cd into> <worker|static> <threshold>.
@@ -192,28 +238,32 @@ run_guard() {
       exit 1
     fi
 
-    # Source maps belong in `dist/server` and NOWHERE ELSE, and only the
-    # worker shape has a `dist/client` to check. `dist/client` is that
-    # Worker's Static Assets directory (the adapter writes
-    # `"assets": { "directory": "../client" }` into the generated wrangler
-    # config) and Cloudflare serves every file there verbatim, so a `.map`
-    # that lands in it publishes the guest site's unminified source at
-    # `/_astro/<chunk>.js.map` to anyone who asks. That is exactly what a
-    # plain `vite: { build: { sourcemap: true } }` does, because the client
-    # environment reads the top-level value at
+    # No source map may sit where the app is served publicly, whatever the
+    # budget says (refuse_public_source_maps).
+    #
+    # worker: source maps belong in `dist/server` and nowhere else. They go to
+    # Cloudflare for symbolication (`upload_source_maps`), never to a visitor.
+    # `dist/client` is the Worker's Static Assets directory (the adapter
+    # writes `"assets": { "directory": "../client" }` into the generated
+    # wrangler config) and Cloudflare serves every file there verbatim. A
+    # plain `vite: { build: { sourcemap: true } }` puts maps there, because
+    # the client environment reads the top-level value at
     # `astro/dist/core/build/vite-build-config.js:135` — which is why
     # `cire/invites/astro.config.mjs` sets `sourcemap` inside the
-    # `astro:build:setup` hook instead. This check is the tripwire for that
-    # mistake coming back. The static apps have no `dist/client` at all —
-    # their whole `dist` IS the public asset tree — so the check is scoped to
-    # `worker` mode rather than trying to run it (harmlessly, but
-    # pointlessly) everywhere.
-    if [ "$mode" = "worker" ] && [ -d dist/client ]; then
-      client_maps=$(find dist/client -type f -name '*.map' | wc -l | tr -d ' ')
-      if [ "$client_maps" -ne 0 ]; then
-        echo "::error::${label} dist/client holds ${client_maps} source map(s). dist/client is served publicly as Static Assets, so these would publish the guest site's unminified source. Scope \`sourcemap\` to the server build (see the minifySsrBuild() comment in cire/invites/astro.config.mjs)."
-        exit 1
+    # `astro:build:setup` hook instead.
+    #
+    # static: there is no server half. `wrangler pages deploy dist` serves the
+    # whole of `dist`, `public/` copies included, so all of it is checked,
+    # not only the `dist/_astro` this guard measures. None of the five sets
+    # `sourcemap`, so a map there is always a mistake.
+    if [ "$mode" = "worker" ]; then
+      if [ -d dist/client ]; then
+        refuse_public_source_maps "$label" "dist/client" "as the Worker's Static Assets" \
+          "Scope \`sourcemap\` to the server build (see the minifySsrBuild() comment in cire/invites/astro.config.mjs)."
       fi
+    else
+      refuse_public_source_maps "$label" "dist" "by Cloudflare Pages" \
+        "Turn \`sourcemap\` off in this app's Vite build config (\`vite.build.sourcemap\` in astro.config.mjs), and remove any \`.map\` copied in from \`public/\`."
     fi
 
     total=0
