@@ -104,8 +104,19 @@ const appOptions: Parameters<typeof createApp>[1] = {
   osnIssuerUrl: process.env.OSN_ISSUER_URL,
   osnAudience: process.env.OSN_AUDIENCE,
   // Organiser sign-in, built as the Worker builds it: all five values or none,
-  // and none (no issuer) is the usual local state.
-  oidc: oidcConfigFromEnv(process.env, origins),
+  // and none (no issuer) is the usual local state. Named one by one: Bun types
+  // `process.env` with no property in common with the env interface, which
+  // TypeScript refuses as a weak type.
+  oidc: oidcConfigFromEnv(
+    {
+      OSN_ISSUER_URL: process.env.OSN_ISSUER_URL,
+      OSN_JWKS_URL: process.env.OSN_JWKS_URL,
+      CIRE_API_ORIGIN: process.env.CIRE_API_ORIGIN,
+      CIRE_OIDC_CLIENT_ID: process.env.CIRE_OIDC_CLIENT_ID,
+      CIRE_OIDC_CLIENT_SECRET: process.env.CIRE_OIDC_CLIENT_SECRET,
+    },
+    origins,
+  ),
   stripe,
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? null,
   stripePlatformWebhookSecret: process.env.STRIPE_PLATFORM_WEBHOOK_SECRET ?? null,
