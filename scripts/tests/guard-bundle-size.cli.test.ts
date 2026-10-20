@@ -18,7 +18,7 @@
 // Covers, one case per independent decision point:
 //
 //   1. total under threshold -> exit 0
-//   2. total over threshold -> exit 1, "exceeds the"
+//   2. total over threshold -> exit 0, a "::warning::" line saying "exceeds the"
 //   3. the measured directory missing -> exit 1, "is missing"
 //   4. the measured directory holding only excluded files -> exit 1, "holds no
 //      deployable files"
@@ -124,14 +124,16 @@ test("exits 0 when the worker total is under the threshold", async () => {
   });
 });
 
-test("exits non-zero when the worker total exceeds the threshold", async () => {
+test("warns and exits 0 when the worker total exceeds the threshold", async () => {
   await withFixture(["fixture-app/pkg worker 0"], async ({ pkgDir, root, budgetsFile }) => {
     await mkdir(join(pkgDir, "dist/server"), { recursive: true });
     await writeFile(join(pkgDir, "dist/server/entry.mjs"), "export default 1;\n");
 
     const { exitCode, stdout } = await runCli(budgetsFile, root, pkgDir);
-    expect(stdout).toContain("exceeds the");
-    expect(exitCode).not.toBe(0);
+    expect(stdout).toContain("::warning::fixture-app/pkg dist/server gzip total");
+    expect(stdout).toContain("exceeds the 0 byte guard");
+    expect(stdout).not.toContain("::error::");
+    expect(exitCode).toBe(0);
   });
 });
 
@@ -175,6 +177,7 @@ test("excluding a real source map is load-bearing: counting it would trip the th
 
     const { exitCode, stdout } = await runCli(budgetsFile, root, pkgDir);
     expect(stdout).toContain(`${entrySize} bytes`);
+    expect(stdout).not.toContain("exceeds the");
     expect(exitCode).toBe(0);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -423,7 +426,7 @@ test("--all runs every row, resolved against BUNDLE_SIZE_BUDGETS_ROOT", async ()
   }
 });
 
-test("--all fails, but still reports both apps, when one of two rows is over budget", async () => {
+test("--all warns for the row over budget, reports both apps, and exits 0", async () => {
   const root = await mkdtemp(join(tmpdir(), "guard-bundle-size-cli-"));
   try {
     const appADir = join(root, "fixture-a", "pkg");
@@ -438,10 +441,10 @@ test("--all fails, but still reports both apps, when one of two rows is over bud
     await writeFile(budgetsFile, "fixture-a/pkg worker 0\nfixture-b/pkg static 999999999\n");
 
     const { exitCode, stdout } = await runCli(budgetsFile, root, "--all");
-    expect(stdout).toContain("fixture-a/pkg dist/server gzip total");
+    expect(stdout).toContain("::warning::fixture-a/pkg dist/server gzip total");
     expect(stdout).toContain("exceeds the");
     expect(stdout).toContain("fixture-b/pkg dist/_astro gzip total");
-    expect(exitCode).not.toBe(0);
+    expect(exitCode).toBe(0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

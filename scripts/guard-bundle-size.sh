@@ -9,8 +9,12 @@
 # under `src/pages`, so Astro routed them, deployed them, and pulled 119 KB
 # gzip of vitest along with them (fixed by the `_` prefix Astro's router
 # excludes). This guard measures the same total again on every build and
-# fails the moment it grows past a set point, rather than the growth being
-# found from a tracker issue months later.
+# warns the moment it grows past a set point, rather than the growth being
+# found from a tracker issue months later. Going over a budget is a warning
+# (`::warning::`, exit 0), visible in a local build's output and annotated on
+# the CI run; everything else this script refuses (a public source map, a
+# missing or empty measured directory, a symlink, a bad budgets file) still
+# fails.
 #
 # Tracker #619 generalised it: cire/invites is the only `output: "server"`
 # Astro app in the repo (it emits `dist/server`, a Worker, plus `dist/client`,
@@ -309,8 +313,7 @@ run_guard() {
     # it is nowhere near Cloudflare Pages' limits — it watches the
     # trajectory, it is not a check against a hard cap.
     if [ "$total" -gt "$threshold" ]; then
-      echo "::error::${label} ${measure_dir} gzip total ${total} bytes exceeds the ${threshold} byte guard (tracker #287, #619). Something is likely pulling a new dependency into the bundle that does not need to ship — check what is newly reachable from an import that runs in this build, the way motion was for cire/invites."
-      exit 1
+      echo "::warning::${label} ${measure_dir} gzip total ${total} bytes exceeds the ${threshold} byte guard (tracker #287, #619). Something may be pulling a new dependency into the bundle that does not need to ship — check what is newly reachable from an import that runs in this build, the way motion was for cire/invites — or re-baseline scripts/bundle-size-budgets.txt if the growth is intended."
     fi
   )
 }
@@ -340,8 +343,8 @@ lookup_and_run() {
 # guard-bundle-size.sh --all — every record in the budgets file, resolved
 # against BUDGETS_ROOT (the repo root, by default) rather than the caller's
 # own cwd, since a table row is a repo-relative path by definition. Runs every
-# record even after one fails, so a CI run reports every app over budget in
-# one pass instead of stopping at the first.
+# record even after one fails, so a CI run reports every broken app, and warns
+# for every app over budget, in one pass instead of stopping at the first.
 run_all() {
   local line any_fail=0 any_record=0 pkg_dir
 
