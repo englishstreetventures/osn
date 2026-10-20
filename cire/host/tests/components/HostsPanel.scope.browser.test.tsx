@@ -1,15 +1,17 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 
 /**
- * A helper's row gained a second dropdown — what they see on the run sheet —
- * beside the badge, while the role dropdown and Remove stay on the right. Only
- * a real engine can say the row still holds all of it at phone width, with a
- * long handle, and that the question asked before opening the whole run sheet
- * fits a phone. Measured at phone and desktop width, in both ramps.
+ * A helper's row gained a second dropdown — what they see on the run sheet — on
+ * a line of its own under the name, the role dropdown and Remove. Only a real
+ * engine can say every part of the row stays inside it and each dropdown is
+ * wide enough to show its value at phone width, with a long handle, and that
+ * the question asked before opening the whole run sheet fits a phone. Measured
+ * at phone and desktop width, in both ramps. Only a real engine, too, turns an
+ * arrow key on a closed select into a pick, so the keyboard case is here.
  *
  * Each case leaves a screenshot under `__screenshots__/` beside this file
  * (gitignored), so a reviewer can look at what was measured.
@@ -171,4 +173,47 @@ describe("a helper's run-sheet scope, painted", () => {
       });
     }
   }
+});
+
+describe("a helper's run-sheet scope, from the keyboard", () => {
+  it("keeps focus on the select through the narrowing one arrow key sends, and ignores a key while it is out", async () => {
+    await page.viewport(1440, 900);
+    const puts: unknown[] = [];
+    let answer: () => void = () => {};
+    authFetch.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "PUT") {
+        return json({ hosts: HOSTS, total: HOSTS.length, peopleLimit: null });
+      }
+      puts.push(JSON.parse(String(init.body)));
+      const host = { osnProfileId: "usr_max", role: "helper", runSheetScope: "own" };
+      return new Promise<Response>((resolve) => (answer = () => resolve(json({ host }))));
+    });
+    renderPanel();
+    const scope = (await screen.findByRole("combobox", {
+      name: "What @maximiliana_featherstone sees on the run sheet",
+    })) as HTMLSelectElement;
+    expect(scope.value).toBe("full");
+    scope.focus();
+
+    // On a closed select, an arrow key is a pick: up from the whole run sheet
+    // is their own tasks, which goes straight out.
+    await userEvent.keyboard("{ArrowUp}");
+    await waitFor(() => expect(puts).toEqual([{ scope: "own" }]));
+    // Focus stays put, and the write in flight is announced instead.
+    expect(document.activeElement).toBe(scope);
+    expect(scope.getAttribute("aria-busy")).toBe("true");
+
+    // While it is out, a key sends nothing and asks nothing.
+    await userEvent.keyboard("{ArrowDown}");
+    expect(scope.value).toBe("own");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(scope);
+
+    answer();
+    await waitFor(() => expect(scope.hasAttribute("aria-busy")).toBe(false));
+    expect(document.activeElement).toBe(scope);
+    expect(scope.value).toBe("own");
+    expect(puts).toHaveLength(1);
+    await page.screenshot({ path: shot("keyboard-narrowed") });
+  });
 });

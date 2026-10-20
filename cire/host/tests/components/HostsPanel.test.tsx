@@ -1024,17 +1024,35 @@ describe("HostsPanel", () => {
       expect(scopeSelect("@bob").value).toBe("full");
     });
 
-    it("holds the select while the write is in flight", async () => {
-      authFetchMock.mockResolvedValueOnce(json({ hosts: [{ ...HELPER, runSheetScope: "full" }] }));
+    it("holds the select busy, not disabled, while the write is in flight, and ignores a pick then", async () => {
+      authFetchMock.mockResolvedValueOnce(
+        json({ hosts: [{ ...HELPER, runSheetScope: "full" }, OTHER_HELPER] }),
+      );
       let answer: (res: Response) => void = () => {};
       authFetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answer = resolve)));
       render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
       await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+      const select = scopeSelect("@bob");
 
       pick("@bob", "own");
-      await waitFor(() => expect(scopeSelect("@bob").disabled).toBe(true));
+      await waitFor(() => expect(select.getAttribute("aria-busy")).toBe("true"));
+      // Disabled, it would drop the focus of an owner on the keyboard.
+      expect(select.disabled).toBe(false);
+      // Only the row being written is busy.
+      expect(scopeSelect("@cy").hasAttribute("aria-busy")).toBe(false);
+
+      // A second pick goes nowhere: no request, no question, and the select
+      // stays on what is being written.
+      pick("@bob", "full");
+      expect(select.value).toBe("own");
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(authFetchMock).toHaveBeenCalledTimes(2);
+
       answer(json({ host: { osnProfileId: "usr_bob", role: "helper", runSheetScope: "own" } }));
-      await waitFor(() => expect(scopeSelect("@bob").disabled).toBe(false));
+      await waitFor(() => expect(select.hasAttribute("aria-busy")).toBe(false));
+      // The same select: the row was not rebuilt under it.
+      expect(scopeSelect("@bob")).toBe(select);
+      expect(select.value).toBe("own");
     });
 
     it("sends a signed-out organiser to sign in, and an expired session too", async () => {

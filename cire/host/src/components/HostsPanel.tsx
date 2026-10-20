@@ -235,8 +235,20 @@ export default function HostsPanel(props: HostsPanelProps) {
   // has played, and the body names a person — without this it would blank
   // mid-fade. Built once, here: each call makes its own signal and effect.
   const shownPromotion = heldWhileClosing(pending);
-  // Profile id of the helper whose run-sheet scope write is in flight.
-  const [scopeBusyId, setScopeBusyId] = createSignal<string | null>(null);
+  // A helper's run-sheet scope as this visit has changed it, held beside the
+  // rows and keyed by the row object, never written into the rows: `<For>`
+  // re-creates a row it is handed as a new object, and the select an owner is
+  // on would go with it, taking their focus. A row rebuilt for anything else —
+  // a role change, a reload — is a new key, so it reads its own
+  // `runSheetScope` again.
+  // The scope each helper's write in flight is setting. Their select shows it
+  // and is announced busy until the write ends; a failed write ends with its
+  // entry gone, which puts the select back.
+  const [scopeWrites, setScopeWrites] = createSignal<ReadonlyMap<HostRow, RunSheetScope>>(
+    new Map(),
+  );
+  // The scope each helper's last accepted write set.
+  const [scopesSet, setScopesSet] = createSignal<ReadonlyMap<HostRow, RunSheetScope>>(new Map());
   // The helper whose run sheet is waiting on a yes before it is opened to every
   // task. Held, not sent, like a promotion: see `selectScope`.
   const [pendingScope, setPendingScope] = createSignal<HostRow | null>(null);
@@ -624,23 +636,37 @@ export default function HostsPanel(props: HostsPanelProps) {
   /** A name for a host that reads in a sentence. */
   const nameOf = (host: HostRow) => (host.handle ? `@${host.handle}` : host.osnProfileId);
 
-  /** What a helper row says they see. A row the API sent no scope for, or one
-   *  the portal does not know, reads as the narrow one. */
-  const scopeOf = (host: HostRow): RunSheetScope => readRunSheetScope(host.runSheetScope, "own");
+  /** What a helper row says they see: what this visit last set, else what the
+   *  API sent. A row the API sent no scope for, or one the portal does not
+   *  know, reads as the narrow one. */
+  const scopeOf = (host: HostRow): RunSheetScope =>
+    scopesSet().get(host) ?? readRunSheetScope(host.runSheetScope, "own");
 
-  /** A fresh copy of the row re-renders a select from what the seat still
-   *  holds: the option an owner picked changed the DOM, and nothing else would
-   *  put it back. */
-  const putBack = (host: HostRow) =>
-    setHosts((prev) => prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h } : h)));
+  /** What an owner's scope select shows: the pick while the widening is being
+   *  asked about, the scope a write in flight is setting, and the seat's own
+   *  otherwise. The option picked changed the DOM at once, so a change to this
+   *  is the only thing that puts the select back. */
+  const scopeShownFor = (host: HostRow): RunSheetScope =>
+    pendingScope()?.osnProfileId === host.osnProfileId
+      ? "full"
+      : (scopeWrites().get(host) ?? scopeOf(host));
 
   /**
    * The scope dropdown moved. Narrowing goes straight through: it takes away
    * nothing an owner cannot hand straight back. Opening the whole run sheet asks
    * first, because it shows the helper everyone else's jobs and names — and the
    * select stays on the pick while it asks, as a promotion's does.
+   *
+   * The select is never disabled while its write is out, so it keeps the focus
+   * of an owner on the keyboard, where one arrow key is a pick. A pick then
+   * sends nothing and the select goes back to what is being written.
    */
-  function selectScope(host: HostRow, next: RunSheetScope) {
+  function selectScope(host: HostRow, select: HTMLSelectElement) {
+    if (scopeWrites().has(host)) {
+      select.value = scopeShownFor(host);
+      return;
+    }
+    const next = select.value as RunSheetScope;
     if (next === "full") {
       setPendingScope(host);
       return;
@@ -651,7 +677,7 @@ export default function HostsPanel(props: HostsPanelProps) {
   /** Set a helper's run-sheet scope (owner-only; the API re-checks). The
    *  checklist reads no scope, so its seat cache stays as it is. */
   async function changeScope(host: HostRow, next: RunSheetScope) {
-    setScopeBusyId(host.osnProfileId);
+    setScopeWrites((writes) => new Map(writes).set(host, next));
     try {
       const res = await authFetch(
         `${endpoint()}/${encodeURIComponent(host.osnProfileId)}/run-sheet-scope`,
@@ -665,22 +691,22 @@ export default function HostsPanel(props: HostsPanelProps) {
       if (!res.ok) {
         haptic("reject");
         const refusal = await readRefusal(res);
-        putBack(host);
         toast.error(refusal.message ?? "Could not change what they see. Please try again.");
         return;
       }
       haptic("commit");
-      setHosts((prev) =>
-        prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h, runSheetScope: next } : h)),
-      );
+      setScopesSet((set) => new Map(set).set(host, next));
       toast.success(`${nameOf(host)} now sees ${RUN_SHEET_SCOPE_COPY[next].phrase}.`);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       haptic("reject");
-      putBack(host);
       toast.error("Could not change what they see. Is the API running?");
     } finally {
-      setScopeBusyId(null);
+      setScopeWrites((writes) => {
+        const left = new Map(writes);
+        left.delete(host);
+        return left;
+      });
     }
   }
 
@@ -1094,24 +1120,17 @@ export default function HostsPanel(props: HostsPanelProps) {
                     >
                       <label class="font-body text-text-muted text-ui-xs tracking-ui-wide flex basis-full items-center gap-2">
                         Sees:
-                        {/* The pick while the widening is being asked about,
-                            the seat's own scope otherwise — the same rule that
-                            puts the role select back. */}
                         {/* `w-auto`: on a line of its own the control box's full
-                            width would run the select across the whole row. */}
+                            width would run the select across the whole row.
+                            `aria-busy`, never `disabled`, while its write is
+                            out: see `selectScope`. */}
                         <Select
                           size="sm"
                           class="w-auto"
-                          value={
-                            pendingScope()?.osnProfileId === host.osnProfileId
-                              ? "full"
-                              : scopeOf(host)
-                          }
-                          disabled={scopeBusyId() === host.osnProfileId}
+                          value={scopeShownFor(host)}
+                          aria-busy={scopeWrites().has(host) ? "true" : undefined}
                           aria-label={`What ${nameOf(host)} sees on the run sheet`}
-                          onChange={(e) =>
-                            selectScope(host, e.currentTarget.value as RunSheetScope)
-                          }
+                          onChange={(e) => selectScope(host, e.currentTarget)}
                         >
                           <For each={RUN_SHEET_SCOPES}>
                             {(scope) => (
