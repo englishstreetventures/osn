@@ -26,7 +26,10 @@ import {
   API_LABELS,
   BIRTHDATE,
   CIRE_GIFT_LIST,
+  CIRE_ORGANISER,
   CLOCK_T0,
+  DB_FILES,
+  DEV_LOGIN_SECRET,
   ORGANISER_ADDRESS,
   ORIGINS,
   SCREENSHOT_DIR,
@@ -267,4 +270,57 @@ export function onSuiteClock(unixSeconds: number | undefined): boolean {
 export function giftListTextIn(text: string): string {
   const secret = [...CIRE_GIFT_LIST.gifts, CIRE_GIFT_LIST.headline, CIRE_GIFT_LIST.message];
   return secret.filter((s) => text.includes(s)).join(", ") || "none";
+}
+
+/**
+ * Signs `page`'s context in to the cire organiser portal as the dev profile,
+ * which owns every `CIRE_ORGANISER` wedding, and leaves the page on the
+ * portal's wedding list.
+ *
+ * osn-api's `/dev/login` mints the OSN session, since no passkey can be enrolled
+ * for an account a seed wrote. Everything after it is the real sign-in: the
+ * portal's "Continue with musubi", cire-api's OIDC start leg, osn-api's
+ * `/authorize`, which hands the first-party portal a code with no screen, and
+ * cire-api's callback, which exchanges it and sets `cire_org_session`.
+ *
+ * Each call spends two of cire-api's OIDC redirect legs (15 a minute per
+ * address), one `/dev/login` (10) and one osn-api `/authorize` (20);
+ * `tests/flows.test.ts` caps how many flows may call it.
+ */
+export async function signInToCireHost(flow: Flow, page: Page): Promise<void> {
+  const authorizePages: string[] = [];
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame() && frame.url().startsWith(`${ORIGINS.musubi}/authorize`)) {
+      authorizePages.push(frame.url());
+    }
+  });
+
+  await flow.step("organiser: get an OSN session from /dev/login", async () => {
+    const url = `${ORIGINS.osnApi}/dev/login`;
+    // The context's own request client: the session cookie lands in the jar
+    // the browser sends to osn-api's `/authorize`.
+    const response = await page
+      .context()
+      .request.get(`${url}?secret=${encodeURIComponent(DEV_LOGIN_SECRET)}`);
+    flow.recordRequest("GET", url, response.status());
+    expect(response.status(), "dev login").toBe(200);
+  });
+
+  await flow.step("organiser: sign in to the portal with musubi", async () => {
+    await page.goto(`${ORIGINS.cireHost}/login`);
+    await page.getByRole("button", { name: "Continue with musubi" }).click();
+    // The portal lands on `/` and rewrites the empty hash to its wedding list.
+    await expect(page).toHaveURL(`${ORIGINS.cireHost}/#/weddings`);
+  });
+
+  flow.check("organiser: musubi /authorize page not shown", 0, authorizePages.length);
+  const cookie = await cookieNamed(page.context(), ORIGINS.cireApi, "cire_org_session");
+  flow.check("organiser: cire_org_session set by cire-api", true, cookie !== undefined);
+  flow.check("organiser: cire_org_session is HttpOnly", true, cookie?.httpOnly ?? false);
+  const session = queryOne<{ n: number }>(
+    DB_FILES.cire,
+    "SELECT count(*) AS n FROM organiser_sessions WHERE osn_profile_id = ?",
+    CIRE_ORGANISER.profileId,
+  );
+  flow.check("organiser: organiser_sessions row for the dev profile", true, (session?.n ?? 0) > 0);
 }
