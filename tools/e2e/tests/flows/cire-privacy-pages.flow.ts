@@ -125,6 +125,27 @@ test("cire-privacy-pages", async ({ page, browser, flow }) => {
       false,
       vendors.includes("Which organiser changed a guest"),
     );
+    // The page is still /privacy/vendors. Headings, not text: the section's
+    // title is also the link text in the page's retention paragraph.
+    flow.check(
+      "the vendors' notice has a section on the vendor's own account",
+      1,
+      await page
+        .getByRole("heading", { name: "Your vendor account", level: 2, exact: true })
+        .count(),
+    );
+    flow.check(
+      "the vendor account section has its four parts, in order",
+      "What it holds | Why we keep it | Who sees it | How long we keep it",
+      (await page.getByRole("heading", { level: 3 }).allTextContents())
+        .map((text) => text.trim())
+        .join(" | "),
+    );
+    flow.check(
+      "the vendor account section keeps the id the retention paragraph links to",
+      1,
+      await page.locator("#your-vendor-account").count(),
+    );
   });
 
   await flow.step("compare the guests' page with the guest site's notice", async () => {

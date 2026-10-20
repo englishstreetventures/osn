@@ -1,7 +1,8 @@
 ---
 // The privacy notice for vendors: wedding suppliers with a directory listing or
 // a vendor portal account. It holds what the hosts' notice (`hosts.astro`) says
-// about vendors, and every part of that notice that applies to them as well.
+// about vendors, every part of that notice that applies to them as well, and
+// what a vendor portal account holds, which the hosts' notice never covers.
 import LegalLayout from '../../layouts/LegalLayout.astro'
 import PrivacyNav from '../../components/PrivacyNav.astro'
 import { LEGAL_ENTITY, draftPending, isPlaceholder } from '@shared/legal'
@@ -13,7 +14,7 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 // Name every field this page publishes that the shared identity check does
 // not already cover. Leave one out and the banner can go while that field
 // is still a token.
-const draft = draftPending(LEGAL_ENTITY.accountDataRetention)
+const draft = draftPending()
 ---
 <LegalLayout title="Privacy Notice for Vendors">
   {draft && (
@@ -45,10 +46,81 @@ const draft = draftPending(LEGAL_ENTITY.accountDataRetention)
       no third-party analytics or advertising trackers.</li>
   </ul>
 
+  <h2 id="your-vendor-account">Your vendor account</h2>
+  <p>
+    You sign in to the vendor portal with your Musubi account, and manage your listing as a member
+    of a Musubi organisation. Musubi describes your Musubi account in
+    <a href="https://musubi.social/privacy">its own privacy notice</a>; this section covers what the
+    vendor portal holds.
+  </p>
+
+  <h3>What it holds</h3>
+  <ul>
+    <li><strong>Your sign-in</strong> — when you sign in, Musubi gives us two identifiers for your
+      Musubi profile, and your handle, display name, picture and email address. We store them with
+      a hashed copy of your session cookie.</li>
+    <li><strong>Your organisations</strong> — when you use the portal, we ask Musubi which
+      organisations you belong to, and your role in the one you are working in. We do not store
+      either answer.</li>
+    <li><strong>Your listing</strong> — the business name, description, service categories, email,
+      phone number, website, Instagram, location and price guide, and the Musubi organisation it
+      belongs to. A listing a couple created starts with the details they typed, until you change
+      them.</li>
+    <li><strong>Your claim</strong> — the email address each claim link was made for. While we check a
+      claim, which organisation and Musubi profile made it, and when; once we confirm it, which
+      Musubi profile claimed the listing.</li>
+    <li><strong>Your replies</strong> — the messages and quotes you send a couple, with the Musubi
+      profile that sent each one. The profile that claimed your listing is a member of each enquiry
+      thread.</li>
+  </ul>
+
+  <h3>Why we keep it</h3>
+  <p>
+    To keep you signed in and show which account you are using, to show your listing to couples
+    planning a wedding on Cire, to carry enquiries, replies and quotes between you and a couple, and
+    to check that a claim on a listing comes from the business before we hand the listing over.
+  </p>
+
+  <h3>Who sees it</h3>
+  <ul>
+    <li><strong>Couples</strong> — once your listing is live, couples on Cire&rsquo;s Crimson plan,
+      and the co-hosts who share their planning, can find it and see everything on it, your email
+      and phone number included. When a couple adds your listing to their wedding or sends you an
+      enquiry, we copy your business name, email and phone number into their own list of vendors;
+      changing your listing later does not change their copy. The couple you reply to, and the
+      co-hosts who share their planning, can read your replies and quotes. A quote is also saved in
+      the couple&rsquo;s list of vendors, and they can add it to their budget.</li>
+    <li><strong>Your organisation</strong> — every member of the Musubi organisation that owns your
+      listing can see and change it, and read its enquiries and the replies in them.</li>
+    <li><strong>Our staff</strong> — when you claim a listing a couple created, we check the claim
+      before the listing becomes yours. To do that we look up your organisation&rsquo;s name and
+      handle, your Musubi handle and your role in the organisation, and the email address on your
+      Musubi account.</li>
+    <li><strong>Our service providers</strong> — Cloudflare hosts the vendor portal and stores what
+      it holds, and Resend delivers the emails we send about your listing, such as claim links and
+      new enquiries.</li>
+  </ul>
+
+  <h3>How long we keep it</h3>
+  <ul>
+    <li>Signing out deletes that device&rsquo;s sign-in record. In any case the session ends after
+      seven days, and the record is deleted within a day of that.</li>
+    <li>A claim link stops working seven days after it is made, and its record is deleted within a
+      day of that.</li>
+    <li>Your listing stays until it is removed. The portal cannot delete a listing: to have yours
+      removed, contact us.</li>
+    <li>What a couple keeps — their copy of your contact details, the enquiry, and any quote in
+      their list of vendors or budget — stays with their wedding until they remove it or the wedding
+      is permanently deleted.</li>
+    <li>There is no set period for the messages in an enquiry thread: today they are not deleted,
+      even when the couple&rsquo;s wedding is.</li>
+  </ul>
+
   <h2>Why we collect it</h2>
   <ul>
     <li>To provide the service — hosting invitations, collecting RSVPs, powering the planning tools.</li>
-    <li>To send transactional email (sign-in codes, security notices) — never marketing without consent.</li>
+    <li>To send transactional email about your listing, such as claim links and new enquiries —
+      never marketing without consent.</li>
     <li>To keep the service secure and improve it.</li>
   </ul>
   <p>We do not sell personal information, and we do not use it for third-party advertising.</p>
@@ -78,15 +150,14 @@ const draft = draftPending(LEGAL_ENTITY.accountDataRetention)
 
   <h2>How long we keep it</h2>
   <p>
-    Only as long as needed for the purposes above. Wedding and account data is kept while your
-    account is active and removed when you ask us to. Specific periods for account data:
-    <span class={ph(LEGAL_ENTITY.accountDataRetention)}>{LEGAL_ENTITY.accountDataRetention}</span>.
+    How long we keep your sign-in, your listing, your claims and your enquiries is set out under
+    <a href="#your-vendor-account">Your vendor account</a>.
   </p>
 
   <h2>Security</h2>
   <p>
-    Traffic is encrypted in transit, organiser sign-in uses passkeys rather than passwords, and
-    session credentials are stored hashed. No system is perfectly secure, but we design for
+    Traffic is encrypted in transit, you sign in through Musubi, which uses passkeys rather than
+    passwords, and session credentials are stored hashed. No system is perfectly secure, but we design for
     security first.
   </p>
 
@@ -103,7 +174,7 @@ const draft = draftPending(LEGAL_ENTITY.accountDataRetention)
   <h2>Cookies</h2>
   <p>
     We use only the cookies the service needs to work (such as session cookies for signed-in
-    organisers and guests). No advertising or cross-site tracking cookies.
+    organisers, vendors and guests). No advertising or cross-site tracking cookies.
   </p>
 
   <h2>Contact</h2>

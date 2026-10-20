@@ -146,7 +146,8 @@ Its cookie list is generated from the consent vendor registry, which lives in
 
 **The hosts' and vendors' notices** share every section that applies to both;
 what concerns only organisers (their accounts, guest information, purchases, who
-changed a reply) is in the hosts' notice, and directory listings in the vendors'.
+changed a reply) is in the hosts' notice, and directory listings and a supplier's
+own vendor-portal account in the vendors'.
 Each points at the other in its first paragraph.
 
 **`PrivacyNav.astro`** (`src/components/`) is the row of links across the top of
@@ -162,8 +163,9 @@ each page is its own URL and prints on its own, with the row left out.
   tracking. Other pages `--color-text-muted`; the current one `--color-text`
   with a 2px `--color-gold` underline; hover `--color-text`; focus ring 2px
   `--color-gold`, offset 3px, as the CTAs and footer links draw theirs.
-- Sections are `h2`, as on the other legal pages. The guest notice's sub-sections
-  are `h3`, drawn as the guest site draws its `h3`, in `--color-gold`
+- Sections are `h2`, as on the other legal pages. The guest notice's sub-sections,
+  and the four parts of the vendors' notice's "Your vendor account" section, are
+  `h3`, drawn as the guest site draws its `h3`, in `--color-gold`
   (`layouts/LegalLayout.astro`).
 - One dark palette, like the rest of the site: a light-scheme visit renders the
   same page.
