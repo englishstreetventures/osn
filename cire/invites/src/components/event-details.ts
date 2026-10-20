@@ -55,21 +55,34 @@ export function venueQuery(event: Pick<EventSummary, "address" | "venueName">): 
 }
 
 /**
+ * Whether the address already starts with the venue's name, as a whole word or
+ * words and ignoring case: an organiser who typed the name into both, as every
+ * address did before the venue name had a field of its own. Then the address
+ * says it all, and the name beside it would say it twice. False when either is
+ * missing.
+ */
+export function addressRepeatsName(event: Pick<EventSummary, "address" | "venueName">): boolean {
+  const name = venueName(event);
+  const address = venueLine(event);
+  if (!name || !address) return false;
+  return (
+    address.toLowerCase().startsWith(name.toLowerCase()) &&
+    !/^[\p{L}\p{N}]/u.test(address.slice(name.length))
+  );
+}
+
+/**
  * The venue as one line for a calendar entry: "The Glasshouse, 12 Banksia
  * Lane". The name alone when there is no address, the address alone when
- * there is no name or when the address already starts with it as a whole word
- * or words (an organiser who typed the name into both), and `""` when there is
- * neither.
+ * there is no name or when it already starts with the name
+ * ({@link addressRepeatsName}), and `""` when there is neither.
  */
 export function venueLocation(event: Pick<EventSummary, "address" | "venueName">): string {
   const name = venueName(event);
   const address = venueLine(event);
   if (!name) return address ?? "";
   if (!address) return name;
-  const repeats =
-    address.toLowerCase().startsWith(name.toLowerCase()) &&
-    !/^[\p{L}\p{N}]/u.test(address.slice(name.length));
-  return repeats ? address : `${name}, ${address}`;
+  return addressRepeatsName(event) ? address : `${name}, ${address}`;
 }
 
 /**

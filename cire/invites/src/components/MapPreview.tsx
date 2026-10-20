@@ -2,7 +2,13 @@ import { buttonClass } from "@cire/ui/button";
 import { Show } from "solid-js";
 
 import { ConsentGate } from "./consent/ConsentGate";
-import { resolveMapsEmbedUrl, resolveMapsUrl, venueLine, venueName } from "./event-details";
+import {
+  addressRepeatsName,
+  resolveMapsEmbedUrl,
+  resolveMapsUrl,
+  venueLine,
+  venueName,
+} from "./event-details";
 import type { EventSummary } from "./types";
 
 interface MapPreviewProps {
@@ -58,7 +64,9 @@ interface MapPreviewProps {
  * is never logged.
  */
 export function MapPreview(props: MapPreviewProps) {
-  const name = () => venueName(props.event);
+  // An address that already starts with the name says it all, so it is the
+  // headline alone, as it is when there is no name.
+  const name = () => (addressRepeatsName(props.event) ? null : venueName(props.event));
   const venue = () => venueLine(props.event);
   const mapsHref = () => resolveMapsUrl(props.event);
   // Vite statically replaces `import.meta.env.PUBLIC_*` at build time for the
@@ -93,8 +101,11 @@ export function MapPreview(props: MapPreviewProps) {
               // takes three lines in the narrowest column this row renders in.
               // The name above takes two lines at most, for the same reason.
               <p
-                class="font-body text-ui-base line-clamp-4 font-light wrap-anywhere"
-                classList={{ "text-text": !name(), "text-text-muted mt-0.5": Boolean(name()) }}
+                class="font-body text-ui-base line-clamp-4 wrap-anywhere"
+                classList={{
+                  "text-text font-light": !name(),
+                  "text-text-muted mt-0.5": Boolean(name()),
+                }}
               >
                 {line()}
               </p>

@@ -435,16 +435,23 @@ guest's own zone is read after mount, so the first render matches a server
 render wherever the server ran.
 
 - **The venue reads as the day does.** With a name, the Where row's first line
-  is the name, set as the When row's day is (`text-ui-md`, body ink, two lines
-  at most), and the address follows in muted ink, as the time range does. The
-  map, its embed's title and "Open in maps" search for the address, or for the
-  name when there is none (`venueQuery` in `event-details.ts`). Calendar
-  entries put the name before the address ("The Glasshouse, 124 Sample
-  Avenue"), leaving it off when the address already starts with it
+  is the name, set as the When row's day is (`text-ui-md`, body ink, light,
+  two lines at most), and the address follows as the time range does: muted
+  ink at the regular weight. An address that already starts with the name, as
+  whole words (`addressRepeatsName` in `event-details.ts`), is shown alone as
+  the headline, as it is when there is no name, so the row never says the name
+  twice. The map and "Open in maps" search for the address, or for the name
+  when there is none (`venueQuery`); the embed's title names the venue by its
+  name, else its address. Calendar entries put the name before the address
+  ("The Glasshouse, 124 Sample Avenue"), leaving it off by the same rule
   (`venueLocation`).
 - **About is the organiser's description**, line breaks kept. The event card
   shows its first three lines and, on its venue line, the venue's name when
   there is one (the address otherwise); the whole of both is in the sheet.
+  Organiser text here (the card's venue line and description, About, the
+  dress-code text, the Where row) is `wrap-anywhere`: a pasted link or a venue
+  named in one token has nowhere else to break, and would otherwise widen the
+  card past the screen or clip at the sheet's edge.
 - **Text actions, not boxes.** Add to calendar, Open in maps and Open on
   Pinterest are `@cire/ui`'s `touchLink` variant at a 44px target, so the
   sheet's badge stays the one way forward drawn as a control. `touchLink`
@@ -485,11 +492,15 @@ render, the words, the notice), `event-details.test.ts` and
 `DetailsPanel.browser.test.tsx` (on every preset: each key fact at 4.5:1, the
 venue's name and its muted address included, and each swatch ring at 3:1 on the
 sheet; at 390px the date, the venue's name and its address on the first
-screen, every control 44px tall and every text action underlined at rest; the
-menu's keys, its focus return and its placement; focus after "Show it here"
-and the switch-off's double-tap guard). The `cire-event-details` end-to-end
-flow sets a venue name and a description in the organiser's drawer and reads
-them in the preview's sheet, its claim response and its `.ics` file.
+screen, every control 44px tall, every text action underlined at rest and a
+link in the description kept inside the sheet; the address under a name at
+the time line's weight and colour; the menu's keys, its focus return and its
+placement; focus after "Show it here" and the switch-off's double-tap guard),
+and `EventCard.actions.browser.test.tsx` (the answer button inside the card
+beside a link in the description and a one-word venue name). The
+`cire-event-details` end-to-end flow sets a venue name and a description in
+the organiser's drawer and reads them in the preview's sheet, its claim
+response and its `.ics` file.
 
 ## Adding a design
 

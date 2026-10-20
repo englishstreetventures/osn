@@ -722,4 +722,23 @@ describe("round trip: values the formula guard changes", () => {
       }),
     ),
   );
+
+  // The guard adds a `'` to every line of a dash list, so the download of a
+  // description at the cap is longer than the cap. The cap is on the value,
+  // which is what comes back once the guard is off.
+  it(
+    "re-imports a description at the cap written as a dash list",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const description = "- bring a hat\n".repeat(715).slice(0, 10_000);
+        db.update(events).set({ description }).where(eq(events.name, "Kitchen Tea")).run();
+
+        const eventsCsv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "import");
+        expect(eventsCsv).toContain("\n'- bring a hat\n'- bring a hat");
+        const parsed = yield* parseEventsCsv(eventsCsv);
+        expect(parsed.find((e) => e.name === "Kitchen Tea")?.description).toBe(description);
+      }),
+    ),
+  );
 });

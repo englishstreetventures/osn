@@ -41,6 +41,27 @@ describe("MapPreview", () => {
     expect(link.rel).toBe("noopener noreferrer");
   });
 
+  // An address typed before the venue name existed often starts with the
+  // name. Said twice, the row reads it twice, and the calendar entry
+  // (`venueLocation`) already drops the repeat.
+  it("shows the address alone when it already starts with the venue's name", () => {
+    const paragraphs = (venueName: string, address: string) =>
+      [
+        ...render(() => (
+          <MapPreview event={{ ...baseEvent, venueName, address }} />
+        )).container.querySelectorAll("p"),
+      ].map((p) => p.textContent);
+
+    expect(paragraphs("the grounds", "The Grounds of Alexandria, 7a Huntley St")).toEqual([
+      "The Grounds of Alexandria, 7a Huntley St",
+    ]);
+    cleanup();
+    expect(paragraphs("Hall", "Hallstrom Rd, Willoughby")).toEqual([
+      "Hall",
+      "Hallstrom Rd, Willoughby",
+    ]);
+  });
+
   it("prefers an organiser-supplied mapsUrl", () => {
     const url = "https://maps.apple.com/?address=12+Banksia+Lane";
     const { getByRole } = render(() => <MapPreview event={{ ...baseEvent, mapsUrl: url }} />);

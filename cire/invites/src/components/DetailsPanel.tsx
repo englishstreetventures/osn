@@ -260,7 +260,9 @@ export function DetailsPanel(props: DetailsPanelProps) {
           <Show when={description()}>
             {(text) => (
               <Section label="About">
-                <p class="font-body text-text-muted text-ui-base leading-ui-relaxed font-light whitespace-pre-line">
+                {/* `wrap-anywhere`: a link pasted into the description has
+                    nowhere else to break, and the sheet clips sideways. */}
+                <p class="font-body text-text-muted text-ui-base leading-ui-relaxed font-light wrap-anywhere whitespace-pre-line">
                   {text()}
                 </p>
               </Section>
@@ -271,7 +273,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
             <Section label="Dress Code">
               <Show when={dressCodeText()}>
                 {(desc) => (
-                  <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-5 font-light">
+                  <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-5 font-light wrap-anywhere">
                     {desc()}
                   </p>
                 )}

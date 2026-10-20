@@ -306,6 +306,35 @@ describe("on a phone", () => {
       .filter((c) => c.height < 44);
     expect(short).toEqual([]);
   });
+
+  // An organiser pastes a link into the description, and a link with no
+  // hyphen has nowhere a line may break.
+  it("keeps a link in the description inside the sheet", async () => {
+    await page.viewport(...PHONE);
+    await openSheet({
+      ...event,
+      description:
+        "Parking is on Huntley Street. Shuttle times: https://maps.app.goo.gl/q4Zt9XaBcDeFgHiJkLmNoPqRsTuVwXyZ12345\nSee you there!",
+    });
+
+    const about = line(/^Parking is on Huntley Street/);
+    expect(about.scrollWidth).toBeLessThanOrEqual(about.clientWidth);
+    expect(scroller().scrollWidth).toBeLessThanOrEqual(scroller().clientWidth);
+  });
+});
+
+describe("the venue row", () => {
+  // The name over the address reads as the day over the time does, so the
+  // address is set as the time line is: muted, at the same weight.
+  it("sets the address under a name at the time line's weight", async () => {
+    await page.viewport(...PHONE);
+    await openSheet();
+
+    const address = getComputedStyle(line(/7a\/2 Huntley Street/));
+    const time = getComputedStyle(line(/AEDT \(Sydney time\)/));
+    expect(address.fontWeight).toBe(time.fontWeight);
+    expect(address.color).toBe(time.color);
+  });
 });
 
 describe("the text actions", () => {

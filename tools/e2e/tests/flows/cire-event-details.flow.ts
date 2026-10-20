@@ -12,6 +12,10 @@
  * organiser's own address (`claimFromOrganiserAddress`), so it spends the
  * organiser's window of cire-api's claim limit, not the guests'.
  *
+ * The organiser then reloads the editor, finds both in the drawer as the
+ * server sent them, and saves a change to another field: the row keeps both,
+ * so a save carries what the editor read rather than wiping it.
+ *
  * The edited event is the sample wedding's Kitchen Tea, which no other flow
  * reads, so the edit changes nothing another flow sees.
  */
@@ -119,10 +123,13 @@ test("cire-event-details", async ({ page, context, flow }) => {
     await expect(drawer).toBeHidden();
   });
 
-  const applied = await flow.step("save the schedule", async () => {
+  /** Save, confirm in the preview, and wait for the editor to reload its rows. */
+  const saveSchedule = async () => {
     const preview = responseTo(page, "POST", `${WEDDING_API}/changes/preview`);
     await page.getByRole("button", { name: "Save changes" }).click();
-    expect((await preview).status(), "preview").toBe(200);
+    const previewed = await preview;
+    expect(previewed.status(), "preview").toBe(200);
+    const { warnings } = (await previewed.json()) as { warnings: string[] };
 
     const apply = responseTo(page, "POST", `${WEDDING_API}/changes/apply`);
     const reload = responseTo(page, "GET", `${WEDDING_API}/events`);
@@ -135,25 +142,77 @@ test("cire-event-details", async ({ page, context, flow }) => {
     // next navigation does not cut it off.
     await reload;
     await expect(page.getByRole("button", { name: "Save changes" })).toBeHidden();
-    return status;
-  });
-  flow.check("change applied", 200, applied);
+    return { status, warnings };
+  };
 
-  const row = queryOne<{
-    description: string;
-    venue_name: string | null;
-    address: string | null;
-    updated_at: number;
-  }>(
-    DB_FILES.cire,
-    "SELECT description, venue_name, address, updated_at FROM events WHERE wedding_id = ? AND name = ?",
-    CIRE_EVENT_EDIT.weddingId,
-    CIRE_EVENT_EDIT.event,
-  );
+  const kitchenTeaRow = () =>
+    queryOne<{
+      description: string;
+      venue_name: string | null;
+      address: string | null;
+      dress_code_description: string | null;
+      updated_at: number;
+    }>(
+      DB_FILES.cire,
+      "SELECT description, venue_name, address, dress_code_description, updated_at FROM events WHERE wedding_id = ? AND name = ?",
+      CIRE_EVENT_EDIT.weddingId,
+      CIRE_EVENT_EDIT.event,
+    );
+
+  const applied = await flow.step("save the schedule", saveSchedule);
+  flow.check("change applied", 200, applied.status);
+  flow.check("the preview warned of nothing", 0, applied.warnings.length);
+
+  const row = kitchenTeaRow();
   flow.check("events row venue_name", CIRE_EVENT_EDIT.venueName, row?.venue_name ?? "missing");
   flow.check("events row description", CIRE_EVENT_EDIT.description, row?.description ?? "missing");
   flow.check("events row address unchanged", CIRE_EVENT_EDIT.address, row?.address ?? "missing");
   flow.check("events row written on the suite clock", true, onSuiteClock(row?.updated_at));
+
+  const readBack = await flow.step("reload the editor and open the Kitchen Tea again", async () => {
+    // A fresh page, so the drawer holds what `GET …/events` sent, not what
+    // was typed.
+    const rows = responseTo(page, "GET", `${WEDDING_API}/events`);
+    await page.reload();
+    expect((await rows).status(), "events read").toBe(200);
+    await kitchenTea.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(drawer).toBeVisible();
+    const values = {
+      venueName: await drawer.getByLabel("Venue name").inputValue(),
+      description: await drawer.getByLabel("Description", { exact: true }).inputValue(),
+    };
+    await drawer.getByLabel("Dress code description").fill(CIRE_EVENT_EDIT.dressCode);
+    await drawer.getByRole("button", { name: "Done" }).click();
+    await expect(drawer).toBeHidden();
+    return values;
+  });
+  flow.check("the drawer reads the venue name back", CIRE_EVENT_EDIT.venueName, readBack.venueName);
+  flow.check(
+    "the drawer reads the description back",
+    CIRE_EVENT_EDIT.description,
+    readBack.description,
+  );
+
+  const resaved = await flow.step("save a change to another field", saveSchedule);
+  flow.check("second change applied", 200, resaved.status);
+  flow.check("the second preview warned of nothing", 0, resaved.warnings.length);
+
+  const kept = kitchenTeaRow();
+  flow.check(
+    "events row dress code changed",
+    CIRE_EVENT_EDIT.dressCode,
+    kept?.dress_code_description ?? "missing",
+  );
+  flow.check(
+    "events row keeps the venue name",
+    CIRE_EVENT_EDIT.venueName,
+    kept?.venue_name ?? "missing",
+  );
+  flow.check(
+    "events row keeps the description",
+    CIRE_EVENT_EDIT.description,
+    kept?.description ?? "missing",
+  );
 
   const claimed = await flow.step("open the invitation from Preview invite", async () => {
     // What the button asks for before it opens the invitation.

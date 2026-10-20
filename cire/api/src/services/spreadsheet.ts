@@ -265,9 +265,17 @@ const tooManyRows = (): CsvParseResult => ({ ok: false, reason: "too many rows" 
 const cellTooLarge = (): CsvParseResult => ({ ok: false, reason: "cell too large" });
 
 /**
+ * The longest a cell may be as uploaded: twice {@link MAX_CELL_LENGTH}. A
+ * download's formula guard puts at most one `'` before each character of a
+ * value, so a value at the cap can come back up to twice as long; the cap
+ * itself is checked once the guard is off ({@link withinCellCap}).
+ */
+const MAX_RAW_CELL_LENGTH = 2 * MAX_CELL_LENGTH;
+
+/**
  * Bounded CSV parser. Enforces:
  *  - total rows ≤ `MAX_ROWS`
- *  - any single cell length ≤ `MAX_CELL_LENGTH`
+ *  - any single cell length ≤ `MAX_RAW_CELL_LENGTH`
  *  - file does not end mid-quoted-cell (`"foo` with no closing quote)
  *
  * Returns a discriminated result instead of throwing so the Effect-shaped
@@ -283,7 +291,7 @@ export function parseCsvBounded(content: string): CsvParseResult {
   const n = text.length;
 
   while (i < n) {
-    if (cell.length > MAX_CELL_LENGTH) return cellTooLarge();
+    if (cell.length > MAX_RAW_CELL_LENGTH) return cellTooLarge();
     const ch = text[i]!;
     if (inQuotes) {
       if (ch === '"') {
@@ -307,14 +315,14 @@ export function parseCsvBounded(content: string): CsvParseResult {
       continue;
     }
     if (ch === ",") {
-      if (cell.length > MAX_CELL_LENGTH) return cellTooLarge();
+      if (cell.length > MAX_RAW_CELL_LENGTH) return cellTooLarge();
       row.push(cell);
       cell = "";
       i += 1;
       continue;
     }
     if (ch === "\r") {
-      if (cell.length > MAX_CELL_LENGTH) return cellTooLarge();
+      if (cell.length > MAX_RAW_CELL_LENGTH) return cellTooLarge();
       row.push(cell);
       rows.push(row);
       if (rows.length > MAX_ROWS) return tooManyRows();
@@ -324,7 +332,7 @@ export function parseCsvBounded(content: string): CsvParseResult {
       continue;
     }
     if (ch === "\n") {
-      if (cell.length > MAX_CELL_LENGTH) return cellTooLarge();
+      if (cell.length > MAX_RAW_CELL_LENGTH) return cellTooLarge();
       row.push(cell);
       rows.push(row);
       if (rows.length > MAX_ROWS) return tooManyRows();
@@ -342,7 +350,7 @@ export function parseCsvBounded(content: string): CsvParseResult {
     return { ok: false, reason: "unterminated quoted cell" };
   }
 
-  if (cell.length > MAX_CELL_LENGTH) return cellTooLarge();
+  if (cell.length > MAX_RAW_CELL_LENGTH) return cellTooLarge();
   if (cell.length > 0 || row.length > 0) {
     row.push(cell);
     rows.push(row);
@@ -388,6 +396,14 @@ function detectFormulaInjection(
  */
 const unguardRows = (rows: readonly string[][]): string[][] =>
   rows.map((row) => row.map(unguardCsvCell));
+
+/**
+ * Whether every cell of an upload, its guard taken off, is within
+ * {@link MAX_CELL_LENGTH}: the cap is on the value the app would store, so a
+ * download of a value at the cap re-imports.
+ */
+const withinCellCap = (rows: readonly string[][]): boolean =>
+  rows.every((row) => row.every((cell) => cell.length <= MAX_CELL_LENGTH));
 
 // ── Parsers ──────────────────────────────────────────────────────────────────
 
@@ -466,6 +482,9 @@ export function parseEventsCsv(
     }
     // A before-image is written without the guard, so it is read as written.
     const rows = snapshot ? result.rows : unguardRows(result.rows);
+    if (!snapshot && !withinCellCap(rows)) {
+      return yield* Effect.fail(new MalformedSpreadsheet({ reason: "cell too large" }));
+    }
 
     const header = rows[0]!.map((h) => h.trim());
     const headerNorm = header.map(normaliseName);
@@ -720,6 +739,9 @@ export function parseGuestsCsv(
     }
     // A before-image is written without the guard, so it is read as written.
     const rows = snapshot ? result.rows : unguardRows(result.rows);
+    if (!snapshot && !withinCellCap(rows)) {
+      return yield* Effect.fail(new MalformedSpreadsheet({ reason: "cell too large" }));
+    }
 
     const header = rows[0]!.map((h) => h.trim());
     const headerNorm = header.map(normaliseName);

@@ -146,6 +146,9 @@ export const CIRE_EVENT_EDIT = {
   address: "124 Sample Avenue, Exampleville NSW 2001",
   venueName: "The Glasshouse",
   description: "High tea on the lawn, then games; bring a hat.\nCars can park on Sample Lane.",
+  /** What the second save changes, so the venue name and description it
+   *  carries are the ones the editor read back. */
+  dressCode: "Garden party. Flat shoes for the lawn.",
 } as const;
 
 /** Seeded cire guest: the first canonical family in `cire/db/seed/data/guests.ts`. */

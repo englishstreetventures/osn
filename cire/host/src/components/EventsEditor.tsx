@@ -257,7 +257,7 @@ export default function EventsEditor(props: { weddingId: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          desiredState: store.toWire(),
+          desiredState: store.toWire("events"),
           scope: "events",
           removeManual: true,
           baseRevision: store.baseRevision(),
