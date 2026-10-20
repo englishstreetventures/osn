@@ -1,5 +1,5 @@
 ---
-title: Cire vendors
+title: Vendors — directory, CRM, and email-verification claim
 tags: [systems, cire, vendors, phase2]
 related:
   - "[[cire-auth]]"
