@@ -1,19 +1,19 @@
-import type { ConsentCategory } from "./categories";
+import type { ConsentCategory } from "./consent-categories";
 
 /**
  * The vendor registry — ONE source of truth for every third party the guest
  * site can cause a browser to contact.
  *
- * This exists because the same facts were previously maintained in four places
- * that drifted independently: the consent copy inside `PinterestBoard.tsx`, the
- * `/privacy` page's prose, the `ORIGINS` allowlist in `lib/security-headers.ts`,
- * and the `wiki/compliance/subprocessors.md` table. Adding a vendor meant four
- * edits, and forgetting one produced either a CSP block (loud) or an undeclared
- * data transfer (silent, and the one that matters). Now the registry drives the
- * preferences sheet and the privacy page directly, and `vendors.test.ts`
- * asserts that every declared origin is actually present in the CSP — so a
- * vendor added here without a matching CSP entry fails the build's test run
- * rather than failing in a guest's browser.
+ * It lives here, not in the guest site, because both sites publish the guest
+ * privacy notice built from it (`guest-privacy-notice.astro`): the guest site
+ * at `/privacy` and cireweddings.com on its Guests tab. It drives that notice
+ * and the guest site's preferences sheet directly, and
+ * `cire/invites/tests/lib/consent/vendors.test.ts` holds it and the guest
+ * site's CSP (`cire/invites/src/lib/security-headers.ts`) to the same origins
+ * in both directions — so a vendor added here without a matching CSP entry
+ * fails the test run rather than failing in a guest's browser, and a CSP
+ * origin no vendor declares fails it too. The register in
+ * `wiki/compliance/subprocessors.md` is the one copy kept by hand.
  *
  * ## `enforcement` — the honest bit
  *
@@ -41,7 +41,7 @@ import type { ConsentCategory } from "./categories";
  *
  * Every `"gated"` vendor declares where its code runs, because that decides
  * whether switching its category off needs a page reload (see `saveConsent` in
- * `store.ts`). `ConsentGate` unmounts the embed either way; the question is
+ * `cire/invites/src/lib/consent/store.ts`). `ConsentGate` unmounts the embed either way; the question is
  * whether the unmount stops everything the vendor started.
  *
  *  - `true` — the vendor's code runs in the invite page's own JavaScript realm,

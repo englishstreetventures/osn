@@ -10,6 +10,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import guestNotice from "@cire/ui/guest-privacy-notice.astro?raw";
+import { LEGAL_ENTITY } from "@shared/legal";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -23,8 +25,20 @@ import { describe, expect, it } from "vitest";
  * only way to notice was to read them as somebody else's guest.
  *
  * Anything wedding-specific belongs on the invite itself, which is per-tenant.
+ *
+ * The privacy page renders the guest notice from `@cire/ui`, which
+ * cireweddings.com publishes too. What the notice says is checked there
+ * (`cire/ui/tests/guest-privacy-notice.test.ts`); what this site serves is the
+ * page and the notice together, so that is what these read.
  */
-const pages = ["privacy.astro", "terms.astro"] as const;
+const pages = {
+  "privacy.astro": `${readPage("privacy.astro")}\n${guestNotice}`,
+  "terms.astro": readPage("terms.astro"),
+} as const;
+
+function readPage(page: string): string {
+  return readFileSync(join(import.meta.dirname, "../../src/pages", page), "utf8");
+}
 
 /**
  * A bare `mailto:` or an address written into the prose. The operator's own
@@ -44,16 +58,31 @@ function template(source: string): string {
   return end === -1 ? source : source.slice(end + 3);
 }
 
-describe.each(pages)("%s", (page) => {
-  const source = readFileSync(join(import.meta.dirname, "../../src/pages", page), "utf8");
+/** The fields `draftPending` already checks on every page's behalf. */
+const IDENTITY = ["name", "postalAddress", "contactEmail"] as const;
+
+/** The `LEGAL_ENTITY.x` fields named inside the page's `draftPending(...)` gate. */
+function gateFields(source: string): string[] {
+  const call = source.match(/draftPending\(([\s\S]*?)\)/);
+  return call ? [...call[1]!.matchAll(/LEGAL_ENTITY\.(\w+)/g)].map((m) => m[1]!) : [];
+}
+
+/** The fields the page publishes, ignoring the gate that guards them. */
+function renderedFields(source: string): string[] {
+  const body = source.replace(/draftPending\(([\s\S]*?)\)/, "");
+  return [...new Set([...body.matchAll(/LEGAL_ENTITY\.(\w+)/g)].map((m) => m[1]!))];
+}
+
+describe.each(Object.entries(pages))("%s", (page, served) => {
+  const source = readPage(page);
 
   it("hardcodes no email address", () => {
     expect(template(source)).not.toMatch(LITERAL_EMAIL);
   });
 
   it("takes the operator's identity from the shared legal module", () => {
-    expect(source).toContain("@shared/legal");
-    expect(source).toContain("LEGAL_ENTITY.contactEmail");
+    expect(served).toContain("@shared/legal");
+    expect(served).toContain("LEGAL_ENTITY.contactEmail");
   });
 
   // The asset layer serves a prerendered page without running the Worker, so
@@ -67,119 +96,19 @@ describe.each(pages)("%s", (page) => {
     expect(source).toContain("draftPending(");
     expect(source).toContain("{draft && (");
   });
-});
-
-describe("privacy.astro", () => {
-  const body = template(
-    readFileSync(join(import.meta.dirname, "../../src/pages/privacy.astro"), "utf8"),
-  );
 
   /**
-   * The personal/family/household exemption (Privacy Act 1988 s 16, GDPR
-   * Art. 2(2)(c)) covers a couple running their own wedding. It has never
-   * covered the platform underneath them, and the notice claimed it did.
+   * A field the page publishes, through its own template or the shared notice,
+   * that its `draftPending(...)` does not name could stay a `{{TOKEN}}` with no
+   * banner over it.
    */
-  it("claims no personal/household exemption from the Privacy Act", () => {
-    expect(body).not.toMatch(/outside the strict reach/i);
-    expect(body).not.toMatch(/not as a business/i);
-  });
-
-  it("states a lawful basis for the protected dietary field", () => {
-    expect(body).toMatch(/explicit consent/i);
-    expect(body).toContain("Art. 9(2)(a)");
-    expect(body).toContain("APP 3.3");
-  });
-
-  /**
-   * `cire/api/src/services/retention.ts` names this notice as the thing that must
-   * move whenever `RETENTION_AFTER_FINAL_EVENT_MS` does. Pin the sentence so the
-   * pairing is enforced rather than remembered.
-   */
-  it("states the retention window the sweep actually enforces", () => {
-    expect(body).toContain("1 year after the final wedding event");
-    // The sweep can hold a wedding back up to 30 days past that, on purpose
-    // as well as on failure (`GIFT_SUMMARY_HOLD_BACK_MS`), and says so.
-    expect(body).toMatch(/up to 30 days later/);
-  });
-
-  /**
-   * The sweep leaves the couple a record of their gifts: no names, but the
-   * amount, currency and day of each money gift (`GiftSummary` in
-   * `cire/api/src/services/retention.ts`). It outlives the year, so the notice
-   * names it, and names gifts among what is collected.
-   */
-  it("names the gift record the hosts keep after the year, and gifts as collected", () => {
-    expect(body).toContain("Gifts, if you give one through the registry");
-    expect(body).toMatch(/your hosts keep a record of their gifts with no names in it/);
-    expect(body).toMatch(/the amount, currency and day of\s+each money gift/);
-  });
-
-  it("says Stripe takes a money gift on the hosts' account and sees the card, not cire", () => {
-    expect(body).toMatch(
-      /the payment is taken by <strong>Stripe<\/strong>\s+on your hosts’ own Stripe account/,
-    );
-    expect(body).toMatch(/Stripe collects your card details and the name and\s+email you give it/);
-    expect(body).toMatch(/we never see your card/);
-  });
-
-  /**
-   * `RSVP_CHANGE_RETENTION_MS` in `cire/api/src/services/rsvp-changes.ts` is
-   * 90 days; the record of when a household's replies changed is guest data,
-   * so the notice names it and its window.
-   */
-  it("names the RSVP change record and its 90-day window", () => {
-    expect(body).toContain("When your household’s replies changed");
-    expect(body).toMatch(/kept for\s+<strong>90 days<\/strong>/);
-  });
-
-  /**
-   * cire-api records which household member sent each reply and change
-   * (`rsvps.submitted_by_guest_id`, `rsvp_changes.actor_guest_id`) and shows
-   * it to the household and its hosts, so the notice names it.
-   */
-  it("names the record of which member sent each reply, and who sees it", () => {
-    expect(body).toContain("Which of you sent each reply");
-    expect(body).toMatch(/Answered by[\s\S]{0,80}your hosts see it too/);
-  });
-
-  /**
-   * Softened from "hosted in Sydney" once the subprocessor register turned out to
-   * record the D1/R2 region as unconfirmed. The page must still name a region and
-   * still tell an EEA or UK reader that their data leaves that area — those two
-   * are the disclosure; the exact city is not.
-   */
-  it("names the region and flags the transfer out of the EEA/UK", () => {
-    expect(body).toMatch(/primary region is <strong>Australia<\/strong>/);
-    expect(body).toMatch(/transferred outside/i);
-  });
-
-  /**
-   * These were engineering instructions — file paths, the flag to flip —
-   * published to guests on a legal page. The context they carried now lives in
-   * `lib/consent/categories.ts`, next to the flag itself.
-   */
-  /**
-   * A plus-one's details come from the guest who brings them, and the plus-one
-   * never sees the invite — the household is asked to pass this notice on.
-   * GDPR Art. 14 then needs the notice itself to tell them where their details
-   * came from, on what basis they are held, and how to have them withdrawn,
-   * corrected or erased without an invitation code of their own.
-   */
-  it("tells a person a guest brings where their details came from and what they can do", () => {
-    expect(body).toContain("If a guest is bringing you");
-    expect(body).toMatch(/the guest who is\s+bringing you gave us your name/);
-    // The basis for their dietary requirements, and whose word it rests on.
-    expect(body).toMatch(/confirmation of the guest who is\s+bringing you that you agreed/);
-    // Their rights, without a code of their own.
-    expect(body).toMatch(/do not need a code to\s+use them/);
-    expect(body).toMatch(/remove you until RSVPs close/);
-    expect(body).not.toContain(
-      "You only ever fill in details for the members of your own household.",
-    );
-  });
-
-  it("publishes no notes addressed to the site owner", () => {
-    expect(body).not.toContain("Note for the site owner");
-    expect(body).not.toContain("owner-note");
+  it("gates its banner on every field it publishes", () => {
+    const covered = new Set<string>([...IDENTITY, ...gateFields(source)]);
+    expect(renderedFields(served).filter((field) => !covered.has(field))).toEqual([]);
+    // A misspelt field renders `undefined`, and no type check reads the
+    // `.astro` template that names it.
+    for (const field of renderedFields(served)) {
+      expect(LEGAL_ENTITY).toHaveProperty(field);
+    }
   });
 });

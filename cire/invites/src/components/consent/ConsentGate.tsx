@@ -1,7 +1,8 @@
 import Button from "@cire/ui/button";
+import { CATEGORY_META, type ConsentCategory } from "@cire/ui/consent-categories";
+import { vendorById } from "@cire/ui/consent-vendors";
 import { type JSX, onMount, Show } from "solid-js";
 
-import { CATEGORY_META, type ConsentCategory } from "../../lib/consent/categories";
 import {
   grantCategory,
   hydrateConsent,
@@ -9,7 +10,6 @@ import {
   noteGatedContentLoaded,
   openConsentPreferences,
 } from "../../lib/consent/store";
-import { vendorById } from "../../lib/consent/vendors";
 
 interface ConsentGateProps {
   /** The category that must be switched on before `children` may render. */
@@ -38,7 +38,7 @@ interface ConsentGateProps {
  * written it one. Consent lived wherever someone had remembered to put it.
  *
  * Every optional category is off until the guest allows it (see
- * `lib/consent/categories.ts`), so wrapping an embed keeps it from loading for
+ * `cire/ui/src/consent-categories.ts`), so wrapping an embed keeps it from loading for
  * an undecided guest, and makes it *governed*: a switch in the preferences
  * sheet, named in the privacy notice, and switchable off again for good. The
  * old arrangement could offer that for Pinterest and nothing else.
