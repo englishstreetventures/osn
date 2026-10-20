@@ -1620,6 +1620,81 @@ describe("RsvpPanel", () => {
     expect(within(fieldsetFor("Raj")).queryByText("Not decided")).toBeNull();
   });
 
+  it("shows a maybe member's dietary data on file once closed, and says it is shared", () => {
+    // The caterers' sheet carries every reply that is not a decline, so a
+    // "maybe" with dietary data is shared. The read-only view states the same.
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "maybe",
+            dietary: "",
+            dietaryPresets: ["vegan"],
+            dietaryConsentCurrent: true,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+
+    const vegan = within(fieldsetFor("Priya")).getByRole("checkbox", {
+      name: /vegan/i,
+    }) as HTMLInputElement;
+    expect({ checked: vegan.checked, disabled: vegan.disabled }).toEqual({
+      checked: true,
+      disabled: true,
+    });
+    expect(screen.getByText(/Dietary requirements on file are shared/)).toBeTruthy();
+  });
+
+  it("shows only what is on file when the deadline passes over unsaved edits", async () => {
+    // Priya has no reply stored; Raj's stored decline is being changed. Neither
+    // edit was saved, so the closed view says what is on file and nothing else.
+    const [closed, setClosed] = createSignal(false);
+    render(() => (
+      <RsvpPanel
+        event={event}
+        members={[priya, raj]}
+        existingRsvps={[
+          {
+            guestId: "guest-raj",
+            eventId: "event-1",
+            status: "declined",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
+        ]}
+        apiUrl="https://api.test"
+        closed={closed()}
+        onClose={() => {}}
+      />
+    ));
+    for (const name of ["Priya", "Raj"]) {
+      const fs = fieldsetFor(name);
+      fireEvent.click(within(fs).getByRole("button", { name: "Attending" }));
+      pickPreset(fs, /vegan/i);
+    }
+
+    setClosed(true);
+
+    await waitFor(() => expect(within(fieldsetFor("Priya")).getByText("No reply")).toBeTruthy());
+    expect(within(fieldsetFor("Raj")).getByText("Not attending")).toBeTruthy();
+    for (const name of ["Priya", "Raj"]) {
+      expect({ name, boxes: within(fieldsetFor(name)).queryAllByRole("checkbox").length }).toEqual({
+        name,
+        boxes: 0,
+      });
+    }
+    expect(screen.queryByText(/Dietary requirements on file/)).toBeNull();
+  });
+
   it("says “Not decided” only for that member's own maybe on this event", () => {
     // Raj has no reply to this event — only a stray "maybe" on another one —
     // and Priya's "maybe" here is hers, not his. Nothing is on file for him.

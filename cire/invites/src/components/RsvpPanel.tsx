@@ -12,6 +12,7 @@ import {
   onCleanup,
   Show,
   For,
+  untrack,
   type Accessor,
 } from "solid-js";
 
@@ -257,9 +258,32 @@ export function RsvpPanel(props: RsvpPanelProps) {
 
   const [responses, setResponses] = createSignal<Record<string, MemberState>>(initialResponses());
 
+  /** The member's reply on file for this event, if any. */
+  const rowOnFile = (guestId: string) =>
+    priorRsvps.find((r) => r.guestId === guestId && r.eventId === props.event.id);
+
+  /**
+   * Whether the member's dietary section is on show. Open, it follows the
+   * guest's answer. Closed, it follows the reply on file by the caterers'
+   * sheet's own rule: every reply but a decline carries its dietary data there.
+   */
+  function showsDietary(guestId: string): boolean {
+    if (!props.closed) return responses()[guestId]?.attending === "attending";
+    const row = rowOnFile(guestId);
+    return row !== undefined && row.status !== "declined";
+  }
+
+  /** Whether any reply on file shares dietary data with the caterers. */
+  const dietaryOnFile = () =>
+    eventMembers().some((m) => {
+      const row = rowOnFile(m.guestId);
+      if (!row || row.status === "declined") return false;
+      return row.dietary.trim().length > 0 || (row.dietaryPresets ?? []).length > 0;
+    });
+
   /** The member's reply on file for this event, in words, for the read-only view. */
   function answerOnFile(guestId: string): string {
-    const row = priorRsvps.find((r) => r.guestId === guestId && r.eventId === props.event.id);
+    const row = rowOnFile(guestId);
     if (row?.status === "attending") return "Attending";
     if (row?.status === "declined") return "Not attending";
     if (row?.status === "maybe") return "Not decided";
@@ -418,7 +442,10 @@ export function RsvpPanel(props: RsvpPanelProps) {
     const nowClosed = props.closed ?? false;
     const justClosed = nowClosed && !wasClosed;
     wasClosed = nowClosed;
-    if (!justClosed || !dismissRef || props.active === false) return;
+    if (!justClosed) return;
+    // The closed view states what is on file, so edits nobody saved go.
+    setResponses(untrack(initialResponses));
+    if (!dismissRef || props.active === false) return;
     const active = document.activeElement;
     if (!active || active === document.body) dismissRef.focus();
   });
@@ -810,7 +837,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                   </div>
                 </Show>
 
-                <Show when={responses()[guestId]?.attending === "attending"}>
+                <Show when={showsDietary(guestId)}>
                   <div class="mt-3">
                     {/* `wrap="md"`: the sheet keeps its 480px at every width,
                         so from `md:`, where it becomes a centred panel and a
@@ -883,12 +910,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
             entered, an earlier wording), so an unticked "I agree" beside data
             that is stored would misstate it. The line below says what is
             stored instead. */}
-        <Show
-          when={
-            props.closed &&
-            (ownWithDietaryData().length > 0 || plusOnesWithDietaryData().length > 0)
-          }
-        >
+        <Show when={props.closed && dietaryOnFile()}>
           <p class="font-body text-text-muted text-ui-sm leading-relaxed">
             Dietary requirements on file are shared with the caterers for this wedding. See our{" "}
             <a

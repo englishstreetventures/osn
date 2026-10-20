@@ -16,8 +16,10 @@ and no answer button once closed with no reply. The details panel offers "View
 your RSVP" to a household with a reply after the deadline. The read-only sheet
 is titled "Your RSVP", writes each member's answer on file as words
 ("Attending", "Not attending", "Not decided", "No reply") in place of the
-answer buttons, and replaces the consent boxes with one line saying dietary
-requirements on file are shared with the caterers. Focus moves to Event
+answer buttons, shows the dietary choices on file for every reply but a
+decline, and replaces the consent boxes with one line saying dietary
+requirements on file are shared with the caterers. It reads the replies on
+file alone, so edits left unsaved when the deadline passes are dropped. Focus moves to Event
 Details when the answer button unmounts under it. Every gold button's label
 uses the new `--color-on-gold` ink, and the RSVP button's hover underlines
 rather than easing the gold.
