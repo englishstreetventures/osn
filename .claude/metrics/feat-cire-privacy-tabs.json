@@ -4,8 +4,8 @@
     "number": 1606,
     "branch": "feat/cire-privacy-tabs",
     "base_sha": "0cff792c2d95a8c996563148c9fc8e78d3e0fd07",
-    "head_sha": "5209101bc797b45d00dd54a0a614c912e9e1dd63",
-    "generated_at": "2026-10-20T06:09:25.497Z",
+    "head_sha": "115b38559b6f11131be36031159d8fc4b822a74e",
+    "generated_at": "2026-10-20T06:10:16.595Z",
     "merged_at": null,
     "phase": "at-open"
   },
@@ -23,51 +23,80 @@
     "method": "unconfirmed"
   },
   "window": {
-    "sessions": 0,
-    "first_ts": null,
-    "last_ts": null,
-    "span_seconds": 0,
-    "active_seconds": 0,
+    "sessions": 11,
+    "first_ts": "2026-10-20T02:15:00.349Z",
+    "last_ts": "2026-10-20T06:10:13.290Z",
+    "span_seconds": 14113,
+    "active_seconds": 5382,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 0,
+    "usd_equivalent": 74.07060299999996,
     "tokens": {
-      "input": 0,
-      "output": 0,
-      "thinking": 0,
-      "cache_write_5m": 0,
+      "input": 1134,
+      "output": 11691,
+      "thinking": 2764,
+      "cache_write_5m": 2695169,
       "cache_write_1h": 0,
-      "cache_read": 0
+      "cache_read": 150891005
     },
-    "by_model": {},
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1134,
+          "output": 11691,
+          "thinking": 2764,
+          "cache_write_5m": 2695169,
+          "cache_write_1h": 0,
+          "cache_read": 150891005
+        },
+        "usd_equivalent": 74.07060299999996,
+        "messages": 564
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 0,
-          "output": 0,
-          "thinking": 0,
-          "cache_write_5m": 0,
+          "input": 36,
+          "output": 5049,
+          "thinking": 2552,
+          "cache_write_5m": 113801,
           "cache_write_1h": 0,
-          "cache_read": 0
+          "cache_read": 179231
         },
-        "usd_equivalent": 0,
-        "messages": 0
+        "usd_equivalent": 0.7418214000000001,
+        "messages": 18
       },
       "subagent": {
         "tokens": {
-          "input": 0,
-          "output": 0,
-          "thinking": 0,
-          "cache_write_5m": 0,
+          "input": 1098,
+          "output": 6642,
+          "thinking": 212,
+          "cache_write_5m": 2581368,
           "cache_write_1h": 0,
-          "cache_read": 0
+          "cache_read": 150711774
         },
-        "usd_equivalent": 0,
-        "messages": 0
+        "usd_equivalent": 73.32878159999997,
+        "messages": 547
       }
     },
-    "effort": {},
+    "effort": {
+      "medium": 18,
+      "xhigh": 484,
+      "high": 62
+    },
     "unpriced_models": []
   },
   "diff": {
@@ -75,7 +104,7 @@
       "generated": 2,
       "test": 9,
       "docs": 12,
-      "config": 2,
+      "config": 3,
       "source": 17
     },
     "loc": {
@@ -92,7 +121,7 @@
         "deleted": 37
       },
       "config": {
-        "added": 5,
+        "added": 132,
         "deleted": 1
       },
       "source": {
@@ -109,19 +138,44 @@
       "tools/e2e"
     ],
     "touches_migration": false,
-    "commits": 10
+    "commits": 11
   },
   "interaction": {
     "user_turns": 0,
     "corrective_turns": 0,
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
-    "tool_calls": {},
-    "edit_churn": {
-      "files_edited_3plus": 0,
-      "max_edits_one_file": 0
+    "tool_calls": {
+      "Bash": 457,
+      "Edit": 134,
+      "Read": 103,
+      "Write": 17,
+      "Skill": 9,
+      "StructuredOutput": 9,
+      "Agent": 4,
+      "SubagentHandback": 4,
+      "Grep": 3,
+      "ToolSearch": 1,
+      "WebFetch": 1
     },
-    "skills": {},
-    "subagents": {}
+    "edit_churn": {
+      "files_edited_3plus": 17,
+      "max_edits_one_file": 14
+    },
+    "skills": {
+      "new-feat": 1,
+      "design-system": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "web-design-guidelines": 1,
+      "review-tests": 1,
+      "review-security": 1,
+      "review-performance": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 3
+    }
   }
 }
