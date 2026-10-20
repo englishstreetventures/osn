@@ -306,6 +306,9 @@ export async function signInToCireHost(flow: Flow, page: Page): Promise<void> {
     expect(response.status(), "dev login").toBe(200);
   });
 
+  // The flows share one database, so the check is this sign-in's own row: one
+  // more for the dev profile than before it.
+  const sessionsBefore = organiserSessions();
   await flow.step("organiser: sign in to the portal with musubi", async () => {
     await page.goto(`${ORIGINS.cireHost}/login`);
     await page.getByRole("button", { name: "Continue with musubi" }).click();
@@ -317,10 +320,19 @@ export async function signInToCireHost(flow: Flow, page: Page): Promise<void> {
   const cookie = await cookieNamed(page.context(), ORIGINS.cireApi, "cire_org_session");
   flow.check("organiser: cire_org_session set by cire-api", true, cookie !== undefined);
   flow.check("organiser: cire_org_session is HttpOnly", true, cookie?.httpOnly ?? false);
-  const session = queryOne<{ n: number }>(
+  flow.check(
+    "organiser: one organiser_sessions row added for the dev profile",
+    1,
+    organiserSessions() - sessionsBefore,
+  );
+}
+
+/** How many cire organiser sessions the dev profile holds. */
+function organiserSessions(): number {
+  const row = queryOne<{ n: number }>(
     DB_FILES.cire,
     "SELECT count(*) AS n FROM organiser_sessions WHERE osn_profile_id = ?",
     CIRE_ORGANISER.profileId,
   );
-  flow.check("organiser: organiser_sessions row for the dev profile", true, (session?.n ?? 0) > 0);
+  return row?.n ?? 0;
 }
