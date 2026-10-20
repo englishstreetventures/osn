@@ -621,6 +621,18 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     expect(res.status).toBe(403);
   });
 
+  // A helper's seat may be scoped to its own run-sheet rows; the list names
+  // every member and carries their photos, so it stays behind the member gate.
+  it("returns 403 forbidden for a helper, and lists nobody", async () => {
+    const { db, app } = buildApp({ resolveOsnProfileDisplays: stubDisplayResolver });
+    seedCohost(db);
+    seedHostSeat(db, "usr_helper", "helper");
+    const res = await req(app, "GET", hostsPath, "usr_helper");
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({ error: "forbidden" });
+  });
+
   it("carries the resolved handle (+ displayName) when the batch resolver provides it", async () => {
     const { db, app } = buildApp({ resolveOsnProfileDisplays: stubDisplayResolver });
     seedCohost(db);

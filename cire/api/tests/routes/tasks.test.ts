@@ -128,6 +128,37 @@ describe("tasks routes", () => {
     expect((await req(buildApp(), "GET", base, STRANGER)).status).toBe(403);
   });
 
+  // Every task's holders are seat ids of the whole wedding; a helper may be
+  // scoped to its own rows, so the checklist read stays behind the member gate.
+  it("refuses the checklist to a helper, even one that holds a task", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
+    const created = await req(app, "POST", base, EDITOR, CREATE);
+    const { task } = (await created.json()) as { task: { id: string } };
+    expect(
+      (await req(app, "PUT", `${base}/${task.id}/assignees/whost_helper`, EDITOR)).status,
+    ).toBe(200);
+
+    const res = await req(app, "GET", base, HELPER);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "forbidden" });
+  });
+
+  // The portal reads the checklist with the session cookie, and the seat it
+  // names as the reader's comes from that cookie's account.
+  it("reads the checklist on the session cookie, naming the caller's seat, and refuses a dead one", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
+    const read = (cookie: string) => appRequest(app, base, { headers: { cookie } });
+
+    const live = await read(`cire_org_session=${await seedOrganiserSession(db, VIEWER)}`);
+    expect(live.status).toBe(200);
+    expect(((await live.json()) as { viewerHostId: string }).viewerHostId).toBe("whost_viewer");
+    const dead = await read("cire_org_session=not-a-live-session-token");
+    expect(dead.status).toBe(401);
+    expect(await dead.json()).not.toHaveProperty("tasks");
+  });
+
   it("editor creates, lists, patches (done), and deletes", async () => {
     const app = buildApp();
     const created = await req(app, "POST", base, EDITOR, CREATE);

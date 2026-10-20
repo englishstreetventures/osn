@@ -1269,6 +1269,50 @@ describe("people picked while a write is out", () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 
+  it("keeps a write marked as flying beside another until the last of its task answers", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    const writes = heldEach();
+    api({ hosts: hostsAnswer([SAM, JO, KIM, ALEX]), holder: writes.route });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    const { listbox } = await openPopover("Book venue");
+
+    fireEvent.click(option(listbox, "@jo"));
+    fireEvent.click(option(listbox, "Kim Park"));
+    // Jo's write is back; Kim's is still out when Alex is picked.
+    writes.answer(0, stored(["whost_jo"]));
+    await waitFor(() => expect(faces("Book venue")).toEqual(["whost_jo", "whost_kim"]));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireEvent.click(option(listbox, "Alex Moore"));
+    expect(sent()).toEqual(["PUT a whost_jo", "PUT a whost_kim", "PUT a whost_alex"]);
+    // The server stored Alex before Kim, so Alex's answer, read then, has no
+    // Kim — and it arrives after Kim's.
+    writes.answer(1, stored(["whost_jo", "whost_alex", "whost_kim"]));
+    await waitFor(() => expect(calls("/assignees/whost_kim", "PUT")).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    writes.answer(2, stored(["whost_jo", "whost_alex"]));
+    await waitFor(() => expect(listbox).not.toHaveAttribute("aria-busy"));
+
+    expect(faces("Book venue")).toEqual(["whost_jo", "whost_alex", "whost_kim"]);
+    expect(ticked(listbox)).toEqual(["@jo", "Kim Park", "Alex Moore"]);
+  });
+
+  it("reads the seats again on a 422 for a write since picked back, and says nothing", async () => {
+    const { listbox, writes } = await popoverWithHeldWrites();
+    const hostReadsBefore = calls("/hosts").length;
+
+    fireEvent.click(option(listbox, "@jo"));
+    fireEvent.click(option(listbox, "@jo"));
+    writes.answer(0, json({ error: "assignee_not_in_wedding" }, 422));
+
+    // Jo has gone from the wedding: the list is read again, though the pick
+    // that write carried was already taken back.
+    await waitFor(() => expect(calls("/hosts").length).toBe(hostReadsBefore + 1));
+    await waitFor(() => expect(listbox).not.toHaveAttribute("aria-busy"));
+    expect(toastError).not.toHaveBeenCalled();
+    expect(sent()).toEqual(["PUT a whost_jo"]);
+    expect(ticked(listbox)).toEqual([]);
+  });
+
   it("takes a later answer whole when its write flew alone", async () => {
     const { listbox, writes } = await popoverWithHeldWrites();
 
