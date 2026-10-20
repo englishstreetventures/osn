@@ -851,10 +851,12 @@ export const hostsService = {
    *
    * The helper test rides in the UPDATE's own WHERE, so a role change racing
    * this write cannot leave a seat that is no helper's stored `full`: whichever
-   * lands second sees the other's result. One batch: a read of the seat, then the
-   * UPDATE. When the UPDATE matched nothing, the read names why — no seat is
-   * {@link HostNotFound}, a seat that is not a helper's is {@link NotAHelper}.
-   * A refused write writes nothing.
+   * lands second sees the other's result. The UPDATE goes alone, and its
+   * RETURNING is the answer. Only when it matched nothing does a read of the
+   * seat follow, to name why — no seat is {@link HostNotFound}, a seat that is
+   * not a helper's is {@link NotAHelper}. A seat removed or re-roled between
+   * the two changes which refusal is named, never what is written. A refused
+   * write writes nothing.
    */
   setRunSheetScope(input: {
     weddingId: string;
@@ -867,30 +869,32 @@ export const hostsService = {
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const results = yield* Effect.tryPromise({
-        try: () =>
-          commitBatchResults(db, [
-            db
-              .select({ id: weddingHosts.id })
-              .from(weddingHosts)
-              .where(seatOf(input.weddingId, input.osnProfileId)),
-            db
-              .update(weddingHosts)
-              .set({ runSheetScope: input.scope })
-              .where(and(seatOf(input.weddingId, input.osnProfileId), seatIsHelper))
-              .returning({ role: weddingHosts.role, runSheetScope: weddingHosts.runSheetScope }),
-          ]),
-        catch: (e) => new HostWriteError({ op: "update", reason: String(e) }),
-      }).pipe(
-        Effect.tapError((err) =>
-          Effect.logError("host run-sheet scope update failed", { reason: err.reason }),
-        ),
+      // Both statements are this one update's: either failing fails it.
+      const step = <A>(run: () => PromiseLike<A>) =>
+        Effect.tryPromise({
+          try: run,
+          catch: (e) => new HostWriteError({ op: "update", reason: String(e) }),
+        }).pipe(
+          Effect.tapError((err) =>
+            Effect.logError("host run-sheet scope update failed", { reason: err.reason }),
+          ),
+        );
+      const [updated] = yield* step(() =>
+        db
+          .update(weddingHosts)
+          .set({ runSheetScope: input.scope })
+          .where(and(seatOf(input.weddingId, input.osnProfileId), seatIsHelper))
+          .returning({ role: weddingHosts.role, runSheetScope: weddingHosts.runSheetScope }),
       );
-      const seated = (results[0] as readonly { id: string }[]).length > 0;
-      const [updated] = results[1] as readonly { role: string; runSheetScope: string }[];
 
       if (!updated) {
-        if (!seated) return yield* Effect.fail(new HostNotFound({ weddingId: input.weddingId }));
+        const [seat] = yield* step(() =>
+          db
+            .select({ id: weddingHosts.id })
+            .from(weddingHosts)
+            .where(seatOf(input.weddingId, input.osnProfileId)),
+        );
+        if (!seat) return yield* Effect.fail(new HostNotFound({ weddingId: input.weddingId }));
         yield* logRefusal("host run-sheet scope refused", input.weddingId, "not_a_helper");
         return yield* Effect.fail(new NotAHelper({ weddingId: input.weddingId }));
       }

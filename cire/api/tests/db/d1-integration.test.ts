@@ -3673,11 +3673,13 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "guards a helper's run-sheet scope over D1's batch path, and resets it on a role change",
+    "guards a helper's run-sheet scope on D1, and resets it over the role change's batch",
     async () => {
-      // The scope write and the role change each ride one batch on D1 with
-      // the seat read that names a refusal; bun:sqlite runs them one at a
-      // time. These are the results D1's batch hands back.
+      // The scope write is one guarded UPDATE whose RETURNING is the answer,
+      // with a read of the seat after it only when it matched nothing, to name
+      // the refusal. The role change rides one batch with the seat read that
+      // names a refusal; bun:sqlite runs that batch one statement at a time.
+      // These are the results D1 hands back.
       const storedScope = async (osnProfileId: string) =>
         (
           await db
