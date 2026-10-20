@@ -24,13 +24,13 @@ describe("oidcConfigFromEnv", () => {
     }
   });
 
-  it("drops a trailing slash so the issuer and the redirect URI match byte for byte", () => {
+  it("drops trailing slashes so the issuer and the redirect URI match byte for byte", () => {
     // The issuer must equal the ID token's `iss`, and the redirect URI the one
     // registered with osn-api; a slash typed at the end of either var breaks both.
     const config = oidcConfigFromEnv(
       {
         ...COMPLETE,
-        OSN_ISSUER_URL: "https://id.musubi.social/",
+        OSN_ISSUER_URL: "https://id.musubi.social//",
         CIRE_API_ORIGIN: "https://api.cireweddings.com//",
       },
       ORIGINS,
