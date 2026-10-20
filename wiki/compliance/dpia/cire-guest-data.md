@@ -11,7 +11,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-19
 ---
 
 # DPIA — Cire guest data
@@ -35,8 +35,8 @@ evidences the condition. The lawful-processing blocker is therefore **closed**;
 final sign-off now turns only on the residual retention gaps (C-H1) below.
 
 > **Label note.** This finding is labelled **C-H2 (cire dietary)** to
-> disambiguate it from the root **C-H2** (OSN account-erasure endpoint), which
-> is a separate finding in `englishstventures/osn-tracker`.
+> disambiguate it from the OSN account-erasure item that carries the same
+> label in [[gdpr]].
 
 ## 1. Description of the processing
 
@@ -291,7 +291,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     organiser-attested variant above). **An organiser's status-only recording
     for a plus-one keeps the household's dietary answer, its consent record and
     `consent_source = 'inviter_attested'`**, and changes only the status (owner
-    decision, englishstventures/osn#1251), as it does for every guest. The
+    decision, englishstreetventures/osn#1251), as it does for every guest. The
     column then states the dietary data's consent basis, which is still the
     household's attestation, and no longer who wrote the status; who wrote it
     is `rsvps.recorded_by_osn_profile_id` and the save's `host_status_set`
@@ -449,7 +449,7 @@ household itself authenticated, the payload is unchanged in content (no new
 field, no new recipient class — see C-L1 in [[data-map]]), and the scope is one
 household. Art. 36 prior consultation is not triggered.
 
-**Mitigations in place on the branch.**
+**Mitigations in place.**
 
 - The payload is `Cache-Control: no-store` + `Vary: Origin, Cookie`, so no
   shared cache can retain or replay it to another household (S-H1).
@@ -459,14 +459,17 @@ household. Art. 36 prior consultation is not triggered.
 - Deactivating a family still deletes its sessions in the same commit, and the
   restore re-checks `deactivated_at` independently.
 
-**Outstanding mitigation — required, tracked as S-M2 in `englishstventures/osn-tracker`.**
-There is no guest sign-out: `sessionService.revoke` exists but is wired to no
-guest-facing route, and the guest site offers no session control at all. A
-credential that auto-exercises itself needs a user-controlled way to stop it.
-The planned fix is `POST /api/claim/signout` plus a "Not the <name> family?"
-control on the restored invite. Until it ships, the only ways to end a session
-are organiser-initiated (deactivate / remint) or 30-day expiry. Whether 30 days
-remains the right TTL for an auto-exercised cookie should be decided alongside it.
+**Guest sign-out — in place since 2026-08-09.** A credential that exercises
+itself needs a way for the guest to stop it. `POST /api/claim/signout`
+(`cire/api/src/routes/claim.ts`) clears the household cookie, revokes the
+session as a best effort, and always answers 204, so a stale cookie is cleared
+too. The restored invite shows a "Not the <name> family? Sign out" control
+(`cire/invites/src/components/LoginSection.tsx`). An organiser can still end a
+session by deactivating or reminting the family.
+
+**Open question.** Whether 30 days (`SESSION_TTL_SECONDS` in
+`cire/api/src/routes/claim.ts`) is the right lifetime for a cookie that
+exercises itself on every visit.
 
 ## 5. Consultation
 

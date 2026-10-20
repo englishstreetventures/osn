@@ -16,7 +16,7 @@ last-reviewed: 2026-10-20
 
 `@shared/realtime` tells open browser tabs that something on the server changed, so they re-read it through the product's normal API. A signal names a **topic** and a **kind**. It never carries data. The product API's per-request role check stays the only authorisation boundary.
 
-No product uses it yet. cire is the first to adopt it (englishstventures/osn#1249), so `cire` is the one entry in `REALTIME_PRODUCTS`.
+No product uses it yet. cire is the first to adopt it (englishstreetventures/osn#1249), so `cire` is the one entry in `REALTIME_PRODUCTS`.
 
 ## Topics
 
@@ -124,13 +124,13 @@ For one change, a member who keeps access and is evicted gets three signals: the
 
 ## Observability
 
-Counters in [metrics.ts](../../shared/realtime/src/server/metrics.ts) — see [[metrics]]. They run in the product Worker, never in the hub, and on workerd they record into a no-op meter until englishstventures/osn#501 lands:
+Counters in [metrics.ts](../../shared/realtime/src/server/metrics.ts) — see [[metrics]]. They run in the product Worker, never in the hub, and on workerd they record into a no-op meter until englishstreetventures/osn#501 lands:
 
 - `realtime.subscribe.attempts`, by `product` and `outcome` (the outcomes in the table above)
 - `realtime.signal.published`, by `product`, `kind` and `result` (`ok`, `error`, `disabled`)
 - `realtime.hub.capacity_refused`, by `product` and `cap` (`topic`: the newcomer was closed; `subject`: the member's own least recently seen socket was)
 
-Spans are `realtime.publish` and `realtime.subscribe`; the subscribe span carries `realtime.outcome`. Logs: `realtime subscribe refused` (warning, for `bad_origin`, `rate_limited` and `daily_limited`), `realtime topic at its socket cap` (warning), `realtime subscribe failed` with the failing step, `realtime hub refused an admitted upgrade`, and `realtime publish failed` (errors). None carries a subject; only the publish failure carries the topic. The browser client records no metric of its own until [englishstventures/osn#1242](https://github.com/englishstventures/osn/issues/1242) lands. It exposes `onFallback`, which is where a product hooks one.
+Spans are `realtime.publish` and `realtime.subscribe`; the subscribe span carries `realtime.outcome`. Logs: `realtime subscribe refused` (warning, for `bad_origin`, `rate_limited` and `daily_limited`), `realtime topic at its socket cap` (warning), `realtime subscribe failed` with the failing step, `realtime hub refused an admitted upgrade`, and `realtime publish failed` (errors). None carries a subject; only the publish failure carries the topic. The browser client records no metric of its own until [englishstreetventures/osn#1242](https://github.com/englishstreetventures/osn/issues/1242) lands. It exposes `onFallback`, which is where a product hooks one.
 
 ## Tests
 

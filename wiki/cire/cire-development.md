@@ -197,7 +197,7 @@ Platform conventions are in [[testing-patterns]]; the real-Chromium tier is in
 - The animation and layout bug classes that make the browser tier necessary are
   written up in [[frontend-patterns]] § Rendering and animation gotchas.
 - **Cire does not yet use the platform `it.effect` + `createTestLayer()` idiom.**
-  Aligning it is an open issue in `englishstventures/osn`.
+  Aligning it is an open issue in `englishstreetventures/osn`.
 
 ## Type-check configs
 
@@ -479,7 +479,7 @@ candidates included: cire-api fetches and re-encodes each one (see
 header comes back.
 
 A profile avatar can come from any https host, and both portals block and
-report it until englishstventures/osn#1207 lists the avatar host. Both avatar
+report it until englishstreetventures/osn#1207 lists the avatar host. Both avatar
 components show the account's initial when the image fails to load.
 
 The guest site (`cire/invites`) is an SSR Worker, so it carries its policy in

@@ -238,7 +238,7 @@ gh api repos/englishstreetventures/osn/pulls \
   --jq '"\(.number) \(.html_url)"'
 ```
 
-- **REST, not `gh pr create`**: `gh pr create` goes through GraphQL, whose hourly limit every agent on the account shares, and against the organisation's old name it fails with `GraphQL: Head sha can't be blank, Base sha can't be blank, …`.
+- **REST, not `gh pr create`**: `gh pr create` goes through GraphQL, whose hourly limit every agent on the account shares.
 - `base` is required and has no default: `main`, or the parent branch of a stacked pull request.
 - `-F body=@<file>` reads the file and `-f` keeps the title a string. Never pass the body inline: the local shell, fish, has no heredocs, and an inline body mangles backticks and `$`.
 - It opens ready for review. Add `-F draft=true` only when the task asks for a draft.

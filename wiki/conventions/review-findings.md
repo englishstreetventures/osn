@@ -87,7 +87,7 @@ Two consequences worth stating, because they are the ones people work around:
 
 ## Filing a finding
 
-Findings live in **`englishstventures/osn-tracker`**, a private repo. `englishstventures/osn` is public, and a finding names an unpatched route -- filing one there publishes an attack map. Route by *kind*, never by severity: an `S-`, `P-`, or `C-` ID goes to the tracker however minor it looks.
+Findings live in **`englishstreetventures/osn-tracker`**, a private repo. `englishstreetventures/osn` is public, and a finding names an unpatched route -- filing one there publishes an attack map. Route by *kind*, never by severity: an `S-`, `P-`, or `C-` ID goes to the tracker however minor it looks.
 
 ### The body has to stand alone
 
@@ -102,7 +102,7 @@ An issue is read once, months later, by someone with no branch checked out and n
 One issue per finding, with the ID leading the title and the four fields as the body:
 
 ```bash
-gh issue create --repo englishstventures/osn-tracker \
+gh issue create --repo englishstreetventures/osn-tracker \
   --title "S-M3 -- No rate limit on /foo endpoint" \
   --type Bug \
   --label "area:security" --label "severity:medium" --label "product:cire"
@@ -123,7 +123,7 @@ Rules:
 - **Close a finding, never delete it** -- the history matters, and a closed issue keeps the body, the fix commit, and the discussion. Deleting an issue is out of bounds for every script and command in this repo.
 - A finding fixed on a branch is closed by that branch's merge: its pull request carries a bare `Closes englishstreetventures/osn-tracker#<n>` line. A finding found and fixed on the same branch is filed first, in `/prep-pr` Step 7, so the merge has an issue to close and the tracker keeps the record. A finding dismissed as no defect is filed and closed as not planned, its reasoning in the body.
 - A public pull request -- its title, body, comments and commits -- carries a tracker issue only as that bare reference: never the finding ID, the title, the file and line, or a word about the defect. The `write-pr` skill (`.claude/skills/write-pr/SKILL.md`) holds the rule and what to do when the reference itself is refused.
-- Sorting is a filter now, not a file convention: `gh issue list --repo englishstventures/osn-tracker --label severity:high --state open`.
+- Sorting is a filter now, not a file convention: `gh issue list --repo englishstreetventures/osn-tracker --label severity:high --state open`.
 - File new findings from PR reviews immediately, in `/prep-pr` Step 7.
 - Several findings from one piece of work go on **stacked PRs**, one fix per PR, base of each set to the one below it -- see [[stacked-prs]].
 
@@ -136,7 +136,7 @@ Some issues cannot be closed by anyone but the repo owner: the fix is a choice b
 Label it and move on:
 
 ```bash
-gh issue edit <n> --repo englishstventures/osn-tracker --add-label "needs:decision"
+gh issue edit <n> --repo englishstreetventures/osn-tracker --add-label "needs:decision"
 ```
 
 `needs:decision` exists on both repos. It is orthogonal to `product:`, `area:` and `severity:` -- it says the issue is parked on a person, not what kind of work it is.
@@ -151,8 +151,8 @@ A body that says no more than "blocked, needs input" is not an issue, it is an i
 Filter for them when the owner sits down to clear the queue:
 
 ```bash
-gh issue list --repo englishstventures/osn --label needs:decision --state open --limit 1000
-gh issue list --repo englishstventures/osn-tracker --label needs:decision --state open --limit 1000
+gh issue list --repo englishstreetventures/osn --label needs:decision --state open --limit 1000
+gh issue list --repo englishstreetventures/osn-tracker --label needs:decision --state open --limit 1000
 ```
 
 Remove the label once the decision is recorded in a comment; the issue then goes back to being ordinary work.
@@ -180,4 +180,4 @@ gh issue list --repo englishstreetventures/osn-tracker --search "S-M34 in:title"
 
 - [[contributing]] -- PR workflow and conventions
 - [[stacked-prs]] -- opening a PR on top of another PR
-- `englishstventures/osn-tracker` -- the private repo holding every security, performance, and compliance finding
+- `englishstreetventures/osn-tracker` -- the private repo holding every security, performance, and compliance finding

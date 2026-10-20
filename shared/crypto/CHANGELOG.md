@@ -247,11 +247,11 @@
 
 ### Patch Changes
 
-- b2b6b70: Clean up the `house/no-tracker-ref-in-comment` mechanical majority (xchromo/osn#924).
+- b2b6b70: Clean up the `house/no-tracker-ref-in-comment` mechanical majority (englishstreetventures/osn#924).
 
   Every finding-tag, phase-code, and narrative-phrase reference flagged by the rule in a short comment block is now gone from these packages: a bare parenthetical tag deleted, a leading label stripped and the remainder capitalized into its own sentence, or a "used to be" narration rewritten forward to state the current, still-true fact. No behavior changes anywhere — every edit is comment text.
 
-  A handful of leftover `osn-tracker#N` citations that predated both this batch and the separate tracker-number-refs cleanup (xchromo/osn#930) are also gone from `@osn/api` and `@pulse/api`, using the same treatment established there.
+  A handful of leftover `osn-tracker#N` citations that predated both this batch and the separate tracker-number-refs cleanup (englishstreetventures/osn#930) are also gone from `@osn/api` and `@pulse/api`, using the same treatment established there.
 
 - Updated dependencies [b2b6b70]
   - @osn/db@0.21.2
@@ -268,7 +268,7 @@
 
 ### Patch Changes
 
-- 6474854: Fix every `house/no-stacked-doc-block` site in these packages (xchromo/osn#926).
+- 6474854: Fix every `house/no-stacked-doc-block` site in these packages (englishstreetventures/osn#926).
 
   A declaration with two or more leading doc blocks only has its last block attached — the earlier one silently documents nothing, and an editor hovering the declaration never shows it. Two shapes accounted for all 26 sites across these packages: a genuine module doc that had been placed after the file's `import` line rather than at line 1, which the rule's module-block exemption checks literally, and so read as stacked in front of whatever the doc block happened to precede — moved to line 1, restoring both blocks to their correct attachment; and two doc blocks that were both actually describing the same declaration, split apart for no good reason — merged into one, with content preserved and no duplication.
 
@@ -582,8 +582,8 @@
 ### Patch Changes
 
 - d50c68e: Comments only: repoint every "tracked in wiki/TODO.md" reference at GitHub
-  Issues. Findings keep their IDs and now name the private `xchromo/osn-tracker`;
-  planned work points at open issues in `xchromo/osn`. No behaviour change.
+  Issues. Findings keep their IDs and now name the private `englishstreetventures/osn-tracker`;
+  planned work points at open issues in `englishstreetventures/osn`. No behaviour change.
 - Updated dependencies [d50c68e]
   - @shared/observability@0.13.3
 

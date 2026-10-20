@@ -149,8 +149,7 @@ jobs:
       # astro.config.mjs files rather than bun.lock or github.sha — Astro's
       # font-metadata cache is a function of which families each config
       # asks for, and restoring it here turns this workflow's own `bun run
-      # build` into a cache hit against fonts.google.com too
-      # (englishstventures/osn-tracker#128).
+      # build` into a cache hit against fonts.google.com too.
       - name: Cache Astro font metadata
         uses: actions/cache@v4
         with:
@@ -467,7 +466,7 @@ jobs:
       # `PUBLIC_*` env vars as inputs — so this job's `bun run build` is
       # always a turbo cache MISS against the `build` job above and really
       # runs `astro build` again, hitting fonts.google.com again unless this
-      # restores what that fetch produced (englishstventures/osn-tracker#128).
+      # restores what that fetch produced.
       - name: Cache Astro font metadata
         uses: actions/cache@v4
         with:

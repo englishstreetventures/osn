@@ -20,7 +20,7 @@ export interface WeddingSummary {
   /** The wedding's plan tier, from the `/api/organiser/weddings` list. Never
    *  read directly: `tierOf()` in `lib/tiers` narrows it, and stands in for it
    *  from `entitlements` when the API sent none. */
-  // Optional until englishstventures/osn#1315 lands: an API that predates tiers omits it.
+  // Optional until englishstreetventures/osn#1315 lands: an API that predates tiers omits it.
   tier?: Tier;
   /** Entitlement keys on this wedding, from the same list: the legacy keys its
    *  tier implies, plus `premium_templates` where that is held. The invite

@@ -668,7 +668,7 @@ export const vendorClaims = sqliteTable(
 // `premium_templates` — the one-off purchase a wedding below Crimson can hold
 // (Crimson includes it). The other keys are what 0073 read to lift each
 // wedding to its tier; they stay in the enum, and their rows stay in the
-// table, until englishstventures/osn#1315 removes them.
+// table, until englishstreetventures/osn#1315 removes them.
 // `source` distinguishes a provider purchase from a comp/manual grant, and
 // `provider_ref` carries the external provider reference on purchases (NULL on
 // comp).
@@ -1562,7 +1562,7 @@ export const weddingFaqs = sqliteTable(
 
 // Tracks every spreadsheet upload through the organiser portal so we can
 // preview, apply, and (later) revert a batch import. The surrounding flow is
-// tracked as an open issue in `englishstventures/osn` (`label:product:cire`).
+// tracked as an open issue in `englishstreetventures/osn` (`label:product:cire`).
 export const imports = sqliteTable(
   "imports",
   {

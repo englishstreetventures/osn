@@ -346,10 +346,10 @@ Work is tracked in GitHub Issues, not in a markdown checklist. Two repos:
 
 | Kind of item                          | Repo                                |
 | ------------------------------------- | ----------------------------------- |
-| Review findings — `S-*`, `P-*`, `C-*` | **`englishstventures/osn-tracker`** (private) |
-| Planned work, features, bugs          | **`englishstventures/osn`** (public)          |
+| Review findings — `S-*`, `P-*`, `C-*` | **`englishstreetventures/osn-tracker`** (private) |
+| Planned work, features, bugs          | **`englishstreetventures/osn`** (public)          |
 
-`englishstventures/osn` is public. A finding names an unpatched route, so filing one there publishes it. **Route by kind, not by severity** — an `S-`, `P-`, or `C-` ID always goes to the tracker, however minor it looks.
+`englishstreetventures/osn` is public. A finding names an unpatched route, so filing one there publishes it. **Route by kind, not by severity** — an `S-`, `P-`, or `C-` ID always goes to the tracker, however minor it looks.
 
 Auditing a defect class — when a finding is an instance of a class, enumerate the *shapes* the defect can take rather than re-grepping the first form you found. Recipe and the D1 bind-cap case study: `references/auditing-defect-classes.md`.
 
@@ -381,7 +381,7 @@ Labels, exactly one of each:
 Anything this branch decides **not** to do — a finding you are not fixing, a rule
 left at `warn`, a limitation you are accepting, a workaround standing in for the
 real fix — gets an issue, and the code carries the link and nothing more
-(`// Bounded until englishstventures/osn#412 lands.`). A comment that explains the deferral
+(`// Bounded until englishstreetventures/osn#412 lands.`). A comment that explains the deferral
 instead has no owner and appears in no backlog, so it is found only by whoever
 next opens the file.
 
