@@ -374,18 +374,25 @@ function semantic(hue: number, chroma: number, card: Oklch, darkStart = 0.72): s
  * clamp, which hides exactly what this asks, so the OKLab → linear sRGB step
  * (Björn Ottosson's matrices, as `oklchToRgb` uses) is written out here.
  */
-function inSrgb({ l, c, h }: Oklch): boolean {
-  const a = c * Math.cos((h * Math.PI) / 180);
-  const b = c * Math.sin((h * Math.PI) / 180);
+function inSrgb(l: number, c: number, hue: Hue): boolean {
+  const a = c * hue.cos;
+  const b = c * hue.sin;
   const L = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
   const M = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
   const S = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
   const EPSILON = 1e-9;
-  return [
-    4.0767416621 * L - 3.3077115913 * M + 0.2309699292 * S,
-    -1.2684380046 * L + 2.6097574011 * M - 0.3413193965 * S,
-    -0.0041960863 * L - 0.7034186147 * M + 1.707614701 * S,
-  ].every((v) => v >= -EPSILON && v <= 1 + EPSILON);
+  const inRange = (v: number) => v >= -EPSILON && v <= 1 + EPSILON;
+  return (
+    inRange(4.0767416621 * L - 3.3077115913 * M + 0.2309699292 * S) &&
+    inRange(-1.2684380046 * L + 2.6097574011 * M - 0.3413193965 * S) &&
+    inRange(-0.0041960863 * L - 0.7034186147 * M + 1.707614701 * S)
+  );
+}
+
+/** A hue's cosine and sine, taken once for every gamut probe at that hue. */
+interface Hue {
+  cos: number;
+  sin: number;
 }
 
 /**
@@ -394,13 +401,13 @@ function inSrgb({ l, c, h }: Oklch): boolean {
  * fixed lightness and hue is one unbroken range from zero. Floored to the four
  * decimals `formatOklch` writes, so rounding the token cannot push it back out.
  */
-function intoSrgb(colour: Oklch): Oklch {
-  if (inSrgb(colour)) return colour;
+function intoSrgb(colour: Oklch, hue: Hue): Oklch {
+  if (inSrgb(colour.l, colour.c, hue)) return colour;
   let inside = 0;
   let outside = colour.c;
   for (let i = 0; i < 20; i++) {
     const c = (inside + outside) / 2;
-    if (inSrgb({ ...colour, c })) inside = c;
+    if (inSrgb(colour.l, c, hue)) inside = c;
     else outside = c;
   }
   return { ...colour, c: Math.floor(inside * 1e4) / 1e4 };
@@ -438,6 +445,8 @@ function onGoldInk(gilt: Oklch, ground: Oklch, ink: Oklch): Oklch {
   // stronger pole clears 4.58:1 against any colour, so it always stops on the
   // bar; fifty steps of 0.02 span the whole lightness range.
   const STEP = 0.02;
+  const hr = (start.h * Math.PI) / 180;
+  const hue: Hue = { cos: Math.cos(hr), sin: Math.sin(hr) };
   let label = start;
   for (let i = 1; i <= 50; i++) {
     const l = Math.min(1, Math.max(0, start.l + (lighter ? i : -i) * STEP));
@@ -445,7 +454,7 @@ function onGoldInk(gilt: Oklch, ground: Oklch, ink: Oklch): Oklch {
     // cannot: near either pole sRGB holds very little colour, and a label
     // outside it would be painted as whatever the browser maps it to rather
     // than the colour measured here.
-    label = intoSrgb({ ...start, l });
+    label = intoSrgb({ ...start, l }, hue);
     if (reads(label)) break;
   }
   return label;

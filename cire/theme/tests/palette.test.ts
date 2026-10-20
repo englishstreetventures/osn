@@ -434,6 +434,8 @@ describe("contrast is enforced, not advised", () => {
       bloom: "#fdfdfd",
     });
     expect(reports.map((r) => r.token).toSorted()).toEqual(["bloom", "gilt", "ink"]);
+    // The builder shows each reason as the organiser's notice.
+    expect(reports.filter((r) => r.reason.trim() === "")).toEqual([]);
   });
 
   test("reports a bloom that clears the UI floor but not the label's text bar", () => {
@@ -445,7 +447,9 @@ describe("contrast is enforced, not advised", () => {
     expect(seedRatio).toBeGreaterThan(WCAG_UI_MIN);
     expect(seedRatio).toBeLessThan(WCAG_TEXT_MIN);
 
-    expect(paletteAdjustments(seeds).map((r) => r.token)).toContain("bloom");
+    const reports = paletteAdjustments(seeds);
+    expect(reports.map((r) => r.token)).toContain("bloom");
+    expect(reports.filter((r) => r.reason.trim() === "")).toEqual([]);
     const v = derivePalette(seeds);
     expect(contrastRatio(v["--color-bloom"]!, v["--color-bg"]!)).toBeGreaterThanOrEqual(
       WCAG_TEXT_MIN,
