@@ -126,6 +126,20 @@ describe("createArcProfileDisplayResolver", () => {
     expect(await photosFor([at(2048), at(2049)])).toEqual([at(2048), null]);
   });
 
+  it("drops an http photo URL even on an allowed http origin, as a local issuer's is", async () => {
+    const pair = await generateArcKeyPair();
+    const local = createArcProfileDisplayResolver({
+      osnApiUrl: "https://osn.example/",
+      arcPrivateKey: pair.privateKey,
+      arcKeyId: "kid-1",
+      avatarOrigins: ["http://localhost:4000"],
+    });
+    globalThis.fetch = mockFetch(async () =>
+      answer([{ id: "usr_a", handle: "ada", avatarUrl: "http://localhost:4000/a.png" }]),
+    );
+    expect((await local(["usr_a"])).get("usr_a")?.avatarUrl).toBeNull();
+  });
+
   it("drops every photo when no host is allowed", async () => {
     const pair = await generateArcKeyPair();
     const none = createArcProfileDisplayResolver({

@@ -303,24 +303,24 @@ const AVATAR_URL_MAX = 2048;
  */
 function allowedAvatarUrl(value: unknown, origins: readonly string[]): string | null {
   if (typeof value !== "string" || value.length > AVATAR_URL_MAX) return null;
+  let url: URL;
   try {
-    const url = new URL(value);
-    const allowed =
-      url.protocol === "https:" &&
-      url.username === "" &&
-      url.password === "" &&
-      origins.includes(url.origin);
-    return allowed ? value : null;
+    url = new URL(value);
   } catch {
     return null;
   }
+  const allowed =
+    url.protocol === "https:" &&
+    url.username === "" &&
+    url.password === "" &&
+    origins.includes(url.origin);
+  return allowed ? value : null;
 }
 
 /** `[origin]` of `url`, or `[]` when it is absent or does not parse. */
 function originsOf(url: string | undefined): string[] {
-  if (!url) return [];
   try {
-    return [new URL(url).origin];
+    return [new URL(url ?? "").origin];
   } catch {
     return [];
   }
