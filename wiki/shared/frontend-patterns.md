@@ -23,7 +23,7 @@ packages:
   - "@cire/host"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # Frontend Patterns
@@ -296,7 +296,7 @@ tell you the cause came back.
 
 ### Chrome exposes a `title` as a description, and carries `text-transform` into the text
 
-Two facts decide how a short badge explains itself:
+Three facts decide how a short badge explains itself:
 
 - A `title` shows on mouse hover only; keyboard and touch users never see it.
   A table cell's accessible name comes from the text inside the cell, so a
@@ -304,9 +304,15 @@ Two facts decide how a short badge explains itself:
   exposes the `title` as the badge's description instead. A `title` that
   repeats text inside the element hands a screen reader the same words twice,
   once as text and once as the description. So put the explanation in `sr-only`
-  text inside the badge and drop the `title`. Sighted users, mouse users
-  included, then see only the badge's word; an explanation they need has to be
-  visible text.
+  text beside the badge's word and drop the `title`.
+- `aria-describedby` does the same. Kobalte's tooltip trigger points it at the
+  open panel, and Chrome exposes a node referenced that way as a description
+  even when the node is `aria-hidden`. So a panel that repeats the hidden text
+  must be `aria-hidden` *and* unreferenced. `@shared/ui`'s `Tooltip` is both,
+  and builds the hidden text and the panel from one string
+  ([[component-library]] §`Tooltip`). It shows the panel on mouse hover only:
+  sighted keyboard and touch users still see only the badge's word, so an
+  explanation they need has to be visible text.
 - Chrome carries `text-transform` into the text it exposes, so `sr-only` text
   inside an `uppercase` badge reaches a screen reader in capitals. Some screen
   readers can be set to announce capitals, or read a word in capitals letter by
@@ -325,8 +331,9 @@ find the explanation in the cell's accessible name
 (`cire/host/tests/components/RsvpView.test.tsx`). Only the browser tier sees the
 description Chrome builds and the case it exposes.
 
-The RSVP table's badges in `cire/host/src/components/RsvpView.tsx` follow both.
-How to check what Chrome exposes, and the measurement behind these two facts,
+The RSVP table's badges in `cire/host/src/components/RsvpView.tsx` follow all
+three, through `Tooltip`.
+How to check what Chrome exposes, and the measurement behind these facts,
 is in [[browser-tests#Chrome's accessibility tree]].
 
 ### `overflow: hidden` is still a scroll container; `overflow: clip` is not

@@ -11,6 +11,7 @@ import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Table, Td, Th } from "@shared/ui/ui/table";
+import { Tooltip } from "@shared/ui/ui/tooltip";
 import {
   createEffect,
   createMemo,
@@ -554,33 +555,28 @@ export default function RsvpView(props: RsvpViewProps) {
                                     next one. */}
                                 <Td valign="middle" class="wrap-break-word">
                                   {row.firstName} {row.lastName}
-                                  {/* Each badge explains itself in visually
-                                      hidden text inside it, not in a `title`:
-                                      a title shows on mouse hover only and is
-                                      not part of the cell's accessible name,
-                                      and beside the text Chrome would hand it
-                                      to a screen reader a second time, as the
-                                      badge's description. `normal-case`
-                                      because the badge's `uppercase` would
-                                      otherwise reach a screen reader as
-                                      capitals. */}
+                                  {/* Each badge explains itself through
+                                      `Tooltip`: hidden text a screen reader
+                                      gets once, and the same words in a panel
+                                      on hover. Never a `title`: beside the
+                                      text, Chrome would hand it to a screen
+                                      reader a second time, as the badge's
+                                      description. */}
                                   <Show when={isNewRow()(row.guestId, section.event.id)}>
                                     {" "}
-                                    <span class="bg-gold/15 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm px-1.5 py-0.5 uppercase">
-                                      New
-                                      <span class="sr-only normal-case">
-                                        Changed by the guest since you last looked
+                                    <Tooltip text="Changed by the guest since you last looked">
+                                      <span class="bg-gold/15 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm px-1.5 py-0.5 uppercase">
+                                        New
                                       </span>
-                                    </span>
+                                    </Tooltip>
                                   </Show>
                                   <Show when={row.consentSource === "organiser_attested"}>
                                     {" "}
-                                    <span class="border-gold/40 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
-                                      Host-entered
-                                      <span class="sr-only normal-case">
-                                        Recorded by a host (phone/paper RSVP)
+                                    <Tooltip text="Recorded by a host (phone/paper RSVP)">
+                                      <span class="border-gold/40 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
+                                        Host-entered
                                       </span>
-                                    </span>
+                                    </Tooltip>
                                   </Show>
                                   <Show
                                     when={
@@ -589,24 +585,19 @@ export default function RsvpView(props: RsvpViewProps) {
                                     }
                                   >
                                     {" "}
-                                    <span class="border-gold/40 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
-                                      Host-updated
-                                      <span class="sr-only normal-case">
-                                        A host last set this status. The dietary requirements are
-                                        still the ones the guest or their household gave.
+                                    <Tooltip text="A host last set this status. The dietary requirements are still the ones the guest or their household gave.">
+                                      <span class="border-gold/40 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
+                                        Host-updated
                                       </span>
-                                    </span>
+                                    </Tooltip>
                                   </Show>
                                   <Show when={row.consentSource === "inviter_attested"}>
                                     {" "}
-                                    <span class="border-border text-text-muted text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
-                                      Household-entered
-                                      <span class="sr-only normal-case">
-                                        Given by the household that brought them, not by the
-                                        plus-one. A host may have changed the status since; the
-                                        dietary requirements are the household's.
+                                    <Tooltip text="Given by the household that brought them, not by the plus-one. A host may have changed the status since; the dietary requirements are the household's.">
+                                      <span class="border-border text-text-muted text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
+                                        Household-entered
                                       </span>
-                                    </span>
+                                    </Tooltip>
                                   </Show>
                                   <Show when={row.submittedBy}>
                                     {(by) => (
@@ -614,12 +605,11 @@ export default function RsvpView(props: RsvpViewProps) {
                                         Answered by {by().firstName}
                                         <Show when={by().viaLink}>
                                           {" "}
-                                          <span class="border-border ml-0.5 inline-block rounded-sm border px-1 align-baseline uppercase">
-                                            linked musubi
-                                            <span class="sr-only normal-case">
-                                              Sent from a signed-in linked musubi account
+                                          <Tooltip text="Sent from a signed-in linked musubi account">
+                                            <span class="border-border ml-0.5 inline-block rounded-sm border px-1 align-baseline uppercase">
+                                              linked musubi
                                             </span>
-                                          </span>
+                                          </Tooltip>
                                         </Show>
                                       </span>
                                     )}

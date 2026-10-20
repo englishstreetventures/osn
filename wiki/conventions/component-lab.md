@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # Component Lab
@@ -44,7 +44,7 @@ carry the variants and states, and all seven stories live together in
 | `shared/ui/forms` | `forms.story.tsx` | Input, Label, Textarea, Select, Field, Fieldset, Checkbox, RadioGroup, UsernameInput, OtpInput |
 | `shared/ui/feedback` | `feedback.story.tsx` | Notice, Chip, EmptyState, Stat |
 | `shared/ui/data` | `data.story.tsx` | Table, Meter |
-| `shared/ui/overlays` | `overlays.story.tsx` | Dialog, Modal, DropdownMenu, Popover, Tabs |
+| `shared/ui/overlays` | `overlays.story.tsx` | Dialog, Modal, DropdownMenu, Popover, InfoPopover, Tooltip, Tabs |
 
 A second group, `design-system/*`, is the token contract ([[design-tokens]]) as
 something to look at. Five files in `tools/lab/src/stories/design-system/`, plus
