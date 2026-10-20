@@ -1,6 +1,6 @@
 # Several owners per cire wedding — design
 
-Date: 2026-10-01 · Status: decisions settled by owner, awaiting review · Issue: englishstventures/osn#1248 (overlaps #1304)
+Date: 2026-10-01 · Status: decisions settled by owner, awaiting review · Issue: englishstreetventures/osn#1248 (overlaps #1304)
 
 ## Goal
 

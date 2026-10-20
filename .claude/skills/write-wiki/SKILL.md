@@ -42,7 +42,7 @@ Use tables and mermaid for anything a GitHub reader needs. A `.base` or `.canvas
 
 ## 5. Frontmatter and links
 
-- Every page has YAML frontmatter with `title`, `tags`, `related` and `last-reviewed`. Set `last-reviewed` to today on every page you touch.
+- Every page has YAML frontmatter with `title`, `tags`, `related` and `last-reviewed`. Set `last-reviewed` to today on every page you touch, except where the only change is a mechanical find-and-replace across many pages: nobody read those pages, so their date stays.
 - Frontmatter describes the page, never a task: no finding IDs or per-PR keys.
 - Link between pages with `[[wikilinks]]`, never relative markdown links. Link to a source file with a relative markdown link from the page's directory. Cire pages carry a `cire-` prefix where a bare name would collide.
 - A page links to at least two others.

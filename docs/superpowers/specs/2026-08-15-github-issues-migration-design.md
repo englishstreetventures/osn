@@ -19,7 +19,7 @@ Move to GitHub Issues + one org-level Project, keep the narrative wiki, and rewr
 
 ### Disclosure
 
-`xchromo/osn` is a **public** repo. The security, performance, and compliance backlogs carry 356 open findings with file:line references, exploitability notes, and named unpatched routes. Publishing them is publishing an attack map. This forces the two-repo split below.
+`englishstreetventures/osn` is a **public** repo. The security, performance, and compliance backlogs carry 356 open findings with file:line references, exploitability notes, and named unpatched routes. Publishing them is publishing an attack map. This forces the two-repo split below.
 
 Routing by section alone is not enough, and an audit of the public bucket proved it: 12 findings sat outside the three backlog sections. Six were bolded IDs the classifier's anchored regex never saw (`**S-L2 …**`), six were prose in Up Next and Platform naming a live gap with no ID at all. Both are fixed in `scripts/todo-to-issues/` — the first by matching through emphasis and routing on the ID's own prefix, the second by an audited override list. See "Content-based routing" below.
 
@@ -50,7 +50,7 @@ Business and monetisation content (`wiki/business/`, gitignored) never enters an
 gh auth refresh -h github.com -s project -s read:project
 ```
 
-Verified gap — `gh project list --owner xchromo` currently fails with `your authentication token is missing required scopes [read:project]`. Issues, labels, and sub-issues all work on the existing `repo` scope, so **only Phase 0 is blocked** on this.
+Verified gap — `gh project list --owner englishstreetventures` currently fails with `your authentication token is missing required scopes [read:project]`. Issues, labels, and sub-issues all work on the existing `repo` scope, so **only Phase 0 is blocked** on this.
 
 ## Design
 
@@ -60,8 +60,8 @@ Rule: **review findings → private tracker; planned work → public repo.**
 
 | | Repo | Content | Open |
 |---|---|---|---|
-| Public | `xchromo/osn` | Up Next, per-app sections, Zap, Verified Identity, Platform, Auth Improvements, Future; cire status/web/api/db/import/platform | **185** |
-| Private (new) | `xchromo/osn-tracker` | Security, Performance, Compliance backlogs — both osn and cire, plus the 12 findings filed elsewhere | **356** |
+| Public | `englishstreetventures/osn` | Up Next, per-app sections, Zap, Verified Identity, Platform, Auth Improvements, Future; cire status/web/api/db/import/platform | **185** |
+| Private (new) | `englishstreetventures/osn-tracker` | Security, Performance, Compliance backlogs — both osn and cire, plus the 12 findings filed elsewhere | **356** |
 
 Plus 98 epic parents (41 public, 57 private) → **639 issues**.
 
@@ -82,7 +82,7 @@ Two of the twelve came from the harness flagging a subagent's own reasoning, not
 
 ### One org Project
 
-A single **private** org-level Project on `xchromo`, named **OSN Platform**.
+A single **private** org-level Project on `englishstreetventures`, named **OSN Platform**.
 
 - Org-level because only org projects can span two repositories.
 - Private so tracker issue titles do not leak through the project view.
@@ -160,7 +160,7 @@ Phase 0 is the only phase blocked on the user. Phases 1–3 are the script; 4–
 
 Today Step 7 writes `S-*`/`P-*` findings into `wiki/TODO.md`, checks off completed items, and prunes Up Next. After migration:
 
-- New `S-*` / `P-*` / `C-*` findings → `gh issue create --repo xchromo/osn-tracker` with the severity, area, and product labels, and the finding ID leading the title. Body keeps the existing four-field format (Issue / Why / Solution / Rationale) unchanged.
+- New `S-*` / `P-*` / `C-*` findings → `gh issue create --repo englishstreetventures/osn-tracker` with the severity, area, and product labels, and the finding ID leading the title. Body keeps the existing four-field format (Issue / Why / Solution / Rationale) unchanged.
 - Findings **fixed on this branch** → `Closes #N` in the PR body. Never edit a checkbox; never delete an issue.
 - Step 8's PR body gains a mandatory `## Issues` section listing every `Closes #N` and every issue opened.
 - "Up Next pruning" becomes a Project Status move, not a file edit.
@@ -193,7 +193,7 @@ Two layers. The pure modules (parse, classify, wikilinks, render, assert, and th
 - Every `[[wikilink]]` either resolved to a path that exists or degraded to a code span — no `[[` survives.
 - Spot-check five multi-paragraph items for verbatim body carry-over.
 
-After the run, `gh issue list --repo xchromo/osn --limit 500 | wc -l` reconciles against the manifest.
+After the run, `gh issue list --repo englishstreetventures/osn --limit 500 | wc -l` reconciles against the manifest.
 
 ## Rollback
 

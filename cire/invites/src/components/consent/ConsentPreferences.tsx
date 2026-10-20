@@ -94,7 +94,7 @@ export function ConsentPreferences() {
         <button
           type="button"
           onClick={() => saveConsent(draft())}
-          class="border-gold bg-gold text-bg font-body hover:text-gold-ink focus-visible:ring-gold/60 text-ui-xs tracking-ui-wider rounded-sm border px-5 py-2 uppercase transition-colors duration-200 hover:bg-transparent focus:outline-none focus-visible:ring-2"
+          class="border-gold bg-gold text-on-gold font-body hover:text-gold-ink focus-visible:ring-gold/60 text-ui-xs tracking-ui-wider rounded-sm border px-5 py-2 uppercase transition-colors duration-200 hover:bg-transparent focus:outline-none focus-visible:ring-2"
         >
           Save choices
         </button>

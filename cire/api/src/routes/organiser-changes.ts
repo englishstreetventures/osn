@@ -156,7 +156,7 @@ function paymentRequired(set: { status?: number | string }, e: CapacityExceeded)
   set.status = 402;
   return {
     error: "payment_required",
-    // Removed by englishstventures/osn#1315.
+    // Removed by englishstreetventures/osn#1315.
     entitlement: "capacity",
     tier: e.requiredTier,
     limit: e.limit,

@@ -13,9 +13,9 @@
 ## Global Constraints
 
 - **Never delete an issue.** Close it. From `wiki/conventions/review-findings.md`: "**Never delete** findings from the backlog — the history matters." No script, command, or task in this plan may call any delete endpoint.
-- **`xchromo/osn` is public.** No item classified `area:security`, `area:performance`, or `area:compliance` may be created there. This is asserted mechanically in Task 5, not left to review.
+- **`englishstreetventures/osn` is public.** No item classified `area:security`, `area:performance`, or `area:compliance` may be created there. This is asserted mechanically in Task 5, not left to review.
 - **No business content in any issue.** `wiki/business/` is gitignored; entity name, ABN, tax and monetisation planning never appear in an issue body, public or private.
-- **Owner `xchromo` is an Organization** (verified: `gh api users/xchromo --jq .type` → `Organization`). Project commands use `--owner xchromo` and org-scoped GraphQL.
+- **Owner `englishstreetventures` is an Organization** (verified: `gh api users/englishstreetventures --jq .type` → `Organization`). Project commands use `--owner englishstreetventures` and org-scoped GraphQL.
 - **Content-creation rate limit: 80/min, 500/hr.** The writer throttles to one mutation per **8 seconds** (450/hr) and refuses to start a batch it cannot finish in the current hour without exceeding 450.
 - **Item prose carries over verbatim.** Bodies are dense and multi-paragraph. No summarising, no rewording, no truncation.
 - **Exactly one `product:` label per issue** — needed so the Project's table view can group by label cleanly.
@@ -532,17 +532,17 @@ const INDEX = buildWikiIndex([
   "wiki/changelog/security-fixes.md",
   "cire/wiki/cire-auth.md",
 ]);
-const URL = "https://github.com/xchromo/osn/blob/main";
+const URL = "https://github.com/englishstreetventures/osn/blob/main";
 
 test("resolves a bare wikilink to an absolute blob URL", () => {
   expect(rewriteWikilinks("see [[identity-model]] for detail", INDEX, URL)).toBe(
-    "see [identity-model](https://github.com/xchromo/osn/blob/main/wiki/systems/identity-model.md) for detail",
+    "see [identity-model](https://github.com/englishstreetventures/osn/blob/main/wiki/systems/identity-model.md) for detail",
   );
 });
 
 test("resolves a path-qualified wikilink", () => {
   expect(rewriteWikilinks("[[changelog/security-fixes]]", INDEX, URL)).toBe(
-    "[changelog/security-fixes](https://github.com/xchromo/osn/blob/main/wiki/changelog/security-fixes.md)",
+    "[changelog/security-fixes](https://github.com/englishstreetventures/osn/blob/main/wiki/changelog/security-fixes.md)",
   );
 });
 
@@ -563,8 +563,8 @@ test("leaves an existing markdown link alone", () => {
 
 test("rewrites every link on a line, not just the first", () => {
   expect(rewriteWikilinks("[[identity-model]] and [[cire-auth]]", INDEX, URL)).toBe(
-    "[identity-model](https://github.com/xchromo/osn/blob/main/wiki/systems/identity-model.md)" +
-      " and [cire-auth](https://github.com/xchromo/osn/blob/main/cire/wiki/cire-auth.md)",
+    "[identity-model](https://github.com/englishstreetventures/osn/blob/main/wiki/systems/identity-model.md)" +
+      " and [cire-auth](https://github.com/englishstreetventures/osn/blob/main/cire/wiki/cire-auth.md)",
   );
 });
 ```
@@ -700,7 +700,7 @@ test("body carries nested content verbatim", () => {
 
 test("body rewrites wikilinks and cites the source line", () => {
   const out = renderBody(base, INDEX);
-  expect(out).toContain("[sessions](https://github.com/xchromo/osn/blob/main/wiki/systems/sessions.md)");
+  expect(out).toContain("[sessions](https://github.com/englishstreetventures/osn/blob/main/wiki/systems/sessions.md)");
   expect(out).toContain('Migrated from `wiki/TODO.md:577` — section "Security Backlog / Medium".');
   expect(out).not.toContain("[[");
 });
@@ -718,7 +718,7 @@ Expected: FAIL — `Cannot find module './render'`
 import type { Classified, ManifestEntry } from "./types";
 import { rewriteWikilinks } from "./wikilinks";
 
-export const PUBLIC_BLOB = "https://github.com/xchromo/osn/blob/main";
+export const PUBLIC_BLOB = "https://github.com/englishstreetventures/osn/blob/main";
 const MAX_TITLE = 120;
 
 export function renderTitle(item: Classified): string {
@@ -1088,13 +1088,13 @@ test("creates an issue through gh api and returns number and id", async () => {
     calls.push(args);
     return { number: 501, id: 99887766 };
   };
-  const created = await createIssue(gh, "xchromo/osn", {
+  const created = await createIssue(gh, "englishstreetventures/osn", {
     title: "T",
     body: "B",
     labels: ["product:cire", "area:feature"],
   });
   expect(created).toEqual({ number: 501, id: "99887766" });
-  expect(calls[0]).toContain("repos/xchromo/osn/issues");
+  expect(calls[0]).toContain("repos/englishstreetventures/osn/issues");
   expect(calls[0].join(" ")).toContain("--method POST");
   expect(calls[0].join(" ")).toContain("labels[]=product:cire");
 });
@@ -1105,8 +1105,8 @@ test("links a sub-issue by database id, not number", async () => {
     calls.push(args);
     return {};
   };
-  await linkSubIssue(gh, "xchromo/osn", 12, "99887766");
-  expect(calls[0].join(" ")).toContain("repos/xchromo/osn/issues/12/sub_issues");
+  await linkSubIssue(gh, "englishstreetventures/osn", 12, "99887766");
+  expect(calls[0].join(" ")).toContain("repos/englishstreetventures/osn/issues/12/sub_issues");
   expect(calls[0].join(" ")).toContain("sub_issue_id=99887766");
 });
 
@@ -1206,7 +1206,7 @@ Phases select which sections run, so in-flight work migrates before backlog. Add
 ```ts
 import { createIssue, ghApi, linkSubIssue, Throttle } from "./github";
 
-const REPOS = { public: "xchromo/osn", private: "xchromo/osn-tracker" };
+const REPOS = { public: "englishstreetventures/osn", private: "englishstreetventures/osn-tracker" };
 
 const PHASES: Record<string, (e: ManifestEntry) => boolean> = {
   "1": (e) =>
@@ -1311,7 +1311,7 @@ The only task that needs the user. Everything here is one-off setup; the runbook
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: `xchromo/osn-tracker` (private repo), 19 labels on both repos, the `OSN Platform` Project with three fields and four views.
+- Produces: `englishstreetventures/osn-tracker` (private repo), 19 labels on both repos, the `OSN Platform` Project with three fields and four views.
 
 - [ ] **Step 1: Confirm the token has the project scopes**
 
@@ -1320,12 +1320,12 @@ If `project` and `read:project` are absent, this is the blocking step — the us
 ```bash
 gh auth refresh -h github.com -s project -s read:project
 ```
-Confirm with `gh project list --owner xchromo` (must not error).
+Confirm with `gh project list --owner englishstreetventures` (must not error).
 
 - [ ] **Step 2: Create the private tracker**
 
 ```bash
-gh repo create xchromo/osn-tracker --private \
+gh repo create englishstreetventures/osn-tracker --private \
   --description "Private tracker for OSN security, performance and compliance findings"
 ```
 
@@ -1336,7 +1336,7 @@ gh repo create xchromo/osn-tracker --private \
 #!/usr/bin/env bash
 set -euo pipefail
 
-for repo in xchromo/osn xchromo/osn-tracker; do
+for repo in englishstreetventures/osn englishstreetventures/osn-tracker; do
   create() { gh label create "$1" --repo "$repo" --color "$2" --description "$3" --force; }
 
   create "product:osn-core" "1d76db" "OSN identity core"
@@ -1370,25 +1370,25 @@ Expected: 19 labels created per repo (`--force` makes a re-run idempotent).
 - [ ] **Step 4: Create the Project and its fields**
 
 ```bash
-gh project create --owner xchromo --title "OSN Platform"
-gh project list --owner xchromo   # note the number, referred to below as $N
+gh project create --owner englishstreetventures --title "OSN Platform"
+gh project list --owner englishstreetventures   # note the number, referred to below as $N
 ```
 
 The project is created public by default for an org — make it private in the UI (Settings → Visibility → Private) **before** any tracker issue is added. This is not optional: a public project leaks private issue titles.
 
 ```bash
-gh project field-create $N --owner xchromo --name "Status" \
+gh project field-create $N --owner englishstreetventures --name "Status" \
   --data-type SINGLE_SELECT --single-select-options "Backlog,Up Next,In Progress,In Review,Blocked,Done"
-gh project field-create $N --owner xchromo --name "Priority" \
+gh project field-create $N --owner englishstreetventures --name "Priority" \
   --data-type SINGLE_SELECT --single-select-options "P0,P1,P2,P3"
-gh project field-create $N --owner xchromo --name "Effort" \
+gh project field-create $N --owner englishstreetventures --name "Effort" \
   --data-type SINGLE_SELECT --single-select-options "XS,S,M,L,XL"
 ```
 
 - [ ] **Step 5: Configure the two built-in workflows (UI)**
 
 In the Project → Workflows:
-1. **Auto-add to project** — enable once per repo, filter `is:issue is:open`, for `xchromo/osn` and `xchromo/osn-tracker`. This is what makes migration cost zero project API calls.
+1. **Auto-add to project** — enable once per repo, filter `is:issue is:open`, for `englishstreetventures/osn` and `englishstreetventures/osn-tracker`. This is what makes migration cost zero project API calls.
 2. **Item added to project** — set `Status` = `Backlog`.
 
 - [ ] **Step 6: Create the four views (UI)**
@@ -1438,7 +1438,7 @@ If it stops on a secondary-rate-limit error, wait for the next hour and re-run t
 - [ ] **Step 3: Reconcile**
 
 ```bash
-gh issue list --repo xchromo/osn --limit 200 --json number --jq 'length'
+gh issue list --repo englishstreetventures/osn --limit 200 --json number --jq 'length'
 ```
 Expected: 85 (assuming the repo had no prior open issues; if it did, subtract them).
 
@@ -1467,7 +1467,7 @@ Expected: 25 epics + 116 issues + 116 links = 257 mutations. At 8s that is ~35 m
 - [ ] **Step 2: Reconcile**
 
 ```bash
-gh issue list --repo xchromo/osn --limit 500 --json number --jq 'length'
+gh issue list --repo englishstreetventures/osn --limit 500 --json number --jq 'length'
 ```
 Expected: 226 (85 from phase 1 + 141).
 
@@ -1496,7 +1496,7 @@ Expected: `manifest clear`. Do not proceed on any violation.
 - [ ] **Step 2: Confirm the destination is private**
 
 ```bash
-gh repo view xchromo/osn-tracker --json isPrivate --jq '.isPrivate'
+gh repo view englishstreetventures/osn-tracker --json isPrivate --jq '.isPrivate'
 ```
 Expected: `true`. If this prints `false`, stop — nothing gets created until it is private.
 
@@ -1508,8 +1508,8 @@ Expected: 60 epics (Security High/Medium/Low, Performance, Compliance, plus the 
 - [ ] **Step 4: Reconcile and confirm nothing leaked**
 
 ```bash
-gh issue list --repo xchromo/osn-tracker --limit 500 --json number --jq 'length'
-gh issue list --repo xchromo/osn --label area:security --json number --jq 'length'
+gh issue list --repo englishstreetventures/osn-tracker --limit 500 --json number --jq 'length'
+gh issue list --repo englishstreetventures/osn --label area:security --json number --jq 'length'
 ```
 Expected: `416` (60 epics + 356 issues) and `0`. The second number being anything but zero is a disclosure incident — close those issues immediately (never delete) and fix the classifier.
 
@@ -1553,8 +1553,8 @@ Keep the frontmatter, drop every section that held checkboxes, and write:
 
 Tracked work lives in GitHub Issues, not here.
 
-- **Planned work** — [xchromo/osn issues](https://github.com/xchromo/osn/issues)
-- **Security, performance and compliance findings** — `xchromo/osn-tracker` (private)
+- **Planned work** — [englishstreetventures/osn issues](https://github.com/englishstreetventures/osn/issues)
+- **Security, performance and compliance findings** — `englishstreetventures/osn-tracker` (private)
 - **Board** — the `OSN Platform` project
 
 Completed items are in [changelog/](changelog/). For how findings are tagged see
@@ -1573,7 +1573,7 @@ git rm cire/wiki/todo/*.md
 
 - [ ] **Step 4: Update the review-findings convention**
 
-In `wiki/conventions/review-findings.md`, replace the "Adding to TODO.md" section with "Filing a finding": `gh issue create --repo xchromo/osn-tracker`, the ID leading the title, the severity label, the four-field body unchanged. Keep the rule and restate it for issues:
+In `wiki/conventions/review-findings.md`, replace the "Adding to TODO.md" section with "Filing a finding": `gh issue create --repo englishstreetventures/osn-tracker`, the ID leading the title, the severity label, the four-field body unchanged. Keep the rule and restate it for issues:
 
 > - **Never delete** a finding — close the issue instead. The history matters.
 
@@ -1614,7 +1614,7 @@ Step 7 currently writes findings into `wiki/TODO.md`, checks off completed items
 1. **New findings** — for every `S-*` / `P-*` / `C-*` finding the reviews produced that you are *not* fixing on this branch:
 
    ```bash
-   gh issue create --repo xchromo/osn-tracker \
+   gh issue create --repo englishstreetventures/osn-tracker \
      --title "<FINDING-ID> (<slug>) — <one-line summary>" \
      --label "severity:<critical|high|medium|low|info>" \
      --label "area:<security|performance|compliance>" \
@@ -1628,11 +1628,11 @@ Step 7 currently writes findings into `wiki/TODO.md`, checks off completed items
    )"
    ```
 
-   Findings always go to the **private** tracker, never to `xchromo/osn`. Route by kind, not by severity.
+   Findings always go to the **private** tracker, never to `englishstreetventures/osn`. Route by kind, not by severity.
 
 2. **Findings you fixed on this branch** — add `Closes #N` to the PR body. Never edit an issue's text to mark it done; the close event is the record.
 
-3. **Planned work discovered** — file it on `xchromo/osn` with `area:feature` and no severity label.
+3. **Planned work discovered** — file it on `englishstreetventures/osn` with `area:feature` and no severity label.
 
 4. **Never delete an issue.** Close it.
 
@@ -1663,7 +1663,7 @@ If $ARGUMENTS names an issue number, take it: `gh issue view <n> --json title,bo
 Otherwise create one:
 
 ```bash
-gh issue create --repo xchromo/osn --title "<feature>" \
+gh issue create --repo englishstreetventures/osn --title "<feature>" \
   --label "product:<...>" --label "area:feature"
 ```
 
@@ -1676,7 +1676,7 @@ Then change step 2 of Agent 1A and step 2 of Agent 1B to derive the branch from 
 
 - [ ] **Step 4: Write the issue templates**
 
-`.github/ISSUE_TEMPLATE/review-finding.yml` — the four-field format as four required textareas (Issue, Why, Solution, Rationale), plus a required `Finding ID` input and a severity dropdown. Its `labels:` default to `area:security`. Add a top-of-form note: *file review findings on `xchromo/osn-tracker`, not here* — the public template exists so a finding filed in the wrong place is caught by a human before it is submitted.
+`.github/ISSUE_TEMPLATE/review-finding.yml` — the four-field format as four required textareas (Issue, Why, Solution, Rationale), plus a required `Finding ID` input and a severity dropdown. Its `labels:` default to `area:security`. Add a top-of-form note: *file review findings on `englishstreetventures/osn-tracker`, not here* — the public template exists so a finding filed in the wrong place is caught by a human before it is submitted.
 
 `feature.yml` — summary, motivation, acceptance criteria; `labels: [area:feature]`.
 `bug.yml` — what happened, what was expected, repro steps, environment.
@@ -1684,9 +1684,9 @@ Then change step 2 of Agent 1A and step 2 of Agent 1B to derive the branch from 
 - [ ] **Step 5: Verify the templates render**
 
 ```bash
-gh api repos/xchromo/osn/contents/.github/ISSUE_TEMPLATE --jq '.[].name'
+gh api repos/englishstreetventures/osn/contents/.github/ISSUE_TEMPLATE --jq '.[].name'
 ```
-after pushing, or open `https://github.com/xchromo/osn/issues/new/choose`. A YAML error makes the template silently vanish from that page rather than erroring.
+after pushing, or open `https://github.com/englishstreetventures/osn/issues/new/choose`. A YAML error makes the template silently vanish from that page rather than erroring.
 
 - [ ] **Step 6: Run the repo's own gates**
 

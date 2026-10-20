@@ -105,6 +105,20 @@ describe("RsvpView — New badges", () => {
     expect(within(rowOf("Reception", "Bo")).queryByText("New")).toBeNull();
   });
 
+  it("reads what New means to a screen reader, not from a hover title", async () => {
+    routeFetch(feed([{ guestId: "g1", eventId: "evt_2" }], 5));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await screen.findByRole("heading", { name: "Reception" });
+    await waitFor(() => expect(within(rowOf("Reception", "Ada")).getByText("New")).toBeVisible());
+    const row = rowOf("Reception", "Ada");
+    expect(
+      within(row).getByRole("cell", {
+        name: (name) => name.includes("New Changed by the guest since you last looked"),
+      }),
+    ).toBeVisible();
+    expect(row.querySelector("[title]")).toBeNull();
+  });
+
   it("badges every row of a guest whose change had no event", async () => {
     routeFetch(feed([{ guestId: "g2", eventId: null }], 5));
     render(() => <RsvpView weddingId="wed_a" />);

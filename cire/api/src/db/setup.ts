@@ -10,6 +10,7 @@ import {
 import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { DEFAULT_RSVP_DEADLINE_TIMEZONE, resolveRsvpDeadline } from "../lib/rsvp-deadline";
 import type { Db } from "./index";
 
 // Re-exported for the seed path + tests. The single source of truth lives in
@@ -725,4 +726,39 @@ export function repointDevOwnerSeat(db: TestDb, osnProfileId: string): void {
     .set({ osnProfileId, addedByOsnProfileId: osnProfileId, role: "owner" })
     .where(eq(schema.weddingHosts.id, DEV_OWNER_SEAT_ID))
     .run();
+}
+
+/**
+ * Gives the sample wedding an RSVP deadline: the last moment of `date`
+ * (`YYYY-MM-DD`) in UTC. The local dev server calls it when
+ * `CIRE_E2E_RSVP_DEADLINE` is set; the E2E suite sets one far in the future,
+ * so this server keeps taking replies on the suite clock while a flow moves
+ * the browser's clock past the deadline.
+ *
+ * `seedDb` sets no deadline, so every test on the real clock sees RSVPs open.
+ * A date that is not a real calendar day throws instead of being stored: it
+ * would read back as no deadline at all.
+ */
+export function setSampleRsvpDeadline(db: TestDb, date: string): void {
+  if (resolveRsvpDeadline(date, DEFAULT_RSVP_DEADLINE_TIMEZONE, new Date()) === null) {
+    throw new Error(`RSVP deadline is not a YYYY-MM-DD calendar date: "${date}"`);
+  }
+  db.update(schema.weddings)
+    .set({ rsvpDeadline: date, rsvpDeadlineTimezone: DEFAULT_RSVP_DEADLINE_TIMEZONE })
+    .where(eq(schema.weddings.id, schema.BOOTSTRAP_WEDDING_ID))
+    .run();
+}
+
+/**
+ * The local dev server's reading of `CIRE_E2E_RSVP_DEADLINE`: set, it gives the
+ * sample wedding that deadline (`setSampleRsvpDeadline`); unset or empty, the
+ * seed's open RSVPs stand, which is what every `bun run dev` without the E2E
+ * suite gets.
+ */
+export function applyE2eRsvpDeadline(
+  db: TestDb,
+  env: Readonly<Record<string, string | undefined>>,
+): void {
+  const date = env.CIRE_E2E_RSVP_DEADLINE;
+  if (date) setSampleRsvpDeadline(db, date);
 }

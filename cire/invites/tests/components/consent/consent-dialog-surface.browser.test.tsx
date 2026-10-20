@@ -24,7 +24,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import "../../../src/styles/global.css";
 import { ConsentPreferences } from "../../../src/components/consent/ConsentPreferences";
-import { resetConsentForTest } from "../../../src/lib/consent/testing";
+import { resetConsentForTest } from "../../test-support/consent";
 
 /** Paint a value and read it back, so a `var()` chain and an `oklch()` compare. */
 function paint(value: string): string {

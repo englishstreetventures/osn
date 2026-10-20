@@ -5,7 +5,7 @@ import { MapPreview } from "../../src/components/MapPreview";
 import type { EventSummary } from "../../src/components/types";
 import { defaultGrants } from "../../src/lib/consent/record";
 import { grantCategory, saveConsent, setReloadPageForTest } from "../../src/lib/consent/store";
-import { resetConsentForTest, seedConsentForTest } from "../../src/lib/consent/testing";
+import { resetConsentForTest, seedConsentForTest } from "../test-support/consent";
 
 const baseEvent: EventSummary = {
   id: "9f7a2c14-1b3d-4e5f-8a01-000000000001",

@@ -91,7 +91,7 @@ pre-push:
       #
       # Comments stay above `run:`. Inside the folded block a `#` line is part
       # of the command, and the shell would drop every flag after it.
-      # Both drops are tracked in englishstventures/osn#1381.
+      # Both drops are tracked in englishstreetventures/osn#1381.
       run: >
         bun audit --audit-level=high
         --ignore=GHSA-vfj7-8cjw-p6xm

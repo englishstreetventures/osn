@@ -14,7 +14,7 @@ related:
   - "[[dev-environment]]"
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
-last-reviewed: 2026-10-17
+last-reviewed: 2026-10-19
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -1137,7 +1137,7 @@ dispatch it by hand, or open the scheduled one, and read the plan before approvi
 > cutover and 2026-09-13. The `Preflight — required prod secrets are set` step in
 > `production-release.yml` guards against exactly this, but it only asserts the names
 > in its own `required` list, which today holds `OSN_PAIRWISE_SALT` alone — **a new
-> fail-closed secret is caught only if somebody adds its name there** (englishstventures/osn#1021
+> fail-closed secret is caught only if somebody adds its name there** (englishstreetventures/osn#1021
 > is extending the list to the whole set). The smoke check after the deploy (§7) catches
 > the 503 and rolls osn-api back, but only after the new version has served for up to a
 > minute. So before approving a release that introduces one, diff the names yourself:
@@ -1226,7 +1226,7 @@ counts with no Checklist or Budget card, its Checklist, Budget and Registry rows
 say "Included with Gold" and Vendors "Included with Crimson"; a migrated Crimson
 wedding opens every module.
 
-The release that follows — englishstventures/osn#1315, which deletes the legacy
+The release that follows — englishstreetventures/osn#1315, which deletes the legacy
 entitlement rows and drops the portal's fallback and the list's legacy keys —
 ships only once this one is live on both jobs.
 
@@ -1359,8 +1359,8 @@ How it decides:
   offers it again, the same content included, until the cause is fixed (§5.0 item 7);
   on dev the dev gate holds the change back from production.
 - A rollback restores code only. The migrations the job applied stay (§4).
-- Dispatching **Deploy** with `smoke_fail` set to a dev Worker forces that Worker's
-  check to fail — the dry run of the rollback path ([[dev-environment]] §2).
+- The rollback path has run on dev. The record, and how to prove it again by hand,
+  are in [[dev-environment]] §2, *Proving the rollback path*.
 
 ### The checks
 
@@ -1388,7 +1388,7 @@ How it decides:
    without `OSN_TOTP_ENCRYPTION_KEY` from the 2026-07-27 cutover to 2026-09-13. The smoke
    check fails such a deploy and rolls it back, after up to a minute of 503s; re-read
    §0 against `wrangler secret list --env <tier>` when the list above grows. Extending
-   the preflight to the whole set is englishstventures/osn#1021.
+   the preflight to the whole set is englishstreetventures/osn#1021.
 
    `/.well-known/jwks.json` must also return an ES256 (`alg:"ES256"`, P-256) JWK; the
    smoke check asks for one.
@@ -1711,7 +1711,7 @@ Set `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` to the value **currently live** in
 > `printf '%s' "$OLD_KEY" | base64 -d | wc -c` must print `32`.
 
 ```bash
-gh secret set OSN_TOTP_ENCRYPTION_KEY_PREVIOUS --repo englishstventures/osn --env production
+gh secret set OSN_TOTP_ENCRYPTION_KEY_PREVIOUS --repo englishstreetventures/osn --env production
 # then run the `set-osn-api-secret` workflow: secret=OSN_TOTP_ENCRYPTION_KEY_PREVIOUS, tier=production
 # or, by hand — read the warning above first:
 cd osn/api && printf '%s' "$OLD_KEY" | bunx wrangler secret put OSN_TOTP_ENCRYPTION_KEY_PREVIOUS --env production
@@ -1732,7 +1732,7 @@ Generate the new key, **keep a copy**, set it, redeploy.
 
 ```bash
 openssl rand -base64 32          # keep this value; you will need it to rotate again
-gh secret set OSN_TOTP_ENCRYPTION_KEY --repo englishstventures/osn --env production
+gh secret set OSN_TOTP_ENCRYPTION_KEY --repo englishstreetventures/osn --env production
 # then run the `set-osn-api-secret` workflow: secret=OSN_TOTP_ENCRYPTION_KEY, tier=production
 ```
 

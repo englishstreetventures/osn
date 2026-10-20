@@ -23,7 +23,7 @@ import {
   saveConsent,
   setReloadPageForTest,
 } from "../../../src/lib/consent/store";
-import { resetConsentForTest, seedConsentForTest } from "../../../src/lib/consent/testing";
+import { resetConsentForTest, seedConsentForTest } from "../../test-support/consent";
 import { onSecureOriginWithJar } from "../../test-support/secure-origin";
 
 /**

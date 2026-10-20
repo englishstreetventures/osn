@@ -552,22 +552,32 @@ export default function RsvpView(props: RsvpViewProps) {
                                     next one. */}
                                 <Td valign="middle" class="wrap-break-word">
                                   {row.firstName} {row.lastName}
+                                  {/* Each badge explains itself in visually
+                                      hidden text inside it, not in a `title`:
+                                      a title shows on mouse hover only and is
+                                      not part of the cell's accessible name,
+                                      and beside the text Chrome would hand it
+                                      to a screen reader a second time, as the
+                                      badge's description. `normal-case`
+                                      because the badge's `uppercase` would
+                                      otherwise reach a screen reader as
+                                      capitals. */}
                                   <Show when={isNewRow()(row.guestId, section.event.id)}>
                                     {" "}
-                                    <span
-                                      class="bg-gold/15 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm px-1.5 py-0.5 uppercase"
-                                      title="Changed by the guest since you last looked"
-                                    >
+                                    <span class="bg-gold/15 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm px-1.5 py-0.5 uppercase">
                                       New
+                                      <span class="sr-only normal-case">
+                                        Changed by the guest since you last looked
+                                      </span>
                                     </span>
                                   </Show>
                                   <Show when={row.consentSource === "organiser_attested"}>
                                     {" "}
-                                    <span
-                                      class="border-gold/40 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase"
-                                      title="Recorded by a host (phone/paper RSVP)"
-                                    >
+                                    <span class="border-gold/40 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
                                       Host-entered
+                                      <span class="sr-only normal-case">
+                                        Recorded by a host (phone/paper RSVP)
+                                      </span>
                                     </span>
                                   </Show>
                                   <Show
@@ -577,20 +587,23 @@ export default function RsvpView(props: RsvpViewProps) {
                                     }
                                   >
                                     {" "}
-                                    <span
-                                      class="border-gold/40 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase"
-                                      title="A host last set this status. The dietary requirements are still the ones the guest or their household gave."
-                                    >
+                                    <span class="border-gold/40 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
                                       Host-updated
+                                      <span class="sr-only normal-case">
+                                        A host last set this status. The dietary requirements are
+                                        still the ones the guest or their household gave.
+                                      </span>
                                     </span>
                                   </Show>
                                   <Show when={row.consentSource === "inviter_attested"}>
                                     {" "}
-                                    <span
-                                      class="border-border text-text-muted text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase"
-                                      title="Given by the household that brought them, not by the plus-one. A host may have changed the status since; the dietary requirements are the household's."
-                                    >
+                                    <span class="border-border text-text-muted text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
                                       Household-entered
+                                      <span class="sr-only normal-case">
+                                        Given by the household that brought them, not by the
+                                        plus-one. A host may have changed the status since; the
+                                        dietary requirements are the household's.
+                                      </span>
                                     </span>
                                   </Show>
                                   <Show when={row.submittedBy}>
@@ -599,11 +612,11 @@ export default function RsvpView(props: RsvpViewProps) {
                                         Answered by {by().firstName}
                                         <Show when={by().viaLink}>
                                           {" "}
-                                          <span
-                                            class="border-border ml-0.5 inline-block rounded-sm border px-1 align-baseline uppercase"
-                                            title="Sent from a signed-in linked musubi account"
-                                          >
+                                          <span class="border-border ml-0.5 inline-block rounded-sm border px-1 align-baseline uppercase">
                                             linked musubi
+                                            <span class="sr-only normal-case">
+                                              Sent from a signed-in linked musubi account
+                                            </span>
                                           </span>
                                         </Show>
                                       </span>

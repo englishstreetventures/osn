@@ -29,6 +29,12 @@ export interface EventSheetProps extends RsvpData {
    * follows the events section it belongs to — see AnimatedModal.themeVars.
    */
   themeVars?: Record<string, string>;
+  /**
+   * Any invited member of the household has a reply on file for this event.
+   * Past the deadline it keeps the details panel's way into the read-only form
+   * ("View your RSVP"); see `DetailsPanel.replied`.
+   */
+  replied?: boolean;
   onClose: () => void;
 }
 
@@ -100,7 +106,14 @@ export function cssTimeMs(value: string): number {
  * and the resize reads that same duration, so the switch is instant.
  */
 export function EventSheet(props: EventSheetProps) {
-  const [own, rsvp] = splitProps(props, ["event", "panel", "siteUrl", "themeVars", "onClose"]);
+  const [own, rsvp] = splitProps(props, [
+    "event",
+    "panel",
+    "siteUrl",
+    "themeVars",
+    "replied",
+    "onClose",
+  ]);
 
   const [active, setActive] = createSignal<EventPanel>(own.panel);
   const [shown, setShown] = createSignal<ReadonlySet<EventPanel>>(new Set([own.panel]));
@@ -195,6 +208,7 @@ export function EventSheet(props: EventSheetProps) {
               siteUrl={own.siteUrl}
               onRsvp={() => show("rsvp")}
               rsvpClosed={rsvp.closed}
+              replied={own.replied}
               rsvpClosedOn={rsvp.closedOn}
               active={active() === "details"}
               titleId={titleIds.details}

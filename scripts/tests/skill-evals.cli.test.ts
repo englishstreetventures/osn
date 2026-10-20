@@ -263,7 +263,7 @@ test("compare refuses a delta across a model change", async () => {
 });
 
 // Readiness is not `status`. A run whose every solution is scored has sat at
-// `pending` for over an hour, so waiting on the field would hang CI until its
+// `pending` for over an hour, so waiting on the field would hang a poll until its
 // timeout; a run with a variant still unscored is the real not-yet.
 test("a scored run is ready even while its status still says pending", async () => {
   const dir = await makeTree(["prep-pr"], ["prep-pr-one"]);
@@ -411,7 +411,7 @@ test("compare says the baseline was skipped when the run had none", async () => 
   }
 });
 
-// An `-n 1` run — the CI inner loop's shape — carries neither `runCount` nor a
+// An `-n 1` run — the inner loop's shape — carries neither `runCount` nor a
 // `runs` array. Demanding them waits for a field that never arrives: the first
 // `--skip-baseline -n 1` run sat through a 90-minute poll having finished
 // before the poll began.
@@ -603,8 +603,8 @@ test("a failed run with a solution nothing scored is still not ready", async () 
 // `path` is optional on the payload — the API has returned scenarios without
 // one. Every read of it has to guard, and one did not: `ready`, `compare` and
 // `record` all died with `undefined is not an object` because `short` is
-// computed on every parse. Inside CI's poll that reads as "the run was never
-// scored" for a run that was scored, and the job burns its full timeout.
+// computed on every parse. Inside a poll that reads as "the run was never
+// scored" for a run that was scored, and the poll burns its full timeout.
 
 test("a scenario with no path does not crash the readiness parse", async () => {
   const dir = await makeTree(["prep-pr"], ["prep-pr-one"]);
@@ -670,80 +670,9 @@ test("a thin cell with no path is reported rather than crashing", async () => {
   }
 });
 
-// The quality gate is the one deterministic signal in this loop: the same
-// SKILL.md scores the same twice. That is what makes it safe to file an issue
-// against automatically, where an eval delta is not.
+// A large eval drop adds a note to the table; it never fails the command.
 
-test("quality-check passes an unchanged score and flags a real drop", async () => {
-  const dir = await makeTree(["alpha", "beta"], []);
-  try {
-    await mkdir(join(dir, ".claude/evals"), { recursive: true });
-    await writeFile(
-      join(dir, ".claude/evals/quality.json"),
-      JSON.stringify({ skills: { alpha: { score: 90, recordedAt: "2026-09-01" } } }),
-    );
-
-    const same = await run(dir, "quality-check", "--scores", '{"alpha":90}');
-    expect(same.exitCode).toBe(0);
-    expect(same.stdout).toContain("| `alpha` | 90% | 90% | 0 |");
-
-    const drop = await run(dir, "quality-check", "--scores", '{"alpha":84}');
-    expect(drop.exitCode).toBe(1);
-    expect(drop.stdout).toContain("REGRESSION: `alpha` fell 6 points, 90% to 84%.");
-
-    // Four points is inside what a reword can move without meaning anything.
-    const small = await run(dir, "quality-check", "--scores", '{"alpha":86}');
-    expect(small.exitCode).toBe(0);
-    expect(small.stdout).not.toContain("REGRESSION");
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("quality-check fails anything under the threshold, however it got there", async () => {
-  const dir = await makeTree(["alpha"], []);
-  try {
-    await mkdir(join(dir, ".claude/evals"), { recursive: true });
-    // No history at all: a new skill under the floor still has to fail.
-    await writeFile(join(dir, ".claude/evals/quality.json"), JSON.stringify({ skills: {} }));
-    const out = await run(dir, "quality-check", "--scores", '{"alpha":68}');
-    expect(out.exitCode).toBe(1);
-    expect(out.stdout).toContain("under the 70% threshold");
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("quality-check refuses a --scores argument it cannot trust", async () => {
-  const dir = await makeTree(["alpha"], []);
-  try {
-    expect((await run(dir, "quality-check", "--scores", "not json")).exitCode).toBe(1);
-    expect((await run(dir, "quality-check", "--scores", "[90]")).exitCode).toBe(1);
-    const bad = await run(dir, "quality-check", "--scores", '{"alpha":"91%"}');
-    expect(bad.exitCode).toBe(1);
-    expect(bad.stderr).toContain("is not a number");
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("quality-record round-trips into a comparison", async () => {
-  const dir = await makeTree(["alpha"], []);
-  try {
-    await mkdir(join(dir, ".claude/evals"), { recursive: true });
-    await run(dir, "quality-record", "--scores", '{"alpha":93}');
-    const out = await run(dir, "quality-check", "--scores", '{"alpha":93}');
-    expect(out.exitCode).toBe(0);
-    expect(out.stdout).toContain("| `alpha` | 93% | 93% | 0 |");
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-// A large eval drop labels the pull request; it never files and never fails.
-// The marker goes to stderr so it cannot land in the comment a human reads.
-
-test("compare marks a scenario that fell past the threshold, on stderr only", async () => {
+test("compare marks a scenario that fell past the threshold", async () => {
   const dir = await makeTree(["prep-pr"], ["prep-pr-one"]);
   try {
     const hash = (await run(dir, "fingerprint", ".claude/evals/prep-pr-one")).stdout.trim();
@@ -759,9 +688,8 @@ test("compare marks a scenario that fell past the threshold, on stderr only", as
     await writeFile(join(dir, "run.json"), runJson("prep-pr-one", { a: [6, 12] }));
     const out = await run(dir, "compare", "--run", "run.json");
     expect(out.exitCode).toBe(0);
-    expect(out.stderr).toContain("NEEDS-DECISION: prep-pr-one");
     expect(out.stdout).toContain("fell 25 points or more");
-    expect(out.stdout).not.toContain("NEEDS-DECISION");
+    expect(out.stdout).toContain("> - prep-pr-one: 90% → 50%");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -779,7 +707,7 @@ test("compare stays quiet when the fixture moved, however far the score fell", a
 
     await writeFile(join(dir, "run.json"), runJson("prep-pr-one", { a: [6, 12] }));
     const out = await run(dir, "compare", "--run", "run.json");
-    expect(out.stderr).not.toContain("NEEDS-DECISION");
+    expect(out.stdout).not.toContain("fell 25 points or more");
     expect(out.stdout).toContain("history void");
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -789,7 +717,7 @@ test("compare stays quiet when the fixture moved, however far the score fell", a
 test("a symlinked skill is not a skill this script can see", async () => {
   // `npx skills add` installs a third-party skill under `.agents/skills/<name>/`
   // and puts a symlink at `.claude/skills/<name>`. Everything here — the
-  // scenario owner, the subset filter, the quality board — is a trend line for
+  // scenario owner, the subset filter, the scoreboard — is a trend line for
   // skills this repository can change, and that tree is somebody else's text.
   // `listSkills` filters on `isDirectory()`, which answers false for a symlink,
   // and this is the test that says so before someone "fixes" the filter.

@@ -97,7 +97,7 @@ premium designs are dormant ([[cire-invite-designs]]).
 
 The other keys in the enum (`vendors`, `registry`, `capacity_500`,
 `capacity_1000`, `ai`) are what 0073 read to set each wedding's tier. Their rows
-are still in the table and nothing reads them. englishstventures/osn#1315
+are still in the table and nothing reads them. englishstreetventures/osn#1315
 deletes them and narrows the enum once the tier release is deployed.
 
 ---
@@ -230,7 +230,7 @@ imports and editor saves):
 
 `tier` is `requiredTier` — the portal names it in the import error ("upgrade
 to Gold") and says plainly when it is `null`. `entitlement: "capacity"` stays
-for a portal build that reads it, until englishstventures/osn#1315. Naming a
+for a portal build that reads it, until englishstreetventures/osn#1315. Naming a
 plus-one past the cap answers `409 guest_capacity` instead.
 
 ---
@@ -247,7 +247,7 @@ couple and never count; a third owner counts like a co-host, so promoting a
 co-host to owner frees no place. One SQL fragment, `peopleCountSql` in
 `cire/api/src/services/hosts.ts`, is the definition: every guard and every read
 of the count embeds it. Claimed vendors do not count yet
-(englishstventures/osn#1457).
+(englishstreetventures/osn#1457).
 
 **Where it is enforced** — inside the statement that writes, with the limit
 read from the wedding's tier in the same statement (`peopleLimitSql`), so two
@@ -311,7 +311,7 @@ payload without `peopleLimit` leaves the panel as it was.
 ## The wedding list
 
 `GET /api/organiser/weddings` returns, per wedding, `tier`, `guestCap` (the
-tier's cap) and `entitlements`. Until englishstventures/osn#1315,
+tier's cap) and `entitlements`. Until englishstreetventures/osn#1315,
 `entitlements` carries the legacy keys the tier stands for
 (`legacyEntitlementKeys`): Gold → `registry`, `capacity_500`; Crimson →
 `vendors`, `registry`, `capacity_1000`, `premium_templates`; plus
@@ -329,7 +329,7 @@ predicate every surface uses: each `MODULE_NAV` entry with a `lock` names its
   With no `tier` at all the list came from an API that predates tiers, and the
   legacy keys stand in for it with the same mapping 0073 used
   (`legacyTierFromEntitlements`), so a portal deployed ahead of its API locks
-  nothing the couple paid for. The fallback goes with englishstventures/osn#1315.
+  nothing the couple paid for. The fallback goes with englishstreetventures/osn#1315.
 - **`ModuleShell`** coerces a locked module to Overview: a deep link or a stale
   hash lands on a real view, and a locked module's panel never mounts.
 - **The rail and the sheet** keep a locked row visible but faded. Its accessible
@@ -518,7 +518,7 @@ onboarding tier step can place it under the tier cards.
 The tier is one value per wedding, so it cannot hold purchase history: the money
 side lives in `wedding_upgrade_purchases` and `platform_sales`
 ([[cire-upgrades]]). Refunds do not lower a tier automatically; the customer
-wording for that is englishstventures/osn#1317.
+wording for that is englishstreetventures/osn#1317.
 
 ## Deploying a change to tiers
 

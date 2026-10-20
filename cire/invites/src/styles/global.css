@@ -462,6 +462,12 @@
      On this scheme the metal already clears 4.5 on every surface, so the two
      are the same colour; on a paler one they part company. */
   --color-gold-ink: oklch(74.99% 0.0854 82.08);
+  /* The label on a gold fill: every gold button and the open RSVP button.
+     Derived to clear 4.5:1 on the gold — the page colour when that reads, as
+     it does here, else the ink, else one of them walked toward black or white.
+     A mid-tone gold (chapel, garden) gets a near-black or near-white label
+     while its metal stays exactly as chosen. */
+  --color-on-gold: oklch(19.96% 0.0331 147.34);
   /* The festive counter-colour — timeline dots, ornament, ambient accents. */
   --color-bloom: oklch(70.5% 0.1123 24.5);
   --color-bloom-dim: oklch(70.5% 0.1123 24.5 / 0.3);
@@ -798,13 +804,14 @@
   --ui-ink-secondary: var(--color-text-muted);
   --ui-ink-tertiary: var(--color-text-muted);
 
-  /* Gold is the accent, as it is in both portals. `on-accent` is the page
-     ground: a gold fill carries dark ink, never a near-white. */
+  /* Gold is the accent, as it is in both portals. `on-accent` is the derived
+     on-gold label ink, held to 4.5:1 on the gold for every scheme: the page
+     colour on evergreen, a near-black or near-white on a mid-tone gold. */
   --ui-accent: var(--color-gold);
   --ui-accent-strong: var(--color-gold);
   --ui-accent-soft: var(--color-gold-dim);
   --ui-accent-ink: var(--color-gold-ink);
-  --ui-on-accent: var(--color-bg);
+  --ui-on-accent: var(--color-on-gold);
 
   /* No warn colour of its own — an invite has nothing to warn about. The read
      gold stands in so a shared component that asks for one is legible rather

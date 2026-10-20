@@ -193,8 +193,8 @@ describe("applySecurityHeaders", () => {
 
 /**
  * `public/_headers` covers what the middleware cannot reach: the prerendered
- * `/privacy` and `/terms` and the `/_astro/*` bundles, served by the static-asset
- * layer without running the Worker. Only rule lines count — the file's comments
+ * `/privacy` and `/terms`, the `/_astro/*` bundles and the other files in
+ * `public/`, served by the static-asset layer without running the Worker. Only rule lines count — the file's comments
  * name headers too.
  */
 function headerRules(source: string): { path: string; name: string; value: string }[] {

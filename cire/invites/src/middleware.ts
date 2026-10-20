@@ -9,8 +9,9 @@ import { applySecurityHeaders } from "./lib/security-headers";
  *
  * This is the REAL home for these headers on the guest site: `cire/invites` is an
  * SSR Worker (`@astrojs/cloudflare`), and the `public/_headers` file only
- * applies to the static-asset layer (prerendered `/privacy` + `/terms` and
- * `/_astro/*`) — NOT to the Worker-rendered invite routes (`/<slug>`, `/`).
+ * applies to the static-asset layer (prerendered `/privacy` + `/terms`,
+ * `/_astro/*` and the other files in `public/`, such as `/robots.txt` and
+ * `/favicon.ico`) — NOT to the Worker-rendered invite routes (`/<slug>`, `/`).
  * See `lib/security-headers.ts` for the full rationale and the CSP audit.
  *
  * We harden every SSR response, including the bare-domain 302 redirect (cheap,

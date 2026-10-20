@@ -9,9 +9,9 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-20
 ---
-# Invite Builder
+# Cire invite builder
 
 Lets an organiser customise the **presentation** of the guest invite — swap a
 couple of images, rewrite a few copy blocks, and apply a per-section **theme**
@@ -123,7 +123,7 @@ carries no captured source dims (three hand-kept copies; the two inside
 pair by convention). `cropAspectRatio` also gained a `[0.05, 20]` clamp in both
 mirrors: `natW`/`natH` are validated only as positive and finite, and a ratio
 that stringifies to exponential notation is a value CSS drops outright, which
-would render the band as a zero-height box (S-L1 in `englishstventures/osn-tracker`).
+would render the band as a zero-height box.
 
 **It is behind the claim gate — enforced at the API, not in the render tree.**
 The first cut gated it only with `<Show when={claimResult()}>`, which controls
@@ -469,7 +469,7 @@ gradient.
 | `card`   | Raised paper       | event cards, modals, panels, the code-entry box               |
 | `ink`    | Everything written | headings, body, muted text, hairlines                         |
 | `gilt`   | The metal          | rules, eyebrows, buttons, links, focus ring                   |
-| `bloom`  | Festive counter    | dots, ornament, motifs, ambient accents, the RSVP confirmation fill + tick |
+| `bloom`  | Festive counter    | dots, ornament, motifs, ambient accents, the answered RSVP button's fill |
 
 The builder labels each picker with the **seed name** from that first column —
 Ground, Card, Ink, Gilt, Bloom — and prints the "Drives" line beneath it. The
@@ -518,6 +518,42 @@ identity:
 | `--color-text-muted` | venue lines, descriptions, the closed RSVP-by line | card, raised, ground @ 4.5:1 |
 | `--color-gold-ink` | the open RSVP-by line, the event-card date | card, raised, ground @ 4.5:1 |
 
+Two more tokens carry a label rather than sit under one, and are held to the
+text minimum against the fill the label is written on:
+
+| Token | What it paints | Walked against |
+|---|---|---|
+| `--color-bloom` | the answered RSVP button's fill, under a `--color-bg` label and tick ("RSVP given") | ground @ 4.5:1 |
+| `--color-on-gold` | the label on every gold fill — the open RSVP button, `@cire/ui` primary and cta hover (`--ui-on-accent`), the hand-written gold hovers | gold @ 4.5:1 |
+
+`--color-on-gold` is derived, never picked: the page colour when it reads on
+the gold, else the ink, else whichever of the two is nearer the stronger pole,
+walked toward it only until it clears — so the label keeps the scheme's own
+tint rather than becoming bare black or white. The pole is chosen by
+measuring both against the gold, not by the gold's lightness — garden's rose
+gold sits just past the midpoint, where `ensureContrast`'s "dark on light"
+rule reaches pure black at 4.47:1 while white gives 4.70. The stronger pole
+always clears at least 4.58:1 against any colour, so the walk always lands.
+Each step keeps the starting colour's chroma where that lightness can hold it
+inside sRGB and lowers it where it cannot, so a walked label is a colour the
+browser paints as named; `palette.test.ts` checks that across 500 seeded
+schemes. The organiser's gold is never moved to make room:
+
+| Preset | `--color-on-gold` | On gold |
+|---|---|---|
+| evergreen, jewel | the page colour | 8.04, 9.17 |
+| fog | the page colour | 4.96 |
+| chapel | near-black, `oklch(14% 0.018 70)` | 4.60 |
+| garden | near-white, `oklch(99.5% 0.0023 25)` | 4.63 |
+
+*Measured 2026-10-20 — `derivePalette(PALETTE_PRESETS[key])` from `@cire/theme`, `contrastOklch` of `--color-on-gold` against `--color-gold`*
+
+Holding bloom to 4.5:1 rather than the UI floor is what lets the answered
+button's label be the page colour on every scheme. Garden's bloom seed sits at
+`oklch(50% 0.068 128)` (4.81:1 on its blush ground) so the preset paints
+exactly the swatch the builder shows; `paletteAdjustments` reports a moved
+bloom as "Adjusted so the RSVP button's label stays readable."
+
 `--color-gold-ink` exists because **`--color-gold` is the metal, not a text
 colour.** Holding it to 3:1 is right for a rule, a border or a display heading
 and wrong for a sentence, and holding *it* to 4.5 would drag every rule and
@@ -559,16 +595,22 @@ that made it a text pair wearing a UI bar, and the reason `chapel` (3.58:1) and
 `--color-gold-ink`, closing **C-M2**. What is left on that pair is genuinely UI:
 the card's outlined buttons, the hairlines and the lit card edge.
 **`--color-bloom` gets `bloom-on-raised`, held to 3:1 like `gilt-on-raised`
-above it** — it now has a render site: the RSVP confirmation button's sweep
-fill and permanent tick on `EventCard`, both painted on `raised`. `bloom` is
-derived the same way `gilt` is (walked against `ground` only, at the UI
-floor), so the same straddling-scheme failure mode applies, and this pair
-is what catches it. Adding it moved the built-in `fog` preset's bloom seed
-from 63% to 60% lightness — its near-white `card`/`raised` needed a touch
-more headroom than `ground` gave it. 60% only just cleared the floor
-(3.24:1 measured), read as thin rather than legible, so it moved again to
-50% (~4.92:1); `chapel` had the identical thin-margin problem (3.18:1 at its
-original 60%) and moved the same way, to 50% (~4.83:1).
+above it** — the answered RSVP button's fill is the shape of a control on
+`EventCard`, painted on `raised`. Like `gilt`, `bloom` is walked against
+`ground` only, so the same straddling-scheme failure mode applies, and this
+pair is what catches it. `fog` and `chapel` carry their bloom seeds at 50%
+lightness for headroom against their near-white `raised` (~4.92:1 and
+~4.83:1).
+
+**Two pairs measure a label on its own fill**, both at 4.5:1:
+`label-on-bloom` (`--color-bg` on `--color-bloom`, "The “RSVP given” label is
+hard to read on its button") and `label-on-gold` (`--color-on-gold` on
+`--color-gold`, "Labels on gold buttons are hard to read"). `label-on-bloom`
+fires where bloom's walk against the page runs out of range: a ground just
+past the lightness midpoint, which sends the walk toward black where black
+tops out under 4.5. `label-on-gold` is a backstop: the on-gold walk always
+lands, so no derived palette fires it, and `palette.test.ts` pins that with a
+seeded sweep of 500 random schemes.
 
 The confirmation fill and tick are also no longer transient — and getting
 that right took three passes, all of them shipping green, which is the part
@@ -966,6 +1008,15 @@ static-asset layer without running the Worker, so they get only the
 `public/_headers` rules, which leave `X-Robots-Tag` out on purpose.
 `tests/lib/security-headers.test.ts` fails if `_headers` gains it, and
 `tests/pages/legal-pages.test.ts` fails if a legal page stops prerendering.
+
+`public/robots.txt` lets every crawler fetch every path, so crawlers reach the
+header. It and `public/favicon.ico` are static files, so the asset layer answers
+`/robots.txt` and `/favicon.ico` and neither path reaches the `[slug]` route.
+`tests/public/static-assets.test.ts` fails if `robots.txt` gains a rule, if
+either file goes, or if `wrangler.jsonc` makes the Worker run ahead of static
+assets. `bun run --cwd cire/invites favicon` writes the `.ico` from
+`public/favicon.svg`. Run it after any change to the SVG and commit both files;
+the build does not run it.
 
 **History (changed 2026-08-02).** `/` used to resolve a "primary wedding" via a
 public `GET /api/primary-wedding` and redirect to `/<slug>` — returning the sole
@@ -1371,14 +1422,14 @@ into the first form control of the active section, which sits *behind* the
 opaque overlay the open menu paints across the top of that section, with Escape
 bound to the tabs and the trigger rather than to the field. WCAG 2.2 SC 2.4.11
 *Focus Not Obscured*, and the "reveal without advancing focus" exception does
-not apply (**SM-C-M1** in `englishstventures/osn-tracker`).
+not apply.
 
 A fifth closer is not a dismissal at all: the `ResizeObserver` that already
 picks the preview layer also collapses the menu once the container crosses
 `SECTION_MENU_REM` (48rem), because the trigger is the signal's only other
 writer — left alone, a menu opened narrow stays "open" for the rest of the
 session after a rotate or resize, and `selectSection` then focuses a
-`display: none` trigger on every wide tab click (**SM-P-I1** in `englishstventures/osn-tracker`).
+`display: none` trigger on every wide tab click.
 
 **Arrow keys follow the geometry, not the DOM order.** `ArrowLeft`/`ArrowRight`
 step one, always. `ArrowDown`/`ArrowUp` are handled **only while the menu is
@@ -1435,12 +1486,13 @@ rhythm down the page is visible while editing. Both layers share
 guest consumes (`derivePalette` + `typographyVars` from `@cire/theme`,
 resolved once in the `previewTokens` memo — and shared into `PaletteField`
 via its `tokens`/`adjustments` props, so the whole builder derives exactly
-once per colour-drag frame). Both layers stay permanently mounted with a
-CSS-only container-query switch — a deliberate trade (one markup source, no
-`ResizeObserver`) accepted as `P-I1` in `englishstventures/osn-tracker`. The
+once per colour-drag frame). A `ResizeObserver` on the builder container
+picks which layer to mount (`previewLayer`: `narrow`, `wide` or `unknown`;
+`unknown` mounts both), and each layer keeps its container-query classes as
+the visual authority, so the two never show at once. The
 `url("…")` sink both layers' crop rendering shares (`cropBackgroundStyle`,
-lockstep organiser + guest copies) escapes its URL argument at the sink
-(S-L1). The hero preview is **crop-aware** (saved rectangles render via the
+lockstep organiser + guest copies) escapes its URL argument at the sink.
+The hero preview is **crop-aware** (saved rectangles render via the
 guest's background-fraction technique — the framing never lies) and the phone
 frame uses the hero's phone rectangle, falling back to the desktop crop
 exactly as the guest site does. Tone pickers render **as their surface**
@@ -1634,7 +1686,7 @@ acknowledged, clears the move announcement, and says so in the card. Leaving the
 builder inside the pause still sends the order.
 
 A true draft→publish model that would unify the two persistence models needs
-API/schema support — tracked as an open issue in `englishstventures/osn`, along
+API/schema support — tracked as an open issue in `englishstreetventures/osn`, along
 with an `updatedAt` concurrent-edit guard (the GET payload doesn't expose a
 row version yet).
 
@@ -1762,7 +1814,7 @@ redacting logger, and metrics:
 
 Uploaded images are personal data (wedding photos) and inherit the existing cire
 retention gap. Tracked alongside the other cire entries — see
-`gh issue list --repo englishstventures/osn --label product:cire`.
+`gh issue list --repo englishstreetventures/osn --label product:cire`.
 
 The FAQ entries are organiser-written free text that may name people or places
 (a venue address, who to call on the day). They live in `wedding_faqs`, go with
