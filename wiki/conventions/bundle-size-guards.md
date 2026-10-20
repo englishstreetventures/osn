@@ -149,10 +149,9 @@ the script, so the chained invocation never runs on a cache hit — the explicit
 workflow step is what still checks the artifact that IS on disk in that case.
 Both invocations matter; neither one alone covers both paths.
 
-`musubi/landing` and `pulse/landing` also deploy from
-`.github/workflows/deploy-osn-pulse-landing.yml` (a feature-branch preview,
-`bun run --cwd <dir> build`) — that already runs each app's own chained `build`
-script, so the guard applies there too with no separate step needed.
+No workflow deploys `musubi/landing` or `pulse/landing`, so for those two the
+guard runs only from each app's own chained `build` script and the `--all` step
+in `ci.yml`.
 
 ### Per-app thresholds — mirrors `scripts/bundle-size-budgets.txt`
 

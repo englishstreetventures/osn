@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-10-19
 ---
 
 # Component Lab
@@ -259,9 +259,9 @@ worked out in `src/lab/three.tsx`:
 > `skills-lock.json` pins the upstream commit it came from and a hash of the
 > folder, which `scripts/check-skills-lock.ts` recomputes on every pull
 > request. Fixing something in place fails that check, and the next install
-> throws the fix away. A fix goes upstream and comes back as a new pin. oxlint,
-> oxfmt and the skill-quality loop leave the tree alone for that reason — see
-> [[agent-tooling#Third-party skills]].
+> throws the fix away. A fix goes upstream and comes back as a new pin. oxlint and
+> oxfmt leave the tree alone for that reason, and `scripts/skill-evals.ts` never
+> lists a symlinked skill — see [[agent-tooling#Third-party skills]].
 
 ## Gates
 
