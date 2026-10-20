@@ -422,8 +422,8 @@ drops the rows. The re-read runs on:
   wedding's dashboard is open, and not for a helper's seat. A signal, a
   dropped socket, a reconnect and a stop each re-read the list at once,
   outside the once-a-minute limit. A member removed, who left, or narrowed to
-  `helper` gets the signal and then a 1008 close, so their tab re-reads and
-  stops listening. See [[realtime]].
+  `helper`, and every member of a deleted wedding, gets the signal and then a
+  1008 close, so their tab re-reads and stops listening. See [[realtime]].
 - **a 403 from a wedding route.** `Dashboard` provides its own `AuthContext`
   whose `authFetch` is wrapped by `watchForbidden` (`lib/forbidden-watch.ts`).
   Every request below it is watched.
@@ -447,7 +447,8 @@ asked for once more.
 
 Push stops in a tab when no hub is bound on the tier, when the socket is
 blocked, after six failed attempts, or when the hub closes the socket with
-1008 (access revoked, or the member's socket cap). It stays stopped in that tab
+1008 (access revoked, the topic or the member's socket cap, or a frame other
+than `ping`). It stays stopped in that tab
 until the open wedding changes or the page reloads. Until then, a tab left
 untouched waits for its next request, move or return to view. Each time push
 stops, the tab reports it to `POST /api/realtime/fallback`

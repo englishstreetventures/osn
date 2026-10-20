@@ -28,10 +28,10 @@ cire is the one product that uses it, so `cire` is the one entry in `REALTIME_PR
 
 | Piece | Import | Runs on |
 |---|---|---|
-| Protocol: topics, `Signal`, `PING`/`PONG`, `PING_INTERVAL_MS`, `CLOSE_CODES` | `@shared/realtime` | anywhere |
-| `publish()`, `subscribe()`, `HubNamespace` | `@shared/realtime/server` | the product Worker (Effect) |
+| Protocol: topics, `Signal`, `PING`/`PONG`, `PING_INTERVAL_MS`, `CLOSE_CODES`, `FALLBACK_OUTCOMES` | `@shared/realtime` | anywhere |
+| `publish()`, `subscribe()`, `HubNamespace`; the fallback beacon's `readFallbackOutcome`, `recordClientFallback`, `MAX_FALLBACK_BEACON_BYTES` | `@shared/realtime/server` | the product Worker (Effect) |
 | `TopicHub` Durable Object | `@shared/realtime/hub` | workerd only — the Worker entry imports it, nothing else |
-| `createTopicSubscription()` | `@shared/realtime/client` | the browser (no Effect) |
+| `createTopicSubscription()`, `sendFallbackBeacon()` | `@shared/realtime/client` | the browser (no Effect) |
 | `useTopic()` | `@shared/realtime/solid` | Solid components |
 
 ## The hub
@@ -127,8 +127,8 @@ For one change, a member who keeps access and is evicted gets three signals: the
 ## Adopters
 
 - **cire** — hub bound as `REALTIME_HUB` in [wrangler.toml](../../cire/api/wrangler.toml) (entry `src/entry.ts`).
-  - **Route.** `GET /realtime/:topic` ([routes/realtime.ts](../../cire/api/src/routes/realtime.ts)) checks a per-IP limit of 30 a minute before anything else. Its `allow` is 30 a minute per organiser and its `allowDaily` is 300 a day per organiser (`REALTIME_SUBSCRIBES_PER_DAY`), counted in D1 (`realtime_subscribe_budget`), so every isolate reads the same count. The per-IP and per-organiser limits count in memory, per isolate. A per-IP refusal answers 429 and logs `realtime subscribe refused` with `outcome: "ip_rate_limited"`, never the address. See [[cire-auth]].
-  - **Publish.** `members-changed` on `cire:wedding:<id>` after a seat is added, re-roled, removed or left, and after the wedding is deleted, in the request's `waitUntil` ([services/realtime.ts](../../cire/api/src/services/realtime.ts)). A removal or leave publishes only when a seat went, and a role change only when the role changed. A removal, a leave, and a role change to one without the dashboard (`helper`) **revoke** that member, so their sockets close with 1008 and their tab stops. Any other change closes nobody, since the member's access still holds.
+  - **Route.** `GET /realtime/:topic` ([routes/realtime.ts](../../cire/api/src/routes/realtime.ts)) checks a per-IP limit of 30 a minute, for requests from the portal's origin only, before it looks anything up; a page on another site cannot spend a visitor's limit, and `subscribe()` refuses that origin anyway. Its `allow` is 30 a minute per organiser and its `allowDaily` is 300 a day per organiser (`REALTIME_SUBSCRIBES_PER_DAY`), counted in D1 (`realtime_subscribe_budget`), so every isolate reads the same count. The per-IP and per-organiser limits count in memory, per isolate. A per-IP refusal answers 429 and logs `realtime subscribe refused` with `outcome: "ip_rate_limited"`, never the address. See [[cire-auth]].
+  - **Publish.** `members-changed` on `cire:wedding:<id>` after a seat is added, re-roled, removed or left, and after the wedding is deleted (revoking every seat holder), in the request's `waitUntil` ([services/realtime.ts](../../cire/api/src/services/realtime.ts)). A removal or leave publishes only when a seat went, and a role change only when the role changed. A removal, a leave, and a role change to one without the dashboard (`helper`) **revoke** that member, so their sockets close with 1008 and their tab stops. Any other change closes nobody, since the member's access still holds.
   - **Portal.** `Dashboard` listens on the open wedding and re-reads the wedding list on every event. A signal or a reconnect also makes an open co-host panel (`HostsPanel`) read the seats again, from the same socket. When push stops, the portal reports the outcome to `POST /api/realtime/fallback`. See [[cire-host-portal-layout]].
 
 ## Observability
@@ -146,14 +146,14 @@ The browser client records nothing itself. When a subscription gives up, it call
 
 What that count can and cannot show:
 
-- Counters are no-ops on workerd today, so on a deployed Worker the record is the `realtime client fell back` warning in Workers Logs, which keeps 7 days.
-- `refused` is the hub's 1008 close.
+- Counters are no-ops on workerd today, so on a deployed Worker the record is the `realtime client fell back` warning in Workers Logs, which keeps 3 days on the Workers Free plan ([[retention]]).
+- `refused` is the hub's 1008 close, so it counts every revoked member's tab as well as the caps and protocol errors: a product that revokes on access loss sees one `refused` per revoked tab.
 - `exhausted` merges every refused subscribe (401, 403, 429, 503), a CSP block and a missing hub: the client sees each as a socket that failed to open.
 - A dead network stops the beacon too, so the count undercounts.
 
 ## Tests
 
-No E2E flow can reach the hub: `tools/e2e` runs each API's Bun entry, which never runs the Worker entry, so the stack has no Durable Object. These tiers are the signal path's only coverage ([[testing-patterns]]):
+No E2E flow can reach the hub: `tools/e2e` runs each API's Bun entry, which never runs the Worker entry, so the stack has no Durable Object. These tiers are the package's coverage ([[testing-patterns]]), and each adopter adds its own route, Worker-entry and browser tests (cire's are listed in [[cire-host-portal-layout]] and `cire/api/tests/routes/realtime.test.ts`):
 
-- **Vitest**, `bun run --cwd shared/realtime test:run`: the topic and signal parsers, `subscribe()`'s refusals and their order, `publish()` against a failing or silent hub, the close-code mapping, the client's reconnect, fallback, hidden-tab and fallback-memory behaviour, and `useTopic()`.
+- **Vitest**, `bun run --cwd shared/realtime test:run`: the topic and signal parsers, `subscribe()`'s refusals and their order, `publish()` against a failing or silent hub, the close-code mapping, the client's reconnect, fallback (with its outcome), hidden-tab and fallback-memory behaviour, `useTopic()`, the fallback beacon, and `readFallbackOutcome`'s bounds.
 - **Miniflare**, `bun run --cwd shared/realtime test:d1` ([hub.test.ts](../../shared/realtime/tests/d1/hub.test.ts)): `TopicHub` on real workerd through `subscribe()` and `publish()` — the upgrade, the ping auto-response without a wake, fan-out by topic, eviction and revocation through the helper over a real binding, a publish that meets a socket closed in the same turn, the maximum age, both caps and the stale cull, the close reply, and the hub's own 426 and 400 refusals.

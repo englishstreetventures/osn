@@ -178,13 +178,16 @@ not listen, so when a helper view (the run sheet) ships, it must subscribe too.
 After the first deploy, reverting the change that added push is not enough on
 its own. A revert removes the `TopicHub` export from `src/entry.ts` and the
 `v1` migration. Wrangler then refuses the upload, because existing Durable
-Objects depend on the class. So `deploy-cire-api-dev` fails, and
-`deploy-cire-api` waits on it (`.github/workflows/deploy.yml`). To turn push
-off, delete the three `REALTIME_HUB` binding blocks from
+Objects depend on the class. So the dev deploy (`deploy-cire-api-dev` in
+`.github/workflows/deploy.yml`) fails, and a production release
+(`deploy-cire-api` in `.github/workflows/production-release.yml`) fails the same
+way. To turn push off, delete the three `REALTIME_HUB` binding blocks from
 `cire/api/wrangler.toml` and deploy. `/realtime/*` then answers 503, publishes
-do nothing, tabs fall back, and the class export and migration stay. Removing
-the class itself needs a new migration with `deleted_classes = ["TopicHub"]`,
-deployed first.
+do nothing, tabs fall back, and the class export and migration stay. Each
+deployed isolate then logs `REALTIME_HUB binding missing in a deployed tier`
+once, as an error, which is expected while push is off. Removing the class
+itself needs a new migration with `deleted_classes = ["TopicHub"]`, deployed
+first.
 
 ## Cire-internal docs
 

@@ -187,7 +187,7 @@ once both APIs are in production. Re-verify pricing.
 
 Durable Objects run on Workers Free since 2025-04-07, **SQLite storage backend only**. `@shared/realtime`'s `TopicHub` is the one class the repo defines ([[realtime]]), and cire-api binds it as `REALTIME_HUB` on both tiers. Production may rely on it only once englishstventures/osn#1585 has measured the ping cost below.
 
-**cire's bound.** Each organiser is admitted at most 300 subscribes a UTC day (`REALTIME_SUBSCRIBES_PER_DAY` in `cire/api/src/services/realtime.ts`), so spending the allowance on subscribes alone takes more than 300 accounts. The count lives in D1 (`realtime_subscribe_budget`): each admitted subscribe writes one D1 row, from the same account-wide 100,000 a day, and a refusal at the ceiling writes none.
+**cire's bound.** Each organiser gets at most 300 subscribes a UTC day (`REALTIME_SUBSCRIBES_PER_DAY` in `cire/api/src/services/realtime.ts`), so spending the allowance on subscribes alone takes more than 300 accounts. The count lives in D1 (`realtime_subscribe_budget`), from the same account-wide 100,000 rows written a day: each subscribe under the ceiling writes one row, whether or not the membership check then admits it, plus one primary-key entry on an organiser's first of the day; a refusal at the ceiling writes none. Publishes (seat changes, owner-only and limited per user) and the client's pings are not bounded per day; whether pings are billed is englishstventures/osn#1585. Every publish and every subscribe also costs a Worker request, so neither spends the Durable Object allowance faster than the Workers allowance anyone can spend.
 
 | Limit | Free value (re-verify) |
 |---|---|
@@ -468,9 +468,9 @@ allowance yet — englishstventures/osn#1505.
   - **Workers requests** approaching **100K/day** (account-wide) → upgrade soon.
   - **D1 rows-read / rows-written** approaching the daily lines (5M / 100K) →
     investigate a hot query path or upgrade.
-  - **Durable Object requests** approaching **100K/day** (account-wide), once a
-    product binds the realtime hub → check the subscribe limits and the ping
-    cost, or upgrade.
+  - **Durable Object requests** approaching **100K/day** (account-wide), from
+    cire-api's realtime hub → check the subscribe limits and the ping cost, or
+    upgrade.
   - **`osn.auth.rate_limited`** spiking without a traffic spike → likely an
     Upstash command-cap / outage failing the limiters closed (see playbook).
   - **Ceremony/step-up store error logs** → Upstash degraded; expect login

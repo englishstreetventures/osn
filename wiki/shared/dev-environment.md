@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-20
 ---
 
 # Dev environment (cire + OSN identity)
