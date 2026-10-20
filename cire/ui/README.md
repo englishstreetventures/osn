@@ -11,8 +11,8 @@ only cire-_located_.
 
 It also holds content two cire sites publish word for word, which belongs to
 neither app: the guest privacy notice (`src/guest-privacy-notice.astro`), which
-the guest site renders as its `/privacy` page and cireweddings.com on the Guests
-tab of its own, and the consent vendor registry the notice's cookie list is built
+the guest site renders as its `/privacy` page and cireweddings.com as
+`/privacy/guests`, and the consent vendor registry the notice's cookie list is built
 from (`src/consent-categories.ts`, `src/consent-vendors.ts`). The notice is the
 one Astro component here; each app's Astro build compiles it, and its tests read
 its source (`tests/guest-privacy-notice.test.ts`). Any change under `src/`

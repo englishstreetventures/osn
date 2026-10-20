@@ -3,17 +3,31 @@ import { LEGAL_ENTITY, isPlaceholder } from "@shared/legal";
 import { describe, expect, it } from "vitest";
 
 import footer from "../src/components/SiteFooter.astro?raw";
-import privacyPage from "../src/pages/privacy.astro?raw";
+import guestsPage from "../src/pages/privacy/guests.astro?raw";
+import hosts from "../src/pages/privacy/hosts.astro?raw";
+import privacy from "../src/pages/privacy/index.astro?raw";
+import vendors from "../src/pages/privacy/vendors.astro?raw";
 import refunds from "../src/pages/refunds.astro?raw";
 import terms from "../src/pages/terms.astro?raw";
 
 /**
- * The privacy page renders the guest notice from `@cire/ui` on its Guests tab,
- * so the fields it publishes are the page's and the notice's together.
+ * `/privacy/guests` renders the guest notice from `@cire/ui`, so the fields it
+ * publishes are the page's and the notice's together.
  */
-const privacy = `${privacyPage}\n${guestNotice}`;
+const guests = `${guestsPage}\n${guestNotice}`;
 
-const legalPages = { terms, privacy, refunds };
+/** Every page whose draft banner must cover what it publishes. */
+const legalPages = {
+  terms,
+  privacy,
+  "privacy/hosts": hosts,
+  "privacy/guests": guests,
+  "privacy/vendors": vendors,
+  refunds,
+};
+
+/** The pages the site footer links to; the three notices are reached from `/privacy`. */
+const footerPages = ["terms", "privacy", "refunds"] as const;
 
 /** The fields `draftPending` already checks on every page's behalf. */
 const IDENTITY = ["name", "postalAddress", "contactEmail"] as const;
@@ -60,17 +74,14 @@ describe("legal pages", () => {
    * (`GiftSummary` in `cire/api/src/services/retention.ts`) that outlives the
    * year, so the couples' notice says what it holds and how long it stays.
    */
-  it("privacy names the gift record the couple keep after the guest data goes", () => {
-    // The hosts' notice alone: the guest notice says some of the same words.
-    expect(privacyPage).toMatch(
-      /the couple keep a record of their gifts with no guest names in it/,
-    );
-    expect(privacyPage).toMatch(/the amount, currency and day of each money gift/);
-    expect(privacyPage).toMatch(/up to 30 days later/);
+  it("the hosts' notice names the gift record the couple keep after the guest data goes", () => {
+    expect(hosts).toMatch(/the couple keep a record of their gifts with no guest names in it/);
+    expect(hosts).toMatch(/the amount, currency and day of each money gift/);
+    expect(hosts).toMatch(/up to 30 days later/);
   });
 
   it("footer links every legal page", () => {
-    for (const name of Object.keys(legalPages)) {
+    for (const name of footerPages) {
       expect(footer).toContain(`href="/${name}"`);
     }
   });

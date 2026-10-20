@@ -61,10 +61,11 @@ export class RetentionWriteError extends Data.TaggedError("RetentionWriteError")
 /**
  * Guest-data retention window. cire's published guest privacy notice
  * (`cire/ui/src/guest-privacy-notice.astro`, on the guest site and
- * cireweddings.com) and the hosts' notice (`cire/landing/src/pages/privacy.astro`)
- * promise guest data is deleted **1 year after the final wedding event**. This
- * constant encodes that window; change it here (and both notices' copy) to move
- * the line. 365 days in milliseconds.
+ * cireweddings.com), the hosts' notice (`cire/landing/src/pages/privacy/hosts.astro`)
+ * and the common page (`cire/landing/src/pages/privacy/index.astro`) promise guest
+ * data is deleted **1 year after the final wedding event**. This constant encodes
+ * that window; change it here (and those pages' copy) to move the line. 365 days
+ * in milliseconds.
  */
 export const RETENTION_AFTER_FINAL_EVENT_MS = 365 * 24 * 60 * 60 * 1000;
 

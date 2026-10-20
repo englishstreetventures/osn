@@ -2,10 +2,8 @@
 # file for every response). The landing page is fully static and talks to no
 # first-party API, so unlike the organiser portal it CAN carry a tight CSP:
 #   - script-src: own bundles ('self') + the small inline reveal/hydration
-#     scripts ('unsafe-inline' — Astro's island bootstrap, our is:inline IO,
-#     and the privacy tabs' first-paint script in NoticeTabs.astro).
-#   - style-src 'unsafe-inline': Astro inlines small critical CSS, and the
-#     privacy tabs' generated show rule.
+#     scripts ('unsafe-inline' — Astro's island bootstrap + our is:inline IO).
+#   - style-src 'unsafe-inline': Astro inlines small critical CSS.
 #   - font-src 'self': the faces are SELF-HOSTED — `astro.config.mjs`
 #     downloads them at build time via `fontProviders.google()`, so no
 #     fonts.googleapis.com / fonts.gstatic.com (tracker #388).

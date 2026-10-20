@@ -15,7 +15,7 @@ the rules for adding a vendor to it. Code: `cire/invites/src/lib/consent/` (logi
 and `cire/invites/src/components/consent/` (UI); the categories and the vendor
 registry are in `@cire/ui` (`cire/ui/src/consent-categories.ts`,
 `cire/ui/src/consent-vendors.ts`), because the guest privacy notice built from
-them is published on cireweddings.com too ([[cire-landing#Privacy notice tabs]]).
+them is published on cireweddings.com too ([[cire-landing#Privacy pages]]).
 
 ## Why it exists
 
@@ -119,7 +119,7 @@ Tests put the consent cookie and store into a known state with
 
 `consent-vendors.ts` drives the preferences dialog, the guest privacy notice's
 third-party list (`cire/ui/src/guest-privacy-notice.astro`, published on the
-guest site's `/privacy` and on the Guests tab of cireweddings.com/privacy), and
+guest site's `/privacy` and at cireweddings.com/privacy/guests), and
 (by test assertion) the CSP origin allowlist in `lib/security-headers.ts`.
 Without it the same facts live in four places that drift independently — the
 consent copy inside the component, the privacy prose, the CSP, and

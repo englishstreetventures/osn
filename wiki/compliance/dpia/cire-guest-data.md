@@ -314,7 +314,8 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     the controller owes them the Art. 14 information. The invite's plus-one
     prompt asks the household to share the privacy notice (`/privacy`) with
     their guest, and the notice — the same text on the guest site's `/privacy`
-    and on the Guests tab of cireweddings.com/privacy — has a section for a
+    and at cireweddings.com/privacy/guests, which cireweddings.com/privacy
+    links to — has a section for a
     person a guest brings: the source of their details (the guest bringing
     them, or a host who records their reply and dietary requirements for them),
     the basis for each (legitimate interest for name and RSVP; for dietary

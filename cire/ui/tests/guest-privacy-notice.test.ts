@@ -4,7 +4,7 @@ import source from "../src/guest-privacy-notice.astro?raw";
 
 /*
  * The guest privacy notice, as both sites publish it: the guest site at
- * `/privacy` and cireweddings.com on its Guests tab. These pin the statements
+ * `/privacy` and cireweddings.com at `/privacy/guests`. These pin the statements
  * the notice makes about what the code does, so a change to either side fails
  * here rather than in a guest's reading of it.
  */

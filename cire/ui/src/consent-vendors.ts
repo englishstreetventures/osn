@@ -6,7 +6,7 @@ import type { ConsentCategory } from "./consent-categories";
  *
  * It lives here, not in the guest site, because both sites publish the guest
  * privacy notice built from it (`guest-privacy-notice.astro`): the guest site
- * at `/privacy` and cireweddings.com on its Guests tab. It drives that notice
+ * at `/privacy` and cireweddings.com at `/privacy/guests`. It drives that notice
  * and the guest site's preferences sheet directly, and
  * `cire/invites/tests/lib/consent/vendors.test.ts` holds it and the guest
  * site's CSP (`cire/invites/src/lib/security-headers.ts`) to the same origins
