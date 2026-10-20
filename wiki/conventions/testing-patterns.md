@@ -49,6 +49,11 @@ The bar for keeping any non-E2E test: **name the real bug it catches that no E2E
 | Musubi | 1422 | `bun run dev:app` |
 | Pulse web | 1420 | `bun run dev:app` |
 | cire invites | 4321 | `bun run dev:app --ignore-lock` |
+| cire landing | 4323 | `bun run dev:app --ignore-lock` |
+
+cire landing is the one app that reaches the internet as it starts: its Astro font pipeline fetches Google Fonts and caches them under `cire/landing/.astro/`. With no network it logs `No data found for font family …` and serves pages in fallback faces, so the stack still boots.
+
+*Measured 2026-10-20 — `astro dev` for `@cire/landing` with `NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:9`: `/privacy` answered 200 after 4.2 s.*
 
 The ports are the `PORTLESS=0` ones from `DEV_APPS` in `@shared/dev-urls`, and `tools/e2e/tests/config.test.ts` keeps the two lists equal. Children get an explicit environment, not your shell's: `PATH`, `HOME` and a few proxy and certificate variables, plus every sibling origin set by name. The APIs also start with `--no-env-file`, so neither a `.env` file nor your shell's `REDIS_URL`, `OSN_ENV` or Turnstile key reaches them. The frontends still read their own `.env*` files, as Vite and Astro always do. Every variable the suite relies on there (each API origin, the Turnstile site keys) is set in their environment, and that beats a `.env` value.
 

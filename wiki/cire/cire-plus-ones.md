@@ -11,7 +11,8 @@ related:
   - "[[component-library]]"
   - "[[cire-invite-designs]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-10-15
+  - "[[cire-landing]]"
+last-reviewed: 2026-10-20
 ---
 # Plus-ones
 
@@ -187,7 +188,7 @@ The claim and welcome panel (`LoginSection`, [[cire-invite-designs]]) carries th
 - **Naming.** Each permitted member gets a first and last name form (100 characters each, as the API allows). In a household each form is labelled "Ana's guest"; a guest on their own is spoken to directly.
 - **A named plus-one** shows with "Change name" and "Remove". Removing asks first, naming the person, since their replies go too. A rename over dietary answers warns that it clears them, and says when it did. An "add" answered `created: false` (another device named someone first) says so, shows the name that stands, and says when that cleared dietary answers. Removing a guest the member may no longer bring removes their row; the prompt stays for that household and carries the confirmation, with focus on its heading.
 - **The deadline.** Past the RSVP deadline the prompt shows named plus-ones without controls and offers nothing else, like the rest of the invite.
-- **Art. 14.** The prompt asks the household to share the privacy notice with their guest, who never sees the invite; the notice (`cire/invites/src/pages/privacy.astro`) has a section for a person a guest brings — where their details came from, the basis for each, and how to correct, withdraw or delete them without a code.
+- **Art. 14.** The prompt asks the household to share the privacy notice with their guest, who never sees the invite; the notice (`cire/ui/src/guest-privacy-notice.astro`, the same text on the guest site's `/privacy` and at cireweddings.com/privacy/guests, which cireweddings.com/privacy — the address an organiser reads out by phone — links to) has a section for a person a guest brings — where their details came from (the guest bringing them, or a host who records their reply and dietary requirements for them, whose confirmation is then what is stored), the basis for each, and how to correct, withdraw or delete them without a code.
 - **State.** The prompt makes the request and hands the page an update (`onPlusOneChange`); the pack applies it to its claim result, so the Respond dialog, the greeting and every card read the one copy. The pure updates are in `cire/invites/src/components/plus-one-updates.ts`, which loads with the prompt; `plus-one.ts` holds only what every invite page asks (who is a plus-one, who was invited).
 - **The Respond dialog** lists a plus-one after the member who brought them, labelled as their guest. Their dietary answers sit behind a second box — the attestation, naming only the plus-ones it covers — apart from the household's own consent box. Each box opens ticked only when every person it covers has a current record for that box.
 - **The greeting** counts the members the couple invited: a guest on their own who names a plus-one is still greeted by name.
@@ -251,4 +252,4 @@ Migration 0066 only adds. Dropping the columns means rebuilding `guests`, and un
 | Attestation wording and version | `cire/dietary/src/attestation.ts` |
 | Consent version and "current" | `cire/api/src/services/rsvp.ts` (`dietaryConsentVersionFor`, `isDietaryConsentCurrent`) |
 | Guest capture | `cire/invites/src/components/PlusOnePrompt.tsx`, `plus-one.ts`, `plus-one-updates.ts`, `LoginSection.tsx`, `RsvpPanel.tsx`, `designs/{classic,gala}/InvitePage.tsx` |
-| Privacy notice | `cire/invites/src/pages/privacy.astro` |
+| Privacy notice | `cire/ui/src/guest-privacy-notice.astro`, rendered by `cire/invites/src/pages/privacy.astro` and `cire/landing/src/pages/privacy/guests.astro` |

@@ -206,6 +206,7 @@
       "dependencies": {
         "@cire/dietary": "workspace:*",
         "@shared/design-tokens": "workspace:*",
+        "@shared/legal": "workspace:*",
         "@shared/ui": "workspace:*",
       },
       "devDependencies": {

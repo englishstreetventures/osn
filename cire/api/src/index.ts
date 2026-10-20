@@ -612,7 +612,7 @@ const handler: ExportedHandler<Env> = {
   //     holds a login-time snapshot of an OSN profile, so it is a retention
   //     question too.
   //  3. Guest-data retention sweep — enforces the published privacy promise
-  //     (cire/invites privacy.astro): guest PII (guests/families/rsvps incl. dietary
+  //     (cire/ui guest-privacy-notice.astro): guest PII (guests/families/rsvps incl. dietary
   //     + consent, plus imports bookkeeping) is deleted 1 year after a wedding's
   //     final event. Reaps the `cire-sheets` CSVs it orphans (env.SHEETS).
   //  4. `cire-assets` orphan reconciliation — best-effort deletes invite-image

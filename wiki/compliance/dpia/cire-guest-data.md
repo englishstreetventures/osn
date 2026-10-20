@@ -110,7 +110,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   one's duties, with its essence available to guests, and Art. 28 asks for the
   processor terms. Neither is written yet: the organiser terms do not name the
   owners' duties or a point of contact, and the guest notice
-  (`cire/invites/src/pages/privacy.astro`, "Who decides what") does not say a
+  (`cire/ui/src/guest-privacy-notice.astro`, "Who decides what") does not say a
   guest may exercise their rights against any owner.
 - **Scale.** Per-wedding guest counts (tens to low hundreds today; multi-tenant
   scaffold allows many weddings). We collect special-category data from a
@@ -313,11 +313,15 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   - **Art. 14 notice for a plus-one.** Their data is not obtained from them, so
     the controller owes them the Art. 14 information. The invite's plus-one
     prompt asks the household to share the privacy notice (`/privacy`) with
-    their guest, and the notice has a section for a person a guest brings: the
-    source of their details (the guest bringing them), the basis for each
-    (legitimate interest for name and RSVP; for dietary requirements, their
-    explicit consent as confirmed by that guest), and how to correct, withdraw
-    or delete them without a code of their own. The owners, as joint
+    their guest, and the notice — the same text on the guest site's `/privacy`
+    and at cireweddings.com/privacy/guests, which cireweddings.com/privacy
+    links to — has a section for a
+    person a guest brings: the source of their details (the guest bringing
+    them, or a host who records their reply and dietary requirements for them),
+    the basis for each (legitimate interest for name and RSVP; for dietary
+    requirements, their explicit consent as confirmed by that guest, or by the
+    host who records it), and how to correct, withdraw or delete them without a
+    code of their own. The owners, as joint
     controllers, answer their requests, and can correct a plus-one's name at any time (see
     [[dsar]]). Name alone (Art. 6(1)(f), wedding administration) rests on the
     same basis as every other guest name.

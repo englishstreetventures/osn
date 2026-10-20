@@ -5,13 +5,17 @@ related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-invite-designs]]"
-last-reviewed: 2026-10-19
+  - "[[cire-landing]]"
+last-reviewed: 2026-10-20
 ---
 # Cire site-wide consent framework
 
 Where the guest site's cookie/third-party consent lives, what it governs, and
 the rules for adding a vendor to it. Code: `cire/invites/src/lib/consent/` (logic)
-and `cire/invites/src/components/consent/` (UI).
+and `cire/invites/src/components/consent/` (UI); the categories and the vendor
+registry are in `@cire/ui` (`cire/ui/src/consent-categories.ts`,
+`cire/ui/src/consent-vendors.ts`), because the guest privacy notice built from
+them is published on cireweddings.com too ([[cire-landing#Privacy pages]]).
 
 ## Why it exists
 
@@ -92,12 +96,14 @@ Two traps this separation exists to avoid:
 
 ## Files
 
-Paths are under `cire/invites/src/`.
+Paths are under `cire/invites/src/`, except the first two, which are in
+`cire/ui/src/` and imported as `@cire/ui/consent-categories` and
+`@cire/ui/consent-vendors`.
 
 | File | Responsibility |
 |---|---|
-| `lib/consent/categories.ts` | The categories — `necessary` and the two switches, `pinterest` and `maps` — with their display metadata. |
-| `lib/consent/vendors.ts` | **The vendor registry** — one source of truth (see below). |
+| `consent-categories.ts` (`@cire/ui`) | The categories — `necessary` and the two switches, `pinterest` and `maps` — with their display metadata. |
+| `consent-vendors.ts` (`@cire/ui`) | **The vendor registry** — one source of truth (see below). |
 | `lib/consent/record.ts` | The persisted record: versions, grant normalisation, encode/decode. |
 | `lib/consent/cookie.ts` | Cookie transport (`__Host-cire_consent` / `cire_consent`). |
 | `lib/consent/store.ts` | Module-level Solid signals shared by every island. |
@@ -111,13 +117,18 @@ Tests put the consent cookie and store into a known state with
 
 ## The vendor registry is the source of truth
 
-`vendors.ts` drives the preferences dialog, the `/privacy` page's third-party
-list, and (by test assertion) the CSP origin allowlist in
-`lib/security-headers.ts`. The same facts used to be maintained in four places
-that drifted independently — the consent copy inside the component, the privacy
-prose, the CSP, and `wiki/compliance/subprocessors.md`. Adding a vendor meant
-four edits, and forgetting one produced either a CSP block (loud) or an
-undeclared transfer (silent, and the one that matters).
+`consent-vendors.ts` drives the preferences dialog, the guest privacy notice's
+third-party list (`cire/ui/src/guest-privacy-notice.astro`, published on the
+guest site's `/privacy` and at cireweddings.com/privacy/guests), and
+(by test assertion) the CSP origin allowlist in `lib/security-headers.ts`.
+Without it the same facts live in four places that drift independently — the
+consent copy inside the component, the privacy prose, the CSP, and
+`wiki/compliance/subprocessors.md` — and forgetting one produces either a CSP
+block (loud) or an undeclared transfer (silent, and the one that matters).
+
+The registry's own shape is tested in `cire/ui/tests/consent-vendors.test.ts`;
+its join with this site's CSP and `<ConsentGate>` ids in
+`cire/invites/tests/lib/consent/vendors.test.ts`.
 
 **To add a third party:**
 
@@ -125,7 +136,7 @@ undeclared transfer (silent, and the one that matters).
    also declare `runsInPage` (see below); the type check fails until it does.
 2. Add its origins to `CSP_DIRECTIVES` in `lib/security-headers.ts` —
    `vendors.test.ts` fails until you do.
-3. Give it its own switch: a category in `categories.ts`, off by default, with
+3. Give it its own switch: a category in `consent-categories.ts`, off by default, with
    a title the placeholder's "Allow" button and the preferences sheet use.
    Wrap the component in `<ConsentGate category="…" vendor="…">`, and check the
    prompt's copy still names it.

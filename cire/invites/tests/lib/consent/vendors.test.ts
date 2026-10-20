@@ -1,16 +1,17 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { CONSENT_VENDORS, vendorById } from "@cire/ui/consent-vendors";
 import { describe, expect, it } from "vitest";
 
-import { CONSENT_CATEGORIES, isConsentCategory } from "../../../src/lib/consent/categories";
-import {
-  CONSENT_VENDORS,
-  gatedVendorsInCategory,
-  vendorById,
-  vendorsInCategory,
-} from "../../../src/lib/consent/vendors";
 import { API_ORIGIN, CSP_DIRECTIVES, CSP_REPORT_ENDPOINT } from "../../../src/lib/security-headers";
+
+/*
+ * The registry lives in `@cire/ui` because both sites publish the guest notice
+ * built from it; its own shape is checked there
+ * (`cire/ui/tests/consent-vendors.test.ts`). What it must agree with on this
+ * site — the CSP and the `<ConsentGate>` ids in the source — is checked here.
+ */
 
 /**
  * The `vendor` id on every `<ConsentGate>` under `src/`, read from the source
@@ -53,7 +54,8 @@ describe("vendor registry ↔ CSP consistency", () => {
     // entry breaks the embed in the browser; a missing REGISTRY entry leaves an
     // origin that is contactable, CSP-permitted, and absent from the published
     // privacy notice, the preferences sheet and the subprocessor register —
-    // because `privacy.astro` generates its disclosure from this registry.
+    // because the guest privacy notice (`cire/ui/src/guest-privacy-notice.astro`)
+    // generates its disclosure from this registry.
     //
     // Anything exempted below is FIRST-PARTY and therefore owes no third-party
     // disclosure. Adding to this list is the one place that has to be justified
@@ -81,19 +83,6 @@ describe("vendor registry ↔ CSP consistency", () => {
     expect(CSP_DIRECTIVES["script-src"]).toContain("https://assets.pinterest.com");
     expect(CSP_DIRECTIVES["frame-src"]).toContain("https://www.google.com");
   });
-});
-
-describe("vendor registry shape", () => {
-  it("gives every vendor a known category", () => {
-    for (const vendor of CONSENT_VENDORS) {
-      expect(isConsentCategory(vendor.category)).toBe(true);
-    }
-  });
-
-  it("uses unique ids", () => {
-    const ids = CONSENT_VENDORS.map((vendor) => vendor.id);
-    expect(new Set(ids).size).toBe(ids.length);
-  });
 
   // A vendor allowed to load script into the page runs code in it, so it must
   // say so. The CSP's `script-src` is a second record of which origins those
@@ -110,58 +99,9 @@ describe("vendor registry shape", () => {
       loadsScript.filter((vendor) => vendor.enforcement === "gated" && !vendor.runsInPage),
     ).toEqual([]);
   });
+});
 
-  // What decides whether withdrawing consent reloads the page. The Pinterest
-  // widget's `pinit_main.js` runs in the invite page itself; the map runs only
-  // inside its own iframe, which unmounting destroys.
-  it("records which gated vendors run code in the page itself", () => {
-    const runsInPage = Object.fromEntries(
-      CONSENT_VENDORS.filter((vendor) => vendor.enforcement === "gated").map((vendor) => [
-        vendor.id,
-        vendor.runsInPage,
-      ]),
-    );
-    expect(runsInPage).toEqual({ "google-maps": false, pinterest: true });
-  });
-
-  it("never marks a `necessary` vendor as gated", () => {
-    // A strictly-necessary vendor by definition loads without consent; claiming
-    // the toggle governs it would be false, and the toggle can't be switched off
-    // anyway.
-    for (const vendor of vendorsInCategory("necessary")) {
-      expect(vendor.enforcement).toBe("always");
-    }
-  });
-
-  it("gives every third party a privacy policy link and a named transfer destination", () => {
-    // The privacy notice is generated from these fields, so a missing one is a
-    // gap in the published disclosure rather than a cosmetic omission.
-    for (const vendor of CONSENT_VENDORS.filter((v) => v.origins.length > 0)) {
-      expect(vendor.privacyUrl, `${vendor.name} has no privacy URL`).toBeTruthy();
-      expect(vendor.transfer, `${vendor.name} has no transfer destination`).toBeTruthy();
-    }
-  });
-
-  it("only ever puts an https URL in the privacy-policy link", () => {
-    // `privacyUrl` is rendered straight into an <a href> by both the
-    // preferences dialog and /privacy. The values are hardcoded today, but the
-    // registry is the documented "add a vendor here" extension point — so a
-    // `javascript:` or `data:` URL pasted in later should fail the test run
-    // rather than become a same-origin script-execution sink on click.
-    for (const vendor of CONSENT_VENDORS) {
-      if (vendor.privacyUrl === null) continue;
-      expect(
-        vendor.privacyUrl.startsWith("https://"),
-        `${vendor.name}: privacyUrl must be https, got ${vendor.privacyUrl}`,
-      ).toBe(true);
-    }
-  });
-
-  it("declares no origins for first-party-only entries", () => {
-    expect(vendorById("cire-session")!.origins).toEqual([]);
-    expect(vendorById("consent-record")!.origins).toEqual([]);
-  });
-
+describe("vendor ids in the source", () => {
   it("resolves every vendor id a `<ConsentGate>` in the source names to a gated vendor", () => {
     // `vendor` is a plain string prop, so a typo type-checks. It would degrade
     // the placeholder to "This content", and it would skip the reload that
@@ -170,35 +110,5 @@ describe("vendor registry shape", () => {
     expect(ids).toEqual(expect.arrayContaining(["google-maps", "pinterest"]));
     expect(ids.filter((id) => vendorById(id)?.enforcement !== "gated")).toEqual([]);
     expect(vendorById("nope")).toBeUndefined();
-  });
-});
-
-describe("category partitioning", () => {
-  it("gives each consent switch exactly its own vendor", () => {
-    // Two switches, one third party each, so a guest can allow the moodboard
-    // without the map, or the map without the moodboard.
-    expect(gatedVendorsInCategory("pinterest").map((vendor) => vendor.id)).toEqual(["pinterest"]);
-    expect(gatedVendorsInCategory("maps").map((vendor) => vendor.id)).toEqual(["google-maps"]);
-  });
-
-  it("gates every vendor that is not strictly necessary", () => {
-    for (const category of CONSENT_CATEGORIES) {
-      if (category === "necessary") continue;
-      expect(vendorsInCategory(category).every((vendor) => vendor.enforcement === "gated")).toBe(
-        true,
-      );
-    }
-  });
-
-  it("defines no advertising, marketing, analytics or preferences category", () => {
-    // Deliberate: the site does no personal tracking, and everything else it
-    // stores is necessary. An unused switch is a claim we would have to keep
-    // true.
-    for (const absent of ["marketing", "analytics", "functional", "embeds"]) {
-      expect(CONSENT_CATEGORIES as readonly string[]).not.toContain(absent);
-    }
-    expect(CONSENT_VENDORS.every((vendor) => (vendor.category as string) !== "marketing")).toBe(
-      true,
-    );
   });
 });

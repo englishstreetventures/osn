@@ -355,7 +355,7 @@ The portal side is a single quiet button in the Gifts tab of `RegistryView.tsx`,
 
 ### External URLs
 
-`external_url` must be an absolute `https:` URL, checked at the boundary by parsing it — not by shape-matching. It reaches an `<a href>` on the guest site, and an unvalidated URL there is a same-origin script sink: a `javascript:` value runs on the guest site's origin when a guest clicks it. The consent vendors' `privacyUrl` links keep the same rule, pinned by a test in `cire/invites/tests/lib/consent/vendors.test.ts`. The guest renderer re-checks rather than trusting the column, because a row can also arrive from a migration or a fixture.
+`external_url` must be an absolute `https:` URL, checked at the boundary by parsing it — not by shape-matching. It reaches an `<a href>` on the guest site, and an unvalidated URL there is a same-origin script sink: a `javascript:` value runs on the guest site's origin when a guest clicks it. The consent vendors' `privacyUrl` links keep the same rule, pinned by a test in `cire/ui/tests/consent-vendors.test.ts`. The guest renderer re-checks rather than trusting the column, because a row can also arrive from a migration or a fixture.
 
 The parse also **rejects embedded credentials** (`https://evil.com@retailer.example/…`, which reads as the retailer to a guest and resolves to `evil.com` to the browser) and **stores the parsed `URL.href`**, not the raw input — so what the column holds is the normalised form the browser would resolve, and two spellings of the same URL can't diverge between the check and the render.
 

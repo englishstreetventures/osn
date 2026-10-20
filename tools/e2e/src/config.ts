@@ -64,6 +64,7 @@ export const PORTS = {
   musubi: 1422,
   pulseWeb: 1420,
   cireInvites: 4321,
+  cireLanding: 4323,
   /** The Resend stand-in osn-api sends OTP mail to. Not a dev app. */
   mail: 4590,
 } as const;
