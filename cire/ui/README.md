@@ -9,6 +9,15 @@ Seven components: `Button`, `Card`, `Loading`, `DietaryPresets`,
 `SafeProps` — is in `@shared/ui`, because none of it is cire-specific; it was
 only cire-_located_.
 
+It also holds content two cire sites publish word for word, which belongs to
+neither app: the guest privacy notice (`src/guest-privacy-notice.astro`), which
+the guest site renders as its `/privacy` page and cireweddings.com on the Guests
+tab of its own, and the consent vendor registry the notice's cookie list is built
+from (`src/consent-categories.ts`, `src/consent-vendors.ts`). The notice is the
+one Astro component here; each app's Astro build compiles it, and its tests read
+its source (`tests/guest-privacy-notice.test.ts`). Any change under `src/`
+redeploys all four cire frontends.
+
 `UsernameInput` is the one apparent duplicate, and the reason is the API rather
 than the styling: `@shared/ui`'s is controlled and renders its own debounced
 availability status, this one spreads raw input props because its single call

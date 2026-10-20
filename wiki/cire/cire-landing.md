@@ -11,7 +11,10 @@ related:
   - "[[production-deploy]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-16
+  - "[[cire-consent]]"
+  - "[[cire-plus-ones]]"
+  - "[[testing-patterns]]"
+last-reviewed: 2026-10-20
 ---
 
 # Cire Landing
@@ -115,6 +118,68 @@ Composed as `Hero.astro` + seven section components under `components/sections/`
 A minimal fixed masthead (`SiteNav.astro`) — wordmark + the one primary CTA —
 sits over the hero and gains a hairline + blurred wash once scrolled (toggled by
 an `IntersectionObserver` sentinel, no per-frame scroll handler).
+
+## Privacy notice tabs
+
+`cireweddings.com/privacy` (`src/pages/privacy.astro`) holds two notices as
+tabs, decided by the owner on 2026-10-20:
+
+| Tab | Who it is for | Text | Address |
+|---|---|---|---|
+| Hosts | Couples, co-hosts and organisers | Written in the page; its own "Last updated" | `/privacy`, `/privacy#hosts` |
+| Guests | Invited households and the people they bring | `@cire/ui`'s guest notice, `cire/ui/src/guest-privacy-notice.astro`; its own "Last updated" | `/privacy#guests` |
+
+**One guest notice, two sites.** The guest site renders the same component as
+its `/privacy` page, so an organiser who reads `cireweddings.com/privacy` out to
+a plus-one by phone sends them to the same words. The component takes `level`
+(section headings `h2` on the guest site, `h3` here under the tab's own `h2`)
+and a `choices` slot: the guest site passes its button that opens the guest's
+privacy choices, which live on that origin; here the slot is empty and the notice
+points at the invitation's footer. The notice's cookie list is generated from the
+consent vendor registry, which moved into `@cire/ui` with it ([[cire-consent]]).
+`tools/e2e/tests/flows/cire-privacy-notice.flow.ts` checks the two sites render
+the same text.
+
+**`NoticeTabs.astro`** (`src/components/`) works in three states:
+
+- **No JavaScript** — the tab row is two jump links (`#hosts`, `#guests`); both
+  panels follow, stacked, each opening with its own heading ("For hosts", "For
+  guests"). All text is in the HTML, in reading order, and prints whole.
+- **First paint** — an inline script after the tab row, before the panels, sets
+  `data-selected` from the address (else the first tab), and a generated rule
+  shows only that panel. `/privacy#guests` therefore paints the Guests tab with
+  no flash of the other notice, and the links keep switching panels on
+  `hashchange` even if the module script never loads.
+- **Enhanced** — `src/lib/notice-tabs.ts` adds the WAI-ARIA tabs pattern with
+  automatic activation: `tablist` named "Privacy notices", `tab` links with
+  `aria-selected` and one `tabindex="0"`, Left and Right (wrapping), Home, End.
+  A click or key replaces the address hash (`history.replaceState`: no history
+  entry, no scroll). Each panel's body is the `tabpanel`, in the tab order; the
+  `<section>` around it carries the id, so arriving at `#guests` does not focus a
+  whole notice and ring it. A hash naming an element inside a panel opens that
+  panel and scrolls to it.
+
+`@shared/ui`'s Kobalte tabs do not fit this page: they render only the selected
+panel (or every other one `hidden`) and their triggers are buttons, so with
+JavaScript off the other notice is missing and `#guests` cannot select it.
+
+**The look**, in landing tokens only, no new token:
+
+- Tab row: two equal columns on a `--color-border` hairline. Label in the
+  voice of the "Back to Cire" link — Lato `0.8125rem`, uppercase, `0.06em`
+  tracking — over a normal-case description at the same size. Unselected
+  `--color-text-muted`; selected `--color-text` with a 2px `--color-gold`
+  underline; hover `--color-text`; focus ring 2px `--color-gold`, offset 3px, as
+  the CTAs and footer links draw theirs.
+- Panel headings ("For hosts", "For guests") are Cormorant `1.75rem`, shown
+  without JavaScript and in print, visually hidden on screen once the tabs work,
+  where the tab names the panel. Section headings inside a panel are `h3` drawn
+  as the other legal pages draw `h2`; sub-sections are `h4` drawn as the guest
+  site draws its `h3`, in `--color-gold`.
+- Print, with JavaScript: the selected notice only, tab row hidden, panel
+  heading shown. Without JavaScript: both.
+- One dark palette, like the rest of the site: a light-scheme visit renders the
+  same page.
 
 ## Interactive no-op RSVP demo
 
