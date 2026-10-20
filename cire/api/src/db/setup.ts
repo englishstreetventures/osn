@@ -188,6 +188,14 @@ CREATE TABLE IF NOT EXISTS owner_notice_budget (
   PRIMARY KEY (key, day)
 );
 
+CREATE TABLE IF NOT EXISTS realtime_subscribe_budget (
+  osn_profile_id TEXT NOT NULL,
+  day TEXT NOT NULL,
+  subscribes INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (osn_profile_id, day)
+);
+CREATE INDEX IF NOT EXISTS realtime_subscribe_budget_day_idx ON realtime_subscribe_budget(day);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,

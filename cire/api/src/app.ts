@@ -409,8 +409,15 @@ export interface AppOptions {
    * `/realtime/*` never reaches the realtime route and answers 404.
    */
   realtimeHub?: HubNamespace;
+  /** Override the realtime subscribe per-IP limiter (useful for testing). */
+  realtimeIpLimiter?: RateLimiterBackend;
   /** Override the realtime subscribe per-organiser limiter (useful for testing). */
   realtimeLimiter?: RateLimiterBackend;
+  /**
+   * Override the realtime subscribes one organiser is admitted past per UTC
+   * day (`REALTIME_SUBSCRIBES_PER_DAY` in `services/realtime.ts`).
+   */
+  realtimeSubscribesPerDay?: number;
   /** Override the public realtime fallback-beacon rate limiter (useful for testing). */
   realtimeFallbackLimiter?: RateLimiterBackend;
   /** Override the invite-builder write rate limiter (useful for testing). */
@@ -688,7 +695,10 @@ function originOf(url: string): string[] {
  * realtime subscribe route alike. The defaults are the local issuer, matching
  * osn-api's own local defaults (`osn/api/src/build-deps.ts`).
  */
-export function organiserAuthOptions(db: Db, options: AppOptions): OsnAuthOptions {
+export function organiserAuthOptions(
+  db: Db,
+  options: AppOptions,
+): OsnAuthOptions & { issuer: string } {
   return {
     jwksUrl: options.osnJwksUrl ?? "http://localhost:4000/.well-known/jwks.json",
     issuer: options.osnIssuerUrl ?? "http://localhost:4000",
@@ -1262,7 +1272,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // code needs no Stripe.
   const withLifecycle: AnyElysia = withInviteImages
     .use(
-      createOrganiserWeddingDeleteRoute(db, osnAuthOptions, weddingLifecycleLimiter, ownerNotices),
+      createOrganiserWeddingDeleteRoute(
+        db,
+        osnAuthOptions,
+        weddingLifecycleLimiter,
+        ownerNotices,
+        weddingSignals,
+      ),
     )
     .use(createOrganiserWeddingRestoreRoute(db, osnAuthOptions, weddingLifecycleLimiter))
     .use(createUnlockCodeRoutes(db, osnAuthOptions, unlockCodeLimiter));

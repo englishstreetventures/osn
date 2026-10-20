@@ -10,6 +10,7 @@ import {
 } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
+import type { HubNamespace } from "@shared/realtime/server";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -225,6 +226,25 @@ describe("DELETE /api/organiser/weddings/:weddingId", () => {
       expect(weddingRow(db)!.deletedAt).toBeNull();
     },
   );
+
+  it("signals every tab open on the wedding once a delete commits, and not for a refused one", async () => {
+    const publishes: string[] = [];
+    const realtimeHub: HubNamespace = {
+      getByName: (name) => ({
+        publish: async () => {
+          publishes.push(name);
+          return 1;
+        },
+        fetch: async () => new Response(null, { status: 426 }),
+      }),
+    };
+    const { app } = buildApp(1000, { realtimeHub });
+    expect((await del(app, CREATOR, { confirmSlug: "not-the-slug" })).status).not.toBe(200);
+    expect((await del(app, "usr_editor")).status).toBe(403);
+    expect(publishes).toEqual([]);
+    expect((await del(app, CREATOR)).status).toBe(200);
+    expect(publishes).toEqual([`cire:wedding:${BOOTSTRAP_WEDDING_ID}`]);
+  });
 
   it("needs a signed-in organiser", async () => {
     const { app } = buildApp();

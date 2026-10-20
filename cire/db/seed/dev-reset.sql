@@ -43,5 +43,6 @@ DROP TABLE IF EXISTS link_thumb_transforms;
 DROP TABLE IF EXISTS organiser_sessions;
 DROP TABLE IF EXISTS owner_notice_budget;
 DROP TABLE IF EXISTS platform_sales;
+DROP TABLE IF EXISTS realtime_subscribe_budget;
 DROP TABLE IF EXISTS unlock_codes;
 DROP TABLE IF EXISTS weddings;

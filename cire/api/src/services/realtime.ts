@@ -1,6 +1,9 @@
+import { realtimeSubscribeBudget } from "@cire/db";
 import { publish, type HubNamespace } from "@shared/realtime/server";
+import { lt, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
+import { commitBatchResults, DbService } from "../db";
 import { getWaitUntil } from "../lib/execution-ctx";
 import { runCire } from "../observability";
 
@@ -33,7 +36,52 @@ export const createWeddingSignals = (hub: HubNamespace | undefined): WeddingSign
       revokedOsnProfileId === undefined ? {} : { revokeSubjects: [revokedOsnProfileId] },
     );
     const waitUntil = getWaitUntil(request);
-    // No execution context (unit tests, the local Bun server): run inline.
-    return waitUntil ? Effect.sync(() => waitUntil(runCire(work))) : work;
+    // Inline with no execution context (unit tests, the local Bun server), and
+    // with no hub, where the publish only counts and sends nothing.
+    return waitUntil && hub ? Effect.sync(() => waitUntil(runCire(work))) : work;
   },
 });
+
+/**
+ * Subscribes one organiser may be admitted past the daily ceiling per UTC day.
+ * Every admitted subscribe is a Durable Object request from the account-wide
+ * Workers Free allowance of 100,000 a day, dev included. An organiser spends
+ * one on each mount of a wedding, each return to a tab hidden for more than
+ * two ping intervals, each hourly expiry on a wedding that publishes, and each
+ * deploy, so a long day of switching tabs stays well inside 300, while a
+ * script needs more than 300 accounts to spend the allowance.
+ */
+export const REALTIME_SUBSCRIBES_PER_DAY = 300;
+
+const utcDay = (at: Date): string => at.toISOString().slice(0, 10);
+
+/**
+ * Spend one of `osnProfileId`'s subscribes for today, in one D1 batch that
+ * first deletes earlier days' rows. Answers whether one was left. At the
+ * ceiling the upsert changes nothing and returns no row, so a refused attempt
+ * reads the row but writes none.
+ */
+export const spendRealtimeSubscribe = (
+  osnProfileId: string,
+  perDay: number = REALTIME_SUBSCRIBES_PER_DAY,
+  now: Date = new Date(),
+) =>
+  Effect.gen(function* () {
+    const db = yield* DbService;
+    const day = utcDay(now);
+    const [, spent] = yield* Effect.tryPromise(() =>
+      commitBatchResults(db, [
+        db.delete(realtimeSubscribeBudget).where(lt(realtimeSubscribeBudget.day, day)),
+        db
+          .insert(realtimeSubscribeBudget)
+          .values({ osnProfileId, day, subscribes: 1 })
+          .onConflictDoUpdate({
+            target: [realtimeSubscribeBudget.osnProfileId, realtimeSubscribeBudget.day],
+            set: { subscribes: sql`${realtimeSubscribeBudget.subscribes} + 1` },
+            setWhere: lt(realtimeSubscribeBudget.subscribes, perDay),
+          })
+          .returning({ subscribes: realtimeSubscribeBudget.subscribes }),
+      ]),
+    );
+    return (spent as readonly unknown[]).length > 0 && perDay > 0;
+  });

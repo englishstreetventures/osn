@@ -425,6 +425,7 @@ const REQUESTS: Record<string, Row> = {
 /** Mounted routes that hold no wedding, or reach one by decision. */
 const NOT_WEDDING_SCOPED: Record<string, string> = {
   "POST /api/csp-report/": "a browser's CSP report; names no wedding",
+  "POST /api/realtime/fallback": "a portal tab's report that push stopped; names no wedding",
   "POST /internal/revoke-organiser-sessions": "revokes one OSN profile's organiser sessions",
   "GET /api/rsvp-digest/stop":
     "a signed, seat-scoped digest preference; harmless on a deleted wedding and kept for a restore",

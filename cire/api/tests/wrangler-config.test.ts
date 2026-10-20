@@ -27,10 +27,10 @@ const config = Bun.TOML.parse(
   await Bun.file(new URL("../wrangler.toml", import.meta.url)).text(),
 ) as Config;
 
-const tiers: [string, Tier, string][] = [
-  ["the top level", config, "1006"],
-  ["env.dev", config.env.dev, "1106"],
-  ["env.production", config.env.production, "1006"],
+const tiers: [string, Tier][] = [
+  ["the top level", config],
+  ["env.dev", config.env.dev],
+  ["env.production", config.env.production],
 ];
 
 describe("wrangler.toml — realtime push", () => {
@@ -51,18 +51,11 @@ describe("wrangler.toml — realtime push", () => {
     });
   });
 
-  it.each(tiers)(
-    "%s binds REALTIME_RATE_LIMITER on its own namespace",
-    (_label, tier, namespace) => {
-      const bindings = tier.unsafe?.bindings ?? [];
-      expect(bindings.find((binding) => binding.name === "REALTIME_RATE_LIMITER")).toEqual({
-        name: "REALTIME_RATE_LIMITER",
-        type: "ratelimit",
-        namespace_id: namespace,
-        simple: { limit: 30, period: 60 },
-      });
-      const ids = bindings.map((binding) => binding.namespace_id);
-      expect(new Set(ids).size).toBe(ids.length);
-    },
-  );
+  // A rate-limit namespace id is the whole scope of its counter, so two
+  // bindings on one id in a tier share one count under two limits.
+  it.each(tiers)("%s gives every rate-limit binding its own namespace", (_label, tier) => {
+    const ids = (tier.unsafe?.bindings ?? []).map((binding) => binding.namespace_id);
+    expect(ids.length).toBeGreaterThan(0);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
 });

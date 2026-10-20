@@ -13,6 +13,7 @@ import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingOwner, weddingOwnerIncludingDeleted } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
 import { DeleteWeddingBody } from "../schemas/wedding";
+import type { WeddingSignals } from "../services/realtime";
 import { weddingLifecycleService } from "../services/wedding-lifecycle";
 import type { LifecycleRefusal } from "../services/wedding-lifecycle";
 
@@ -67,13 +68,16 @@ const failed = (set: SetStatus, error: string) =>
  * pays one extra statement for that.
  *
  * Once the delete has committed, every other owner is emailed who deleted it
- * and until when it can be restored (`ownerNotices`; none when not configured).
+ * and until when it can be restored (`ownerNotices`; none when not configured),
+ * and every tab open on the wedding is signalled (`signals`), so it re-reads
+ * the wedding list, finds the wedding gone and drops its rows.
  */
 export const createOrganiserWeddingDeleteRoute = (
   db: Db,
   osnAuthOptions: OsnAuthOptions,
   limiter: RateLimiterBackend,
   ownerNotices?: OwnerNotices,
+  signals?: WeddingSignals,
 ) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
@@ -111,6 +115,7 @@ export const createOrganiserWeddingDeleteRoute = (
                   .pipe(Effect.provideService(DbService, db)),
               );
             }
+            if (signals) yield* signals.membersChanged(weddingId, request);
             return {
               deleted: true,
               weddingId: deleted.weddingId,

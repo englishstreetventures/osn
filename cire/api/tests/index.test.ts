@@ -16,6 +16,7 @@ import { jsonBody } from "./test-helpers";
 import { captureLogs } from "./test-helpers/capture-logs";
 import { counterValue } from "./test-helpers/metrics-harness";
 import { seedOrganiserSession } from "./test-helpers/organiser-session";
+import { ownerSeat } from "./test-helpers/wedding";
 
 // Boot-time behaviour of the Worker entry point. The organiser dashboard must
 // serve ANY authenticated OSN user with NO special bootstrap config — there is
@@ -640,6 +641,7 @@ describe("D1 session routing at the entry points", () => {
     const res = await handler.fetch!(
       new Request(`https://api.example.com/realtime/${encodeURIComponent("cire:wedding:wed_rt")}`, {
         headers: {
+          "cf-connecting-ip": "203.0.113.9",
           upgrade: "websocket",
           origin: portal,
           cookie: "cire_org_session=no-such-session",
@@ -1088,15 +1090,9 @@ describe("realtime subscribe at the Worker entry", () => {
     const now = new Date();
     await db
       .insert(weddings)
-      .values({
-        id: "wed_rt",
-        slug: "rt",
-        displayName: "RT",
-        ownerOsnProfileId: "usr_rt_owner",
-        createdAt: now,
-        updatedAt: now,
-      })
+      .values({ id: "wed_rt", slug: "rt", displayName: "RT", createdAt: now, updatedAt: now })
       .onConflictDoNothing();
+    await db.insert(weddingHosts).values(ownerSeat("wed_rt", "usr_rt_owner")).onConflictDoNothing();
     return seedOrganiserSession(db, "usr_rt_owner");
   }
 
@@ -1122,7 +1118,12 @@ describe("realtime subscribe at the Worker entry", () => {
     const hubResponse = new Response(null, { status: 101 });
     const res = await handler.fetch!(
       new Request(`https://api.example.com${TOPIC_PATH}`, {
-        headers: { upgrade: "websocket", origin: PORTAL, cookie: `cire_org_session=${token}` },
+        headers: {
+          "cf-connecting-ip": "203.0.113.9",
+          upgrade: "websocket",
+          origin: PORTAL,
+          cookie: `cire_org_session=${token}`,
+        },
       }) as Parameters<NonNullable<typeof handler.fetch>>[0],
       envWith(hubResponse),
       ctx,
@@ -1136,7 +1137,11 @@ describe("realtime subscribe at the Worker entry", () => {
     // refusal never went through the app.
     const res = await handler.fetch!(
       new Request(`https://api.example.com${TOPIC_PATH}`, {
-        headers: { upgrade: "websocket", origin: PORTAL },
+        headers: {
+          "cf-connecting-ip": "203.0.113.9",
+          upgrade: "websocket",
+          origin: PORTAL,
+        },
       }) as Parameters<NonNullable<typeof handler.fetch>>[0],
       envWith(new Response(null, { status: 101 })),
       ctx,
@@ -1144,22 +1149,6 @@ describe("realtime subscribe at the Worker entry", () => {
     expect(res.status).toBe(401);
     expect(res.headers.get("access-control-allow-origin")).toBeNull();
     expect(await res.text()).toBe("");
-  });
-
-  it("limits with the REALTIME_RATE_LIMITER binding when one is bound", async () => {
-    const token = await seedOwner();
-    const env = {
-      ...(envWith(new Response(null, { status: 101 })) as unknown as Record<string, unknown>),
-      REALTIME_RATE_LIMITER: { limit: async () => ({ success: false }) },
-    } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
-    const res = await handler.fetch!(
-      new Request(`https://api.example.com${TOPIC_PATH}`, {
-        headers: { upgrade: "websocket", origin: PORTAL, cookie: `cire_org_session=${token}` },
-      }) as Parameters<NonNullable<typeof handler.fetch>>[0],
-      env,
-      ctx,
-    );
-    expect(res.status).toBe(429);
   });
 
   const HUB_MISSING = "REALTIME_HUB binding missing in a deployed tier";
@@ -1171,7 +1160,12 @@ describe("realtime subscribe at the Worker entry", () => {
     const logs = await captureLogs(async () => {
       realtime = await handler.fetch!(
         new Request(`https://api.example.com${TOPIC_PATH}`, {
-          headers: { upgrade: "websocket", origin: PORTAL, cookie: `cire_org_session=${token}` },
+          headers: {
+            "cf-connecting-ip": "203.0.113.9",
+            upgrade: "websocket",
+            origin: PORTAL,
+            cookie: `cire_org_session=${token}`,
+          },
         }) as Parameters<NonNullable<typeof handler.fetch>>[0],
         env,
         ctx,
@@ -1200,7 +1194,12 @@ describe("realtime subscribe at the Worker entry", () => {
     const logs = await captureLogs(async () => {
       realtime = await handler.fetch!(
         new Request(`https://api.example.com${TOPIC_PATH}`, {
-          headers: { upgrade: "websocket", origin: PORTAL, cookie: `cire_org_session=${token}` },
+          headers: {
+            "cf-connecting-ip": "203.0.113.9",
+            upgrade: "websocket",
+            origin: PORTAL,
+            cookie: `cire_org_session=${token}`,
+          },
         }) as Parameters<NonNullable<typeof handler.fetch>>[0],
         env,
         ctx,

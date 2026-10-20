@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { weddingHosts, weddings } from "@cire/db";
+import { realtimeSubscribeBudget, weddingHosts } from "@cire/db";
 import { hashToken } from "@shared/crypto/tokens";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { HubNamespace } from "@shared/realtime/server";
@@ -18,10 +18,12 @@ import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth, type OsnTestAuth } from "../test-helpers/osn-token";
+import { insertWedding } from "../test-helpers/wedding";
 
 const WEDDING_ID = "wed_live";
 const OWNER = "usr_owner";
 const PORTAL = "https://host.example.test";
+const CLIENT_IP = "203.0.113.20";
 const topicPath = (topic: string) => `/realtime/${encodeURIComponent(topic)}`;
 const PATH = topicPath(`cire:wedding:${WEDDING_ID}`);
 
@@ -48,17 +50,7 @@ function fakeHub() {
 
 /** A wedding `OWNER` owns, under `id`. */
 function addWedding(db: Db, id: string, slug: string) {
-  const now = new Date();
-  db.insert(weddings)
-    .values({
-      id,
-      slug,
-      displayName: "Live",
-      ownerOsnProfileId: OWNER,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  insertWedding(db, { id, slug, displayName: "Live", owners: [OWNER] });
 }
 
 function setup(overrides: Partial<AppOptions> = {}) {
@@ -69,6 +61,9 @@ function setup(overrides: Partial<AppOptions> = {}) {
     osnTestKey: auth.key,
     organiserOrigin: PORTAL,
     realtimeHub: hub.hub,
+    // Each case its own: the module defaults count per process.
+    realtimeIpLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
+    realtimeLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
     ...overrides,
   });
   return { db, route, hub };
@@ -94,7 +89,7 @@ async function upgrade(
 ) {
   const res = await route(
     new Request(`https://api.example.test${path}`, {
-      headers: { upgrade: "websocket", origin: PORTAL, ...headers },
+      headers: { "cf-connecting-ip": CLIENT_IP, upgrade: "websocket", origin: PORTAL, ...headers },
     }),
   );
   if (!res) throw new Error("the route declined a realtime path");
@@ -258,6 +253,55 @@ describe("createRealtimeRoute — refused", () => {
     expect((await upgrade(route, await bearer("usr_cohost"))).status).toBe(101);
   });
 
+  it("429s past the per-IP limit before it looks the session up", async () => {
+    const { db, route, hub } = setup({
+      realtimeIpLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    });
+    const token = await seedOrganiserSession(db, OWNER);
+    expect((await upgrade(route, { cookie: `cire_org_session=${token}` })).status).toBe(101);
+    // The session table is gone: a lookup would fail with 503, so a 429 shows
+    // the limit answered first.
+    db.$client.exec("DROP TABLE organiser_sessions");
+    let limited: Response | undefined;
+    const out = await captureLogs(async () => {
+      limited = await upgrade(route, { cookie: `cire_org_session=${token}` });
+    });
+    expect(limited?.status).toBe(429);
+    expect(limited?.headers.get("retry-after")).toBe("60");
+    expect(limited?.headers.get("access-control-allow-origin")).toBeNull();
+    expect(out).toContain("ip_rate_limited");
+    expect(out).not.toContain(CLIENT_IP);
+    // Another address still reaches the session lookup.
+    const other = await upgrade(route, {
+      "cf-connecting-ip": "203.0.113.21",
+      cookie: `cire_org_session=${token}`,
+    });
+    expect(other.status).toBe(503);
+    expect(hub.upgrades).toHaveLength(1);
+  });
+
+  it("429s a request with no resolvable client address", async () => {
+    const { route, hub } = setup();
+    const res = await upgrade(route, { ...(await bearer(OWNER)), "cf-connecting-ip": "" });
+    expect(res.status).toBe(429);
+    expect(hub.upgrades).toEqual([]);
+  });
+
+  it("429s an organiser past the daily ceiling, keyed per organiser, before membership", async () => {
+    const { db, route, hub } = setup({ realtimeSubscribesPerDay: 1 });
+    seat(db, "usr_cohost", "editor");
+    expect((await upgrade(route, await bearer(OWNER))).status).toBe(101);
+    const spent = await upgrade(route, await bearer(OWNER));
+    expect(spent.status).toBe(429);
+    expect(spent.headers.get("retry-after")).toBeNull();
+    expect((await upgrade(route, await bearer("usr_cohost"))).status).toBe(101);
+    // A stranger spends their own budget, so a refused membership still counts.
+    expect((await upgrade(route, await bearer("usr_stranger"))).status).toBe(403);
+    expect((await upgrade(route, await bearer("usr_stranger"))).status).toBe(429);
+    expect(hub.upgrades.map((u) => u.subject)).toEqual([OWNER, "usr_cohost"]);
+    expect(db.select().from(realtimeSubscribeBudget).all()).toHaveLength(3);
+  });
+
   it("503s when no hub is bound", async () => {
     const { route } = setup({ realtimeHub: undefined });
     expect((await upgrade(route, await bearer(OWNER))).status).toBe(503);
@@ -301,6 +345,20 @@ describe("createRealtimeRoute — a lookup that fails", () => {
     expect(status).toBe(503);
     expect(hub.upgrades).toEqual([]);
     expect(out).toContain("wedding membership lookup failed");
+    expect(out).not.toContain("usr_");
+  });
+
+  it("503s when the daily budget cannot be read, and logs no profile id", async () => {
+    const { db, route, hub } = setup();
+    const headers = await bearer(OWNER);
+    failLikeD1(db, "realtime_subscribe_budget");
+    let status = 0;
+    const out = await captureLogs(async () => {
+      status = (await upgrade(route, headers)).status;
+    });
+    expect(status).toBe(503);
+    expect(hub.upgrades).toEqual([]);
+    expect(out).toContain("realtime subscribe budget failed");
     expect(out).not.toContain("usr_");
   });
 

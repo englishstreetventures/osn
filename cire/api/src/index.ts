@@ -147,9 +147,6 @@ export interface Env {
   // absence is logged once per isolate. Deleting this binding from a tier is
   // the off switch — see `wiki/cire/cire.md`.
   REALTIME_HUB?: DurableObjectNamespace<TopicHub>;
-  // Per-organiser limiter for `/realtime/*` upgrades. Absent ⇒ the per-isolate
-  // in-memory default in `routes/realtime.ts`.
-  REALTIME_RATE_LIMITER?: WorkersRateLimitBinding;
   // Turnstile bot-protection secret (KEY-OPTIONAL). When set, the guest claim +
   // RSVP endpoints require a valid Turnstile token (fail-closed); unset ⇒ those
   // gates are skipped. `wrangler secret put TURNSTILE_SECRET_KEY`.
@@ -559,9 +556,6 @@ const handler: ExportedHandler<Env> = {
       // push is off: the route answers 503, host changes publish nothing, and
       // tabs keep their own refetch triggers — loud in a deployed tier.
       if (env.REALTIME_HUB) appOptions.realtimeHub = env.REALTIME_HUB;
-      if (env.REALTIME_RATE_LIMITER) {
-        appOptions.realtimeLimiter = createWorkersRateLimiter(env.REALTIME_RATE_LIMITER);
-      }
       if (!env.REALTIME_HUB && isDeployedTier(env)) {
         await runCire(
           Effect.logError("REALTIME_HUB binding missing in a deployed tier", {
