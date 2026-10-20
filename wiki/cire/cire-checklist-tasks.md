@@ -24,9 +24,9 @@ wedding as they like ([[#Assignees]]).
 ## `tasks` table
 
 Built by the baseline `0001_initial.sql` (`migrations-archive/0038_tasks.sql`
-first); `0085_task_templates.sql` added the four template columns and the
+first); `0086_task_templates.sql` added the four template columns and the
 unique index with `ALTER TABLE ADD` and no rebuild, and
-`0086_task_assignees.sql` the unique index on `(id, wedding_id)` that the
+`0087_task_assignees.sql` the unique index on `(id, wedding_id)` that the
 holders table references ([[#Assignees]]).
 
 | Column | Type | Notes |
@@ -153,7 +153,7 @@ a profile id, because the helper run sheet filters on the seat
 
 ### `task_assignees` table
 
-Built by `0086_task_assignees.sql`: one row per task and seat.
+Built by `0087_task_assignees.sql`: one row per task and seat.
 
 | Column | Type | Notes |
 |---|---|---|

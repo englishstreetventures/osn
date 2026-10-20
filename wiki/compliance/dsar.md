@@ -280,7 +280,7 @@ owners, each with an `owner` seat. Two consequences:
   `UPDATE unlock_code_redemptions SET redeemed_by_osn_profile_id = NULL WHERE redeemed_by_osn_profile_id = ?`.
   The row stays, so the code's use and the wedding's tier keep their record; it
   goes with the wedding when the purge deletes it ([[retention]]).
-- **Checklist assignments (migration 0086).** Each `task_assignees` row names
+- **Checklist assignments (migration 0087).** Each `task_assignees` row names
   a `wedding_hosts` seat holding a task and when it was put on it, so which
   tasks an organiser holds is part of their cire data. An access request finds
   them through the requester's seats:

@@ -32,7 +32,7 @@ search over names and handles. A viewer sees the faces, and an empty dotted
 circle on an open task nobody holds. The task drawer, its Edit button and the
 "Needs an owner" mark are gone.
 
-Migration `0086_task_assignees.sql` adds the `task_assignees` table — one row
+Migration `0087_task_assignees.sql` adds the `task_assignees` table — one row
 per task and seat, with `assigned_at` — whose two foreign keys,
 `(task_id, wedding_id)` to `tasks` and `(host_id, wedding_id)` to
 `wedding_hosts`, both cascade on delete and refuse a task paired with another
