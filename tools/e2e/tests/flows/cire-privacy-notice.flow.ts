@@ -332,16 +332,18 @@ test("cire-privacy-notice", async ({ page, browser, flow }) => {
 
   await flow.step("screenshot both tabs at phone and desktop width, light and dark", async () => {
     mkdirSync(SHOTS, { recursive: true });
+    // One arrival per tab; the width and the colour scheme change on the live
+    // page. The last shot, Guests at 1280 px in light, is the flow's final state.
     for (const tab of ["hosts", "guests"] as const) {
+      await page.goto("about:blank");
+      await page.goto(`${PRIVACY}#${tab}`);
+      await expect(page.locator(`#${tab}`)).toBeVisible();
+      // `astro dev` draws its own toolbar over the page; it is not the page.
+      await page.addStyleTag({ content: "astro-dev-toolbar { display: none !important; }" });
       for (const width of [390, 1280]) {
-        for (const colorScheme of ["light", "dark"] as const) {
+        for (const colorScheme of ["dark", "light"] as const) {
           await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
           await page.emulateMedia({ colorScheme });
-          await page.goto("about:blank");
-          await page.goto(`${PRIVACY}#${tab}`);
-          await expect(page.locator(`#${tab}`)).toBeVisible();
-          // `astro dev` draws its own toolbar over the page; it is not the page.
-          await page.addStyleTag({ content: "astro-dev-toolbar { display: none !important; }" });
           await page.screenshot({
             path: resolve(SHOTS, `${tab}-${width}-${colorScheme}.png`),
             fullPage: true,
@@ -350,9 +352,6 @@ test("cire-privacy-notice", async ({ page, browser, flow }) => {
         }
       }
     }
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.emulateMedia({ colorScheme: "light" });
-    await page.goto(`${PRIVACY}#guests`);
     await expect(guestsPanel).toBeVisible();
   });
 });
