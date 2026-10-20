@@ -976,9 +976,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "a task's assignee is a seat of its wedding, and goes when the seat does, over D1",
     async () => {
-      // The statements only D1 can judge: the assign batch (its UPDATE guarded
-      // by EXISTS on a seat of the same wedding), and the FK's ON DELETE SET
-      // NULL firing from the seat delete in hostsService.remove's batch.
+      // The statements only D1 can judge: the assign UPDATE, guarded by EXISTS
+      // on a seat of the same wedding, with the task read that names a
+      // refusal, and the FK's ON DELETE SET NULL firing from the seat delete in
+      // hostsService.remove's batch.
       const now = new Date();
       await db.insert(weddingHosts).values({
         ...ownerSeat(BOOTSTRAP_WEDDING_ID, "usr_helper", now),

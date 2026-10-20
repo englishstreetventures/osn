@@ -261,9 +261,10 @@ export const tasksService = {
    *
    * The seat check rides in the UPDATE's own WHERE, so a seat that is not the
    * wedding's is never written, and one removed while this runs is either not
-   * found here or cleared by the foreign key's SET NULL after. The task read
-   * shares the batch only to tell the two refusals apart: no task is
-   * `TaskNotInWedding`, a task with nothing updated is `HostNotInWedding`.
+   * found here or cleared by the foreign key's SET NULL after. RETURNING says
+   * whether anything was written; only when nothing was is the task read, to
+   * tell the two refusals apart: no task is `TaskNotInWedding`, a task left
+   * as it was is `HostNotInWedding`.
    */
   assign(
     weddingId: string,
@@ -285,19 +286,18 @@ export const tasksService = {
                 .from(weddingHosts)
                 .where(and(eq(weddingHosts.id, hostId), eq(weddingHosts.weddingId, weddingId))),
             );
-      const results = yield* dbQuery(() =>
-        commitBatchResults(db, [
-          db.select({ id: tasks.id }).from(tasks).where(ours),
-          db
-            .update(tasks)
-            .set({ assignedHostId: hostId })
-            .where(and(ours, seatOfWedding))
-            .returning(),
-        ]),
+      const [updated] = yield* dbQuery(() =>
+        db
+          .update(tasks)
+          .set({ assignedHostId: hostId })
+          .where(and(ours, seatOfWedding))
+          .returning()
+          .all(),
       );
-      const [updated] = results[1] as readonly TaskRow[];
-      if (updated) return toDto(updated);
-      const [found] = results[0] as readonly { id: string }[];
+      if (updated) return toDto(updated as TaskRow);
+      const [found] = yield* dbQuery(() =>
+        db.select({ id: tasks.id }).from(tasks).where(ours).all(),
+      );
       return yield* Effect.fail(found ? new HostNotInWedding() : new TaskNotInWedding());
     }).pipe(
       Effect.tap(() => Effect.sync(() => metricTaskAssignmentChanged(action, "ok"))),
