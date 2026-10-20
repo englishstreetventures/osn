@@ -292,8 +292,11 @@ Nine `weddingId`-keyed SolidJS signal caches share this contract:
 they all share, rather than nine copies that drift — a module's own page
 (e.g. [[cire-checklist-tasks]]) documents only what is genuinely that
 module's. `hosts-store.ts` holds the wedding's seats for the checklist, which
-names who holds each task; it has no `setCached`/`peekCached`, since nothing
-writes seats into it but a load.
+names who holds each task. It has no `setCached`/`peekCached`: besides its own
+loads, only `setFreshHosts` writes seats into it. The co-host panel
+(`HostsPanel.tsx`) calls that with the list it reads on opening, so a checklist
+opened after the panel reads none of its own, and marks the seats stale after
+each add, role change and removal.
 
 A cached wedding is in one of four states:
 

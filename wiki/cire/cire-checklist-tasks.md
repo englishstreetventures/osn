@@ -160,13 +160,14 @@ or one over 64 characters is 400. A task of another wedding is 404
 wedding's seat, a guest's id, an id that names nothing — is **422
 `assignee_not_in_wedding`**, with nothing written.
 
-`tasksService.assign` (`cire/api/src/services/tasks.ts`) is one batch of two
-statements: a read of the task, then the UPDATE, whose WHERE carries the seat
-check (`EXISTS` a `wedding_hosts` row with that id and this wedding's id). The
-check is in the write itself, so a seat removed while it runs is either not
-found or cleared after by the foreign key. The read only tells the refusals
-apart: no task is `TaskNotInWedding`, a task with nothing updated is
-`HostNotInWedding`.
+`tasksService.assign` (`cire/api/src/services/tasks.ts`) sends one
+`UPDATE … RETURNING`, whose WHERE carries the seat check (`EXISTS` a
+`wedding_hosts` row with that id and this wedding's id). The check is in the
+write itself, so a seat removed while it runs is either not found or cleared
+after by the foreign key. Only when the UPDATE writes nothing does a second
+statement read the task, to tell the refusals apart: no task is
+`TaskNotInWedding`, a task left as it was is `HostNotInWedding`. A gap between
+the two can change which refusal is named, never what is written.
 
 **A seat that goes takes its assignments with it.** Removing a co-host or
 leaving the wedding (`hostsService.remove`) deletes the seat, and the foreign
@@ -197,10 +198,27 @@ An owner or editor gets an **Edit** button on each row, which opens
 "Assigned to" select offers "Nobody yet" and every seat with its role. Each
 field in the drawer saves itself when it changes, the way a co-host's role
 select does, so a field added later brings its own write. The pick shows at
-once and rolls back if the API refuses it, and the select waits for each answer
-before it takes another pick. Opening the drawer reads the seats again; a 422
-reads the tasks and the seats again and says so inside the drawer.
-Removing a seat on the co-host panel marks the tasks and the seats stale.
+once and rolls back if the API refuses it.
+
+The select is never disabled while a write is out; it carries `aria-busy`
+instead. In Chrome on Windows and Linux an arrow key on a closed select changes
+its value and fires `change`, so a keyboard user arrowing through the options
+picks once per key press, and a control disabled under them would drop their
+focus. The writes go one at a time: a pick made while one is out waits, a later
+pick for the same task replaces it, and only the latest is written once the
+write is back. A write that a later pick replaced changes nothing on screen,
+whatever it answers; a refusal of the last write puts the row back to whoever
+the server last said holds the task. The options are keyed by seat id, so a
+re-read of the seats keeps the selected option in place: replaced, it would
+leave Chrome showing "Nobody yet" for a task that is still held.
+
+The first opening of the drawer on a visit to the checklist reads the seats
+from the server unless the visit has read them already; later openings use
+that read. A 422 reads the seats again; on the last write of a run it also
+reads the tasks again and says so inside the drawer. The co-host panel hands the checklist the seats it reads on opening,
+and marks them stale after each add, role change and removal. A removal marks
+the tasks stale too when a cached task names the removed seat, or when the
+seat was added on this visit and the panel never saw its id.
 
 ## Starter checklist
 
@@ -370,7 +388,8 @@ additively:
   `tests/routes/tasks.test.ts` ("assigning a task to a seat") proves another
   wedding's seat, a guest id and a stray id are each 422 with the assignee
   unchanged, and that a task of another wedding is 404 and untouched;
-  `tests/db/d1-integration.test.ts` runs the batch and the SET NULL on Miniflare.
+  `tests/db/d1-integration.test.ts` runs the UPDATE, the refusal's task read
+  and the SET NULL on Miniflare.
 - **Tenancy (templates)** — every statement of the preview, the apply and the
   re-dating is scoped by the wedding id, and
   `tests/routes/task-templates.test.ts` proves a date change on one wedding
