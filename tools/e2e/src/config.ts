@@ -37,19 +37,34 @@ export const CIRE_RSVP_CLOSED_ISO = "2099-01-02T00:00:00.000Z";
 /**
  * The gift-list wedding cire-api adds when the stack sets `CIRE_E2E_REGISTRY=1`
  * (`seedE2eGiftList` in `cire/api/src/db/setup.ts`, which these values copy):
- * on Gold, with a published list, and one household of one. The locked flow
- * checks that none of `gifts`, `headline` or `message` reaches a visitor
- * without a claim; the claimed flow checks that each of them reaches the
- * household, so a value that drifts from the seed fails that flow.
+ * on Gold, with a published list, one household of one, and the wedding's host
+ * preview household. The locked flow checks that none of `gifts`, `headline`
+ * or `message` reaches a visitor without a claim; the claimed flow checks that
+ * each of them reaches the household, so a value that drifts from the seed
+ * fails that flow. `previewCode` is the host household's code, which "Preview
+ * invite" opens the invitation with.
  */
 export const CIRE_GIFT_LIST = {
   slug: "gift-wedding",
   code: "TESTGFT-FIG-EE55",
+  previewCode: "HOST-E2E00000000000000000000000000001",
   guestName: "Gil",
   gifts: ["Copper saucepan", "Stoneware mixing bowls", "A walk on the beach together"],
+  /** The first gift's id, for a write a flow sends by hand. */
+  firstGiftId: "reg_e2e_gift_0001",
   headline: "Our gift list",
   message: "Your being there is the gift. This list is here if you would like it.",
 } as const;
+
+/**
+ * The client address a flow's organiser claims from (TEST-NET-1, never routed).
+ * The organiser previews from their own network, not the guests', so their
+ * claim spends its own per-address window of cire-api's claim limit. The
+ * stack's cire-api keeps a `cf-connecting-ip` the request sends
+ * (`CIRE_E2E_CLIENT_ADDRESS`, `localClientAddress` in cire/api); any other
+ * local cire-api replaces it with the socket peer.
+ */
+export const ORGANISER_ADDRESS = "192.0.2.10";
 
 /**
  * The fixed ports `PORTLESS=0` uses. Written out rather than imported because

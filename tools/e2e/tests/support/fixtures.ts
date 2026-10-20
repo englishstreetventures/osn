@@ -19,6 +19,7 @@ import {
   type BrowserContext,
   type CDPSession,
   type Page,
+  type Route,
 } from "@playwright/test";
 
 import {
@@ -26,6 +27,7 @@ import {
   BIRTHDATE,
   CIRE_GIFT_LIST,
   CLOCK_T0,
+  ORGANISER_ADDRESS,
   ORIGINS,
   SCREENSHOT_DIR,
 } from "../../src/config";
@@ -213,6 +215,32 @@ export function queryOne<T>(
   } finally {
     db.close();
   }
+}
+
+/**
+ * Sends `context`'s invitation claims (`POST /api/claim`) from
+ * `ORGANISER_ADDRESS` rather than from the machine the suite runs on.
+ *
+ * cire-api limits claims per client address, five a minute, and every other
+ * flow claims from the same one; an organiser previews from their own network,
+ * so this flow's claim spends its own window. The headers are the request's
+ * own (`allHeaders`, which keeps `Origin` for the origin guard) plus the
+ * address. `tools/e2e/tests/flows.test.ts` counts such flows apart.
+ *
+ * The route stays for the rest of the flow, on purpose. While any route is
+ * installed Playwright pauses every request in the context, and removing the
+ * route while the page is still loading strands whichever request was paused
+ * at that moment: a module import the claim's reveal waits on never settles,
+ * and the invitation stays on its code form.
+ */
+export async function claimFromOrganiserAddress(context: BrowserContext): Promise<void> {
+  await context.route(`${ORIGINS.cireApi}/api/claim`, async (route: Route) => {
+    const request = route.request();
+    if (request.method() !== "POST") return route.continue();
+    return route.continue({
+      headers: { ...(await request.allHeaders()), "cf-connecting-ip": ORGANISER_ADDRESS },
+    });
+  });
 }
 
 /** A cookie in `context` by name, or undefined. */
