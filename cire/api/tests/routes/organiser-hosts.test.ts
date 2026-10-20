@@ -1191,6 +1191,26 @@ describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/role", () =
     expect(((await editor.json()) as { host: unknown }).host).not.toHaveProperty("runSheetScope");
   });
 
+  it("starts a seat moved onto helper at own, whatever the seat stored before", async () => {
+    // An editor's stored scope is no setting of theirs, so it must not carry
+    // over: an editor stored `full` and made a helper would otherwise be shown
+    // every task and every other helper's name without an owner choosing it.
+    const { db, app } = buildApp();
+    seedCohost(db, "editor");
+    db.update(weddingHosts)
+      .set({ runSheetScope: "full" })
+      .where(eq(weddingHosts.osnProfileId, COHOST))
+      .run();
+    const res = await req(app, "PUT", rolePath, OWNER, { role: "helper" });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { host: unknown }).host).toMatchObject({
+      role: "helper",
+      runSheetScope: "own",
+    });
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
+    expect(row!.runSheetScope).toBe("own");
+  });
+
   it("promotes a co-host to owner, after which they hold the owner surface", async () => {
     const { db, app } = buildApp();
     seedCohost(db, "editor");
@@ -1369,22 +1389,28 @@ describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/run-sheet-s
     expect(await storedScope(db)).toEqual(["own"]);
   });
 
-  it("returns 409 not_a_helper for an owner, editor or viewer seat, writing nothing", async () => {
+  it("returns 409 not_a_helper for an owner, editor or viewer seat, a legacy `host` one included, writing nothing", async () => {
     // The column means nothing for these roles — `runSheetScopeFor()` answers
     // `full` for them whatever it holds — so a write there would only be a
-    // value waiting for a later demotion to make it mean something.
+    // value waiting for a later demotion to make it mean something. `host`,
+    // the role column's default, reads as an editor's seat, so it is refused
+    // too, though no test of a role names it.
     const { db, app } = buildApp();
     seedHostSeat(db, "usr_second_owner", "owner");
     seedHostSeat(db, "usr_editor", "editor");
     seedHostSeat(db, "usr_viewer", "viewer");
+    db.$client.exec(
+      `INSERT INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, run_sheet_scope, created_at) VALUES ('whost_legacy', '${WEDDING_ID}', 'usr_legacy', '${OWNER}', 'host', 'own', 0)`,
+    );
     const before = await scopeChanged("not_a_helper", "full");
-    for (const target of [OWNER, "usr_second_owner", "usr_editor", "usr_viewer"]) {
+    const targets = [OWNER, "usr_second_owner", "usr_editor", "usr_viewer", "usr_legacy"];
+    for (const target of targets) {
       const res = await req(app, "PUT", scopePath(target), OWNER, { scope: "full" });
       expect(res.status, target).toBe(409);
       expect(await jsonBody(res)).toEqual({ error: "not_a_helper" });
       expect(await storedScope(db, target)).toEqual(["own"]);
     }
-    expect(await scopeChanged("not_a_helper", "full")).toBe(before + 4);
+    expect(await scopeChanged("not_a_helper", "full")).toBe(before + targets.length);
   });
 
   it("returns 400 for a body with no scope, an unknown scope or no JSON, writing nothing", async () => {
@@ -1526,7 +1552,7 @@ describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/run-sheet-s
     expect(await scopeSeen()).toEqual({ weddingRunSheetScope: "own" });
   });
 
-  it("still refuses a helper opened to the whole run sheet every dashboard read", async () => {
+  it("still refuses a helper opened to the whole run sheet the guest list", async () => {
     // The scope widens the run sheet and nothing else: the guest list stays
     // behind the member gate, which a helper never passes.
     const { db, app } = buildApp();
