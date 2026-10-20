@@ -1623,6 +1623,57 @@ describe("event slugs: tenant-scoped uniqueness (migration 0051)", () => {
     const slugs = sharedDb.select({ slug: events.slug }).from(events).all();
     expect(slugs.map((r) => r.slug).toSorted()).toEqual(["ceremony", "ceremony-2"]);
   });
+
+  it("mints a new event a slug the wedding's existing events do not hold", async () => {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+    db.insert(events)
+      .values({
+        id: "evt_kept",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        slug: "ceremony",
+        name: "Ceremony",
+        description: "",
+        startAt: "",
+        endAt: "",
+        timezone: "",
+        sortOrder: 0,
+      })
+      .run();
+    const plan = planOf({
+      eventCreates: [
+        {
+          id: "evt_new",
+          event: {
+            name: "Ceremony!",
+            startAt: "2026-11-25T09:00:00+11:00",
+            endAt: "",
+            timezone: "Australia/Sydney",
+            location: null,
+            address: null,
+            dressCodeDescription: null,
+            dressCodePalette: [],
+            pinterestUrl: null,
+            mapsUrl: null,
+            sortOrder: 1,
+          },
+        },
+      ],
+    });
+
+    await Effect.runPromise(
+      applyImport("imp_slug_kept", plan, BOOTSTRAP_WEDDING_ID).pipe(
+        Effect.provideService(DbService, db),
+      ),
+    );
+
+    const [created] = db
+      .select({ slug: events.slug })
+      .from(events)
+      .where(eq(events.id, "evt_new"))
+      .all();
+    expect(created!.slug).toBe("ceremony-2");
+  });
 });
 
 describe("applyImport: finalize statements commit with the write set or not at all", () => {
