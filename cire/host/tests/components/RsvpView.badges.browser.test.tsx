@@ -1,3 +1,4 @@
+import { contrastRatio, WCAG_TEXT_MIN } from "@cire/theme";
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cdp, page, userEvent } from "vitest/browser";
@@ -159,6 +160,19 @@ function handedOver(nodes: AXNode[], explanation: string) {
   return [explanation, texts.length, descriptions.length];
 }
 
+/** Paint `layers` bottom-up on a 1px canvas and read back plain `rgb`. */
+function composite(layers: readonly string[]): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  for (const layer of layers) {
+    ctx.fillStyle = layer;
+    ctx.fillRect(0, 0, 1, 1);
+  }
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 /** The open panel, if any. It is `aria-hidden`, so a role query skips it. */
 const panel = () => document.querySelector<HTMLElement>('[role="tooltip"]');
 
@@ -250,6 +264,14 @@ describe("the RSVP table's badge explanations", () => {
           box.bottom > own.top;
         expect([word, overlaps]).toEqual([word, false]);
         expect([word, getComputedStyle(open).opacity]).toEqual([word, "1"]);
+        // Its own ground, opaque: the same paint over white and over black. A
+        // panel whose background class emits nothing is transparent over the
+        // table, and every check above still passes.
+        const { backgroundColor, color } = getComputedStyle(open);
+        const ground = composite(["white", backgroundColor]);
+        expect([word, ground]).toEqual([word, composite(["black", backgroundColor])]);
+        const ratio = contrastRatio(composite([ground, color]), ground)!;
+        expect([word, ratio >= WCAG_TEXT_MIN]).toEqual([word, true]);
 
         await page.screenshot({
           path: `__screenshots__/RsvpView.badges.browser.test.tsx/hover-${theme}-${word.toLowerCase().replace(/\W+/g, "-")}.png`,

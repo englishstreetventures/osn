@@ -312,6 +312,14 @@ unsanitised markup through a primitive without noticing.
 closest pair in the palette, and about one host in twelve cannot tell them apart.
 Every state that reports an outcome pairs its hue with a shape and a word.
 
+### Testing them
+
+`ui.test.tsx` asserts what a call site can rely on — that the variants differ
+from each other, that props reach the DOM, that the accessibility wiring is
+there, and that the one piece of arithmetic in the set is right. It does not
+assert class strings: that pins the current answer rather than the contract, and
+turns every move of the design into a test edit.
+
 ### A badge that explains itself
 
 A short badge whose meaning is not obvious — the RSVP table's New, Host-entered,
@@ -322,11 +330,3 @@ badge keeps its own colours and stays out of the tab order, so keyboard and
 touch users see the word alone. An explanation a host needs in order to act goes
 in visible text instead. Never a `title`: Chrome would hand a screen reader the
 words a second time. `wiki/shared/component-library.md` §`Tooltip` has the rest.
-
-### Testing them
-
-`ui.test.tsx` asserts what a call site can rely on — that the variants differ
-from each other, that props reach the DOM, that the accessibility wiring is
-there, and that the one piece of arithmetic in the set is right. It does not
-assert class strings: that pins the current answer rather than the contract, and
-turns every move of the design into a test edit.

@@ -34,6 +34,7 @@ import { Switch } from "@shared/ui/ui/switch";
 import { Table, Td, Th } from "@shared/ui/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@shared/ui/ui/tabs";
 import { Textarea } from "@shared/ui/ui/textarea";
+import { Tooltip } from "@shared/ui/ui/tooltip";
 import { UsernameInput } from "@shared/ui/ui/username-input";
 import { createSignal, type JSX } from "solid-js";
 
@@ -297,6 +298,14 @@ export const Everything = () => {
           </PopoverTrigger>
           <PopoverContent>The name people find you by, across every app.</PopoverContent>
         </Popover>
+      </Entry>
+
+      <Entry name="Tooltip" from="@shared/ui/ui/tooltip">
+        <Tooltip text="Recorded by a host (phone/paper RSVP)">
+          <span class="border-border text-meta rounded border px-1.5 py-0.5 uppercase">
+            Host-entered
+          </span>
+        </Tooltip>
       </Entry>
     </div>
   );
