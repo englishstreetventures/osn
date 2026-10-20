@@ -676,6 +676,70 @@ describe("the highlighted person, in Chrome", () => {
   }
 });
 
+describe("the popover's status line, in Chrome", () => {
+  it("shows the looking and the nobody-matches lines, keeps a count for a screen reader, and takes no room beside a failure", async () => {
+    await page.viewport(1280, 800);
+    seedTasks([row({ id: "a", title: "Book venue" })]);
+    let seats: () => Promise<Response> = async () =>
+      new Response(JSON.stringify({ error: "Internal error" }), { status: 500 });
+    authFetch.mockImplementation(async (url: string) => {
+      if (url.endsWith("/hosts")) return seats();
+      throw new Error(`unexpected ${url}`);
+    });
+    render(() => (
+      <div style={{ padding: "16px" }}>
+        <ChecklistView weddingId="wed_1" canEdit={true} />
+      </div>
+    ));
+    const trigger = await screen.findByRole("button", { name: "Assign people to Book venue" });
+    const open = async () => {
+      fireEvent.click(trigger);
+      const dialog = await screen.findByRole("dialog", { name: "Assign people" });
+      await Promise.all(dialog.getAnimations({ subtree: true }).map((a) => a.finished));
+      return { dialog, status: within(dialog).getByRole("status") };
+    };
+    const close = async (dialog: HTMLElement) => {
+      await userEvent.keyboard("{Escape}");
+      await waitFor(() => expect(dialog.isConnected).toBe(false));
+    };
+    const box = (el: Element) => el.getBoundingClientRect();
+
+    // A failed read: the alert says so, and the empty status line adds no gap.
+    let { dialog, status } = await open();
+    await within(dialog).findByRole("alert");
+    expect(status.textContent).toBe("");
+    expect(box(status).height).toBe(0);
+    await close(dialog);
+
+    // Still looking: said in sight, at the list's start edge.
+    let release: () => void = () => {};
+    seats = () => new Promise<Response>((resolve) => (release = () => resolve(hostsAnswer(SEATS))));
+    ({ dialog, status } = await open());
+    expect(status.textContent).toBe("Finding the people on this wedding…");
+    expect(box(status).height).toBeGreaterThan(30);
+    expect(getComputedStyle(status).paddingTop).toBe("12px");
+    expect(["start", "left"]).toContain(getComputedStyle(status).textAlign);
+    expect(contains(box(dialog), box(status))).toBe(true);
+
+    // A search that matches: the count is for a screen reader alone.
+    release();
+    const search = await within(dialog).findByRole("combobox", { name: "Search people" });
+    await userEvent.fill(search, "okafor");
+    await waitFor(() => expect(status.textContent).toBe("2 people match"));
+    expect(box(status).width).toBeLessThanOrEqual(1);
+    expect(box(status).height).toBeLessThanOrEqual(1);
+
+    // Nobody: said in sight, centred under the list.
+    await userEvent.fill(search, "zz");
+    await waitFor(() => expect(status.textContent).toBe("Nobody matches “zz”."));
+    expect(box(status).width).toBeGreaterThan(100);
+    expect(box(status).height).toBeGreaterThan(30);
+    expect(getComputedStyle(status).textAlign).toBe("center");
+    expect(contains(box(dialog), box(status))).toBe(true);
+    await page.screenshot({ path: shot("popover-nobody-matches") });
+  });
+});
+
 describe("a re-read of the seats while the popover is open, in Chrome", () => {
   it("keeps every tick, the highlighted person and their row", async () => {
     await page.viewport(1280, 800);

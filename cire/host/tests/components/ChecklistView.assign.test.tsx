@@ -724,6 +724,8 @@ describe("the popover", () => {
       "Couldn't load the people on this wedding",
     );
     expect(within(dialog).queryAllByRole("option")).toHaveLength(0);
+    // The alert says it; the status line says nothing beside it.
+    expect(within(dialog).getByRole("status").textContent).toBe("");
 
     fireEvent.keyDown(within(dialog).getByRole("listbox"), { key: "Escape" });
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
@@ -799,7 +801,7 @@ describe("what the popover says about its list", () => {
 
     seats.answer(hostsAnswer([SAM, JO])());
     await within(listbox).findAllByRole("option");
-    expect(status).toHaveTextContent("");
+    expect(status.textContent).toBe("");
     expect(notOptions(listbox)).toEqual([]);
   });
 
@@ -811,7 +813,11 @@ describe("what the popover says about its list", () => {
     const status = within(dialog).getByRole("status");
     const search = within(dialog).getByRole("combobox", { name: "Search people" });
     // Nothing typed, nothing to say: the list is all there is.
-    expect(status).toHaveTextContent("");
+    expect(status.textContent).toBe("");
+    // Nor for spaces alone, which filter nobody out.
+    fireEvent.input(search, { target: { value: "   " } });
+    expect(listed(listbox)).toHaveLength(6);
+    expect(status.textContent).toBe("");
 
     fireEvent.input(search, { target: { value: "o" } });
     expect(listed(listbox)).toHaveLength(4);
