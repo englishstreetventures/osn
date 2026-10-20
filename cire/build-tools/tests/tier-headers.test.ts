@@ -121,6 +121,30 @@ const fromEnv = (env: BuildEnv) => env.PUBLIC_API_URL ?? "http://localhost:8787"
 const CLIENT: TierHeadersOptions = { apiUrl: fromEnv, bundle: "client" };
 const SERVER: TierHeadersOptions = { apiUrl: fromEnv, bundle: "server" };
 
+describe("retargetHeaders — the socket source", () => {
+  const SOCKET_HEADERS = HEADERS.replace(
+    `connect-src 'self' ${PRODUCTION_API_ORIGIN};`,
+    `connect-src 'self' ${PRODUCTION_API_ORIGIN} wss://api.cireweddings.com;`,
+  );
+
+  it("points the wss source at the tier's API, as ws on a loopback http API", () => {
+    expect(retargetHeaders(SOCKET_HEADERS, DEV_API)).toContain(
+      `connect-src 'self' ${DEV_API} wss://api.dev.cireweddings.com;`,
+    );
+    expect(retargetHeaders(SOCKET_HEADERS, "http://localhost:8787")).toContain(
+      "connect-src 'self' http://localhost:8787 ws://localhost:8787;",
+    );
+    expect(retargetHeaders(SOCKET_HEADERS, PRODUCTION_API_ORIGIN)).toBe(SOCKET_HEADERS);
+  });
+
+  it("does not touch a socket host that merely starts with the production origin", () => {
+    const lookalike = `${SOCKET_HEADERS}# wss://api.cireweddings.com.example wss://api.cireweddings.community\n`;
+    const dev = retargetHeaders(lookalike, DEV_API);
+    expect(dev).toContain("wss://api.cireweddings.com.example");
+    expect(dev).toContain("wss://api.cireweddings.community");
+  });
+});
+
 describe("tierHeaders", () => {
   // A server build's layout: `_headers` and the client chunks in `client/`,
   // the server chunks in `server/`. A static build has only the first half,
