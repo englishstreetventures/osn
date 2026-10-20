@@ -61,6 +61,7 @@ packages:
   - "@shared/openapi-tools"
   - "@shared/osn-auth-client"
   - "@shared/rate-limit"
+  - "@shared/realtime"
   - "@shared/redis"
   - "@shared/rp-auth"
   - "@shared/sortable"
@@ -72,7 +73,7 @@ packages:
   - "@tools/metrics"
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # Monorepo Structure
@@ -144,6 +145,7 @@ shared/
   openapi-tools/       # @shared/openapi-tools — OpenAPI spec generation and normalisation (specs land in shared/openapi/)
   osn-auth-client/     # @shared/osn-auth-client — downstream access-JWT verification (JWKS cache, Elysia adapter)
   rate-limit/          # @shared/rate-limit — per-IP / per-user fixed-window limiter primitives, getClientIp trust policy
+  realtime/            # @shared/realtime — invalidation signals over WebSocket: the per-topic Durable Object hub, publish/subscribe helpers, the browser client and useTopic
   redis/               # @shared/redis — Redis client wrapper, rate-limiter Lua, JTI / rotated-session stores
   rp-auth/             # @shared/rp-auth — browser half of an OSN relying party: the redirect sign-in flow and its cookie contract
   sortable/            # @shared/sortable — drag-to-reorder for SolidJS: pointer sensor, closestCenter, multi-container, and the whole keyboard / screen-reader path
@@ -197,7 +199,7 @@ Platform priority is iOS, then web, then Android (deferred). The iOS apps are Sw
 
 ## Tech Stack
 
-Bun, TypeScript, Elysia, Effect v4 (backend only), Drizzle, SQLite locally and Cloudflare D1 in the deployed tiers (a Supabase Postgres migration is deferred — an open decision issue in `englishstventures/osn`), Eden+REST, WebSockets, Signal Protocol (planned), SolidJS, Astro, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest.
+Bun, TypeScript, Elysia, Effect v4 (backend only), Drizzle, SQLite locally and Cloudflare D1 in the deployed tiers (a Supabase Postgres migration is deferred — an open decision issue in `englishstreetventures/osn`), Eden+REST, WebSockets, Signal Protocol (planned), SolidJS, Astro, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest.
 
 ## Source Files
 

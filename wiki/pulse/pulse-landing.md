@@ -11,7 +11,7 @@ related:
   - "[[cire-landing]]"
   - "[[venues]]"
   - "[[design-tokens]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # Pulse Landing
@@ -142,7 +142,8 @@ and the dev smoke check asks `/api/geo` for a JSON object ([[production-deploy]]
 `PulseHero.test.tsx` renders the hero and asserts the headline + the geo
 _fallback_ CTA (no `/api/geo` in the test env). Run with
 `bun run --cwd pulse/landing test:run`. The `/api/geo` function logic is simple
-and edge-only (`request.cf`), so it is exercised at deploy rather than unit-mocked.
+and edge-only (`request.cf`), so no unit test covers it; the dev smoke check
+asks it for a JSON object after each dev deploy (above).
 
 ## Deferred
 
@@ -153,7 +154,10 @@ and edge-only (`request.cf`), so it is exercised at deploy rather than unit-mock
   nearest Cloudflare city; a region → capital/major-city table would let small
   towns route to their state's main city instead.
 - **Real domain** — `SITE` / `PUBLIC_APP_URL` are placeholders until the Pulse
-  marketing + app hosts are decided. (Preview deploys to `osn-pulse-landing.pages.dev`
-  via `.github/workflows/deploy-osn-pulse-landing.yml`.)
+  marketing + app hosts are decided. No workflow deploys the site to
+  production; `deploy.yml` deploys it to dev as `pulse-landing-dev`. The
+  `osn-pulse-landing` Pages project still serves an old preview build at
+  `osn-pulse-landing.pages.dev`; a new one goes there only by a hand
+  `wrangler pages deploy`.
 - **Marketing depth** — screenshots/imagery once brand assets exist, deeper
   feature pages, SEO content.

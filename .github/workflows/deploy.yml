@@ -7,9 +7,7 @@ name: Deploy
 #
 # Triggers:
 #   - push to `main` (after a merge)
-#   - manual `workflow_dispatch` (deploys every dev stack), with three inputs:
-#       smoke_fail        one dev surface's smoke check fails on purpose: the
-#                         dry run of the rollback path
+#   - manual `workflow_dispatch` (deploys every dev stack), with two inputs:
 #       expect_no_change  each stack job fails unless its deploy planned no
 #                         change: the proof that a second deploy is a no-op
 #       force             every resource is re-uploaded, unchanged ones too
@@ -65,24 +63,6 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      smoke_fail:
-        description: "Dry run of the rollback path: this dev surface's smoke check fails on purpose, so its stack job goes red, rolling the Worker back when this run uploaded it. Every other surface deploys and is checked as usual."
-        type: choice
-        options:
-          [
-            none,
-            cire_api,
-            cire_invites,
-            osn_api,
-            zap_api,
-            cire_host,
-            cire_vendor,
-            cire_landing,
-            osn_social,
-            musubi_landing,
-            pulse_landing,
-          ]
-        default: none
       expect_no_change:
         description: "Fail each stack job unless its deploy planned no change"
         type: boolean
@@ -189,8 +169,7 @@ jobs:
       # astro.config.mjs files rather than bun.lock or github.sha — Astro's
       # font-metadata cache is a function of which families each config
       # asks for, and restoring it here turns this workflow's own `bun run
-      # build` into a cache hit against fonts.google.com too
-      # (englishstventures/osn-tracker#128).
+      # build` into a cache hit against fonts.google.com too.
       - name: Cache Astro font metadata
         uses: actions/cache@v4
         with:
@@ -424,7 +403,6 @@ jobs:
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.osn_api_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.osn_api_deployment }}
-          SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'osn_api' }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
@@ -441,7 +419,6 @@ jobs:
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.musubi_social_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.osn_social_deployment }}
-          SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'osn_social' }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -456,7 +433,6 @@ jobs:
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.musubi_landing_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.musubi_landing_deployment }}
-          SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'musubi_landing' }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -735,7 +711,6 @@ jobs:
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_api_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_api_deployment }}
-          SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'cire_api' }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
@@ -755,7 +730,6 @@ jobs:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_invites_origin }}
           SMOKE_MARKETING_ORIGIN: ${{ steps.hosts.outputs.cire_landing_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_invites_deployment }}
-          SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'cire_invites' }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -770,7 +744,6 @@ jobs:
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_host_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_host_deployment }}
-          SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'cire_host' }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -785,7 +758,6 @@ jobs:
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_vendor_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_vendor_deployment }}
-          SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'cire_vendor' }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -800,7 +772,6 @@ jobs:
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_landing_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_landing_deployment }}
-          SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'cire_landing' }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -991,7 +962,6 @@ jobs:
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.zap_api_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.zap_api_deployment }}
-          SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'zap_api' }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
@@ -1174,7 +1144,6 @@ jobs:
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.pulse_landing_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.pulse_landing_deployment }}
-          SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'pulse_landing' }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}

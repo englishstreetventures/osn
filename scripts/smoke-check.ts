@@ -68,10 +68,6 @@
  *                       api.cloudflare.com, to read the Worker's deployments
  *                       and to roll it back. Without both, a check that fails
  *                       says so and rolls nothing back.
- *   SMOKE_FORCE_FAIL    "true" adds a probe of FORCED_FAILURE_PATH, which no
- *                       Worker answers with the JSON it expects, so the job
- *                       rolls back and goes red: the dry run of the rollback
- *                       path. Dev only.
  *   CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET
  *                       a Cloudflare Access service token, sent only to a
  *                       target behind Access (the dev sites), and only when
@@ -353,9 +349,6 @@ export function devTarget(surface: SurfaceKey): DevSmokeTarget | undefined {
   const tiers: SmokeTargets = SMOKE_TARGETS[surface];
   return tiers.dev;
 }
-
-/** A path no Worker serves: the dry run's probe. */
-export const FORCED_FAILURE_PATH = "/smoke-check-forced-failure";
 
 // ── judging one answer ──────────────────────────────────────────────────────
 
@@ -974,12 +967,6 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   if (tier !== "dev" && tier !== "production")
     return usage(`tier must be dev or production, not '${tier}'`);
 
-  const force = env.SMOKE_FORCE_FAIL ?? "";
-  if (force !== "" && force !== "true" && force !== "false") {
-    return usage(`SMOKE_FORCE_FAIL must be true or false, not '${force}'`);
-  }
-  const forced = force === "true";
-
   // The origins on dev, and the deployment the stack deploy made, are the
   // stack job's to pass; a check guessing either would judge the wrong host or
   // roll back the wrong deployment.
@@ -999,9 +986,6 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   if (tier === "production") {
     const target = productionTarget(surface);
     if (target === undefined) return usage(`${surface} has no production Worker`);
-    if (forced) {
-      return usage("SMOKE_FORCE_FAIL is for dev; the dry run never rolls production back");
-    }
     checked = {
       worker: target.worker,
       probes: target.probes,
@@ -1118,12 +1102,6 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   // the restored version on those alone.
   const probes: Probe[] = [...checked.probes];
   if (checked.gate !== undefined) probes.push(checked.gate);
-  if (forced) {
-    probes.push({
-      url: new URL(FORCED_FAILURE_PATH, checked.probes[0]?.url).href,
-      expects: { kind: "json", fields: { status: "ok" } },
-    });
-  }
   const ask = (): Promise<Round> =>
     Promise.all(
       probes.map((probe) =>
@@ -1247,7 +1225,8 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
 
   await input.sleep(TIMING.intervalMs);
   const after = await ask();
-  // The dry run's probe fails on every version; leave it out of the verdict.
+  // The Access probe judges the host, not the Worker; leave it out of the
+  // restored version's verdict.
   const restored = after.slice(0, checked.probes.length);
   if (passed(restored)) {
     out(

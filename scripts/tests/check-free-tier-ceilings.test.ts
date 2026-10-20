@@ -383,7 +383,7 @@ function fakeGh(listed: string) {
   const run = async (args: readonly string[]): Promise<string> => {
     calls.push([...args]);
     if (args[1] === "list") return listed;
-    return args[1] === "create" ? "https://github.com/englishstventures/osn/issues/1\n" : "";
+    return args[1] === "create" ? "https://github.com/englishstreetventures/osn/issues/1\n" : "";
   };
   return { calls, run };
 }
@@ -391,14 +391,14 @@ function fakeGh(listed: string) {
 test("F5: production's gh calls are the ones the single-account alert made", async () => {
   const gh = fakeGh("[]");
 
-  await syncIssue(gh.run, "englishstventures/osn", "the body", "production", tempDir);
+  await syncIssue(gh.run, "englishstreetventures/osn", "the body", "production", tempDir);
 
   expect(gh.calls).toEqual([
     [
       "issue",
       "list",
       "--repo",
-      "englishstventures/osn",
+      "englishstreetventures/osn",
       "--state",
       "all",
       "--limit",
@@ -412,7 +412,7 @@ test("F5: production's gh calls are the ones the single-account alert made", asy
       "issue",
       "create",
       "--repo",
-      "englishstventures/osn",
+      "englishstreetventures/osn",
       "--title",
       "Cloudflare free tier: a daily counter is near its ceiling",
       "--type",
@@ -428,13 +428,13 @@ test("F5: production's gh calls are the ones the single-account alert made", asy
 
 test("F5: dev searches for and opens its own title, and edits its own issue", async () => {
   const opened = fakeGh("[]");
-  await syncIssue(opened.run, "englishstventures/osn", "the body", "dev", tempDir);
+  await syncIssue(opened.run, "englishstreetventures/osn", "the body", "dev", tempDir);
   expect(opened.calls[0]?.[9]).toBe(`${issueTitle("dev")} in:title`);
   expect(opened.calls[1]?.slice(0, 6)).toEqual([
     "issue",
     "create",
     "--repo",
-    "englishstventures/osn",
+    "englishstreetventures/osn",
     "--title",
     issueTitle("dev"),
   ]);
@@ -445,13 +445,13 @@ test("F5: dev searches for and opens its own title, and edits its own issue", as
       { number: 41, title: issueTitle("dev"), state: "OPEN" },
     ]),
   );
-  await syncIssue(both.run, "englishstventures/osn", "the body", "dev", tempDir);
+  await syncIssue(both.run, "englishstreetventures/osn", "the body", "dev", tempDir);
   expect(both.calls[1]).toEqual([
     "issue",
     "edit",
     "41",
     "--repo",
-    "englishstventures/osn",
+    "englishstreetventures/osn",
     "--body-file",
     `${tempDir}/free-tier-ceiling-body.md`,
   ]);

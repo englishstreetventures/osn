@@ -279,7 +279,6 @@ build ────┘
 
 | Input | Effect |
 |---|---|
-| `smoke_fail` | That dev surface's check fails on purpose: its stack job goes red, rolling the Worker back when this run uploaded it |
 | `expect_no_change` | Each stack job fails unless its deploy planned no change: the proof that a second deploy is a no-op |
 | `force` | Every resource is re-uploaded, unchanged ones too |
 

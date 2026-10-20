@@ -28,7 +28,7 @@ gates what a from-zero D1 rebuild spends against a free-tier quota, and it is
 here because it obeys the same two rules and was built from this page. The page
 name still says bundles because the file has not moved.
 
-A fourth guard, `scripts/guard-lint-warnings.sh` (englishstventures/osn#1008), gates how
+A fourth guard, `scripts/guard-lint-warnings.sh` (englishstreetventures/osn#1008), gates how
 many warning-severity `oxlint` diagnostics the whole monorepo may carry —
 again nothing to do with bundles, again built from this page's two rules.
 
@@ -126,10 +126,10 @@ touching a threshold. In short:
 > see bytes that never land in the directory it reads. Measured on
 > musubi/landing: 5 inline style blocks + 4 inline script blocks in
 > `dist/index.html` alone, about 3116 bytes gzip-equivalent — real budget the
-> guard cannot see. Two ways close this
-> (parse the HTML too, or force `inlineStylesheets: "never"` so everything
-> lands in `dist/_astro` where the guard already looks); this is a product
-> decision, not something fixed in this script.
+> guard cannot see. There are two ways to close this (parse the HTML too, or
+> force `inlineStylesheets: "never"` so everything lands in `dist/_astro`
+> where the guard already looks); this is a product decision, not something
+> fixed in this script.
 >
 > *Unverified — no command on record. Written into this page 2026-09-07;
 > recount the inline `<style>`/`<script>` blocks in
@@ -153,10 +153,8 @@ without executing the script, so the chained invocation never runs on a cache
 hit — the explicit workflow step is what still checks the artifact that IS on
 disk in that case. Both invocations matter; neither one alone covers both paths.
 
-`musubi/landing` and `pulse/landing` also deploy from
-`.github/workflows/deploy-osn-pulse-landing.yml` (a feature-branch preview,
-`bun run --cwd <dir> build`) — that already runs each app's own chained `build`
-script, so the guard applies there too with no separate step needed.
+No workflow deploys `musubi/landing` or `pulse/landing` to production; on dev,
+the musubi and pulse stack jobs build and guard them as above.
 
 ### Per-app thresholds — mirrors `scripts/bundle-size-budgets.txt`
 
@@ -175,8 +173,8 @@ the guard regardless of how large or small the app's own baseline is:
 
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
-| cire/invites | worker | 176733 B | 188433 B *(re-baselined, englishstventures/osn#1325 — see below)* |
-| cire/host | static | 268459 B | 280159 B *(re-baselined, englishstventures/osn#1304 — see below)* |
+| cire/invites | worker | 176733 B | 188433 B *(re-baselined, englishstreetventures/osn#1325 — see below)* |
+| cire/host | static | 268459 B | 280159 B *(re-baselined, englishstreetventures/osn#1304 — see below)* |
 | cire/vendor | static | 69961 B | 81644 B |
 | cire/landing | static | 177641 B | 189324 B |
 | musubi/landing | static | 15182 B | 26865 B |
@@ -199,7 +197,7 @@ every file in `dist/_astro`, so **splitting a chunk cannot reduce it and usually
 raises it**: each chunk is compressed on its own, losing the shared dictionary,
 and carries its own boilerplate.
 
-`englishstventures/osn#1026` made a locked module unreachable rather than merely
+`englishstreetventures/osn#1026` made a locked module unreachable rather than merely
 upsold, and took the vendors module's three panels out of the first load on the
 same argument the registry was already split on. Measured both ways, clean, one
 build at a time:
@@ -220,7 +218,7 @@ on `feat/locked-module-nav`, reading the total the guard itself prints; the
 eager figure from the same build with the three `lazy()` calls replaced by
 static imports.*
 
-Headroom stays ~11.7 KB, so the guard is no less sensitive than before. A later raise, for englishstventures/osn#1086, measured the portal at
+Headroom stays ~11.7 KB, so the guard is no less sensitive than before. A later raise, for englishstreetventures/osn#1086, measured the portal at
 **237946 B** on `main` — the `# measured` comment in the budgets file had fallen
 behind at 231255 — and at **240953 B** with fifteen `lucide-solid` icons and
 Overview's own SVG in the module and command-palette rows, **+3007 B** across
@@ -229,7 +227,7 @@ the same 50 files.
 *Measured 2026-09-23 — `rm -rf cire/host/dist && bun run --cwd cire/host build`,
 before and after, on `chore/module-icons`, reading the total the guard prints.*
 
-The plus-one controls (englishstventures/osn#1238) raised it again. By then the
+The plus-one controls (englishstreetventures/osn#1238) raised it again. By then the
 portal had grown to **252496 B** against the 252653 B threshold, 157 B of
 headroom, and the Households tab's switches, household buttons, removal dialog
 and `plus-one-permission.ts` came to **256259 B**, **+3763 B**. Built on
@@ -241,7 +239,7 @@ on `feat/cire-plus-one-host-ui`, and the same build with `GuestTable.tsx` and
 `ModuleShell.tsx` taken from its parent `feat/cire-plus-one-api`, reading the
 total the guard prints.*
 
-Equal wedding owners and the wedding soft delete (englishstventures/osn#1304)
+Equal wedding owners and the wedding soft delete (englishstreetventures/osn#1304)
 raised it again. `main` measured **265496 B** against the 267959 B threshold,
 2463 B of headroom. The owner rows and step-down in the hosts panel, the
 delete dialog in Settings and the "Recently deleted" list with Restore came to
@@ -254,7 +252,7 @@ guard prints.*
 
 ### `cire/invites` went up for the household member step
 
-The household member step (englishstventures/osn#1325) — "Who are you?" in the
+The household member step (englishstreetventures/osn#1325) — "Who are you?" in the
 claim panel, the member-bound account-link box, "Answered by" in the RSVP
 sheet, and `household-member.ts` — took the guest Worker from **174402 B** on
 `main`'s source to **176733 B**, **+2331 B** across the same 38 files, past the
@@ -309,7 +307,7 @@ The cire dev deploy crossed a hard ceiling by growing. Every
 `ALTER TABLE ... DROP COLUMN` added to the migration chain made each from-zero
 rebuild a little dearer, and on 2026-09-09 thirteen merges spent 104,091 D1 rows
 written against a free-tier limit of 100,000 a day account-wide
-(englishstventures/osn#979). No commit was wrong; no version of the job failed a test.
+(englishstreetventures/osn#979). No commit was wrong; no version of the job failed a test.
 [[free-tier-limits]] holds the ceiling itself; [[dev-environment]] holds what the
 rebuild now does.
 
@@ -341,11 +339,11 @@ D1 rows written** — two schema writes at 27 apiece.
 *Measured 2026-09-10 — `bunx wrangler d1 insights cire-db-dev --time-period=7d --sort-by=writes --limit=200`. The `--limit` is the point: it returns the 200 heaviest queries, not the week.*
 
 **The soft anchor**, which agrees within about a fifth and no better. The
-57-file chain squashed by englishstventures/osn#984 measures 269 schema writes here, and
+57-file chain squashed by englishstreetventures/osn#984 measures 269 schema writes here, and
 its rebuild cost **8,007 D1 rows written** in total — but that total covers
 drop, replay *and* seed, so it bounds the chain only once the seed is taken off,
 and the seed's cost is the part not known precisely.
-<!-- 8,007 is unverified here: taken from [[free-tier-limits]] and the englishstventures/osn#979 investigation, not re-derived -->
+<!-- 8,007 is unverified here: taken from [[free-tier-limits]] and the englishstreetventures/osn#979 investigation, not re-derived -->
 
 | Bound on the constant | Where it comes from |
 |---:|---|
@@ -445,7 +443,7 @@ non-`correctness` finding at `warn`, so `bun run lint` exits 0 whatever the
 warning count is — the CI step at `ci.yml`'s `lint` job proved only that no
 error-level rule fired. Over one recent epic the count drifted 1020 → 1035 →
 1037 → 1061 with no CI step noticing, and the only way to know was to read
-the number by hand on every branch (englishstventures/osn#1008). Some of the rules
+the number by hand on every branch (englishstreetventures/osn#1008). Some of the rules
 sitting at `warn` are repo-specific and exist because the mistake they catch
 actually happened — `house/no-tracker-ref-in-comment`,
 `house/no-non-subscribing-store-read` — and with nothing enforcing the total

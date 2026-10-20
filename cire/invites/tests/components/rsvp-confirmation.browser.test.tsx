@@ -126,7 +126,7 @@ function Harness(props: { members?: FamilyMember[] }) {
 
 function respondButton(): HTMLButtonElement {
   return [...document.querySelectorAll("button")].find(
-    (b) => b.textContent === "Respond",
+    (b) => b.textContent === "Respond" || b.textContent === "RSVP given",
   ) as HTMLButtonElement;
 }
 

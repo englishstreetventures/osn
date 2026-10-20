@@ -67,10 +67,9 @@ export const verifyStepUp = (
  * intent was already proved by the matching verifyStepUp call earlier
  * in the request lifecycle.
  *
- * Residual risk (S-M follow-up — `S-M25` in `englishstventures/osn-tracker`): a compromised
- * Pulse instance can call this with arbitrary accountIds. Mitigations:
- * the ARC key's bounded TTL (5 min), per-kid rate limits at the ARC
- * middleware (S-M24 — backlogged), and audit logs.
+ * Residual risk: a compromised Pulse instance can call this with arbitrary
+ * accountIds. Mitigations: each ARC token lives 5 minutes, the signing key 24
+ * hours by default (`PULSE_LEAVE_ARC_KEY_TTL_HOURS`), and audit logs.
  */
 export const notifyAppLeft = (
   accountId: string,

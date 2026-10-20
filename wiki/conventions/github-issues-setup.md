@@ -5,7 +5,7 @@ related:
   - "[[review-findings]]"
   - "[[agent-tooling]]"
   - "[[index]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-19
 ---
 
 # GitHub Issues setup
@@ -17,13 +17,14 @@ Two repos and one Project:
 
 | Thing | What it holds |
 |---|---|
-| `englishstventures/osn` (public) | Feature work, bugs, ops, docs, schema |
-| `englishstventures/osn-tracker` (private) | Every security, performance and compliance finding |
+| `englishstreetventures/osn` (public) | Feature work, bugs, ops, docs, schema |
+| `englishstreetventures/osn-tracker` (private) | Every security, performance and compliance finding |
 | `OSN Platform` (org Project, **private**) | Both repos' issues in one board |
 
-Findings are split off because `englishstventures/osn` is public and an open finding is a
-disclosure. See `[[review-findings]]` for what may be said in a public issue
-about a finding that exists (the ID, nothing else).
+Findings are split off because `englishstreetventures/osn` is public and an open finding is a
+disclosure. A public issue or pull request carries a tracker issue only as a
+bare `englishstreetventures/osn-tracker#<n>` reference — see
+[[review-findings#Where a finding ID may appear]].
 
 ## 1. Token scopes
 
@@ -37,13 +38,13 @@ them every `gh project` command fails with
 
 ```bash
 gh auth refresh -h github.com -s project -s read:project
-gh project list --owner englishstventures   # must not error
+gh project list --owner englishstreetventures   # must not error
 ```
 
 ## 2. Private tracker repo
 
 ```bash
-gh repo create englishstventures/osn-tracker --private \
+gh repo create englishstreetventures/osn-tracker --private \
   --description "Private tracker for OSN security, performance and compliance findings"
 ```
 
@@ -52,7 +53,7 @@ repo and is copied across on first setup — it is kept here so it is reviewed
 with everything else, but GitHub only reads a form from the repo it serves.
 
 ```bash
-gh api repos/englishstventures/osn-tracker/contents/.github/ISSUE_TEMPLATE/review-finding.yml \
+gh api repos/englishstreetventures/osn-tracker/contents/.github/ISSUE_TEMPLATE/review-finding.yml \
   -X PUT -f message="chore: add the review-finding form" \
   -f content="$(base64 -i .github/tracker/ISSUE_TEMPLATE/review-finding.yml)"
 ```
@@ -97,10 +98,10 @@ it.
 
 Types are an org-level field, separate from labels: a label says which area an
 item belongs to, a type says what kind of work it is, and a Project can group
-and filter on it. `englishstventures` uses the three GitHub creates by default.
+and filter on it. `englishstreetventures` uses the three GitHub creates by default.
 
 ```bash
-gh api orgs/englishstventures/issue-types --jq '.[] | "\(.id)  \(.name)"'
+gh api orgs/englishstreetventures/issue-types --jq '.[] | "\(.id)  \(.name)"'
 ```
 
 | Type | What gets it |
@@ -118,22 +119,22 @@ what distinguishes them; add the type later if the scope is ever granted.
 Setting a type on an issue that already exists:
 
 ```bash
-gh issue edit 450 --repo englishstventures/osn --type Task
+gh issue edit 450 --repo englishstreetventures/osn --type Task
 ```
 
 The migration set a type on every issue it created, so nothing is outstanding.
 To find any that were filed since without one:
 
 ```bash
-gh issue list --repo englishstventures/osn --state all --limit 2000 \
+gh issue list --repo englishstreetventures/osn --state all --limit 2000 \
   --json number,title,issueType --jq '.[] | select(.issueType == null) | "\(.number)  \(.title)"'
 ```
 
 ## 5. The Project
 
 ```bash
-gh project create --owner englishstventures --title "OSN Platform"
-gh project list --owner englishstventures   # note the number, $N below
+gh project create --owner englishstreetventures --title "OSN Platform"
+gh project list --owner englishstreetventures   # note the number, $N below
 ```
 
 > **Check the visibility before adding a single tracker issue.** A public
@@ -143,10 +144,10 @@ gh project list --owner englishstventures   # note the number, $N below
 > read it back rather than assume:
 >
 > ```bash
-> gh project view $N --owner englishstventures --format json --jq '.public'   # must be false
+> gh project view $N --owner englishstreetventures --format json --jq '.public'   # must be false
 > ```
 >
-> If it says `true`, fix it first: `gh project edit $N --owner englishstventures --visibility PRIVATE`.
+> If it says `true`, fix it first: `gh project edit $N --owner englishstreetventures --visibility PRIVATE`.
 
 A new Project already has a **Status** field, with options Todo / In Progress /
 Done. Creating a second one called "Status" is allowed and unhelpful — the board
@@ -154,7 +155,7 @@ groups by the built-in one. Rewrite its options in place instead. Get the field
 id, then run the mutation:
 
 ```bash
-gh project field-list $N --owner englishstventures --format json \
+gh project field-list $N --owner englishstreetventures --format json \
   --jq '.fields[] | select(.name == "Status") | .id'     # PVTSSF_…
 
 gh api graphql -F field=PVTSSF_… -f query='
@@ -185,9 +186,9 @@ card moves to Done.
 The other two fields don't exist yet, so they are ordinary creates:
 
 ```bash
-gh project field-create $N --owner englishstventures --name "Priority" \
+gh project field-create $N --owner englishstreetventures --name "Priority" \
   --data-type SINGLE_SELECT --single-select-options "P0,P1,P2,P3"
-gh project field-create $N --owner englishstventures --name "Effort" \
+gh project field-create $N --owner englishstreetventures --name "Effort" \
   --data-type SINGLE_SELECT --single-select-options "XS,S,M,L,XL"
 ```
 
@@ -197,14 +198,16 @@ Project → the **⋯** menu, top right → **Workflows**. Each one is Edit, fil
 then **Save and turn on workflow**.
 
 1. **Auto-add to project** — filter `is:issue is:open`, one repo per workflow.
-   **`englishstventures` is on GitHub Free, and Free allows one auto-add workflow per
-   project.** Two repos feed this board, so one of them gets it and the other
-   is swept by hand. Put it on `englishstventures/osn-tracker`: findings arrive in bursts
-   at the end of a review and are the easy ones to forget, while a product
-   issue is opened deliberately. Sweeping the other repo is one command —
-   see the backfill below — and the choice is one edit to reverse.
-2. **Item added to project** — set `Status` = `Backlog`. This one is off; turn
-   it on whether or not auto-add is.
+   **The board has one, on `englishstreetventures/osn-tracker`**: findings
+   arrive in bursts at the end of a review and are the easy ones to forget,
+   while a public issue is opened deliberately and `write-issue` adds it with
+   `gh project item-add`. `englishstreetventures` is on GitHub Team, which
+   allows five auto-add workflows (Free allows one; GitHub Docs, *Adding items
+   automatically*), so the public repo can have its own: **⋯** beside the
+   existing one → **Duplicate workflow** → **Edit**, and pick
+   `englishstreetventures/osn` under **Filters**.
+2. **Item added to project** — set `Status` = `Backlog`, and turn it on
+   whether or not auto-add is.
 
 **Auto-add sub-issues to project** is already on, so a sub-issue opened under
 an epic that is on the board joins it too.
@@ -215,9 +218,9 @@ migration cost zero Project API calls.
 **It did not happen that way on the first run.** Creating the Project needs the
 `project` scope, and `gh auth refresh` cannot be run by an agent — it is
 interactive. Rather than stall the whole migration on one token grant, the
-issues were created first and the Project comes second. Auto-add only fires on
-issues opened *after* the workflow is enabled, so everything created before it
-has to be backfilled:
+issues were created first and the Project comes second. Auto-add adds an issue
+only when it is created or updated *after* the workflow is enabled, so
+everything created before it has to be backfilled:
 
 ```bash
 bun run scripts/todo-to-issues/backfill-project.ts $N          # dry run, prints the plan
@@ -235,8 +238,10 @@ It took three runs to clear the whole board — see §Rate limits worth knowing 
 why, and expect the same of any later bulk add. The dry run now reports
 `676 issues, 676 on the board, 0 to add`.
 
-It stays useful after the migration: auto-add covers one repo, so run the dry
-run over the other now and then and `--apply` when it finds anything.
+It stays useful after the migration: auto-add covers only the tracker, and
+skips any issue that existed before its workflow was turned on until someone
+edits it. Run the dry run now and then, and whenever a workflow is added or
+changed, and `--apply` when it finds anything.
 
 ## 7. Views (UI only)
 
@@ -249,7 +254,7 @@ search bar itself — there is no filter dropdown, you type the query.
 | Board | Board | Group by **Status** | — |
 | By product | Table | **Slice by** → **Labels** | — |
 | By type | Table | Group by **Type** | — |
-| Review findings | Table | **Slice by** → **Labels** | `repo:englishstventures/osn-tracker is:open` |
+| Review findings | Table | **Slice by** → **Labels** | `repo:englishstreetventures/osn-tracker is:open` |
 | Up Next | Board | Group by **Status** | `status:"Up Next","In Progress"` |
 
 Three things about that table are not obvious, and each one cost a search:
@@ -275,8 +280,8 @@ fourth.
 
 Fill these in once, here:
 
-- Project number: `1` — <https://github.com/orgs/englishstventures/projects/1> (private)
-- Tracker repo: <https://github.com/englishstventures/osn-tracker>
+- Project number: `1` — <https://github.com/orgs/englishstreetventures/projects/1> (private)
+- Tracker repo: <https://github.com/englishstreetventures/osn-tracker>
 
 ## What is left of the migration tool
 
@@ -286,7 +291,7 @@ still run:
 | File | Why it stays |
 |---|---|
 | `labels.sh` | Recreates the label set in both repos, any time (§3) |
-| `backfill-project.ts` | Puts issues on the board until auto-add is enabled (§6) |
+| `backfill-project.ts` | Puts on the board any issue no auto-add workflow added (§6) |
 | `throttle.ts` | The rate-limit gap the backfill uses |
 
 Everything else — the parser, the classifier, the link rewriter, the renderer,

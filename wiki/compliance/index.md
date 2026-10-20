@@ -13,7 +13,7 @@ related:
   - "[[data-map]]"
   - "[[subprocessors]]"
   - "[[cire]]"
-last-reviewed: 2026-09-11
+last-reviewed: 2026-10-20
 ---
 
 # Compliance
@@ -43,7 +43,7 @@ compliance" surface looks like.
 | **SOC 2 (Trust Services Criteria — Security + Confidentiality + Availability + Privacy)** | Required by enterprise Zap-org customers before they will embed the support widget on their site. Type I before first paying org; Type II within 12 months. | Plan only — controls inventoried, no auditor engaged | Platform team | [[soc2]] |
 | **EU Digital Services Act (DSA)** | Hosting service for user-generated content with EU recipients. Notice-and-action, transparency reporting, statement of reasons, trusted flaggers, ToS clarity. Independent of GDPR. | Plan only — moderation tooling not built | Pulse + Zap teams | [[dsa]] |
 | **COPPA** | US under-13 users. Mandatory verifiable parental consent OR a hard age gate. We will gate at signup (no under-13 accounts). | Plan only — registration has no age check | Identity team | [[coppa]] |
-| **EU ePrivacy Directive (cookie law)** | EU recipients. Strictly-necessary cookies are exempt; analytics / marketing require informed consent. Today we set only `osn_session` (HttpOnly, strictly necessary). | Compliant by absence — must stay this way | Platform team | [[eprivacy]] |
+| **EU ePrivacy Directive (cookie law)** | EU recipients. Strictly-necessary cookies are exempt; analytics / marketing require informed consent. The register in [[eprivacy]] lists each cookie and storage key we have assessed and the basis for each. | Compliant by absence — must stay this way | Platform team | [[eprivacy]] |
 | **European Accessibility Act (EAA)** | Effective 28 June 2025. Consumer-facing apps in the EU must meet WCAG 2.1 AA. Pulse, Social, Zap, Landing all in scope. | Plan only — no audit run | Frontend teams | [[eaa]] |
 
 ## Standards we will be in scope for soon
@@ -75,7 +75,7 @@ compliance" surface looks like.
 - [[access-control]] — SOC 2 CC6: who has prod access, how it is granted / revoked / reviewed
 - [[backup-dr]] — SOC 2 A1: backup cadence, restore drills, RTO / RPO targets
 - [[dpia/cire-guest-data]] — Art. 35 DPIA for cire guest data (special-category dietary; gating consent mitigation C-H2 (cire dietary) RESOLVED PR #123, sign-off pending residual C-H1)
-- Closed `C-` findings — `gh issue list --repo englishstventures/osn-tracker --label area:compliance --state closed`
+- Closed `C-` findings — `gh issue list --repo englishstreetventures/osn-tracker --label area:compliance --state closed`
 
 ## How to use this directory
 
@@ -89,5 +89,5 @@ compliance" surface looks like.
   — DSAR coverage, retention windows, log redaction of PII, lawful basis
   for new collection, etc.
 - **Triaging a finding?** Compliance findings use the `C-` prefix (see
-  `[[review-findings]]`) and are filed in the private `englishstventures/osn-tracker`
-  under `label:compliance` — never in the public `englishstventures/osn`.
+  `[[review-findings]]`) and are filed in the private `englishstreetventures/osn-tracker`
+  under `area:compliance` — never in the public `englishstreetventures/osn`.

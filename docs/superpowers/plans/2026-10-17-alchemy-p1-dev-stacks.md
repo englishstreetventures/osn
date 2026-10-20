@@ -247,11 +247,8 @@ Every value above is set **before the merge**: the merge push itself deploys eve
 
 1. The merge push deploys everything; the first deploy creates every resource. (If it ran before a value was set, dispatch **Deploy** once the value is in.)
 2. Dispatch **Deploy** with `expect_no_change: true`: every stack job must report `Plan: no changes`.
-3. Dispatch **Deploy** with `force: true` and `smoke_fail: osn_social`: musubi social is re-uploaded, its check fails, it is rolled back, and the job goes red. A site Worker holds no secrets, so the rollback is certain.
-4. Dispatch **Deploy** plainly: the musubi stack sees the rollback, deploys with `--force`, and goes green: the self-heal.
-5. Dispatch **Deploy** with `force: true` and `smoke_fail: osn_api`: either osn-api is rolled back (then dispatch plainly once more to heal), or Cloudflare's "secrets changed" refusal (code 10220) is reported by name. Either answer settles how rollback behaves for a Worker whose secrets Alchemy re-sends.
-6. Sign in on the dev musubi social host with a passkey, then set `CIRE_DEV_OWNER_PROFILE_ID` to that profile's id and dispatch once more; sign in to the cire host.
-7. Fill the dev asset bucket once: `CLOUDFLARE_ACCOUNT_ID=<dev account> CLOUDFLARE_API_TOKEN=<dev token> bun run --cwd cire/db assets:seed:dev`.
+3. Sign in on the dev musubi social host with a passkey, then set `CIRE_DEV_OWNER_PROFILE_ID` to that profile's id and dispatch once more; sign in to the cire host.
+4. Fill the dev asset bucket once: `CLOUDFLARE_ACCOUNT_ID=<dev account> CLOUDFLARE_API_TOKEN=<dev token> bun run --cwd cire/db assets:seed:dev`.
 
 Then delete from the current account: Workers `osn-api-dev`, `cire-api-dev`, `cire-invites-dev`; D1 `osn-db-dev`, `cire-db-dev`; R2 `cire-assets-dev`, `cire-sheets-dev`; Pages `osn-social-dev`, `cire-host-dev`, `cire-vendor-dev`, `cire-landing-dev`; the dev DNS records on `cireweddings.com` and `musubi.social`; the Access application `cire dev tier`; and from the `dev` Environment `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN_DEV`.
 
@@ -284,7 +281,7 @@ All derive from `stageHosts(readDevDomain(env), stage)`; the workflow reaches th
 | vendor build `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ACCOUNT_URL` | `.github/workflows/deploy.yml:578-579` | `…cire_api_origin`, `…musubi_social_origin` |
 | cire landing build `PUBLIC_ORGANISER_URL`, `SITE` | `.github/workflows/deploy.yml:656-657` | `…cire_host_origin`, `…cire_landing_origin` |
 | musubi social build `VITE_OSN_ISSUER_URL` | `.github/workflows/deploy.yml:829` | `…osn_api_origin` |
-| musubi landing, pulse landing build `SITE` | `.github/workflows/deploy-osn-pulse-landing.yml:60` (production-account preview, untouched) | `…musubi_landing_origin`, `…pulse_landing_origin` |
+| musubi landing, pulse landing build `SITE` | none: no workflow builds them (the production-account preview workflow is deleted on `main`, englishstreetventures/osn#1559) | `…musubi_landing_origin`, `…pulse_landing_origin` |
 | musubi landing build `PUBLIC_APP_URL` | `musubi/landing/src/lib/site.ts:10` (default `http://localhost:1422`) | `…musubi_social_origin` |
 | pulse landing build `PUBLIC_APP_URL` | `pulse/landing/src/lib/site.ts:11` (default `http://localhost:3001`) | none: the Pulse app has no dev deploy; left unset and recorded |
 | ARC key registration of cire-api | by hand (`wiki/shared/dev-environment.md:541-547`) | musubi stack seed (no host involved) |
@@ -1062,7 +1059,7 @@ Route: `mechanic` (the pattern is Task 5's, every value is below).
   - Otherwise the version that served at 100% in the newest deployment before it (Q6).
   - Export `devRestorePlan(newestFirst: readonly Deployment[], deployment: string): RestorePlan`.
 - Access (Decision 12): a dev target with `access: true` sends the service-token headers when both are set, and otherwise probes without them. A redirect to `*.cloudflareaccess.com` is `blocked`, which fails the job without rollback, and the job's error names `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` (Q9). The "skipped, exit 0" path is removed.
-- `SMOKE_FORCE_FAIL` keeps its meaning on dev for every dev surface.
+- No `SMOKE_FORCE_FAIL`: `main` removed the dry run (englishstreetventures/osn#1559), so no input makes a dev check fail on purpose.
 - `scripts/worker-deployments.ts`:
   ```
   bun run scripts/worker-deployments.ts snapshot <file> <surface>...   # writes {"<surface>": "<newest deployment id>" | null}
@@ -1094,7 +1091,6 @@ Route: `mechanic` (the pattern is Task 5's, every value is below).
 **Shape.** Keep the header comment's role, rewritten to state what the workflow does now. Keep `changes` and `build` as they are; `changes` gains the `stack_*` outputs.
 
 - `on`: push to `main`; `workflow_dispatch` with
-  - `smoke_fail` (choice: `none` plus every dev surface key, default `none`);
   - `expect_no_change` (boolean, default false; "Fail each stack job unless its deploy planned no change");
   - `force` (boolean, default false; "Re-upload every resource, even unchanged ones").
 - Workflow `env`: `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true`, `DO_NOT_TRACK: "1"`.
@@ -1198,7 +1194,6 @@ Route: `mechanic` (the pattern is Task 5's, every value is below).
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.osn_api_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.osn_api_deployment }}
-          SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'osn_api' }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
       # … one smoke step per surface of the stack, same shape; Access targets add
@@ -1242,7 +1237,6 @@ Route: `mechanic` (the pattern is Task 5's, every value is below).
   - `deploy-workflows.test.ts`:
     - W1, W2, W9, W10: replace the dev-job cases (`:99-114`, the dev rows of `:204-277`). The "jobs that run `wrangler deploy` are exactly the smoke targets' jobs" case keeps its production half; dev's half becomes "each stack job runs `smoke-check.ts <key> dev` once for every dev surface of the stack, with `SMOKE_ORIGIN` from `steps.hosts.outputs` and `SMOKE_DEPLOYMENT` from `steps.deployments.outputs`".
     - W4, W5, W6: no literal `https://` value in a dev build or smoke env; no `wrangler` in `deploy.yml` at all; every `bun install` frozen.
-    - The `smoke_fail` options equal `["none", ...every dev smoke surface]`.
   - `shared/infra/tests/workflow-secrets.test.ts` (W3, W8), reading `deploy.yml` with `Bun.YAML.parse`:
     - each `Deploy the <stack> stack` step's `secrets.*` names equal the dev required and optional inventory secrets of `STACK_WORKERS[stack]`, plus that stack's `STACK_STEP_SECRETS`, plus `accountSecrets("dev")`;
     - every step whose `run` installs or builds reads no `secrets.*` and sets no `CLOUDFLARE_*`, except the cire invites build step, which reads exactly `secrets.ASTRO_KEY` (Decision 11);
@@ -1348,7 +1342,7 @@ Invoke the `write-wiki` skill first. Edit pages with Edit and Write, never throu
   - `bun run check:alchemy-usage`
   - actionlint (or NOT RUN)
   - `bash scripts/validate-changesets.sh`
-- `alchemy plan` against the new account: **NOT RUN** — the account does not exist. What proves it tomorrow is the issue's Done when, through the owner's sequence (above): the merge deploy; `expect_no_change: true` green; `force` with `smoke_fail: osn_social` rolls back and goes red, then a plain dispatch self-heals green; `force` with `smoke_fail: osn_api` rolls back or names the secrets refusal.
+- `alchemy plan` against the new account: **NOT RUN** — the account does not exist. What proves it tomorrow is the issue's Done when, through the owner's sequence (above): the merge deploy; `expect_no_change: true` green. The rollback, the self-heal and osn-api's rollback after re-sent secrets have no dispatch that forces them (`wiki/shared/dev-environment.md` §2, *Proving the rollback path*).
 
 ## Self-review against the spec (2026-10-17)
 
@@ -1362,7 +1356,7 @@ Invoke the `write-wiki` skill first. Edit pages with Edit and Write, never throu
 - "A second deploy plans no change; smoke checks pass": `plan-summary` and `expect_no_change` (Tasks 4, 11); smoke steps in each stack job (Task 11). Both NOT RUN until the account exists.
 - `cire-dev-db-rebuild.yml`: retired (Decision 6, Task 12).
 - "One deploy per stack and stage at a time": per-stack concurrency group (Task 11).
-- Smoke check and rollback after each Alchemy dev deploy, and the Cloudflare-API rollback for Alchemy uploads: Decision 3, Tasks 10–11. Whether Cloudflare treats Alchemy's re-sent secrets as "changed" (code 10220, which makes the smoke check refuse rollback) is unknown until the `force` plus `smoke_fail` dispatch; the check already reports that refusal by name and fails the job.
+- Smoke check and rollback after each Alchemy dev deploy, and the Cloudflare-API rollback for Alchemy uploads: Decision 3, Tasks 10–11. Whether Cloudflare treats Alchemy's re-sent secrets as "changed" (code 10220, which makes the smoke check refuse rollback) is unknown until an osn-api check fails on dev; the check already reports that refusal by name and fails the job.
 
 ## Production effects of this change (none touches a production resource)
 

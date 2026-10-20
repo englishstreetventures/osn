@@ -13,7 +13,7 @@ import {
 import ClassicInviteHeader from "../../src/designs/classic/InviteHeader";
 import GalaInviteHeader from "../../src/designs/gala/InviteHeader";
 import type { InviteCustomisation } from "../../src/designs/types";
-import { resetConsentForTest } from "../../src/lib/consent/testing";
+import { resetConsentForTest } from "../test-support/consent";
 
 /**
  * The hero's scroll cue in both packs, measured in a real engine.

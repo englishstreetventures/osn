@@ -33,7 +33,7 @@ Which name a new package takes is in `wiki/shared/osn-and-musubi.md`; the full t
 
 Work is tracked in GitHub Issues, never the wiki.
 
-- `englishstventures/osn` (public) holds product work, ops, docs and schema.
+- `englishstreetventures/osn` (public) holds product work, ops, docs and schema.
 - `englishstreetventures/osn-tracker` (private) holds **every** security (`S-`), performance (`P-`) and compliance (`C-`) finding, however minor. Route by kind, not severity: a finding names an unpatched route. Public files and pull-request prose never name or describe a tracker finding — no ID, title or detail; a file states the constraint instead. A pull request carries a tracker issue only as a bare repo-qualified reference, and closes one it fixes with a bare `Closes englishstreetventures/osn-tracker#N` line.
 - Each issue carries one `product:` label, an org type (`Feature`, `Bug`, `Task`) and a `complexity:` rating set **before** work starts (the `rate-complexity` skill). The full label scheme is in `wiki/conventions/github-issues-setup.md`; how to file a finding is in `wiki/conventions/review-findings.md`.
 - Write every issue with the `write-issue` skill (`.claude/skills/write-issue/SKILL.md`): the repository, title, type, labels and a body someone can act on months later with nothing checked out.
@@ -50,8 +50,9 @@ Work is tracked in GitHub Issues, never the wiki.
 - **Effect.** Build the layer graph once, as a `ManagedRuntime` at boot; never `Effect.provide` a database or observability layer inside a per-request `runPromise`. The v3 forms that no longer compile are in `wiki/shared/effect-v4-api.md`. TypeBox validates at the HTTP boundary and Effect Schema in services; never mix them. Frontends do not use Effect.
 - **Observability.** No `console.*`, no raw OpenTelemetry constructors, no unbounded metric attributes. See `wiki/shared/observability/overview.md`.
 - **Cross-origin cookies.** The identity API is on a different origin from every app, so any browser `fetch` that sets or reads the session cookie must pass `credentials: "include"`. Without it the browser drops `Set-Cookie` silently. Check this first when a sign-in "succeeds" but the user stays signed out.
+- **Code search.** `LSP` answers a definition, a type or the callers inside one package; it skips packages it has not loaded, with no sign. "Who uses X" across packages, and every rename, delete or signature change of an export, comes from `git grep -w` over the whole repository. Cloud sessions have no `LSP`. See `wiki/conventions/agent-tooling.md` §Code search.
 - **Comments** state what the code guarantees now — never a tracker ID, finding tag or history. See `wiki/conventions/code-comments.md`.
-- **Deferrals** get an issue, and the code carries only the link: `// Bounded until englishstventures/osn#412 lands.` A settled choice with its reason can stay inline.
+- **Deferrals** get an issue, and the code carries only the link: `// Bounded until englishstreetventures/osn#412 lands.` A settled choice with its reason can stay inline.
 - **Instruction files state the present.** This file, a `SKILL.md` or a wiki page says what to do now, never how it came to be; `git log` holds that. A reason that stops a mistake stays.
 - **House lint rules** (`house/*` in `tools/oxlint/house`) and why they exist: `wiki/conventions/house-lint-rules.md`. Agent skills, evals and vendored trees: `wiki/conventions/agent-tooling.md`.
 - Lefthook formats and lints staged files on commit and type-checks on push.

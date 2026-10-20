@@ -237,8 +237,8 @@ From a GitHub-hosted runner, with Actions → **Probe cire dev D1 first-query
 latency** → Run workflow, or:
 
 ```bash
-gh workflow run cire-d1-latency-probe.yml -R englishstventures/osn              # default sample count
-gh workflow run cire-d1-latency-probe.yml -R englishstventures/osn -f samples=100
+gh workflow run cire-d1-latency-probe.yml -R englishstreetventures/osn              # default sample count
+gh workflow run cire-d1-latency-probe.yml -R englishstreetventures/osn -f samples=100
 ```
 
 From any other machine, at the repository root:

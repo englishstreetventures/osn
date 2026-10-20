@@ -460,7 +460,7 @@ export function SectionSample(props: {
               </span>
               <span
                 class="text-ui-xs w-fit rounded-sm px-1.5 py-0.5"
-                style={{ "background-color": "var(--color-gold)", color: "var(--color-bg)" }}
+                style={{ "background-color": "var(--color-gold)", color: "var(--color-on-gold)" }}
               >
                 Respond
               </span>

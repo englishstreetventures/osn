@@ -138,12 +138,13 @@ where it is, and the report names it.
 Until a review has read it, the branch is someone else's code, and this machine
 holds the GitHub token, the commit-signing key and the deploy credentials that
 CI does not. `bun install` runs lifecycle scripts, every commit runs the
-branch's `lefthook.yml`, and every test and build runs its code. So before any
-of those, read every change to a file that runs something:
+branch's `lefthook.yml`, every test and build runs its code, and an `LSP` call
+loads its installed `typescript` and any `compilerOptions.plugins` a tsconfig
+names. So before any of those, read every change to a file that runs something:
 
 ```bash
 git diff origin/main...origin/<branch> -- package.json '*/package.json' '*/*/package.json' \
-  bunfig.toml lefthook.yml .github scripts .claude patches '*.sh' '*.config.*'
+  bunfig.toml lefthook.yml .github scripts .claude patches '*.sh' '*.config.*' '*tsconfig*.json'
 ```
 
 Look for lifecycle scripts (`preinstall`, `postinstall`, `prepare`), new

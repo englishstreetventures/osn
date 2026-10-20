@@ -19,6 +19,8 @@ const READ = /\benv\??\.([A-Z][A-Z0-9_]*)\b|\benv\[\s*["']([A-Z][A-Z0-9_]*)["']\
 const UNSET_ON_DEV: Readonly<Record<string, string>> = {
   CIRE_DEV_OWNER_PROFILE_ID:
     "read only by src/local.ts, the Bun dev server; on dev the stack seeds the owner seat from it instead",
+  CIRE_E2E_RSVP_DEADLINE:
+    "read only through src/local.ts, the Bun dev server, to give the E2E suite's sample wedding its RSVP deadline",
   CIRE_INTERNAL_REVOKE_SECRET:
     "unset, the back-channel revoke route answers 503 (index.ts); the inventory declares it on neither tier",
   CIRE_LOCAL_DB_PATH: "read only by src/local.ts, the Bun dev server",

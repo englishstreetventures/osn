@@ -40,6 +40,7 @@ Applies to every product: architecture, platform systems, observability, deploys
 - [[platform-limits]] — MAX_EVENT_GUESTS and other caps
 - [[redis]] — Redis-backed rate limiters + cluster-safe auth state stores
 - [[toast]] — `@shared/toast`, the `--toast-*` theming contract, and contrast on the surface a toast actually sits on
+- [[realtime]] — `@shared/realtime`: invalidation signals over WebSocket, the per-topic Durable Object hub, and how a product adopts it
 - [[database-environments]] — four DB environments (local bun:sqlite / dev·staging·prod D1), driver-agnostic Drizzle seam, D1 transaction caveat
 - [[dev-environment]] — the dev tier in its own Cloudflare account: tier map, how a merge deploys dev through the Alchemy stacks, how a change reaches production, bootstrapping the dev account, and working on dev by hand
 - [[production-deploy]] — production runbook for osn-api + the cire stack (secret/var checklist, migrations, the daily production release and its one approval, smoke checks)

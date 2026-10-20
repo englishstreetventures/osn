@@ -165,21 +165,41 @@ stack, the newer run carries every change before it. Production jobs live in
 `production-release.yml` under `deploy-production-<surface>` groups, so a
 release waiting for approval never holds up a dev deploy.
 
-### The dry run of the rollback path
+### Proving the rollback path
 
-**Actions → Deploy → Run workflow** with `smoke_fail` set to a dev surface
-deploys every stack as usual, but that surface's check also asks for
-`/smoke-check-forced-failure`, which no surface answers as expected. Its stack job
-rolls the Worker back, when this run uploaded it, and goes red. With `force:
-true` beside it, the Worker is always uploaded, so the rollback always runs.
+**Deploy** has no input that makes a check fail on purpose. The rollback has run
+for real once: on 2026-10-16, **Deploy** run 38869446427 forced osn-api's check
+to fail on the dev tier that ran in the production account. Its job
+`Deploy osn/api — dev` (116870013485) rolled `osn-api-dev` back, reported that
+the restored version answers healthy, and left its Deployment record in state
+`failure`.
 
-The next plain dispatch sees the rollback and deploys that stack with `--force`,
-re-uploading what the commit declares, and goes green: the self-heal. Until
-then the Worker serves the version the rollback restored.
+*Measured 2026-10-16 — `gh run view 38869446427 --log --job 116870013485`, and
+`gh api repos/englishstreetventures/osn/deployments/7113807729/statuses`*
 
-A run leaves one Deployment record per stack job and one per record job, all for
-the same commit; a surface whose check failed has no record job, so its stack
-job's record is the only one that names it. To list them:
+That run proved the rollback call itself. Two things have not yet run against
+Cloudflare on the stacks' dev tier, and nothing there can force them:
+
+- **The self-heal.** After a smoke check rolls a Worker back, the next run's
+  snapshot sees the rollback's message and deploys that stack with `--force`,
+  re-uploading what the commit declares. `scripts/tests/worker-deployments.test.ts`
+  ("writes force=true, naming the Worker, when a newest deployment is a
+  smoke-check rollback") and `scripts/tests/smoke-check.test.ts` ("an unchanged
+  Worker still serving an earlier smoke check's rollback fails at once, naming
+  the fix") check both halves against a fake Cloudflare API.
+- **osn-api's rollback after Alchemy re-sends its secrets.** Cloudflare may
+  refuse it as "secrets changed" (code 10220); the check then leaves the Worker
+  as it is and says so by name ("Cloudflare's refusal over changed secrets is
+  kept" in `scripts/tests/smoke-check.test.ts`).
+
+*Unverified — no check has failed on the stacks' dev tier. The first that
+fails shows the self-heal in the next run's log; the first on osn-api shows how
+Cloudflare answers its rollback.*
+
+To see which surfaces of a run failed: a run leaves one Deployment record per
+stack job and one per record job, all for the same commit; a surface whose
+check failed has no record job, so its stack job's record is the only one that
+names it. To list them:
 
 ```bash
 SHA=<the run's commit>; R=repos/englishstreetventures/osn
@@ -226,7 +246,7 @@ account's read-only pair, for the free-tier alert's production job, which
 cannot take `environment: production` because that gate waits on a person and
 nobody approves a cron at 22:00 UTC.
 
-*Measured 2026-09-13 — `gh secret list --repo englishstventures/osn` returns
+*Measured 2026-09-13 — `gh secret list --repo englishstreetventures/osn` returns
 ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CLOUDFLARE_ACCOUNT_ID,
 CLOUDFLARE_API_TOKEN_READONLY, RELEASE_TOKEN and TESSL_TOKEN — no deploy token
 among them.*
@@ -426,18 +446,12 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
       TLS failures and no rollback. That is provisioning: go on to step 2.
    2. Dispatch **Deploy** with `expect_no_change: true`: every stack job must
       report `Plan: no changes`.
-   3. Dispatch **Deploy** with `force: true` and `smoke_fail: osn_social`:
-      musubi social is re-uploaded, its check fails, it is rolled back, and the
-      job goes red. A site Worker holds no secrets, so the rollback is certain.
-   4. Dispatch **Deploy** plainly: the musubi stack sees the rollback, deploys
-      with `--force`, and goes green.
-   5. Dispatch **Deploy** with `force: true` and `smoke_fail: osn_api`: either
-      osn-api is rolled back (dispatch plainly once more to heal), or the check
-      reports Cloudflare's "secrets changed" refusal by name. Either answer
-      settles how rollback behaves for a Worker whose secrets Alchemy re-sends.
-   6. Sign in on `musubi.<D>` with a passkey, set `CIRE_DEV_OWNER_PROFILE_ID`
+   3. Sign in on `musubi.<D>` with a passkey, set `CIRE_DEV_OWNER_PROFILE_ID`
       (§2), dispatch once more, and sign in on `host.cire.<D>`.
-   7. Fill the asset bucket (§2, placeholder images).
+   4. Fill the asset bucket (§2, placeholder images).
+
+   No step here proves the rollback or the self-heal against the new account:
+   §2, *Proving the rollback path*, says what is unproven.
 
 ### Retiring the old dev tier
 

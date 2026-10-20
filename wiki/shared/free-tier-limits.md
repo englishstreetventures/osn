@@ -1,7 +1,7 @@
 ---
 title: Free-Tier Limits & Unavailability Runbook
-description: Our provider free-tier ceilings (Upstash, Cloudflare Workers / D1 / Pages / Turnstile / WAF), what breaks when each is exceeded, how to detect it, the immediate mitigation, and the upgrade trigger/cost. Plus a per-dependency unavailability playbook keyed to the actual fail-open/fail-closed posture in code.
-tags: [runbook, ops, free-tier, limits, cloudflare, upstash, d1, redis, observability, incident]
+description: Our provider free-tier ceilings (Upstash, Cloudflare Workers / Durable Objects / D1 / Pages / Turnstile / WAF), what breaks when each is exceeded, how to detect it, the immediate mitigation, and the upgrade trigger/cost. Plus a per-dependency unavailability playbook keyed to the actual fail-open/fail-closed posture in code.
+tags: [runbook, ops, free-tier, limits, cloudflare, upstash, d1, durable-objects, redis, observability, incident]
 severity: high
 related:
   - "[[production-deploy]]"
@@ -12,14 +12,15 @@ related:
   - "[[observability-setup]]"
   - "[[cire-auth]]"
   - "[[dev-environment]]"
+  - "[[realtime]]"
 last-reviewed: 2026-10-20
 ---
 
 # Free-Tier Limits & Unavailability Runbook
 
 > Scope: **every provider is on its free tier except Upstash** — Cloudflare Free
-> zone + Workers Free, Cloudflare D1, Cloudflare Pages and Cloudflare Turnstile
-> cost nothing; **Upstash Redis has been a paid $10/month plan since 2026-08-14**,
+> zone + Workers Free, Cloudflare Durable Objects, Cloudflare D1, Cloudflare
+> Pages and Cloudflare Turnstile cost nothing; **Upstash Redis has been a paid $10/month plan since 2026-08-14**,
 > because the dev tier needs a second database and the free plan allows one.
 > This runbook records every ceiling, what
 > breaks when we hit it, how to detect it, the immediate mitigation, and the
@@ -41,6 +42,7 @@ last-reviewed: 2026-10-20
 | **Upstash Redis** | `@osn/api` (rate limiters + the stateful auth stores: step-up JTI, rotated-session, recovery lockout, ceremonies) when `REDIS_URL` / `UPSTASH_*` is set | **cire-api** (no Redis at all — see below), Pulse/Zap client apps |
 | **Cloudflare Workers** | `osn-api`, **cire-api** (both are Workers) | static Pages sites |
 | **Cloudflare D1** | `osn-db-prod` (osn-api), `cire-db` (cire-api) | — |
+| **Cloudflare Durable Objects** | nothing deployed yet: `@shared/realtime`'s `TopicHub` is the one class the repo defines, and no Worker binds it (cire's adoption is englishstreetventures/osn#1249) | every deployed Worker today |
 | **Cloudflare Pages** | `cire/invites` (guest), `cire/host`, `@musubi/social`, `@musubi/landing` | the Worker APIs |
 | **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter) | osn-api (uses Upstash) |
 | **Turnstile** (widget live; the cire gate is inert — see the 2026-07-20 incident below) | osn-api register + passkey-login, cire-api guest claim + RSVP — gated only while the Worker secret is set | — |
@@ -151,6 +153,7 @@ go. [[dev-environment]]
 | External subrequests | **50 / invocation** |
 | Subrequests to CF services (D1/R2/KV) | **1,000 / invocation** |
 | Worker size | **3 MB / Worker, compressed** |
+| WebSocket connections | each connection to a Worker is **one request**; messages over it are **not** requests |
 
 **Worker size.** An upload over the limit is refused, so the Worker keeps its
 last version. Alchemy uploads every file a bundled Worker's bundle holds, source
@@ -165,6 +168,8 @@ when those files gzip to more than 3 MiB, 3,145,728 bytes
 | zap-api | 1,108,319 B |
 
 *Measured 2026-10-20 at commit 0d483b3b — the sum each stack's K10 test computes (`node:zlib` gzip at its default level, file by file, maps included). The test prints it only when it fails, so run an untracked copy of `<stack>/infra/tests/bundle.test.ts` that prints `gzipBytes` in place of its last `expect`, with `bunx --bun vitest run tests/<copy>.test.ts` in `<stack>/infra`.*
+
+**WebSocket connections.** [workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) — "WebSocket connections made to a Worker are charged as a request … WebSocket messages routed through a Worker do not count as requests."
 
 **What happens at the cap.** Past 100K requests/day the account's Workers
 (osn-api **and** cire-api **and** zap-api **and** cire-invites together: the
@@ -188,6 +193,38 @@ metric vs the 100K line; per-Worker invocation statuses showing
 **Upgrade path:** **Workers Paid** ($5/mo) — 10M requests/mo included, 30s CPU
 default, far higher subrequest ceilings. This is the most likely first upgrade
 once both APIs are in production. Re-verify pricing.
+
+---
+
+## Cloudflare Durable Objects (Free)
+
+**Source:** [DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) · [DO limits](https://developers.cloudflare.com/durable-objects/platform/limits/) · [state API](https://developers.cloudflare.com/durable-objects/api/state/) · [lifecycle](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/) — re-verify.
+
+Durable Objects run on Workers Free since 2025-04-07, **SQLite storage backend only**. `@shared/realtime`'s `TopicHub` is the one class the repo defines ([[realtime]]). No Worker binds it yet; the figures below are what the first product to bind it (cire, englishstreetventures/osn#1249) runs within.
+
+| Limit | Free value (re-verify) |
+|---|---|
+| Requests | **100,000 / day** |
+| Duration | **13,000 GB-s / day** — billed at 128 MB per awake object, so about 101,000 awake-object-seconds a day (13,000 ÷ 0.128) |
+| SQLite rows read / written | 5,000,000 / 100,000 per day |
+| SQLite storage | 5 GB total |
+| Classes per account | 100 |
+| WebSocket connections per object | 32,768 |
+| Received WebSocket message | 32 MiB |
+
+**What counts.** A request "Includes HTTP requests, RPC sessions, WebSocket messages, and alarm invocations". Creating a WebSocket connection is one request, and every RPC call on a stub (the hub's `publish`) is one. "There is no charge for outgoing WebSocket messages, nor for incoming WebSocket protocol pings."
+
+The client's `ping` is an application text frame, not a protocol ping. The page says only this about it: "Application level auto-response messages handled by state.setWebSocketAutoResponse() will not incur additional wall-clock time, and so they will not be charged". It does not say whether that sentence covers the request count. The 20:1 ratio for incoming messages is stated "for compute requests billing-only", and the page does not say whether it applies on Free.
+
+So a visible tab's pings cost somewhere between nothing and one request each. At the client's 25 s interval, a visible tab open for 8 hours sends 1,152 pings. That is 0 requests, 58 at 20:1, or 1,152 at 1:1. A hidden tab sends at most two before the client closes its socket, two ping intervals after the tab was hidden; showing the tab again costs a new subscribe, one request. Which of the three holds is measured on the dev tier before a production hub relies on it: englishstreetventures/osn#1585.
+
+**What keeps an object awake.** A pending `setTimeout`/`setInterval`, pending I/O or a request in flight stops hibernation. An idle object that meets the hibernation conditions hibernates after 10 s and is not billed for duration, even in those 10 s. One that does not meet them stays in memory, billed, until it is evicted 70–140 s after its last request. `TopicHub` holds no timer, alarm or storage write, so it is billed only while a handler runs.
+
+**What happens at the cap.** "Further operations of that type will fail with an error" until the reset at **00:00 UTC**. A subscribe then answers 503 and the client falls back. A publish logs and counts an error, and the write that called it succeeds. The docs do not say which error a WebSocket upgrade sees.
+
+**How to detect:** CF dashboard → Workers & Pages → Durable Objects → the namespace's requests and duration against the daily lines. The allowance is account-wide, so a dev tier's hubs spend it as much as production's. Adding Durable Objects to `scripts/check-free-tier-ceilings.ts` is englishstreetventures/osn#1256. A spent allowance shows in the product's logs as `realtime subscribe failed` at step `hub` and `realtime publish failed`; the realtime counters record nothing on workerd until englishstreetventures/osn#501 lands.
+
+**Upgrade path:** Workers Paid ($5/mo) lifts these to paid allowances with no code change.
 
 ---
 
@@ -289,7 +326,7 @@ storage; overage is cheap ($0.001/M read, $1/M written, $0.75/GB-mo). Re-verify.
 
 ## Cloudflare Pages (Free)
 
-**Source:** [pages limits](https://developers.cloudflare.com/pages/platform/limits/) — re-verify. Hosts the production sites (`cire/host`, `cire/vendor`, `cire/landing`, `@musubi/social`) and the musubi and pulse landing preview projects (`deploy-osn-pulse-landing.yml`). The dev tier's sites are Workers static assets in the dev account, not Pages ([[infrastructure-as-code#Sites]]).
+**Source:** [pages limits](https://developers.cloudflare.com/pages/platform/limits/) — re-verify. Hosts the production sites (`cire/host`, `cire/vendor`, `cire/landing`, `@musubi/social`) and the musubi and pulse landing preview projects, which no workflow deploys. The dev tier's sites are Workers static assets in the dev account, not Pages ([[infrastructure-as-code#Sites]]).
 
 | Limit | Free value (re-verify) |
 |---|---|
@@ -401,6 +438,7 @@ fail-open vs fail-closed split is NOT uniform — read this table, don't guess.*
 | **D1** down / over daily rows quota | cire-api + osn-api | **fail-CLOSED** — cire `index.ts` returns **503** on absent/erroring `env.DB` | App-wide 503 on DB routes | CF D1 metrics vs daily line; 503 in Workers Logs | Wait for UTC reset, free storage, or upgrade to Workers Paid (D1 paid tier). |
 | **A Worker** over daily request quota | osn-api / cire-api | CF edge **429** before handler runs | Site-wide 429 (resets UTC midnight) | account Requests metric vs 100K | Upgrade to **Workers Paid** ($5/mo). |
 | **Pages** build cap | static sites | already-deployed site keeps serving; new deploys queue/fail | stale deploys, build failures | Pages build history | Wait for month reset or Pages Pro. |
+| **Durable Objects** over daily quota | realtime push (`@shared/realtime`), once a product binds the hub | **fail-SOFT** — `subscribe()` answers 503, `publish()` logs and counts `result="error"` (`shared/realtime/src/server/subscribe.ts`, `publish.ts`) | Tabs stop receiving push and refetch on focus or next request, as before push existed | DO requests/duration vs the daily line in the dashboard; `realtime subscribe failed` and `realtime publish failed` in the product's logs | Wait for the UTC reset, or upgrade to Workers Paid. |
 
 > The Upstash split above matters: **rate limiters + step-up JTI +
 > ceremonies fail closed; rotated-session + recovery lockout fail OPEN.** If you
@@ -430,7 +468,7 @@ account, shared by every Worker's logs and traces, and log retention rises to 7
 days. At the limit Cloudflare stops ingesting until 00:00 UTC: Workers keep
 serving, but no Worker writes a log line for the rest of that day. Lower
 `observability.traces.head_sampling_rate` first. Nothing watches this
-allowance yet — englishstventures/osn#1505.
+allowance yet — englishstreetventures/osn#1505.
 
 *Figures from Cloudflare's [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/),
 [Workers traces](https://developers.cloudflare.com/workers/observability/traces/) and
@@ -444,6 +482,9 @@ allowance yet — englishstventures/osn#1505.
   - **Workers requests** approaching **100K/day** (account-wide) → upgrade soon.
   - **D1 rows-read / rows-written** approaching the daily lines (5M / 100K) →
     investigate a hot query path or upgrade.
+  - **Durable Object requests** approaching **100K/day** (account-wide), once a
+    product binds the realtime hub → check the subscribe limits and the ping
+    cost, or upgrade.
   - **`osn.auth.rate_limited`** spiking without a traffic spike → likely an
     Upstash command-cap / outage failing the limiters closed (see playbook).
   - **Ceremony/step-up store error logs** → Upstash degraded; expect login
@@ -511,8 +552,8 @@ guard, auth middleware).
    confirm it wasn't disabled).
 
 > When these are done, tick them off here and note the date. Until then they are
-> open hardening items — file them in `englishstventures/osn-tracker` under
-> `label:security` if they should be visible there.
+> open hardening items — file them in `englishstreetventures/osn-tracker` under
+> `area:security` if they should be visible there.
 
 ## Related
 
@@ -522,3 +563,4 @@ guard, auth middleware).
 - [[database-environments]] — the four DB environments (D1 in dev/staging/prod)
 - [[observability-setup]] — Grafana Cloud + OTEL wiring
 - [[cire-auth]] — cire's two-system auth (what degrades when D1 is down)
+- [[realtime]] — the realtime hub, the one Durable Object class

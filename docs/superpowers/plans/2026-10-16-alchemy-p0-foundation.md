@@ -334,7 +334,7 @@ Given 2026-10-16 in the orchestrating session (https://github.com/englishstreetv
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/englishstventures/osn.git"
+    "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "exports": {
     ".": "./src/index.ts"

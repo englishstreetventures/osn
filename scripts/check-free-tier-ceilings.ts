@@ -6,7 +6,7 @@
  * `wiki/shared/free-tier-limits.md` used to list these ceilings and say to
  * watch them, which meant a person opening a dashboard. Nobody did, so the D1
  * rows-written ceiling was crossed on 2026-08-30 and again on 2026-09-09 and
- * was only found by hand on 2026-09-10 (englishstventures/osn#979).
+ * was only found by hand on 2026-09-10 (englishstreetventures/osn#979).
  *
  * Read-only. It asks Cloudflare's GraphQL analytics API for per-day, per-
  * database and per-script totals, compares each day against its ceiling, and
@@ -125,7 +125,7 @@ export function readCredentials(
 }
 
 /**
- * Labels for the issue when this opens it. Every one exists in `englishstventures/osn`
+ * Labels for the issue when this opens it. Every one exists in `englishstreetventures/osn`
  * today — `gh issue create` fails on a label that does not, which is the
  * failure we want rather than an unlabelled issue.
  */
@@ -750,7 +750,7 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const repo = flag("repo", "englishstventures/osn");
+  const repo = flag("repo", "englishstreetventures/osn");
   const tempDir = process.env.RUNNER_TEMP ?? ".";
   process.stdout.write(`${await syncIssue(gh, repo, body, account, tempDir)}\n`);
 }

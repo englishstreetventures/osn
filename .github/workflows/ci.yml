@@ -168,8 +168,7 @@ jobs:
       # `scripts/` is in no workspace, so `turbo check` never reaches it and a
       # type error there ships. One did: `skill-evals.ts` read an optional
       # `scenario.path` unguarded, which crashed `ready`, `compare` and `record`
-      # on a payload the API really returns, and inside the eval poll that reads
-      # as "the run was never scored" for a run that was.
+      # on a payload the API really returns.
       #
       # It lives here rather than in `script-tests` because that job does no
       # `bun install` on purpose, and `scripts/tsconfig.json` inherits
@@ -216,7 +215,7 @@ jobs:
       # `provider: fontProviders.google()`, which makes `astro build` fetch
       # `https://fonts.google.com/metadata/fonts` — Astro's own font
       # metadata cache for that fetch lives at each package's default
-      # `cacheDir`, `node_modules/.astro` (englishstventures/osn-tracker#128). None of
+      # `cacheDir`, `node_modules/.astro`. None of
       # this job's other caches cover it: the bun cache above only holds
       # installed packages, and the turbo cache is keyed per-commit on
       # purpose (see the `typecheck` job's comment on why) so it can't be
@@ -281,16 +280,18 @@ jobs:
       - name: Guard Astro app bundle sizes
         run: ./scripts/guard-bundle-size.sh --all
 
-      # The four d1-integration.test.ts files live under `tests/d1/` (cire's
-      # under `tests/db/`). The three vitest packages EXCLUDE that path, so the
-      # step above never reaches them — they import `bun:test` and boot a real
-      # workerd, neither of which vitest can load. cire/api runs a bare
-      # `bun test`, which takes no exclude and discovers recursively, so its
-      # copy runs in both steps; that is pre-existing and harmless. They are
-      # the only coverage of the ASYNCHRONOUS D1 driver that dev/staging/prod
-      # actually run on, and going unrun let zap's rot into a stale fixture
-      # that had been failing silently. Serial by necessity — concurrent Miniflare
-      # workerd instances contend and fail spuriously (the root script pins
+      # Each API's d1-integration.test.ts lives under `tests/d1/` (cire's under
+      # `tests/db/`); `@shared/realtime`'s tests/d1/hub.test.ts joins this lane
+      # for the same reason, though it covers TopicHub on workerd rather than
+      # D1. The vitest packages EXCLUDE that path, so the step above never
+      # reaches them — they import `bun:test` and boot a real workerd, neither
+      # of which vitest can load. cire/api runs a bare `bun test`, which takes
+      # no exclude and discovers recursively, so its copy runs in both steps;
+      # that is pre-existing and harmless. The D1 files are the only coverage
+      # of the ASYNCHRONOUS D1 driver that dev/staging/prod actually run on,
+      # and going unrun let zap's rot into a stale fixture that had been
+      # failing silently. Serial by necessity — concurrent Miniflare workerd
+      # instances contend and fail spuriously (the root script pins
       # --concurrency=1).
       - name: D1 integration tests
         run: bun run test:d1
@@ -491,7 +492,7 @@ jobs:
       # amount of data, and that number only grows. Thirteen merges spent
       # 104,091 rows written on 2026-09-09 against a free-tier ceiling of
       # 100,000 a day account-wide, with no commit doing anything wrong
-      # (englishstventures/osn#979). The budget is a row in
+      # (englishstreetventures/osn#979). The budget is a row in
       # scripts/d1-migration-cost-budgets.txt, not an argument here.
       #
       # It needs no install: the script imports bun:sqlite and Node built-ins

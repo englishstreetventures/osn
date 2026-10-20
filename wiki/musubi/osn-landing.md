@@ -10,7 +10,7 @@ related:
   - "[[social]]"
   - "[[pulse-landing]]"
   - "[[cire-landing]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-20
 ---
 
 # OSN Landing
@@ -103,8 +103,12 @@ data:`), Google Fonts allowed in `style-src` / `font-src`, immutable cache on
 
 ## Deferred
 
-- **CI deploy** — no deploy workflow yet (cf. the `deploy-cire-landing` job in
-  `production-release.yml`); add one + a Pages project when a hosting domain is chosen.
+- **CI deploy** — no workflow deploys the site to production (cf. the
+  `deploy-cire-landing` job in `production-release.yml`); add one when a hosting
+  domain is chosen. On dev, the musubi stack in `deploy.yml` deploys it as
+  `musubi-landing-dev` ([[infrastructure-as-code#Sites]]). The
+  `osn-landing` Pages project already exists and still serves an old preview build
+  at `osn-landing.pages.dev`.
 - **Real domain** — `SITE` / `PUBLIC_APP_URL` use placeholders until OSN's
   marketing + app hosts are decided.
 - **Marketing depth** — pricing, deeper feature pages, SEO/blog content.

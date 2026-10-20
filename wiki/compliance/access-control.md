@@ -42,9 +42,9 @@ The matrix that needs to exist, by environment + system + role.
 
 | System | Role | Granted to | MFA required? | Granted via | Reviewed |
 |---|---|---|---|---|---|
-| GitHub `englishstventures` org | Owner | <named human> | ✓ Hardware key | Per-PR review | Quarterly |
-| GitHub `englishstventures` org | Maintainer | <named humans> | ✓ Hardware key | Per-PR review | Quarterly |
-| GitHub `englishstventures` org | Read | <named humans> | ✓ Any TOTP / WebAuthn | Manual | Quarterly |
+| GitHub `englishstreetventures` org | Owner | <named human> | ✓ Hardware key | Per-PR review | Quarterly |
+| GitHub `englishstreetventures` org | Maintainer | <named humans> | ✓ Hardware key | Per-PR review | Quarterly |
+| GitHub `englishstreetventures` org | Read | <named humans> | ✓ Any TOTP / WebAuthn | Manual | Quarterly |
 | Production database | Read-write (operator) | <named humans> | ✓ Via Tailscale + WebAuthn | Manual + audit log | Quarterly |
 | Production database | Read-only (debugging) | <named humans> | ✓ | Same | Quarterly |
 | Grafana Cloud | Admin | <named humans> | ✓ | Manual | Quarterly |
@@ -227,7 +227,7 @@ grant in the matrix above. Expectations:
    `bunfig.toml` or a workspace manifest matches at any depth),
    `/oxlintrc.json`, `/lefthook.yml`, `/bun.lock`, `/.bun-version` and
    `/tools/oxlint/**`. Branch
-   protection is ruleset `13921406` on `englishstventures/osn` (active: pull request
+   protection is ruleset `13921406` on `englishstreetventures/osn` (active: pull request
    required, linear history, no deletion, no force-push, `CI` and
    `Require changeset` as required status checks).
    **Still open, and the honest state of the control:** that ruleset sets
