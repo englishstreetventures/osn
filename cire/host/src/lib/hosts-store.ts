@@ -5,8 +5,9 @@
 // caches) and the same lifetime, dropped with the wedding's other caches.
 //
 // The co-host panel keeps its own list, because it writes that list a row at
-// a time; it marks this one stale after a removal. Effect is deliberately NOT
-// imported (frontend code).
+// a time. It hands this cache the list it reads on opening, and marks this one
+// stale after each seat it adds, re-roles or removes. Effect is deliberately
+// NOT imported (frontend code).
 import { type Accessor, createSignal, type Setter } from "solid-js";
 
 import type { WeddingRole } from "./wedding-roles";
@@ -71,6 +72,19 @@ export function invalidateHosts(weddingId: string): void {
   stale.add(weddingId);
   inflight.delete(weddingId);
   generation.set(weddingId, generationOf(weddingId) + 1);
+}
+
+/**
+ * Replace the seats with a list just read from `GET …/hosts` by someone else —
+ * the co-host panel. It is the newest read there is, so the wedding is fresh
+ * again, and the generation moves on so a load already in flight discards
+ * what it fetches instead of landing on top.
+ */
+export function setFreshHosts(weddingId: string, hosts: HostSeat[]): void {
+  if (isWeddingClosed(weddingId)) return;
+  generation.set(weddingId, generationOf(weddingId) + 1);
+  entryFor(weddingId).setHosts(hosts);
+  stale.delete(weddingId);
 }
 
 /**

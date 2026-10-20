@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * HostsPanel lists a wedding's co-hosts and (for owners) adds one by OSN handle
@@ -38,8 +38,18 @@ vi.mock("../../src/components/UpgradeDialog", () => ({
 }));
 
 import HostsPanel from "../../src/components/HostsPanel";
-import { __resetHostsCache, ensureHostsLoaded, hasCachedHosts } from "../../src/lib/hosts-store";
-import { __resetTasksCache, ensureTasksLoaded, hasCachedTasks } from "../../src/lib/tasks-store";
+import {
+  __resetHostsCache,
+  ensureHostsLoaded,
+  hasCachedHosts,
+  hostsAccessor,
+} from "../../src/lib/hosts-store";
+import {
+  __resetTasksCache,
+  ensureTasksLoaded,
+  hasCachedTasks,
+  type TaskRow,
+} from "../../src/lib/tasks-store";
 import {
   activeProfileIdMock,
   authFetchMock,
@@ -551,27 +561,154 @@ describe("HostsPanel", () => {
     expect((init as RequestInit).method).toBe("DELETE");
   });
 
-  it("marks the checklist and its names stale after a removal, so the removed seat's tasks show unassigned", async () => {
-    // The server clears a removed seat's assignments; a checklist cached
-    // before the removal still names them until it is read again.
-    __resetTasksCache();
-    __resetHostsCache();
-    await ensureTasksLoaded("wed_a", async () => []);
-    await ensureHostsLoaded("wed_a", async () => []);
-    authFetchMock.mockResolvedValueOnce(
-      json({
-        hosts: [{ hostId: "whost_bob", osnProfileId: "usr_bob", role: "helper", createdAt: 1 }],
-      }),
-    );
-    authFetchMock.mockResolvedValueOnce(json({ removed: true }));
-    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
-    await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
-    expect(hasCachedTasks("wed_a")).toBe(true);
+  describe("the checklist's caches", () => {
+    const task = (assignedHostId: string | null): TaskRow => ({
+      id: "tsk_1",
+      weddingId: "wed_a",
+      title: "Carry the rings",
+      notes: null,
+      timeframeBucket: "day_of",
+      dueAt: null,
+      status: "open",
+      sortOrder: 0,
+      createdAt: 1,
+      completedAt: null,
+      assignedHostId,
+    });
+    const BOB = {
+      hostId: "whost_bob",
+      osnProfileId: "usr_bob",
+      handle: "bob",
+      displayName: "Bob Ray",
+      role: "helper",
+      createdAt: 1,
+    };
+    const AMY = { hostId: "whost_amy", osnProfileId: "usr_amy", role: "owner", createdAt: 2 };
 
-    fireEvent.click(screen.getByRole("button", { name: /Remove/i }));
-    await waitFor(() => expect(screen.queryByText("usr_bob")).toBeNull());
-    expect(hasCachedTasks("wed_a")).toBe(false);
-    expect(hasCachedHosts("wed_a")).toBe(false);
+    beforeEach(() => {
+      __resetTasksCache();
+      __resetHostsCache();
+    });
+
+    it("hands the list it read to the checklist, which then asks for none of its own", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [BOB, AMY] }));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      expect(hasCachedHosts("wed_a")).toBe(true);
+      // In the API's order, as the checklist's own read would hold them.
+      expect(hostsAccessor("wed_a")()).toEqual([
+        {
+          hostId: "whost_bob",
+          osnProfileId: "usr_bob",
+          handle: "bob",
+          displayName: "Bob Ray",
+          role: "helper",
+        },
+        { hostId: "whost_amy", osnProfileId: "usr_amy", role: "owner" },
+      ]);
+      let asked = false;
+      await ensureHostsLoaded("wed_a", async () => {
+        asked = true;
+        return [];
+      });
+      expect(asked).toBe(false);
+    });
+
+    it("hands over a role it does not know as the narrowest one", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [{ ...BOB, role: "planner" }] }));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+      expect(hostsAccessor("wed_a")()?.map((s) => s.role)).toEqual(["helper"]);
+    });
+
+    it("marks the checklist's people stale after an add", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [AMY] }));
+      authFetchMock.mockResolvedValueOnce(
+        json(
+          { host: { osnProfileId: "usr_bob", handle: "bob", role: "viewer", createdAt: 3 } },
+          201,
+        ),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("usr_amy")).toBeTruthy());
+      expect(hasCachedHosts("wed_a")).toBe(true);
+
+      typeHandle("@bob");
+      fireEvent.click(screen.getByRole("button", { name: /Add host/i }));
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+      expect(hasCachedHosts("wed_a")).toBe(false);
+    });
+
+    it("marks the checklist's people stale after a role change", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [{ ...BOB, role: "editor" }] }));
+      authFetchMock.mockResolvedValueOnce(
+        json({ host: { osnProfileId: "usr_bob", role: "viewer", createdAt: 1 } }),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+      expect(hasCachedHosts("wed_a")).toBe(true);
+
+      fireEvent.change(roleSelect("@bob"), { target: { value: "viewer" } });
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+      expect(hasCachedHosts("wed_a")).toBe(false);
+    });
+
+    it("marks the checklist stale after removing a seat one of its tasks names", async () => {
+      // The server clears a removed seat's assignments; a checklist cached
+      // before the removal still names them until it is read again.
+      await ensureTasksLoaded("wed_a", async () => [task("whost_bob")]);
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [BOB] }));
+      authFetchMock.mockResolvedValueOnce(json({ removed: true }));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+      expect(hasCachedTasks("wed_a")).toBe(true);
+
+      fireEvent.click(screen.getByRole("button", { name: /Remove/i }));
+      await waitFor(() => expect(screen.queryByText("@bob")).toBeNull());
+      expect(hasCachedTasks("wed_a")).toBe(false);
+      expect(hasCachedHosts("wed_a")).toBe(false);
+    });
+
+    it("leaves the checklist fresh after removing a seat none of its tasks names", async () => {
+      await ensureTasksLoaded("wed_a", async () => [
+        task("whost_amy"),
+        { ...task(null), id: "tsk_2" },
+      ]);
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [BOB, AMY] }));
+      authFetchMock.mockResolvedValueOnce(json({ removed: true }));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      fireEvent.click(screen.getByRole("button", { name: /Remove @bob/i }));
+      await waitFor(() => expect(screen.queryByText("@bob")).toBeNull());
+      expect(hasCachedTasks("wed_a")).toBe(true);
+      expect(hasCachedHosts("wed_a")).toBe(false);
+    });
+
+    it("marks the checklist stale after removing someone added in this visit, whose seat id it never saw", async () => {
+      // The add answers without the seat id, so the panel cannot tell whether
+      // a task names them.
+      await ensureTasksLoaded("wed_a", async () => [task(null)]);
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
+      authFetchMock.mockResolvedValueOnce(
+        json(
+          { host: { osnProfileId: "usr_bob", handle: "bob", role: "viewer", createdAt: 3 } },
+          201,
+        ),
+      );
+      authFetchMock.mockResolvedValueOnce(json({ removed: true }));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
+      typeHandle("@bob");
+      fireEvent.click(screen.getByRole("button", { name: /Add host/i }));
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+      expect(hasCachedTasks("wed_a")).toBe(true);
+
+      fireEvent.click(screen.getByRole("button", { name: /Remove/i }));
+      await waitFor(() => expect(screen.queryByText("@bob")).toBeNull());
+      expect(hasCachedTasks("wed_a")).toBe(false);
+    });
   });
 
   it("hides the add form and remove controls for a VIEWER co-host (read-only)", async () => {

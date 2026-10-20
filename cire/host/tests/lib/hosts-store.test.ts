@@ -7,9 +7,10 @@ import {
   type HostSeat,
   hostsAccessor,
   invalidateHosts,
+  setFreshHosts,
 } from "../../src/lib/hosts-store";
 import { dropWeddingCaches, openWeddingCaches } from "../../src/lib/wedding-caches";
-import { __resetWeddingScope } from "../../src/lib/wedding-scope";
+import { __resetWeddingScope, closeWeddingScope } from "../../src/lib/wedding-scope";
 
 const seat = (over: Partial<HostSeat>): HostSeat => ({
   hostId: "whost_1",
@@ -89,6 +90,38 @@ describe("hosts-store", () => {
     load.resolve([seat({})]);
     expect(await Promise.all([a, b])).toEqual([true, true]);
     expect(calls).toBe(1);
+  });
+
+  // The co-host panel reads the same list on its own mount and hands it over,
+  // so a checklist opened after the panel needs no read of its own.
+  it("setFreshHosts makes the list fresh, so the next load asks for nothing", async () => {
+    invalidateHosts("wed_1");
+    setFreshHosts("wed_1", [seat({ hostId: "whost_panel" })]);
+    expect(hasCachedHosts("wed_1")).toBe(true);
+    let fetched = false;
+    const fetcher = async () => {
+      fetched = true;
+      return [];
+    };
+    expect(await ensureHostsLoaded("wed_1", fetcher)).toBe(true);
+    expect(fetched).toBe(false);
+    expect(hostsAccessor("wed_1")()?.map((s) => s.hostId)).toEqual(["whost_panel"]);
+  });
+
+  it("setFreshHosts keeps its list over a load that was already in flight", async () => {
+    const old = held<HostSeat[]>();
+    const pending = ensureHostsLoaded("wed_1", old.fetcher);
+    setFreshHosts("wed_1", [seat({ hostId: "whost_panel" })]);
+    old.resolve([seat({ hostId: "whost_old" })]);
+    expect(await pending).toBe(false);
+    expect(hostsAccessor("wed_1")()?.map((s) => s.hostId)).toEqual(["whost_panel"]);
+  });
+
+  it("setFreshHosts writes nothing for a wedding the organiser has left", () => {
+    closeWeddingScope("wed_1");
+    setFreshHosts("wed_1", [seat({ hostId: "whost_late" })]);
+    expect(hostsAccessor("wed_1")()).toBeNull();
+    expect(hasCachedHosts("wed_1")).toBe(false);
   });
 });
 

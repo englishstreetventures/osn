@@ -11,7 +11,7 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
-import { invalidateHosts } from "../lib/hosts-store";
+import { type HostSeat, invalidateHosts, setFreshHosts } from "../lib/hosts-store";
 import {
   atPeopleLimit,
   peopleCountLabel,
@@ -20,7 +20,7 @@ import {
   readPeopleLimit,
   upgradeTierFor,
 } from "../lib/people-limit";
-import { invalidateTasks } from "../lib/tasks-store";
+import { invalidateTasks, peekCachedTasks } from "../lib/tasks-store";
 import { type PaidTier, TIER_LABEL } from "../lib/tiers";
 import {
   type AssignableRole,
@@ -39,10 +39,15 @@ import UpgradeDialog from "./UpgradeDialog";
 /** A seat on the wedding — an owner's or a co-host's. Owners are seats like
  *  everyone else, so one shape serves both. */
 interface HostRow {
+  /** The seat id a checklist task's `assignedHostId` names. Absent on the add
+   *  response, which does not echo it. */
+  hostId?: string;
   osnProfileId: string;
-  /** Present only on a freshly-added host (the add response echoes the handle);
-   *  the list endpoint returns ids only, so existing rows show the id. */
+  /** The person's OSN handle: echoed by the add response, and on the list when
+   *  its lookup resolved one. A row without one shows the profile id. */
   handle?: string;
+  /** The person's OSN display name, when the list's lookup resolved one. */
+  displayName?: string;
   role: WeddingRole;
   createdAt: number;
   /** Who created this seat. Absent on the add response (it is by definition the
@@ -74,6 +79,20 @@ const withKnownRole = (host: HostRow): HostRow => ({
   ...host,
   role: normaliseWeddingRole(host.role),
 });
+
+/**
+ * The list as the checklist's seat cache holds it, in the API's order with the
+ * roles already narrowed, or `null` when a row has no seat id (an API older
+ * than the field), which leaves the checklist to read the seats itself.
+ */
+function asSeats(rows: readonly HostRow[]): HostSeat[] | null {
+  const seats: HostSeat[] = [];
+  for (const { hostId, osnProfileId, handle, displayName, role } of rows) {
+    if (!hostId) return null;
+    seats.push({ hostId, osnProfileId, handle, displayName, role });
+  }
+  return seats;
+}
 
 /** Owners first, then everyone else, each group in the order the API listed
  *  them (oldest seat first). */
@@ -436,7 +455,12 @@ export default function HostsPanel(props: HostsPanelProps) {
         total?: number;
         peopleLimit?: unknown;
       };
-      setHosts(ownersFirst(body.hosts.map(withKnownRole)));
+      const rows = body.hosts.map(withKnownRole);
+      setHosts(ownersFirst(rows));
+      // The checklist names who holds each task from this same list, so it
+      // takes this read rather than making its own.
+      const seats = asSeats(rows);
+      if (seats) setFreshHosts(props.weddingId, seats);
       keepPeopleLimit(readPeopleLimit(body.peopleLimit));
       // `total` > the rows we got means the API truncated. Surfaced rather than
       // ignored: an owner shown a partial list has no way to know that someone
@@ -514,6 +538,8 @@ export default function HostsPanel(props: HostsPanelProps) {
       const body = (await res.json()) as { host: HostRow; peopleLimit?: unknown };
       const added = withKnownRole(body.host);
       setHosts((prev) => ownersFirst([...prev, added]));
+      // The checklist offers everyone seated as a task's holder.
+      invalidateHosts(props.weddingId);
       keepPeopleLimit(readPeopleLimit(body.peopleLimit));
       noticeIfFormGone(hadForm);
       setHandle("");
@@ -555,8 +581,15 @@ export default function HostsPanel(props: HostsPanelProps) {
       keepPeopleLimit(await peopleLimitIn(res));
       setHosts((prev) => prev.filter((h) => h.osnProfileId !== host.osnProfileId));
       // The server cleared this seat's checklist assignments with it, so a
-      // checklist cached before now names someone who holds nothing.
-      invalidateTasks(props.weddingId);
+      // cached checklist that names the seat names someone who holds nothing;
+      // one that does not name it is unchanged. A seat added on this visit has
+      // no id here, so it might be named.
+      if (
+        host.hostId === undefined ||
+        peekCachedTasks(props.weddingId)?.some((t) => t.assignedHostId === host.hostId)
+      ) {
+        invalidateTasks(props.weddingId);
+      }
       invalidateHosts(props.weddingId);
       haptic("commit");
       toast.success(`Removed ${label}.`);
@@ -623,6 +656,8 @@ export default function HostsPanel(props: HostsPanelProps) {
           prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h, role: nextRole } : h)),
         ),
       );
+      // The checklist's task drawer names each seat with its role.
+      invalidateHosts(props.weddingId);
       if (isMe(host)) {
         toast.success(
           `You are now ${anArticleFor(nextRole)} ${ROLE_COPY[nextRole].label.toLowerCase()}.`,
