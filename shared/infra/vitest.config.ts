@@ -19,6 +19,10 @@ export const READS_REPO = [
 export default defineConfig({
   test: {
     environment: "node",
+    // Loading Alchemy and the tests that spawn `bun` take about a second
+    // alone, and several times that under `bun run test`, which runs every
+    // workspace's tests at once.
+    testTimeout: 30_000,
     projects: [
       {
         extends: true,
