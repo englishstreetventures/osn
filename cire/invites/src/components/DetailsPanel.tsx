@@ -19,11 +19,17 @@ export interface DetailsPanelProps {
    */
   onRsvp?: () => void;
   /**
-   * The wedding's RSVP deadline has passed. The RSVP button gives way to a line
-   * saying so, as the card's Respond becomes "RSVPs closed": the details stay
-   * open, only the answer is locked.
+   * The wedding's RSVP deadline has passed, and a line says so. The RSVP
+   * button follows the event card's: a household with a reply on file
+   * (`replied`) keeps a way in, relabelled "View your RSVP", to the sheet's
+   * read-only form; one with none loses it.
    */
   rsvpClosed?: boolean;
+  /**
+   * True once any invited member of the household has a reply on file for
+   * this event (`hasAnyHouseholdReply`). Only matters once `rsvpClosed`.
+   */
+  replied?: boolean;
   /** The deadline day in words, for that line ("RSVPs closed on …"). */
   rsvpClosedOn?: string;
   /**
@@ -65,10 +71,13 @@ export function DetailsPanel(props: DetailsPanelProps) {
   const timeRange = () => formatTimeRange(props.event);
   const tz = () => timezoneLabel(props.event);
   const titleId = props.titleId ?? createUniqueId();
-  const rsvpOffered = () => props.onRsvp !== undefined && props.rsvpClosed !== true;
+  const rsvpOffered = () =>
+    props.onRsvp !== undefined && (props.rsvpClosed !== true || props.replied === true);
 
-  // The deadline can pass while this panel is open, and the RSVP button goes
-  // with it. If focus was ON that button, the browser drops it to `<body>` —
+  // The deadline can pass while this panel is open, and for a household with
+  // no reply the RSVP button goes with it. (One with a reply keeps the same
+  // button under a new label, so its focus never moves.) If focus was ON that
+  // button, the browser drops it to `<body>` —
   // outside a modal dialog, with no keyboard way back in — so focus goes to
   // this panel's heading instead. It acts only on that loss: focus resting on
   // any real element is left where the guest put it. And only while this panel
@@ -116,7 +125,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
           <Show when={rsvpOffered() ? props.onRsvp : undefined}>
             {(openRsvp) => (
               <Button variant="cta" class="min-h-11" onClick={() => openRsvp()()}>
-                RSVP for this event
+                {props.rsvpClosed ? "View your RSVP" : "RSVP for this event"}
                 <span aria-hidden="true">→</span>
               </Button>
             )}

@@ -90,17 +90,15 @@ function initKeys(): Promise<KeyInit> {
  *
  * ⚠ This is the FULL pulse-api scope union, not just what the graph bridge
  * itself mints (`graph:read` for connections/profile-displays,
- * `graph:resolve-account` for the profileId → accountId lookup — S-M1
- * pulse-onboarding). osn-api stores `allowedScopes` PER SERVICE
+ * `graph:resolve-account` for the profileId → accountId lookup).
+ * osn-api stores `allowedScopes` PER SERVICE
  * (`service_accounts` row, upsert = full replace) — not per key — and
  * pulse-api registers TWO keys under the same `serviceId` (this one and the
  * leave-app key in `lib/outbound-arc.ts`). If the two registrations carried
  * disjoint scope sets, whichever landed last (boot race, 24h rotation) would
- * clobber the other's grants and fail-close its S2S calls at random (S-H1,
- * prep-pr review 2026-07-05). Both call sites therefore register the same
- * union; keep them in lockstep with `lib/outbound-arc.ts` `ALLOWED_SCOPES`.
- * Per-key scope storage (which would restore real least-privilege between the
- * two keys) is tracked in `englishstventures/osn-tracker`.
+ * clobber the other's grants and fail-close its S2S calls at random. Both
+ * call sites therefore register the same union; keep them in lockstep with
+ * `lib/outbound-arc.ts` `ALLOWED_SCOPES`.
  *
  * Tokens are still minted with the MINIMAL scope per call (`arcAuthHeader`
  * below defaults to `graph:read`); the union applies only to the registration.

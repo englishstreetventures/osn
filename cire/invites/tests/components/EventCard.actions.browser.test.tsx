@@ -81,7 +81,7 @@ const noop = () => {};
  * grid's columns are `minmax(0, 1fr)`, so they are sized by the card, not by the
  * picture.
  */
-function renderCard(withImage: boolean, rsvpClosed = false) {
+function renderCard(withImage: boolean, rsvpClosed = false, responded = false) {
   return render(() => (
     // `px-6` is the events section's own mobile padding
     // (`designs/classic/InvitePage.tsx`), which is what decides how much width
@@ -98,6 +98,7 @@ function renderCard(withImage: boolean, rsvpClosed = false) {
           onDetails={noop}
           rsvpClosed={rsvpClosed}
           rsvpClosedNoticeId={rsvpClosed ? "rsvp-notice" : undefined}
+          responded={responded}
         />
       </div>
     </div>
@@ -108,8 +109,8 @@ function renderCard(withImage: boolean, rsvpClosed = false) {
 function actions(container: HTMLElement) {
   const buttons = [...container.querySelectorAll("button")];
   const details = buttons.find((b) => b.textContent === "Event Details")!;
-  // By elimination rather than by label: the answer button reads "Respond" open
-  // and "RSVPs closed" shut, and both are measured here.
+  // By elimination rather than by label: the answer button reads "Respond"
+  // before a reply and "RSVP given" after one, and both are measured here.
   const respond = buttons.find((b) => b !== details)!;
   return {
     respondEl: respond,
@@ -178,30 +179,63 @@ describe("the event card's two actions, as painted", () => {
  * zero, which is why `overflow-clip` and `overflow-hidden` are not
  * interchangeable here even though they clip to the same rounded box.
  *
- * Both labels are measured, and the harder of the two is not the one it looks
- * like. "RSVPs closed" is the longer line, but it holds a space and so breaks;
- * "Respond" is one unbreakable word, so it is the larger automatic minimum and
- * the case that decides whether the row fits. Neither may clip — the closed
- * label is what a guest arriving after the deadline reads.
+ * Both labels are measured. "RSVP given" is the longer line and carries the
+ * tick beside it, but it holds a space and so breaks; "Respond" is one
+ * unbreakable word. Neither may clip — "RSVP given" past the deadline is how a
+ * guest gets back to their reply.
  */
 describe("the answer button at the Reflow floor", () => {
   it.each([
-    { name: "Respond", closed: false },
-    { name: "RSVPs closed", closed: true },
-  ])("shows the whole of $name at 320px inside the section's padding", async ({ closed }) => {
+    { name: "Respond", closed: false, responded: false },
+    { name: "RSVP given", closed: true, responded: true },
+  ])(
+    "shows the whole of $name at 320px inside the section's padding",
+    async ({ closed, responded }) => {
+      await page.viewport(...REFLOW);
+      const { container } = renderCard(false, closed, responded);
+      // The invite's faces are self-hosted, and a width taken against fallback
+      // metrics is a different number.
+      await document.fonts.ready;
+
+      const { respondEl, respond, rowWidth } = actions(container);
+      const text = label(respondEl);
+
+      expect(
+        text.scrollWidth,
+        `"${text.textContent}" overflows its ${Math.round(text.clientWidth)}px label box — button ${Math.round(respond.width)}px in a ${rowWidth}px row`,
+      ).toBeLessThanOrEqual(text.clientWidth);
+    },
+  );
+
+  it("keeps the RSVPs-closed badge inside the card beside a long event name at 320px", async () => {
     await page.viewport(...REFLOW);
-    const { container } = renderCard(false, closed);
-    // The invite's faces are self-hosted, and a width taken against fallback
-    // metrics is a different number.
+    const { container } = render(() => (
+      <div class="px-6">
+        <div class="max-w-column-xl mx-auto">
+          <EventCard
+            event={{ ...baseEvent, name: "Sangeet and Garba Night" }}
+            onRespond={noop}
+            onDetails={noop}
+            rsvpClosed
+            rsvpClosedNoticeId="rsvp-notice"
+            responded
+          />
+        </div>
+      </div>
+    ));
     await document.fonts.ready;
 
-    const { respondEl, respond, rowWidth } = actions(container);
-    const text = label(respondEl);
-
-    expect(
-      text.scrollWidth,
-      `"${text.textContent}" overflows its ${Math.round(text.clientWidth)}px label box — button ${Math.round(respond.width)}px in a ${rowWidth}px row`,
-    ).toBeLessThanOrEqual(text.clientWidth);
+    const article = container.querySelector("article")!.getBoundingClientRect();
+    const badge = [...container.querySelectorAll("span")]
+      .find((s) => s.textContent === "RSVPs closed")!
+      .getBoundingClientRect();
+    // The row wraps the badge under the name rather than pushing it past the
+    // card's edge.
+    expect(badge.right).toBeLessThanOrEqual(article.right);
+    expect(badge.left).toBeGreaterThanOrEqual(article.left);
+    expect(badge.width).toBeGreaterThan(0);
+    // `whitespace-nowrap`: the badge never breaks its own two words.
+    expect(badge.height).toBeLessThan(30);
   });
 
   it("still clips the confirmation fill to the button's rounded box", async () => {

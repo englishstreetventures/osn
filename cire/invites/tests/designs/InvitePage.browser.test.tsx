@@ -94,7 +94,7 @@ function respondButton(): HTMLButtonElement {
     el.textContent?.includes("Mehndi"),
   ) as HTMLElement;
   return [...card.querySelectorAll("button")].find(
-    (b) => b.textContent === "Respond",
+    (b) => b.textContent === "Respond" || b.textContent === "RSVP given",
   ) as HTMLButtonElement;
 }
 

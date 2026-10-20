@@ -11,6 +11,8 @@ import {
   DEV_OWNER_SEAT_ID,
   repointDevOwnerSeat,
   seedDb,
+  applyE2eRsvpDeadline,
+  setSampleRsvpDeadline,
   type TestDb,
 } from "../../src/db/setup";
 
@@ -287,5 +289,46 @@ describe("repointDevOwnerSeat", () => {
 
       expect(allSeats(theirs)).toEqual(allSeats(ours));
     });
+  });
+});
+
+describe("setSampleRsvpDeadline", () => {
+  const deadlineOf = (db: TestDb) =>
+    db
+      .select({
+        date: schema.weddings.rsvpDeadline,
+        timezone: schema.weddings.rsvpDeadlineTimezone,
+      })
+      .from(schema.weddings)
+      .where(eq(schema.weddings.id, schema.BOOTSTRAP_WEDDING_ID))
+      .get();
+
+  it("refuses a date that is not a real calendar day, and leaves RSVPs open", () => {
+    // A malformed value would otherwise be stored and read back as "no
+    // deadline", so a run meant to test the closed invite would test an open
+    // one and pass.
+    const db = createDb();
+    seedDb(db);
+    for (const bad of ["2099-02-30", "2099-1-1", "tomorrow", ""]) {
+      expect(() => setSampleRsvpDeadline(db, bad)).toThrow();
+    }
+    expect(deadlineOf(db)).toEqual({ date: null, timezone: null });
+  });
+
+  it("leaves RSVPs open when the dev server boots without CIRE_E2E_RSVP_DEADLINE", () => {
+    // Every `bun run dev` outside the E2E suite: no variable, or an empty one.
+    for (const env of [{}, { CIRE_E2E_RSVP_DEADLINE: "" }]) {
+      const db = createDb();
+      seedDb(db);
+      applyE2eRsvpDeadline(db, env);
+      expect(deadlineOf(db)).toEqual({ date: null, timezone: null });
+    }
+  });
+
+  it("gives the sample wedding the deadline the E2E suite names, in UTC", () => {
+    const db = createDb();
+    seedDb(db);
+    applyE2eRsvpDeadline(db, { CIRE_E2E_RSVP_DEADLINE: "2099-01-01" });
+    expect(deadlineOf(db)).toEqual({ date: "2099-01-01", timezone: "UTC" });
   });
 });

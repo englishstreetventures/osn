@@ -74,7 +74,7 @@ worktree. One block per task:
 
 ```markdown
 ## task 3 — vendor enquiry weddingName
-issue:       englishstventures/osn#812
+issue:       englishstreetventures/osn#812
 claimed:     osn#812 item 264995573
 agent:       implementer — new field on a route response plus its test; rating unconfirmed, chosen from the text
 premises:    checked on origin/main 435c28f65

@@ -72,7 +72,7 @@ export default function ProfileMenu(props: {
   };
   // An avatar that will not load — a dead link, a response that is not an
   // image, or a host the portal's CSP `img-src` does not list (it lists none
-  // but cire-api until englishstventures/osn#1207 adds the avatar host) — shows
+  // but cire-api until englishstreetventures/osn#1207 adds the avatar host) — shows
   // the initial instead of an empty circle. Keyed on the URL, so a new one gets
   // its own try.
   const [failedAvatarUrl, setFailedAvatarUrl] = createSignal<string | null>(null);

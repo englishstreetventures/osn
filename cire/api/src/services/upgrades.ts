@@ -213,7 +213,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
    * A LEGACY ROW is one the migration marked `expired` without closing its
    * Stripe session, which stays payable for a day after it opened. It is read
    * here while it may still be payable, so the double-charge guard sees every
-   * page that could still take money. Removed by englishstventures/osn#1315.
+   * page that could still take money. Removed by englishstreetventures/osn#1315.
    */
   const openingRead = (db: Db, weddingId: string) =>
     dbQuery(() =>
@@ -404,7 +404,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
         // 2. Close every legacy page that may still be payable, at Stripe,
         //    before anything else: its row already reads `expired`, so the
         //    pending-row logic below would never see it. Paid but unsettled,
-        //    or not closable, means wait. Removed by englishstventures/osn#1315.
+        //    or not closable, means wait. Removed by englishstreetventures/osn#1315.
         for (const legacy of opening.legacyPages) {
           const probe = yield* probeSession(legacy.id, legacy.sessionId);
           const closed =

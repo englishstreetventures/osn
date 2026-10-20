@@ -10,7 +10,7 @@ related:
   - "[[subprocessors]]"
   - "[[shared/observability/overview]]"
   - "[[cire]]"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-19
 ---
 
 # SOC 2
@@ -153,7 +153,7 @@ obligations; SOC 2 asks "do you do this and can you prove it?".
 
 ## Project changes required
 
-Tracked with `C-` IDs in `englishstventures/osn-tracker` under `label:compliance`:
+Tracked with `C-` IDs in `englishstreetventures/osn-tracker` under `area:compliance`:
 
 1. **Continuous-control monitoring tool** — pick Vanta / Drata / Secureframe before Type I prep. Cost is $7–15k/year and saves months of evidence collection. ID: **C-M4**.
 2. **Production access control matrix** — [[access-control]]. ID: **C-M5**.

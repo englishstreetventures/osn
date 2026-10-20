@@ -47,7 +47,7 @@ export function tierAtLeast(held: Tier, min: Tier): boolean {
  * applied to the stored rows: `vendors` or `capacity_1000` is Crimson,
  * `registry` or `capacity_500` is Gold, anything else Ivory.
  */
-// Removed by englishstventures/osn#1315, once every API this portal talks to sends `tier`.
+// Removed by englishstreetventures/osn#1315, once every API this portal talks to sends `tier`.
 export function legacyTierFromEntitlements(entitlements: readonly string[]): Tier {
   if (entitlements.includes("vendors") || entitlements.includes("capacity_1000")) {
     return "crimson";

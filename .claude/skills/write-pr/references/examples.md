@@ -22,17 +22,17 @@ This branch makes two unrelated changes to the cire API. Organisers can now rese
 | Issue | What |
 |---|---|
 | #9101 | Cire: let organisers resend an invite to households that have not replied |
-| englishstventures/osn-tracker#<n> | `S-M2` |
+| englishstreetventures/osn-tracker#<n> | `S-M2` |
 
 Closes #9101
-Closes englishstventures/osn-tracker#<n>
+Closes englishstreetventures/osn-tracker#<n>
 
 **Opened**
 
 | Issue | What |
 |---|---|
-| englishstventures/osn#9102 | Cire: show organisers when a resent invite was opened |
-| englishstventures/osn-tracker#<n> | `S-M1` |
+| englishstreetventures/osn#9102 | Cire: show organisers when a resent invite was opened |
+| englishstreetventures/osn-tracker#<n> | `S-M1` |
 
 ## Decisions
 
@@ -48,8 +48,8 @@ Closes englishstventures/osn-tracker#<n>
 
 **Out of scope**
 
-- englishstventures/osn-tracker#<n> — S-M1
-- englishstventures/osn#9102
+- englishstreetventures/osn-tracker#<n> — S-M1
+- englishstreetventures/osn#9102
 
 ## Test plan
 

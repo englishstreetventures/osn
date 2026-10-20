@@ -1192,7 +1192,7 @@ describe("revertImport — scoped edge cases", () => {
     const { db, layer } = scopedLayer();
     await applyChange(layer, "c0", SEED, 1_000);
     // A value the events editor can store but an upload may not carry
-    // (englishstventures/osn#1220).
+    // (englishstreetventures/osn#1220).
     db.update(events).set({ timezone: "UTC+10" }).where(eq(events.name, "Mehndi")).run();
     const before = db.select().from(events).where(eq(events.name, "Mehndi")).all()[0]!;
     await applyChange(layer, "c1", { eventsCsv: EVENTS_V1 }, 2_000);

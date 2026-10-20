@@ -56,18 +56,10 @@ name: Deploy
 # WRANGLER_OUTPUT_FILE_PATH. A failed check fails the job, so GitHub marks its
 # Deployment `failure` and the release planner's dev gate holds the change back
 # from production.
-# Dispatch with `smoke_fail` set to a surface to watch that path: its check
-# asks for a path the Worker answers 404, and the job rolls back and goes red.
 on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      smoke_fail:
-        description: "Dry run of the rollback path: this dev Worker's smoke check fails on purpose, so its job rolls the Worker back and goes red. Every other surface deploys as usual."
-        type: choice
-        options: [none, cire_api, cire_invites, osn_api]
-        default: none
 
 # Read-only: this workflow deploys to Cloudflare, it never writes to the repo.
 permissions:
@@ -157,8 +149,7 @@ jobs:
       # astro.config.mjs files rather than bun.lock or github.sha — Astro's
       # font-metadata cache is a function of which families each config
       # asks for, and restoring it here turns this workflow's own `bun run
-      # build` into a cache hit against fonts.google.com too
-      # (englishstventures/osn-tracker#128).
+      # build` into a cache hit against fonts.google.com too.
       - name: Cache Astro font metadata
         uses: actions/cache@v4
         with:
@@ -299,13 +290,12 @@ jobs:
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
 
       # The same check as production's (scripts/smoke-check.ts), against
-      # api.dev.cireweddings.com. SMOKE_FORCE_FAIL is the dispatch's dry run.
+      # api.dev.cireweddings.com.
       - name: Smoke check, rolling back on failure
         run: bun run scripts/smoke-check.ts cire_api dev
         timeout-minutes: 5
         env:
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
-          SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'cire_api' }}
 
   # ═══ cire invites (Astro SSR → Cloudflare Worker) ══════════════════════════
   # The guest site is Astro SSR on Cloudflare (output: "server", the
@@ -427,7 +417,6 @@ jobs:
         timeout-minutes: 5
         env:
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
-          SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'cire_invites' }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
 
@@ -480,7 +469,7 @@ jobs:
       # `PUBLIC_*` env vars as inputs — so this job's `bun run build` is
       # always a turbo cache MISS against the `build` job above and really
       # runs `astro build` again, hitting fonts.google.com again unless this
-      # restores what that fetch produced (englishstventures/osn-tracker#128).
+      # restores what that fetch produced.
       - name: Cache Astro font metadata
         uses: actions/cache@v4
         with:
@@ -758,7 +747,6 @@ jobs:
         timeout-minutes: 5
         env:
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
-          SMOKE_FORCE_FAIL: ${{ inputs.smoke_fail == 'osn_api' }}
 
   # ═══ musubi/social (Vite SPA → Cloudflare Pages) ══════════════════════════════
   # The identity web app: profile, connections, organisations, settings — and

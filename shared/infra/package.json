@@ -6,7 +6,7 @@
   "author": "English Street Ventures Pty Ltd",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/englishstventures/osn.git"
+    "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "type": "module",
   "exports": {

@@ -1,6 +1,6 @@
 ---
 name: setup-osn
-description: Use when setting up or repairing a development environment for this repository on a machine — Bun at the pinned version, the GitHub CLI and its auth, SSH commit signing and the recommended git config, workspace dependencies, lefthook hooks and the portless dev proxy — and verifying it with the type-check, lint and format gates. Also the place to start when bun, gh, turbo or a hook is missing or the wrong version.
+description: Use when setting up or repairing a development environment for this repository on a machine — Bun at the pinned version, the GitHub CLI and its auth, SSH commit signing and the recommended git config, workspace dependencies, lefthook hooks, the TypeScript language server agents use and the portless dev proxy — and verifying it with the type-check, lint and format gates. Also the place to start when bun, gh, turbo or a hook is missing or the wrong version.
 ---
 
 Set up the development environment for this repository: check each requirement in order, install or configure what is missing, verify with the three gates, and report every requirement's state.
@@ -52,7 +52,7 @@ If absent: `brew install bun`. If it does not print the version in `.bun-version
 `gh --version`; if absent, `brew install gh`. Then three checks, because an installed `gh` is not a working one:
 
 1. `gh auth status` — if not logged in, `gh auth login` (GitHub.com, HTTPS, browser)
-2. `gh repo view englishstventures/osn` — a failure means the token lacks `repo`; `gh auth refresh -s repo`
+2. `gh repo view englishstreetventures/osn` — a failure means the token lacks `repo`; `gh auth refresh -s repo`
 3. `gh pr list` from the repo root — an empty list is a pass; an error is not
 
 `gh` is what `prep-pr` opens pull requests with and `new-feat` files issues with. Moving a Project item needs the `project` scope as well: `gh auth refresh -s project`, when the user wants that.
@@ -96,6 +96,20 @@ The bootstrap step is the one that changes something outside the checkout. Where
 
 `bunfig.toml` sets a three-day `minimumReleaseAge`, so a package published yesterday will not install; that is the gate working, not a network fault.
 
+**The TypeScript language server for agents.** Claude Code's `LSP` tool comes from the `typescript-lsp` plugin, which starts the `typescript-language-server` binary from `PATH` and uses the workspace's own `typescript`, so it works only after `bun install`. Both install at user scope and so need a yes:
+
+```bash
+node --version                                              # macOS without node: brew install node
+npm install -g --before="$(node -p 'new Date(Date.now() - 3 * 864e5).toISOString()')" typescript-language-server
+typescript-language-server --version
+claude plugin install typescript-lsp@claude-plugins-official
+claude plugin list                                          # must show typescript-lsp@claude-plugins-official enabled
+```
+
+The row is done only when both checks pass: with the binary and no enabled plugin, every agent runs without `LSP` and nothing says so.
+
+`--before` gives the install the same three-day soak `bunfig.toml` gives the workspace, since a global install is outside it. Use this line on every platform: `brew install typescript-language-server` and `brew upgrade` take whatever version Homebrew last bumped to, with no soak, and so does a later `npm update -g`. The date comes from `node` because `date -d` exists only in GNU `date`; where it fails, npm gets an empty `--before`, drops it with a warning and installs the newest release. Do not add the plugin to `.claude/settings.json`: a project-scope `enabledPlugins` entry turns a plugin on without installing it. Cloud sessions never start plugin language servers, so on the remote environment record this row as not applicable. When and when not to trust what `LSP` returns: `wiki/conventions/agent-tooling.md` §Code search.
+
 If a gate fails, paste the shortest decisive lines into the table and keep going — a failing type check on a clean checkout of `main` is a finding for the user, not a reason to stop the setup.
 
 ## Step 8 — The dev proxy (optional, needs sudo)
@@ -111,4 +125,4 @@ That CA can intercept TLS for every host the machine talks to, which is why `por
 
 ## Step 9 — Report
 
-The table, then one line: ready, or what is still blocked. One row is not about this machine's toolchain: **bare-root guard** — created, merged, unchanged, refused or nothing to do, in the words `bootstrap-bare-root` printed. Homebrew dependencies for reference: `bun` (everything), `gh` (`prep-pr`, `new-feat`), Xcode CLT (Swift and iOS only).
+The table, then one line: ready, or what is still blocked. One row is not about this machine's toolchain: **bare-root guard** — created, merged, unchanged, refused or nothing to do, in the words `bootstrap-bare-root` printed. Homebrew dependencies for reference: `bun` (everything), `gh` (`prep-pr`, `new-feat`), `node` (npm for `typescript-language-server`, the agents' `LSP` tool), Xcode CLT (Swift and iOS only).

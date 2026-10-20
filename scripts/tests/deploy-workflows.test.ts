@@ -72,6 +72,11 @@ const jobsIn = (workflow: Workflow, environment: string) =>
   Object.entries(workflow.jobs).filter(([, job]) => environmentOf(job) === environment);
 
 describe("deploy.yml deploys dev only", () => {
+  test("runs on a push to main and by hand", () => {
+    expect(Object.keys(dev.on).toSorted()).toEqual(["push", "workflow_dispatch"]);
+    expect((dev.on.push as { branches: string[] }).branches).toEqual(["main"]);
+  });
+
   test("no job in it reaches the production Environment", () => {
     expect(jobsIn(dev, "production")).toEqual([]);
   });
@@ -266,31 +271,12 @@ describe("every Worker deploy is smoke-checked, and rolls back the Worker it dep
 
     const env = smoke?.env ?? {};
     expect(env.WRANGLER_OUTPUT_FILE_PATH).toBe(output);
-    if (tier === "dev") expect(env.SMOKE_FORCE_FAIL).toBe(`\${{ inputs.smoke_fail == '${key}' }}`);
-    else expect(env.SMOKE_FORCE_FAIL).toBeUndefined();
     if (target.access) {
       expect(env.CF_ACCESS_CLIENT_ID).toBe("${{ secrets.CF_ACCESS_CLIENT_ID }}");
       expect(env.CF_ACCESS_CLIENT_SECRET).toBe("${{ secrets.CF_ACCESS_CLIENT_SECRET }}");
     } else {
       expect(Object.keys(env).filter((name) => name.startsWith("CF_ACCESS"))).toEqual([]);
     }
-  });
-
-  test("deploy.yml's dispatch can force one dev Worker's check to fail", () => {
-    const dispatch = dev.on.workflow_dispatch as {
-      inputs: Record<string, { type: string; default: string; options: string[] }>;
-    };
-    const input = dispatch.inputs.smoke_fail;
-    expect(input?.type).toBe("choice");
-    expect(input?.default).toBe("none");
-    const devWorkers = targets.filter(([, , tier]) => tier === "dev").map(([, key]) => key);
-    expect(input?.options).toEqual(["none", ...devWorkers]);
-  });
-
-  test("production can never be forced to fail", () => {
-    const text = readFileSync(join(root, WORKFLOW_FILE.production), "utf8");
-    expect(text).not.toContain("SMOKE_FORCE_FAIL");
-    expect(text).not.toContain("smoke_fail");
   });
 });
 

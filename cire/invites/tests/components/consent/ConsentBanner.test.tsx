@@ -14,7 +14,7 @@ import {
   makeConsentRecord,
 } from "../../../src/lib/consent/record";
 import { consentPreferencesOpen } from "../../../src/lib/consent/store";
-import { resetConsentForTest, seedConsentForTest } from "../../../src/lib/consent/testing";
+import { resetConsentForTest, seedConsentForTest } from "../../test-support/consent";
 import { onSecureOriginWithJar } from "../../test-support/secure-origin";
 
 const bannerOf = (container: HTMLElement) =>

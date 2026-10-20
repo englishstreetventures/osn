@@ -6,7 +6,7 @@ import { page, userEvent } from "vitest/browser";
 import "../../../src/styles/global.css";
 import { ConsentBanner } from "../../../src/components/consent/ConsentBanner";
 import { readConsentFromDocument } from "../../../src/lib/consent/cookie";
-import { resetConsentForTest } from "../../../src/lib/consent/testing";
+import { resetConsentForTest } from "../../test-support/consent";
 
 /**
  * The first-layer consent prompt in a real engine: on the invite's pages a

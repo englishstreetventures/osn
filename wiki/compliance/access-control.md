@@ -42,9 +42,9 @@ The matrix that needs to exist, by environment + system + role.
 
 | System | Role | Granted to | MFA required? | Granted via | Reviewed |
 |---|---|---|---|---|---|
-| GitHub `englishstventures` org | Owner | <named human> | ✓ Hardware key | Per-PR review | Quarterly |
-| GitHub `englishstventures` org | Maintainer | <named humans> | ✓ Hardware key | Per-PR review | Quarterly |
-| GitHub `englishstventures` org | Read | <named humans> | ✓ Any TOTP / WebAuthn | Manual | Quarterly |
+| GitHub `englishstreetventures` org | Owner | <named human> | ✓ Hardware key | Per-PR review | Quarterly |
+| GitHub `englishstreetventures` org | Maintainer | <named humans> | ✓ Hardware key | Per-PR review | Quarterly |
+| GitHub `englishstreetventures` org | Read | <named humans> | ✓ Any TOTP / WebAuthn | Manual | Quarterly |
 | Production database | Read-write (operator) | <named humans> | ✓ Via Tailscale + WebAuthn | Manual + audit log | Quarterly |
 | Production database | Read-only (debugging) | <named humans> | ✓ | Same | Quarterly |
 | Grafana Cloud | Admin | <named humans> | ✓ | Manual | Quarterly |
@@ -202,8 +202,7 @@ grant in the matrix above. Expectations:
   truncate; and each row records `added_by_osn_profile_id`, surfaced in the
   panel, so an owner can see which seats they did not create. **Residual, and
   accepted rather than solved:** a new seat is live immediately and the owner is
-  not notified — tracked as `S-M2` in `englishstventures/osn-tracker`. See the
-  roles capability matrix in [[cire-auth]].
+  not notified. See the roles capability matrix in [[cire-auth]].
 - **Vendor claims are confirmed by an operator, never by the claim link.**
   A cire organiser chooses the address a directory claim link goes to, so a
   redeemed link only records a pending claim (`directory_vendors.review_*`).
@@ -230,7 +229,7 @@ Tracked with `C-` IDs:
    `bunfig.toml` or a workspace manifest matches at any depth),
    `/oxlintrc.json`, `/lefthook.yml`, `/bun.lock`, `/.bun-version` and
    `/tools/oxlint/**`. Branch
-   protection is ruleset `13921406` on `englishstventures/osn` (active: pull request
+   protection is ruleset `13921406` on `englishstreetventures/osn` (active: pull request
    required, linear history, no deletion, no force-push, `CI` and
    `Require changeset` as required status checks).
    **Still open, and the honest state of the control:** that ruleset sets

@@ -33,13 +33,13 @@ No `gh` or no network: the issue step's static form is the issue you *would* fil
 
 Every branch traces to an issue, so the work is visible before it starts.
 
-**Take an existing issue** when `$ARGUMENTS` is a number or URL (`#412`, `englishstventures/osn#412`):
+**Take an existing issue** when `$ARGUMENTS` is a number or URL (`#412`, `englishstreetventures/osn#412`):
 
 ```bash
-gh issue view 412 --repo englishstventures/osn --json number,title,body,labels
+gh issue view 412 --repo englishstreetventures/osn --json number,title,body,labels
 ```
 
-**A review finding is the exception that already has an issue.** An `S-`, `P-` or `C-` ID, or an `osn-tracker#` reference, names an issue in the private `englishstventures/osn-tracker`. Take it by number there. Do not open a duplicate in the public repo, and **keep the finding's text out of the branch name** — `englishstventures/osn` is public and its branch list is visible, so `fix/timing-oracle-in-claim-compare` publishes the defect before the fix lands. Name the branch after the area or the tracker number: `fix/cire-api-claim-hardening`, `fix/tracker-601`. The same rule covers the plan file and every commit message on the branch.
+**A review finding is the exception that already has an issue.** An `S-`, `P-` or `C-` ID, or an `osn-tracker#` reference, names an issue in the private `englishstreetventures/osn-tracker`. Take it by number there. Do not open a duplicate in the public repo, and **keep the finding's text out of the branch name** — `englishstreetventures/osn` is public and its branch list is visible, so `fix/timing-oracle-in-claim-compare` publishes the defect before the fix lands. Name the branch after the area or the tracker number: `fix/cire-api-claim-hardening`, `fix/tracker-601`. The same rule covers the plan file and every commit message on the branch.
 
 **Otherwise open one** with the **`write-issue`** skill. It picks the title, type and labels, writes a body that stands on its own, files it in the public repository, rates it through `rate-complexity` and adds it to the Project. The type sets the branch prefix below, so get it right there: `Feature` for new capability, `Bug` for something built that behaves wrongly, `Task` for the rest.
 
