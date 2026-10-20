@@ -1,4 +1,12 @@
-import { CLOSE_CODES, type FallbackOutcome, isSignal, PING, PING_INTERVAL_MS, PONG, type Signal } from "../protocol";
+import {
+  CLOSE_CODES,
+  type FallbackOutcome,
+  isSignal,
+  PING,
+  PING_INTERVAL_MS,
+  PONG,
+  type Signal,
+} from "../protocol";
 
 /**
  * Why the subscriber should read again: a signal arrived; an open socket was

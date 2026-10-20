@@ -79,4 +79,3 @@ describe("isFallbackOutcome", () => {
     expect(isFallbackOutcome(value)).toBe(false);
   });
 });
-
