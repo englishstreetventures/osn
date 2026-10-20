@@ -230,6 +230,11 @@ describe("invitedNames", () => {
     const padded = member(" Sam ", ["e1"], { lastName: " Kaur " });
     const bare = member("Sam", ["e1"], { lastName: "" });
     expect(invitedNames([padded, bare, priya], "e1")).toBe("Sam Kaur and Sam");
+    // The Sam who is asked is told apart from a Sam who is not: the household
+    // reads the line, and both Sams are in it.
+    const samAway = member("Sam", [], { lastName: "Kaur" });
+    const priyaHere = member("Priya", ["e1"]);
+    expect(invitedNames([sam, samAway, priyaHere], "e1")).toBe("Sam Sharma and Priya");
   });
 
   it("gives nothing rather than an empty list when nobody is invited (F14)", () => {

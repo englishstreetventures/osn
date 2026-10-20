@@ -250,8 +250,9 @@ type Invitee = Pick<FamilyMember, "firstName" | "lastName" | "eventIds" | "plusO
  *
  * Plus-ones never decide it: a plus-one's invitations are its inviter's, so it
  * is invited wherever they are. It is still named, after the members, in the
- * household's order, so the list is everyone who can come. A first name two of
- * them share is given with the last name.
+ * household's order, so the list is everyone who can come. A first name the
+ * person shares with anyone in the household — invited here or not — is given
+ * with the last name, so the household can tell which of them is asked.
  */
 export function invitedNames(members: readonly Invitee[], eventId: string): string | null {
   const invited = invitedMembers(members);
@@ -260,7 +261,7 @@ export function invitedNames(members: readonly Invitee[], eventId: string): stri
   if (here.length === 0) return null;
   const first = (m: Invitee) => m.firstName.trim();
   const names = here.map((m) =>
-    here.filter((other) => first(other) === first(m)).length > 1
+    members.filter((other) => first(other) === first(m)).length > 1
       ? `${first(m)} ${m.lastName.trim()}`.trim()
       : first(m),
   );
