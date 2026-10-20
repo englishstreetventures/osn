@@ -4,8 +4,8 @@
     "number": 1606,
     "branch": "feat/cire-privacy-tabs",
     "base_sha": "0cff792c2d95a8c996563148c9fc8e78d3e0fd07",
-    "head_sha": "115b38559b6f11131be36031159d8fc4b822a74e",
-    "generated_at": "2026-10-20T06:10:16.595Z",
+    "head_sha": "e49b28520bddd427a5d228db6fdf3353f720a7b9",
+    "generated_at": "2026-10-20T06:49:47.120Z",
     "merged_at": null,
     "phase": "at-open"
   },
@@ -23,35 +23,35 @@
     "method": "unconfirmed"
   },
   "window": {
-    "sessions": 11,
+    "sessions": 13,
     "first_ts": "2026-10-20T02:15:00.349Z",
-    "last_ts": "2026-10-20T06:10:13.290Z",
-    "span_seconds": 14113,
-    "active_seconds": 5382,
+    "last_ts": "2026-10-20T06:49:43.962Z",
+    "span_seconds": 16484,
+    "active_seconds": 6673,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 74.07060299999996,
+    "usd_equivalent": 94.04236679999997,
     "tokens": {
-      "input": 1134,
-      "output": 11691,
-      "thinking": 2764,
-      "cache_write_5m": 2695169,
+      "input": 1262,
+      "output": 13630,
+      "thinking": 3642,
+      "cache_write_5m": 3450258,
       "cache_write_1h": 0,
-      "cache_read": 150891005
+      "cache_read": 191283572
     },
     "by_model": {
       "claude-opus-5-5": {
         "tokens": {
-          "input": 1134,
-          "output": 11691,
-          "thinking": 2764,
-          "cache_write_5m": 2695169,
+          "input": 1262,
+          "output": 13630,
+          "thinking": 3642,
+          "cache_write_5m": 3450258,
           "cache_write_1h": 0,
-          "cache_read": 150891005
+          "cache_read": 191283572
         },
-        "usd_equivalent": 74.07060299999996,
-        "messages": 564
+        "usd_equivalent": 94.04236679999997,
+        "messages": 627
       },
       "<synthetic>": {
         "tokens": {
@@ -69,32 +69,32 @@
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 36,
-          "output": 5049,
-          "thinking": 2552,
-          "cache_write_5m": 113801,
+          "input": 44,
+          "output": 5939,
+          "thinking": 3155,
+          "cache_write_5m": 135636,
           "cache_write_1h": 0,
-          "cache_read": 179231
+          "cache_read": 224533
         },
-        "usd_equivalent": 0.7418214000000001,
-        "messages": 18
+        "usd_equivalent": 0.8869492000000001,
+        "messages": 22
       },
       "subagent": {
         "tokens": {
-          "input": 1098,
-          "output": 6642,
-          "thinking": 212,
-          "cache_write_5m": 2581368,
+          "input": 1218,
+          "output": 7691,
+          "thinking": 487,
+          "cache_write_5m": 3314622,
           "cache_write_1h": 0,
-          "cache_read": 150711774
+          "cache_read": 191059039
         },
-        "usd_equivalent": 73.32878159999997,
-        "messages": 547
+        "usd_equivalent": 93.15541759999996,
+        "messages": 606
       }
     },
     "effort": {
-      "medium": 18,
-      "xhigh": 484,
+      "medium": 22,
+      "xhigh": 543,
       "high": 62
     },
     "unpriced_models": []
@@ -105,28 +105,28 @@
       "test": 9,
       "docs": 12,
       "config": 3,
-      "source": 17
+      "source": 19
     },
     "loc": {
       "generated": {
-        "added": 37,
+        "added": 40,
         "deleted": 0
       },
       "test": {
-        "added": 725,
-        "deleted": 223
+        "added": 611,
+        "deleted": 226
       },
       "docs": {
-        "added": 133,
-        "deleted": 37
+        "added": 127,
+        "deleted": 38
       },
       "config": {
-        "added": 132,
+        "added": 186,
         "deleted": 1
       },
       "source": {
-        "added": 855,
-        "deleted": 386
+        "added": 764,
+        "deleted": 380
       }
     },
     "packages": [
@@ -138,7 +138,7 @@
       "tools/e2e"
     ],
     "touches_migration": false,
-    "commits": 11
+    "commits": 13
   },
   "interaction": {
     "user_turns": 0,
@@ -146,21 +146,21 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 457,
-      "Edit": 134,
-      "Read": 103,
-      "Write": 17,
+      "Bash": 489,
+      "Edit": 159,
+      "Read": 134,
+      "Write": 32,
+      "StructuredOutput": 11,
       "Skill": 9,
-      "StructuredOutput": 9,
+      "SubagentHandback": 5,
       "Agent": 4,
-      "SubagentHandback": 4,
       "Grep": 3,
       "ToolSearch": 1,
       "WebFetch": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 17,
-      "max_edits_one_file": 14
+      "files_edited_3plus": 23,
+      "max_edits_one_file": 16
     },
     "skills": {
       "new-feat": 1,
