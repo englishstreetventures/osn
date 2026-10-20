@@ -1401,6 +1401,27 @@ describe("applyImport — the guest cap holds inside the write", () => {
     expect(guestCount(db)).toBe(100);
   });
 
+  for (const { tier, cap, next } of [
+    { tier: "gold", cap: 500, next: "crimson" },
+    { tier: "crimson", cap: 1000, next: null },
+  ] as const) {
+    it(`names the cap and the tier above a ${tier} wedding refused while writing`, async () => {
+      const db = createDb(":memory:");
+      seedBootstrapWedding(db);
+      setTier(db, BOOTSTRAP_WEDDING_ID, tier);
+      seedHousehold(db, "fam_tier", cap - 3);
+      beforeStatement(db, /^insert into "guests"/, () => addGuest(db, "fam_tier", "late_tier"));
+
+      const error = await applyError(db, planOf({ guestCreates: newGuests("fam_tier", 3) }));
+
+      expect(error._tag === "ImportError" ? error.capacity : undefined).toMatchObject({
+        limit: cap,
+        current: cap,
+        requiredTier: next,
+      });
+    });
+  }
+
   it("does not answer a write that failed for another reason as the guest cap", async () => {
     const db = createDb(":memory:");
     seedBootstrapWedding(db);

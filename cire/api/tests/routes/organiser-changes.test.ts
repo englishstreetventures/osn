@@ -2253,6 +2253,7 @@ describe("POST /changes/revert — restores only the half the change saved", () 
       .where(eq(families.familyName, "Bigfamily"))
       .all();
     beforeStatement(db, /^insert into "guests"/, () => addPlusOne(db, household!.id));
+    const headBefore = await headOf(app);
 
     const res = await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: trimId });
     expect(res.status).toBe(402);
@@ -2263,6 +2264,9 @@ describe("POST /changes/revert — restores only the half the change saved", () 
       limit: 100,
       current: 100,
     });
+    // Refused while writing, so the head moves: a refusal before the write
+    // would leave it where it was.
+    expect(await headOf(app)).toBe(String(Number(headBefore) + 1));
     expect(db.select().from(guests).all()).toHaveLength(100);
     const [row] = db
       .select({ status: imports.status })
@@ -2482,6 +2486,77 @@ describe("authz — /changes gate", () => {
     });
     expect(res.status).toBe(403);
     expect(await jsonBody(res)).toEqual({ error: "read_only_role" });
+  });
+
+  describe("who may apply", () => {
+    /** A change the owner previewed, and a check that applying it was refused. */
+    async function previewedChange(
+      app: ReturnType<typeof buildApp>["app"],
+      db: ReturnType<typeof buildApp>["db"],
+    ) {
+      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        eventsCsv: EVENTS_CSV,
+        guestsCsv: GUESTS_CSV,
+      });
+      const changeId = ((await preview.json()) as { changeId: string }).changeId;
+      const stillPreview = () => {
+        const [row] = db
+          .select({ status: imports.status })
+          .from(imports)
+          .where(eq(imports.id, changeId))
+          .all();
+        expect(row!.status).toBe("preview");
+        expect(db.select().from(guests).all()).toHaveLength(0);
+      };
+      return { changeId, stillPreview };
+    }
+
+    it("401s a request with no credential", async () => {
+      const { app, db } = buildApp();
+      const { changeId, stillPreview } = await previewedChange(app, db);
+      const res = await appRequest(app, `${CHANGES_BASE}/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ changeId }),
+      });
+      expect(res.status).toBe(401);
+      stillPreview();
+    });
+
+    it("401s a cookie that names no session", async () => {
+      const { app, db } = buildApp();
+      const { changeId, stillPreview } = await previewedChange(app, db);
+      await seedOrganiserSession(db, "usr_dev_bootstrap_owner");
+      const res = await cookiePost(app, `${CHANGES_BASE}/apply`, "nosuchtoken", { changeId });
+      expect(res.status).toBe(401);
+      stillPreview();
+    });
+
+    it("403s a viewer co-host", async () => {
+      const { app, db } = buildApp();
+      const { changeId, stillPreview } = await previewedChange(app, db);
+      db.insert(weddingHosts)
+        .values({
+          id: "whost_apply_viewer",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_apply_viewer",
+          addedByOsnProfileId: "usr_dev_bootstrap_owner",
+          role: "viewer",
+          createdAt: new Date(),
+        })
+        .run();
+      const res = await appRequest(app, `${CHANGES_BASE}/apply`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${await auth.sign("usr_apply_viewer")}`,
+        },
+        body: JSON.stringify({ changeId }),
+      });
+      expect(res.status).toBe(403);
+      expect(await jsonBody(res)).toEqual({ error: "read_only_role" });
+      stillPreview();
+    });
   });
 
   it("lets an editor co-host preview + apply", async () => {

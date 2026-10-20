@@ -1083,22 +1083,46 @@ export function applyImport(
       );
     }
 
+    // Two reads before any write, sent together: neither needs the other.
+    //
     // Slugs already taken by this wedding's surviving events, so fresh mints
     // can't collide on the (wedding_id, slug) unique index — within the sheet
     // ("Ceremony" + "Ceremony!") or against events this plan keeps. Skipped
     // when the plan creates no events — the set is only consulted by
     // mintUniqueEventSlug.
+    //
+    // The capacity check, on the NET change in guests (creates minus
+    // removals), for every plan that adds a guest. A refusal here writes
+    // nothing. The net figure is what the guarded inserts in step 7 arrive at,
+    // since every removal lands before them: a churn import that removes K and
+    // adds K at the cap passes, and a wedding already over its cap passes only
+    // an import that ends within it. So step 7 refuses only when another
+    // writer took a place after this check. `plan.derivedCap` — set by
+    // `diffAgainstDb` in the SAME request when its own preview warning already
+    // read the tier — lets this skip a second read of the same row. Absent (the
+    // pre-check branch that proved the cap couldn't matter without learning it,
+    // or any other caller of `applyImport`), `assertGuestCapacity` runs its own
+    // query — a missing cap is never a reason to skip the check. Step 7 reads
+    // the tier itself.
     const removedEventIds = new Set(plan.eventRemoves.map((er) => er.id));
-    const existingSlugRows =
-      plan.eventCreates.length > 0
-        ? yield* dbQuery(() =>
-            db
-              .select({ id: events.id, slug: events.slug })
-              .from(events)
-              .where(eq(events.weddingId, weddingId))
-              .all(),
-          )
-        : [];
+    const netGuestDelta = plan.guestCreates.length - plan.guestRemoves.length;
+    const [existingSlugRows] = yield* Effect.all(
+      [
+        plan.eventCreates.length > 0
+          ? dbQuery(() =>
+              db
+                .select({ id: events.id, slug: events.slug })
+                .from(events)
+                .where(eq(events.weddingId, weddingId))
+                .all(),
+            )
+          : Effect.succeed([]),
+        plan.guestCreates.length > 0
+          ? tierService.assertGuestCapacity(weddingId, netGuestDelta, plan.derivedCap)
+          : Effect.void,
+      ],
+      { concurrency: "unbounded" },
+    );
     const usedSlugs = new Set(
       existingSlugRows.filter((r) => !removedEventIds.has(r.id)).map((r) => r.slug),
     );
@@ -1198,7 +1222,7 @@ export function applyImport(
     // 7. guest creates. The last guest insert of each D1 batch checks the cap,
     // counting the batch's earlier guests (see insertGuest): nothing else
     // writes inside a batch, so a batch commits only when it ends within the
-    // cap, whatever another writer committed after the check below. Every
+    // cap, whatever another writer committed after the check above. Every
     // removal sits in steps 1-6, so the places it frees are already counted.
     const lastGuestCreate = statements.length + plan.guestCreates.length - 1;
     for (const gc of plan.guestCreates) {
@@ -1237,24 +1261,6 @@ export function applyImport(
           .values({ guestId: link.guestId, eventId: link.eventId })
           .onConflictDoNothing(),
       );
-    }
-
-    // Capacity check before any write, on the NET change in guests (creates
-    // minus removals), for every plan that adds a guest. A refusal here writes
-    // nothing. The net figure is what the guarded inserts in step 7 arrive at,
-    // since every removal lands before them: a churn import that removes K and
-    // adds K at the cap passes, and a wedding already over its cap passes only
-    // an import that ends within it. So step 7 refuses only when another
-    // writer took a place after this check.
-    const netGuestDelta = plan.guestCreates.length - plan.guestRemoves.length;
-    if (plan.guestCreates.length > 0) {
-      // `plan.derivedCap` — set by `diffAgainstDb` in the SAME request when its
-      // own preview warning already read the tier — lets this skip a second
-      // read of the same row. Absent (the pre-check branch that proved the cap
-      // couldn't matter without learning it, or any other caller of
-      // `applyImport`), `assertGuestCapacity` runs its own query — a missing
-      // cap is never a reason to skip the check. Step 7 reads the tier itself.
-      yield* tierService.assertGuestCapacity(weddingId, netGuestDelta, plan.derivedCap);
     }
 
     statements.push(...finalize);
