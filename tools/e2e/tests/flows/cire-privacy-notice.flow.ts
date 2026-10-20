@@ -197,6 +197,13 @@ test("cire-privacy-notice", async ({ page, browser, flow }) => {
       "hosts=true guests=false",
       `hosts=${await bare.locator("#hosts").isVisible()} guests=${await bare.locator("#guests").isVisible()}`,
     );
+    await bare.getByRole("link", { name: "Guests", exact: true }).click();
+    await expect(bare).toHaveURL(`${PRIVACY}#guests`);
+    flow.check(
+      "without the module the Guests link switches back",
+      "hosts=false guests=true",
+      `hosts=${await bare.locator("#hosts").isVisible()} guests=${await bare.locator("#guests").isVisible()}`,
+    );
     await context.close();
   });
 
