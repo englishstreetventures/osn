@@ -75,6 +75,16 @@ function allowThirdPartyContent(container: HTMLElement) {
   fireEvent.click(button);
 }
 
+/**
+ * The block's "Show it here", if it is on screen: the in-place grant, which
+ * must never show again once the guest has said yes.
+ */
+function showButton(container: HTMLElement): HTMLButtonElement | undefined {
+  return Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+    (b) => b.textContent === "Show it here",
+  );
+}
+
 describe("PinterestBoard", () => {
   let scriptHandle: ReturnType<typeof captureScripts>;
 
@@ -267,8 +277,75 @@ describe("PinterestBoard", () => {
     scriptHandle.last().dispatchEvent(new Event("error"));
 
     await waitFor(() => expect(container.querySelector("a[data-pin-do]")).toBeNull());
-    expect(container.querySelector("button")).toBeNull();
+    expect(showButton(container)).toBeUndefined();
     expect(readConsentFromDocument()!.grants.pinterest).toBe(true);
+  });
+
+  describe("switching it off from where it was switched on", () => {
+    const stopButton = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+        (b) => b.textContent === "Stop showing moodboards",
+      );
+
+    it("offers it while the board loads, once it renders, and after it fails (F21)", async () => {
+      // A grant made in one press inside the sheet is taken back in one press
+      // there too, whatever the board went on to do.
+      seedConsentForTest({ pinterest: true });
+      const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+      expect(container.querySelector('[role="status"]')).not.toBeNull();
+      expect(stopButton(container)).toBeDefined();
+
+      scriptHandle.last().dispatchEvent(new Event("error"));
+      await waitFor(() => expect(fallbackLink(container)).toBeDefined());
+      expect(stopButton(container)).toBeDefined();
+      cleanup();
+
+      seedConsentForTest({ pinterest: true });
+      const rendered = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+      rendered.container.querySelector("a[data-pin-do]")!.removeAttribute("data-pin-do");
+      await waitFor(() => expect(rendered.container.querySelector('[role="status"]')).toBeNull());
+      expect(stopButton(rendered.container)).toBeDefined();
+    });
+
+    it("is not offered while the board is off, or for a link that cannot show here (F21)", () => {
+      refuseThirdPartyContent();
+      const off = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+      expect(stopButton(off.container)).toBeUndefined();
+      cleanup();
+
+      seedConsentForTest({ pinterest: true });
+      const linkOnly = render(() => (
+        <PinterestBoard url="https://pin.it/3xKp9Qd" eventName="Catholic" />
+      ));
+      expect(stopButton(linkOnly.container)).toBeUndefined();
+    });
+
+    it("says what it switches off, and that the page reloads, before it is pressed", () => {
+      seedConsentForTest({ pinterest: true });
+      const { getByRole } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+      const stop = getByRole("button", { name: "Stop showing moodboards" });
+      const note = document.getElementById(stop.getAttribute("aria-describedby") ?? "");
+      expect(note?.textContent).toContain("Pinterest moodboards are on in this browser");
+      expect(note?.textContent).toContain("reloads the page");
+    });
+
+    it("withdraws Pinterest moodboards and nothing else, and reloads to stop the script (F22)", () => {
+      seedConsentForTest({ pinterest: true, maps: true });
+      const reload = vi.fn();
+      setReloadPageForTest(reload);
+      const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+      expect(scriptHandle.last()).toBeDefined();
+
+      fireEvent.click(stopButton(container)!);
+
+      const record = readConsentFromDocument();
+      expect(record!.grants.pinterest).toBe(false);
+      expect(record!.grants.maps).toBe(true);
+      expect(reload).toHaveBeenCalledTimes(1);
+      // Back to the block, which offers to show it again.
+      expect(container.querySelector("a[data-pin-do]")).toBeNull();
+      expect(container.textContent ?? "").toContain("Show it here");
+    });
   });
 
   it("wraps the fixed-width embed in an overflow-contained box so it can't pan the page sideways on mobile", () => {
@@ -296,7 +373,7 @@ describe("PinterestBoard", () => {
     // A later visit reads the persisted consent, injects the script, no prompt.
     const second = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
     expect(second.container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
-    expect(second.container.querySelector("button")).toBeNull();
+    expect(showButton(second.container)).toBeUndefined();
     expect(scriptHandle.all().length).toBeGreaterThan(0);
   });
 
@@ -304,7 +381,7 @@ describe("PinterestBoard", () => {
     seedConsentForTest({ pinterest: true });
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
     expect(container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
-    expect(container.querySelector("button")).toBeNull();
+    expect(showButton(container)).toBeUndefined();
     expect(scriptHandle.all().length).toBeGreaterThan(0);
   });
 
@@ -345,7 +422,7 @@ describe("PinterestBoard", () => {
     // Board B reveals its embed reactively — no second click, no re-prompt.
     expect(a.container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
     expect(b.container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
-    expect(b.container.querySelector("button")).toBeNull();
+    expect(showButton(b.container)).toBeUndefined();
   });
 
   it("never writes a consent record the guest did not actually make", () => {

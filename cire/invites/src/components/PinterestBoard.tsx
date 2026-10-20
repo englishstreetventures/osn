@@ -1,7 +1,7 @@
 import Button, { buttonClass } from "@cire/ui/button";
 import { type Accessor, createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
 
-import { grantCategory } from "../lib/consent/store";
+import { grantCategory, withdrawCategory } from "../lib/consent/store";
 import { ConsentGate } from "./consent/ConsentGate";
 import { isEmbeddablePinterestBoardUrl, isSafePinterestLinkUrl } from "./pinterest";
 
@@ -130,14 +130,20 @@ function isEmbedTransformed(
  * | not a safe Pinterest link | nothing (and `hasPinterest` leaves the section out) |
  * | safe, not an embeddable board | the block: the board is on Pinterest, and the link |
  * | embeddable, Pinterest moodboards off | the block, the link, and "Show it here" |
- * | allowed, loading or rendered | the board (with "Loading board…" until it lands), no block |
- * | allowed, failed | the block, saying it could not load here, and the link |
+ * | allowed, loading or rendered | the board (with "Loading board…" until it lands), no block, "Stop showing moodboards" |
+ * | allowed, failed | the block, saying it could not load here, and the link; "Stop showing moodboards" |
  *
  * "Show it here" turns on the `pinterest` switch and nothing else — the same
  * grant the consent framework's placeholder makes — and the block says what
  * that switch covers before the guest presses it. Because the block shows for
  * a refusal, refusing costs the guest nothing they cannot get another way: the
- * moodboard stays one tap away either side of the decision.
+ * moodboard stays one tap away either side of the decision. Once the switch is
+ * on, "Stop showing moodboards" turns it off again from the same place.
+ *
+ * The block, and the button pressed in it, go when the board takes their
+ * place, so "Show it here" first moves focus to this component's own wrapper,
+ * which stays: the guest is left inside the sheet, on the moodboard, rather
+ * than dropped to the document's `<body>` outside a modal dialog.
  *
  * The embed uses Pinterest's documented embed widget pattern
  * (https://developers.pinterest.com/docs/web-features/widgets/#board-widget),
@@ -171,14 +177,24 @@ export function PinterestBoard(props: PinterestBoardProps) {
   const embeddable = () => isEmbeddablePinterestBoardUrl(props.url);
   const [status, setStatus] = createSignal<EmbedStatus>("idle");
 
+  let wrapper: HTMLDivElement | undefined;
+  // When "Show it here" was last pressed, on `performance.now()`'s clock.
+  let shownAt = Number.NEGATIVE_INFINITY;
+  const showHere = () => {
+    shownAt = performance.now();
+    grantCategory("pinterest");
+    wrapper?.focus();
+  };
+
   return (
     <Show when={isSafePinterestLinkUrl(props.url)}>
-      <>
+      {/* Focusable by script only: where "Show it here" leaves focus. */}
+      <div ref={wrapper} tabindex="-1">
         <Show when={embeddable()} fallback={<MoodboardBlock url={props.url} state="link-only" />}>
           <ConsentGate
             category="pinterest"
             vendor="pinterest"
-            fallback={<MoodboardBlock url={props.url} state="switched-off" />}
+            fallback={<MoodboardBlock url={props.url} state="switched-off" onShow={showHere} />}
           >
             <PinterestEmbed
               url={props.url}
@@ -191,6 +207,7 @@ export function PinterestBoard(props: PinterestBoardProps) {
             <Show when={status() === "failed"}>
               <MoodboardBlock url={props.url} state="failed" />
             </Show>
+            <SwitchOff shownAt={() => shownAt} />
           </ConsentGate>
         </Show>
 
@@ -200,8 +217,55 @@ export function PinterestBoard(props: PinterestBoardProps) {
         <div class="sr-only" aria-live="polite" aria-atomic="true">
           {status() === "failed" ? "The board could not load. Open it on Pinterest instead." : ""}
         </div>
-      </>
+      </div>
     </Show>
+  );
+}
+
+/**
+ * How long after "Show it here" the way back off ignores a press: the span of
+ * a double tap, the platforms' default double-click interval.
+ */
+const DOUBLE_TAP_MS = 500;
+
+/**
+ * The way back off, under the board wherever it is switched on: while it
+ * loads, once it shows, and after it fails. A grant made in one press inside
+ * the sheet is withdrawn in one press there too, rather than through the
+ * footer's "Privacy choices", which the open sheet holds out of reach.
+ *
+ * Withdrawing after Pinterest's script ran reloads the page — the only
+ * teardown for code running in it (see `saveConsent`) — and the note says so
+ * before the guest presses it.
+ *
+ * It takes no press for {@link DOUBLE_TAP_MS} after "Show it here". The block
+ * that held that button is shorter than what replaces it at first, so near the
+ * foot of the sheet the scroll shifts and this button can arrive under the
+ * finger: the second tap of a double tap would switch the board off as it
+ * appears, and reload the page.
+ */
+function SwitchOff(props: { shownAt: () => number }) {
+  const noteId = createUniqueId();
+  const withdraw = () => {
+    if (performance.now() - props.shownAt() < DOUBLE_TAP_MS) return;
+    withdrawCategory("pinterest");
+  };
+
+  return (
+    <div class="mt-3 flex flex-wrap items-center gap-x-4">
+      <p id={noteId} class="font-body text-text-muted text-ui-xs leading-ui-normal">
+        Pinterest moodboards are on in this browser. Switching them off reloads the page.
+      </p>
+      <Button
+        variant="touchLink"
+        size="sm"
+        class="min-h-11"
+        aria-describedby={noteId}
+        onClick={withdraw}
+      >
+        Stop showing moodboards
+      </Button>
+    </div>
   );
 }
 
@@ -225,7 +289,7 @@ const BLOCK_LEAD = {
  * the call-to-action shape: it is offered, not urged. Both actions keep a 44px
  * target.
  */
-function MoodboardBlock(props: { url: string; state: BlockState }) {
+function MoodboardBlock(props: { url: string; state: BlockState; onShow?: () => void }) {
   const noteId = createUniqueId();
   const offerToShow = () => props.state === "switched-off";
 
@@ -245,7 +309,7 @@ function MoodboardBlock(props: { url: string; state: BlockState }) {
           href={props.url}
           target="_blank"
           rel="noopener noreferrer"
-          class={`${buttonClass({ variant: "link", size: "md" })} min-h-11`}
+          class={`${buttonClass({ variant: "touchLink", size: "md" })} min-h-11`}
         >
           Open on Pinterest
           <span aria-hidden="true">↗</span>
@@ -256,7 +320,7 @@ function MoodboardBlock(props: { url: string; state: BlockState }) {
             size="sm"
             class="min-h-11"
             aria-describedby={noteId}
-            onClick={() => grantCategory("pinterest")}
+            onClick={() => props.onShow?.()}
           >
             Show it here
           </Button>

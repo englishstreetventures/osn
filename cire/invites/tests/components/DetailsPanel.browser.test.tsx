@@ -1,13 +1,15 @@
 import { contrastRatio, PALETTE_PRESET_KEYS, WCAG_TEXT_MIN, WCAG_UI_MIN } from "@cire/theme";
 import { cleanup, render, within } from "@solidjs/testing-library";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 import { AddToCalendar } from "../../src/components/AddToCalendar";
+import { ConsentGate } from "../../src/components/consent/ConsentGate";
 import { EventSheet } from "../../src/components/EventSheet";
 import { applyPaletteToRoot } from "../../src/components/invite-theme";
 import type { EventSummary, FamilyMember } from "../../src/components/types";
+import { isCategoryGranted } from "../../src/lib/consent/store";
 import { resetConsentForTest } from "../test-support/consent";
 import { pinGuestTimeZone } from "../test-support/time-zone";
 
@@ -149,6 +151,22 @@ async function calendarMenu(): Promise<HTMLElement> {
   return menu;
 }
 
+/**
+ * Keep every `<script>` the page appends out of the document, so allowing the
+ * moodboard makes no request to Pinterest from the test runner. The embed then
+ * stays on "Loading board…", which is the state a guest is in at the moment
+ * they press "Show it here".
+ */
+function holdBackScripts(): () => void {
+  const append = document.body.appendChild.bind(document.body);
+  const spy = vi
+    .spyOn(document.body, "appendChild")
+    .mockImplementation(<T extends Node>(node: T) =>
+      node instanceof HTMLScriptElement ? node : append(node),
+    );
+  return () => spy.mockRestore();
+}
+
 let unpinZone: () => void = () => {};
 
 beforeAll(() => {
@@ -282,6 +300,97 @@ describe("on a phone", () => {
   });
 });
 
+describe("the text actions", () => {
+  it("are underlined at rest, since a phone has no hover to reveal it (B10)", async () => {
+    await page.viewport(...PHONE);
+    await openSheet();
+
+    const actions = [
+      within(dialog()).getByRole("button", { name: "Add to calendar" }),
+      within(dialog()).getByRole("link", { name: "Open in maps" }),
+      within(dialog()).getByRole("link", { name: "Open on Pinterest" }),
+    ];
+    for (const el of actions) {
+      expect({ text: el.textContent, line: getComputedStyle(el).textDecorationLine }).toEqual({
+        text: el.textContent,
+        line: "underline",
+      });
+    }
+  });
+});
+
+describe("the moodboard", () => {
+  it("keeps focus in the sheet when Show it here gives way to the board (B8)", async () => {
+    const release = holdBackScripts();
+    try {
+      await page.viewport(...PHONE);
+      await openSheet();
+      const show = within(dialog()).getByRole("button", { name: "Show it here" });
+      show.focus();
+
+      await userEvent.keyboard("{Enter}");
+
+      expect(show.isConnected).toBe(false);
+      expect(document.activeElement).not.toBe(document.body);
+      expect(dialog().contains(document.activeElement)).toBe(true);
+      expect(dialog().open).toBe(true);
+    } finally {
+      release();
+    }
+  });
+
+  it("offers the way back off at 44px, deaf to the second tap of a double tap (B13)", async () => {
+    const release = holdBackScripts();
+    // One frozen instant stands for "straight after", however long the
+    // runner takes between the two presses.
+    let now = 10_000;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    try {
+      await page.viewport(...PHONE);
+      await openSheet();
+      await userEvent.click(within(dialog()).getByRole("button", { name: "Show it here" }));
+
+      const stop = within(dialog()).getByRole("button", { name: "Stop showing moodboards" });
+      expect(stop.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+
+      // Near the foot of the sheet the scroll shifts as the block gives way,
+      // and this button can arrive under the finger that pressed Show it here.
+      await userEvent.click(stop);
+      expect(isCategoryGranted("pinterest")).toBe(true);
+
+      now += 1_000;
+      await userEvent.click(stop);
+      expect(isCategoryGranted("pinterest")).toBe(false);
+    } finally {
+      clock.mockRestore();
+      release();
+    }
+  });
+});
+
+describe("the consent framework's own placeholder", () => {
+  it("gives Allow and Privacy choices a 44px target (B12)", async () => {
+    // No surface on the invite renders it today; a gate given no fallback of
+    // its own would, and its two buttons are the ones a thumb has to hit.
+    await page.viewport(...PHONE);
+    render(() => (
+      <ConsentGate category="pinterest" vendor="pinterest">
+        <div />
+      </ConsentGate>
+    ));
+    await settle();
+
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>("button")];
+    expect(buttons.map((b) => b.textContent?.trim())).toEqual([
+      "Allow Pinterest moodboards",
+      "Privacy choices",
+    ]);
+    for (const button of buttons) {
+      expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    }
+  });
+});
+
 describe("the calendar menu", () => {
   const trigger = () => within(dialog()).getByRole("button", { name: "Add to calendar" });
   const items = () => within(dialog()).getAllByRole("menuitem");
@@ -349,6 +458,31 @@ describe("the calendar menu", () => {
     expect(dialog().open).toBe(true);
   });
 
+  it("hands focus back to its trigger when a calendar is chosen, with the sheet still open (B9)", async () => {
+    await page.viewport(...PHONE);
+    await openSheet();
+    // Opening Google or saving the file is not the question; the click's own
+    // handlers still run, only the browser's default is held back.
+    const stay = (e: MouseEvent) => e.preventDefault();
+    document.addEventListener("click", stay, true);
+    try {
+      for (const key of ["{Home}", "{End}"]) {
+        trigger().focus();
+        await userEvent.keyboard("{ArrowDown}");
+        await calendarMenu();
+        await userEvent.keyboard(key);
+
+        await userEvent.keyboard("{Enter}");
+
+        expect(document.querySelector('[role="menu"]')).toBeNull();
+        expect(document.activeElement).toBe(trigger());
+        expect(dialog().open).toBe(true);
+      }
+    } finally {
+      document.removeEventListener("click", stay, true);
+    }
+  });
+
   it("closes on Tab, and focus moves on to the next control", async () => {
     await page.viewport(...PHONE);
     await openSheet();
@@ -380,15 +514,39 @@ describe("the calendar menu", () => {
     expect(menuBox.bottom).toBeLessThanOrEqual(600);
   });
 
-  it("opens downward when there is room", async () => {
+  it("opens downward, under its trigger's left edge, when there is room both ways (B11)", async () => {
+    // Room above as well as below, so only a preference for below passes.
     await page.viewport(390, 600);
-    render(() => <AddToCalendar event={event} siteUrl="https://invite.test/w" />);
+    render(() => (
+      <div style={{ "padding-top": "250px", "padding-left": "40px" }}>
+        <AddToCalendar event={event} siteUrl="https://invite.test/w" />
+      </div>
+    ));
     const button = document.querySelector("button")!;
     await userEvent.click(button);
     const menu = await calendarMenu();
 
-    expect(menu.getBoundingClientRect().top).toBeGreaterThanOrEqual(
-      button.getBoundingClientRect().bottom,
-    );
+    const menuBox = menu.getBoundingClientRect();
+    const buttonBox = button.getBoundingClientRect();
+    expect(buttonBox.top).toBeGreaterThan(menuBox.height + 16);
+    expect(menuBox.top).toBeGreaterThanOrEqual(buttonBox.bottom);
+    expect(menuBox.left).toBeCloseTo(buttonBox.left, 0);
+  });
+
+  it("stays inside the viewport's gutter when its trigger is at the right edge (B11)", async () => {
+    await page.viewport(390, 600);
+    render(() => (
+      <div style={{ display: "flex", "justify-content": "flex-end", "padding-top": "40px" }}>
+        <AddToCalendar event={event} siteUrl="https://invite.test/w" />
+      </div>
+    ));
+    const button = document.querySelector("button")!;
+    await userEvent.click(button);
+    const menu = await calendarMenu();
+
+    const menuBox = menu.getBoundingClientRect();
+    expect(menuBox.left).toBeLessThan(button.getBoundingClientRect().left);
+    expect(menuBox.right).toBeLessThanOrEqual(window.innerWidth - 8 + 0.5);
+    expect(menuBox.left).toBeGreaterThanOrEqual(8 - 0.5);
   });
 });

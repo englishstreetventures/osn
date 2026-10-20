@@ -92,7 +92,7 @@ export function MapPreview(props: MapPreviewProps) {
             href={href()}
             target="_blank"
             rel="noopener noreferrer"
-            class={`${buttonClass({ variant: "link", size: "md" })} mt-1 min-h-11`}
+            class={`${buttonClass({ variant: "touchLink", size: "md" })} mt-1 min-h-11`}
           >
             Open in maps
             <span aria-hidden="true">↗</span>

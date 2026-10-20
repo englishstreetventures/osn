@@ -12,12 +12,14 @@ interface AddToCalendarProps {
 
 /**
  * The trigger: a text action on the date row of the details panel's key facts,
- * in the accent ink, like "Open in maps" on the venue row under it. Not a box:
- * the panel's call to action is the RSVP button above, and a second outlined
- * button in the same sheet would compete with it. `min-h-11` keeps a 44px
- * target round a line of text.
+ * like "Open in maps" on the venue row under it. Not a box: the panel's call to
+ * action is the RSVP button above, and a second outlined button in the same
+ * sheet would compete with it. `touchLink`, because the invite is read on a
+ * phone, where an underline that waits for hover never shows, and nothing else
+ * would mark these words as something to press. `min-h-11` keeps a 44px target
+ * round a line of text.
  */
-const TRIGGER_CLASS = `${buttonClass({ variant: "link", size: "md" })} min-h-11`;
+const TRIGGER_CLASS = `${buttonClass({ variant: "touchLink", size: "md" })} min-h-11`;
 
 /** Each item a 44px row, filled gold while it holds focus or the pointer. */
 const ITEM_CLASS =
@@ -71,8 +73,11 @@ function isHttpUrl(s: string): boolean {
  * The ARIA menu-button pattern. Enter or Space on the trigger opens the menu on
  * its first item, ArrowDown too, and ArrowUp on its last. In the menu ArrowDown
  * and ArrowUp move between the items and wrap round, Home and End go to either
- * end, and Escape closes it with focus back on the trigger. Tab closes it as
- * well, from the trigger, so the browser carries on to whatever comes next.
+ * end, and Escape closes it with focus back on the trigger. Choosing a calendar
+ * closes it onto the trigger too: the item goes with the menu, and focus left
+ * on it would fall to the document's `<body>`, outside the modal sheet. Tab
+ * closes it as well, from the trigger, so the browser carries on to whatever
+ * comes next.
  * The items are out of the Tab order (`tabindex="-1"`); the arrows reach them.
  *
  * Every key the menu takes cancels its default action. The menu's DOM sits
@@ -347,7 +352,7 @@ export function AddToCalendar(props: AddToCalendarProps) {
             target="_blank"
             rel="noopener noreferrer"
             class={ITEM_CLASS}
-            onClick={dismiss}
+            onClick={close}
           >
             Google Calendar
           </a>
@@ -357,7 +362,7 @@ export function AddToCalendar(props: AddToCalendarProps) {
             href={icsHref() ?? "#"}
             download={filename()}
             class={ITEM_CLASS}
-            onClick={dismiss}
+            onClick={close}
           >
             Apple / Outlook (.ics)
           </a>
