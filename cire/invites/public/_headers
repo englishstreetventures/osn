@@ -3,7 +3,8 @@
 # IMPORTANT: cire/invites is an SSR Worker (@astrojs/cloudflare, output: "server"),
 # not a Pages site. Cloudflare Workers Static Assets DOES honour this file — but
 # ONLY for responses served by the static-asset layer (the prerendered /privacy
-# + /terms pages and the /_astro/* bundles). It does NOT apply to the dynamic,
+# + /terms pages, the /_astro/* bundles, and the other files in public/, such as
+# /robots.txt and /favicon.ico). It does NOT apply to the dynamic,
 # Worker-rendered routes (/<slug>, /<slug>/registry and the bare-domain /
 # redirect): those get the same headers from the Astro SSR middleware
 # (src/middleware.ts -> src/lib/security-headers.ts), which is the source of
