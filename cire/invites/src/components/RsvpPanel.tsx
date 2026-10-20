@@ -44,7 +44,7 @@ export interface RsvpPanelProps {
    * a line saying dietary requirements on file are shared with the caterers.
    *
    * A household with a reply on file reaches it on purpose, from the event
-   * card's "RSVP given" or the details panel's "View your RSVP". It is also
+   * card's "RSVP given" or the details' "View your RSVP" badge. It is also
    * what a sheet already open becomes when the deadline passes under it. The
    * server refuses a write past the deadline regardless (403 `rsvp_closed`).
    */
@@ -64,10 +64,11 @@ export interface RsvpPanelProps {
   /** Receives the heading, which takes focus when the guest switches here. */
   headingRef?: (el: HTMLHeadingElement) => void;
   /**
-   * Moves the sheet to the event's details. Absent ⇒ no "View event details"
-   * button (a panel rendered on its own).
+   * Told whether the form is busy: a save in flight, or a saved reply the
+   * sheet is about to close on. While it is there is nothing to come back to,
+   * so the sheet offers no way to the details (`EventSheet`).
    */
-  onShowDetails?: () => void;
+  onBusyChange?: (busy: boolean) => void;
   onSubmitted?: (updated: RsvpSummary[]) => void;
   /**
    * Fired as this sheet closes itself after the save that CROSSES INTO a
@@ -352,6 +353,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
   // gold behind a drawn tick, and the sheet is counting down to closing itself.
   const [saved, setSaved] = createSignal(false);
   const titleId = props.titleId ?? createUniqueId();
+  createEffect(() => props.onBusyChange?.(loading() || saved()));
 
   // Abort the in-flight submit if the modal unmounts mid-request — keeps the
   // setError / setLoading writes from landing on a disposed instance.
@@ -732,21 +734,6 @@ export function RsvpPanel(props: RsvpPanelProps) {
           </span>{" "}
           {props.event.name}
         </h3>
-        <Show when={props.onShowDetails}>
-          {(showDetails) => (
-            // Not while a save is in flight or the sheet is already closing
-            // itself on a saved reply: there is nothing to come back to.
-            <Button
-              variant="touchLink"
-              class="mt-1 min-h-11"
-              onClick={() => showDetails()()}
-              disabled={loading() || saved()}
-            >
-              <span aria-hidden="true">←</span>
-              View event details
-            </Button>
-          )}
-        </Show>
       </header>
 
       <Show when={props.closed}>
@@ -1044,7 +1031,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
             // dwell timer for the same call.
             //
             // `&& !props.closed` is load-bearing, not defensive (T-M2). Past the
-            // deadline this button relabels to "Close" and becomes the sheet's
+            // deadline this button relabels to "Close" and becomes the form's
             // ONLY control — and it is the target of the C-L2 focus rescue
             // above, which calls `.focus()` on it. `.focus()` is a no-op on a
             // disabled button. The deadline can flip INSIDE the dwell,

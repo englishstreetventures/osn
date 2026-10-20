@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-20
 ---
 
 # Component Library (Zaidan)
@@ -657,7 +657,7 @@ error rather than needing a trip to the source.
 
 `@cire/ui`'s `Button` is the house style rather than the shadcn set — uppercase,
 tracked, a sharp 4px corner, a gold primary — and on a cire surface it is where a
-call site's colour, shape and padding have to come from. Fourteen variants,
+call site's colour, shape and padding have to come from. Fifteen variants,
 grouped by the job rather than by the look:
 
 | Group          | Variants                              | What each is for                                                                                                                                                                                                                              |
@@ -667,6 +667,7 @@ grouped by the job rather than by the look:
 | Destructive    | `danger`, `quietDanger`, `bareDanger` | Red at rest for the button that commits it; muted at rest and red on hover for the control that merely offers it, boxed (`quietDanger`) or as a glyph (`bareDanger`). A column of red-outlined buttons down a table reads as an error state   |
 | Text           | `link`, `subtle`, `touchLink`         | Accent ink, muted ink, and muted ink carrying its underline at rest. The last is for a link whose underline must show without hover: on `@cire/invites`, read on a phone where there is no hover to reveal one, and for a link set inside a sentence, where colour alone does not mark it (WCAG 1.4.1) |
 | Glyph          | `bare`                                | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline                                                                                                                                                    |
+| Chrome         | `chip`                                | A control in a sheet's own chrome rather than its content — the guest event sheet's "Give RSVP →" and "← See details" beside its round close button. A pill on the surface fill, so content can scroll under it, in accent ink because it leads somewhere |
 | State and fill | `choice`, `tile`                      | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same; and the control that _is_ a block — a card, a row — where a hairline stops describing the target             |
 
 Five sizes, and they are not one scale:

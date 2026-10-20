@@ -341,17 +341,36 @@ event and the panel to open on.
 - **It opens on the panel whose button was pressed**, every time. The page
   clears the sheet on every close, so nothing from an earlier visit carries
   over. That is the owner's choice over remembering the last panel per event.
-- **A button on each panel leads to the other** without closing the dialog.
-  On the details, "RSVP for this event" sits beside Add to Calendar and takes
-  the call-to-action shape, since answering is the act that matters; Add to
-  Calendar takes its outline. On the form, "View event details" is a quiet
-  link under the heading. It is withdrawn while a save is in flight and while
-  the sheet closes itself on a saved reply.
+- **A badge beside the close button leads to the other panel** without
+  closing the dialog. It sits in the sheet's chrome, so it stays put while the
+  panel scrolls under it: "Give RSVP →" on the details, "← See details" on the
+  form, each arrow pointing the way the guest can also swipe. It is `Button`'s
+  `chip` variant, a pill matching the round close button, 44px tall, and the
+  sheet's content starts below the row (`toolbar` on `AnimatedModal`). On the
+  form it is disabled while a save is in flight and while the sheet closes
+  itself on a saved reply. A tap on it while a slide or swipe is still running
+  is ignored, and so is a tap on the backdrop: the badge sits in the same
+  corner on both panels and the sheet changes height under the finger, so the
+  second tap of a double tap would otherwise go straight back or close the
+  sheet.
+- **A swipe does the same.** On a touch screen the panel on screen follows a
+  sideways drag toward the other panel — the details sit on the start side,
+  the form on the end side — with the other panel drawn beside it, `inert`
+  until it lands. Let go past three tenths of the width, or after a flick,
+  and it carries on; otherwise it springs back. The thresholds are pure
+  functions in [`sheet-swipe.ts`](../../cire/invites/src/components/sheet-swipe.ts).
+  The wrapper is `touch-action: pan-y pinch-zoom`, so vertical scroll and
+  zoom stay the browser's. A mouse drag, a drag that starts in a text field,
+  and a drag on a box that scrolls sideways of its own (the dietary chips, the
+  moodboard) never move the panel. The same rule gates the badge and the
+  swipe: from the details while RSVPs are open or a reply is on file, from the
+  form while it is not busy.
 - **Nothing typed is lost.** A panel mounts the first time it shows and stays
   mounted, hidden, until the sheet closes, so the form keeps its answers
   across a look at the details. A guest who only answers never mounts the
   details, so the consent-gated map and moodboard ([[cire-consent]]) load only
-  for a guest who asks for them.
+  for a guest who asks for them — by the badge, or by starting a swipe toward
+  them.
 - **Focus moves to the new panel's heading.** Both panels are titled with the
   event's name, so each heading also carries its panel's name — "Respond,
   Mehndi" ("Your RSVP, Mehndi" past the deadline), "Details, Mehndi" — and the
@@ -364,7 +383,10 @@ event and the panel to open on.
   its own side — the details from the start, the form from the end, the order
   of the card's buttons — over 280ms (`animate-panel-from-*` in
   `src/styles/global.css`). The panel the sheet opens on does not slide; it
-  arrives with the sheet. The sheet's height eases from one panel's to the
+  arrives with the sheet, and one that arrived by a swipe does not slide
+  again: it eases from where the finger let go to rest on
+  `transition-panel-settle`, the slide's own 280ms and curve, before the
+  switch. The sheet's height eases from one panel's to the
   other's over the same time, through the Web Animations API, timed from the
   panel's computed animation. Until the slide ends the arriving panel takes no
   pointer input, so the second tap of a double tap cannot land on a control it
@@ -377,15 +399,18 @@ event and the panel to open on.
   dietary data takes the consent boxes' place ([[cire-rsvp-deadline]]). The
   details panel says "RSVPs closed on …" in a live region present from the
   start, so a deadline that passes with the sheet open is announced. A household with a reply on
-  file keeps its way into the form, relabelled "View your RSVP"; one with none
-  loses it, and if focus was on that button when it went, focus moves to the
-  details heading ([[cire-rsvp-deadline]]).
+  file keeps its way into the form, the badge relabelled "View your RSVP →";
+  one with none loses the badge and the swipe, and if focus was on the badge
+  when it went, focus moves to the details heading ([[cire-rsvp-deadline]]).
 - **The card's mark waits for the sheet.** `covered` holds the answer
   button's confirmation back while the sheet is open on either panel.
 
 Tests: `tests/components/EventSheet.test.tsx` (what mounts, hides, names and
-takes focus; the deadline), `EventSheet.browser.test.tsx` (in Chromium, see
-[[browser-tests]]), both packs' `InvitePage.test.tsx` (which panel each button
+takes focus; the badge; the deadline), `sheet-swipe.test.ts` (the swipe's
+thresholds), `EventSheet.browser.test.tsx` (in Chromium, see
+[[browser-tests]]; the swipes are real touches sent through `cdp()`), the
+`cire-rsvp` end-to-end flow (a phone-sized round trip by swipe and badge,
+with screenshots of both panels), both packs' `InvitePage.test.tsx` (which panel each button
 opens, on every open) and `InvitePage.browser.test.tsx` (the round trip in each
 pack, ending with focus on Event Details).
 
