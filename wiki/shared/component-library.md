@@ -106,6 +106,7 @@ shared/ui/src/
     ├── table.tsx           ← Table and its parts
     ├── tabs.tsx            ← Tabs, TabsList, TabsTrigger (Kobalte)
     ├── textarea.tsx        ← Textarea
+    ├── tooltip.tsx         ← Tooltip — a label that explains itself on hover (Kobalte)
     └── username-input.tsx  ← UsernameInput ("@" prefix + availability status)
 
 osn/auth-ui/src/
@@ -164,6 +165,65 @@ hold that guarantee rather than trusting it.
 > while the panel is in fact hidden. `shared/ui/tests/ui/info-popover.test.tsx`
 > holds the guarantee, rendering the popover inside a real `Dialog`.
 
+### `Tooltip` — a label that explains itself on hover
+
+`<Tooltip text="…">{label}</Tooltip>` gives a short label, such as a table
+badge, its explanation twice from one string: as `sr-only` text inside the
+trigger, which a screen reader reads once, and in a panel a mouse user sees on
+hover, which no screen reader reads. The RSVP table's badges in `cire/host` are
+its caller. It takes no `class`; the label's look stays on the caller's own
+element inside it.
+
+Three choices make "once" hold. Taking any one out turns its browser test red:
+
+- **The panel is `aria-hidden`.** Kobalte gives it `role="tooltip"`; hidden, it
+  leaves the tree.
+- **The trigger carries no `aria-describedby`.** Kobalte's trigger points it at
+  the open panel, and Chrome exposes a node referenced that way as the
+  trigger's description even when the node is `aria-hidden`. Kobalte sets the
+  attribute before the caller's props, and Solid's `mergeProps` skips
+  `undefined`, so a call site cannot clear it. The trigger renders through a
+  `TriggerSpan` that drops it.
+- **The trigger is a `<span>`, not Kobalte's default `<button>`.** A badge in
+  every table row would otherwise add a tab stop to every row. So the panel
+  opens on hover only: a span takes no focus and Kobalte ignores touch.
+  Keyboard and touch users see the label alone. Use it where the explanation is
+  a convenience; one a reader needs belongs in visible text ([[frontend-patterns]]
+  §Chrome exposes a `title` as a description).
+
+Three more hold the look:
+
+- The trigger is `inline-block`, so the panel is placed against the whole
+  label. An inline span's box is its last line box only, and a badge that wraps
+  to two lines would have its first line covered.
+- The hidden copy is `normal-case`, so a trigger inside an `uppercase` run does
+  not reach a screen reader in capitals.
+- The panel is `PopoverContent`'s raised surface at `text-ui-xs`, at most
+  `max-w-ui-xs` wide, 4px above the trigger (Popper flips it below when there is
+  no room). Kobalte's delays apply: 700 ms before the first panel opens, then
+  the next opens at once. Its enter and exit run under `motion-safe:` only.
+
+It is not for a trigger inside a `Modal`. The panel portals to `<body>`, and a
+modal `<dialog>` paints over everything outside the top layer (§What has to sit
+above a modal, below).
+
+Each label gets its own Kobalte root. A closed one does no positioning: Popper
+starts `autoUpdate` only once the panel mounts. Re-adding every row of a
+900-row RSVP list, about 120 of them badged, costs about 7 ms more with the
+tooltips than without.
+
+*Measured 2026-10-20 — median of 12 timed `search("")` calls after an empty
+search, over the 900-row fixture in
+`cire/host/tests/components/RsvpView.layout.browser.test.tsx`, three runs each
+on this branch and on `main`: 76–82 ms against 70–72 ms*
+
+`cire/host/tests/components/RsvpView.badges.browser.test.tsx` holds every
+guarantee above in real Chrome: hovering each badge shows its explanation,
+readable, on top and beside the badge, in light and dark; no badge is a tab
+stop; and each explanation reaches the accessibility tree once and never as a
+description, with the panel closed and open. `@shared/ui` has no test of its
+own for it, because a second copy would catch no bug the first misses.
+
 ## Importing
 
 Each layer has its own specifier shape, and they do not agree on default versus
@@ -188,7 +248,7 @@ import CireButton from "@cire/ui/button";
 
 | Package                    | Role                                                                               |
 | -------------------------- | ---------------------------------------------------------------------------------- |
-| `@kobalte/core`            | Headless UI primitives (Dialog, Popover, Tabs, RadioGroup, Checkbox, DropdownMenu) |
+| `@kobalte/core`            | Headless UI primitives (Dialog, Popover, Tooltip, Tabs, RadioGroup, Checkbox, DropdownMenu) |
 | `class-variance-authority` | Type-safe variant definitions for Button, Badge                                    |
 | `clsx`                     | Conditional class string joining                                                   |
 
@@ -380,6 +440,7 @@ Key behaviours you get by default:
 - **Dialog** — portaled to `<body>`, overlay click dismisses, Escape key dismisses, focus trapped
 - **Popover** — portaled, auto-positioned, outside click/Escape dismisses
 - **Tabs** — `role="tablist"` / `role="tab"` / `role="tabpanel"`, keyboard arrow navigation
+- **Tooltip** — hover only, panel hidden from assistive technology; §`Tooltip` above says why
 - **RadioGroup** — grouped `role="radiogroup"`, single selection, keyboard navigation
 - **Checkbox** — `role="checkbox"`, indeterminate support
 - **Focus on Checkbox and RadioGroup** — Kobalte keeps a real `<input>`, clipped to 1px, for focus and semantics, and paints a sibling `<div>` as the box or circle. Keyboard focus lands on the input, never on the `<div>`, so a ring keyed to the `<div>`'s own `:focus-visible` never draws. The input carries a plain `peer` marker and the `<div>` draws `peer-focus-visible:ring-2 ring-ui-focus`, the shape `Switch` uses; there is no ring offset, so nothing paints a ground-coloured halo on another surface. `tests/checkbox.browser.test.tsx` and `tests/radio-group.browser.test.tsx` tab to each and measure the ring
