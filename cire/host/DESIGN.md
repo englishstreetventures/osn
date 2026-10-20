@@ -362,7 +362,7 @@ the ring's mark instead — a 3px `--focus` bar at the row's inline start, at
 palette's `bg-gold/10` wash, which is far too faint to be the mark on its own.
 What the list says beside its people — that it is
 still looking, how many a search matches, that it matches nobody — is one
-`role="status"` line under the list, never a row inside it: the listbox holds
+status line (`<output>`) under the list, never a row inside it: the listbox holds
 options only. Five people show whole; above five a search
 heads the list and it shows about four and a half rows, the half saying it
 scrolls. The list draws the house focus ring inside its own edge, and the

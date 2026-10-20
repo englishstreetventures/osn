@@ -458,12 +458,11 @@ function PeopleList(props: TaskHoldersProps) {
           }}
         </For>
       </ul>
-      {/* Outside the list, which holds people only. Always there, never
-          `display: none`, so a screen reader hears each change; the count
-          is for a screen reader alone, the rest shows. */}
-      <p
-        role="status"
-        class="text-text-muted text-ui-sm"
+      {/* A status (`<output>`), outside the list, which holds people only.
+          Always there, never `display: none`, so a screen reader hears each
+          change; the count is for a screen reader alone, the rest shows. */}
+      <output
+        class="text-text-muted text-ui-sm block"
         classList={{
           "sr-only": results().length > 0,
           "px-4 pt-3 pb-5": results().length === 0 && status() !== "",
@@ -471,7 +470,7 @@ function PeopleList(props: TaskHoldersProps) {
         }}
       >
         {status()}
-      </p>
+      </output>
     </>
   );
 }

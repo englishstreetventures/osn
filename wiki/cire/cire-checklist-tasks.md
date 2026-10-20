@@ -309,7 +309,7 @@ Enter toggles it — Space too on the list, but not in the search, where it type
 the space a name has. The highlighted person is marked by a bar in the focus
 ring's colour and gold ink on their name, since the ring itself stays on the
 search or the list. The rows stay usable while writes are out; the list says
-`aria-busy` instead. One polite `role="status"` line under the list, outside
+`aria-busy` instead. One polite status line (`<output>`) under the list, outside
 it, says the popover is finding the people, how many a search matches, or
 that it matches nobody.
 
