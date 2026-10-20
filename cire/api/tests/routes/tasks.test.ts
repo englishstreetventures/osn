@@ -141,7 +141,8 @@ describe("tasks routes", () => {
 
     const res = await req(app, "GET", base, HELPER);
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "forbidden" });
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({ error: "forbidden" });
   });
 
   // The portal reads the checklist with the session cookie, and the seat it
