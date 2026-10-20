@@ -12,15 +12,18 @@
  *
  * These are the single source of truth for which invite segments render on the
  * guest site (InviteHeader hero + story, the packs' FAQ section, InviteClosing,
- * DetailsPanel inspiration + dress code). The organiser builder mirrors the
- * content predicates and the four state functions in
- * `cire/host/src/lib/invite-emptiness.ts`, so its
- * badges always match what a guest actually sees. The switch vocabulary and
- * `sectionState` itself are shared through `@cire/theme`; the content predicates
- * are two hand-kept copies. Keep them in lockstep.
+ * DetailsPanel's venue, about, dress code and inspiration). The organiser
+ * builder mirrors the hero, story, closing and FAQ predicates and their four
+ * state functions in `cire/host/src/lib/invite-emptiness.ts`, so its badges
+ * always match what a guest actually sees; keep those two copies in lockstep.
+ * The per-event predicates have no organiser twin. The switch vocabulary and
+ * `sectionState` itself are shared through `@cire/theme`.
  */
 
 import { sectionState, type SectionState } from "@cire/theme";
+
+import { resolveMapsUrl } from "./event-details";
+import { isSafePinterestLinkUrl } from "./pinterest";
 
 /** A value is "present" when it is a non-empty, non-whitespace-only string. */
 export function hasText(value: string | null | undefined): boolean {
@@ -133,9 +136,26 @@ export function faqState(
   return sectionState(visible, isFaqEmpty(entries));
 }
 
-/** A pinterest URL is present (so the Inspiration segment renders) iff it has text. */
+/**
+ * The Inspiration segment renders for a Pinterest URL the moodboard can show:
+ * text that is a safe https Pinterest link. `PinterestBoard` draws nothing for
+ * anything else, which would leave the label over an empty space.
+ */
 export function hasPinterest(pinterestUrl: string | null | undefined): boolean {
-  return hasText(pinterestUrl);
+  return hasText(pinterestUrl) && isSafePinterestLinkUrl(pinterestUrl ?? "");
+}
+
+/**
+ * The venue row renders when something can open a map: an address, or an
+ * organiser's http(s) maps link. The same test `MapPreview` makes before it
+ * draws anything (`resolveMapsUrl`), so the row and its contents can never
+ * disagree.
+ */
+export function hasVenue(
+  address: string | null | undefined,
+  mapsUrl: string | null | undefined,
+): boolean {
+  return resolveMapsUrl({ address: address ?? null, mapsUrl: mapsUrl ?? null }) !== null;
 }
 
 /**

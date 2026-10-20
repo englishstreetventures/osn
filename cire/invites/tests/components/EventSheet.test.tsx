@@ -122,6 +122,23 @@ describe("EventSheet", () => {
     );
   });
 
+  it("hands the details the household, for who is invited", () => {
+    // `members` is the form's prop, passed through the split untouched; the
+    // details read it too, to name who is invited when it is not everyone.
+    const { getByText } = render(() => (
+      <EventSheet
+        event={event}
+        panel="details"
+        siteUrl="https://invite.example.com/abc"
+        members={[priya, { ...priya, guestId: "guest-ravi", firstName: "Ravi", eventIds: [] }]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+    expect(getByText("Who's invited")).toBeTruthy();
+    expect(getByText(/^Priya$/)).toBeTruthy();
+  });
+
   it("opens on the details when asked, and mounts nothing of the RSVP form", () => {
     const { getByRole, queryByRole } = open("details");
 
@@ -327,7 +344,9 @@ describe("EventSheet", () => {
       const { queryByRole, getByRole } = open("details", { closed: true });
 
       expect(queryByRole("button", { name: "Give RSVP" })).toBeNull();
-      expect(getByRole("status").textContent).toBe("RSVPs closed on Sunday 1 September 2999.");
+      expect(getByRole("status").textContent).toBe(
+        "RSVPs closed on Sunday 1 September 2999. To reply now, please contact the couple directly.",
+      );
     });
 
     it("takes a household that replied from the details to its reply, read-only", () => {
@@ -354,6 +373,12 @@ describe("EventSheet", () => {
           onClose={() => {}}
         />
       ));
+
+      // The sheet tells the details the household has a reply on file, so the
+      // notice gives the next step that fits it (F24).
+      expect(getByRole("status").textContent).toBe(
+        "RSVPs closed on Sunday 1 September 2999. To change your household's reply, please contact the couple directly.",
+      );
 
       fireEvent.click(getByRole("button", { name: "View your RSVP" }));
       expect(getByRole("heading", { name: "Your RSVP, Mehndi" })).toBeTruthy();

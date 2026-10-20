@@ -307,6 +307,16 @@ export function grantCategory(category: ConsentCategory): void {
 }
 
 /**
+ * Switch a single category off, leaving the others as they are: the way back
+ * out of {@link grantCategory} from the same place, so content allowed in one
+ * press is withdrawn in one press too. It is an ordinary save, so a withdrawal
+ * after in-page vendor code ran reloads the page (see {@link saveConsent}).
+ */
+export function withdrawCategory(category: ConsentCategory): void {
+  saveConsent({ ...currentGrants(), [category]: false });
+}
+
+/**
  * Dialog-host arbitration.
  *
  * More than one component can offer a route into the preferences dialog — the

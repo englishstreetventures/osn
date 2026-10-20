@@ -7,6 +7,7 @@ import {
   hasFooterMessage,
   hasPinterest,
   hasText,
+  hasVenue,
   heroState,
   isFaqEmpty,
   isFooterEmpty,
@@ -74,6 +75,28 @@ describe("hasPinterest", () => {
 
   it("is true for a real URL", () => {
     expect(hasPinterest("https://pinterest.com/x")).toBe(true);
+  });
+
+  it("is false for a link the moodboard would not show (F16)", () => {
+    // `PinterestBoard` draws nothing for these, so a true here left an
+    // "Inspiration" label over an empty space.
+    expect(hasPinterest("https://instagram.com/couple")).toBe(false);
+    expect(hasPinterest("http://pinterest.com/x/board")).toBe(false);
+    expect(hasPinterest("not a url")).toBe(false);
+  });
+});
+
+describe("hasVenue", () => {
+  it("is false when nothing could open a map (F15)", () => {
+    expect(hasVenue(null, null)).toBe(false);
+    expect(hasVenue("   ", "  ")).toBe(false);
+    // A mapsUrl that is not http(s) never reaches a link, so it is no venue.
+    expect(hasVenue(null, "javascript:alert(1)")).toBe(false);
+  });
+
+  it("is true for an address, or for a usable maps link on its own (F15)", () => {
+    expect(hasVenue("12 Banksia Lane", null)).toBe(true);
+    expect(hasVenue("   ", "https://maps.app.goo.gl/x")).toBe(true);
   });
 });
 

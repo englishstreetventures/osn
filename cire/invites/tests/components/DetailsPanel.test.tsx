@@ -2,8 +2,9 @@ import { render, cleanup } from "@solidjs/testing-library";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
 import { DetailsPanel } from "../../src/components/DetailsPanel";
-import type { EventSummary } from "../../src/components/types";
+import type { EventSummary, FamilyMember } from "../../src/components/types";
 import { resetConsentForTest, seedConsentForTest } from "../test-support/consent";
+import { pinGuestTimeZone } from "../test-support/time-zone";
 
 vi.mock("motion", () => ({
   animate: vi.fn(() => ({ finished: Promise.resolve() })),
@@ -30,6 +31,18 @@ const baseEvent: EventSummary = {
 const renderPanel = (event: EventSummary) =>
   render(() => <DetailsPanel event={event} siteUrl={SITE_URL} />);
 
+/** A colour swatch, by the name the organiser gave it: one item in the list. */
+const swatch = (getAllByRole: (role: "listitem") => HTMLElement[], name: string) =>
+  getAllByRole("listitem").find((item) => item.textContent === name);
+
+// The "Your time" line follows the zone the runner is in unless it is pinned:
+// a guest in Sydney, like the events below, sees none.
+let unpinZone: () => void = () => {};
+beforeEach(() => {
+  unpinZone = pinGuestTimeZone("Australia/Sydney");
+});
+afterEach(() => unpinZone());
+
 describe("DetailsPanel", () => {
   afterEach(() => cleanup());
 
@@ -50,8 +63,83 @@ describe("DetailsPanel", () => {
     expect(getByText("An evening of henna")).toBeTruthy();
   });
 
+  it("collapses a sparse event to its date, with no empty label or hairline", () => {
+    // What the import requires and nothing else: a name, a start, a timezone.
+    // No venue means nothing can open a map, so no "Where"; nothing for the
+    // occasion means no hairline over an empty space.
+    const { container, queryByText, getByText } = renderPanel({
+      ...baseEvent,
+      description: "",
+      endAt: "",
+      address: null,
+      mapsUrl: null,
+    });
+    expect(getByText(/Friday\s+18 September 2026/)).toBeTruthy();
+    expect(container.querySelector("dt")?.textContent).toBe("When");
+    expect([...container.querySelectorAll("dt")].map((dt) => dt.textContent)).toEqual(["When"]);
+    expect(queryByText("About")).toBeNull();
+    expect(container.querySelector(".border-t")).toBeNull();
+  });
+
+  it("shows no About for a description of only spaces", () => {
+    const { queryByText } = renderPanel({ ...baseEvent, description: "   \n " });
+    expect(queryByText("About")).toBeNull();
+  });
+
+  it("shows no Where for a maps link that is not http(s) and no address", () => {
+    const { container } = renderPanel({
+      ...baseEvent,
+      address: "  ",
+      mapsUrl: "javascript:alert(1)",
+    });
+    expect([...container.querySelectorAll("dt")].map((dt) => dt.textContent)).toEqual(["When"]);
+    expect(container.querySelector('a[href^="javascript:"]')).toBeNull();
+  });
+
+  it("spells the timezone out, and gives a guest elsewhere their own time", () => {
+    const sydney = renderPanel(baseEvent);
+    expect(sydney.getByText(/AEST \(Sydney time\)/)).toBeTruthy();
+    expect(sydney.queryByText(/Your time/)).toBeNull();
+    cleanup();
+    unpinZone();
+
+    unpinZone = pinGuestTimeZone("Europe/London");
+    const london = renderPanel(baseEvent);
+    expect(london.getByText("Your time: Fri 7:00 am – 1:00 pm (GMT+1)")).toBeTruthy();
+  });
+
+  it("names who is invited when it is not the whole household", () => {
+    const member = (firstName: string, eventIds: string[]): FamilyMember => ({
+      guestId: `g-${firstName}`,
+      firstName,
+      lastName: "Sharma",
+      nickname: null,
+      eventIds,
+    });
+    const household = [
+      member("Alex", [baseEvent.id]),
+      member("Sam", [baseEvent.id]),
+      member("Priya", []),
+    ];
+    const some = render(() => (
+      <DetailsPanel event={baseEvent} siteUrl={SITE_URL} members={household} />
+    ));
+    expect(some.getByText("Who's invited")).toBeTruthy();
+    expect(some.getByText(/Alex and Sam/)).toBeTruthy();
+    cleanup();
+
+    const all = render(() => (
+      <DetailsPanel
+        event={baseEvent}
+        siteUrl={SITE_URL}
+        members={["Alex", "Sam", "Priya"].map((name) => member(name, [baseEvent.id]))}
+      />
+    ));
+    expect(all.queryByText("Who's invited")).toBeNull();
+  });
+
   it("renders palette and dress code description when present", () => {
-    const { getByText, getByLabelText } = renderPanel({
+    const { getByText, getAllByRole } = renderPanel({
       ...baseEvent,
       dressCodeDescription: "Bright, festive colours.",
       dressCodePalette: [
@@ -61,9 +149,11 @@ describe("DetailsPanel", () => {
     });
 
     expect(getByText("Bright, festive colours.")).toBeTruthy();
-    expect(getByLabelText("Marigold swatch")).toBeTruthy();
-    expect(getByLabelText("Fuchsia swatch")).toBeTruthy();
-    expect(getByText("Marigold")).toBeTruthy();
+    expect(swatch(getAllByRole, "Marigold")).toBeTruthy();
+    expect(swatch(getAllByRole, "Fuchsia")).toBeTruthy();
+    // The circle is the colour itself, and says nothing the name does not.
+    const circle = swatch(getAllByRole, "Marigold")!.querySelector("span");
+    expect(circle?.getAttribute("aria-hidden")).toBe("true");
   });
 
   it("omits the dress code section entirely when there is no dress code", () => {
@@ -98,28 +188,50 @@ describe("DetailsPanel", () => {
     expect(queryByText("Dress Code")).toBeNull();
   });
 
+  it("draws no colour list for a dress code that has words and no colours", () => {
+    // An empty list is still a list to a screen reader.
+    const { getByText, queryByRole } = renderPanel({
+      ...baseEvent,
+      dressCodeDescription: "Cocktail.",
+      dressCodePalette: [],
+    });
+    expect(getByText("Cocktail.")).toBeTruthy();
+    expect(queryByRole("list")).toBeNull();
+  });
+
+  it("omits the dress code section when every colour in it is refused", () => {
+    // Refused colours are never painted, so a palette of only those is no
+    // dress code: the label would stand over an empty space.
+    const { queryByText } = renderPanel({
+      ...baseEvent,
+      dressCodeDescription: "  ",
+      dressCodePalette: [{ name: "Evil", color: "expression(alert(1))" }],
+    });
+    expect(queryByText("Dress Code")).toBeNull();
+  });
+
   it("renders only the palette when the dress code description is null", () => {
-    const { getByLabelText, queryByText } = renderPanel({
+    const { getAllByRole, queryByText } = renderPanel({
       ...baseEvent,
       dressCodePalette: [{ name: "Sage", color: "oklch(72.88% 0.0585 128.92)" }],
     });
 
-    expect(getByLabelText("Sage swatch")).toBeTruthy();
+    expect(swatch(getAllByRole, "Sage")).toBeTruthy();
     expect(queryByText("Dress Code")).toBeTruthy();
   });
 
   it("applies the supplied colour as an inline background-color", () => {
-    const { getByLabelText } = renderPanel({
+    const { getAllByRole } = renderPanel({
       ...baseEvent,
       dressCodePalette: [{ name: "Gold", color: "#abcdef" }],
     });
 
-    const swatch = getByLabelText("Gold swatch") as HTMLElement;
-    expect(swatch.style.backgroundColor.replace(/\s+/g, "")).toBe("rgb(171,205,239)");
+    const circle = swatch(getAllByRole, "Gold")!.querySelector<HTMLElement>("span")!;
+    expect(circle.style.backgroundColor.replace(/\s+/g, "")).toBe("rgb(171,205,239)");
   });
 
   it("does not render swatches whose colour fails validation", () => {
-    const { queryByLabelText, getByLabelText } = renderPanel({
+    const { getAllByRole, queryByText } = renderPanel({
       ...baseEvent,
       dressCodePalette: [
         { name: "Evil", color: "expression(alert(1))" },
@@ -127,8 +239,8 @@ describe("DetailsPanel", () => {
       ],
     });
 
-    expect(queryByLabelText("Evil swatch")).toBeNull();
-    expect(getByLabelText("Safe swatch")).toBeTruthy();
+    expect(queryByText("Evil")).toBeNull();
+    expect(getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Safe"]);
   });
 
   it("gives the sheet a heading it can focus and name the dialog by", () => {
@@ -154,7 +266,12 @@ describe("DetailsPanel", () => {
 describe("DetailsPanel — the deadline", () => {
   afterEach(() => cleanup());
 
-  it("says the replies have closed, and on which day", () => {
+  it("offers no way to the RSVP form of its own: that is the sheet's", () => {
+    const { queryByRole } = renderPanel(baseEvent);
+    expect(queryByRole("button", { name: /RSVP/ })).toBeNull();
+  });
+
+  it("says the replies have closed, on which day, and the household's next step", () => {
     const { getByRole } = render(() => (
       <DetailsPanel
         event={baseEvent}
@@ -163,14 +280,33 @@ describe("DetailsPanel — the deadline", () => {
         rsvpClosedOn="Sunday 1 September 2999"
       />
     ));
-    expect(getByRole("status").textContent).toBe("RSVPs closed on Sunday 1 September 2999.");
+    expect(getByRole("status").textContent).toBe(
+      "RSVPs closed on Sunday 1 September 2999. To reply now, please contact the couple directly.",
+    );
+  });
+
+  it("tells a household with a reply on file how to change it", () => {
+    const { getByRole } = render(() => (
+      <DetailsPanel
+        event={baseEvent}
+        siteUrl={SITE_URL}
+        rsvpClosed
+        replied
+        rsvpClosedOn="Sunday 1 September 2999"
+      />
+    ));
+    expect(getByRole("status").textContent).toBe(
+      "RSVPs closed on Sunday 1 September 2999. To change your household's reply, please contact the couple directly.",
+    );
   });
 
   it("says the replies have closed without a date when it has none", () => {
     const { getByRole } = render(() => (
       <DetailsPanel event={baseEvent} siteUrl={SITE_URL} rsvpClosed />
     ));
-    expect(getByRole("status").textContent).toBe("RSVPs have closed.");
+    expect(getByRole("status").textContent).toBe(
+      "RSVPs have closed. To reply now, please contact the couple directly.",
+    );
   });
 
   it("says nothing while replies are open", () => {
@@ -225,10 +361,10 @@ describe("DetailsPanel — each embed waits for its own switch", () => {
     expect(container.querySelector("iframe")).toBeNull();
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
     expect(trackerScript()).toBeNull();
-    // What stands in for them: the CSS map card naming the venue, and the
-    // moodboard's own placeholder and link-out.
+    // What stands in for them: the venue's address over the drawn map card,
+    // and the moodboard block with its link out and its Show it here.
     expect(getByText("12 Banksia Lane, Strathfield")).toBeTruthy();
-    expect(container.textContent ?? "").toContain("Allow Pinterest moodboards");
+    expect(container.textContent ?? "").toContain("Show it here");
     expect(
       container.querySelector<HTMLAnchorElement>('a[href="' + PINTEREST_URL + '"]'),
     ).not.toBeNull();
@@ -249,8 +385,8 @@ describe("DetailsPanel — each embed waits for its own switch", () => {
     expect(container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
     expect(trackerScript()).not.toBeNull();
 
-    // And no permission notice standing in for either of them.
-    expect(container.textContent ?? "").not.toContain("Allow Pinterest moodboards");
+    // And no offer to show what is already showing.
+    expect(container.textContent ?? "").not.toContain("Show it here");
   });
 
   it("renders only the map when only Google Maps is allowed", () => {
@@ -282,7 +418,7 @@ describe("DetailsPanel — each embed waits for its own switch", () => {
   });
 
   it("keeps the venue and the moodboard reachable even when both embeds are off", () => {
-    // Refusing costs the rich embeds and nothing else: the CSS map card still
+    // Refusing costs the rich embeds and nothing else: the venue row still
     // names the venue and links out, and the moodboard link-out is still there.
     seedConsentForTest({ pinterest: false, maps: false });
     const { container, getByText } = renderPanel(richEvent);
@@ -292,6 +428,6 @@ describe("DetailsPanel — each embed waits for its own switch", () => {
       'a[href="' + PINTEREST_URL + '"]',
     );
     expect(moodboardLink).not.toBeNull();
-    expect(moodboardLink!.textContent).toContain("View moodboard on Pinterest");
+    expect(moodboardLink!.textContent).toContain("Open on Pinterest");
   });
 });

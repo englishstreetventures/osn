@@ -54,8 +54,13 @@ other.
 
 Vendors declare which category they belong to; the preferences sheet shows one
 switch per optional category, naming its company and linking its privacy
-policy. Granting from a blocked embed's in-place button ("Allow Pinterest
-moodboards") grants that switch and nothing else. There is deliberately **no
+policy. Granting from a blocked embed's in-place button — the moodboard's
+"Show it here", or "Allow …" on the framework's default placeholder — grants
+that switch and nothing else, and the moodboard's says so before it is
+pressed ("switches on Pinterest moodboards in this browser"). Once the
+moodboard is on, "Stop showing moodboards" under it (`withdrawCategory`)
+switches the same switch off from the same place — one press to give, one to
+take back. There is deliberately **no
 `marketing`, `advertising`, `analytics` or preferences category**: the site
 does none of those, and an unused switch is a claim we would have to keep true.
 
@@ -71,9 +76,12 @@ Both switches are off until the guest allows them — prior consent, the
 ePrivacy posture for EU and UK visitors, applied to every guest. The prompt
 holds the invite's pages until it is answered, so in practice the guest
 decides on the first visit. Before then, and after a refusal, the map's place
-is taken by the CSS map card (venue named, maps link out) and the moodboard's
-by the standard placeholder and the outbound "View moodboard on Pinterest"
-link.
+is taken by a compact card drawn in the invite's own colours, with the
+address above it and "Open in maps" below — a link out the guest follows —
+and the moodboard's by one block that says the board is on Pinterest, links
+out with "Open on Pinterest", and, for a board that can be shown in the page,
+offers "Show it here". Nothing from either company loads until the guest
+allows it.
 
 ### Three grant maps, and why they can't be collapsed
 
@@ -338,6 +346,14 @@ mounted first.
   switch to see what it covers and then closes the dialog has granted nothing.
 - **Withdrawal is permanent and findable** — `ConsentPreferencesLink` in
   `SiteFooter.astro` on every page, plus a copy on `/privacy`.
+- **What is switched on in place is switched off in place.** The moodboard is
+  the one embed a guest can switch on from inside the details sheet, where the
+  footer is out of reach behind the modal, so while it is on the sheet carries
+  "Stop showing moodboards" under it. Its note says the page reloads, which
+  is the teardown for Pinterest's in-page script (§Withdrawal stops code that
+  already ran). It ignores a press for the half second after "Show it here",
+  so the second tap of a double tap cannot undo the first. The map has no
+  in-place grant, so it needs no in-place withdrawal.
 - **The consent dialogs reach above the details sheet.** The sheet is a
   `showModal()` dialog, so it renders in the **top layer**, which no `z-index`
   reaches — see [[component-library]] §What has to sit above a
@@ -346,9 +362,13 @@ mounted first.
   dialog are `showModal()` dialogs too, and carry no `z-index` because they
   have nothing to rank against. An undecided guest cannot open a sheet: the
   prompt holds the page until it is answered, and if it arrives while a sheet
-  is already open it opens above it. Opening the preferences dialog from a
-  blocked embed inside the sheet makes it the blocking dialog and the sheet
-  goes inert beneath it. The banner carries `Z_LAYER.CONSENT` (200) and
+  is already open it opens above it. The embeds in the sheet offer no way
+  into the preferences — the footer's "Privacy choices" is the route from
+  the invite's pages, and the moodboard's own switch-off is the route for the
+  one thing the sheet can switch on — but a gate left on the default
+  placeholder would: its
+  "Privacy choices" opens the dialog as the blocking one, and the sheet goes
+  inert beneath it. The banner carries `Z_LAYER.CONSENT` (200) and
   appears only on the legal pages, which have no sheets.
 
 Only one mounted component renders the dialog at a time

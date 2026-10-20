@@ -161,15 +161,17 @@ describe("AddToCalendar", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith(created);
   });
 
-  it("draws an outlined trigger, never a filled one, with a 44px target", () => {
-    // A fill here would make the calendar the thing to do on the details,
-    // where the way to the RSVP form is the sheet's badge; and a phone's thumb
-    // needs the 44px.
+  it("draws a text action, never a filled or outlined button, at a 44px target", () => {
+    // It sits on the date row of the details, where a box would compete with
+    // the sheet's badge to the RSVP form.
+    // The 44px, and the underline a phone needs at rest, are measured in
+    // `DetailsPanel.browser.test.tsx`.
     const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
     const button = getByRole("button", { name: /add to calendar/i });
-    expect(button.className).toContain("bg-transparent");
+    const classes = button.className.split(/\s+/);
+    expect(classes).toContain("base:border-transparent");
     expect(button.className).not.toContain("bg-gold");
-    expect(button.className.split(/\s+/)).toContain("min-h-11");
+    expect(classes).toContain("min-h-11");
     expect(button.getAttribute("aria-haspopup")).toBe("menu");
   });
 });

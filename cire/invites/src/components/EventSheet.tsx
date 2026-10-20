@@ -553,6 +553,8 @@ export function EventSheet(props: EventSheetProps) {
             <DetailsPanel
               event={own.event}
               siteUrl={own.siteUrl}
+              members={rsvp.members}
+              replied={own.replied}
               rsvpClosed={rsvp.closed}
               rsvpClosedOn={rsvp.closedOn}
               titleId={titleIds.details}

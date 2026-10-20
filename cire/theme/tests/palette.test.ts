@@ -167,6 +167,12 @@ describe("contrast is enforced, not advised", () => {
     ["--color-gold", "--color-surface-raised"],
     ["--color-gold", "--color-bg"],
     ["--color-bloom", "--color-surface-raised"],
+    // The boundary of a control with no fill, and the ring round a dress-code
+    // swatch. A section's tone and the sheets put it on any of the three
+    // surfaces, so it has to clear all three.
+    ["--color-border-strong", "--color-surface"],
+    ["--color-border-strong", "--color-surface-raised"],
+    ["--color-border-strong", "--color-bg"],
     ["--invite-focus", "--color-bg"],
     ["--color-error", "--color-surface"],
     ["--color-success", "--color-surface"],
@@ -666,7 +672,8 @@ describe("residual contrast warnings", () => {
     // pair covered as the table grows, instead of relying on which ids a
     // neighbouring test happens to name.
     const schemes = [
-      // A mid-tone purple page fires the prose pairs and the bloom label.
+      // A mid-tone purple page fires the prose pairs, the bloom label and the
+      // control boundary on the card.
       derivePalette({
         ground: "#8a57ac",
         card: "#b13f6c",
@@ -710,6 +717,7 @@ describe("residual contrast warnings", () => {
         "label-on-gold",
         "gilt-ink-on-raised",
         "gilt-ink-on-surface",
+        "border-strong-on-surface",
       ].toSorted(),
     );
   });

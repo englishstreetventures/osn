@@ -20,8 +20,9 @@ interface ConsentGateProps {
    * What to render instead when the category is off. Omit for the standard
    * placeholder (vendor name + purpose + an in-place "allow" button). Pass
    * something else when the component already has a good un-consented state to
-   * fall back to — `MapPreview` passes its CSS-drawn map card, which is a
-   * better answer than a permission notice where a map should be.
+   * fall back to: `MapPreview` passes its drawn map card, which is a better
+   * answer than a permission notice where a map should be, and `PinterestBoard`
+   * its moodboard block, which links out and offers to show the board in place.
    */
   fallback?: JSX.Element;
   children: JSX.Element;
@@ -82,7 +83,8 @@ export function ConsentGate(props: ConsentGateProps) {
 
 /**
  * The standard blocked-content notice: what would be here, who it comes from,
- * and two ways to act on it.
+ * and two ways to act on it. The default for a gate given no fallback of its
+ * own; both embeds on the invite today pass one.
  *
  * It shows both to a guest who refused and to one who has not answered yet,
  * so the copy says what the guest is not seeing and how to allow it, without
@@ -98,24 +100,43 @@ export function ConsentPlaceholder(props: { category: ConsentCategory; vendor: s
 
   return (
     <div class="border-border/70 bg-surface-raised/60 mt-2 rounded-md border px-4 py-4 text-center">
+      {/* The purpose is written in the third person for the privacy notice
+          ("Shows the couple's…"), so it follows "It" here rather than "would",
+          which would need the bare verb. */}
       <p class="font-body text-text-muted text-ui-sm leading-relaxed">
         <Show when={vendor()?.purpose} fallback={<>Content from {vendorName()} is switched off.</>}>
           {(purpose) => (
             <>
-              {vendorName()} would {purpose().charAt(0).toLowerCase() + purpose().slice(1)}
+              Content from {vendorName()} would appear here. It{" "}
+              {purpose().charAt(0).toLowerCase() + purpose().slice(1)}
             </>
           )}
         </Show>
       </p>
-      <p class="font-body text-text-muted/80 text-ui-xs mt-1.5 leading-relaxed">
+      <p class="font-body text-text-muted text-ui-xs mt-1.5 leading-relaxed">
         It's switched off until you allow it. It loads from {vendorName()}'s servers, which lets
         them see your IP address and browser.
       </p>
+      {/* Allowing is offered, not urged: `quiet`, not the call-to-action shape.
+          Both controls take a 44px target, as everything a thumb has to hit on
+          the invite does. */}
       <div class="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-        <Button variant="cta" size="sm" type="button" onClick={() => grantCategory(props.category)}>
+        <Button
+          variant="quiet"
+          size="sm"
+          type="button"
+          class="min-h-11"
+          onClick={() => grantCategory(props.category)}
+        >
           Allow {categoryTitle()}
         </Button>
-        <Button variant="touchLink" size="sm" type="button" onClick={openConsentPreferences}>
+        <Button
+          variant="touchLink"
+          size="sm"
+          type="button"
+          class="min-h-11"
+          onClick={openConsentPreferences}
+        >
           Privacy choices
         </Button>
       </div>

@@ -252,6 +252,7 @@ export const DERIVED_TOKENS = [
   "--color-surface",
   "--color-surface-raised",
   "--color-border",
+  "--color-border-strong",
   "--color-text",
   "--color-text-muted",
   "--color-gold",
@@ -521,6 +522,17 @@ export function derivePalette(
     mix(ink, ground, 0.34),
   );
 
+  // The boundary of a control with no fill, and the ring round a dress-code
+  // swatch: a boundary a guest has to see, so 3:1 (WCAG 1.4.11). It starts as
+  // the ink 55% of the way over the card and is walked against all three
+  // surfaces like the prose tokens, because the sheets paint `card` and a
+  // section's tone can be any of them. Solid, not translucent: contrast checks
+  // ignore alpha, so a translucent value would go unmeasured.
+  const borderStrong = [card, raised, ground].reduce(
+    (colour, surface) => ensureContrast(colour, surface, WCAG_UI_MIN),
+    mix(ink, card, 0.45),
+  );
+
   // Gold carries large display text, rules and buttons; hold it to the UI
   // minimum rather than the text minimum so a genuinely gold gold survives
   // instead of being bleached into a cream.
@@ -559,6 +571,7 @@ export function derivePalette(
     "--color-surface": formatOklch(card),
     "--color-surface-raised": formatOklch(raised),
     "--color-border": formatOklch(withAlpha(ink, 0.12)),
+    "--color-border-strong": formatOklch(borderStrong),
     "--color-text": formatOklch(ink),
     "--color-text-muted": formatOklch(muted),
     "--color-gold": formatOklch(gilt),
@@ -807,6 +820,16 @@ const RESIDUAL_PAIRS: {
     bg: "--color-surface",
     min: WCAG_TEXT_MIN,
     message: "Secondary text in the RSVP sheet and pop-ups is hard to read.",
+  },
+  {
+    // The control boundary is walked in the same order as the prose tokens, so
+    // it has the same gap on `card` — the surface of the event-details sheet,
+    // where the dress-code swatches wear it as their ring.
+    id: "border-strong-on-surface",
+    fg: "--color-border-strong",
+    bg: "--color-surface",
+    min: WCAG_UI_MIN,
+    message: "Dress-code colour swatches are hard to see in the event details.",
   },
   {
     // `--color-gold-ink` IS walked against all three surfaces, so this can only
