@@ -70,10 +70,12 @@ test("cire-member-step", async ({ page, context, flow }) => {
   });
   flow.check("member choice offers no musubi link", false, chosen.accountLink?.enabled === true);
 
+  // "Respond" until every invited member has answered, "RSVP given" after;
+  // either opens the sheet while RSVPs are open.
   const reception = page
     .getByRole("article")
     .filter({ has: page.getByRole("heading", { name: "Reception", exact: true }) })
-    .getByRole("button", { name: "Respond" });
+    .getByRole("button", { name: /^(Respond|RSVP given)$/ });
   const sheet = page.getByRole("dialog");
 
   await flow.step("RSVP attending for both invited members", async () => {
