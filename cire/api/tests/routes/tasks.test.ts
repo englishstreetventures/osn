@@ -8,6 +8,7 @@ import { createDb, DEV_OWNER_SEAT_ID, seedDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import { appRequest, failStatements, jsonBody, setTier } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { insertWedding } from "../test-helpers/wedding";
@@ -337,6 +338,54 @@ describe("assigning a task to a seat", () => {
     }
     expect((await req(app, "PUT", assignee(id), undefined, body)).status).toBe(401);
     expect(await assigneeOf(app, id)).toBeNull();
+  });
+
+  // The portal reaches this route with the organiser session cookie, so the
+  // cookie path has to hold for it, not only the bearer the tests above send.
+  it("accepts the session cookie, and refuses a dead one without writing", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
+    const id = await createTask(app);
+    const put = (cookie: string, assignedHostId: string) =>
+      appRequest(app, assignee(id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", cookie },
+        body: JSON.stringify({ assignedHostId }),
+      });
+
+    const token = await seedOrganiserSession(db, EDITOR);
+    const ok = await put(`cire_org_session=${token}`, "whost_helper");
+    expect(ok.status).toBe(200);
+    expect(await assigneeOf(app, id)).toBe("whost_helper");
+
+    const dead = await put("cire_org_session=not-a-live-session-token", "whost_viewer");
+    expect(dead.status).toBe(401);
+    expect(await assigneeOf(app, id)).toBe("whost_helper");
+  });
+
+  // Only the assignee route checks that a seat is the wedding's, so no other
+  // task route may write one: creating or editing a task drops the field.
+  it("writes no assignee sent to the task create or edit route", async () => {
+    const app = buildApp();
+    const id = await createTask(app);
+
+    const patched = await req(app, "PATCH", `${base}/${id}`, EDITOR, {
+      title: "Carry both rings",
+      assignedHostId: OTHER_SEAT,
+    });
+    expect(patched.status).toBe(200);
+    expect(((await patched.json()) as TaskBody).task.assignedHostId).toBeNull();
+    expect(await assigneeOf(app, id)).toBeNull();
+
+    const created = await req(app, "POST", base, EDITOR, {
+      title: "Mind the cake",
+      timeframeBucket: "day_of",
+      assignedHostId: "whost_helper",
+    });
+    expect(created.status).toBe(200);
+    const { task } = (await created.json()) as TaskBody;
+    expect(task.assignedHostId).toBeNull();
+    expect(await assigneeOf(app, task.id)).toBeNull();
   });
 
   it("404s a task of another wedding, and leaves that task alone", async () => {
