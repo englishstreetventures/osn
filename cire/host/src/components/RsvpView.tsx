@@ -26,6 +26,7 @@ import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
+import { CIRE_MARKETING_URL } from "../lib/osn";
 import { fetchRsvpChangeRows, markRsvpChangesSeen, newRowCheck } from "../lib/rsvp-changes";
 import {
   filterRows,
@@ -118,7 +119,8 @@ function attestationFor(target: EditTarget) {
  * they were sends the status only, and the API keeps the stored dietary answer
  * and whoever gave it. The attestation box opens unticked and appears only once
  * the dietary answer is edited; on a plus-one's reply it speaks of the
- * plus-one. Viewers see the same list, read-only.
+ * plus-one, with a line under it asking the organiser to share the privacy
+ * page. Viewers see the same list, read-only.
  */
 export default function RsvpView(props: RsvpViewProps) {
   const { authFetch } = useAuth();
@@ -772,16 +774,37 @@ export default function RsvpView(props: RsvpViewProps) {
             dietaryEdited(target) && (formDietary().trim().length > 0 || formPresets().length > 0)
           }
         >
-          <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
-            <input
-              type="checkbox"
-              class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
-              checked={formConsent()}
-              onChange={(e) => setFormConsent(e.currentTarget.checked)}
-              disabled={saving()}
-            />
-            <span>{attestationFor(target).text}</span>
-          </label>
+          <div class="flex flex-col gap-1.5">
+            <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
+              <input
+                type="checkbox"
+                class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
+                checked={formConsent()}
+                onChange={(e) => setFormConsent(e.currentTarget.checked)}
+                disabled={saving()}
+              />
+              <span>{attestationFor(target).text}</span>
+            </label>
+            {/* A plus-one may never see the invite or the notice it links, so
+                the organiser recording their answer is asked to pass on the
+                privacy page the line names, which leads to the guests'
+                notice. Outside the label, so it is no part of what the box
+                attests or of its accessible name; a new tab, so the form
+                keeps what was typed. */}
+            <Show when={target.plusOne}>
+              <p class="font-body text-text-muted text-ui-sm pl-6.5 leading-relaxed">
+                Share our privacy notice with them:{" "}
+                <a
+                  href={`${CIRE_MARKETING_URL}/privacy`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-gold-ink underline underline-offset-2"
+                >
+                  cireweddings.com/privacy<span class="sr-only"> (opens in a new tab)</span>
+                </a>
+              </p>
+            </Show>
+          </div>
         </Show>
 
         <Show when={formError()}>

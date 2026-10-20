@@ -14,6 +14,7 @@ import { Effect, Exit } from "effect";
 import { createApp } from "../../src/app";
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import { hostCodeService } from "../../src/services/host-code";
 import { createAssetsStub } from "../../src/services/invite-assets";
 import type {
   ImagesBindingLike,
@@ -409,6 +410,22 @@ describe("the guest registry is one 404, whatever the reason", () => {
       body: JSON.stringify({ quantity: 1 }),
     });
     expect(res.status).toBe(401);
+    expect(
+      (await appRequest(app, `${guestBase()}/items/${PAN}/claim`, { method: "DELETE" })).status,
+    ).toBe(401);
+  });
+
+  it("401s both writes for a cookie that names no live session, and writes nothing", async () => {
+    const { app, db } = buildApp();
+    const dead = "cire_session=no-such-session";
+    const before = db.select().from(registryClaims).all();
+    const reserve = await claim(app, dead, { quantity: 1 });
+    expect(reserve.status).toBe(401);
+    expect(await jsonBody(reserve)).toEqual({ error: "Unauthorized" });
+    const free = await release(app, dead);
+    expect(free.status).toBe(401);
+    expect(await jsonBody(free)).toEqual({ error: "Unauthorized" });
+    expect(db.select().from(registryClaims).all()).toEqual(before);
   });
 });
 
@@ -843,6 +860,115 @@ describe("a cookie for one wedding buys nothing on another", () => {
     const res = await claim(app, local, { quantity: 1 }, OTHER_SLUG, OTHER_ITEM);
     expect(res.status).toBe(404);
     expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
+  });
+});
+
+/**
+ * The organiser's "Preview invite" claims the wedding's host household, whose
+ * session reaches every guest route. It may read the list — that is what a
+ * preview is for — and may change nothing on it: a reservation it held would
+ * read as taken to every real guest.
+ */
+describe("a host preview session reads the gift list and writes nothing", () => {
+  type TestDb = ReturnType<typeof buildApp>["db"];
+
+  /** Provision the host household and claim its code, as Preview invite does. */
+  async function previewCookie(app: App, db: TestDb) {
+    const { publicId } = await Effect.runPromise(
+      hostCodeService
+        .ensureForWedding(BOOTSTRAP_WEDDING_ID, SLUG)
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    const [host] = db
+      .select({ id: families.id })
+      .from(families)
+      .where(eq(families.publicId, publicId))
+      .all();
+    return { cookie: await guestCookie(app, publicId), hostId: (host as { id: string }).id };
+  }
+
+  function hostClaims(db: TestDb, hostId: string) {
+    return db
+      .select({ status: registryClaims.status, quantity: registryClaims.quantity })
+      .from(registryClaims)
+      .where(eq(registryClaims.familyId, hostId))
+      .all();
+  }
+
+  /**
+   * A reservation the host household holds on the bowl: the row a Worker
+   * without the refusal could leave behind. A write on it must be refused by
+   * the statement itself, not merely by there being no row to act on.
+   */
+  function holdAsHost(db: TestDb, hostId: string) {
+    const now = new Date();
+    db.insert(registryClaims)
+      .values({
+        id: "rcl_host",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: BOWL,
+        familyId: hostId,
+        quantity: 1,
+        status: "reserved",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  it("reads the list and its own household, which says it is a preview", async () => {
+    const { app, db } = buildApp();
+    const { cookie } = await previewCookie(app, db);
+    const list = await listView(app, cookie);
+    expect(list.items.map((i) => i.id)).toEqual([BOWL, PAN]);
+    expect(await mine(app, cookie)).toEqual({ claims: [], preview: true });
+    // A guest household's read carries no such key.
+    expect("preview" in (await mine(app, await guestCookie(app)))).toBe(false);
+  });
+
+  it("cannot reserve a gift", async () => {
+    const { app, db } = buildApp();
+    const { cookie, hostId } = await previewCookie(app, db);
+    const res = await claim(app, cookie, { quantity: 1 });
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "preview_read_only" });
+    expect(hostClaims(db, hostId)).toEqual([]);
+  });
+
+  it("cannot mark a gift purchased", async () => {
+    const { app, db } = buildApp();
+    const { cookie, hostId } = await previewCookie(app, db);
+    const res = await claim(app, cookie, { quantity: 1, status: "purchased" });
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "preview_read_only" });
+    expect(hostClaims(db, hostId)).toEqual([]);
+  });
+
+  it("cannot change a reservation its household already holds", async () => {
+    const { app, db } = buildApp();
+    const { cookie, hostId } = await previewCookie(app, db);
+    holdAsHost(db, hostId);
+    // The claim statement's update arm: an existing row, a new quantity and status.
+    const res = await claim(app, cookie, { quantity: 2, status: "purchased" }, SLUG, BOWL);
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "preview_read_only" });
+    expect(hostClaims(db, hostId)).toEqual([{ status: "reserved", quantity: 1 }]);
+  });
+
+  it("cannot release a gift, even one its household already holds", async () => {
+    const { app, db } = buildApp();
+    const { cookie, hostId } = await previewCookie(app, db);
+    holdAsHost(db, hostId);
+    const res = await release(app, cookie, SLUG, BOWL);
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "preview_read_only" });
+    expect(hostClaims(db, hostId)).toEqual([{ status: "reserved", quantity: 1 }]);
+
+    // A guest household releasing a gift it holds nothing on still hears the
+    // item-shaped answer, not the preview's.
+    const guest = await release(app, await guestCookie(app), SLUG, BOWL);
+    expect(guest.status).toBe(404);
+    expect(await jsonBody(guest)).toEqual({ error: "registry_item_not_found" });
   });
 });
 

@@ -1,3 +1,4 @@
+import { CONSENT_VENDORS } from "@cire/ui/consent-vendors";
 import { cleanup, fireEvent, render } from "@solidjs/testing-library";
 import { onCleanup } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,7 +12,6 @@ import {
   isCategoryGranted,
   saveConsent,
 } from "../../../src/lib/consent/store";
-import { CONSENT_VENDORS } from "../../../src/lib/consent/vendors";
 import { resetConsentForTest, seedConsentForTest } from "../../test-support/consent";
 
 /**

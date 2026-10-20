@@ -20,3 +20,8 @@ export const CIRE_API_URL = resolveApiUrl(
 // the guest site with the host preview code pre-filled. Dev default matches
 // `bun run --cwd cire/invites dev` (port 4321).
 export const CIRE_WEB_URL = import.meta.env.PUBLIC_CIRE_WEB_URL ?? "http://localhost:4321";
+
+// cire/landing (marketing site) origin. The RSVP editor links its privacy page,
+// which introduces the notices for hosts and guests. Dev default matches
+// cire/landing's fixed port (4323).
+export const CIRE_MARKETING_URL = import.meta.env.PUBLIC_MARKETING_URL ?? "http://localhost:4323";

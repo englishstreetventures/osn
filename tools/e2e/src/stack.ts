@@ -158,6 +158,9 @@ export function appSpecs(): AppSpec[] {
         CIRE_E2E_RSVP_DEADLINE: CIRE_RSVP_DEADLINE,
         // Adds the gift-list wedding (`CIRE_GIFT_LIST`) to cire-api's seed.
         CIRE_E2E_REGISTRY: "1",
+        // Keeps the client address a request sends, so the organiser's claim
+        // (`claimFromOrganiserAddress`) spends its own limiter window.
+        CIRE_E2E_CLIENT_ADDRESS: "1",
         WEB_ORIGIN: ORIGINS.cireInvites,
       },
     },
@@ -187,6 +190,16 @@ export function appSpecs(): AppSpec[] {
       command: ["bun", "run", "dev:app", "--ignore-lock"],
       readyUrl: `${ORIGINS.cireInvites}/`,
       env: { PORT: String(PORTS.cireInvites), PUBLIC_API_URL: ORIGINS.cireApi },
+    },
+    {
+      // cireweddings.com: static, no API. Its font pipeline fetches Google
+      // Fonts when `astro dev` starts; with no network it warns and serves
+      // fallback faces rather than failing to start.
+      name: "cireLanding",
+      dir: "cire/landing",
+      command: ["bun", "run", "dev:app", "--ignore-lock"],
+      readyUrl: `${ORIGINS.cireLanding}/privacy`,
+      env: { PORT: String(PORTS.cireLanding) },
     },
   ];
 }

@@ -58,6 +58,12 @@ export class ItemFullyClaimed extends Data.TaggedError("ItemFullyClaimed") {}
 export class GiftNotInWedding extends Data.TaggedError("GiftNotInWedding") {}
 /** The claiming household is not on this wedding's guest list. 404-class. */
 export class FamilyNotInWedding extends Data.TaggedError("FamilyNotInWedding") {}
+/**
+ * The household is the wedding's host preview household (`families.kind =
+ * 'host'`), which reads the gift list and never writes to it. 403-class: the
+ * session is valid for this wedding, so saying so tells the caller nothing new.
+ */
+export class RegistryPreviewSession extends Data.TaggedError("RegistryPreviewSession") {}
 /** The image key names another wedding's object. 400-class. */
 export class ImageKeyNotInWedding extends Data.TaggedError("ImageKeyNotInWedding") {}
 /** Cash gifts asked for without a Stripe account that can take charges. 409-class. */
@@ -763,31 +769,33 @@ function contributionsByCurrency(
 }
 
 /**
- * Whether a household belongs to a wedding.
+ * The kind of a household of this wedding, or `null` when it is not one of
+ * this wedding's.
  *
  * `releaseClaim` reads it on its failure path, to tell a household of another
- * wedding from an item of another wedding. The guest gate makes the same check
- * inside its own statement (`resolveVisibleRegistry` with a `familyId`). A
- * `cire_session` names a household and nothing else, so without this check one
- * leaked code reaches every couple's list on the platform.
+ * wedding, the wedding's own preview household and an item of another wedding
+ * apart. The guest gate makes the same check inside its own statement
+ * (`resolveVisibleRegistry` with a `familyId`). A `cire_session` names a
+ * household and nothing else, so without this check one leaked code reaches
+ * every couple's list on the platform.
  *
  * A primary-key point read — `families.id` is the PK — so the cost is one hop,
  * not one per row.
  */
-function familyInWedding(
+function householdKind(
   weddingId: string,
   familyId: string,
-): Effect.Effect<boolean, never, DbService> {
+): Effect.Effect<FamilyKind | null, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    const rows = yield* dbQuery(() =>
+    const [row] = yield* dbQuery(() =>
       db
-        .select({ id: families.id })
+        .select({ kind: families.kind })
         .from(families)
         .where(and(eq(families.id, familyId), eq(families.weddingId, weddingId)))
         .all(),
     );
-    return (rows as Array<{ id: string }>).length > 0;
+    return (row as { kind: FamilyKind } | undefined)?.kind ?? null;
   });
 }
 
@@ -1588,15 +1596,18 @@ export const registryService = {
    *  - the registry must be visible (published, Gold or above, real slug);
    *  - the family must belong to THIS wedding — a session names a household,
    *    not a wedding;
+   *  - the family must not be the wedding's host preview household, which
+   *    reads the list and never gives;
    *  - the couple must have said yes (`cash_gifts_enabled`) AND Stripe must be
    *    able to take the charge today (`stripe_charges_enabled`) AND there must
    *    be an account to take it into. All three, or the guest is sent away
    *    before their card is.
    *
    * A missing registry and a foreign family both fail as `RegistryNotVisible`,
-   * which the route answers as the same 404 everything else does. Only the
-   * cash-specific refusal is its own failure, because it is the one a guest
-   * looking at a contribute button can actually act on.
+   * which the route answers as the same 404 everything else does. The preview
+   * household fails as `RegistryPreviewSession`. Only the cash-specific refusal
+   * is a guest's own failure, because it is the one a guest looking at a
+   * contribute button can actually act on.
    */
   contributionContext(input: {
     slug: string;
@@ -1610,17 +1621,20 @@ export const registryService = {
     itemId?: string | null;
   }): Effect.Effect<
     { weddingId: string; stripeAccountId: string; currency: string; itemId: string | null },
-    RegistryNotVisible | CashGiftsUnavailable,
+    RegistryNotVisible | RegistryPreviewSession | CashGiftsUnavailable,
     DbService
   > {
     return Effect.gen(function* () {
       // The household and item checks ride in the gate's own statement. A
       // household of another wedding fails the gate as `RegistryNotVisible`,
-      // so it is still refused before the cash checks below.
-      const { settings, weddingId, currency, itemBelongs } = yield* resolveVisibleRegistry(
-        input.slug,
-        { familyId: input.familyId, itemId: input.itemId || undefined },
-      );
+      // and any household but a `guest` one is refused here, both before the
+      // cash checks: the same allow-list the claim and release statements use.
+      const { settings, weddingId, currency, itemBelongs, familyKind } =
+        yield* resolveVisibleRegistry(input.slug, {
+          familyId: input.familyId,
+          itemId: input.itemId || undefined,
+        });
+      if (familyKind !== "guest") return yield* Effect.fail(new RegistryPreviewSession());
       if (!takesMoney(settings, currency)) {
         return yield* Effect.fail(new CashGiftsUnavailable());
       }
@@ -2521,6 +2535,10 @@ export const registryService = {
    * another wedding would write a claim row carrying THIS wedding's `wedding_id`
    * and a foreign family's — a cross-tenant row that then shows up in the
    * couple's gift log under a household they have never heard of.
+   *
+   * The EXISTS also requires a `guest` household. The wedding's host preview
+   * household reads the list and never writes to it: a reservation it held
+   * would read as taken to every real guest.
    */
   claim(input: {
     weddingId: string;
@@ -2532,7 +2550,11 @@ export const registryService = {
     displayName: string | null;
   }): Effect.Effect<
     void,
-    FamilyNotInWedding | InvalidQuantity | ItemFullyClaimed | RegistryItemNotInWedding,
+    | FamilyNotInWedding
+    | InvalidQuantity
+    | ItemFullyClaimed
+    | RegistryItemNotInWedding
+    | RegistryPreviewSession,
     DbService
   > {
     return Effect.gen(function* () {
@@ -2561,6 +2583,7 @@ export const registryService = {
             AND EXISTS (
                   SELECT 1 FROM ${families} f
                   WHERE f.id = ${familyId} AND f.wedding_id = ${weddingId}
+                    AND f.kind = 'guest'
                 )
             AND ${quantity} + coalesce((
                   SELECT sum(rc.quantity) FROM ${registryClaims} rc
@@ -2583,7 +2606,7 @@ export const registryService = {
       // refused re-claim would read as a success.
       if ((written as unknown[]).length > 0) return;
 
-      // Nothing written means one of three things; only the failure path pays
+      // Nothing written means one of four things; only the failure path pays
       // for telling them apart.
       const { familyRows, itemRows } = yield* Effect.all(
         {
@@ -2596,7 +2619,7 @@ export const registryService = {
           ),
           familyRows: dbQuery(() =>
             db
-              .select({ id: families.id })
+              .select({ kind: families.kind })
               .from(families)
               .where(and(eq(families.id, familyId), eq(families.weddingId, weddingId)))
               .all(),
@@ -2611,18 +2634,30 @@ export const registryService = {
       // read; answering `FamilyNotInWedding` first tells them only what they
       // already knew — that this cookie is not for this wedding — and the route
       // maps it to the same `registry_not_found` an invisible registry gives.
-      if (!familyRows[0]) return yield* Effect.fail(new FamilyNotInWedding());
+      const [family] = familyRows;
+      if (!family) return yield* Effect.fail(new FamilyNotInWedding());
+      // This wedding's own preview household: it learns nothing it did not know.
+      if (family.kind === "host") return yield* Effect.fail(new RegistryPreviewSession());
       if (!itemRows[0]) return yield* Effect.fail(new RegistryItemNotInWedding());
       return yield* Effect.fail(new ItemFullyClaimed());
     }).pipe(Effect.withSpan("cire.registry.claim"));
   },
 
-  /** Release a household's claim, freeing its quantity for someone else. */
+  /**
+   * Release a household's claim, freeing its quantity for someone else.
+   *
+   * Only a `guest` household's: the wedding's host preview household never
+   * writes to the list, a release included.
+   */
   releaseClaim(input: {
     weddingId: string;
     itemId: string;
     familyId: string;
-  }): Effect.Effect<void, RegistryItemNotInWedding | FamilyNotInWedding, DbService> {
+  }): Effect.Effect<
+    void,
+    RegistryItemNotInWedding | FamilyNotInWedding | RegistryPreviewSession,
+    DbService
+  > {
     return Effect.gen(function* () {
       const db = yield* DbService;
       // The WHERE matches an EXISTING claim row, which `claim` already refused
@@ -2641,6 +2676,7 @@ export const registryService = {
               eq(registryClaims.weddingId, input.weddingId),
               eq(registryClaims.itemId, input.itemId),
               eq(registryClaims.familyId, input.familyId),
+              sql`EXISTS (SELECT 1 FROM ${families} WHERE ${families.id} = ${input.familyId} AND ${families.kind} = 'guest')`,
             ),
           )
           .returning({ id: registryClaims.id })
@@ -2648,9 +2684,10 @@ export const registryService = {
       );
       if (!released) {
         // One extra point read, and only ever on the failure path.
-        return yield* (yield* familyInWedding(input.weddingId, input.familyId))
-          ? Effect.fail(new RegistryItemNotInWedding())
-          : Effect.fail(new FamilyNotInWedding());
+        const kind = yield* householdKind(input.weddingId, input.familyId);
+        if (kind === null) return yield* Effect.fail(new FamilyNotInWedding());
+        if (kind === "host") return yield* Effect.fail(new RegistryPreviewSession());
+        return yield* Effect.fail(new RegistryItemNotInWedding());
       }
     }).pipe(Effect.withSpan("cire.registry.releaseClaim"));
   },
@@ -2865,10 +2902,16 @@ export interface HouseholdClaimDto {
  * see it", and there is no second field saying why. A household that has claimed
  * nothing, or one reading before the couple's embargo date, gets the same shape
  * as a couple who set no address at all.
+ *
+ * `preview` is present, and `true`, only for the wedding's host preview
+ * household: the organiser's "Preview invite" session, which reads the list
+ * and never writes to it. The gift page reads it to show the controls a guest
+ * sees without offering them.
  */
 export interface HouseholdRegistryDto {
   claims: HouseholdClaimDto[];
   shippingAddress?: string;
+  preview?: true;
 }
 
 /** Today in the same `YYYY-MM-DD` shape `shipping_visible_from` is stored in. */
@@ -2933,12 +2976,17 @@ const toPublicItemDto = (
  *   couple's list; answering it as `RegistryNotVisible` keeps a stranger
  *   household's 404 identical to an unpublished list's.
  *
- * One more check answers rather than fails:
+ * Two more checks answer rather than fail:
  *
  * - `itemId` — whether that item is one of THIS wedding's, returned as
  *   `itemBelongs` (always `false` when not asked). A cash gift aimed at a line
  *   that is not this wedding's is kept and its line dropped, so a foreign item
  *   must not close the gate.
+ * - with `familyId`, the household's kind, returned as `familyKind` (`guest`
+ *   when not asked): a real invited household, or the wedding's host preview
+ *   household. The same subquery reads the household's wedding and its kind.
+ *   The reads stay open to a preview; a write admits only `guest` and refuses
+ *   anything else (`RegistryPreviewSession`).
  *
  * ONE statement, whatever the answer: the slug read, the tier, the
  * settings row and every check are keyed on the id the slug read produces, so
@@ -2954,7 +3002,13 @@ function resolveVisibleRegistry(
   slug: string,
   also: GateChecks = {},
 ): Effect.Effect<
-  { weddingId: string; settings: RegistrySettingsRecord; currency: string; itemBelongs: boolean },
+  {
+    weddingId: string;
+    settings: RegistrySettingsRecord;
+    currency: string;
+    itemBelongs: boolean;
+    familyKind: FamilyKind;
+  },
   RegistryNotVisible,
   DbService
 > {
@@ -2973,10 +3027,13 @@ function resolveVisibleRegistry(
             ? sql<number>`1`
             : sql<number>`EXISTS (SELECT 1 FROM ${registryItems} WHERE ${registryItems.weddingId} = ${outerColumn(weddings.id)} AND ${registryItems.imageKey} = 'assets/' || ${outerColumn(weddings.id)} || '/' || ${imageName})`
           ).as("image_listed"),
-          familyListed: (familyId === undefined
-            ? sql<number>`1`
-            : sql<number>`EXISTS (SELECT 1 FROM ${families} WHERE ${families.id} = ${familyId} AND ${families.weddingId} = ${outerColumn(weddings.id)})`
-          ).as("family_listed"),
+          // The household's kind, or NULL when it is not this wedding's. Not
+          // asked, it is the constant 'guest': the check passes and nothing
+          // is a preview. `families.id` is the key, so this is a point read.
+          familyKind: (familyId === undefined
+            ? sql<FamilyKind | null>`'guest'`
+            : sql<FamilyKind | null>`(SELECT ${families.kind} FROM ${families} WHERE ${families.id} = ${familyId} AND ${families.weddingId} = ${outerColumn(weddings.id)})`
+          ).as("family_kind"),
           // The constant 0 here, not 1: this check answers, it does not gate.
           itemListed: (itemId === undefined
             ? sql<number>`0`
@@ -3007,7 +3064,7 @@ function resolveVisibleRegistry(
     if (!row) return yield* Effect.fail(new RegistryNotVisible());
     const settings = row.settingsWeddingId === null ? defaultSettings(row.id) : gateSettings(row);
     const onGold = tierAtLeast(normaliseTier(row.tier), "gold");
-    if (!onGold || !settings.published || !row.imageListed || !row.familyListed) {
+    if (!onGold || !settings.published || !row.imageListed || row.familyKind === null) {
       return yield* Effect.fail(new RegistryNotVisible());
     }
     // Same fallback `primaryCurrency` has always used.
@@ -3016,9 +3073,13 @@ function resolveVisibleRegistry(
       settings,
       currency: row.currency ?? "AUD",
       itemBelongs: Boolean(row.itemListed),
+      familyKind: row.familyKind,
     };
   });
 }
+
+/** `families.kind`: a real invited household, or the wedding's host preview one. */
+type FamilyKind = "guest" | "host";
 
 /** The optional checks {@link resolveVisibleRegistry} folds into its read. */
 interface GateChecks {
@@ -3033,7 +3094,7 @@ interface GateRow {
   currency: string | null;
   tier: string;
   imageListed: number;
-  familyListed: number;
+  familyKind: FamilyKind | null;
   itemListed: number;
   settingsWeddingId: string | null;
   published: boolean | null;
@@ -3181,7 +3242,7 @@ export const registryGuestService = {
       // valid session could walk slugs and learn which weddings have a
       // published gift list, which is the exact fact the single 404 code exists
       // to hide.
-      const { settings, weddingId } = yield* resolveVisibleRegistry(input.slug, {
+      const { settings, weddingId, familyKind } = yield* resolveVisibleRegistry(input.slug, {
         familyId: input.familyId,
       });
       const rows = yield* dbQuery(() =>
@@ -3224,9 +3285,10 @@ export const registryGuestService = {
         settings.shippingAddress !== null &&
         claims.length > 0 &&
         embargoLifted(settings.shippingVisibleFrom);
-      return showAddress
-        ? { claims, shippingAddress: settings.shippingAddress as string }
-        : { claims };
+      const view: HouseholdRegistryDto = { claims };
+      if (showAddress) view.shippingAddress = settings.shippingAddress as string;
+      if (familyKind === "host") view.preview = true;
+      return view;
     }).pipe(Effect.withSpan("cire.registry.householdView"));
   },
 };

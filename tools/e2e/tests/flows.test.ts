@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { appSpecs } from "../src/stack";
+
 // Flows wait on what the page shows or the network returns, never on time: a
 // fixed sleep is a flake on a slow runner and dead time on a fast one, and
 // `networkidle` never settles on a dev server holding an HMR socket open.
@@ -25,18 +27,51 @@ describe("flow sources", () => {
     for (const file of files) expect(file).toEndWith(".flow.ts");
   });
 
-  // cire-api allows 5 claims a minute per IP (`defaultClaimLimiter` in
-  // cire/api/src/app.ts), one window shared by the whole run. A sixth claim
-  // gets 429 only when it lands inside the first one's minute, which depends
-  // on how fast the machine is: a run that passes locally and fails in CI, in
-  // a flow nobody touched. Counted here, so the commit that adds it goes red.
-  test("the flows claim no more invitation codes than cire-api allows in a minute", () => {
+  // cire-api allows 5 claims a minute per client address (`defaultClaimLimiter`
+  // in cire/api/src/app.ts), one window per address shared by the whole run. A
+  // sixth claim gets 429 only when it lands inside the first one's minute,
+  // which depends on how fast the machine is: a run that passes locally and
+  // fails in CI, in a flow nobody touched. Counted here, so the commit that
+  // adds it goes red.
+  //
+  // A flow claims by pressing "Open Invitation", or by opening the invitation
+  // at a `code=` link, which claims on load (the organiser's "Preview invite").
+  // A flow that calls `claimFromOrganiserAddress` sends its claims from the
+  // organiser's own address and counts in that window instead. It may claim
+  // only through a link: a press in a second, unrouted context would spend the
+  // guests' window while being counted in the organiser's.
+  test("the flows claim no more invitation codes than cire-api allows in a minute, per address", () => {
     const dir = join(import.meta.dirname, "flows");
-    const claims = readdirSync(dir)
-      .map((file) => readFileSync(join(dir, file), "utf8"))
-      .map((source) => source.match(/name: "Open Invitation" \}\)\.click\(/g)?.length ?? 0)
-      .reduce((sum, n) => sum + n, 0);
-    expect(claims).toBeGreaterThan(0);
-    expect(claims).toBeLessThanOrEqual(5);
+    const sources = readdirSync(dir).map((file) => readFileSync(join(dir, file), "utf8"));
+    const count = (source: string, pattern: RegExp) => source.match(pattern)?.length ?? 0;
+    const press = /name: "Open Invitation" \}\)\.click\(/g;
+    const link = /[?&]code=/g;
+    const fromOrganiser = (source: string) => source.includes("claimFromOrganiserAddress(");
+
+    const guests = sources
+      .filter((source) => !fromOrganiser(source))
+      .reduce((sum, source) => sum + count(source, press) + count(source, link), 0);
+    const organiser = sources.filter(fromOrganiser);
+    for (const source of organiser) expect(count(source, press)).toBe(0);
+    const organiserClaims = organiser.reduce((sum, source) => sum + count(source, link), 0);
+
+    expect(guests).toBeGreaterThan(0);
+    expect(guests).toBeLessThanOrEqual(5);
+    expect(organiserClaims).toBeLessThanOrEqual(5);
+  });
+
+  // The organiser's window exists only because the stack's cire-api keeps a
+  // client address the request sends. Without that, every claim would land in
+  // one window again, and fail only on a fast machine. What keeping it does is
+  // tested beside the function, in cire/api/tests/lib/local-client-address.test.ts.
+  test("the stack's cire-api keeps the client address a request sends", () => {
+    const cireApi = appSpecs().find((spec) => spec.name === "cireApi");
+    expect(cireApi?.env?.CIRE_E2E_CLIENT_ADDRESS).toBe("1");
+    const local = readFileSync(
+      join(import.meta.dirname, "..", "..", "..", "cire", "api", "src", "local.ts"),
+      "utf8",
+    );
+    expect(local).toContain('process.env.CIRE_E2E_CLIENT_ADDRESS === "1"');
+    expect(local).toContain("localClientAddress(");
   });
 });

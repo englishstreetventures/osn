@@ -1,6 +1,7 @@
+import { CONSENT_CATEGORIES, type ConsentCategory } from "@cire/ui/consent-categories";
+import { vendorById } from "@cire/ui/consent-vendors";
 import { createSignal } from "solid-js";
 
-import { CONSENT_CATEGORIES, type ConsentCategory } from "./categories";
 import { readConsentFromDocument, writeConsentToDocumentAndVerify } from "./cookie";
 import {
   allGrants,
@@ -12,7 +13,6 @@ import {
   normaliseGrants,
   preDecisionGrants,
 } from "./record";
-import { vendorById } from "./vendors";
 
 /**
  * The shared, page-wide consent state.

@@ -36,6 +36,11 @@ export interface GiftRegistryItemCardProps {
   claim: GiftRegistryHouseholdClaim | undefined;
   /** Whether a claim/release control may be shown at all (i.e. signed in). */
   canClaim: boolean;
+  /**
+   * The organiser's preview session, which may not write. The card shows the
+   * Reserve control a guest sees, disabled, and nothing else that writes.
+   */
+  preview?: boolean;
   /** A write on THIS card is in flight. */
   busy: boolean;
   /** Resolves `true` when the claim landed, which closes the form. */
@@ -280,6 +285,14 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
           <Show when={fullyReserved()}>
             <Button variant="cta" disabled>
               Reserved
+            </Button>
+          </Show>
+          {/* The organiser's preview: the control a guest would press, shown
+              as it would be and disabled, since a preview never writes. The
+              page says why, once, above the list. */}
+          <Show when={props.preview && !fullyReserved()}>
+            <Button variant="cta" disabled>
+              Reserve
             </Button>
           </Show>
           <Show when={props.canClaim && !open()}>

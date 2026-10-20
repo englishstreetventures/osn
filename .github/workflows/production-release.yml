@@ -487,6 +487,8 @@ jobs:
           PUBLIC_OSN_ACCOUNT_URL: https://musubi.social
           # The organiser's "preview / view live invite" link.
           PUBLIC_CIRE_WEB_URL: https://invite.cireweddings.com
+          # The RSVP editor's privacy link: the marketing site's /privacy.
+          PUBLIC_MARKETING_URL: https://cireweddings.com
 
       # The `build` script chains this guard too, but a turbo cache replay
       # skips the chained call; this step checks the artifact either way.

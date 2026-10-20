@@ -14,7 +14,7 @@ related:
 last-reviewed: 2026-10-20
 ---
 
-# DPIA — Cire guest data
+# DPIA — Cire guest data (special-category dietary)
 
 A Data Protection Impact Assessment (GDPR Art. 35) for the cire
 wedding-invite app. This processing needs a DPIA because it
@@ -110,7 +110,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   one's duties, with its essence available to guests, and Art. 28 asks for the
   processor terms. Neither is written yet: the organiser terms do not name the
   owners' duties or a point of contact, and the guest notice
-  (`cire/invites/src/pages/privacy.astro`, "Who decides what") does not say a
+  (`cire/ui/src/guest-privacy-notice.astro`, "Who decides what") does not say a
   guest may exercise their rights against any owner.
 - **Scale.** Per-wedding guest counts (tens to low hundreds today; multi-tenant
   scaffold allows many weddings). We collect special-category data from a
@@ -313,11 +313,22 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   - **Art. 14 notice for a plus-one.** Their data is not obtained from them, so
     the controller owes them the Art. 14 information. The invite's plus-one
     prompt asks the household to share the privacy notice (`/privacy`) with
-    their guest, and the notice has a section for a person a guest brings: the
-    source of their details (the guest bringing them), the basis for each
-    (legitimate interest for name and RSVP; for dietary requirements, their
-    explicit consent as confirmed by that guest), and how to correct, withdraw
-    or delete them without a code of their own. The owners, as joint
+    their guest, and the notice — the same text on the guest site's `/privacy`
+    and at cireweddings.com/privacy/guests, which cireweddings.com/privacy
+    links to — has a section for a
+    person a guest brings: the source of their details (the guest bringing
+    them, or a host who records their reply and dietary requirements for them),
+    the basis for each (legitimate interest for name and RSVP; for dietary
+    requirements, their explicit consent as confirmed by that guest, or by the
+    host who records it), and how to correct, withdraw or delete them without a
+    code of their own. When an organiser records a plus-one's dietary answer
+    by phone or on paper, the controller gives the notice through that
+    organiser: under the organiser's plus-one attestation the portal asks them
+    to pass it on, with the line "Share our privacy notice with them:
+    cireweddings.com/privacy", linked to that page in a new tab
+    (`cire/host/src/components/RsvpView.tsx`). An owner who records the reply
+    gives it as one of the joint controllers; an editor passes it on for the
+    owners (§1 Roles). The owners, as joint
     controllers, answer their requests, and can correct a plus-one's name at any time (see
     [[dsar]]). Name alone (Art. 6(1)(f), wedding administration) rests on the
     same basis as every other guest name.
@@ -353,7 +364,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
 | Guest spreadsheets or invite photos permanently deleted by the daily R2 orphan reconciler while the rows naming them are missing — a bad migration, a wrong bulk delete, a `cire-db` restore — with no versioning or second copy of `cire-sheets` or `cire-assets` to restore from ([[backup-dr]]) | Low | High | Mitigated: only objects R2 says are 7 days old are judged; a failed or empty reference read, a database paired with another environment's bucket, or a lookup that loses its control deletes nothing; at most 500 objects a run; a run whose rows naming the bucket's objects fell by more than half holds, emails the operator, and keeps holding against the earlier count for up to 7 runs; an operator's `reconcile/stop` object stops a reconciler without a deploy, and the restore runbook in [[backup-dr]] sets it first; every delete batch logs a warning. Residuals: no backup of either bucket; a loss under half the rows is not held; a hold lasts 7 runs and a stop relies on an operator acting on the email; an empty table or a total wipe aborts every run with a warning log and sends no email. |
 | Cross-DB deletion orphan — OSN-account deletion does not erase cire guest data | Medium | Medium | No fan-out; orphan-tolerance documented in [[dsar]] (C-M1). |
 | A guest's gift amount and day outlive the year in the couple's record | Medium | Low | Kept unnamed, with no note or Stripe identifier, a day rather than a time, at most 200 lines a wedding; read only by the wedding's members and mailed to its owners. The couple can still match a line to the payer in their own Stripe account — but they were the recipients and hold that record anyway, so the residual is that cire keeps a copy past the year. Guests are told in the privacy notice; the record goes when the couple delete the wedding. |
-| A plus-one's name and reply held on another guest's word, and they may never see the notice | Medium | Low–Medium | The household names the plus-one; the plus-one never holds the claim code. Mitigated: dietary data on a plus-one's reply is stored only under an attestation that speaks of the plus-one — the household's, or the organiser's for a phone or paper reply — each in its own box and wording, pinned by its own version and to the name the plus-one carries now; a household rename clears the plus-one's dietary answers; the capture copy asks the household to pass on the privacy notice, which has a section for them; an editor can correct the name at any time; the household can remove the plus-one until the RSVP deadline and the organiser at any time (permission off with the remove flag); swept with the household at 1 year ([[retention]]). |
+| A plus-one's name and reply held on another guest's word, and they may never see the notice | Medium | Low–Medium | The household names the plus-one; the plus-one never holds the claim code. Mitigated: dietary data on a plus-one's reply is stored only under an attestation that speaks of the plus-one — the household's, or the organiser's for a phone or paper reply — each in its own box and wording, pinned by its own version and to the name the plus-one carries now; a household rename clears the plus-one's dietary answers; the capture copy asks the household to pass on the privacy notice, which has a section for them, and the portal asks an organiser recording a plus-one's dietary answer to pass on cireweddings.com/privacy, which leads to it; an editor can correct the name at any time; the household can remove the plus-one until the RSVP deadline and the organiser at any time (permission off with the remove flag); swept with the household at 1 year ([[retention]]). |
 | A member's reply attributed to the wrong person on a shared device | Low | Low | Anyone holding the household code can pick any member's name — the household trust model the claim has always had. Mitigated by "Not you?" (clears the member and ends the browser's musubi sign-in), by the invite naming the member answering — the write refuses a reply when the session's member is no longer the one the page showed (409 `member_changed`), so another tab's choice never takes over this tab's answers — and, where account linking is on, by musubi always showing the signed-in account before a link (`prompt=select_account`). There `submitted_via_link` lets the organisers tell "signed in as" from "picked from a list"; where it is off, every attribution is "picked from a list". |
 | One household member relays another adult's dietary consent | Medium | Medium | Existing gap, now visible in the record (which member ticked the box for whom). Accepted: the consent gate is unchanged and the household relays consent on its own word; revisit on request. |
 | Guest claim code (`public_id`) leaking — it is a credential | Low–Medium | Medium | Rate-limited claim endpoint; redacted in logs (C-M2). Still a shared, low-entropy-looking string. |

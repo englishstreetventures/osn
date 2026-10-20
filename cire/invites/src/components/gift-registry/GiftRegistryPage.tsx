@@ -123,6 +123,8 @@ export function giftRegistryWriteMessage(
         : `That was a lot of changes at once. Try again in ${outcome.retryAfterSeconds} seconds.`;
     case "invalid":
       return "That number is not available any more. Pick a smaller one and try again.";
+    case "preview":
+      return "Preview mode. Nothing can be reserved from a preview.";
     case "error":
       return "Could not reach the gift list. Check your connection and try again.";
   }
@@ -255,6 +257,13 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
   });
 
   const signedIn = createMemo(() => household() !== null);
+
+  /**
+   * The organiser's "Preview invite" session. It reads the list as guests do
+   * and may not write to it, so the page shows the controls disabled rather
+   * than offering ones the API refuses.
+   */
+  const preview = createMemo(() => household()?.preview === true);
 
   /** This household's own claims, by item. Empty when signed out. */
   const claims = createMemo(() => {
@@ -456,6 +465,18 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
               </p>
             </Show>
 
+            {/* The organiser's preview. Same opening words as the invite's own
+                preview note, so the two read as one mode. */}
+            <Show when={preview()}>
+              <p
+                data-gift-preview
+                class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
+              >
+                Preview mode. Guests reserve gifts and give money here; nothing can be reserved or
+                given from a preview.
+              </p>
+            </Show>
+
             <Show when={shippingAddress()}>
               {(address) => (
                 <div
@@ -500,6 +521,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                   slug={props.slug}
                   currency={registry()?.currency ?? ""}
                   inviteHref={props.inviteHref}
+                  preview={preview()}
                 />
               </Suspense>
             </Show>
@@ -568,7 +590,8 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                                       currency={registry()?.currency ?? ""}
                                       imageBase={imageBase(item())}
                                       claim={claims().get(id)}
-                                      canClaim={signedIn()}
+                                      canClaim={signedIn() && !preview()}
+                                      preview={preview()}
                                       busy={busyItem() === id}
                                       onClaim={(claimBody) =>
                                         claimItem(id, item().title, claimBody)
