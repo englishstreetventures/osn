@@ -511,6 +511,56 @@ describe("the popover from the keyboard, in Chrome", () => {
   });
 });
 
+describe("the popover's list, in Chrome", () => {
+  it("paints the highlight and the ticks, follows the highlight down, keeps the focus in the search, and hands it back on Tab", async () => {
+    await page.viewport(1280, 800);
+    seedTasks(TASKS);
+    render(() => (
+      <div style={{ padding: "16px" }}>
+        <ChecklistView weddingId="wed_1" canEdit={true} />
+      </div>
+    ));
+    const trigger = await screen.findByRole("button", {
+      name: "Assign people to Set up the welcome table",
+    });
+    const { dialog, listbox } = await openPopover("Set up the welcome table");
+    const search = within(dialog).getByRole("combobox", { name: "Search people" });
+    expect(document.activeElement).toBe(search);
+    const options = within(listbox).getAllByRole("option");
+    const paint = (el: Element) => getComputedStyle(el).backgroundColor;
+
+    // The highlighted row and a ticked circle are painted, not only named:
+    // the highlight on the first row alone, a fill in the ticked circle alone,
+    // and the empty circle's edge in its own ink.
+    const clear = "rgba(0, 0, 0, 0)";
+    expect(paint(options[0]!)).not.toBe(clear);
+    expect(paint(options[1]!)).toBe(clear);
+    const circle = (state: string) =>
+      options
+        .find((o) => o.getAttribute("aria-selected") === state)!
+        .querySelector("[data-toggle]")!;
+    expect(paint(circle("true"))).not.toBe(clear);
+    expect(paint(circle("false"))).toBe(clear);
+    expect(getComputedStyle(circle("false")).borderTopColor).not.toBe(
+      getComputedStyle(circle("false")).color,
+    );
+
+    await userEvent.keyboard("{End}");
+    await waitFor(() => expect(listbox.scrollTop).toBeGreaterThan(0));
+    expect(options.at(-1)!.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      listbox.getBoundingClientRect().bottom + 1,
+    );
+
+    await userEvent.click(optionNamed(listbox, "Ben Okafor"));
+    expect(optionNamed(listbox, "Ben Okafor").getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(search);
+
+    await userEvent.keyboard("{Tab}");
+    await waitFor(() => expect(dialog.isConnected).toBe(false));
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+});
+
 describe("a re-read of the seats while the popover is open, in Chrome", () => {
   it("keeps every tick, the highlighted person and their row", async () => {
     await page.viewport(1280, 800);

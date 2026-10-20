@@ -21,6 +21,9 @@ vi.mock("../../src/lib/api", async () => {
   return organiserApiMock();
 });
 
+const { haptic } = vi.hoisted(() => ({ haptic: vi.fn() }));
+vi.mock("../../src/lib/haptics", () => ({ haptic }));
+
 import ChecklistView from "../../src/components/ChecklistView";
 import {
   __resetHostsCache,
@@ -28,7 +31,12 @@ import {
   type HostSeat,
   setFreshHosts,
 } from "../../src/lib/hosts-store";
-import { __resetTasksCache, setCachedTasks, type TaskRow } from "../../src/lib/tasks-store";
+import {
+  __resetTasksCache,
+  dropTasks,
+  setCachedTasks,
+  type TaskRow,
+} from "../../src/lib/tasks-store";
 import { authFetchMock, redirectSpy, resetOrganiserMocks, toastError } from "../test-support/mocks";
 
 // happy-dom computes `animation-name` as "" rather than "none" for an element
@@ -154,8 +162,7 @@ const sent = () =>
 /** A task's row on the checklist, by its checkbox. */
 const rowOf = (title: string) => screen.getByRole("checkbox", { name: title }).closest("li")!;
 /** What the row says about who holds it, in words. */
-const heldBy = (title: string) =>
-  within(rowOf(title)).queryByText(/^Held by /)?.textContent ?? null;
+const heldBy = (title: string) => within(rowOf(title)).queryByText(/^Held by/)?.textContent ?? null;
 /** The faces on the row's stack, left to right, by seat. */
 const faces = (title: string) =>
   [...rowOf(title).querySelectorAll("[data-holder]")].map((el) => el.getAttribute("data-holder"));
@@ -177,6 +184,19 @@ async function openPopover(title: string) {
 
 const option = (listbox: HTMLElement, name: string) =>
   within(listbox).getByRole("option", { name: new RegExp(`^${name}`) });
+/** The person the keyboard highlight is on, by what `box` names as active. */
+const activeName = (box: HTMLElement, listbox: HTMLElement) => {
+  const id = box.getAttribute("aria-activedescendant");
+  return id
+    ? listbox.querySelector(`[id="${id}"]`)?.querySelector("[data-name]")?.textContent
+    : null;
+};
+/** Everyone the popover lists, top to bottom. */
+const listed = (listbox: HTMLElement) =>
+  within(listbox)
+    .queryAllByRole("option")
+    .map((o) => o.querySelector("[data-name]")?.textContent);
+
 /** The people ticked in the popover, top to bottom. */
 const ticked = (listbox: HTMLElement) =>
   within(listbox)
@@ -187,6 +207,7 @@ const ticked = (listbox: HTMLElement) =>
 afterEach(() => {
   cleanup();
   resetOrganiserMocks();
+  haptic.mockReset();
 });
 
 beforeEach(() => {
@@ -203,6 +224,12 @@ describe("who holds a task", () => {
         assigneeHostIds: ["whost_sam", "whost_jo", "whost_anon"],
       }),
       row({ id: "b", title: "Carry the rings", assigneeHostIds: ["whost_jo"], sortOrder: 1 }),
+      row({
+        id: "c",
+        title: "Mind the cake",
+        assigneeHostIds: ["whost_sam", "whost_jo", "whost_anon", "whost_kim", "whost_robin"],
+        sortOrder: 2,
+      }),
     ]);
     const seats = held();
     api({ hosts: seats.route });
@@ -212,6 +239,8 @@ describe("who holds a task", () => {
     await waitFor(() => expect(heldBy("Book venue")).toBe("Held by 3 people"));
     expect(heldBy("Carry the rings")).toBe("Held by 1 person");
     expect(faces("Book venue")).toEqual(["whost_sam", "whost_jo", "whost_anon"]);
+    expect(face("Book venue", "whost_sam")).not.toHaveAttribute("title");
+    expect(rowOf("Mind the cake").querySelector("[data-more]")).toHaveAttribute("title", "");
     seats.answer(hostsAnswer([SAM, JO, ANON])());
 
     await waitFor(() => expect(heldBy("Book venue")).toBe("Held by Sam Lee, @jo and usr_anon"));
@@ -269,6 +298,12 @@ describe("who holds a task", () => {
     );
     expect(faces("Book venue")).toEqual(["whost_sam", "whost_jo", "whost_anon"]);
     expect(more("Book venue")).toBe("+2");
+    // Each name on hover: a face's own, and the count's everyone it stands for.
+    expect(face("Book venue", "whost_sam")).toHaveAttribute("title", "Sam Lee");
+    expect(rowOf("Book venue").querySelector("[data-more]")).toHaveAttribute(
+      "title",
+      "Kim Park, Robin Hart",
+    );
     expect(faces("Carry the rings")).toEqual(["whost_sam", "whost_jo", "whost_anon"]);
     expect(more("Carry the rings")).toBeNull();
   });
@@ -353,14 +388,16 @@ describe("a holder's face", () => {
 
   it("is the photo when there is one, and the empty avatar when there is none or it is not https", async () => {
     const PLAIN: HostSeat = { ...ANON, avatarUrl: "http://photos.example/anon.jpg" };
+    const GARBLED: HostSeat = { ...KIM, avatarUrl: "not a url" };
     setCachedTasks("wed_1", [
       row({
         id: "a",
         title: "Book venue",
         assigneeHostIds: ["whost_sam", "whost_jo", "whost_anon"],
       }),
+      row({ id: "b", title: "Carry the rings", assigneeHostIds: ["whost_kim"], sortOrder: 1 }),
     ]);
-    api({ hosts: hostsAnswer([SAM, JO, PLAIN]) });
+    api({ hosts: hostsAnswer([SAM, JO, PLAIN, GARBLED]) });
     render(() => <ChecklistView weddingId="wed_1" canEdit={false} />);
     await waitFor(() => expect(heldBy("Book venue")).toMatch(/Sam Lee/));
 
@@ -372,6 +409,8 @@ describe("a holder's face", () => {
     expect(face("Book venue", "whost_jo").querySelector("img")).toBeNull();
     expect(face("Book venue", "whost_anon").querySelector("img")).toBeNull();
     expect(silhouette(face("Book venue", "whost_anon"))).not.toBeNull();
+    expect(face("Carry the rings", "whost_kim").querySelector("img")).toBeNull();
+    expect(silhouette(face("Carry the rings", "whost_kim"))).not.toBeNull();
   });
 
   it("falls back to the empty avatar when the photo will not load, and tries a new photo again", async () => {
@@ -431,9 +470,11 @@ describe("the popover", () => {
     expect(option(listbox, "Sam Lee")).toHaveTextContent("Owner");
     expect(option(listbox, "@jo")).toHaveTextContent("Helper");
 
+    const hostReads = calls("/hosts").length;
     fireEvent.click(option(listbox, "@jo"));
-    // Shown before the server answers.
+    // Shown before the server answers, with the tap the portal gives a commit.
     expect(ticked(listbox)).toEqual(["@jo"]);
+    expect(haptic).toHaveBeenLastCalledWith("commit");
     expect(faces("Carry the rings")).toContain("whost_jo");
     await waitFor(() => expect(writes).toHaveLength(1));
     const [url, init] = calls("/assignees/whost_jo", "PUT")[0]!;
@@ -451,6 +492,8 @@ describe("the popover", () => {
     expect(writes[1]).toEqual({ method: "DELETE", taskId: "b", hostId: "whost_jo" });
     await waitFor(() => expect(faces("Carry the rings")).toEqual(["whost_kim"]));
 
+    // A stored write reads nobody's names again.
+    expect(calls("/hosts")).toHaveLength(hostReads);
     // Still open, over the same trigger: no toggle rebuilt the row.
     expect(dialog).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Assign people" })).toBe(dialog);
@@ -525,6 +568,7 @@ describe("the popover", () => {
     let { dialog, listbox } = await openPopover("Book venue");
     expect(within(listbox).getAllByRole("option")).toHaveLength(5);
     expect(within(dialog).queryByRole("combobox")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/^Nobody matches/)).not.toBeInTheDocument();
     fireEvent.keyDown(listbox, { key: "Escape" });
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
 
@@ -532,9 +576,13 @@ describe("the popover", () => {
     seats = [...five, ALEX];
     setFreshHosts("wed_1", seats);
     ({ dialog, listbox } = await openPopover("Book venue"));
-    const search = within(dialog).getByRole("combobox", { name: "Search people" });
+    let search = within(dialog).getByRole("combobox", { name: "Search people" });
     expect(within(listbox).getAllByRole("option")).toHaveLength(6);
+    expect(search).toHaveAttribute("spellcheck", "false");
+    expect(within(dialog).queryByText(/^Nobody matches/)).not.toBeInTheDocument();
 
+    fireEvent.input(search, { target: { value: "  @KIMMY " } });
+    expect(listed(listbox)).toEqual(["Kim Park"]);
     fireEvent.input(search, { target: { value: "hart" } });
     expect(
       within(listbox)
@@ -547,9 +595,23 @@ describe("the popover", () => {
         .getAllByRole("option")
         .map((o) => o.querySelector("[data-name]")?.textContent),
     ).toEqual(["Kim Park"]);
+    // A search left behind when the people drop to five filters nothing.
+    fireEvent.input(search, { target: { value: "kimmy" } });
+    expect(listed(listbox)).toEqual(["Kim Park"]);
+    setFreshHosts("wed_1", five);
+    await waitFor(() => expect(within(dialog).queryByRole("combobox")).not.toBeInTheDocument());
+    expect(listed(listbox)).toHaveLength(5);
+    setFreshHosts("wed_1", seats);
+    search = await within(dialog).findByRole("combobox", { name: "Search people" });
+
     fireEvent.input(search, { target: { value: "zz" } });
     expect(within(listbox).queryAllByRole("option")).toHaveLength(0);
     expect(within(dialog).getByText("Nobody matches “zz”.")).toBeVisible();
+    // Nothing to point at, and nothing to toggle.
+    expect(search).not.toHaveAttribute("aria-activedescendant");
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(sent()).toEqual([]);
   });
 
   it("takes a person back at once and reads the seats and tasks again when they are no longer on the wedding", async () => {
@@ -606,7 +668,30 @@ describe("the popover", () => {
     expect(ticked(listbox)).toEqual(["Sam Lee"]);
     expect(faces("Book venue")).toEqual(["whost_sam"]);
     expect(calls("/tasks")).toHaveLength(1);
+    expect(haptic).toHaveBeenLastCalledWith("reject");
+    // A failure is not a seat gone: the people are not read again.
+    expect(calls("/hosts")).toHaveLength(1);
     reread.answer(json({ tasks: [before] }));
+  });
+
+  it("takes a person back and says so when the write never reaches the server", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    api({
+      hosts: hostsAnswer([SAM, JO]),
+      holder: () => {
+        throw new TypeError("Failed to fetch");
+      },
+      tasks: () => json({ tasks: [row({ id: "a", title: "Book venue" })] }),
+    });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    const { listbox } = await openPopover("Book venue");
+
+    fireEvent.click(option(listbox, "@jo"));
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("Couldn't change who holds that task."),
+    );
+    expect(ticked(listbox)).toEqual([]);
+    expect(redirectSpy).not.toHaveBeenCalled();
   });
 
   it("says so when the wedding's people can't be read, and clears it once they can", async () => {
@@ -630,8 +715,52 @@ describe("the popover", () => {
 
     fireEvent.keyDown(within(dialog).getByRole("listbox"), { key: "Escape" });
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    // Closing asks for nothing; opening again does.
+    expect(reads).toBe(1);
     ({ dialog } = await openPopover("Book venue"));
+    expect(reads).toBe(2);
     expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("drops the notice when the co-host panel hands over the people", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    api({ hosts: () => json({ error: "Internal error" }, 500) });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+    fireEvent.click(assignButton("Book venue"));
+    const dialog = await screen.findByRole("dialog", { name: "Assign people" });
+    await within(dialog).findByRole("alert");
+
+    setFreshHosts("wed_1", [SAM, JO]);
+    await within(dialog).findAllByRole("option");
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says it is looking, not that it failed, while it asks again for the people", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    const retry = held();
+    let reads = 0;
+    api({
+      hosts: (init) => {
+        reads += 1;
+        return reads === 1 ? json({ error: "Internal error" }, 500) : retry.route(init);
+      },
+    });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+    fireEvent.click(assignButton("Book venue"));
+    let dialog = await screen.findByRole("dialog", { name: "Assign people" });
+    await within(dialog).findByRole("alert");
+    fireEvent.keyDown(within(dialog).getByRole("listbox"), { key: "Escape" });
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+
+    fireEvent.click(assignButton("Book venue"));
+    dialog = await screen.findByRole("dialog", { name: "Assign people" });
+    await waitFor(() => expect(reads).toBe(2));
+    expect(within(dialog).getByText("Finding the people on this wedding…")).toBeVisible();
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+    retry.answer(hostsAnswer([SAM, JO])());
+    await within(dialog).findAllByRole("option");
   });
 });
 
@@ -696,13 +825,6 @@ describe("reading the people for the popover", () => {
 });
 
 describe("the popover from the keyboard", () => {
-  const activeName = (box: HTMLElement, listbox: HTMLElement) => {
-    const id = box.getAttribute("aria-activedescendant");
-    return id
-      ? listbox.querySelector(`[id="${id}"]`)?.querySelector("[data-name]")?.textContent
-      : null;
-  };
-
   it("moves through five people on the list itself, and toggles with Space and Enter", async () => {
     setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
     api({
@@ -713,9 +835,15 @@ describe("the popover from the keyboard", () => {
     const { listbox } = await openPopover("Book venue");
     await waitFor(() => expect(document.activeElement).toBe(listbox));
 
+    expect(listbox.id).not.toBe("");
     expect(activeName(listbox, listbox)).toBe("Sam Lee");
-    fireEvent.keyDown(listbox, { key: "ArrowDown" });
+    // Each key the list answers is taken from the page: none scrolls it.
+    expect(fireEvent.keyDown(listbox, { key: "ArrowDown" })).toBe(false);
     expect(activeName(listbox, listbox)).toBe("@jo");
+    expect(fireEvent.keyDown(listbox, { key: "ArrowUp" })).toBe(false);
+    expect(activeName(listbox, listbox)).toBe("Sam Lee");
+    expect(fireEvent.keyDown(listbox, { key: "End" })).toBe(false);
+    expect(fireEvent.keyDown(listbox, { key: "Home" })).toBe(false);
     fireEvent.keyDown(listbox, { key: "End" });
     expect(activeName(listbox, listbox)).toBe("Robin Hart");
     fireEvent.keyDown(listbox, { key: "ArrowDown" });
@@ -726,12 +854,46 @@ describe("the popover from the keyboard", () => {
     fireEvent.keyDown(listbox, { key: "ArrowDown" });
     expect(activeName(listbox, listbox)).toBe("@jo");
 
-    fireEvent.keyDown(listbox, { key: " " });
+    expect(fireEvent.keyDown(listbox, { key: " " })).toBe(false);
     expect(ticked(listbox)).toEqual(["@jo"]);
     await waitFor(() => expect(sent()).toEqual(["PUT a whost_jo"]));
-    fireEvent.keyDown(listbox, { key: "Enter" });
+    expect(fireEvent.keyDown(listbox, { key: "Enter" })).toBe(false);
     expect(ticked(listbox)).toEqual([]);
     await waitFor(() => expect(sent()).toEqual(["PUT a whost_jo", "DELETE a whost_jo"]));
+  });
+
+  it("follows the pointer and the click with the highlight, so a key goes on from there", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    api({
+      hosts: hostsAnswer([SAM, JO, ANON]),
+      holder: ({ method, hostId }) => stored(method === "PUT" ? [hostId] : []),
+    });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    const { listbox } = await openPopover("Book venue");
+
+    fireEvent.pointerMove(option(listbox, "usr_anon"));
+    expect(activeName(listbox, listbox)).toBe("usr_anon");
+    // A click on a row keeps the focus where it is.
+    expect(fireEvent.mouseDown(option(listbox, "@jo"))).toBe(false);
+    fireEvent.click(option(listbox, "@jo"));
+    expect(activeName(listbox, listbox)).toBe("@jo");
+    await waitFor(() => expect(sent()).toEqual(["PUT a whost_jo"]));
+    fireEvent.keyDown(listbox, { key: "Enter" });
+    await waitFor(() => expect(sent()).toEqual(["PUT a whost_jo", "DELETE a whost_jo"]));
+  });
+
+  it("keeps the highlight on the list when the people re-read are fewer", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    api({ hosts: hostsAnswer([SAM, JO, ANON, KIM, ROBIN]) });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    const { listbox } = await openPopover("Book venue");
+    fireEvent.keyDown(listbox, { key: "End" });
+    expect(activeName(listbox, listbox)).toBe("Robin Hart");
+
+    // Robin leaves; the co-host panel hands over the shorter list.
+    setFreshHosts("wed_1", [SAM, JO, ANON, KIM]);
+    await waitFor(() => expect(listed(listbox)).toHaveLength(4));
+    expect(activeName(listbox, listbox)).toBe("Kim Park");
   });
 
   it("starts in the search for six people; Enter toggles and a space is typed", async () => {
@@ -756,6 +918,10 @@ describe("the popover from the keyboard", () => {
     await waitFor(() => expect(sent()).toEqual(["PUT a whost_jo"]));
 
     // The highlight goes back to the top of what the search leaves.
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    expect(activeName(search, listbox)).toBe("usr_anon");
+    fireEvent.input(search, { target: { value: "o" } });
+    expect(activeName(search, listbox)).toBe(listed(listbox)[0]);
     fireEvent.input(search, { target: { value: "moore" } });
     expect(activeName(search, listbox)).toBe("Alex Moore");
   });
@@ -890,6 +1056,10 @@ describe("people picked while a write is out", () => {
     // Jo is not on the task, which is what the later pick asked for.
     expect(sent()).toEqual(["PUT a whost_jo"]);
     expect(calls("/tasks")).toHaveLength(0);
+    // Nothing of the pick is left over the list: a read that finds Jo put on
+    // by someone else shows Jo.
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue", assigneeHostIds: ["whost_jo"] })]);
+    expect(ticked(listbox)).toEqual(["@jo"]);
   });
 
   it("puts back what the server last said when the last write of a run fails", async () => {
@@ -965,6 +1135,77 @@ describe("people picked while a write is out", () => {
 
     expect(faces("Book venue")).toEqual(["whost_jo", "whost_sam"]);
     expect(ticked(listbox)).toEqual(["Sam Lee", "@jo"]);
+  });
+
+  it("keeps both people when the first answer already names the second", async () => {
+    const { listbox, writes } = await popoverWithHeldWrites();
+
+    fireEvent.click(option(listbox, "@jo"));
+    fireEvent.click(option(listbox, "Sam Lee"));
+    // The server stored Sam, then Jo; Jo's answer arrives first.
+    writes.answer(0, stored(["whost_sam", "whost_jo"]));
+    await waitFor(() => expect(calls("/assignees/whost_jo", "PUT")).toHaveLength(1));
+    writes.answer(1, stored(["whost_sam"]));
+    await waitFor(() => expect(listbox).not.toHaveAttribute("aria-busy"));
+
+    expect(faces("Book venue")).toEqual(["whost_sam", "whost_jo"]);
+  });
+
+  it("takes a person off for good when that answer flew beside another", async () => {
+    const { listbox, writes } = await popoverWithHeldWrites({ holders: ["whost_sam"] });
+
+    fireEvent.click(option(listbox, "@jo"));
+    fireEvent.click(option(listbox, "Sam Lee"));
+    expect(sent()).toEqual(["PUT a whost_jo", "DELETE a whost_sam"]);
+    writes.answer(1, stored([]));
+    writes.answer(0, stored(["whost_jo"]));
+    await waitFor(() => expect(listbox).not.toHaveAttribute("aria-busy"));
+
+    expect(faces("Book venue")).toEqual(["whost_jo"]);
+    expect(ticked(listbox)).toEqual(["@jo"]);
+  });
+
+  it("takes only its own person from an answer that flew beside another", async () => {
+    setCachedTasks("wed_1", [
+      row({ id: "a", title: "Book venue", assigneeHostIds: ["whost_sam"] }),
+    ]);
+    const writes = heldEach();
+    api({ hosts: hostsAnswer([SAM, JO, KIM, ROBIN]), holder: writes.route });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    const { listbox } = await openPopover("Book venue");
+
+    fireEvent.click(option(listbox, "@jo"));
+    fireEvent.click(option(listbox, "Kim Park"));
+    // Robin, put on by someone else, is in an answer that may be older than
+    // what the list already holds: the next read brings Robin, not this one.
+    writes.answer(0, stored(["whost_sam", "whost_robin", "whost_jo"]));
+    await waitFor(() => expect(calls("/assignees/whost_jo", "PUT")).toHaveLength(1));
+    writes.answer(1, stored(["whost_sam", "whost_robin", "whost_jo", "whost_kim"]));
+    await waitFor(() => expect(listbox).not.toHaveAttribute("aria-busy"));
+
+    expect(faces("Book venue")).toEqual(["whost_sam", "whost_jo", "whost_kim"]);
+  });
+
+  it("says nothing when the task goes while its writes are out", async () => {
+    const { listbox, writes } = await popoverWithHeldWrites();
+
+    fireEvent.click(option(listbox, "@jo"));
+    fireEvent.click(option(listbox, "Sam Lee"));
+    setCachedTasks("wed_1", []);
+    writes.answer(0, stored(["whost_jo"]));
+    writes.answer(1, stored(["whost_jo", "whost_sam"]));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("says nothing when the checklist is put away while a write is out", async () => {
+    const { listbox, writes } = await popoverWithHeldWrites();
+
+    fireEvent.click(option(listbox, "@jo"));
+    dropTasks("wed_1");
+    writes.answer(0, stored(["whost_jo"]));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   it("takes a later answer whole when its write flew alone", async () => {

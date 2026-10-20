@@ -11,7 +11,7 @@ import type { TaskRow } from "./tasks-store";
  */
 export function withPicks(
   holders: readonly string[],
-  picks: ReadonlyMap<string, boolean> | undefined,
+  picks: ReadonlyMap<string, boolean | undefined> | undefined,
 ): string[] {
   const shown = holders.filter((id) => picks?.get(id) !== false);
   for (const [id, on] of picks ?? []) if (on && !shown.includes(id)) shown.push(id);
@@ -89,9 +89,11 @@ const pairKey = (taskId: string, hostId: string) => `${taskId}\n${hostId}`;
  * nothing on screen.
  */
 export function createHolderWrites(options: HolderWritesOptions) {
-  const [picks, setPicks] = createSignal<ReadonlyMap<string, ReadonlyMap<string, boolean>>>(
-    new Map(),
-  );
+  /** Task → seat → wanted on (`true`) or off; `undefined` once it has
+   *  settled. Bounded by the seats picked on the tasks of one visit. */
+  const [picks, setPicks] = createSignal<
+    ReadonlyMap<string, ReadonlyMap<string, boolean | undefined>>
+  >(new Map());
   const [writing, setWriting] = createSignal<ReadonlyMap<string, number>>(new Map());
   const flights = new Map<string, Set<Flight>>();
   const sending = new Set<string>();
@@ -100,24 +102,10 @@ export function createHolderWrites(options: HolderWritesOptions) {
   const pickOf = (taskId: string, hostId: string) => picks().get(taskId)?.get(hostId);
 
   const setPick = (taskId: string, hostId: string, on: boolean | undefined) =>
-    setPicks((prev) => {
-      const forTask = new Map(prev.get(taskId));
-      if (on === undefined) forTask.delete(hostId);
-      else forTask.set(hostId, on);
-      const next = new Map(prev);
-      if (forTask.size > 0) next.set(taskId, forTask);
-      else next.delete(taskId);
-      return next;
-    });
+    setPicks((prev) => new Map(prev).set(taskId, new Map(prev.get(taskId)).set(hostId, on)));
 
   const countWrite = (taskId: string, by: 1 | -1) =>
-    setWriting((prev) => {
-      const next = new Map(prev);
-      const count = (prev.get(taskId) ?? 0) + by;
-      if (count > 0) next.set(taskId, count);
-      else next.delete(taskId);
-      return next;
-    });
+    setWriting((prev) => new Map(prev).set(taskId, (prev.get(taskId) ?? 0) + by));
 
   const shown = (taskId: string, holders: readonly string[]) =>
     withPicks(holders, picks().get(taskId));
@@ -137,10 +125,9 @@ export function createHolderWrites(options: HolderWritesOptions) {
     if (signedOut) return;
     const key = pairKey(taskId, hostId);
     sending.add(key);
-    const flight: Flight = { alone: true };
     const others = flights.get(taskId) ?? new Set<Flight>();
     for (const other of others) other.alone = false;
-    flight.alone = others.size === 0;
+    const flight: Flight = { alone: others.size === 0 };
     others.add(flight);
     flights.set(taskId, others);
     countWrite(taskId, 1);

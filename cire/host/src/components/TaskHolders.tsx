@@ -26,7 +26,9 @@ const FACES = 3;
 /** More people than this, and the popover opens on a search. */
 const SEARCH_ABOVE = 5;
 
-const NAMES = new Intl.ListFormat("en-AU", { type: "conjunction" });
+/** "Sam Lee, @jo and Priya Raman". */
+const listOf = (names: string[]) =>
+  new Intl.ListFormat("en-AU", { type: "conjunction" }).format(names);
 
 interface TaskHoldersProps {
   /** The task's title, for the trigger's name. */
@@ -82,7 +84,7 @@ export default function TaskHolders(props: TaskHoldersProps) {
     if (holders.some((h) => !h.seat)) {
       return `Held by ${holders.length} ${holders.length === 1 ? "person" : "people"}`;
     }
-    return `Held by ${NAMES.format(holders.map((h) => nameOf(h)!))}`;
+    return `Held by ${listOf(holders.map((h) => nameOf(h)!))}`;
   };
 
   // The count overlaps the + by half as much as the faces overlap each other,
@@ -156,7 +158,6 @@ export default function TaskHolders(props: TaskHoldersProps) {
 /** The + trigger and its popover, for an owner or editor. */
 function AssignPopover(props: TaskHoldersProps & { stack: () => JSX.Element }) {
   const [open, setOpen] = createSignal(false);
-  let content: HTMLDivElement | undefined;
 
   return (
     <Popover
@@ -191,16 +192,12 @@ function AssignPopover(props: TaskHoldersProps & { stack: () => JSX.Element }) {
         </span>
       </Popover.Trigger>
       <Popover.Portal>
+        {/* Kobalte focuses the first thing in it that takes the focus — the
+            search when there is one, else the list — without scrolling: the
+            panel opens at the page's top left and is put beside its trigger
+            a frame later, and a scrolling focus would jump the page there. */}
         <Popover.Content
-          ref={content}
           class="assign-popover border-border bg-surface-raised lip z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none"
-          onOpenAutoFocus={(e) => {
-            e.preventDefault();
-            // Without scrolling: the panel opens at the page's top left and is
-            // moved beside its trigger a frame later, so a scrolling focus
-            // would jump the page to the top first.
-            content?.querySelector<HTMLElement>("[data-autofocus]")?.focus({ preventScroll: true });
-          }}
           onKeyDown={(e: KeyboardEvent) => {
             // Tab would carry the focus out of a popover portalled to the end
             // of the page, past everything; it closes it instead, and the
@@ -267,11 +264,11 @@ function PeopleList(props: TaskHoldersProps) {
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
-        setActive((i) => (count === 0 ? 0 : (i + 1) % count));
+        setActive((i) => (i + 1) % Math.max(count, 1));
         break;
       case "ArrowUp":
         e.preventDefault();
-        setActive((i) => (count === 0 ? 0 : (i - 1 + count) % count));
+        setActive((i) => (i - 1 + count) % Math.max(count, 1));
         break;
       case "Home":
         e.preventDefault();
@@ -309,15 +306,16 @@ function PeopleList(props: TaskHoldersProps) {
   // they bring a search, the focus moves into it: Tab closes the popover, so
   // from the list there would be no way to reach it.
   createEffect(() => {
-    if (searchable() && document.activeElement === listRef)
-      searchRef?.focus({ preventScroll: true });
+    if (searchable()) searchRef?.focus({ preventScroll: true });
   });
 
   const activeId = () => (results().length > 0 ? optionId(active()) : undefined);
 
   return (
     <>
-      <Show when={props.seatsFailed}>
+      {/* Only while there is nobody to show: seats that arrive take it away
+          at once, before the read that brought them reports back. */}
+      <Show when={props.seatsFailed && props.seats === null}>
         <div class="px-3 pb-2">
           <Notice tone="danger" alert>
             Couldn't load the people on this wedding. Close this and try again.
@@ -325,7 +323,7 @@ function PeopleList(props: TaskHoldersProps) {
         </div>
       </Show>
       <Show when={searchable()}>
-        <div class="border-border mx-3 mb-1 flex items-center gap-2 rounded-sm border px-2.5">
+        <div class="border-border focus-within:border-focus focus-within:ring-focus mx-3 mb-1 flex items-center gap-2 rounded-sm border px-2.5 focus-within:ring-1">
           <svg
             aria-hidden="true"
             viewBox="0 0 16 16"
@@ -340,7 +338,6 @@ function PeopleList(props: TaskHoldersProps) {
           </svg>
           <input
             ref={searchRef}
-            data-autofocus
             type="text"
             role="combobox"
             aria-label="Search people"
@@ -374,9 +371,9 @@ function PeopleList(props: TaskHoldersProps) {
         aria-busy={props.busy || undefined}
         aria-activedescendant={searchable() ? undefined : activeId()}
         tabindex={searchable() ? -1 : 0}
-        data-autofocus={searchable() ? undefined : ""}
         onKeyDown={(e) => onKeyDown(e, true)}
-        class="flex min-h-0 flex-col overscroll-contain p-1 outline-none"
+        // The house ring, drawn inside: the panel clips anything outside it.
+        class="flex min-h-0 flex-col overscroll-contain p-1 focus-visible:-outline-offset-2"
         classList={{ "max-h-[14.75rem] overflow-y-auto": searchable() }}
       >
         <For each={results()}>

@@ -115,14 +115,16 @@ export default function ChecklistView(props: ChecklistViewProps) {
     return hosts;
   };
 
-  const ensureSeats = () =>
-    ensureHostsLoaded(props.weddingId, loadSeats).then(
-      () => setSeatsFailed(false),
-      (err: unknown) => {
-        if (isAuthExpired(err)) return redirectToLogin();
-        setSeatsFailed(true);
-      },
-    );
+  /** Read the seats unless they are fresh. A failure from an earlier read is
+   *  forgotten as this one starts, so a retry says it is looking, not that it
+   *  failed. */
+  const ensureSeats = () => {
+    setSeatsFailed(false);
+    return ensureHostsLoaded(props.weddingId, loadSeats).catch((err: unknown) => {
+      if (isAuthExpired(err)) return redirectToLogin();
+      setSeatsFailed(true);
+    });
+  };
 
   const anyAssigned = createMemo(() => (tasks() ?? []).some((t) => t.assigneeHostIds.length > 0));
   createEffect(() => {
@@ -174,9 +176,9 @@ export default function ChecklistView(props: ChecklistViewProps) {
   /**
    * A task's holders as its row shows them, from what it holds with the picks
    * still out laid over it: the reader first, then the order they were put on
-   * it. Once the seats have
-   * loaded, a seat the list no longer has has gone — the server took it off
-   * its tasks — and is left out until the tasks are read again.
+   * it. Once the seats have loaded, a seat the list no longer has has gone —
+   * the server took it off its tasks — and is left out until the tasks are
+   * read again.
    */
   const holdersOf = (holding: readonly string[]): Holder[] => {
     const ids = readerFirst(holding, viewerHostId());
@@ -460,8 +462,13 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                   // Non-null: rendered inside the DragDropProvider above.
                                   const [dndState] = useDragDropContext()!;
                                   const item = reorder.item(task.id, i, count);
-                                  const holding = createMemo(() =>
-                                    holderWrites.shown(task.id, (live() ?? task).assigneeHostIds),
+                                  // Every pick anywhere re-reads this; the
+                                  // same seats in the same order stop there.
+                                  const holding = createMemo(
+                                    () =>
+                                      holderWrites.shown(task.id, (live() ?? task).assigneeHostIds),
+                                    [],
+                                    { equals: sameRows },
                                   );
                                   const holders = createMemo(() => holdersOf(holding()));
                                   return (

@@ -358,8 +358,10 @@ outline when off, a `--brand` fill with an `--on-brand` tick when on — then th
 face, the name, and the role in muted ink. The keyboard highlight is
 `bg-gold/10`, as in the palette. Five people show whole; above five a search
 heads the list and it shows about four and a half rows, the half saying it
-scrolls. A popover that focuses something as it opens focuses it without
-scrolling: Kobalte opens the panel at the page's top left and moves it beside
+scrolls. The list draws the house focus ring inside its own edge, and the
+search field turns its border and a 1px ring `--focus` while it has the focus:
+the panel clips anything drawn outside it, for the droplet's rounded corners.
+A popover that focuses something as it opens focuses it without scrolling: Kobalte opens the panel at the page's top left and moves it beside
 its trigger a frame later, and a scrolling focus jumps the page to the top first.
 
 ### Two rules that apply to all of them

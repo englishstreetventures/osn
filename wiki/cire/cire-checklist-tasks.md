@@ -319,6 +319,8 @@ the organiser to sign in, and nothing more is sent.
 
 The first opening of a popover on a visit to the checklist reads the seats from
 the server unless the visit has read them already; later openings use that read.
+While they load the popover says it is finding the people; a read that fails
+says so inside it, until seats arrive or the next read starts.
 The co-host panel hands the checklist the seats it reads on opening, photos
 included, and marks them stale after each add, role change and removal. A
 removal marks the tasks stale too when a cached task names the removed seat
