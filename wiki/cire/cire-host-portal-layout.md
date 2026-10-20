@@ -298,7 +298,8 @@ that with the list it reads on opening, photos included, so a checklist opened
 after the panel reads none of its own, and marks the seats stale after each
 add, role change and removal. `tasks-store.ts` also keeps the reader's own seat
 from each `GET /tasks` answer (`readTaskList`), which the checklist puts first
-among a task's holders.
+among a task's holders. A helper's run-sheet scope is not in the cache, so
+changing one marks nothing stale.
 
 A cached wedding is in one of four states:
 
