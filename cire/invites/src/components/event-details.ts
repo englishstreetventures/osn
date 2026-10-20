@@ -7,7 +7,8 @@
  * stored lat/lng coordinates, so every "where" affordance below is derived
  * from `address` / `mapsUrl` alone — no map API key, no network call.
  */
-import type { EventSummary } from "./types";
+import { invitedMembers } from "./plus-one";
+import type { EventSummary, FamilyMember } from "./types";
 
 /** Resolve the canonical venue string from the free-form `address`, or null when unset. */
 export function venueLine(event: Pick<EventSummary, "address">): string | null {
@@ -32,10 +33,15 @@ export function formatEventDay(event: Pick<EventSummary, "startAt" | "timezone">
   }).format(date);
 }
 
-/** Format a single instant as a wall-clock time in `timezone`, e.g. "4:00 pm". */
-function formatClock(iso: string, timeZone: string): string {
+/** A parsed instant, or null for an empty or unparseable string. */
+function instant(iso: string): Date | null {
+  if (!iso) return null;
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** A wall-clock time in `timeZone`, e.g. "4:00 pm". */
+function clock(date: Date, timeZone: string): string {
   return new Intl.DateTimeFormat("en-AU", {
     timeZone,
     hour: "numeric",
@@ -44,30 +50,101 @@ function formatClock(iso: string, timeZone: string): string {
   }).format(date);
 }
 
+/** The calendar day of an instant in `timeZone`, as a sortable `YYYY-MM-DD`. */
+function dayKey(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+/** Whole calendar days from one `YYYY-MM-DD` to another. */
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
+/** "Fri", or "Fri, 13 Nov" once a weekday alone could name two days. */
+function dayLabel(date: Date, timeZone: string, withDate: boolean): string {
+  const options: Intl.DateTimeFormatOptions = { timeZone, weekday: "short" };
+  if (withDate) {
+    options.day = "numeric";
+    options.month = "short";
+  }
+  return new Intl.DateTimeFormat("en-AU", options).format(date);
+}
+
+/** The short name of `timeZone` at `date`, e.g. "AEDT" or "GMT+5:30". */
+function zoneLabel(date: Date, timeZone: string): string {
+  return (
+    new Intl.DateTimeFormat("en-AU", { timeZone, timeZoneName: "short" })
+      .formatToParts(date)
+      .find((p) => p.type === "timeZoneName")?.value ?? ""
+  );
+}
+
 /** Short timezone label for the event instant, e.g. "AEST" / "GMT+10". */
 export function timezoneLabel(event: Pick<EventSummary, "startAt" | "timezone">): string {
-  const date = new Date(event.startAt);
-  if (Number.isNaN(date.getTime())) return "";
-  const parts = new Intl.DateTimeFormat("en-AU", {
-    timeZone: event.timezone,
-    timeZoneName: "short",
-  }).formatToParts(date);
-  return parts.find((p) => p.type === "timeZoneName")?.value ?? "";
+  const date = instant(event.startAt);
+  return date ? zoneLabel(date, event.timezone) : "";
 }
 
 /**
- * Format the start–end time range in the event's timezone, e.g.
- * "4:00 pm – 10:00 pm". Falls back to just the start when the two clock labels
- * collapse to the same value (a zero-length or mis-entered window).
+ * The place an IANA zone is named after — "Australia/Sydney" → "Sydney",
+ * "America/Argentina/Buenos_Aires" → "Buenos Aires". Null for a zone named
+ * after no place: "UTC", and the fixed offsets under `Etc/`.
+ */
+function zoneCity(timeZone: string): string | null {
+  const parts = timeZone.split("/");
+  const place = parts.at(-1);
+  if (parts.length < 2 || parts[0] === "Etc" || !place) return null;
+  return place.replace(/_/g, " ");
+}
+
+/**
+ * The event's timezone spelt out for a guest, e.g. "AEDT (Sydney time)". An
+ * abbreviation alone means nothing to a guest from elsewhere; the city says
+ * whose clock it is. Just the abbreviation for a zone named after no place.
+ */
+export function timezoneName(event: Pick<EventSummary, "startAt" | "timezone">): string {
+  const label = timezoneLabel(event);
+  if (!label) return "";
+  const city = zoneCity(event.timezone);
+  return city ? `${label} (${city} time)` : label;
+}
+
+/**
+ * Format the start–end time range in `timeZone` (the event's own unless
+ * given), e.g. "4:00 pm – 10:00 pm".
+ *
+ * An event that ends on a later calendar day than it starts — read in that same
+ * zone — names both days, "Fri 6:00 pm – Sun 11:00 am", an overnight one
+ * included; a week or more apart, the dates too, since a weekday alone would
+ * then name two days. `startDay` names the start's day even when the range ends
+ * the same day. A missing end (the `""` no-stated-end sentinel) gives the start
+ * alone, as does an end whose clock equals the start's on the same day.
  */
 export function formatTimeRange(
   event: Pick<EventSummary, "startAt" | "endAt" | "timezone">,
+  timeZone: string = event.timezone,
+  options: { startDay?: boolean } = {},
 ): string {
-  const start = formatClock(event.startAt, event.timezone);
-  const end = formatClock(event.endAt, event.timezone);
+  const start = instant(event.startAt);
   if (!start) return "";
-  if (!end || end === start) return start;
-  return `${start} – ${end}`;
+  const startClock = clock(start, timeZone);
+  const end = instant(event.endAt);
+  const days = end ? daysBetween(dayKey(start, timeZone), dayKey(end, timeZone)) : 0;
+  const withDate = days >= 7;
+  const startText =
+    options.startDay || days > 0
+      ? `${dayLabel(start, timeZone, withDate)} ${startClock}`
+      : startClock;
+  if (!end) return startText;
+  const endClock = clock(end, timeZone);
+  if (days > 0) return `${startText} – ${dayLabel(end, timeZone, withDate)} ${endClock}`;
+  if (endClock === startClock) return startText;
+  return `${startText} – ${endClock}`;
 }
 
 /**
@@ -125,4 +202,67 @@ export function resolveMapsEmbedUrl(
   return `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(
     trimmedKey,
   )}&q=${encodeURIComponent(venue)}`;
+}
+
+/**
+ * The guest's own timezone, from the browser. Null where it cannot be read.
+ * Call it after mount: the server renders in its own zone, so reading it
+ * during render would make the first client render differ from the HTML.
+ */
+export function browserTimeZone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The event's times on the guest's own clock, e.g. "Fri 10:30 pm – Sat 4:30 am
+ * (GMT-8)", always naming the day, since the guest's day can differ from the
+ * event's. Null when that clock reads the same as the event's own (a Melbourne
+ * guest at a Sydney wedding), for a zone the browser does not know, and for an
+ * event with no readable start.
+ */
+export function guestLocalTime(
+  event: Pick<EventSummary, "startAt" | "endAt" | "timezone">,
+  guestZone: string,
+): string | null {
+  const start = instant(event.startAt);
+  if (!start) return null;
+  try {
+    const theirs = formatTimeRange(event, guestZone, { startDay: true });
+    const ours = formatTimeRange(event, event.timezone, { startDay: true });
+    if (theirs === ours) return null;
+    return `${theirs} (${zoneLabel(start, guestZone)})`;
+  } catch {
+    return null;
+  }
+}
+
+/** One member of a household, as far as an invitation is concerned. */
+type Invitee = Pick<FamilyMember, "firstName" | "lastName" | "eventIds" | "plusOneOf">;
+
+/**
+ * Who in the household is invited to this event, when it is not everyone, e.g.
+ * "Alex and Sam". Null when every member the couple invited has the event —
+ * which is what a guest assumes, so it needs no saying — and when nobody does.
+ *
+ * Plus-ones never decide it: a plus-one's invitations are its inviter's, so it
+ * is invited wherever they are. It is still named, after the members, in the
+ * household's order, so the list is everyone who can come. A first name two of
+ * them share is given with the last name.
+ */
+export function invitedNames(members: readonly Invitee[], eventId: string): string | null {
+  const invited = invitedMembers(members);
+  if (invited.every((m) => m.eventIds.includes(eventId))) return null;
+  const here = members.filter((m) => m.eventIds.includes(eventId));
+  if (here.length === 0) return null;
+  const first = (m: Invitee) => m.firstName.trim();
+  const names = here.map((m) =>
+    here.filter((other) => first(other) === first(m)).length > 1
+      ? `${first(m)} ${m.lastName.trim()}`.trim()
+      : first(m),
+  );
+  return new Intl.ListFormat("en-AU", { style: "long", type: "conjunction" }).format(names);
 }
