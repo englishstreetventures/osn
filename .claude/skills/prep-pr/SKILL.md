@@ -433,7 +433,9 @@ disclosure. State the constraint and leave the finding unnamed.
 
 Findings this branch **fixes** are closed by the merge, not by hand: their
 tracker issues go in the PR body as bare
-`Closes englishstreetventures/osn-tracker#<n>` lines (`write-pr`). A fixed finding that
+`Closes englishstreetventures/osn-tracker#<n>` lines (`write-pr`), and only
+there — an issue this run filed and the branch fixed is never also listed as
+raised against the branch, since that reads as work the merge leaves behind. A fixed finding that
 predates the branch already has an issue — find it by ID, since the ID leads the
 title. Planned work this branch completes goes in the same list, as `Closes #N`
 from the public repo. **Never delete an issue**; close it.
