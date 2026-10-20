@@ -436,10 +436,12 @@ export interface AppOptions {
   osnTestKey?: CryptoKey;
   /**
    * OIDC relying-party credentials for organiser sign-in. Absent ⇒ the
-   * `/api/auth/oidc/*` routes answer 503 and nobody can sign in — which is the
-   * honest state of a tier that has no client secret, not a silent downgrade.
-   * Built in `index.ts` from `OSN_ISSUER_URL` + `CIRE_OIDC_CLIENT_ID` +
-   * `CIRE_OIDC_CLIENT_SECRET`.
+   * `/api/auth/oidc/*` legs send the browser to the login page with
+   * `sign_in_unavailable` and nobody can sign in — which is the honest state of
+   * a tier that has no client secret, not a silent downgrade. Built by
+   * `oidcConfigFromEnv` (`lib/oidc.ts`), in `index.ts` and `local.ts` alike,
+   * from `OSN_ISSUER_URL`, `OSN_JWKS_URL`, `CIRE_API_ORIGIN`,
+   * `CIRE_OIDC_CLIENT_ID` and `CIRE_OIDC_CLIENT_SECRET`.
    */
   oidc?: OidcConfig | null;
   /** Override the OIDC start/callback rate limiter (useful for testing). */

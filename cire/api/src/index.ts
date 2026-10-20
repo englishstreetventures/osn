@@ -13,7 +13,7 @@ import { parseWeddingIdList } from "./lib/account-linking";
 import { claimReviewAlertTarget, sendClaimReviewAlert } from "./lib/claim-review-email";
 import { setExecutionCtx } from "./lib/execution-ctx";
 import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
-import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
+import { oidcConfigFromEnv } from "./lib/oidc";
 import { organiserOriginFrom } from "./lib/organiser-origin";
 import { sendReconcileAlert, type OperatorReconcileAlert } from "./lib/reconcile-alert-email";
 import { registryOutboundLimiters } from "./lib/registry-limiters";
@@ -79,9 +79,10 @@ export interface Env {
   // `CIRE_API_ORIGIN` is this Worker's own public origin, used to build the
   // redirect URI registered with the issuer — also byte-for-byte, at both legs.
   // Both are plain vars. `CIRE_OIDC_CLIENT_SECRET` is a wrangler secret. Any of
-  // the four missing ⇒ `/api/auth/oidc/*` answers 503 and nobody can sign in;
-  // the guest invite site keeps working, so this is scoped to the routes that
-  // genuinely cannot function, not the whole Worker.
+  // these, or `OSN_JWKS_URL`, missing ⇒ `/api/auth/oidc/*` sends the browser to
+  // the login page with `sign_in_unavailable` and nobody can sign in; the guest
+  // invite site keeps working, so this is scoped to the routes that genuinely
+  // cannot function, not the whole Worker.
   OSN_ISSUER_URL: string;
   CIRE_API_ORIGIN?: string;
   CIRE_OIDC_CLIENT_ID?: string;
@@ -466,30 +467,16 @@ const handler: ExportedHandler<Env> = {
             : Effect.logInfo("member step exclusion loaded", counts),
         );
       }
-      // OIDC relying-party config for organiser sign-in. All four pieces or
-      // none: a half-configured client cannot complete a single exchange, so
-      // `null` (⇒ 503 on the sign-in routes) is the honest state. Loud in a
-      // deployed tier, silent locally where `bun run dev:cire` runs without an
-      // issuer.
-      const issuerBase = env.OSN_ISSUER_URL?.replace(/\/+$/, "");
-      const apiOrigin = env.CIRE_API_ORIGIN?.replace(/\/+$/, "");
-      const oidc =
-        issuerBase && apiOrigin && env.CIRE_OIDC_CLIENT_ID && env.CIRE_OIDC_CLIENT_SECRET
-          ? {
-              issuer: issuerBase,
-              jwksUrl: env.OSN_JWKS_URL,
-              clientId: env.CIRE_OIDC_CLIENT_ID,
-              clientSecret: env.CIRE_OIDC_CLIENT_SECRET,
-              redirectUri: `${apiOrigin}/api/auth/oidc/callback`,
-              allowedReturnOrigins: origins,
-              txHmacInfo: CIRE_OIDC_TX_HMAC_INFO,
-            }
-          : null;
+      // OIDC relying-party config for organiser sign-in: all five values or
+      // `null`, which sends the sign-in routes' browser back to the login page
+      // with `sign_in_unavailable` (`lib/oidc.ts`). Loud in a deployed tier,
+      // silent locally where `bun run dev:cire` runs without an issuer.
+      const oidc = oidcConfigFromEnv(env, origins);
       if (!oidc && isDeployedTier(env)) {
         await runCire(
           Effect.logError("OIDC client config incomplete — organiser sign-in disabled", {
             detail:
-              "set OSN_ISSUER_URL, CIRE_API_ORIGIN, CIRE_OIDC_CLIENT_ID and the CIRE_OIDC_CLIENT_SECRET secret",
+              "set OSN_ISSUER_URL, OSN_JWKS_URL, CIRE_API_ORIGIN, CIRE_OIDC_CLIENT_ID and the CIRE_OIDC_CLIENT_SECRET secret",
           }),
         );
       }

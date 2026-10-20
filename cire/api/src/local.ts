@@ -10,6 +10,7 @@ import {
   seedDb,
 } from "./db/setup";
 import { localClientAddress } from "./lib/local-client-address";
+import { oidcConfigFromEnv } from "./lib/oidc";
 import { localResendConfig } from "./lib/resend-email";
 import { siteOriginOptions } from "./lib/web-origin";
 import { runCireSync } from "./observability";
@@ -98,6 +99,9 @@ const appOptions: Parameters<typeof createApp>[1] = {
   osnJwksUrl: process.env.OSN_JWKS_URL,
   osnIssuerUrl: process.env.OSN_ISSUER_URL,
   osnAudience: process.env.OSN_AUDIENCE,
+  // Organiser sign-in, built as the Worker builds it: all five values or none,
+  // and none (no issuer) is the usual local state.
+  oidc: oidcConfigFromEnv(process.env, origins),
   stripe,
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? null,
   stripePlatformWebhookSecret: process.env.STRIPE_PLATFORM_WEBHOOK_SECRET ?? null,
