@@ -3673,6 +3673,77 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "guards a helper's run-sheet scope over D1's batch path, and resets it on a role change",
+    async () => {
+      // The scope write and the role change each ride one batch on D1 with
+      // the seat read that names a refusal; bun:sqlite runs them one at a
+      // time. These are the results D1's batch hands back.
+      const storedScope = async (osnProfileId: string) =>
+        (
+          await db
+            .select({ scope: weddingHosts.runSheetScope })
+            .from(weddingHosts)
+            .where(eq(weddingHosts.osnProfileId, osnProfileId))
+        )[0]?.scope;
+      const scopeExit = (osnProfileId: string) =>
+        Effect.runPromiseExit(
+          hostsService
+            .setRunSheetScope({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId, scope: "full" })
+            .pipe(Effect.provideService(DbService, db)),
+        );
+      const setRole = (role: "helper" | "viewer") =>
+        run(
+          hostsService.setRole({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_helper",
+            role,
+            actorOsnProfileId: "usr_test",
+          }),
+        );
+
+      await run(
+        hostsService.add({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_helper",
+          addedByOsnProfileId: "usr_test",
+          role: "helper",
+        }),
+      );
+      expect(await storedScope("usr_helper")).toBe("own");
+
+      const widened = await run(
+        hostsService.setRunSheetScope({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_helper",
+          scope: "full",
+        }),
+      );
+      expect(widened).toMatchObject({ role: "helper", runSheetScope: "full" });
+      expect(await storedScope("usr_helper")).toBe("full");
+
+      // helper → helper keeps it; any move away resets it, so coming back is own.
+      expect((await setRole("helper")).runSheetScope).toBe("full");
+      expect(await storedScope("usr_helper")).toBe("full");
+      await setRole("viewer");
+      expect(await storedScope("usr_helper")).toBe("own");
+      expect((await setRole("helper")).runSheetScope).toBe("own");
+
+      // The owner's seat exists and is no helper: refused, unchanged. A
+      // profile with no seat here is not found.
+      const owner = await scopeExit("usr_test");
+      expect(Exit.isFailure(owner) && Cause.squash(owner.cause)).toMatchObject({
+        _tag: "NotAHelper",
+      });
+      expect(await storedScope("usr_test")).toBe("own");
+      const ghost = await scopeExit("usr_ghost");
+      expect(Exit.isFailure(ghost) && Cause.squash(ghost.cause)).toMatchObject({
+        _tag: "HostNotFound",
+      });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "writes a 200-row change log inside the RSVP batch as one statement",
     async () => {
       // The change set rides as one JSON parameter; a per-row bind would pass
