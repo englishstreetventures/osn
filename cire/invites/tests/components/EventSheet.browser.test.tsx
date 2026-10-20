@@ -8,7 +8,7 @@
  * and each is part of what the issue asked for: the guest moves between the
  * panels without the dialog closing, focus lands on the new heading and goes
  * back to the opener on close, nothing typed is lost, the move is animated,
- * and under reduced motion it is instant.
+ * under reduced motion it is instant, and the sheet keeps one height.
  */
 import { cleanup, render, within } from "@solidjs/testing-library";
 import { createSignal, Show } from "solid-js";
@@ -65,19 +65,19 @@ const party: FamilyMember[] = Array.from({ length: 10 }, (_, i) => ({
  * The card and the sheet, wired the way the page wires them: each of the
  * card's buttons opens the sheet on its own panel, and a close clears it.
  */
-function Harness(props: { members?: FamilyMember[] }) {
+function Harness(props: { members?: FamilyMember[]; event?: EventSummary }) {
   const [sheet, setSheet] = createSignal<EventPanel | null>(null);
   return (
     <>
       <EventCard
-        event={event}
+        event={props.event ?? event}
         onRespond={() => setSheet("rsvp")}
         onDetails={() => setSheet("details")}
       />
       <Show when={sheet()} keyed>
         {(panel) => (
           <EventSheet
-            event={event}
+            event={props.event ?? event}
             panel={panel}
             siteUrl="https://invite.test/w"
             members={props.members ?? [priya]}
@@ -292,29 +292,9 @@ describe("EventSheet — the motion", () => {
     await settle();
   });
 
-  it("eases the sheet's height between two panels of different heights", async () => {
-    // Without it the sheet's edge would jump to the new height in one frame.
-    await page.viewport(1280, 900);
-    render(() => <Harness />);
-    await userEvent.click(cardButton("Respond"));
-    await settle();
-    const before = dialog().offsetHeight;
-
-    button("See details").click();
-    const resize = dialog()
-      .getAnimations()
-      .find((a) => (a.effect as KeyframeEffect).getKeyframes().some((k) => "height" in k));
-    expect(resize).toBeTruthy();
-    const frames = (resize!.effect as KeyframeEffect).getKeyframes();
-    expect(frames[0]!.height).toBe(`${before}px`);
-    await settle();
-    expect(frames.at(-1)!.height).toBe(`${dialog().offsetHeight}px`);
-    expect(dialog().offsetHeight).not.toBe(before);
-  });
-
   it("seats the form's action bar on the scrollport's edge after arriving from the details", async () => {
     // The sheet drops its bottom padding for the form and keeps it for the
-    // details. Measured once the slide and the resize are over, because
+    // details. Measured once the slide is over, because
     // `getBoundingClientRect` reports the box after its transform.
     await page.viewport(...PHONE);
     render(() => <Harness members={party} />);
@@ -381,25 +361,17 @@ describe("EventSheet — the motion", () => {
   it("keeps a quick switch back mid-slide from lifting the new slide's limits early", async () => {
     // Switching back hides the panel still arriving, which cancels its slide
     // and settles it at once. That settle belongs to the earlier switch and
-    // must not clear the state of the one now running. And the resize starts
-    // from the height on screen at the second press, not from either panel's.
+    // must not clear the state of the one now running.
     await page.viewport(1280, 900);
     render(() => <Harness />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
 
     button("Give RSVP").click();
-    // Hold the first resize halfway, so the height on screen is neither
-    // panel's own.
-    const first = dialog()
-      .getAnimations()
-      .find((a) => (a.effect as KeyframeEffect).getKeyframes().some((k) => "height" in k))!;
-    first.pause();
-    first.currentTime = 140;
-    const midway = dialog().offsetHeight;
-    const [fromKeyframe, toKeyframe] = (first.effect as KeyframeEffect).getKeyframes();
-    expect(`${midway}px`).not.toBe(fromKeyframe!.height);
-    expect(`${midway}px`).not.toBe(toKeyframe!.height);
+    // Hold the first slide halfway, so the switch back lands mid-slide.
+    const [first] = wrapperOf("rsvp").getAnimations();
+    first!.pause();
+    first!.currentTime = 140;
     button("See details").click();
     const [slide] = wrapperOf("details").getAnimations();
     slide!.pause();
@@ -409,10 +381,6 @@ describe("EventSheet — the motion", () => {
     expect(getComputedStyle(wrapperOf("details")).pointerEvents).toBe("none");
     const panels = scroller().firstElementChild as HTMLElement;
     expect(getComputedStyle(panels).overflowX).toBe("clip");
-    const resize = dialog()
-      .getAnimations()
-      .find((a) => (a.effect as KeyframeEffect).getKeyframes().some((k) => "height" in k));
-    expect((resize!.effect as KeyframeEffect).getKeyframes()[0]!.height).toBe(`${midway}px`);
 
     slide!.finish();
     await settle();
@@ -467,8 +435,8 @@ describe("EventSheet — the badge", () => {
   });
 
   it("does not take the second tap of a double tap straight back", async () => {
-    // The badge sits in the same corner on both panels, so on two panels of a
-    // height the second tap of a double tap lands on its twin.
+    // The badge sits in the same corner on both panels, and the sheet keeps
+    // one height, so the second tap of a double tap lands on its twin.
     await page.viewport(...PHONE);
     render(() => <Harness members={party} />);
     await userEvent.click(cardButton("Event Details"));
@@ -484,23 +452,6 @@ describe("EventSheet — the badge", () => {
     await settle();
     expect(wrapperOf("rsvp").hidden).toBe(false);
     expect(wrapperOf("details").hidden).toBe(true);
-  });
-
-  it("does not close when the second tap lands outside a sheet that shrank", async () => {
-    // The form for one guest is shorter than the details: by the second tap
-    // the bottom sheet has eased down, and the tap meets the backdrop.
-    await page.viewport(...PHONE);
-    render(() => <Harness />);
-    await userEvent.click(cardButton("Event Details"));
-    await settle();
-    const at = centre(button("Give RSVP"));
-    await mouseClick(at);
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    expect(document.elementFromPoint(at.x, at.y)).toBe(dialog());
-    await mouseClick(at);
-    await settle();
-    expect(dialog().open).toBe(true);
-    expect(wrapperOf("rsvp").hidden).toBe(false);
   });
 
   it("still closes on a backdrop tap once the panels are still", async () => {
@@ -987,4 +938,224 @@ describe("EventSheet — swiping between the panels", () => {
     expect(wrapperOf("rsvp").hidden).toBe(false);
     expect(wrapperOf("details").hidden).toBe(true);
   });
+});
+
+// ── One height ──────────────────────────────────────────────────────────
+
+/** The least an event can carry: a name and a time, and a household of one. */
+const sparse: EventSummary = {
+  ...event,
+  id: "event-sparse",
+  name: "Tea",
+  description: "",
+  address: null,
+  dressCodeDescription: null,
+  dressCodePalette: null,
+  pinterestUrl: null,
+  mapsUrl: null,
+};
+
+/** Every row and section the details can show, and a party that scrolls. */
+const full: EventSummary = {
+  ...event,
+  id: "event-full",
+  name: "Sangeet",
+  description:
+    "An evening of music and dance with both families. The band starts at seven; " +
+    "dinner is served from eight, and the dance floor stays open until late.\n\n" +
+    "Parking is on the street and in the school car park opposite. The hall has " +
+    "step-free access from the side entrance on Banksia Lane.",
+  endAt: "2026-09-19T01:00:00+10:00",
+  address: "Strathfield Town Hall, 65 Homebush Road, Strathfield NSW 2135",
+  mapsUrl: "https://maps.google.com/?q=Strathfield+Town+Hall",
+  dressCodeDescription: "Jewel tones — emerald, sapphire, ruby. Comfortable shoes for dancing.",
+  dressCodePalette: [
+    { name: "Emerald", color: "#1f7a4d" },
+    { name: "Sapphire", color: "#1f4e9c" },
+    { name: "Ruby", color: "#9b1b30" },
+    { name: "Gold", color: "#c9a227" },
+    { name: "Plum", color: "#5e2a5c" },
+    { name: "Ivory", color: "#f4efe1" },
+  ],
+  pinterestUrl: "https://www.pinterest.com/cireweddings/sangeet-moodboard/",
+};
+
+const fullParty: FamilyMember[] = [
+  ...["Asha", "Ravi", "Meera", "Dev"].map((firstName, i) => ({
+    guestId: `guest-full-${i}`,
+    firstName,
+    lastName: "Sharma",
+    nickname: null,
+    eventIds: ["event-full"],
+  })),
+  // Not invited to this one, so the details carry "Invited: …".
+  { guestId: "guest-full-x", firstName: "Nani", lastName: "Sharma", nickname: null, eventIds: [] },
+];
+
+const fixtures = [
+  { name: "sparse", event: sparse, members: [{ ...priya, eventIds: ["event-sparse"] }] },
+  { name: "full", event: full, members: fullParty },
+];
+
+/**
+ * The sheet's one height at each size: 85% of the viewport, and from `md` no
+ * more than 760px. The tall desktop is there for the ceiling; at 1280×800 the
+ * viewport term is the smaller.
+ */
+const viewports = [
+  { name: "phone", size: [390, 844] as const, height: 0.85 * 844 },
+  { name: "desktop", size: [1280, 800] as const, height: 0.85 * 800 },
+  { name: "tall-desktop", size: [1280, 1000] as const, height: 760 },
+];
+
+/**
+ * Every height the dialog takes, read on each frame until stopped, so a height
+ * that changes for a few frames mid-switch is caught as well as one that stays
+ * changed. The computed height is the layout's, so the sheet's own entry
+ * transform (a scale) is not in it.
+ */
+function watchHeight() {
+  const seen = new Set<number>();
+  let on = true;
+  const read = () => {
+    if (!on) return;
+    seen.add(Number.parseFloat(getComputedStyle(dialog()).height));
+    requestAnimationFrame(read);
+  };
+  read();
+  return () => {
+    on = false;
+    return [...seen];
+  };
+}
+
+function shot(name: string) {
+  return page.screenshot({
+    path: `__screenshots__/EventSheet.browser.test.tsx/height-${name}.png`,
+  });
+}
+
+/** Swipe the panel on screen toward the other one, and let it land. */
+async function swipeFrom(panel: EventPanel) {
+  const start = bodyOf(panel);
+  const dx = panel === "details" ? -250 : 250;
+  await touchDrag(start, { x: start.x + dx, y: start.y }, { ms: 600 });
+  await settleSwipe();
+  expect(wrapperOf(panel).hidden).toBe(true);
+}
+
+describe("EventSheet — one height for both panels", () => {
+  for (const vp of viewports) {
+    for (const fx of fixtures) {
+      it(`keeps one height on a ${fx.name} event at ${vp.size.join("×")}, by badge and by swipe`, async () => {
+        await page.viewport(vp.size[0], vp.size[1]);
+        const heights: Record<string, number[]> = {};
+
+        // Opened on the details: the badge there and back, then a swipe there
+        // and back. The first switch is the badge's.
+        const first = render(() => <Harness event={fx.event} members={fx.members} />);
+        await userEvent.click(cardButton("Event Details"));
+        await settle();
+        let stop = watchHeight();
+        const h3 = wrapperOf("details").querySelector("h3")!.getBoundingClientRect();
+        const dl = wrapperOf("details").querySelector("dl")!.getBoundingClientRect();
+        const headingGap = dl.top - h3.bottom;
+        await shot(`${vp.name}-${fx.name}-details`);
+        await userEvent.click(button("Give RSVP"));
+        await settle();
+        await shot(`${vp.name}-${fx.name}-rsvp`);
+        await userEvent.click(button("See details"));
+        await settle();
+        await swipeFrom("details");
+        await swipeFrom("rsvp");
+        heights.fromDetails = stop();
+        first.unmount();
+        document.body.style.overflow = "";
+
+        // Opened on the form: answer, which grows the form, then a swipe to
+        // the details as the first switch, and the badge back.
+        render(() => <Harness event={fx.event} members={fx.members} />);
+        await userEvent.click(cardButton("Respond"));
+        await settle();
+        stop = watchHeight();
+        await userEvent.click(within(dialog()).getAllByText("Attending")[0]!);
+        await settle();
+        // Nothing of the details has loaded for the form's sake.
+        expect(dialog().querySelector('[data-panel="details"]')).toBeNull();
+        const bar = button("Save").parentElement as HTMLElement;
+        const gap = scroller().getBoundingClientRect().bottom - bar.getBoundingClientRect().bottom;
+        await shot(`${vp.name}-${fx.name}-rsvp-attending`);
+        await swipeFrom("rsvp");
+        await userEvent.click(button("Give RSVP"));
+        await settle();
+        heights.fromForm = stop();
+
+        // One height, from the first frame to the last, whichever panel opened.
+        expect(heights.fromDetails).toHaveLength(1);
+        expect(heights.fromForm).toEqual(heights.fromDetails);
+        expect(Math.abs(heights.fromDetails[0]! - vp.height)).toBeLessThan(1);
+        // The form's action bar sits on the sheet's bottom edge.
+        expect(Math.abs(gap)).toBeLessThan(1);
+        // The details are laid out as before: their header's 1.5rem under the
+        // heading, with the heading's own margin collapsed into it. A details
+        // wrapper made a flex column would add the two.
+        const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+        expect(headingGap).toBeCloseTo(1.5 * rem, 1);
+      });
+    }
+  }
+});
+
+/** The form's action bar, found without the accessibility tree: mid-swipe the form is `inert`. */
+function barOf(panel: HTMLElement): HTMLElement {
+  const save = [...panel.querySelectorAll("button")].find((b) => b.textContent === "Save");
+  return save!.parentElement as HTMLElement;
+}
+
+describe("EventSheet — the form a swipe draws in", () => {
+  const cases = [
+    { from: "a short details panel at its top", event: sparse, scroll: 0 },
+    { from: "a long details panel scrolled down", event: full, scroll: 200 },
+  ];
+  for (const c of cases) {
+    it(`seats its action bar on the sheet's bottom edge mid-drag, from ${c.from}`, async () => {
+      // A form shorter than the sheet still ends on its bottom edge, where it
+      // will rest once it lands; drawn at its own height it would land and
+      // then drop its bar to the edge.
+      await page.viewport(390, 844);
+      render(() => <Harness event={c.event} members={[{ ...priya, eventIds: [c.event.id] }]} />);
+      await userEvent.click(cardButton("Event Details"));
+      await settle();
+      scroller().scrollTop = c.scroll;
+      expect(scroller().scrollTop).toBe(c.scroll);
+      const port = scroller().getBoundingClientRect();
+      const from = { x: port.left + port.width / 2, y: port.top + port.height / 2 };
+
+      await touchDrag(from, { x: from.x - 120, y: from.y }, { end: "hold" });
+      await new Promise(requestAnimationFrame);
+      const form = wrapperOf("rsvp");
+      try {
+        expect(form?.inert).toBe(true);
+        expect(barOf(form).getBoundingClientRect().bottom).toBeCloseTo(port.bottom, 0);
+      } finally {
+        // Sprung back. Lifted even when an assertion above fails, or the next
+        // test's touch would start as a second finger.
+        await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+        await settleSwipe();
+      }
+      // Nothing of the drag is left on the form.
+      expect(form.hidden).toBe(true);
+      expect(form.style.minHeight).toBe("");
+
+      // Carried on: nor once it has landed.
+      await touchDrag(from, { x: from.x - 250, y: from.y }, { ms: 600 });
+      await settleSwipe();
+      expect(form.hidden).toBe(false);
+      expect(form.style.minHeight).toBe("");
+      expect(barOf(form).getBoundingClientRect().bottom).toBeCloseTo(
+        scroller().getBoundingClientRect().bottom,
+        0,
+      );
+    });
+  }
 });

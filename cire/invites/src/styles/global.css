@@ -531,12 +531,11 @@
   /* An event sheet's panel arriving (`components/EventSheet`): it fades in
      while sliding the last 1.5rem from the side it lives on — the details from
      the start, the RSVP form from the end, the order of their buttons on the
-     card. Same curve as the sheet's own entry. `EventSheet` reads the computed
-     duration and curve back to resize the sheet in step, so these two values
-     are the only place the timing is written.
+     card. Same curve as the sheet's own entry, and the swipe's settle
+     (`transition-panel-settle`) takes the same 280ms and curve.
 
      Reduced motion needs no special case: the global clamp plays it out in
-     0.01ms, and the resize reads that clamped duration too. */
+     0.01ms. */
   --animate-panel-from-start: panel-from-start 280ms cubic-bezier(0.22, 1, 0.36, 1);
   --animate-panel-from-end: panel-from-end 280ms cubic-bezier(0.22, 1, 0.36, 1);
 

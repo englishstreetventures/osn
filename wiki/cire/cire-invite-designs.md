@@ -349,10 +349,25 @@ event and the panel to open on.
   sheet's content starts below the row (`toolbar` on `AnimatedModal`). On the
   form it is disabled while a save is in flight and while the sheet closes
   itself on a saved reply. A tap on it while a slide or swipe is still running
-  is ignored, and so is a tap on the backdrop: the badge sits in the same
-  corner on both panels and the sheet changes height under the finger, so the
-  second tap of a double tap would otherwise go straight back or close the
-  sheet.
+  is ignored: the badge sits in the same corner on both panels, so the second
+  tap of a double tap would otherwise go straight back.
+- **One height.** The sheet keeps one height whichever panel shows: 85% of
+  the viewport (`85dvh` on a phone, `85vh` from `md`), and from `md` no taller
+  than 760px (`AnimatedModal`). Its edge does not move on a badge press or a
+  swipe, in either direction, nor when the form grows as the guest answers: a
+  panel taller than the sheet scrolls inside it. Nothing is measured, so
+  neither panel loads anything for the other's sake. A sparse event leaves
+  empty sheet under its details; the form fills the sheet with its action bar
+  on the bottom edge however short it is, and a form a swipe draws in is drawn
+  at the sheet's full height, so its bar does not drop when it lands. The
+  scrollport has no bottom padding for either panel (the bar is `sticky`, and
+  a sticky box keeps inside its scrollport's padding); the details carry that
+  padding on their own wrapper. The 760px is what a household of one needs to
+  answer "Attending" at 1280px wide without scrolling (722px), with room to
+  spare; above it a sparse event would sit in an ever taller empty box on a
+  large screen.
+
+  *Measured 2026-10-20 — the "one height" journey in `EventSheet.browser.test.tsx`, run at 1280×2400 against the content-sized sheet on main (364cabde), Chromium 1194*
 - **A swipe does the same.** On a touch screen the panel on screen follows a
   sideways drag toward the other panel — the details sit on the start side,
   the form on the end side — with the other panel drawn beside it, `inert`
@@ -386,14 +401,12 @@ event and the panel to open on.
   arrives with the sheet, and one that arrived by a swipe does not slide
   again: it eases from where the finger let go to rest on
   `transition-panel-settle`, the slide's own 280ms and curve, before the
-  switch. The sheet's height eases from one panel's to the
-  other's over the same time, through the Web Animations API, timed from the
-  panel's computed animation. Until the slide ends the arriving panel takes no
+  switch. Until the slide ends the arriving panel takes no
   pointer input, so the second tap of a double tap cannot land on a control it
   has not shown yet, and the panels' wrapper clips sideways overflow, which
   the sliding form's full-bleed action bar would otherwise cause. Outside a
   switch nothing is clipped. Under reduced motion the global clamp makes the
-  switch instant, the resize included.
+  switch instant.
 - **Past the RSVP deadline** the form is read-only: each member's answer on
   file is written out in place of the answer pair, and one line about stored
   dietary data takes the consent boxes' place ([[cire-rsvp-deadline]]). The
@@ -410,7 +423,10 @@ event and the panel to open on.
 Tests: `tests/components/EventSheet.test.tsx` (what mounts, hides, names and
 takes focus; the badge; the deadline), `sheet-swipe.test.ts` (the swipe's
 thresholds), `EventSheet.browser.test.tsx` (in Chromium, see
-[[browser-tests]]; the swipes are real touches sent through `cdp()`), the
+[[browser-tests]]; the swipes are real touches sent through `cdp()`; the
+sheet's height read on every frame of a journey by badge and by swipe, for a
+sparse event and a full one, with screenshots of each panel under
+`__screenshots__/`), the
 `cire-rsvp` end-to-end flow (a phone-sized round trip by swipe and badge,
 with screenshots of both panels), both packs' `InvitePage.test.tsx` (which panel each button
 opens, on every open) and `InvitePage.browser.test.tsx` (the round trip in each
