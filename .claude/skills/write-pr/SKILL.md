@@ -132,7 +132,7 @@ Part of #9001
 
 **Follow-up pull requests**
 
-- #9104 — Cire API: invite lookup follow-up
+- #9104 — Cire API: invite lookup follow-up — englishstreetventures/osn-tracker#<m>
 ```
 
 1. **The branch closes every issue it fixes**: the issue `new-feat` took or opened, any other public issue the work finished, every tracker issue for a finding it fixed. Every branch traces to an issue, so a body with neither a `Closes` nor a `Part of` line has lost one: find it, or open it with `write-issue`. Only when you can do neither — no network, nothing to search — write one line under `## Issues` saying the branch closes no issue and why, and name in your report the issue you would open.
@@ -141,7 +141,7 @@ Part of #9001
 4. **An issue the branch only partly fixes is `Part of #N`**, never `Closes`.
 5. **A closing keyword closes wherever it sits.** `close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves` or `resolved` directly before an issue reference closes that issue on merge, in prose as much as in the closing block: "this fixes #9001 in part" closes #9001. Reword it, or write `Part of`.
 6. **Each issue appears once in the body.** It is a `Closes` line, a `Part of` line, an entry under **Raised against this branch**, or a line under **Out of scope** — never two of them. A finding `prep-pr` Step 7 filed and the branch then fixed was raised and closed in the same branch: it is a `Closes` line and nothing else. Listing it under **Raised** as well tells the reader the work is still outstanding when the merge has finished it.
-7. **Raised against this branch** lists every issue raised by its own review or split out of its work that **stays open after the merge**, whoever filed it and whenever: a deferral, a finding left open as out of scope, unrelated or larger work, an issue a follow-up pull request will close. A public one by number and title; a tracker one by its bare reference. An issue found while auditing another package goes in one line under **Out of scope**, not here. Most of what a review finds is fixed rather than raised (`prep-pr` Step 6), so this list is short; `None` is the usual answer. **Follow-up pull requests**, after it, lists each pull request this session opened to fix what the branch's review found outside it, by number and title, after **Raised against this branch**; a follow-up that fixes a tracker finding has a title naming only the area (Step 3), so it says nothing more here. Leave the lead-in out when there are none.
+7. **Raised against this branch** lists every issue raised by its own review or split out of its work that **stays open after the merge**, whoever filed it and whenever: a deferral, a finding left open as out of scope, unrelated or larger work, a finding left unfixed in scope. A public one by number and title; a tracker one by its bare reference. An issue found while auditing another package goes in one line under **Out of scope**, not here. Most of what a review finds is fixed rather than raised (`prep-pr` Step 6), so this list is short; `None` is the usual answer. **Follow-up pull requests**, after it, lists the pull request this session opened to fix what the branch's review found outside it, by number and title, with the issues it will close on the same line; those issues appear nowhere else in the body. A follow-up that fixes a tracker finding has a title naming only the area (Step 3), so it says nothing more here. Leave the lead-in out when there are none.
 8. **Never open a public issue to stand in for a tracker one**, whatever the body would otherwise lack. When the tracker lines are refused (Step 6) and no public issue closes, `## Issues` reads `Tracked privately.`
 
 ### Decisions
@@ -228,7 +228,8 @@ Check before sending:
 
   ```bash
   awk '/^## Issues$/{f=1;next} /^\*\*Out of scope\*\*/{f=1} /^## /{f=0} f' PR-BODY.md \
-    | grep -oE '([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+' | sort | uniq -d
+    | grep -oE '([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+' \
+    | sed 's#^englishstreetventures/osn\##\##' | sort | uniq -d
   ```
 - [ ] No finding ID in the title, the branch name, a commit message or the body — these four print nothing:
 

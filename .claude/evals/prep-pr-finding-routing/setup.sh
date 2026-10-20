@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Build a branch that fixes one already-filed finding and inherits three more.
+# Build a branch that fixes one already-filed finding and inherits five more.
 #
 # The branch cuts the guest session cookie's TTL in the two routes that mint
 # it. An untracked `review-findings.md` is planted at the repository root
-# carrying the reviewer's notes on four findings, with their titles and their
+# carrying the reviewer's notes on six findings, with their titles and their
 # file:line — which is the material a public PR body must not repeat.
 #
 # Which finding routes where, and what belongs in which section of the body,
@@ -79,7 +79,7 @@ git config branch.fix/cire-api-guest-session-ttl.gh-merge-base main
 cat > review-findings.md <<'NOTE'
 # Review notes — cire guest sessions, 2026-08-28
 
-Four findings out of this pass. All four are filed on `englishstventures/osn-tracker`
+Six findings out of this pass. All six are filed on `englishstventures/osn-tracker`
 already; numbers below.
 
 ## osn-tracker#598 — S-M2
@@ -129,6 +129,29 @@ parameter into both the metric attribute and the RSVP attribution column
 without checking it against the `ShareSource` enum: unbounded metric
 cardinality, and the stored value is rendered unescaped in the organiser
 dashboard.
+
+Not addressed here.
+
+## osn-tracker#604 — S-L1
+
+Title: RSVP note field has no length cap.
+
+`cire/api/src/routes/rsvp.ts:41` stores the guest's free-text `note` as sent.
+The TypeBox schema for the body declares it `t.String()` with no `maxLength`,
+so one request can write an arbitrarily large row. A one-line schema change;
+this branch does not touch `rsvp.ts`.
+
+Not addressed here.
+
+## osn-tracker#605 — P-W1
+
+Title: Every cire API route builds its own database layer per request.
+
+All fourteen route files under `cire/api/src/routes/` and the Worker entry
+provide the D1 layer inside each request's `runPromise`. Moving to one
+`ManagedRuntime` at boot touches every route and the entry point, and needs
+the owner to choose between a per-isolate runtime and per-request
+connections for the D1 binding.
 
 Not addressed here.
 NOTE

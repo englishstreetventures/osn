@@ -268,7 +268,7 @@ Otherwise, dispatch a **`reviewer`** agent (`.claude/agents/reviewer.md`) to run
 
 Wait for it to complete. **Do not return while a reviewer you started is still running.** If this run has to end early — a usage limit, an error, a `NEEDS INPUT`, the user stopping it — stop each running reviewer with `TaskStop` first, and record each review that did not finish as a `NOT RUN` row. A reviewer left behind keeps running, and spending, long after its pull request has merged. If the build fails or any tests fail, record the failures in the report and in `## Test plan`, and continue. If the tooling itself is unavailable — no package manager, no dependencies installed — record every gate as **not run**. That is the honest `## Test plan` entry, and it is never a tick.
 
-**Write the missing tests the review reports**, on this branch, before Step 6 — a coverage gap is the cheapest finding there is, and none is filed (`wiki/conventions/review-findings.md`). Dispatch them to a `mechanic` when the review spells out the cases, to an `implementer` when it does not, one code-writing agent at a time. A `T-S` suggestion you decline is a line in the report with the reason. Then re-run the gates the new tests touch.
+**Write the missing tests the review reports**, on this branch, before Step 6, for the files the branch changes — a coverage gap is the cheapest finding there is, and none is filed (`wiki/conventions/review-findings.md`). Dispatch them to a `mechanic` when the review spells out the cases, to an `implementer` when it does not, one code-writing agent at a time. A `T-S` suggestion you decline is a line in the report with the reason. Then re-run the gates the new tests touch.
 
 ---
 
@@ -338,38 +338,32 @@ Wait for both agents to complete, and collect or stop both before this run retur
 
 ### Fix what the reviews found
 
-**The reviews' findings are this run's work, not its paperwork.** The rule is
-`wiki/conventions/review-findings.md` §Fix findings; do not file them — read it
-now if you have not this session:
+**The reviews' findings are this run's work, not its paperwork.** The full rule
+is `wiki/conventions/review-findings.md` §Fix findings; do not file them. Its
+working parts:
 
-- **Everything within the feature's scope is fixed on this branch**, at every
-  severity: the code the branch changes, the packages it touches, their tests
-  and docs, and every finding in that code, introduced here or found there.
-- **An issue is left open only for one of three things**, named in the report:
-  1. **out of scope for the feature** — work that belongs to a different
-     feature or surface than this branch delivers;
-  2. **unrelated, and found mid-task** — something that looks irrelevant to the
-     task and only came to light while doing it;
-  3. **a larger piece of work** — a project of its own (it would rate 5 or
-     more), or one that needs the owner's decision or access the session
-     cannot have.
-- **When one of the first two is small, a follow-up pull request beats an
-  issue**: cut a second branch (stacked when it needs this one's code), fix it,
-  and run this skill on it once this one is open. For an `S-`, `P-` or `C-`
-  finding, name the branch, its commits and its title by area or tracker
-  number before the first commit — `new-feat` Step 0's rule — never by the
-  defect.
-
-"Low", "pre-existing", "the diff would grow", "a later pull request can tidy
-it" and "the reviews ran late" never leave something in scope open. `info`
-findings, nits and `T-S` suggestions are fixed or noted in the report, never
-filed. **More than two issues left open by one pull request means something in
-scope was filed**: put the list to the user before filing a third; with no
-user, fix the in-scope ones and keep only what fits the three.
+- **Everything in scope is fixed on this branch**, at every severity: the files
+  the branch changes, their tests and docs, and every finding in those files.
+- **An issue is left open only for one of three**, named in the report: out of
+  scope for the feature; unrelated and found mid-task (including a finding in
+  a file the branch does not change); or a larger piece of work — rated 5 or
+  more, or needing the owner's decision or access the session cannot have.
+- **What is small in the first two goes on one follow-up pull request**, one
+  commit per fix, after this one is open: dispatch a subagent whose prompt
+  opens `TASK-BRANCH: <follow-up branch>` to cut it, fix and run this skill.
+  Name that branch, its commits and its title by area or tracker number, never
+  by a defect (`new-feat` Step 0). Run from a follow-up, this step opens no
+  further follow-up: what its reviews find out of its scope becomes an issue.
+- `info` findings are filed and closed (Step 7); nits and `T-S` suggestions are
+  fixed or noted in the report. "Low", "pre-existing", "the diff would grow"
+  and "the reviews ran late" never leave something in scope open.
+- **More than two issues left open that no open pull request will close means
+  something in scope was filed**: put the list to the user before filing a
+  third; with no user, fix the in-scope ones and keep only what fits the three.
 
 **A `critical` or `high` finding is never left open**, whichever of the three
-it falls in: fix it here, or in a follow-up pull request opened now and linked
-before this one merges. Filing it and continuing is not an option, and
+it falls in: fix it here, or on the follow-up pull request opened now and
+linked before this one merges. Filing it and continuing is not an option, and
 `needs:decision` does not release it: one whose fix is the owner's choice
 blocks the merge until the owner accepts the risk in writing on its tracker
 issue. With no user, fix every `critical` and `high` yourself. A filed-and-open
@@ -382,11 +376,14 @@ once its token cost is on screen.
 
 Dispatch the fixes as Step 4 does — `mechanic` when the finding spells out the
 fix, `implementer` when it needs a design, one code-writing agent in the
-worktree at a time — then re-run steps 3 and 4 on the result. Tell the user
-what you are fixing and where; ask only about a finding whose fix is the
-owner's choice. A run that cannot fix — no tooling, no network — says so
-plainly, names every unfixed `critical` and `high` as blocking, and does not
-report the branch ready.
+worktree at a time; a fix that adds an export or a route writes its tests in
+the same dispatch. Then commit (Step 3), re-run the gates the fixes touched —
+Step 4's build and tests, not its review agent — and go to Step 7. **The
+reviews run once per branch**: Steps 4 and 6 do not dispatch again after a fix
+round. Tell the user what you are fixing and where; ask only about a finding
+whose fix is the owner's choice. A run that cannot fix — no tooling, no
+network — says so plainly, names every unfixed `critical` and `high` as
+blocking, and does not report the branch ready.
 
 ---
 
@@ -409,8 +406,8 @@ One tracker issue per `S-`, `P-` or `C-` finding, so that its record stays priva
 
 - each finding left open as one of Step 6's three — which one goes in the body's **Rationale**;
 - each finding in scope that this run did not manage to fix — the fix failed, the budget ran out, the tooling could not run — so it keeps an owner; the report names it as unfinished, not as one of the three;
-- each `info` finding, filed and closed at once as not planned, so the tracker keeps its record without it counting as open;
-- each finding a follow-up pull request fixes, so that pull request closes it;
+- each `info` finding, filed and closed at once as not planned, so the tracker keeps its record without it counting as open — `write-issue` skips the rating and the board for an issue closed at filing;
+- each finding the follow-up pull request fixes, so that pull request closes it;
 - each finding it **fixes** that has no issue yet — filed before the PR opens, so the merge closes it;
 - each finding **dismissed** as no defect — filed, then closed at once as not planned (`gh issue close <n> --repo englishstreetventures/osn-tracker --reason "not planned"`), with the reasoning in its body.
 

@@ -20,9 +20,9 @@ A follow-up, a deferral or a finding within the feature's scope is fixed on the
 branch, not filed. An issue for later is only for one of three things
 (`wiki/conventions/review-findings.md` §Fix findings; do not file them): work
 out of the feature's scope, something unrelated found mid-task, or a larger
-piece of work. Say which in the body's **Notes**; when it is none of them, go
-and fix it instead, and when it is one of the first two and small, a follow-up
-pull request beats an issue. A `critical` or `high` finding is never left open,
+piece of work. Say which in the body's **Notes**, or in **Rationale** for a
+four-field finding; when it is none of them, go and fix it instead, and when it
+is one of the first two and small, the follow-up pull request beats an issue. A `critical` or `high` finding is never left open,
 whichever of the three it is. An issue filed so a pull
 request this session opens can close it needs no exception.
 
@@ -160,7 +160,7 @@ Before running it, check:
 - [ ] **Done when** could fail.
 - [ ] No paragraph that would fit a sibling issue unchanged; no empty section; no slash shorthand.
 
-After it is filed:
+After it is filed — unless it was closed at filing, as an `info` finding or a dismissed one is, which needs no rating and no place on the board:
 
 1. **Rate it.** Invoke `rate-complexity` with the new number, now, before anyone starts the work. Rate once: when `new-feat` calls this skill, this is the rating, and `new-feat` does not rate again.
 2. **Put it on the Project.** The tracker adds its own issues to the board; a public issue needs adding:

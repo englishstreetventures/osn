@@ -294,8 +294,9 @@ rest, and say how many you cut. A list of nine is a list nobody reads.
 
 | Kind | Where | Labels |
 |---|---|---|
-| A wiki page, `AGENTS.md`, skill or agent-definition change | **Make it** — on this branch while the pull request is open, otherwise in a follow-up pull request this session opens | — |
-| A missing test, house rule or CI gate | **Make it** the same way when it fits in one package; an issue in `englishstreetventures/osn` only when it is a project of its own | `area:ops` or `area:schema` as it fits, `--type Task` |
+| A wiki page change | **Make it on this branch** while the pull request is open — a plain wiki edit needs no fresh review | — |
+| An `AGENTS.md`, skill or agent-definition change | **Make it on the follow-up pull request** (`prep-pr` Step 6), which gets its own reviews; never on this branch after its reviews have run | — |
+| A missing test, house rule or CI gate | **Make it** on the follow-up pull request when it fits in one package; an issue in `englishstreetventures/osn` only when it is a project of its own | `area:ops` or `area:schema` as it fits, `--type Task` |
 | Anything about the brief | **No issue.** It goes in `RETRO.md` and is said plainly in the reply | — |
 | A security, performance or compliance defect | `englishstreetventures/osn-tracker`, and only if `prep-pr` did not already file it | per `wiki/conventions/review-findings.md` |
 

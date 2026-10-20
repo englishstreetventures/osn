@@ -28,8 +28,8 @@ All review skills (`/review-security`, `/review-performance`, `/review-tests`) t
 | `T-E` | review-tests | Error path |
 | `T-R` | review-tests | Route test |
 | `T-S` | review-tests | Suggestion |
-| `C-C` | review-security (compliance section) | Critical compliance — blocks deploy / triggers regulatory exposure |
-| `C-H` | review-security (compliance section) | High compliance — fix before next release |
+| `C-C` | review-security (compliance section) | Critical compliance — blocks deploy; fix on this branch or a follow-up PR opened before it merges |
+| `C-H` | review-security (compliance section) | High compliance — fix on this branch or a follow-up PR opened before it merges |
 | `C-M` | review-security (compliance section) | Medium compliance — fix on this branch or a follow-up PR |
 | `C-L` | review-security (compliance section) | Low compliance — fix on this branch or a follow-up PR |
 
@@ -70,9 +70,9 @@ nothing to that count; one filed and left open is a debt.
 ### In scope is fixed; three things may stay open
 
 **Within the feature's scope, everything is fixed on this branch, at every
-severity.** The scope is what the branch's issue needs to be done well: the
-code it changes and the packages it touches, the tests and docs for them, and
-every finding in that code, whether the branch introduced it or found it there.
+severity.** The scope is the files the branch changes, their tests and their
+docs, and every finding in those files, whether the branch introduced it or
+found it there.
 
 An issue is left open only for something in one of these three, and the report
 names which:
@@ -80,24 +80,15 @@ names which:
 1. **Out of scope for the feature.** Real work that belongs to a different
    feature or surface than the one this branch delivers.
 2. **Unrelated, and found mid-task.** Something that looks irrelevant to the
-   task and only came to light while doing it: a bug in a neighbouring
-   package, a flaky test elsewhere, a stale page about another system.
+   task and only came to light while doing it: a finding in a file the branch
+   does not change, even in the same package, a flaky test elsewhere, a stale
+   page about another system.
 3. **A larger piece of work.** A project of its own — `rate-complexity` would
    rate it 5 or 8 — or one that needs what the session cannot supply: the
    owner's choice between designs, money or a public contract (write the
    proposal and add `needs:decision`, see
    [[#When the fix needs a decision from the owner]]), or production access, a
    secret, a third party or a deploy.
-
-When something in the first two is small, a follow-up pull request the same
-session opens beats an issue: cut a second branch (stacked on this one when it
-needs this one's code, from `main` otherwise, see [[stacked-prs]]), fix it, and
-open it before the session ends. Its issue, when it needs one, is closed by that
-pull request's merge. A follow-up for an `S-`, `P-` or `C-` finding takes the
-naming rule in `new-feat` Step 0 before its first commit: its branch name,
-commit messages and title name the area or the tracker number, never the
-defect, because the public repository's branch list publishes it before the fix
-lands.
 
 Never reasons to leave something in scope open: "low severity", "pre-existing",
 "would make the diff bigger", "a later pull request can tidy it", or the review
@@ -111,9 +102,32 @@ its record and closed at once, so it never counts as open. A `T-S` suggestion, a
 nit or an observation is fixed on this branch or recorded in the report, never
 filed.
 
-**More than two left open by one pull request means something in scope was
-filed.** Before filing a third, put the list to the owner; with no owner to
-ask, fix the in-scope ones and keep only what fits the three.
+### One follow-up pull request, not one per fix
+
+What is small in the first two goes on **one** follow-up pull request rather
+than into issues: every such fix as its own commit on a single second branch
+(stacked on this one when it needs this one's code, from `main` otherwise, see
+[[stacked-prs]]), opened after this branch's pull request and before the
+session ends. Its issues are closed by its merge. Its own reviews do not spawn a
+third pull request: what they find out of its scope becomes an issue.
+
+The session that found the work does not cut that branch itself. A session
+that cuts two branches leaves its spend on neither metrics card, so it
+dispatches a subagent whose prompt opens `TASK-BRANCH: <follow-up branch>`,
+which cuts the branch, fixes, and runs `prep-pr`. When any fix is for an `S-`,
+`P-` or `C-` finding, the branch name, commit messages and title name the area
+or the tracker number, never the defect — `new-feat` Step 0's rule, applied
+before the first commit, because the public repository's branch list
+publishes the name before the fix lands.
+
+### More than two left open
+
+Count the issues a pull request leaves open that no open pull request will
+close. **More than two means something in scope was filed.** Before filing a
+third, put the list to the owner; with no owner to ask, fix the in-scope ones
+and keep only what fits the three. A reviewer of the work — the orchestrator,
+or the owner — checks the count against the tally in the `prep-pr` report and
+names any issue that fits none of the three.
 
 ### Critical and high
 
@@ -177,7 +191,7 @@ Rules:
 - A public pull request -- its title, body, comments and commits -- carries a tracker issue only as that bare reference: never the finding ID, the title, the file and line, or a word about the defect. The `write-pr` skill (`.claude/skills/write-pr/SKILL.md`) holds the rule and what to do when the reference itself is refused.
 - Sorting is a filter now, not a file convention: `gh issue list --repo englishstreetventures/osn-tracker --label severity:high --state open`.
 - File new findings from PR reviews immediately, in `/prep-pr` Step 7.
-- Several findings from one piece of work go on **stacked PRs**, one fix per PR, base of each set to the one below it -- see [[stacked-prs]].
+- Findings one branch cannot fix in its own files go on **one** follow-up pull request, one commit per fix -- see [[#One follow-up pull request, not one per fix]] and [[stacked-prs]].
 
 `T-*` test findings are not filed. They are coverage gaps, not defects -- `/prep-pr` Step 4 raises them and the branch writes the missing tests before it opens. A `T-S` suggestion the branch declines is a line in the report, not an issue.
 

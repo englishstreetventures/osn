@@ -2,7 +2,7 @@
 
 Reference for the `write-pr` skill. Copy the shape, not the words. The branch is made up, and so are its issue numbers; tracker numbers are left as `<n>`.
 
-The branch: `fix/cire-api-claim-hardening`. Three commits — guest sessions cut from 30 days to 14 (`a1b2c3d`), organisers can resend an invite to a household that has not replied (`b2c3d4e`), and a review fix putting the resend route under the existing invite limiter (`e4f5a6b`). The resend link is signed with a new secret that production needs before it deploys. It fixes public issue #9101 and one tracker finding, is one of five children of epic #9001, and its review filed a second finding it does not fix. The owner was not around to ask whether to split it.
+The branch: `fix/cire-api-claim-hardening`. Three commits — guest sessions cut from 30 days to 14 (`a1b2c3d`), organisers can resend an invite to a household that has not replied (`b2c3d4e`), and a review fix putting the resend route under the existing invite limiter (`e4f5a6b`). The resend link is signed with a new secret that production needs before it deploys. It fixes public issue #9101 and one tracker finding, is one of five children of epic #9001, and its review found a second finding in a file the branch does not change, which the session fixed on one follow-up pull request, #9104. Showing organisers when a resent invite was opened is a separate feature, raised as #9102. The owner was not around to ask whether to split it.
 
 ## Before
 
@@ -88,7 +88,10 @@ Part of #9001
 **Raised against this branch**
 
 - #9102 — Cire: show organisers when a resent invite was opened
-- englishstreetventures/osn-tracker#<n>
+
+**Follow-up pull requests**
+
+- #9104 — Cire API: invite lookup follow-up — englishstreetventures/osn-tracker#<m>
 
 ## Decisions
 
@@ -128,5 +131,6 @@ What changed:
 - **The tracker finding is a bare reference everywhere.** No `S-M2` or `S-M1`, no decision headed by a finding ID, and the body says what the code now does ("Guest sessions now last 14 days") without saying what was wrong with 30.
 - **The dismissed concern left the body.** Naming a cross-wedding claim the review thought of, even to say it is safe, tells a reader where to look. `prep-pr` Step 7 files it in the tracker and closes it as not planned.
 - **Each close appears once**, under the right organisation name, with the epic as `Part of` so the merge leaves it open.
-- **The issue raised against this branch is listed once**, not under Opened and again under Out of scope.
+- **The issue raised against this branch is listed once**, not under Opened and again under Out of scope, and it is the one thing that stays open: a separate feature.
+- **The second finding is not raised.** It sat in a file the branch does not change, so it went on the follow-up pull request, listed with the tracker issue that pull request closes and nowhere else.
 - **The test plan has a `Commit` column**, and the lint row says what the later commit left unproven. The D1 row says why it did not run — here, that nobody recorded a reason, which is itself the honest answer.
