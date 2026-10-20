@@ -296,6 +296,8 @@ describe("RsvpPanel", () => {
         onClose={() => {}}
         onSubmitted={onSubmitted}
         onConfirmed={onConfirmed}
+        // A page that shows nobody answering: the API refuses a null member.
+        answeringAs={null}
       />
     ));
 
@@ -311,6 +313,7 @@ describe("RsvpPanel", () => {
     const parsed = JSON.parse(fetchSpy.mock.calls[0]![1].body);
     expect(parsed.rsvps).toHaveLength(1);
     expect(parsed.rsvps[0]).toMatchObject({ guestId: "guest-priya", eventId: "event-1" });
+    expect(parsed).not.toHaveProperty("memberGuestId");
     expect(onSubmitted).toHaveBeenCalledWith(updatedRsvps);
 
     // A partial reply gets the toast, same as a complete one, but not the

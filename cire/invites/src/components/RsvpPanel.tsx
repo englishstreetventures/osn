@@ -108,14 +108,30 @@ export interface RsvpPanelProps {
    */
   memberRequired?: boolean;
   /**
-   * The server refused the save with 409 `member_required`: the page shows
-   * the member step. Only reached when the payload's flag read and the
-   * write's disagreed.
+   * The household member the page shows as answering ("Answering as …"), or
+   * null for none. Sent with the save, so the server records a reply only
+   * under the member the person at the keyboard saw.
+   */
+  answeringAs?: string | null;
+  /**
+   * The server refused the save with 409 `member_required` or
+   * `member_changed`: the page shows the member step. Reached when the
+   * session's member changed after the page read it ("Not you?", or a new
+   * choice, in another tab; or the organiser removed that guest), when the
+   * page was loaded before the API sent `member` at all, or, in a wedding
+   * excluded from the member step, when the payload's flag read timed out and
+   * the write's did not.
    */
   onMemberRequired?: () => void;
 }
 
 type Attending = "attending" | "declined" | null;
+
+/** The `POST /api/rsvp` body: the replies, and the member the page shows as answering. */
+interface RsvpSaveBody {
+  rsvps: readonly object[];
+  memberGuestId?: string;
+}
 
 /** What the sheet says while nobody has said who is answering. */
 const MEMBER_REQUIRED_COPY = "Choose who you are under the welcome above, then reply.";
@@ -551,7 +567,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
 
     setLoading(true);
 
-    const body = {
+    const body: RsvpSaveBody = {
       rsvps: answered.map((m) => {
         const state = current[m.guestId]!;
         const attending = state.attending === "attending";
@@ -587,6 +603,10 @@ export function RsvpPanel(props: RsvpPanelProps) {
         };
       }),
     };
+
+    // The member the page shows as answering, so the server records the reply
+    // only under them.
+    if (props.answeringAs) body.memberGuestId = props.answeringAs;
 
     inFlight = new AbortController();
     try {
@@ -648,7 +668,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
         );
       } else if (res.status === 409) {
         const code = await failureCode(res);
-        if (code === "member_required") {
+        if (code === "member_required" || code === "member_changed") {
           setError(MEMBER_REQUIRED_COPY);
           props.onMemberRequired?.();
         } else if (code === "plus_one_changed") {

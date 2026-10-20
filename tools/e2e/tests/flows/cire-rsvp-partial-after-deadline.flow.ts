@@ -69,6 +69,13 @@ test("cire-rsvp-partial-after-deadline", async ({ page, flow }) => {
     await expect(hindu).toBeVisible();
   });
 
+  await flow.step(`say ${CIRE_PART_GUEST.answering} is answering`, async () => {
+    // A household of several says who is at the keyboard before it replies.
+    const whoAreYou = page.getByRole("group", { name: "Who are you?" });
+    await whoAreYou.getByRole("button", { name: CIRE_PART_GUEST.answering, exact: true }).click();
+    await expect(page.getByText(`Answering as ${CIRE_PART_GUEST.answering}`)).toBeVisible();
+  });
+
   await flow.step("answer the Hindu ceremony for Bo alone", async () => {
     await hindu.getByRole("button", { name: "Respond" }).click();
     await member(CIRE_PART_GUEST.answering)

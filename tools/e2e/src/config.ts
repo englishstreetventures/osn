@@ -110,6 +110,20 @@ export const CIRE_PART_GUEST = {
   silent: ["Cleo", "Dot"],
 } as const;
 
+/**
+ * Seeded cire household of several: the second canonical family in
+ * `cire/db/seed/data/guests.ts` (Bo, Cleo, Dot; Bo and Cleo are invited to the
+ * Reception). `member` is who says they are answering.
+ */
+export const CIRE_HOUSEHOLD = {
+  slug: "cire-wedding",
+  code: "TESTTWO-OAK-BB22",
+  members: ["Bo", "Cleo", "Dot"],
+  member: "Cleo",
+  /** Who a second tab says is answering, after "Not you?". */
+  otherMember: "Bo",
+} as const;
+
 /** Identities the flows create. Fixed, so every run registers the same people. */
 export const PEOPLE = {
   musubi: { email: "ada@e2e.test", handle: "e2e_ada", name: "Ada E2E" },

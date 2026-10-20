@@ -473,6 +473,12 @@ export interface AppOptions {
    */
   resolveOsnAccountId?: OsnAccountResolver;
   /**
+   * Weddings whose households get the member step only while
+   * `cire.account-linking` is on for them (`index.ts` reads
+   * `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS`). Omitted ⇒ every guest household.
+   */
+  memberStepExcludedWeddings?: ReadonlySet<string>;
+  /**
    * Resolves an OSN handle to a profile id (server-to-server, ARC) for the
    * add-co-host POST. When omitted, the add-host endpoint answers 503 — adding
    * hosts by handle is additive, so a deployment without an ARC key simply
@@ -815,6 +821,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     // musubi serves profile pictures from its own identity host, the OIDC
     // issuer; no other avatar host is shown on the guest site.
     avatarOrigins: originOf(osnIssuerUrl),
+    memberStepExcludedWeddings: options.memberStepExcludedWeddings,
   };
 
   // Capture the chain so we can conditionally mount the payment webhook below.
@@ -967,7 +974,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createRsvpRoutes(db, { limiter: rsvpLimiter, accountLinking }))
       // The household's plus-ones: same cookie, same no-Turnstile argument, and
       // a per-IP limiter like the guest registry writes.
-      .use(createPlusOneRoutes(db, { limiter: plusOneLimiter }))
+      .use(createPlusOneRoutes(db, { limiter: plusOneLimiter, accountLinking }))
       // Guest gift registry, four sibling instances by gate class: the gift
       // IMAGE read takes no auth (a per-save uuid name, and a session lookup on
       // every image on a page of dozens is the wrong trade — see the route);
@@ -1158,7 +1165,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // gating the guest-only unlink (same sibling pattern as rsvp + organiser).
       // The household's link state is read through the claim and restore
       // responses, not here.
-      .use(createAccountLinkRoutes(db, accountLinkLimiter, resolveOsnAccountId))
+      .use(createAccountLinkRoutes(db, accountLinkLimiter, accountLinking))
       .use(
         createAccountLinkPostRoute(
           db,

@@ -46,6 +46,9 @@ beforeAll(() => {
   db = createDb(":memory:");
   app = createApp(db, {
     claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+    // "Who are you?" spends the restore's budget; its default is one
+    // limiter shared by every app in the test process.
+    claimSessionLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
     // One module-wide app for every test here: a high cap so the RSVP limiter
     // (tested in rsvp-rate-limit.test.ts) never trips across them.
     rsvpLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
@@ -99,6 +102,34 @@ const claim = (publicId: string) =>
     ),
   );
 
+/** `POST /api/claim/member` on `target`: say which household member is answering. */
+async function chooseMember(
+  target: ReturnType<typeof createApp>,
+  cookie: string,
+  guestId: string,
+): Promise<void> {
+  const res = await target.fetch(
+    new Request("http://localhost/api/claim/member", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "cf-connecting-ip": "203.0.113.7",
+        Origin: "http://localhost:4321",
+        Cookie: cookie,
+      },
+      body: JSON.stringify({ guestId }),
+    }),
+  );
+  expect(res.status).toBe(200);
+}
+
+/**
+ * Claims `publicId` and, where the household has more than one member and so
+ * no member was chosen for it, answers "Who are you?" with its first one, as
+ * the guest site would. Without a member the write would stop at
+ * `member_required` (household-member.test.ts) before the gate a test is
+ * about.
+ */
 const claimAndCookie = (publicId: string) =>
   Effect.gen(function* () {
     const res = yield* claim(publicId);
@@ -107,7 +138,15 @@ const claimAndCookie = (publicId: string) =>
     expect(setCookie).not.toBeNull();
     const token = parseSessionToken(setCookie);
     expect(token).not.toBeNull();
-    return `cire_session=${token}`;
+    const cookie = `cire_session=${token}`;
+    const body = yield* Effect.promise(() =>
+      res.json<{ member: unknown; members: { guestId: string; plusOneOf: string | null }[] }>(),
+    );
+    const first = body.members.find((m) => m.plusOneOf === null);
+    if (body.member === null && first) {
+      yield* Effect.promise(() => chooseMember(app, cookie, first.guestId));
+    }
+    return cookie;
   });
 
 describe("POST /api/rsvp", () => {
@@ -917,6 +956,7 @@ describe("POST /api/rsvp — a plus-one's reply", () => {
     seedDb(plusDb);
     const plusApp = createApp(plusDb, {
       claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+      claimSessionLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
       rsvpLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
     });
     const bo = guestNamed(plusDb, "Bo");
@@ -933,6 +973,9 @@ describe("POST /api/rsvp — a plus-one's reply", () => {
       }),
     );
     const cookie = `cire_session=${parseSessionToken(claimRes.headers.get("Set-Cookie"))}`;
+    // Bo answers for the household, so each test meets its own gate rather
+    // than `member_required`.
+    await chooseMember(plusApp, cookie, bo.id);
     const send = (rsvpBody: unknown) =>
       plusApp.fetch(
         new Request("http://localhost/api/rsvp", {
@@ -1096,6 +1139,7 @@ describe("POST /api/rsvp — a plus-one's reply", () => {
         "eventId",
         "guestId",
         "status",
+        "submittedBy",
       ].toSorted(),
     );
   });

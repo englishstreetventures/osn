@@ -173,9 +173,11 @@ export const ClaimResponse = Schema.Struct({
     entries: Schema.Array(Schema.Struct({ question: Schema.String, answer: Schema.String })),
   }),
   accountLink: AccountLinkState,
-  // Which household member this session says it is. Present only while the
-  // member step is on for the household (the `cire.account-linking` flag);
-  // `null` until chosen. Absent otherwise, so a flag-off payload is unchanged.
+  // Which household member this session says it is: present for every guest
+  // household, `null` until chosen. Absent on a host preview, which is not a
+  // guest seat, and for a household of a wedding in
+  // `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` while account linking is off for it
+  // (`memberStepOn`).
   member: Schema.optional(Schema.NullOr(Schema.Struct({ guestId: Schema.String }))),
 });
 export type ClaimResponse = Schema.Schema.Type<typeof ClaimResponse>;
