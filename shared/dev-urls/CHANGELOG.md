@@ -1,5 +1,11 @@
 # @shared/dev-urls
 
+## 0.1.11
+
+### Patch Changes
+
+- 58063cc: Give `@cire/host` the cire marketing site's origin as `PUBLIC_MARKETING_URL` in local dev.
+
 ## 0.1.10
 
 ### Patch Changes
