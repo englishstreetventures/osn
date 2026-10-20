@@ -59,6 +59,19 @@ const badRequest = (set: { status?: number | string }) =>
     return { error: "Missing or invalid fields" };
   });
 
+/**
+ * The wedding's host preview household — the organiser's "Preview invite"
+ * session — reads the gift list and never writes to it, as it never writes an
+ * RSVP. 403 rather than the shared 404: the session is valid for this wedding,
+ * so the answer tells the caller nothing it did not know. A machine-readable
+ * code, so the gift page can tell it from the origin guard's 403.
+ */
+const previewReadOnly = (set: { status?: number | string }) =>
+  Effect.sync(() => {
+    set.status = 403;
+    return { error: "preview_read_only" };
+  });
+
 const internal = (set: { status?: number | string }) =>
   Effect.sync(() => {
     set.status = 500;
@@ -318,9 +331,10 @@ export interface RegistryContributeDeps {
  * caller with no claimed session spends the same per-IP budget as a guest.
  *
  * **The gates that matter run before Stripe does** (`contributionContext`): the
- * registry must be visible, the household must belong to THIS wedding, the
- * couple must have said yes, and Stripe must be able to take the charge today.
- * A guest is turned away before their card is, or not at all.
+ * registry must be visible, the household must belong to THIS wedding and not
+ * be its host preview household, the couple must have said yes, and Stripe
+ * must be able to take the charge today. A guest is turned away before their
+ * card is, or not at all.
  *
  * **Nothing is recorded here.** A session is an intention, not a gift. The row
  * in `registry_contributions` is written by the webhook when Stripe says the
@@ -466,6 +480,7 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
             Effect.provideService(DbService, db),
             Effect.catchTag("SchemaError", () => badRequest(set)),
             Effect.catchTag("RegistryNotVisible", () => notVisible(set)),
+            Effect.catchTag("RegistryPreviewSession", () => previewReadOnly(set)),
             Effect.catchTag("CashGiftsUnavailable", () =>
               Effect.sync(() => {
                 set.status = 409;
@@ -524,6 +539,7 @@ export interface RegistryGuestClaimDeps {
  *
  *   RegistryNotVisible      → 404 `registry_not_found`
  *   FamilyNotInWedding      → 404 `registry_not_found`       (see below)
+ *   RegistryPreviewSession  → 403 `preview_read_only`        (the host preview household)
  *   RegistryItemNotInWedding→ 404 `registry_item_not_found`
  *   ItemFullyClaimed        → 409 `item_fully_claimed`
  *   InvalidQuantity         → 400 `invalid_quantity`
@@ -570,6 +586,7 @@ export const createRegistryGuestClaimRoutes = (db: Db, deps: RegistryGuestClaimD
             Effect.catchTag("RegistryNotVisible", () => notVisible(set)),
             Effect.catchTag("RegistryItemNotInWedding", () => itemNotFound(set)),
             Effect.catchTag("FamilyNotInWedding", () => notVisible(set)),
+            Effect.catchTag("RegistryPreviewSession", () => previewReadOnly(set)),
             Effect.catchTag("ItemFullyClaimed", () =>
               Effect.sync(() => {
                 set.status = 409;
@@ -606,6 +623,7 @@ export const createRegistryGuestClaimRoutes = (db: Db, deps: RegistryGuestClaimD
           Effect.provideService(DbService, db),
           Effect.catchTag("RegistryNotVisible", () => notVisible(set)),
           Effect.catchTag("FamilyNotInWedding", () => notVisible(set)),
+          Effect.catchTag("RegistryPreviewSession", () => previewReadOnly(set)),
           Effect.catchTag("RegistryItemNotInWedding", () => itemNotFound(set)),
           Effect.tapDefect(logDefect),
           Effect.catchDefect(() => internal(set)),

@@ -765,8 +765,9 @@ export function applyE2eRsvpDeadline(
 
 /**
  * A second wedding for the E2E suite's gift-list flows: on Gold, with a
- * published list of three gifts and one household of one invited to one
- * event. The values the flows check are written out again in
+ * published list of three gifts, one household of one invited to one event,
+ * and the wedding's host preview household. The values the flows check are
+ * written out again in
  * `tools/e2e/src/config.ts` (`CIRE_GIFT_LIST`); a change here goes there too,
  * and the claimed flow fails until it does.
  *
@@ -823,6 +824,32 @@ export function seedE2eGiftList(db: TestDb): void {
     })
     .run();
   db.insert(schema.guestEvents).values({ guestId, eventId }).run();
+
+  // The wedding's host preview household, as `hostCodeService.ensureForWedding`
+  // makes it for "Preview invite", with a fixed code so a flow can open the
+  // preview link without the organiser portal.
+  db.insert(schema.families)
+    .values({
+      id: "fam_e2e_gift_host",
+      weddingId,
+      publicId: "HOST-E2E00000000000000000000000000001",
+      familyName: "Host Preview",
+      kind: "host",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guests)
+    .values({
+      id: "gst_e2e_gift_host",
+      familyId: "fam_e2e_gift_host",
+      firstName: "Wedding",
+      lastName: "Host",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guestEvents).values({ guestId: "gst_e2e_gift_host", eventId }).run();
 
   db.insert(schema.registrySettings)
     .values({

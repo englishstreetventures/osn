@@ -71,11 +71,22 @@ export interface GiftRegistryHouseholdClaim {
  * never set one" at once, deliberately. The UI renders it only when present and
  * says nothing at all otherwise — inventing a reason here would be inventing
  * data the API declined to give.
+ *
+ * `preview` is present only for the wedding's host preview household — the
+ * organiser's "Preview invite" session — which reads the list and never writes
+ * to it. The page then shows the controls a guest sees, without offering them.
  */
 export interface GiftRegistryHousehold {
   claims: GiftRegistryHouseholdClaim[];
   shippingAddress?: string;
+  preview?: true;
 }
+
+/**
+ * The code a write answers the host preview household with (403). Read by its
+ * code, never its status: the origin guard answers 403 too.
+ */
+const PREVIEW_READ_ONLY = "preview_read_only";
 
 /**
  * The list read. CREDENTIALED — the list is for the couple's guests.
@@ -118,6 +129,8 @@ export type GiftRegistryHouseholdFetch =
  *  - `signed-out`    — 401. The 30-day household session lapsed mid-visit.
  *  - `rate-limited`  — 429, with the server's `retry-after` in seconds when it
  *                      sent a usable one.
+ *  - `preview`       — 403 `preview_read_only`. The organiser's preview session,
+ *                      from a page that did not know it was one.
  */
 export type GiftRegistryWrite =
   | { kind: "ok" }
@@ -127,6 +140,7 @@ export type GiftRegistryWrite =
   | { kind: "signed-out" }
   | { kind: "rate-limited"; retryAfterSeconds: number | null }
   | { kind: "invalid" }
+  | { kind: "preview" }
   | { kind: "error" };
 
 /** Body of a claim POST. Every field is optional server-side; quantity defaults to 1. */
@@ -185,6 +199,9 @@ async function writeFailure(res: Response): Promise<GiftRegistryWrite> {
       : { kind: "hidden" };
   }
   if (res.status === 400) return { kind: "invalid" };
+  if (res.status === 403 && (await errorCode(res)) === PREVIEW_READ_ONLY) {
+    return { kind: "preview" };
+  }
   return { kind: "error" };
 }
 
@@ -238,6 +255,9 @@ export async function fetchGiftRegistryHousehold(
  * never turned it on, Stripe cannot take a charge today, or there is no
  * connected account. One code for all three, because to a guest they are the
  * same fact and none of them is theirs to fix.
+ *
+ * `preview` is the 403 `preview_read_only`: the organiser's preview session,
+ * which never gives.
  */
 export type GiftContributionResult =
   | { kind: "ok"; url: string }
@@ -245,6 +265,7 @@ export type GiftContributionResult =
   | { kind: "signed-out" }
   | { kind: "rate-limited"; retryAfterSeconds: number | null }
   | { kind: "invalid" }
+  | { kind: "preview" }
   | { kind: "error" };
 
 /** What a guest is giving, and what they want said with it. */
@@ -283,6 +304,9 @@ export async function contributeGift(
     if (res.status === 401) return { kind: "signed-out" };
     if (res.status === 409) return { kind: "unavailable" };
     if (res.status === 400) return { kind: "invalid" };
+    if (res.status === 403 && (await errorCode(res)) === PREVIEW_READ_ONLY) {
+      return { kind: "preview" };
+    }
     if (res.status === 429) {
       const raw = res.headers.get("retry-after");
       const seconds = raw === null ? Number.NaN : Number.parseInt(raw, 10);

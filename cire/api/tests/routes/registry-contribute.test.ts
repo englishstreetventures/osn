@@ -13,7 +13,9 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
+import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import { hostCodeService } from "../../src/services/host-code";
 import {
   StripeError,
   type CreateCheckoutSessionInput,
@@ -226,6 +228,16 @@ describe("who may give", () => {
     expect((await contribute(app, null, { amountMinor: 5000 })).status).toBe(401);
   });
 
+  it("refuses a cookie that names no live session, before any row or Stripe call", async () => {
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    const res = await contribute(app, "cire_session=no-such-session", { amountMinor: 5000 });
+    expect(res.status).toBe(401);
+    expect(await jsonBody(res)).toEqual({ error: "Unauthorized" });
+    expect(db.select().from(registryContributions).all()).toEqual([]);
+    expect(stripe.sessions).toHaveLength(0);
+  });
+
   it("refuses a household of another wedding, as the same 404 everything else gives", async () => {
     const stripe = stripeStub();
     const { app } = buildApp({ stripe: stripe.client });
@@ -236,6 +248,26 @@ describe("who may give", () => {
     // Turned away before their card was — the cross-tenant case is the one
     // this claim matters most for.
     expect(stripe.sessions).toHaveLength(0);
+  });
+
+  it("refuses the host preview household before Stripe is asked anything", async () => {
+    // The organiser's "Preview invite" session reads the list; it never gives.
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    const { publicId } = await Effect.runPromise(
+      hostCodeService
+        .ensureForWedding(BOOTSTRAP_WEDDING_ID, SLUG)
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    const preview = await guestCookie(app, publicId);
+
+    const res = await contribute(app, preview, { amountMinor: 5000 });
+
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "preview_read_only" });
+    expect(db.select().from(registryContributions).all()).toEqual([]);
+    expect(stripe.sessions).toHaveLength(0);
+    expect(stripe.retrieved).toHaveLength(0);
   });
 
   it("does not exist at all when Stripe is not configured", async () => {

@@ -246,6 +246,21 @@ describe("claimGiftRegistryItem", () => {
     fetchMock.mockResolvedValueOnce(new Response("<html>gateway</html>", { status: 409 }));
     expect(await claimGiftRegistryItem(API, SLUG, "gi-1")).toEqual({ kind: "error" });
   });
+
+  it("reads the preview refusal by its code, not by its status", async () => {
+    // The organiser's preview session reads the list and may not write to it.
+    fetchMock.mockResolvedValueOnce(json({ error: "preview_read_only" }, 403));
+    expect(await claimGiftRegistryItem(API, SLUG, "gi-1")).toEqual({ kind: "preview" });
+    fetchMock.mockResolvedValueOnce(json({ error: "preview_read_only" }, 403));
+    expect(await releaseGiftRegistryItem(API, SLUG, "gi-1")).toEqual({ kind: "preview" });
+
+    // The origin guard answers 403 too, and that is not a preview; nor is the
+    // code on any other status.
+    fetchMock.mockResolvedValueOnce(json({ error: "forbidden" }, 403));
+    expect(await claimGiftRegistryItem(API, SLUG, "gi-1")).toEqual({ kind: "error" });
+    fetchMock.mockResolvedValueOnce(json({ error: "preview_read_only" }, 500));
+    expect(await claimGiftRegistryItem(API, SLUG, "gi-1")).toEqual({ kind: "error" });
+  });
 });
 
 describe("releaseGiftRegistryItem", () => {
@@ -544,6 +559,10 @@ describe("contributeGift", () => {
       [409, { error: "cash_gifts_unavailable" }, { kind: "unavailable" }],
       [400, { error: "Missing or invalid fields" }, { kind: "invalid" }],
       [502, { error: "stripe_unavailable" }, { kind: "error" }],
+      // The organiser's preview session may read the list and never give.
+      [403, { error: "preview_read_only" }, { kind: "preview" }],
+      // The origin guard's 403 is not a preview.
+      [403, { error: "forbidden" }, { kind: "error" }],
     ];
     for (const [status, body, expected] of cases) {
       fetchMock.mockResolvedValueOnce(json(body, status));

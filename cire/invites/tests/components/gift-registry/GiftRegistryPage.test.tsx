@@ -435,6 +435,39 @@ describe("the privacy property", () => {
   });
 });
 
+describe("the organiser's preview", () => {
+  it("shows the list as guests see it, says it is a preview, and offers nothing that writes", async () => {
+    const { calls } = routedFetch({
+      list: [json(registry({ cashGiftsEnabled: true }))],
+      mine: [json({ claims: [], preview: true })],
+    });
+    const { container } = renderPage();
+
+    await whenListed();
+    await waitFor(() =>
+      expect(container.querySelector("[data-gift-preview]")?.textContent).toMatch(
+        /^Preview mode\./,
+      ),
+    );
+    // A preview is signed in: no session-ended note.
+    expect(container.querySelector("[data-gift-signed-out]")).toBeNull();
+    const reserve = screen.getByRole("button", { name: "Reserve" }) as HTMLButtonElement;
+    expect(reserve.disabled).toBe(true);
+    const give = (await screen.findByRole("button", {
+      name: "Continue to payment",
+    })) as HTMLButtonElement;
+    expect(give.disabled).toBe(true);
+    fireEvent.click(reserve);
+    expect(calls.filter((c) => c.method !== "GET")).toEqual([]);
+  });
+
+  it("names the preview when a write from a stale page is refused", () => {
+    expect(giftRegistryWriteMessage({ kind: "preview" }, "claim", "Copper pan")).toMatch(
+      /^Preview mode\./,
+    );
+  });
+});
+
 describe("a session that ends mid-visit", () => {
   it("explains the missing controls when only the household read lost the session", async () => {
     routedFetch({ mine: [json({ error: "Unauthorized" }, 401)] });

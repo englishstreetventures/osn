@@ -166,6 +166,10 @@ describe("the amount a guest types", () => {
       fireEvent.input(input, { target: { value } });
       expect(button.disabled).toBe(true);
     }
+    // A submit that reaches the form anyway still sends nothing.
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+    await Promise.resolve();
+    expect(calls).toHaveLength(0);
     fireEvent.input(input, { target: { value: "75" } });
     expect(button.disabled).toBe(false);
 
@@ -224,6 +228,26 @@ describe("when it does not work", () => {
 
     await screen.findByText(/Could not reach the payment page/);
     expect(button.disabled).toBe(false);
+  });
+});
+
+describe("in the organiser's preview", () => {
+  it("shows the panel a guest would see, and sends nothing", async () => {
+    const assign = captureNavigation();
+    const { mock } = stubFetch(json({ url: "https://checkout.stripe.com/c/pay/cs_1" }));
+    const { container } = renderPanel({ preview: true, navigate: assign });
+
+    const button = screen.getByRole("button", { name: "Continue to payment" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    // A submit that reaches the form anyway still goes nowhere.
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+    await Promise.resolve();
+    expect(mock).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("names the preview when a stale page is refused", () => {
+    expect(giftMoneyMessage({ kind: "preview" })).toMatch(/^Preview mode\./);
   });
 });
 

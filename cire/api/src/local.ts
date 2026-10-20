@@ -9,6 +9,7 @@ import {
   repointDevOwnerSeat,
   seedDb,
 } from "./db/setup";
+import { localClientAddress } from "./lib/local-client-address";
 import { localResendConfig } from "./lib/resend-email";
 import { siteOriginOptions } from "./lib/web-origin";
 import { runCireSync } from "./observability";
@@ -117,19 +118,21 @@ if (localResend) appOptions.emailLayer = makeResendEmailLive(localResend);
 
 const app = createApp(db, appOptions);
 
+// Only the E2E stack sets this: it keeps the client address a request sends,
+// so an organiser's claim can come from the organiser's own address.
+const keepSentClientAddress = process.env.CIRE_E2E_CLIENT_ADDRESS === "1";
+
 const server = Bun.serve({
   port,
   // Both parameters are contextually typed by `Bun.serve`; naming `Bun.Server`
   // here would need its WebSocket type argument, which this server has not got.
   fetch(request, srv) {
-    // Local dev has no Cloudflare edge, so `cf-connecting-ip` is absent and the
-    // fail-closed rate limiter (W5) 429s every gated route (claim, preview-code,
-    // account-link, invite writes). Inject the socket peer as the trusted client
-    // IP so per-IP limiting works locally. Prod (index.ts) is unaffected —
-    // Cloudflare sets the real header at the edge.
+    // Local dev has no Cloudflare edge, so the socket peer stands in for
+    // `cf-connecting-ip`, which the fail-closed rate limiter needs on every
+    // gated route. Prod (index.ts) is unaffected: Cloudflare sets the real
+    // header at the edge. When a sent address is kept: `localClientAddress`.
     const ip = srv.requestIP(request)?.address ?? "127.0.0.1";
-    const headers = new Headers(request.headers);
-    if (!headers.has("cf-connecting-ip")) headers.set("cf-connecting-ip", ip);
+    const headers = localClientAddress(request.headers, ip, keepSentClientAddress);
     return app.fetch(new Request(request, { headers }));
   },
 });
