@@ -18,15 +18,16 @@ freeform per-wedding task list, file each task under a lead-time **bucket**
 (12 months out → day-of), optionally set a due date, check tasks off, and
 reorder tasks within a bucket. A couple can also seed the list from the
 **starter checklist**, whose due dates follow the wedding date
-([[#Starter checklist]]), and hand any task to someone seated on the wedding
-([[#Assignee]]).
+([[#Starter checklist]]), and hand any task to as many people seated on the
+wedding as they like ([[#Assignees]]).
 
 ## `tasks` table
 
 Built by the baseline `0001_initial.sql` (`migrations-archive/0038_tasks.sql`
-first); `0086_task_templates.sql` added the four template columns and the
-unique index, and `0087_task_assigned_host.sql` the assignee, both with
-`ALTER TABLE ADD` and no rebuild.
+first); `0085_task_templates.sql` added the four template columns and the
+unique index with `ALTER TABLE ADD` and no rebuild, and
+`0086_task_assignees.sql` the unique index on `(id, wedding_id)` that the
+holders table references ([[#Assignees]]).
 
 | Column | Type | Notes |
 |---|---|---|
@@ -44,13 +45,15 @@ unique index, and `0087_task_assigned_host.sql` the assignee, both with
 | `template_item` | `text` | the item's stable key in that template; NULL on a typed task |
 | `due_offset_days` | `integer` | days from the wedding date the item was seeded with, negative before the day; NULL on a typed task |
 | `due_source` | `text` NOT NULL | `'template'`: `due_at` follows the wedding date. `'manual'` (default, and every typed task): `due_at` is whatever the couple set |
-| `assigned_host_id` | `text` | FK → `wedding_hosts(id)` ON DELETE SET NULL; the seat holding the task, NULL for nobody. Only ever a seat of the task's own wedding ([[#Assignee]]) |
+
+Who holds a task is not a column here: it is the `task_assignees` table
+([[#Assignees]]).
 
 **Indexes:**
 
 - `tasks_wedding_bucket_sort_idx ON tasks (wedding_id, timeframe_bucket, sort_order)` — serves the list read (filtered + ordered) without a full scan.
 - `tasks_wedding_template_item_unique ON tasks (wedding_id, template_id, template_item) WHERE template_id IS NOT NULL`, unique and partial — one task per template item per wedding, so a repeated or racing apply adds nothing. A typed task has no template and no entry in it.
-- `tasks_assigned_host_idx ON tasks (assigned_host_id) WHERE assigned_host_id IS NOT NULL`, partial — the probe the foreign key's SET NULL runs on every seat delete. Most tasks are unassigned and need no entry.
+- `tasks_id_wedding_unique ON tasks (id, wedding_id)`, unique — the parent key of `task_assignees`' task foreign key. `id` alone is already unique; the pair is what lets a holder row name the task's wedding as well.
 
 ## Bucket single-source
 
@@ -91,7 +94,8 @@ read/write split pattern used by the hosts routes in `app.ts`):
 | `POST` | `/tasks` | `weddingEditor` (owner or editor co-host) | `createTaskWriteRoutes` |
 | `PATCH` | `/tasks/reorder` | `weddingEditor` | `createTaskWriteRoutes` |
 | `PATCH` | `/tasks/:taskId` | `weddingEditor` | `createTaskWriteRoutes` |
-| `PUT` | `/tasks/:taskId/assignee` | `weddingEditor` | `createTaskWriteRoutes` |
+| `PUT` | `/tasks/:taskId/assignees/:hostId` | `weddingEditor` | `createTaskWriteRoutes` |
+| `DELETE` | `/tasks/:taskId/assignees/:hostId` | `weddingEditor` | `createTaskWriteRoutes` |
 | `DELETE` | `/tasks/:taskId` | `weddingEditor` | `createTaskWriteRoutes` |
 | `GET` | `/tasks/templates/:templateId` | `weddingEditor` | `createTaskWriteRoutes` |
 | `POST` | `/tasks/templates/:templateId` | `weddingEditor` | `createTaskWriteRoutes` |
@@ -140,48 +144,119 @@ move is announced in that bucket's live region and focus stays on the moved
 task. A task never moves between buckets by dragging — that would change when
 it is due, not its order. See [[drag-and-drop]].
 
-## Assignee
+## Assignees
 
-Any task can be handed to one seat of its wedding — an owner's, an editor's, a
-viewer's or a helper's. The column holds the seat id (`wedding_hosts.id`), not
+A task can be held by any number of seats of its wedding — owners', editors',
+viewers' or helpers' — or by none. A holder is a seat (`wedding_hosts.id`), not
 a profile id, because the helper run sheet filters on the seat
-(`runSheetVisibleTo`, [[cire-auth]]).
+(`runSheetVisibleTo`, [[cire-auth#The run-sheet scope]]).
 
-| Route | Body | Answer |
+### `task_assignees` table
+
+Built by `0086_task_assignees.sql`: one row per task and seat.
+
+| Column | Type | Notes |
 |---|---|---|
-| `PUT …/tasks/:taskId/assignee` | `{ assignedHostId: string \| null }`, required; `null` leaves the task with nobody | `{ task }` |
+| `task_id` | `text` NOT NULL | the task |
+| `host_id` | `text` NOT NULL | the seat holding it |
+| `wedding_id` | `text` NOT NULL | the wedding of both |
+| `assigned_at` | `integer` NOT NULL | unix seconds, when the seat was put on the task |
 
-It sits in the write group, so an owner or editor on Gold may call it; a viewer
-gets 403 `read_only_role`, a helper 403 `forbidden`, a wedding below Gold 402.
-The body is decoded with Effect Schema (`AssignTaskBody` in
-`cire/api/src/schemas/tasks.ts`): a missing field, a non-string, an empty string
-or one over 64 characters is 400. A task of another wedding is 404
-`task_not_found`. A string that is not a seat of this wedding — another
-wedding's seat, a guest's id, an id that names nothing — is **422
-`assignee_not_in_wedding`**, with nothing written.
+Primary key `(task_id, host_id)`, so a seat holds a task once. Two composite
+foreign keys, both ON DELETE CASCADE:
 
-`tasksService.assign` (`cire/api/src/services/tasks.ts`) sends one
-`UPDATE … RETURNING`, whose WHERE carries the seat check (`EXISTS` a
-`wedding_hosts` row with that id and this wedding's id). The check is in the
-write itself, so a seat removed while it runs is either not found or cleared
-after by the foreign key. Only when the UPDATE writes nothing does a second
-statement read the task, to tell the refusals apart: no task is
-`TaskNotInWedding`, a task left as it was is `HostNotInWedding`. A gap between
-the two can change which refusal is named, never what is written.
+| Columns | References |
+|---|---|
+| `(task_id, wedding_id)` | `tasks(id, wedding_id)` — unique index `tasks_id_wedding_unique` |
+| `(host_id, wedding_id)` | `wedding_hosts(id, wedding_id)` — unique index `wedding_hosts_id_wedding_unique` |
 
-**A seat that goes takes its assignments with it.** Removing a co-host or
-leaving the wedding (`hostsService.remove`) deletes the seat, and the foreign
-key's ON DELETE SET NULL clears every task it held; the tasks stay. A refused
-last-owner leave deletes nothing and keeps the assignment.
+`wedding_id` rides in both, so the database refuses a row that pairs a task with
+a seat of another wedding, whichever wedding the row names. The service never
+sends one (below); the keys are what make "every holder of a task is a seat of
+its wedding" true of the table rather than of the code that writes it.
 
-**"Needs an owner" is derived, not stored.** The portal shows it on every open
-task nobody holds; ticking the task done or assigning someone clears it.
+**Indexes:** `task_assignees_host_idx (host_id)`, the probe the seat cascade
+runs on every seat delete; `task_assignees_wedding_assigned_idx (wedding_id,
+assigned_at)`, the checklist read in the order holders were added.
 
-`GET …/hosts` names each seat by its id (`hostId`), so the portal can turn an
-`assignedHostId` into a name. The counter `cire.tasks.assignment.changed` (unit
-`{request}`) counts every write by `action` (`assign`, `unassign`) and `result`
-(`ok`, `task_not_found`, `assignee_not_in_wedding`); the span is
-`cire.tasks.assign`, with attribute `task.assignment`.
+**Order.** A task's holders read back by `assigned_at`, then `rowid`.
+`assigned_at` is in seconds, so two seats added in the same second would tie;
+rowid keeps them in the order they were added. A seat taken off and put back
+goes to the end.
+
+### Routes
+
+| Route | What it does | Answer |
+|---|---|---|
+| `PUT …/tasks/:taskId/assignees/:hostId` | puts the seat on the task | `{ task }` |
+| `DELETE …/tasks/:taskId/assignees/:hostId` | takes the seat off the task | `{ task }` |
+
+Neither takes a body; anything sent is ignored. Both sit in the write group, so
+an owner or editor on Gold may call them; a viewer gets 403 `read_only_role`, a
+helper 403 `forbidden`, a wedding below Gold 402, and the origin guard covers
+both.
+
+A write names one seat, so two people changing different seats of the same task
+at once never undo each other — a route that replaced the whole list would drop
+a pick a colleague made in between. Both are idempotent: putting on a seat the
+task already holds, or taking off one it does not, answers 200 with the task as
+it is.
+
+| Case | `PUT` | `DELETE` |
+|---|---|---|
+| A seat id over 64 characters (Effect Schema, `AssigneeHostId` in `cire/api/src/schemas/tasks.ts`) | 400 `Missing or invalid fields` | 400 |
+| An empty seat id | matches no route: 404 | 404 |
+| A task that is not this wedding's | 404 `task_not_found` | 404 `task_not_found` |
+| A seat that is not this wedding's — another wedding's seat, a guest id, a task id, an id that names nothing | **422 `assignee_not_in_wedding`**, nothing written | 200, unchanged |
+| The seat already on the task / not on it | 200, unchanged | 200, unchanged |
+| The database fails the write | 500 `Internal error`, nothing written | 500, nothing written |
+
+`tasksService.addAssignee` and `removeAssignee` (`cire/api/src/services/tasks.ts`)
+each send one batch of three statements:
+
+1. The write. `INSERT INTO task_assignees SELECT … FROM tasks WHERE id = ? AND
+   wedding_id = ? AND EXISTS (a wedding_hosts row with that id and this
+   wedding's id) ON CONFLICT DO NOTHING RETURNING host_id` — the task row
+   supplies its own id and wedding — or `DELETE … WHERE task_id = ? AND host_id
+   = ? AND wedding_id = ? RETURNING host_id`.
+2. The task, scoped to the wedding.
+3. Its holders, in order.
+
+No task is `TaskNotInWedding`. When the INSERT wrote nothing, the holders tell
+the other two answers apart: a seat among them was already there; a seat not
+among them is not one of the wedding's — the foreign keys make every holder of a
+task a seat of its wedding — and is `HostNotInWedding`. The seat check rides in
+the write, so a refusal is a 422, never a foreign-key 500, and a seat removed
+while a PUT runs is either not found or taken off again by the cascade.
+
+**Every task the API returns carries `assigneeHostIds`**, the holders' seat ids
+in that order: `GET /tasks` reads every holder of the wedding in the same batch
+as its tasks, two statements however long the checklist; `PATCH /tasks/:taskId`
+reads the task's holders in the batch with its UPDATE, so ticking a task done
+keeps them; the starter apply reads them with the checklist it answers with; a
+task just created has none. No route but the two above writes a holder:
+`assigneeHostIds` sent to `POST` or `PATCH` is ignored.
+
+`GET /tasks` also answers `viewerHostId`, the caller's own seat id, which
+`weddingMember()` reads in the query that admits them, so the portal can tell
+which holder is the reader without a second request.
+
+**A seat that goes takes only its own holds.** Removing a co-host or leaving the
+wedding (`hostsService.remove`) deletes the seat, and the cascade deletes its
+rows; the tasks stay, with their other holders. A refused last-owner leave
+deletes nothing. Deleting a task deletes its rows, and a wedding purge reaches
+them through both keys.
+
+`GET …/hosts` names each seat by its id (`hostId`), what `assigneeHostIds`
+name, and gives its OSN photo as `avatarUrl` when the profile has an https one
+([[cire-auth]]).
+
+The counter `cire.tasks.assignment.changed` (unit `{request}`) counts every
+write by `action` (`add`, `remove`) and `result` (`ok`, `unchanged`,
+`task_not_found`, `assignee_not_in_wedding`, `error`). The spans are
+`cire.tasks.assign` and `cire.tasks.unassign`. A write the database fails is
+counted as `error` and logged as `checklist holder write failed`, with the
+wedding id and the action, before the route answers 500.
 
 ### In the portal
 
@@ -383,13 +458,14 @@ additively:
   regression test (`tasks.test.ts` — "reorder is wedding-scoped") proves an
   owner of wedding B cannot shuffle wedding A's checklist. Complements the
   existing update/delete tenancy tests.
-- **Tenancy (assignee)** — the assign UPDATE is scoped by `(task id,
-  wedding_id)` and admits only a seat of that same wedding.
-  `tests/routes/tasks.test.ts` ("assigning a task to a seat") proves another
-  wedding's seat, a guest id and a stray id are each 422 with the assignee
-  unchanged, and that a task of another wedding is 404 and untouched;
-  `tests/db/d1-integration.test.ts` runs the UPDATE, the refusal's task read
-  and the SET NULL on Miniflare.
+- **Tenancy (assignees)** — the holder INSERT reads the task by `(id,
+  wedding_id)` and admits only a seat of that same wedding, the DELETE is
+  scoped by the wedding, and the composite foreign keys refuse any row that
+  pairs a task with another wedding's seat. `tests/routes/tasks.test.ts` ("the
+  people holding a task") proves another wedding's seat, a guest id, a task id
+  and a stray id are each 422 with nothing written, and that a task of another
+  wedding is 404 and untouched; `tests/db/d1-integration.test.ts` runs both
+  batches, both foreign keys and both cascades on Miniflare.
 - **Tenancy (templates)** — every statement of the preview, the apply and the
   re-dating is scoped by the wedding id, and
   `tests/routes/task-templates.test.ts` proves a date change on one wedding

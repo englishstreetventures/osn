@@ -125,11 +125,13 @@ PRs 0–2 can run in parallel. The IA shell deliberately lands **early** (not la
 ```
 tasks: id, wedding_id FK↘, title, notes, category (service-category enum + 'general'),
        due_at (nullable), timeframe_bucket ('12m'|'9m'|'6m'|'3m'|'1m'|'2w'|'week_of'|'day_of'),
-       status ('open'|'done'|'skipped'), assigned_host_id (nullable FK → wedding_hosts, a seat),
-       vendor_id (nullable FK, Phase 2), sort_order, created_at, completed_at
+       status ('open'|'done'|'skipped'), vendor_id (nullable FK, Phase 2), sort_order,
+       created_at, completed_at
+task_assignees: task_id, host_id (a wedding_hosts seat), wedding_id, assigned_at
+       — any number of seats per task, each a seat of the task's own wedding
 ```
 
-Seed from the starter template (`cire/api/src/lib/checklist-starter.ts`, registered in `cire/api/src/lib/checklist-templates.ts`) resolved against `wedding_date` — "visit and book your venues" lands at 12 months out, "confirm timings with every supplier" at 2 weeks. Re-anchoring when the date changes shifts *open* seeded tasks whose date the couple has not set. Built: [[cire-checklist-tasks#Starter checklist]]. The assignee is a seat of the wedding, not a profile id, so the helper run sheet can filter on it; built: [[cire-checklist-tasks#Assignee]]. Day-of tasks link to Schedule events → the day-of run-sheet view falls out of Schedule + `day_of` tasks.
+Seed from the starter template (`cire/api/src/lib/checklist-starter.ts`, registered in `cire/api/src/lib/checklist-templates.ts`) resolved against `wedding_date` — "visit and book your venues" lands at 12 months out, "confirm timings with every supplier" at 2 weeks. Re-anchoring when the date changes shifts *open* seeded tasks whose date the couple has not set. Built: [[cire-checklist-tasks#Starter checklist]]. A task's holders are seats of the wedding, not profile ids, so the helper run sheet can filter on them; built: [[cire-checklist-tasks#Assignees]]. Day-of tasks link to Schedule events → the day-of run-sheet view falls out of Schedule + `day_of` tasks.
 
 ### 4.2 Budget v1
 
