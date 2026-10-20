@@ -3,7 +3,8 @@
 # IMPORTANT: cire/invites is an SSR Worker (@astrojs/cloudflare, output: "server"),
 # not a Pages site. Cloudflare Workers Static Assets DOES honour this file — but
 # ONLY for responses served by the static-asset layer (the prerendered /privacy
-# + /terms pages and the /_astro/* bundles). It does NOT apply to the dynamic,
+# + /terms pages, the /_astro/* bundles, and the other files in public/, such as
+# /robots.txt and /favicon.ico). It does NOT apply to the dynamic,
 # Worker-rendered routes (/<slug>, /<slug>/registry and the bare-domain /
 # redirect): those get the same headers from the Astro SSR middleware
 # (src/middleware.ts -> src/lib/security-headers.ts), which is the source of
@@ -35,6 +36,12 @@
 
 # Fontsource woff2 (+ every other Vite-bundled asset) import through CSS and
 # land under the content-hashed /_astro/* path — a new font weight or a
-# rebuild changes the filename, so caching it forever is safe (tracker #98).
+# rebuild changes the filename, so caching it forever is safe.
 /_astro/*
   Cache-Control: public, max-age=31536000, immutable
+
+# Browsers fetch /favicon.ico on every page that declares no icon. Its name
+# stays the same when scripts/favicon.ts redraws it, so it is cached for a day,
+# not forever: a new icon reaches every browser within a day.
+/favicon.ico
+  Cache-Control: public, max-age=86400

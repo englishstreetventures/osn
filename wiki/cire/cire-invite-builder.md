@@ -9,9 +9,9 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-20
 ---
-# Invite Builder
+# Cire invite builder
 
 Lets an organiser customise the **presentation** of the guest invite — swap a
 couple of images, rewrite a few copy blocks, and apply a per-section **theme**
@@ -966,6 +966,15 @@ static-asset layer without running the Worker, so they get only the
 `public/_headers` rules, which leave `X-Robots-Tag` out on purpose.
 `tests/lib/security-headers.test.ts` fails if `_headers` gains it, and
 `tests/pages/legal-pages.test.ts` fails if a legal page stops prerendering.
+
+`public/robots.txt` lets every crawler fetch every path, so crawlers reach the
+header. It and `public/favicon.ico` are static files, so the asset layer answers
+`/robots.txt` and `/favicon.ico` and neither path reaches the `[slug]` route.
+`tests/public/static-assets.test.ts` fails if `robots.txt` gains a rule, if
+either file goes, or if `wrangler.jsonc` makes the Worker run ahead of static
+assets. `bun run --cwd cire/invites favicon` writes the `.ico` from
+`public/favicon.svg`. Run it after any change to the SVG and commit both files;
+the build does not run it.
 
 **History (changed 2026-08-02).** `/` used to resolve a "primary wedding" via a
 public `GET /api/primary-wedding` and redirect to `/<slug>` — returning the sole
