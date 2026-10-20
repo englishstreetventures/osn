@@ -27,7 +27,7 @@ function responseTo(page: Page, method: string, url: string) {
 }
 
 test("cire-registry-preview", async ({ page, context, flow }) => {
-  const stopClaimingFromOrganiser = await claimFromOrganiserAddress(context);
+  await claimFromOrganiserAddress(context);
 
   const claim = await flow.step("open the invitation from Preview invite", async () => {
     const response = responseTo(page, "POST", CLAIM_URL);
@@ -35,8 +35,6 @@ test("cire-registry-preview", async ({ page, context, flow }) => {
       `${ORIGINS.cireInvites}/cire/invite?slug=${CIRE_GIFT_LIST.slug}&code=${CIRE_GIFT_LIST.previewCode}`,
     );
     const status = (await response).status();
-    // The one request that needed the organiser's address has gone out.
-    await stopClaimingFromOrganiser();
     await expect(page.getByText("Preview mode. Every event is shown")).toBeVisible();
     return status;
   });

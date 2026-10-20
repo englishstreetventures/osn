@@ -227,23 +227,20 @@ export function queryOne<T>(
  * own (`allHeaders`, which keeps `Origin` for the origin guard) plus the
  * address. `tools/e2e/tests/flows.test.ts` counts such flows apart.
  *
- * Returns the function that removes the route. Call it once the claim has
- * gone out: while any route is installed, Playwright intercepts every request
- * in the context and turns its HTTP cache off.
+ * The route stays for the rest of the flow, on purpose. While any route is
+ * installed Playwright pauses every request in the context, and removing the
+ * route while the page is still loading strands whichever request was paused
+ * at that moment: a module import the claim's reveal waits on never settles,
+ * and the invitation stays on its code form.
  */
-export async function claimFromOrganiserAddress(
-  context: BrowserContext,
-): Promise<() => Promise<void>> {
-  const url = `${ORIGINS.cireApi}/api/claim`;
-  const handler = async (route: Route) => {
+export async function claimFromOrganiserAddress(context: BrowserContext): Promise<void> {
+  await context.route(`${ORIGINS.cireApi}/api/claim`, async (route: Route) => {
     const request = route.request();
     if (request.method() !== "POST") return route.continue();
     return route.continue({
       headers: { ...(await request.allHeaders()), "cf-connecting-ip": ORGANISER_ADDRESS },
     });
-  };
-  await context.route(url, handler);
-  return () => context.unroute(url, handler);
+  });
 }
 
 /** A cookie in `context` by name, or undefined. */
