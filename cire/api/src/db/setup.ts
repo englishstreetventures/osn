@@ -762,3 +762,124 @@ export function applyE2eRsvpDeadline(
   const date = env.CIRE_E2E_RSVP_DEADLINE;
   if (date) setSampleRsvpDeadline(db, date);
 }
+
+/**
+ * A second wedding for the E2E suite's gift-list flows: on Gold, with a
+ * published list of three gifts and one household of one invited to one
+ * event. The values the flows check are written out again in
+ * `tools/e2e/src/config.ts` (`CIRE_GIFT_LIST`); a change here goes there too,
+ * and the claimed flow fails until it does.
+ *
+ * Its own wedding rather than the sample one, so the gift band that a
+ * published list puts on the invite never appears in the other cire flows.
+ * No `image_key` on any gift: the local asset store starts empty.
+ */
+export function seedE2eGiftList(db: TestDb): void {
+  const now = new Date();
+  const weddingId = "wed_e2e_gift_list";
+  const eventId = "evt_e2e_gift_reception";
+  const familyId = "fam_e2e_gift_list";
+  const guestId = "gst_e2e_gift_list";
+
+  db.insert(schema.weddings)
+    .values({
+      id: weddingId,
+      slug: "gift-wedding",
+      displayName: "Gift Wedding",
+      tier: "gold",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.events)
+    .values({
+      id: eventId,
+      weddingId,
+      slug: "reception",
+      name: "Reception",
+      startAt: "2099-06-20T16:00:00+00:00",
+      endAt: "2099-06-20T22:00:00+00:00",
+      timezone: "UTC",
+    })
+    .run();
+  db.insert(schema.families)
+    .values({
+      id: familyId,
+      weddingId,
+      publicId: "TESTGFT-FIG-EE55",
+      familyName: "Giftfamily",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guests)
+    .values({
+      id: guestId,
+      familyId,
+      firstName: "Gil",
+      lastName: "Giftfamily",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guestEvents).values({ guestId, eventId }).run();
+
+  db.insert(schema.registrySettings)
+    .values({
+      weddingId,
+      published: true,
+      headline: "Our gift list",
+      message: "Your being there is the gift. This list is here if you would like it.",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.registryItems)
+    .values([
+      {
+        id: "reg_e2e_gift_0001",
+        weddingId,
+        title: "Copper saucepan",
+        priceMinor: 32_000,
+        category: "Kitchen",
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "reg_e2e_gift_0002",
+        weddingId,
+        title: "Stoneware mixing bowls",
+        priceMinor: 14_500,
+        quantityWanted: 2,
+        category: "Kitchen",
+        sortOrder: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "reg_e2e_gift_0003",
+        weddingId,
+        title: "A walk on the beach together",
+        priceMinor: null,
+        category: null,
+        sortOrder: 2,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ])
+    .run();
+}
+
+/**
+ * The local dev server's reading of `CIRE_E2E_REGISTRY`: `"1"` adds the
+ * gift-list wedding (`seedE2eGiftList`); anything else, unset included, leaves
+ * the seed as it is, which is what every `bun run dev` without the E2E suite
+ * gets.
+ */
+export function applyE2eGiftList(
+  db: TestDb,
+  env: Readonly<Record<string, string | undefined>>,
+): void {
+  if (env.CIRE_E2E_REGISTRY === "1") seedE2eGiftList(db);
+}

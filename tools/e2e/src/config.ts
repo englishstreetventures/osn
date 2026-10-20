@@ -35,6 +35,23 @@ export const CIRE_RSVP_DEADLINE = "2099-01-01";
 export const CIRE_RSVP_CLOSED_ISO = "2099-01-02T00:00:00.000Z";
 
 /**
+ * The gift-list wedding cire-api adds when the stack sets `CIRE_E2E_REGISTRY=1`
+ * (`seedE2eGiftList` in `cire/api/src/db/setup.ts`, which these values copy):
+ * on Gold, with a published list, and one household of one. The locked flow
+ * checks that none of `gifts`, `headline` or `message` reaches a visitor
+ * without a claim; the claimed flow checks that each of them reaches the
+ * household, so a value that drifts from the seed fails that flow.
+ */
+export const CIRE_GIFT_LIST = {
+  slug: "gift-wedding",
+  code: "TESTGFT-FIG-EE55",
+  guestName: "Gil",
+  gifts: ["Copper saucepan", "Stoneware mixing bowls", "A walk on the beach together"],
+  headline: "Our gift list",
+  message: "Your being there is the gift. This list is here if you would like it.",
+} as const;
+
+/**
  * The fixed ports `PORTLESS=0` uses. Written out rather than imported because
  * Playwright loads this file under Node, which cannot run a workspace package's
  * TypeScript; `tests/config.test.ts` holds them equal to `DEV_APPS` in

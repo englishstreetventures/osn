@@ -11,6 +11,7 @@ import {
   DEV_OWNER_SEAT_ID,
   repointDevOwnerSeat,
   seedDb,
+  applyE2eGiftList,
   applyE2eRsvpDeadline,
   setSampleRsvpDeadline,
   type TestDb,
@@ -330,5 +331,26 @@ describe("setSampleRsvpDeadline", () => {
     seedDb(db);
     applyE2eRsvpDeadline(db, { CIRE_E2E_RSVP_DEADLINE: "2099-01-01" });
     expect(deadlineOf(db)).toEqual({ date: "2099-01-01", timezone: "UTC" });
+  });
+});
+
+describe("applyE2eGiftList", () => {
+  it("adds no gift-list wedding when the dev server boots without CIRE_E2E_REGISTRY", () => {
+    // Every `bun run dev:cire` outside the E2E suite: no variable, an empty
+    // one, or one that is not "1". A Gold wedding with a published list there
+    // would put a gift list in front of anyone testing the tier gate locally.
+    for (const env of [{}, { CIRE_E2E_REGISTRY: "" }, { CIRE_E2E_REGISTRY: "0" }]) {
+      const db = createDb();
+      seedDb(db);
+      applyE2eGiftList(db, env);
+      const slugs = db
+        .select({ slug: schema.weddings.slug })
+        .from(schema.weddings)
+        .all()
+        .map((w) => w.slug);
+      expect(slugs).toEqual(["cire-wedding"]);
+      expect(db.select().from(schema.registrySettings).all()).toEqual([]);
+      expect(db.select().from(schema.registryItems).all()).toEqual([]);
+    }
   });
 });

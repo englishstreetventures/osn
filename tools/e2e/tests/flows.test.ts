@@ -24,4 +24,19 @@ describe("flow sources", () => {
     expect(files.length).toBeGreaterThan(0);
     for (const file of files) expect(file).toEndWith(".flow.ts");
   });
+
+  // cire-api allows 5 claims a minute per IP (`defaultClaimLimiter` in
+  // cire/api/src/app.ts), one window shared by the whole run. A sixth claim
+  // gets 429 only when it lands inside the first one's minute, which depends
+  // on how fast the machine is: a run that passes locally and fails in CI, in
+  // a flow nobody touched. Counted here, so the commit that adds it goes red.
+  test("the flows claim no more invitation codes than cire-api allows in a minute", () => {
+    const dir = join(import.meta.dirname, "flows");
+    const claims = readdirSync(dir)
+      .map((file) => readFileSync(join(dir, file), "utf8"))
+      .map((source) => source.match(/name: "Open Invitation" \}\)\.click\(/g)?.length ?? 0)
+      .reduce((sum, n) => sum + n, 0);
+    expect(claims).toBeGreaterThan(0);
+    expect(claims).toBeLessThanOrEqual(5);
+  });
 });

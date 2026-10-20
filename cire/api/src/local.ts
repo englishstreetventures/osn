@@ -2,7 +2,13 @@ import { makeResendEmailLive } from "@shared/email";
 import { Effect } from "effect";
 
 import { createApp } from "./app";
-import { applyE2eRsvpDeadline, createDb, repointDevOwnerSeat, seedDb } from "./db/setup";
+import {
+  applyE2eGiftList,
+  applyE2eRsvpDeadline,
+  createDb,
+  repointDevOwnerSeat,
+  seedDb,
+} from "./db/setup";
 import { localResendConfig } from "./lib/resend-email";
 import { siteOriginOptions } from "./lib/web-origin";
 import { runCireSync } from "./observability";
@@ -20,9 +26,13 @@ const db = createDb(process.env.CIRE_LOCAL_DB_PATH || ":memory:");
 // far in the future) so a flow can move the browser's clock past it while this
 // server, on the suite clock, still takes replies. A malformed value throws
 // here rather than booting a server with no deadline.
+//
+// The seed has no gift list. `CIRE_E2E_REGISTRY=1` (the E2E suite) adds a
+// second wedding on Gold with a published one, for the gift-list flows.
 db.$client.transaction(() => {
   seedDb(db);
   applyE2eRsvpDeadline(db, process.env);
+  applyE2eGiftList(db, process.env);
 })();
 
 // Dev convenience: the in-memory seed gives the sample wedding's owner seat to
