@@ -636,7 +636,7 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
   });
 
   // The checklist shows each holder's photo from this list. A seat whose
-  // profile has none carries no key, and the portal draws initials.
+  // profile has none carries no key, and the portal draws a default empty avatar.
   it("carries each seat's photo when OSN has one, and no key when it does not", async () => {
     const { db, app } = buildApp({ resolveOsnProfileDisplays: stubDisplayResolver });
     seedCohost(db);

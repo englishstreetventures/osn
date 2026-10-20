@@ -182,8 +182,8 @@ rounder than 6px except pills.
 raised surface. It is the one trick that makes a flat card read as a lit object
 rather than a rectangle. `--elev-1` and `--elev-2` are the two drop shadows.
 
-**Motion.** Three durations and two easings, and **no animation library in this
-package by design**.
+**Motion.** Three durations and three easings, and **no animation library in
+this package by design**.
 
 ```css
 --dur-fast: calc(120ms * var(--motion-scale));   /* a hover, a press */
@@ -191,7 +191,16 @@ package by design**.
 --dur-slow: calc(320ms * var(--motion-scale));   /* a sheet, a modal */
 --ease-out:    cubic-bezier(0.22, 1, 0.36, 1);   /* something arriving */
 --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);   /* something moving between two places */
+--ease-spring: linear(0, 0.055, …, 1.083, …, 1); /* something landing with a little give */
 ```
+
+`--ease-spring` is a damped spring (damping ratio 0.62) sampled into `linear()`:
+it overshoots by 8% at about 40% of the run and settles. The browser floor
+(Chrome 111, Safari 16.4) has no `linear()`, and an easing it cannot parse voids
+the whole `animation` declaration, so `@theme` declares a one-overshoot
+`cubic-bezier` and an unlayered `@supports` block swaps the spring in. It is for
+small things arriving — a popover, a tick — never for a sheet or a page, which
+should not bounce.
 
 Every duration is scaled by `--motion-scale`, so the fixtures page can slow the
 whole app to 0.1× and a reference behaviour can be judged frame by frame. Nothing
@@ -218,6 +227,20 @@ Two hooks carry the design law of §1, both in `src/lib/`:
 
 The sheet variant of the module nav deliberately gets no pill. A pill measures a
 strip the eye can see all of at once, and a sheet is a list.
+
+**The droplet.** The checklist's assign popover grows out of the + that opened
+it: a small round drop at the trigger springs out to the panel
+(`droplet-grow`, `--ease-spring`) while its corners square off
+(`droplet-round`, `--ease-out`), and the contents fade in once there is room.
+`transform-origin` is Kobalte's `--kb-popover-content-transform-origin`, the
+panel's corner at the trigger whichever side it opened on. The fade is timed by
+keyframe percentage, never by `animation-delay`: the reduced-motion switch zeroes
+durations and leaves delays alone, so a delay would hold the list back from a
+reader who asked for no motion. A true "goo" — an SVG filter melting the panel
+out of the trigger — is not done: the panel portals to `<body>`, away from the
+trigger, and the filter would blur its border and shadow. The exit is a quick
+shrink and fade, as keyframes, because Kobalte keeps a closing popover mounted
+until its animation ends.
 
 **Focus.** One ring for the whole dashboard: 2px solid `--focus`, 2px offset,
 never animated, never removed — the shell is keyboard-driven. It deliberately
@@ -299,6 +322,45 @@ by variant map, and the caller's own `class` is appended last.
 | `Meter`, `meterPct` | A thin bar. Scaled by transform rather than resized — see the file. `meterPct` clamps at both ends and reads a zero or missing maximum as empty, not as a division by zero. |
 | `Stat` | A figure, then what it is, then an optional hint. |
 | `Table`, `Th`, `Td` | The five tables as one set of parts. The wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse. `label` is required. |
+
+### Who holds a task: faces, not names
+
+A checklist row shows its holders as an overlapping stack of faces
+(`TaskHolders.tsx`, `PersonAvatar.tsx`). The decisions it settles, for any
+later stack of people:
+
+- **Faces are 28px on a row and 32px in a list**, overlapping by 8px, each with
+  a 2px ring in the page's colour standing in for the gap. Every layer is
+  positioned, so they paint in document order and each covers the edge of the
+  one before it; a layer left static paints under all of them.
+- **Three faces, then a count.** "+N" is a disc of `--surface-raised` with a
+  `--border-strong` edge and `--text` figures; it overlaps what follows by half
+  as much, so nothing covers its figures.
+- **The reader comes first** when they are among the people shown.
+- **A person with no photo, or one that will not load, gets the empty avatar** —
+  their outline in `--bg`, cut out of a disc of `--text-faint` laid over `--bg`
+  so it is opaque (the `blank-avatar` utility). A light figure on a mid disc in
+  light, a dark one in dark: nobody's photo in either ramp. **Never initials**:
+  on a stack, letters read as a list of codes. The photo itself is drawn only
+  from an https URL, checked at the `<img>`.
+- **The faces are pictures; the names are text.** Screen-reader text beside the
+  stack reads "Held by Sam Lee and @jo"; each face's name shows on hover from
+  an `aria-hidden` element, so it is not heard twice.
+- **The control is a dotted circle holding a +**, in `--border-strong` (it is
+  the boundary of an unfilled control), as the stack's top-right layer. It turns
+  gold on hover and while its popover is open. Someone who cannot act sees the
+  same dotted circle empty, and only where its absence would mislead — an open
+  task nobody holds, never a done one.
+
+The popover it opens is a listbox of toggles, the command palette's pattern
+with `aria-multiselectable`: each row is a 20px circle — `--border-strong`
+outline when off, a `--brand` fill with an `--on-brand` tick when on — then the
+face, the name, and the role in muted ink. The keyboard highlight is
+`bg-gold/10`, as in the palette. Five people show whole; above five a search
+heads the list and it shows about four and a half rows, the half saying it
+scrolls. A popover that focuses something as it opens focuses it without
+scrolling: Kobalte opens the panel at the page's top left and moves it beside
+its trigger a frame later, and a scrolling focus jumps the page to the top first.
 
 ### Two rules that apply to all of them
 

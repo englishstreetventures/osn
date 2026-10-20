@@ -7,7 +7,7 @@ import { mockFetch } from "../test-helpers";
 
 // The co-host list hands each seat's photo URL to every member's browser, which
 // loads it as an image. Only an https URL may reach the page: anything else
-// osn-api sends is dropped here, and the portal draws initials instead.
+// osn-api sends is dropped here, and the portal draws a default empty avatar instead.
 
 const realFetch = globalThis.fetch;
 afterEach(() => {

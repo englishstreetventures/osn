@@ -48,7 +48,7 @@ const peopleLimitRefusal = (err: PeopleLimitReached) => ({
  * A person on the co-host panel. `handle` and `displayName` are absent — not
  * null — when the OSN display lookup couldn't resolve them, and the portal
  * falls back to the profile id. `avatarUrl` is the profile's photo, an https
- * URL, absent when there is none; the portal draws initials then.
+ * URL, absent when there is none; the portal draws a default empty avatar then.
  */
 interface HostPersonDto {
   osnProfileId: string;

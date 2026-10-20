@@ -260,40 +260,70 @@ wedding id and the action, before the route answers 500.
 
 ### In the portal
 
-Each row of `ChecklistView.tsx` names who holds the task — the display name,
-else `@handle`, else the profile id — or shows "Needs an owner" when it is open
-and nobody does, for a viewer too. The seats come from `lib/hosts-store.ts`, a
-cache with the contract in [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]];
-the checklist reads it only once some task is assigned. Until it answers, an
-assigned row says only "Assigned"; a seat the list no longer has has gone, and
-the row and the drawer treat its task as held by nobody.
+Each row of `ChecklistView.tsx` shows who holds the task as an overlapping stack
+of faces (`TaskHolders.tsx`): the reader's own seat first when they hold it, then
+everyone in the order they were put on it — three faces, then a "+N" bubble for
+the rest. A face is the person's OSN photo, or the empty avatar — a person's
+outline in the page's colour on a disc of faint ink, never initials — when they
+have none or it will not load (`PersonAvatar.tsx`; the portal's CSP admits no
+avatar host until englishstventures/osn#1207, so today every photo fails and
+falls back). The faces are pictures only: the row says "Held by Sam Lee and @jo"
+in screen-reader text for every role, and each face shows its name on hover.
 
-An owner or editor gets an **Edit** button on each row, which opens
-`TaskEditDrawer.tsx`: the shared `Modal` with `presentation="drawer"`. Its
-"Assigned to" select offers "Nobody yet" and every seat with its role. Each
-field in the drawer saves itself when it changes, the way a co-host's role
-select does, so a field added later brings its own write. The pick shows at
-once and rolls back if the API refuses it.
+| Who | Task held | Open, nobody | Done, nobody |
+|---|---|---|---|
+| Owner, editor | the stack, with a dotted circle holding a + as its top-right layer; the whole stack is one button, "Assign people to *title*" | the + alone | the + alone |
+| Viewer | the stack | an empty dotted circle, "Nobody assigned yet" (`role="img"`) | nothing |
 
-The select is never disabled while a write is out; it carries `aria-busy`
-instead. In Chrome on Windows and Linux an arrow key on a closed select changes
-its value and fires `change`, so a keyboard user arrowing through the options
-picks once per key press, and a control disabled under them would drop their
-focus. The writes go one at a time: a pick made while one is out waits, a later
-pick for the same task replaces it, and only the latest is written once the
-write is back. A write that a later pick replaced changes nothing on screen,
-whatever it answers; a refusal of the last write puts the row back to whoever
-the server last said holds the task. The options are keyed by seat id, so a
-re-read of the seats keeps the selected option in place: replaced, it would
-leave Chrome showing "Nobody yet" for a task that is still held.
+The reader's seat is `viewerHostId` from `GET /tasks`; `readTaskList` in
+`tasks-store.ts` keeps it beside the rows, and both readers of the list — the
+checklist and Overview — go through it. The seats come from `lib/hosts-store.ts`,
+a cache with the contract in [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]];
+the checklist reads it only once some task is held, or when an owner or editor
+opens a popover. Until the seats answer, the stack shows an empty avatar per
+holder and says "Held by 2 people". A seat the loaded list no longer has has
+gone — the server took it off its tasks — and is left off the stack.
 
-The first opening of the drawer on a visit to the checklist reads the seats
-from the server unless the visit has read them already; later openings use
-that read. A 422 reads the seats again; on the last write of a run it also
-reads the tasks again and says so inside the drawer. The co-host panel hands the checklist the seats it reads on opening,
-and marks them stale after each add, role change and removal. A removal marks
-the tasks stale too when a cached task names the removed seat, or when the
-seat was added on this visit and the panel never saw its id.
+The button opens a Kobalte popover: a listbox of everyone on the wedding,
+`aria-multiselectable`, the reader first ("You · Owner"), then the order
+`GET /hosts` lists them. Each row is a toggle circle — an outline when the person
+does not hold the task, filled with a tick when they do — their face, their
+name and their role. Clicking a row puts them on the task or takes them off at
+once, and the popover stays open until a click outside it, Escape or Tab, the
+last two giving the focus back to the button. Above five people a search over
+names and handles heads the list, which shows about four rows and scrolls; five
+or fewer show whole with no search. The focus starts in the search when there
+is one, else on the list; the arrows, Home and End move the highlight, and
+Enter toggles it — Space too on the list, but not in the search, where it types
+the space a name has. The rows stay usable while writes are out; the list says
+`aria-busy` instead.
+
+The rows are keyed by task id behind a memo that ignores `assigneeHostIds` as it
+ignores `sortOrder` (`sameButOrder` in `lib/sortable-rows.ts`, with the field
+named), and the stack reads the live task by id. A change of who holds a task
+therefore keeps its row, its button and an open popover.
+
+The writes (`lib/holder-writes.ts`) go one at a time **per task and seat**, so
+two people's toggles go at once and cannot undo each other. A pick shows at
+once: it is laid over the cached holders rather than written into them, so the
+cache keeps what the server last said, a refused pick goes back by dropping it
+— seat by seat — and a re-read of the tasks cannot wipe a pick still out. A pick
+made while its seat's write is out waits; when the write answers, the seat's
+latest pick is written if the cache does not already agree with it. An answer is
+taken into the cache whole when its write flew alone; one that flew beside
+another write of the same task may have been read before the other was stored,
+so only its own seat is taken from it. A refusal of a pick the organiser still
+wants says so in a toast and reads the tasks again; a 422 also reads the seats
+again, whether or not the pick still stands. A 401 or an expired session sends
+the organiser to sign in, and nothing more is sent.
+
+The first opening of a popover on a visit to the checklist reads the seats from
+the server unless the visit has read them already; later openings use that read.
+The co-host panel hands the checklist the seats it reads on opening, photos
+included, and marks them stale after each add, role change and removal. A
+removal marks the tasks stale too when a cached task names the removed seat
+among its holders, or when the seat was added on this visit and the panel never
+saw its id.
 
 ## Starter checklist
 
@@ -430,10 +460,13 @@ Public API:
 | `ensureTasksLoaded(weddingId, fetcher)` | Fetch if not fresh; dedupes concurrent callers. On success, writes the rows and clears the stale mark; on a refused/failed refetch, blanks the signal and rethrows |
 | `openTaskCount(weddingId)` | `number \| null` — open-task count for the Overview widget |
 | `taskCounts(weddingId)` | `{ open, done, total } \| null` — reactive counts for the Overview completion bar |
+| `readTaskList(weddingId, list)` | Take a `GET /tasks` answer apart: keeps its `viewerHostId` for the wedding and returns the rows for the loader. Keeps nothing for a closed wedding |
+| `viewerHostIdOf(weddingId)` | `string \| null` — the reader's own seat, as the last task read named it; reactive |
 
 `TaskRow` mirrors `TaskDto` from the API (ms-epoch numbers for `createdAt` /
 `completedAt`; `timeframeBucket` string key; `status: "open" | "done"`;
-`assignedHostId`, a seat id or null). The DTO's provenance fields
+`assigneeHostIds`, the holders' seat ids in the order they were put on the task,
+empty for nobody). The DTO's provenance fields
 (`templateId`, `templateItem`, `dueSource`) are left out of it: nothing in the
 portal reads them.
 
