@@ -89,8 +89,13 @@ export default function ChecklistView(props: ChecklistViewProps) {
   const seats = hostsAccessor(props.weddingId);
   const seatById = createMemo(() => new Map(seats()?.map((s) => [s.hostId, s])));
   const [seatsFailed, setSeatsFailed] = createSignal(false);
+  /** Has this visit asked the server for the seats? Until it has, the first
+   *  drawer opened asks: seats cached before the visit may miss someone seated
+   *  or re-roled in another session since. */
+  let seatsReadThisVisit = false;
 
   const loadSeats = async (): Promise<HostSeat[]> => {
+    seatsReadThisVisit = true;
     const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/hosts")));
     if (res.status === 401) {
       redirectToLogin();
@@ -248,12 +253,13 @@ export default function ChecklistView(props: ChecklistViewProps) {
   const [assigning, setAssigning] = createSignal(false);
   const [assignError, setAssignError] = createSignal<string | null>(null);
 
-  /** Open a task's drawer, and read the seats again: someone may have been
-   *  seated or removed since the checklist loaded. */
+  /** Open a task's drawer with the seats it offers. The first opening of a
+   *  visit reads them from the server unless the visit already has; later
+   *  ones use that read. */
   const openDrawer = (task: TaskRow) => {
     setAssignError(null);
     setEditingId(task.id);
-    invalidateHosts(props.weddingId);
+    if (!seatsReadThisVisit) invalidateHosts(props.weddingId);
     void ensureSeats();
   };
 

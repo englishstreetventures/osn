@@ -16,7 +16,7 @@ vi.mock("../../src/lib/api", async () => {
 });
 
 import ChecklistView from "../../src/components/ChecklistView";
-import { __resetHostsCache, type HostSeat } from "../../src/lib/hosts-store";
+import { __resetHostsCache, ensureHostsLoaded, type HostSeat } from "../../src/lib/hosts-store";
 import { __resetTasksCache, setCachedTasks, type TaskRow } from "../../src/lib/tasks-store";
 import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 
@@ -173,7 +173,7 @@ describe("who holds a task", () => {
 });
 
 describe("the task drawer", () => {
-  it("asks for the people afresh on every opening, and assigns and unassigns from it", async () => {
+  it("assigns and unassigns from the drawer, and the row takes the task as stored", async () => {
     setCachedTasks("wed_1", [
       row({ id: "a", title: "Book venue", assignedHostId: "whost_sam" }),
       row({ id: "b", title: "Carry the rings", timeframeBucket: "day_of", sortOrder: 1 }),
@@ -199,11 +199,8 @@ describe("the task drawer", () => {
     });
     render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
     await waitFor(() => expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible());
-    expect(calls("/hosts")).toHaveLength(1);
 
     const { drawer, select } = await openDrawer("Carry the rings");
-    // Opening asks again, so someone seated since the page loaded is offered.
-    await waitFor(() => expect(calls("/hosts")).toHaveLength(2));
     expect(within(drawer).getByText("Day of")).toBeVisible();
     expect(within(select).getByRole("option", { name: "Sam Lee · Owner" })).toBeTruthy();
     expect(within(select).getByRole("option", { name: "@jo · Helper" })).toBeTruthy();
@@ -355,6 +352,67 @@ describe("the task drawer", () => {
     await waitFor(() => expect(select).not.toBeDisabled());
     // The notice from the failed read was on screen; it goes once a read succeeds.
     await waitFor(() => expect(within(drawer).queryByRole("alert")).not.toBeInTheDocument());
+  });
+});
+
+describe("reading the people for the drawer", () => {
+  const opened = async (title: string) => {
+    const { drawer, select } = await openDrawer(title);
+    await waitFor(() => expect(select).not.toBeDisabled());
+    return drawer;
+  };
+  const close = async (drawer: HTMLElement) => {
+    fireEvent.click(within(drawer).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(drawer).not.toHaveAttribute("open"));
+  };
+
+  it("reads them on the first opening, and answers every later opening from that read", async () => {
+    setCachedTasks("wed_1", [
+      row({ id: "a", title: "Book venue" }),
+      row({ id: "b", title: "Carry the rings", sortOrder: 1 }),
+    ]);
+    api({ hosts: hostsAnswer([SAM, JO]) });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+    expect(calls("/hosts")).toHaveLength(0);
+
+    let drawer = await opened("Book venue");
+    expect(calls("/hosts")).toHaveLength(1);
+    await close(drawer);
+    drawer = await opened("Book venue");
+    await close(drawer);
+    drawer = await opened("Carry the rings");
+    expect(within(drawer).getByRole("option", { name: "@jo · Helper" })).toBeTruthy();
+    expect(calls("/hosts")).toHaveLength(1);
+  });
+
+  it("reads them again on the first opening when they were cached before this visit", async () => {
+    // Read on an earlier visit, or handed over by the co-host panel; Jo has
+    // been seated since, in another session.
+    await ensureHostsLoaded("wed_1", async () => [SAM]);
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue", assignedHostId: "whost_sam" })]);
+    api({ hosts: hostsAnswer([SAM, JO]) });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await waitFor(() => expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible());
+    expect(calls("/hosts")).toHaveLength(0);
+
+    let drawer = await opened("Book venue");
+    expect(calls("/hosts")).toHaveLength(1);
+    expect(await within(drawer).findByRole("option", { name: "@jo · Helper" })).toBeTruthy();
+    await close(drawer);
+    drawer = await opened("Book venue");
+    expect(calls("/hosts")).toHaveLength(1);
+  });
+
+  it("does not read them again on opening when this visit has just read them", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue", assignedHostId: "whost_sam" })]);
+    api({ hosts: hostsAnswer([SAM, JO]) });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await waitFor(() => expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible());
+    expect(calls("/hosts")).toHaveLength(1);
+
+    await opened("Book venue");
+    expect(calls("/hosts")).toHaveLength(1);
   });
 });
 
