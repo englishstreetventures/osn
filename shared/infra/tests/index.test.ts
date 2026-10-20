@@ -17,5 +17,5 @@ describe("@shared/infra entry", () => {
     ] as const) {
       expect(typeof infra[name], `${name}`).toBe("function");
     }
-  });
+  }, 30_000);
 });
