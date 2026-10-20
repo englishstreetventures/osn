@@ -93,14 +93,21 @@ When something in the first two is small, a follow-up pull request the same
 session opens beats an issue: cut a second branch (stacked on this one when it
 needs this one's code, from `main` otherwise, see [[stacked-prs]]), fix it, and
 open it before the session ends. Its issue, when it needs one, is closed by that
-pull request's merge.
+pull request's merge. A follow-up for an `S-`, `P-` or `C-` finding takes the
+naming rule in `new-feat` Step 0 before its first commit: its branch name,
+commit messages and title name the area or the tracker number, never the
+defect, because the public repository's branch list publishes it before the fix
+lands.
 
 Never reasons to leave something in scope open: "low severity", "pre-existing",
 "would make the diff bigger", "a later pull request can tidy it", or the review
-running late. A session that runs out of budget says what it did not reach, to
-the person, rather than filing it silently.
+running late. A session that runs out of budget, or whose fix failed, says
+what it did not reach, to the person, and still files each unfixed `S-`, `P-`
+or `C-` finding in the tracker so it keeps an owner — as unfinished work, not
+as one of the three.
 
-Some findings are not issues at all. An `info` finding, a `T-S` suggestion, a
+Some findings ask for no work. An `info` finding is filed in the tracker for
+its record and closed at once, so it never counts as open. A `T-S` suggestion, a
 nit or an observation is fixed on this branch or recorded in the report, never
 filed.
 
@@ -113,7 +120,11 @@ ask, fix the in-scope ones and keep only what fits the three.
 A `critical` or `high` finding is never left open, whichever of the three it
 falls in: it is fixed on the branch that found it, or in a pull request opened
 immediately after and linked before that branch merges. One that truly needs
-the owner is put to them before the branch merges.
+the owner — a design choice, a secret, production access — **blocks the merge**
+until the fix lands or the owner accepts the risk in writing on its tracker
+issue; adding `needs:decision` does not release it. A run with no owner to ask
+fixes every `critical` and `high` itself, and one that cannot names each as
+blocking and does not call the branch ready.
 
 The reasoning is the same one that makes the tracker private. A filed-and-open
 `critical` or `high` is a live, unpatched defect whose location is now written

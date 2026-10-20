@@ -22,7 +22,8 @@ branch, not filed. An issue for later is only for one of three things
 out of the feature's scope, something unrelated found mid-task, or a larger
 piece of work. Say which in the body's **Notes**; when it is none of them, go
 and fix it instead, and when it is one of the first two and small, a follow-up
-pull request beats an issue. An issue filed so a pull
+pull request beats an issue. A `critical` or `high` finding is never left open,
+whichever of the three it is. An issue filed so a pull
 request this session opens can close it needs no exception.
 
 Planned work someone asked for, and the issue `new-feat` opens for a branch,

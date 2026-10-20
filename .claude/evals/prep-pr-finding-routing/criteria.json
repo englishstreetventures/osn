@@ -13,8 +13,8 @@
       "max_score": 4
     },
     {
-      "name": "unfixed_findings_go_down_the_fix_ladder",
-      "description": "`PREP-PR-REPORT.md` treats the reviewer's unfixed findings as work to fix, not issues to leave open. S-M1 / osn-tracker#601 and P-I1 / osn-tracker#602 sit in a file this branch already changes, so the report says they would be fixed on this branch (which would close them) and that the brief's no-edit rule is the only reason they are not. S-H1 / osn-tracker#603 is a high finding in `pulse/api`, so the report says it needs a follow-up pull request opened in the same session, before this one merges — never left in the backlog. Score 2 if both halves are there; 1 if one is; 0 if the report is content to leave all three open as filed issues, or calls any of them out of scope with nothing more. MUST NOT claim any fix or follow-up pull request was actually made — the brief forbids edits and there is no network.",
+      "name": "unfixed_findings_fixed_not_left_open",
+      "description": "`PREP-PR-REPORT.md` treats the reviewer's unfixed findings as work to fix, not issues to leave open. S-M1 / osn-tracker#601 and P-I1 / osn-tracker#602 sit in a file this branch already changes, so the report says they would be fixed on this branch (which would close them) and that the brief's no-edit rule is the only reason they are not. S-H1 / osn-tracker#603 is a high finding in `pulse/api`, so the report says it needs a follow-up pull request opened in the same session, before this one merges — never left in the backlog. Any branch name the report proposes for that follow-up names the area or the tracker number (for example `fix/pulse-api-hardening` or `fix/tracker-603`), never the defect. Score 2 if both halves are there and no proposed branch name describes a defect; 1 if one is; 0 if the report is content to leave all three open as filed issues, or calls any of them out of scope with nothing more. MUST NOT claim any fix or follow-up pull request was actually made — the brief forbids edits and there is no network.",
       "max_score": 2
     },
     {

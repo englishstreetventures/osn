@@ -295,7 +295,8 @@ every severity, Info fixed or noted in the report, and Critical and High never
 deferred (`prep-pr` Step 6). Missing tests from `review-tests` get
 written. A finding about code this pull request does not touch is out of its scope:
 a follow-up pull request this session opens when it is small, an issue
-otherwise (`prep-pr` Step 6).
+otherwise (`prep-pr` Step 6) — except a Critical or High, which is never left
+open.
 
 One code-writing agent in this worktree at a time. Commit each fix, re-run the
 gates it touched, and note the commit each gate ran on.

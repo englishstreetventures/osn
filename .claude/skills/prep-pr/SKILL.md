@@ -355,7 +355,10 @@ now if you have not this session:
      cannot have.
 - **When one of the first two is small, a follow-up pull request beats an
   issue**: cut a second branch (stacked when it needs this one's code), fix it,
-  and run this skill on it once this one is open.
+  and run this skill on it once this one is open. For an `S-`, `P-` or `C-`
+  finding, name the branch, its commits and its title by area or tracker
+  number before the first commit — `new-feat` Step 0's rule — never by the
+  defect.
 
 "Low", "pre-existing", "the diff would grow", "a later pull request can tidy
 it" and "the reviews ran late" never leave something in scope open. `info`
@@ -366,7 +369,10 @@ user, fix the in-scope ones and keep only what fits the three.
 
 **A `critical` or `high` finding is never left open**, whichever of the three
 it falls in: fix it here, or in a follow-up pull request opened now and linked
-before this one merges. A filed-and-open
+before this one merges. Filing it and continuing is not an option, and
+`needs:decision` does not release it: one whose fix is the owner's choice
+blocks the merge until the owner accepts the risk in writing on its tracker
+issue. With no user, fix every `critical` and `high` yourself. A filed-and-open
 `high` is a live unpatched defect whose location is now written down; the issue
 is an attack map with a timer on it. Severity comes from the tier letter in the
 finding ID, assigned by the review before anyone knows what fixing it costs.
@@ -399,9 +405,11 @@ Auditing a defect class — when a finding is an instance of a class, enumerate 
 
 ### New findings from Step 6
 
-One tracker issue per `S-`, `P-` or `C-` finding at `low` or above, so that its record stays private and the public PR body can carry it as a bare reference:
+One tracker issue per `S-`, `P-` or `C-` finding, so that its record stays private and the public PR body can carry it as a bare reference:
 
 - each finding left open as one of Step 6's three — which one goes in the body's **Rationale**;
+- each finding in scope that this run did not manage to fix — the fix failed, the budget ran out, the tooling could not run — so it keeps an owner; the report names it as unfinished, not as one of the three;
+- each `info` finding, filed and closed at once as not planned, so the tracker keeps its record without it counting as open;
 - each finding a follow-up pull request fixes, so that pull request closes it;
 - each finding it **fixes** that has no issue yet — filed before the PR opens, so the merge closes it;
 - each finding **dismissed** as no defect — filed, then closed at once as not planned (`gh issue close <n> --repo englishstreetventures/osn-tracker --reason "not planned"`), with the reasoning in its body.
