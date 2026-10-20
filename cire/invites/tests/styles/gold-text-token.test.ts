@@ -148,6 +148,11 @@ function metalUsage(): { file: string; metal: number }[] {
  */
 const ALLOWED: { file: string; metal: number; reason: string }[] = [
   {
+    file: "components/DetailsPanel.tsx",
+    metal: 1,
+    reason: "the key facts' glyphs — aria-hidden SVGs, graphical objects, not text",
+  },
+  {
     file: "components/LoginSection.tsx",
     metal: 1,
     reason: "the band layout's greeting — clamp(2rem,…) × 0.85 = 27.2px, large text",

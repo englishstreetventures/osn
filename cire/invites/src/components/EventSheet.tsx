@@ -206,6 +206,7 @@ export function EventSheet(props: EventSheetProps) {
             <DetailsPanel
               event={own.event}
               siteUrl={own.siteUrl}
+              members={rsvp.members}
               onRsvp={() => show("rsvp")}
               rsvpClosed={rsvp.closed}
               replied={own.replied}

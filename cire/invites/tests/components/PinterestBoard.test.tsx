@@ -48,25 +48,30 @@ function refuseThirdPartyContent() {
 }
 
 /**
- * The outbound "View moodboard on Pinterest" link, found by its text. Not by
+ * The moodboard block's "Open on Pinterest" link, found by its text. Not by
  * `href`: the embed anchor carries the same one, and once Pinterest strips its
  * `data-pin-do` no attribute selector tells the two apart.
+ *
+ * Every state shows at most one: the block is the only place the link lives,
+ * so two would mean two blocks, or the block beside the board.
  */
 function fallbackLink(container: HTMLElement): HTMLAnchorElement | undefined {
-  return Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).find((a) =>
-    (a.textContent ?? "").includes("View moodboard on Pinterest"),
+  const links = Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).filter((a) =>
+    (a.textContent ?? "").includes("Open on Pinterest"),
   );
+  expect(links.length).toBeLessThanOrEqual(1);
+  return links[0];
 }
 
 /**
- * Click the "Allow Pinterest moodboards" button on the blocked-embed
- * placeholder. It is the first button in the placeholder ("Privacy choices",
- * which opens the dialog rather than granting, is the second).
+ * Press "Show it here" on the moodboard block — the in-place grant, which turns
+ * on the `pinterest` switch and nothing else.
  */
 function allowThirdPartyContent(container: HTMLElement) {
-  const button = container.querySelector<HTMLButtonElement>("button");
-  if (!button) throw new Error("consent placeholder button not found");
-  expect(button.textContent ?? "").toContain("Allow");
+  const button = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+    (b) => b.textContent === "Show it here",
+  );
+  if (!button) throw new Error("moodboard block's Show it here button not found");
   fireEvent.click(button);
 }
 
@@ -92,11 +97,11 @@ describe("PinterestBoard", () => {
       <PinterestBoard url="https://evil.com/user/board" eventName="Catholic" />
     ));
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
-    expect(container.textContent ?? "").not.toContain("View moodboard");
-    expect(container.textContent ?? "").not.toContain("Allow");
+    expect(container.textContent ?? "").not.toContain("Open on Pinterest");
+    expect(container.textContent ?? "").not.toContain("Show it here");
   });
 
-  it("shows only the fallback link (no consent placeholder, no embed) for a safe-but-un-embeddable pin.it link", () => {
+  it("shows only the block and its link (no Show it here, no embed) for a safe-but-un-embeddable pin.it link", () => {
     const SHORT_URL = "https://pin.it/3xKp9Qd";
     const { container } = render(() => (
       <PinterestBoard url={SHORT_URL} eventName="Catholic Ceremony" />
@@ -105,18 +110,19 @@ describe("PinterestBoard", () => {
     // The outbound link is present so the guest can still reach the board.
     const link = container.querySelector<HTMLAnchorElement>('a[href="' + SHORT_URL + '"]');
     expect(link).not.toBeNull();
-    expect(link!.textContent).toContain("View moodboard on Pinterest");
+    expect(link!.textContent).toContain("Open on Pinterest");
     expect(link!.getAttribute("target")).toBe("_blank");
+    expect(fallbackLink(container)).toBe(link);
 
     // No embed: a short link can't be rendered as a board widget, so there is
     // nothing to consent TO — no request to Pinterest would ever be made. Asking
-    // for permission we have no use for would be noise, so no placeholder shows.
+    // for permission we have no use for would be noise, so no Show it here.
     expect(container.querySelector("button")).toBeNull();
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
     expect(scriptHandle.all()).toHaveLength(0);
   });
 
-  it("injects nothing before the guest allows it, and offers the placeholder and the link", () => {
+  it("injects nothing before the guest allows it, and offers Show it here and the link", () => {
     // No consent cookie. Pinterest's script sees the guest's IP address,
     // browser and behaviour, so it waits for the guest's yes; meanwhile the
     // moodboard is still one tap away through the outbound link.
@@ -126,7 +132,7 @@ describe("PinterestBoard", () => {
 
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
     expect(scriptHandle.all()).toHaveLength(0);
-    expect(container.textContent ?? "").toContain("Allow Pinterest moodboards");
+    expect(container.textContent ?? "").toContain("Show it here");
     expect(fallbackLink(container)).toBeDefined();
   });
 
@@ -142,16 +148,16 @@ describe("PinterestBoard", () => {
     expect(fallbackLink(container)).toBeUndefined();
   });
 
-  it("shows the blocked-content placeholder, and injects nothing, once the guest switches it off", () => {
+  it("shows the moodboard block, and injects nothing, once the guest switches it off", () => {
     refuseThirdPartyContent();
     const { container } = render(() => (
       <PinterestBoard url={VALID_URL} eventName="Catholic Ceremony" />
     ));
 
-    // The placeholder names Pinterest and what it would do; the embed anchor is
-    // NOT mounted and the tracker is never requested.
+    // The block names Pinterest and offers to show the board; the embed anchor
+    // is NOT mounted and the tracker is never requested.
     expect(container.textContent ?? "").toContain("Pinterest");
-    expect(container.textContent ?? "").toContain("Allow Pinterest moodboards");
+    expect(container.textContent ?? "").toContain("Show it here");
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
     expect(scriptHandle.all()).toHaveLength(0);
 
@@ -159,14 +165,18 @@ describe("PinterestBoard", () => {
     expect(container.querySelector('a[href="' + VALID_URL + '"]')).not.toBeNull();
   });
 
-  it("offers a route to the full preferences dialog alongside the one-click allow", () => {
-    // Both routes matter: "Allow" alone would be a single-click re-grant with no
-    // visible way to see what else that switch covers.
+  it("says what showing the board switches on, before the guest presses it", () => {
+    // A one-press grant must not be a blind one. The note it points at names
+    // the switch it turns on (every moodboard, in this browser, since the
+    // choice is one site-wide cookie) and what Pinterest then sees.
     refuseThirdPartyContent();
-    const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
-    const labels = [...container.querySelectorAll("button")].map((b) => b.textContent ?? "");
-    expect(labels.some((label) => label.includes("Allow"))).toBe(true);
-    expect(labels.some((label) => label.includes("Privacy choices"))).toBe(true);
+    const { getByRole } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+    const show = getByRole("button", { name: "Show it here" });
+    const note = document.getElementById(show.getAttribute("aria-describedby") ?? "");
+    expect(note?.textContent).toContain("switches on Pinterest moodboards in this browser");
+    expect(note?.textContent).toContain("IP address");
+    // Offered, not urged: never the call-to-action shape.
+    expect(show.className).not.toContain("base:hover:bg-ui-accent");
   });
 
   it("injects pinit_main.js and renders the embed anchor when consent is restored", () => {
@@ -244,7 +254,7 @@ describe("PinterestBoard", () => {
     await waitFor(() => expect(container.querySelector('[role="status"]')).toBeNull());
     // Anchor gone, fallback link present.
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
-    expect(container.textContent ?? "").toContain("View moodboard on Pinterest");
+    expect(container.textContent ?? "").toContain("Open on Pinterest");
   });
 
   it("does NOT re-ask for consent after a Pinterest-side failure", async () => {
@@ -354,7 +364,7 @@ describe("PinterestBoard", () => {
     ));
     const script = scriptHandle.last();
     script.dispatchEvent(new Event("error"));
-    const link = await findByText(/View moodboard on Pinterest/);
+    const link = await findByText(/Open on Pinterest/);
     expect(link.tagName).toBe("A");
     expect(link.getAttribute("href")).toBe(VALID_URL);
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
@@ -618,7 +628,7 @@ describe("PinterestBoard (mobile / touch — embed enabled)", () => {
     vi.useRealTimers();
   });
 
-  it("shows the consent placeholder (not a no-embed link card) on a touch device", () => {
+  it("offers Show it here (not just a link out) on a touch device", () => {
     refuseThirdPartyContent();
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
 
@@ -663,7 +673,7 @@ describe("PinterestBoard (mobile / touch — embed enabled)", () => {
     const { container } = render(() => (
       <PinterestBoard url="https://evil.com/user/board" eventName="Catholic" />
     ));
-    expect(container.textContent ?? "").not.toContain("View moodboard");
+    expect(container.textContent ?? "").not.toContain("Open on Pinterest");
     expect(scriptHandle.all()).toHaveLength(0);
   });
 });

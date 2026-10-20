@@ -99,13 +99,11 @@ describe("labels on a gold fill", () => {
   it("finds the gold fills it is meant to be checking", () => {
     // Vacuity guard: a changed file layout or class spelling that matched
     // nothing would let both tests above pass while checking nothing. The
-    // fills today: the consent "Save choices" button, the answer button, and
-    // the hover and focus states of Add to Calendar, the map pin, the
-    // moodboard link, the RSVP sheet's submit and both gift-registry links.
+    // fills today: the consent "Save choices" button, the answer button, the
+    // hover and focus states of the Add to Calendar items (one class list for
+    // both), the RSVP sheet's submit and both gift-registry links.
     const fills = goldFills();
-    expect(fills.length).toBeGreaterThanOrEqual(10);
-    expect(new Set(fills.map((f) => f.variant))).toEqual(
-      new Set(["", "hover:", "focus:", "group-hover:"]),
-    );
+    expect(fills.length).toBeGreaterThanOrEqual(7);
+    expect(new Set(fills.map((f) => f.variant))).toEqual(new Set(["", "hover:", "focus:"]));
   });
 });

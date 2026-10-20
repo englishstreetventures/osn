@@ -11,6 +11,7 @@ import {
   isCategoryGranted,
   saveConsent,
 } from "../../../src/lib/consent/store";
+import { CONSENT_VENDORS } from "../../../src/lib/consent/vendors";
 import { resetConsentForTest, seedConsentForTest } from "../../test-support/consent";
 
 /**
@@ -110,17 +111,45 @@ describe("ConsentGate", () => {
     // here starts from one.
     beforeEach(() => seedConsentForTest({ pinterest: false }));
 
-    it("names the vendor and what it would do", () => {
+    it("names the vendor and what it would do, in a sentence that reads", () => {
+      // The purpose is written for the privacy notice ("Pinterest moodboards —
+      // Shows the couple's…"), so splicing it after "would" gave "Pinterest
+      // would shows". The whole sentence is pinned so the grammar is too.
       const { container } = render(() => (
         <ConsentGate category="pinterest" vendor="pinterest">
           <div>content</div>
         </ConsentGate>
       ));
 
-      const text = container.textContent ?? "";
-      expect(text).toContain("Pinterest");
-      expect(text).toContain("inspiration moodboard");
-      expect(text).toContain("IP address");
+      expect(container.querySelector("p")?.textContent).toBe(
+        "Content from Pinterest would appear here. It shows the couple's inspiration moodboard for an event's dress code.",
+      );
+      expect(container.textContent ?? "").toContain("IP address");
+    });
+
+    it("can say what every vendor does after “It”", () => {
+      // The placeholder writes "It" + the purpose with its first letter
+      // lowered, and the privacy notice writes the purpose after a dash: both
+      // need it to open on a third-person verb. A new vendor whose purpose
+      // opens "Show…" would read wrongly in one place or the other.
+      const firstWords = CONSENT_VENDORS.map((vendor) => vendor.purpose.split(" ")[0] ?? "");
+      expect(firstWords.filter((word) => !/^[A-Z][a-z]+s$/.test(word))).toEqual([]);
+    });
+
+    it("offers allowing as a quiet choice, at a 44px target, beside Privacy choices", () => {
+      // An in-place grant drawn as the call to action nudges a guest towards
+      // consent; and both controls sit in rows a thumb has to hit.
+      const { getByRole } = render(() => (
+        <ConsentGate category="pinterest" vendor="pinterest">
+          <div>content</div>
+        </ConsentGate>
+      ));
+      const allow = getByRole("button", { name: "Allow Pinterest moodboards" });
+      expect(allow.className).not.toContain("base:hover:bg-ui-accent");
+      expect(allow.className.split(/\s+/)).toContain("min-h-11");
+      expect(getByRole("button", { name: "Privacy choices" }).className.split(/\s+/)).toContain(
+        "min-h-11",
+      );
     });
 
     it("grants the category — and persists it — when the allow button is clicked", () => {
