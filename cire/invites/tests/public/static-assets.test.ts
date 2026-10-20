@@ -7,9 +7,10 @@ import { describe, expect, it } from "vitest";
 
 /**
  * `/robots.txt` and `/favicon.ico` are files in `public/`, so Cloudflare's
- * static-asset layer answers them and the Worker never runs. Any other path
- * with one segment reaches `src/pages/[slug].astro`, which looks the segment
- * up in cire-api as a wedding slug. The E2E suite cannot see the difference:
+ * static-asset layer answers them and the Worker never runs. A one-segment
+ * path with no file in `public/` and no page of its own reaches
+ * `src/pages/[slug].astro`, which looks the segment up in cire-api as a
+ * wedding slug. The E2E suite cannot see the difference:
  * it runs `astro dev`, where Vite serves `public/` itself. A missing file
  * fails the tests that read it.
  */

@@ -5,7 +5,8 @@
  * `cire/invites` is an SSR **Worker** (`@astrojs/cloudflare`, `output: "server"`),
  * deployed as `cire-invites`. Cloudflare Workers Static Assets DOES honour a
  * `_headers` file — but ONLY for responses served by the **static-asset layer**
- * (the prerendered `/privacy` + `/terms` pages and the `/_astro/*` bundles).
+ * (the prerendered `/privacy` + `/terms` pages, the `/_astro/*` bundles and
+ * the other files in `public/`, such as `/robots.txt` and `/favicon.ico`).
  * The dynamic guest routes (including `/<slug>` and `/cire/invite`) are
  * produced by the **Worker script** (`dist/server/entry.mjs`), which the asset
  * `_headers` layer never touches. So before this module the security headers

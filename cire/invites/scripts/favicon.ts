@@ -10,10 +10,10 @@
  *
  * It adds no dependency. Playwright's Chromium (the one the browser tests use)
  * draws the SVG at each size, and this file writes the ICO, one PNG image per
- * size. The SVG names Georgia first, a system font that Linux lacks and that we
- * may not ship, so a stylesheet rule here draws its text in the bundled
- * Cormorant Garamond italic instead, whatever fonts the machine has. The same
- * Chromium build on the same operating system writes the same bytes;
+ * size. The SVG names Georgia first, a system font that Linux lacks and that
+ * the repo does not bundle, so a stylesheet rule here draws its text in the
+ * bundled Cormorant Garamond italic instead, whatever fonts the machine has.
+ * The same Chromium build on the same operating system writes the same bytes;
  * anti-aliasing differs between operating systems.
  */
 import { readFileSync, writeFileSync } from "node:fs";

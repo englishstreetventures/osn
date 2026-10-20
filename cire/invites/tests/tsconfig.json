@@ -5,7 +5,8 @@
   },
   // Replaces the parent's `include`, so `env.d.ts` (the `astro/client` types,
   // which declare `*.astro` modules for the tests that render pages) is listed
-  // again. `scripts/` is here too: the build-time scripts run under Bun or
-  // Node, not in the Worker, and this is the config `check` runs on them.
+  // again. `scripts/` is here too: its scripts, such as `scripts/favicon.ts`,
+  // are run by hand under Bun, never in the Worker, and this is the config
+  // `check` runs on them.
   "include": ["./**/*", "../scripts/**/*", "../env.d.ts"]
 }

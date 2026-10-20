@@ -209,7 +209,7 @@ the editor finds it for test files (see [[testing-patterns#Rules]]).
 | Package | `tsconfig.json` (shipped source) | `tests/tsconfig.json` |
 |---|---|---|
 | `@cire/api` | The Worker: Workers types only, `lib` ES2023. Leaves out `src/local.ts` and `src/db/setup.ts`, the two files that only run under Bun | Adds `bun-types`; includes the tests and those two files |
-| `@cire/invites` | `lib` ES2022 + DOM, set in the file rather than inherited, which the browser floor in the root `.browserslistrc` implements (see [[frontend-patterns#Supported browsers]]) | `lib` ES2023, for `toSorted` and `toReversed` in tests; also includes `scripts/`, the build-time scripts that run under Bun or Node |
+| `@cire/invites` | `lib` ES2022 + DOM, set in the file rather than inherited, which the browser floor in the root `.browserslistrc` implements (see [[frontend-patterns#Supported browsers]]) | `lib` ES2023, for `toSorted` and `toReversed` in tests; also includes `scripts/`, whose scripts (such as `scripts/favicon.ts`) are run by hand under Bun, never in the Worker |
 | `@cire/dietary`, `@cire/theme` | `lib` ES2022 and no ambient types, the guest site's floor (see [[#The guest site's packages]]) | `lib` ES2023 and `bun-types`, for `bun:test`, `node:fs` and `toSorted` in tests |
 
 ### The guest site's packages
