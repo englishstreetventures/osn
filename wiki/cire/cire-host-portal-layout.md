@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-20
 ---
 # Host Portal Layout System
 
@@ -285,13 +285,15 @@ component was previously reading a container it did not live in.
 
 ## Organiser client caches: stale-while-revalidate
 
-Eight `weddingId`-keyed SolidJS signal caches share this contract:
+Nine `weddingId`-keyed SolidJS signal caches share this contract:
 `budget-store.ts`, `enquiries-store.ts`, `events-store.ts`, `guests-store.ts`,
-`households-store.ts`, `registry-store.ts`, `tasks-store.ts`,
+`hosts-store.ts`, `households-store.ts`, `registry-store.ts`, `tasks-store.ts`,
 `vendors-store.ts` (all `cire/host/src/lib/`). One page for the mechanism
-they all share, rather than eight copies that drift — a module's own page
+they all share, rather than nine copies that drift — a module's own page
 (e.g. [[cire-checklist-tasks]]) documents only what is genuinely that
-module's.
+module's. `hosts-store.ts` holds the wedding's seats for the checklist, which
+names who holds each task; it has no `setCached`/`peekCached`, since nothing
+writes seats into it but a load.
 
 A cached wedding is in one of four states:
 
@@ -370,7 +372,7 @@ check).
 
 The caches hold guest names, vendor emails and phone numbers, budget figures
 and the gift log. A wedding keeps them only while its dashboard is mounted.
-This covers the eight caches above and the upgrade catalogue
+This covers the nine caches above, the seats among them, and the upgrade catalogue
 (`upgrade-store.ts`), which keeps prices and has no stale mark.
 
 - **Open.** `WeddingCacheScope` in `OrganiserApp.tsx` wraps the module shell.
