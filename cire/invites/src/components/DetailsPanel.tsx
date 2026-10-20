@@ -159,12 +159,15 @@ export function DetailsPanel(props: DetailsPanelProps) {
     props.onRsvp !== undefined && (props.rsvpClosed !== true || props.replied === true);
   const invited = () => invitedNames(props.members ?? [], props.event.id);
   const description = () => (hasText(props.event.description) ? props.event.description : null);
-  const dressCode = () =>
-    hasDressCode(props.event.dressCodeDescription, props.event.dressCodePalette);
-  const moodboard = () =>
-    hasPinterest(props.event.pinterestUrl) ? props.event.pinterestUrl : null;
   const swatches = () =>
     (props.event.dressCodePalette ?? []).filter((swatch) => isValidColor(swatch.color));
+  // Only the colours that can be painted count: a palette of nothing but
+  // refused colours is no dress code, and would leave the label over nothing.
+  const dressCode = () => hasDressCode(props.event.dressCodeDescription, swatches());
+  const dressCodeText = () =>
+    hasText(props.event.dressCodeDescription) ? props.event.dressCodeDescription : null;
+  const moodboard = () =>
+    hasPinterest(props.event.pinterestUrl) ? props.event.pinterestUrl : null;
 
   // The guest's own clock is read in the browser, once mounted, so the first
   // render matches a server render whatever zone the server ran in.
@@ -321,7 +324,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
 
           <Show when={dressCode()}>
             <Section label="Dress Code">
-              <Show when={props.event.dressCodeDescription}>
+              <Show when={dressCodeText()}>
                 {(desc) => (
                   <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-5 font-light">
                     {desc()}

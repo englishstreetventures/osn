@@ -309,7 +309,7 @@ when it is switched on **and** has content:
 | **Event → Where**             | the event has an address **OR** an http(s) `mapsUrl` — whatever can open a map (`resolveMapsUrl`) | `DetailsPanel.tsx` (`hasVenue`) |
 | **Event → About**             | the event has a description                                | `DetailsPanel.tsx` (`hasText`)          |
 | **Event → Inspiration**       | the event has a `pinterestUrl` that is a safe https Pinterest link | `DetailsPanel.tsx` (`hasPinterest`) |
-| **Event → Dress Code**        | the event has a dress-code description **OR** a palette swatch | `DetailsPanel.tsx` (`hasDressCode`) |
+| **Event → Dress Code**        | the event has a dress-code description **OR** a palette swatch whose colour passes the CSS-colour check | `DetailsPanel.tsx` (`hasDressCode`) |
 | **Closing section**           | switched on, and it has a note **OR** an image (whole section), post-claim | `InviteClosing.tsx` (`footerState`) |
 
 Welcome (the code entry) and Events have no switch: a guest needs both to reach

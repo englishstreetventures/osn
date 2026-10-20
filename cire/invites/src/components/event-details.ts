@@ -264,5 +264,6 @@ export function invitedNames(members: readonly Invitee[], eventId: string): stri
       ? `${first(m)} ${m.lastName.trim()}`.trim()
       : first(m),
   );
-  return new Intl.ListFormat("en-AU", { style: "long", type: "conjunction" }).format(names);
+  // The default list is the long conjunction: "Alex, Sam and Priya".
+  return new Intl.ListFormat("en-AU").format(names);
 }

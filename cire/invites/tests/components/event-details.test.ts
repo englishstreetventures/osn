@@ -139,6 +139,11 @@ describe("formatTimeRange across days", () => {
       endAt: "2026-11-21T11:00:00+11:00",
     };
     expect(formatTimeRange(week)).toBe("Fri, 13 Nov 6:00 pm – Sat, 21 Nov 11:00 am");
+    // Exactly a week: "Fri – Fri" would name one day twice.
+    const sevenDays = { ...week, endAt: "2026-11-20T11:00:00+11:00" };
+    expect(formatTimeRange(sevenDays)).toBe("Fri, 13 Nov 6:00 pm – Fri, 20 Nov 11:00 am");
+    const sixDays = { ...week, endAt: "2026-11-19T11:00:00+11:00" };
+    expect(formatTimeRange(sixDays)).toBe("Fri 6:00 pm – Thu 11:00 am");
   });
 
   it("gives one time for a zero-length event, and both days for one exactly a day long (F6)", () => {
@@ -220,6 +225,11 @@ describe("invitedNames", () => {
     const samK = member("Sam", ["e1"], { lastName: "Kaur" });
     const priya = member("Priya", []);
     expect(invitedNames([sam, samK, priya], "e1")).toBe("Sam Sharma and Sam Kaur");
+    // Names as stored can carry stray spaces; " Sam " is still Sam, and a
+    // missing last name leaves no dangling space.
+    const padded = member(" Sam ", ["e1"], { lastName: " Kaur " });
+    const bare = member("Sam", ["e1"], { lastName: "" });
+    expect(invitedNames([padded, bare, priya], "e1")).toBe("Sam Kaur and Sam");
   });
 
   it("gives nothing rather than an empty list when nobody is invited (F14)", () => {

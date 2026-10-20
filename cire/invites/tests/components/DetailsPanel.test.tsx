@@ -189,6 +189,28 @@ describe("DetailsPanel", () => {
     expect(queryByText("Dress Code")).toBeNull();
   });
 
+  it("draws no colour list for a dress code that has words and no colours", () => {
+    // An empty list is still a list to a screen reader.
+    const { getByText, queryByRole } = renderPanel({
+      ...baseEvent,
+      dressCodeDescription: "Cocktail.",
+      dressCodePalette: [],
+    });
+    expect(getByText("Cocktail.")).toBeTruthy();
+    expect(queryByRole("list")).toBeNull();
+  });
+
+  it("omits the dress code section when every colour in it is refused", () => {
+    // Refused colours are never painted, so a palette of only those is no
+    // dress code: the label would stand over an empty space.
+    const { queryByText } = renderPanel({
+      ...baseEvent,
+      dressCodeDescription: "  ",
+      dressCodePalette: [{ name: "Evil", color: "expression(alert(1))" }],
+    });
+    expect(queryByText("Dress Code")).toBeNull();
+  });
+
   it("renders only the palette when the dress code description is null", () => {
     const { getAllByRole, queryByText } = renderPanel({
       ...baseEvent,
