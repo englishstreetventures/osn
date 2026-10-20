@@ -39,6 +39,7 @@
     "./ui/table": "./src/ui/table.tsx",
     "./ui/tabs": "./src/ui/tabs.tsx",
     "./ui/textarea": "./src/ui/textarea.tsx",
+    "./ui/tooltip": "./src/ui/tooltip.tsx",
     "./ui/username-input": "./src/ui/username-input.tsx"
   },
   "scripts": {
