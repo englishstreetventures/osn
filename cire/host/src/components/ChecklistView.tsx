@@ -14,11 +14,18 @@ import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
-import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
 import { haptic } from "../lib/haptics";
+import {
+  ensureHostsLoaded,
+  type HostSeat,
+  hostsAccessor,
+  invalidateHosts,
+  seatName,
+} from "../lib/hosts-store";
 import { sameButOrder } from "../lib/sortable-rows";
 import {
   ensureTasksLoaded,
@@ -28,8 +35,10 @@ import {
   type TaskRow,
   tasksAccessor,
 } from "../lib/tasks-store";
+import { normaliseWeddingRole } from "../lib/wedding-roles";
 import ChecklistStarter from "./ChecklistStarter";
 import ReorderControls from "./ReorderControls";
+import TaskEditDrawer from "./TaskEditDrawer";
 /** A bucket with nothing in it. One shared array, so `sameRows` sees an empty
  *  bucket as unchanged from one write to the next. */
 const NO_TASKS: TaskRow[] = [];
@@ -38,6 +47,10 @@ const NO_TASKS: TaskRow[] = [];
  *  this bucket alone, so nothing that reads it needs to run again. */
 const sameRows = <T,>(a: readonly T[], b: readonly T[]): boolean =>
   a.length === b.length && a.every((row, k) => row === b[k]);
+
+/** Who holds a task, as its row shows it. `unknown`: assigned, but the
+ *  wedding's seats have not loaded, so there is no name to give yet. */
+type Holder = { kind: "seat"; name: string } | { kind: "unknown" } | { kind: "nobody" };
 
 interface ChecklistViewProps {
   weddingId: string;
@@ -73,6 +86,49 @@ export default function ChecklistView(props: ChecklistViewProps) {
       setError("Couldn't load your checklist. Refresh to try again.");
     });
   });
+
+  // ── Who holds each task ────────────────────────────────────────────────
+  // The seats are read only once some task is assigned: a checklist nobody is
+  // on needs no names, and "Needs an owner" needs none either.
+  const seats = hostsAccessor(props.weddingId);
+  const seatById = createMemo(() => new Map((seats() ?? []).map((s) => [s.hostId, s])));
+  const [seatsFailed, setSeatsFailed] = createSignal(false);
+
+  const loadSeats = async (): Promise<HostSeat[]> => {
+    const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/hosts")));
+    if (res.status === 401) {
+      redirectToLogin();
+      return [];
+    }
+    if (!res.ok) throw new Error(`Failed to load the wedding's people (${res.status})`);
+    const { hosts } = (await res.json()) as { hosts: HostSeat[] };
+    // A role the portal does not know reads as the narrowest one.
+    for (const seat of hosts) seat.role = normaliseWeddingRole(seat.role);
+    return hosts;
+  };
+
+  const ensureSeats = () =>
+    ensureHostsLoaded(props.weddingId, loadSeats).then(
+      () => setSeatsFailed(false),
+      (err: unknown) => {
+        if (isAuthExpired(err)) return redirectToLogin();
+        setSeatsFailed(true);
+      },
+    );
+
+  const anyAssigned = createMemo(() => (tasks() ?? []).some((t) => t.assignedHostId != null));
+  createEffect(() => {
+    if (anyAssigned()) void untrack(ensureSeats);
+  });
+
+  /** A seat the loaded list no longer has has been removed, and the server has
+   *  already cleared its tasks: shown as nobody until the list is read again. */
+  const holderOf = (task: TaskRow): Holder => {
+    if (task.assignedHostId == null) return { kind: "nobody" };
+    if (seats() === null) return { kind: "unknown" };
+    const seat = seatById().get(task.assignedHostId);
+    return seat ? { kind: "seat", name: seatName(seat) } : { kind: "nobody" };
+  };
 
   // Refetch from the server and repopulate the cache (used after a write fails).
   const reload = async () => {
@@ -183,6 +239,73 @@ export default function ChecklistView(props: ChecklistViewProps) {
       haptic("reject");
       setError("Couldn't delete that task.");
       void reload();
+    }
+  };
+
+  // ── The task drawer ────────────────────────────────────────────────────
+  const [editingId, setEditingId] = createSignal<string | null>(null);
+  const editing = createMemo(() => {
+    const id = editingId();
+    return id === null ? null : ((tasks() ?? []).find((t) => t.id === id) ?? null);
+  });
+  const [assigning, setAssigning] = createSignal(false);
+  const [assignError, setAssignError] = createSignal<string | null>(null);
+
+  /** Open a task's drawer, and read the seats again: someone may have been
+   *  seated or removed since the checklist loaded. */
+  const openDrawer = (task: TaskRow) => {
+    setAssignError(null);
+    setEditingId(task.id);
+    invalidateHosts(props.weddingId);
+    void ensureSeats();
+  };
+
+  /**
+   * Hand a task to a seat, or to nobody. The row changes at once; a refusal
+   * puts it back. A 422 means the seat is not the wedding's any more — removed
+   * since the drawer read the seats — so both lists are read again.
+   */
+  const assign = async (task: TaskRow, assignedHostId: string | null) => {
+    const before = task.assignedHostId ?? null;
+    if (assigning() || before === assignedHostId) return;
+    const show = (value: string | null) =>
+      patchTasks((rows) =>
+        rows.map((t) => (t.id === task.id ? { ...t, assignedHostId: value } : t)),
+      );
+    setAssignError(null);
+    setAssigning(true);
+    show(assignedHostId);
+    haptic("commit");
+    try {
+      const res = await authFetch(
+        apiUrl(weddingPath(props.weddingId, `/tasks/${encodeURIComponent(task.id)}/assignee`)),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assignedHostId }),
+        },
+      );
+      if (res.status === 401) return redirectToLogin();
+      if (res.status === 422) {
+        show(before);
+        haptic("reject");
+        setAssignError("That person is no longer on this wedding. Pick someone else.");
+        invalidateHosts(props.weddingId);
+        void ensureSeats();
+        void reload();
+        return;
+      }
+      if (!res.ok) throw new Error(`assign ${res.status}`);
+      const { task: updated } = (await res.json()) as { task: TaskRow };
+      patchTasks((rows) => rows.map((t) => (t.id === updated.id ? updated : t)));
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      show(before);
+      haptic("reject");
+      setAssignError("Couldn't change who holds that task.");
+      void reload();
+    } finally {
+      setAssigning(false);
     }
   };
 
@@ -379,8 +502,43 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                             · due {task.dueAt}
                                           </span>
                                         </Show>
+                                        {(() => {
+                                          const holder = holderOf(task);
+                                          if (holder.kind === "seat") {
+                                            return (
+                                              <span class="text-text-muted text-ui-xs block">
+                                                <span class="sr-only">Assigned to </span>
+                                                {holder.name}
+                                              </span>
+                                            );
+                                          }
+                                          if (holder.kind === "unknown") {
+                                            return (
+                                              <span class="text-text-muted text-ui-xs block">
+                                                Assigned
+                                              </span>
+                                            );
+                                          }
+                                          // Every open task nobody holds says so;
+                                          // only assigning someone clears it.
+                                          return task.status === "open" ? (
+                                            <span class="mt-1 block">
+                                              <span class="font-body text-gold-ink border-gold/45 text-ui-xs tracking-ui-wide inline-block rounded-sm border px-1.5 py-0.5 whitespace-nowrap">
+                                                Needs an owner
+                                              </span>
+                                            </span>
+                                          ) : null;
+                                        })()}
                                       </span>
                                       <Show when={props.canEdit}>
+                                        <Button
+                                          variant="bare"
+                                          type="button"
+                                          aria-label={`Edit ${task.title}`}
+                                          onClick={() => openDrawer(task)}
+                                        >
+                                          Edit
+                                        </Button>
                                         <Button
                                           variant="bareDanger"
                                           type="button"
@@ -410,6 +568,18 @@ export default function ChecklistView(props: ChecklistViewProps) {
           }}
         </For>
       </div>
+
+      <Show when={props.canEdit}>
+        <TaskEditDrawer
+          task={editing()}
+          seats={seats()}
+          seatsFailed={seatsFailed()}
+          busy={assigning()}
+          error={assignError()}
+          onAssign={(task, hostId) => void assign(task, hostId)}
+          onClose={() => setEditingId(null)}
+        />
+      </Show>
     </div>
   );
 }

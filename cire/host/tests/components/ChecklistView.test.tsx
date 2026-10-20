@@ -21,6 +21,7 @@ const row = (over: Partial<TaskRow>): TaskRow => ({
   sortOrder: 0,
   createdAt: 1,
   completedAt: null,
+  assignedHostId: null,
   ...over,
 });
 

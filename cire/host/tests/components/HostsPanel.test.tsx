@@ -38,6 +38,8 @@ vi.mock("../../src/components/UpgradeDialog", () => ({
 }));
 
 import HostsPanel from "../../src/components/HostsPanel";
+import { __resetHostsCache, ensureHostsLoaded, hasCachedHosts } from "../../src/lib/hosts-store";
+import { __resetTasksCache, ensureTasksLoaded, hasCachedTasks } from "../../src/lib/tasks-store";
 import {
   activeProfileIdMock,
   authFetchMock,
@@ -547,6 +549,29 @@ describe("HostsPanel", () => {
     const [url, init] = authFetchMock.mock.calls[1]!;
     expect(String(url)).toBe("https://api.test/api/organiser/weddings/wed_a/hosts/usr_bob");
     expect((init as RequestInit).method).toBe("DELETE");
+  });
+
+  it("marks the checklist and its names stale after a removal, so the removed seat's tasks show unassigned", async () => {
+    // The server clears a removed seat's assignments; a checklist cached
+    // before the removal still names them until it is read again.
+    __resetTasksCache();
+    __resetHostsCache();
+    await ensureTasksLoaded("wed_a", async () => []);
+    await ensureHostsLoaded("wed_a", async () => []);
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        hosts: [{ hostId: "whost_bob", osnProfileId: "usr_bob", role: "helper", createdAt: 1 }],
+      }),
+    );
+    authFetchMock.mockResolvedValueOnce(json({ removed: true }));
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+    await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
+    expect(hasCachedTasks("wed_a")).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /Remove/i }));
+    await waitFor(() => expect(screen.queryByText("usr_bob")).toBeNull());
+    expect(hasCachedTasks("wed_a")).toBe(false);
+    expect(hasCachedHosts("wed_a")).toBe(false);
   });
 
   it("hides the add form and remove controls for a VIEWER co-host (read-only)", async () => {

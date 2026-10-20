@@ -18,6 +18,8 @@ export interface TaskRow {
   sortOrder: number;
   createdAt: number;
   completedAt: number | null;
+  /** The seat (`hostId` in `GET …/hosts`) holding the task, or null for nobody. */
+  assignedHostId: string | null;
 }
 
 interface CacheEntry {

@@ -11,6 +11,7 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
+import { invalidateHosts } from "../lib/hosts-store";
 import {
   atPeopleLimit,
   peopleCountLabel,
@@ -19,6 +20,7 @@ import {
   readPeopleLimit,
   upgradeTierFor,
 } from "../lib/people-limit";
+import { invalidateTasks } from "../lib/tasks-store";
 import { type PaidTier, TIER_LABEL } from "../lib/tiers";
 import {
   type AssignableRole,
@@ -552,6 +554,10 @@ export default function HostsPanel(props: HostsPanelProps) {
       }
       keepPeopleLimit(await peopleLimitIn(res));
       setHosts((prev) => prev.filter((h) => h.osnProfileId !== host.osnProfileId));
+      // The server cleared this seat's checklist assignments with it, so a
+      // checklist cached before now names someone who holds nothing.
+      invalidateTasks(props.weddingId);
+      invalidateHosts(props.weddingId);
       haptic("commit");
       toast.success(`Removed ${label}.`);
     } catch (err) {
