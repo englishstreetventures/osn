@@ -429,8 +429,9 @@ export const createOrganiserHostsWriteRoutes = (
                     osnProfileId: host.osnProfileId,
                     role: host.role,
                     createdAt: host.createdAt.getTime(),
-                    // The change reset the scope unless a helper stayed one, so
-                    // the panel takes the seat's scope from here.
+                    // The change reset the scope unless a helper stayed one,
+                    // and only the stored role says which. The panel shows the
+                    // seat's scope from here, not from the list it read.
                     ...helperScope(host),
                   },
                   peopleLimit: host.peopleLimit,

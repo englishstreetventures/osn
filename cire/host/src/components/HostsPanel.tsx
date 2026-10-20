@@ -730,16 +730,25 @@ export default function HostsPanel(props: HostsPanelProps) {
         toast.error(refusal.message ?? "Could not change that host's role. Please try again.");
         return;
       }
-      keepPeopleLimit(await peopleLimitIn(res));
+      // Read once, for the people count and the seat's run-sheet scope. The
+      // scope is the API's: it resets it on every role change but helper to
+      // helper, and only the stored role says which this was — another owner
+      // may have made the seat a helper since this list was read.
+      const answer = (await res.json().catch(() => null)) as {
+        peopleLimit?: unknown;
+        host?: { runSheetScope?: unknown } | null;
+      } | null;
+      keepPeopleLimit(readPeopleLimit(answer?.peopleLimit));
       haptic("commit");
       setHosts((prev) =>
         ownersFirst(
           prev.map((h) =>
             h.osnProfileId === host.osnProfileId
-              ? // The API resets the scope on every role change but helper to
-                // helper, which this select never sends — a seat that becomes
-                // a helper starts at its own tasks.
-                { ...h, role: nextRole, runSheetScope: "own" }
+              ? {
+                  ...h,
+                  role: nextRole,
+                  runSheetScope: readRunSheetScope(answer?.host?.runSheetScope, "own"),
+                }
               : h,
           ),
         ),

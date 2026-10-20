@@ -1066,9 +1066,38 @@ describe("HostsPanel", () => {
       expect(hasCachedHosts("wed_a")).toBe(true);
     });
 
+    it("shows the scope the role change answers with, not the one it guessed", async () => {
+      // This list read @bob as a viewer; another owner has since made them a
+      // helper and opened their run sheet. Picking helper here is helper to
+      // helper on the server, which keeps the scope and says so.
+      authFetchMock.mockResolvedValueOnce(
+        json({
+          hosts: [
+            {
+              hostId: "whost_bob",
+              osnProfileId: "usr_bob",
+              handle: "bob",
+              role: "viewer",
+              createdAt: 1,
+            },
+          ],
+        }),
+      );
+      authFetchMock.mockResolvedValueOnce(
+        json({
+          host: { osnProfileId: "usr_bob", role: "helper", createdAt: 1, runSheetScope: "full" },
+        }),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      fireEvent.change(roleSelect("@bob"), { target: { value: "helper" } });
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(1));
+      expect(scopeSelect("@bob").value).toBe("full");
+    });
+
     it("brings a helper opened to the whole run sheet back at their own tasks after a role change", async () => {
-      // The API resets the scope on every role change but helper to helper,
-      // which this select never sends.
+      // The API resets the scope on every role change but helper to helper.
       authFetchMock.mockResolvedValueOnce(
         json({ hosts: [{ ...HELPER, runSheetScope: "full" }, OTHER_HELPER] }),
       );
