@@ -709,6 +709,14 @@ describe("D1 session routing at the entry points", () => {
     expect(probe.bindingQueries).toEqual([]);
   }, 30_000);
 
+  it("gives the realtime budget sweep a session of its own", async () => {
+    const { probe } = await runCron();
+    const sweep = probe.sessionQueries.filter((queries) =>
+      queries.some((q) => q.startsWith('delete from "realtime_subscribe_budget"')),
+    );
+    expect(sweep).toHaveLength(1);
+  }, 30_000);
+
   it("gives the wedding purge a session of its own", async () => {
     // The purge's candidate reads are the only cron queries that compare
     // `deleted_at` with a cutoff; every statement in that session is the

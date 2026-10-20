@@ -1457,6 +1457,33 @@ describe("HostsPanel — the open wedding's members-changed signal", () => {
     expect(screen.queryByText(/Could not load hosts/)).toBeNull();
   });
 
+  it("keeps its own removal when a re-read that started before it lands after it", async () => {
+    let releaseStale: (res: Response) => void = () => {};
+    authFetchMock
+      .mockResolvedValueOnce(json({ hosts: [bob, carol] }))
+      .mockReturnValueOnce(new Promise<Response>((resolve) => (releaseStale = resolve)))
+      .mockResolvedValueOnce(json({ removed: true }));
+    const [changed, setChanged] = createSignal(0);
+    render(() => (
+      <MembersChangedContext.Provider value={changed}>
+        <HostsPanel weddingId="wed_a" callerRole="owner" />
+      </MembersChangedContext.Provider>
+    ));
+    await waitFor(() => expect(screen.getByText("@carol")).toBeTruthy());
+
+    setChanged(1);
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("button", { name: "Remove @bob" }));
+    await waitFor(() => expect(screen.queryByText("@bob")).toBeNull());
+    expect(screen.getByText("@carol")).toBeTruthy();
+
+    // The read sent before the removal answers with the old list.
+    releaseStale(json({ hosts: [bob, carol] }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(screen.queryByText("@bob")).toBeNull();
+    expect(screen.getByText("@carol")).toBeTruthy();
+  });
+
   it("reads once with no socket above it", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [bob] }));
     render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);
