@@ -298,6 +298,76 @@ async function seed(): Promise<void> {
   ]);
 }
 
+/** `n` more guests on the seeded wedding, in a household `fam_fill`. */
+async function fillGuests(n: number): Promise<void> {
+  const now = new Date();
+  await db.insert(families).values({
+    id: "fam_fill",
+    weddingId: BOOTSTRAP_WEDDING_ID,
+    publicId: "FILL-0001",
+    familyName: "Filler",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const filler = Array.from({ length: n }, (_, i) => ({
+    id: `g_fill_${i}`,
+    familyId: "fam_fill",
+    firstName: `Filler${i}`,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  // Under D1's 100-parameter statement limit.
+  for (let i = 0; i < filler.length; i += 10) {
+    await db.insert(guests).values(filler.slice(i, i + 10));
+  }
+}
+
+async function realGuestTotal(): Promise<number> {
+  const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(guests);
+  return n;
+}
+
+function importPlan(parts: Partial<ImportPlan>): ImportPlan {
+  return {
+    eventCreates: [],
+    eventUpdates: [],
+    eventRemoves: [],
+    familyCreates: [],
+    familyUpdates: [],
+    familyRemoves: [],
+    guestCreates: [],
+    guestUpdates: [],
+    guestRemoves: [],
+    eventLinkCreates: [],
+    eventLinkRemoves: [],
+    warnings: [],
+    ...parts,
+  };
+}
+
+/**
+ * A handle on the same D1 database whose first `batch()` waits while each of
+ * `inviters` names a plus-one through the real service: households writing
+ * between a caller's reads and its first batch.
+ */
+function namingBeforeFirstBatch(inviters: readonly string[]): Db {
+  let named = false;
+  return createD1Db({
+    prepare: (query) => d1.prepare(query),
+    batch: async (statements) => {
+      if (!named) {
+        named = true;
+        for (const inviter of inviters) {
+          await run(
+            plusOneService.save(FAMILY_ID, inviter, { firstName: `Plus ${inviter}`, lastName: "" }),
+          );
+        }
+      }
+      return d1.batch(statements);
+    },
+  });
+}
+
 beforeAll(async () => {
   mf = new Miniflare({
     modules: true,
@@ -2120,6 +2190,89 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(links).toHaveLength(named[0]!.of === GUEST_1 ? 2 : 1);
       const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(guestEvents);
       expect(total).toBe(3 + links.length);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "an import's batch rolls back over D1 when a plus-one named after its cap check takes the last place",
+    async () => {
+      // 99 guests: one place left, and the import adds one guest in a new household.
+      await fillGuests(BASE_GUEST_CAP - 3);
+      await db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, GUEST_1));
+      const racing = namingBeforeFirstBatch([GUEST_1]);
+      const plan = importPlan({
+        familyCreates: [{ id: "fam_late", publicId: "LATE-0001", familyName: "Late" }],
+        guestCreates: [
+          {
+            id: "g_late",
+            familyId: "fam_late",
+            firstName: "Lee",
+            lastName: "",
+            nickname: null,
+            sortOrder: 0,
+          },
+        ],
+      });
+
+      const failure = await Effect.runPromise(
+        Effect.flip(applyImport("imp_race_one", plan, BOOTSTRAP_WEDDING_ID)).pipe(
+          Effect.provideService(DbService, racing),
+        ),
+      );
+
+      expect(failure._tag).toBe("ImportError");
+      expect(failure._tag === "ImportError" ? failure.capacity : undefined).toMatchObject({
+        limit: BASE_GUEST_CAP,
+        current: BASE_GUEST_CAP,
+        requiredTier: "gold",
+      });
+      expect(await realGuestTotal()).toBe(BASE_GUEST_CAP);
+      // The household rode in the same batch as the refused guest.
+      expect(await db.select().from(families).where(eq(families.id, "fam_late"))).toHaveLength(0);
+      const named = await db.select().from(guests).where(eq(guests.plusOneOfGuestId, GUEST_1));
+      expect(named).toHaveLength(1);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "every D1 batch of an import's guests checks the cap at its end, not only the last",
+    async () => {
+      // 49 guests, and 51 more in batches of 50 and 1. Two plus-ones named
+      // before the first batch make it end at 101.
+      await fillGuests(BASE_GUEST_CAP / 2 - 3);
+      await db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.familyId, FAMILY_ID));
+      const racing = namingBeforeFirstBatch([GUEST_1, GUEST_2]);
+      const plan = importPlan({
+        guestCreates: Array.from({ length: 51 }, (_, i) => ({
+          id: `g_more_${i}`,
+          familyId: "fam_fill",
+          firstName: `More${i}`,
+          lastName: "",
+          nickname: null,
+          sortOrder: 1000 + i,
+        })),
+      });
+
+      const failure = await Effect.runPromise(
+        Effect.flip(applyImport("imp_race_many", plan, BOOTSTRAP_WEDDING_ID)).pipe(
+          Effect.provideService(DbService, racing),
+        ),
+      );
+
+      expect(failure._tag).toBe("ImportError");
+      expect(failure._tag === "ImportError" ? failure.capacity : undefined).toMatchObject({
+        limit: BASE_GUEST_CAP,
+        current: BASE_GUEST_CAP / 2 + 1,
+        requiredTier: "gold",
+      });
+      expect(await realGuestTotal()).toBe(BASE_GUEST_CAP / 2 + 1);
+      const imported = await db
+        .select({ id: guests.id })
+        .from(guests)
+        .where(sql`${guests.id} LIKE 'g_more_%'`);
+      expect(imported).toEqual([]);
     },
     MF_TIMEOUT_MS,
   );

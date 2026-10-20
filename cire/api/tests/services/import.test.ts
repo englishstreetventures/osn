@@ -15,6 +15,7 @@ import { Effect, Exit, Layer } from "effect";
 import { DbService } from "../../src/db";
 import type { Db } from "../../src/db";
 import { createDb, seedBootstrapWedding, seedDb } from "../../src/db/setup";
+import type { TestDb } from "../../src/db/setup";
 import type { ImportPlan, ParsedEvent, ParsedFamily } from "../../src/schemas/import";
 import { currentEventsAsParsed } from "../../src/services/changes";
 import { claimService } from "../../src/services/claim";
@@ -27,7 +28,7 @@ import {
   StaleDesiredState,
 } from "../../src/services/import";
 import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
-import { setTier } from "../test-helpers";
+import { beforeStatement, setTier } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
 
 /** Build a fresh in-memory DB layer for each test. */
@@ -722,10 +723,12 @@ describe("applyImport: chunks a large diff into ≤50-statement batches", () => 
     // (b) every row still lands. Running on bun:sqlite keeps this fast + free of
     // the Miniflare cold-start flake the real-D1 suite has.
     const chunkSizes: number[] = [];
+    const chunkSql: string[][] = [];
     (db as unknown as { batch: (stmts: unknown[]) => Promise<unknown> }).batch = async (
       stmts: unknown[],
     ) => {
       chunkSizes.push(stmts.length);
+      chunkSql.push(stmts.map((s) => (s as { toSQL: () => { sql: string } }).toSQL().sql));
       const out: unknown[] = [];
       for (const s of stmts) out.push(await (s as Promise<unknown>));
       return out;
@@ -775,6 +778,16 @@ describe("applyImport: chunks a large diff into ≤50-statement batches", () => 
     // ceil(120 / 50) = 3 chunks of 50, 50, 20 — no chunk exceeds the cap.
     expect(chunkSizes).toEqual([50, 50, 20]);
     expect(Math.max(...chunkSizes)).toBeLessThanOrEqual(50);
+
+    // Each batch that adds guests checks the guest cap once, on its last guest
+    // insert, so D1 commits no batch that ends past the cap. The guests sit at
+    // statements 40-79: the check rides on 49 and 79, the last of each batch.
+    const guestInserts = (sqls: string[]) =>
+      sqls.flatMap((q, i) => (q.startsWith('insert into "guests"') ? [i] : []));
+    const capChecks = (sqls: string[]) =>
+      guestInserts(sqls).filter((i) => sqls[i]!.includes("CASE WHEN"));
+    expect(chunkSql.map(capChecks)).toEqual([[49], [29], []]);
+    expect(chunkSql.map((sqls) => guestInserts(sqls).at(-1) ?? null)).toEqual([49, 29, null]);
 
     // Every row landed — ordering held across chunk boundaries (each guest's
     // guest_events link still committed after the guest insert, even split).
@@ -1137,7 +1150,8 @@ describe("applyImport — capacity enforcement", () => {
   });
 
   // SWAP-AT-CAP: remove K guests and add K guests when already at the cap.
-  // Net delta = 0, so the capacity gate must NOT fire even though guestCreates.length > 0.
+  // Net delta = 0, so the capacity check admits it: the removals are written
+  // before the new guests, so every new guest finds a place.
   it("swap-at-cap: remove K and add K at exactly cap → succeeds (net delta = 0)", async () => {
     const db = createDb();
     seedBootstrapWedding(db);
@@ -1282,6 +1296,162 @@ describe("applyImport — capacity enforcement", () => {
     // Atomic: still 100 guests (no partial write).
     const n = (db.$client.query("SELECT COUNT(*) AS n FROM guests").get() as { n: number }).n;
     expect(n).toBe(100);
+  });
+});
+
+// ── The cap inside the write ──────────────────────────────────────────────────
+
+/** A household of `n` guests on the bootstrap wedding, written straight to the table. */
+function seedHousehold(db: TestDb, familyId: string, n: number): string[] {
+  const now = new Date();
+  db.insert(families)
+    .values({
+      id: familyId,
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      publicId: `${familyId.toUpperCase()}-CODE`,
+      familyName: familyId,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  const ids = Array.from({ length: n }, (_, i) => `${familyId}_g${i}`);
+  for (const [i, id] of ids.entries()) {
+    db.insert(guests)
+      .values({
+        id,
+        familyId,
+        firstName: `Guest${i}`,
+        sortOrder: i,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+  return ids;
+}
+
+/** One more guest in `familyId`, as another writer's plus-one would land. */
+function addGuest(db: TestDb, familyId: string, id: string): void {
+  const now = new Date();
+  db.insert(guests)
+    .values({ id, familyId, firstName: "Late", source: "manual", createdAt: now, updatedAt: now })
+    .run();
+}
+
+function planOf(parts: Partial<ImportPlan>): ImportPlan {
+  return {
+    eventCreates: [],
+    eventUpdates: [],
+    eventRemoves: [],
+    familyCreates: [],
+    familyUpdates: [],
+    familyRemoves: [],
+    guestCreates: [],
+    guestUpdates: [],
+    guestRemoves: [],
+    eventLinkCreates: [],
+    eventLinkRemoves: [],
+    warnings: [],
+    ...parts,
+  };
+}
+
+function newGuests(familyId: string, n: number) {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `${familyId}_new${i}`,
+    familyId,
+    firstName: `New${i}`,
+    lastName: "",
+    nickname: null,
+    sortOrder: 1000 + i,
+  }));
+}
+
+const guestCount = (db: TestDb) => db.select().from(guests).all().length;
+
+/** The error `applyImport` fails with; rejects when it succeeds. */
+function applyError(db: TestDb, plan: ImportPlan) {
+  return Effect.runPromise(
+    Effect.flip(applyImport("imp_cap_write", plan, BOOTSTRAP_WEDDING_ID)).pipe(
+      Effect.provideService(DbService, db),
+    ),
+  );
+}
+
+describe("applyImport — the guest cap holds inside the write", () => {
+  it("refuses at a batch's last guest when a guest landed after the cap check", async () => {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+    seedHousehold(db, "fam_cap", 97);
+    // 97 + 3 = 100 passes the check before the write. A household names a
+    // plus-one between that check and the first guest insert.
+    beforeStatement(db, /^insert into "guests"/, () => addGuest(db, "fam_cap", "late_1"));
+
+    const error = await applyError(db, planOf({ guestCreates: newGuests("fam_cap", 3) }));
+
+    expect(error._tag).toBe("ImportError");
+    expect(error._tag === "ImportError" ? error.capacity : undefined).toMatchObject({
+      limit: 100,
+      current: 100,
+      requiredTier: "gold",
+    });
+    // bun:sqlite runs a batch's statements one at a time with no transaction,
+    // so the batch's first two guests stay; D1 rolls the whole batch back. The
+    // third, which would have been the 101st, is never written.
+    expect(guestCount(db)).toBe(100);
+  });
+
+  it("does not answer a write that failed for another reason as the guest cap", async () => {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+    seedHousehold(db, "fam_taken", 99);
+    // A hand-built plan: the diff would mint a fresh code for a taken one. The
+    // household insert fails on its code, after a guest has filled the last place.
+    beforeStatement(db, /^insert into "families"/, () => addGuest(db, "fam_taken", "late_2"));
+    const plan = planOf({
+      familyCreates: [{ id: "fam_dup", publicId: "FAM_TAKEN-CODE", familyName: "Dup" }],
+      guestCreates: newGuests("fam_dup", 1),
+    });
+
+    const error = await applyError(db, plan);
+
+    expect(error._tag).toBe("ImportError");
+    expect(error._tag === "ImportError" ? error.capacity : "not an ImportError").toBeUndefined();
+  });
+
+  it("refuses, before writing, a wedding over its cap an import that leaves it over", async () => {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+    const seeded = seedHousehold(db, "fam_over", 105);
+    // Net zero: five out, five in. The wedding stays five past Ivory's 100.
+    const plan = planOf({
+      guestRemoves: seeded.slice(0, 5).map((id) => ({ id, firstName: "Guest" })),
+      guestCreates: newGuests("fam_over", 5),
+    });
+
+    const error = await applyError(db, plan);
+
+    expect(error._tag).toBe("CapacityExceeded");
+    expect(guestCount(db)).toBe(105);
+  });
+
+  it("admits an over-cap wedding's import that ends within the cap", async () => {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+    const seeded = seedHousehold(db, "fam_down", 105);
+    // Ten out, one in: 96 at the end.
+    const plan = planOf({
+      guestRemoves: seeded.slice(0, 10).map((id) => ({ id, firstName: "Guest" })),
+      guestCreates: newGuests("fam_down", 1),
+    });
+
+    await Effect.runPromise(
+      applyImport("imp_cap_down", plan, BOOTSTRAP_WEDDING_ID).pipe(
+        Effect.provideService(DbService, db),
+      ),
+    );
+
+    expect(guestCount(db)).toBe(96);
   });
 });
 

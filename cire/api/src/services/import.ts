@@ -1,11 +1,11 @@
 import { events, families, guests, guestEvents, rsvps, weddings } from "@cire/db";
 import { formatDietaryCell, parsePresets } from "@cire/dietary";
 import { jsonEachIn } from "@shared/db-utils";
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data, type Types } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { DbService, dbQuery, driverErrorText } from "../db";
 import type { BatchableDb, BatchStatements, Db } from "../db";
 import { metricImportApplied } from "../metrics";
 import type {
@@ -29,13 +29,32 @@ import type {
 import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
 import { resolvePinUrl } from "./pinterest-resolve";
-import { BASE_GUEST_CAP, CapacityExceeded, capForTier, normaliseTier, tierService } from "./tiers";
+import {
+  BASE_GUEST_CAP,
+  CapacityExceeded,
+  capForTier,
+  normaliseTier,
+  roomForOneMoreGuest,
+  tierService,
+} from "./tiers";
 
 // ── Tagged errors ─────────────────────────────────────────────────────────────
 
+/**
+ * The write set did not commit in full. Batches before the failed one may have
+ * committed (see {@link commitWriteSet}), so a caller treats this as a change
+ * that may have written part of its data.
+ */
 export class ImportError extends Data.TaggedError("ImportError")<{
   readonly reason: string;
   readonly cause?: unknown;
+  /**
+   * Set when the guest cap refused a batch while it was being written: the
+   * check before the write passed, and another writer took the place between
+   * it and the batch. Carries the numbers for the same answer as a refusal
+   * before the write.
+   */
+  readonly capacity?: CapacityExceeded;
 }> {}
 
 /**
@@ -819,10 +838,11 @@ export function diffAgainstDb(
     }
 
     // ── Capacity preview warning (non-blocking) ──────────────────────────────
-    // Warn early when this plan would breach the tier's cap. The hard atomic
-    // block lives in applyImport — this warning lets the preview UI surface the
-    // issue before the organiser commits. Host-preview families are excluded from
-    // the current-guest count (same join + ne(kind,'host') as tierService).
+    // Warn early when this plan would breach the tier's cap. applyImport
+    // enforces it, before the write and inside it — this warning lets the
+    // preview UI surface the issue before the organiser commits. Host-preview
+    // families are excluded from the current-guest count (same join +
+    // ne(kind,'host') as tierService).
     //
     // `derivedCap` rides on the returned plan so `applyImport` doesn't read the
     // SAME tier a second time in the SAME request — see `applyImport`'s call to
@@ -950,6 +970,57 @@ async function commitWriteSet(db: Db, statements: BatchItem<"sqlite">[]): Promis
     (chain, stmt) => chain.then(() => stmt),
     Promise.resolve<unknown>(undefined),
   );
+}
+
+/**
+ * Whether the statement at `index` of a write set is the last of a run ending
+ * at `lastIndex` to commit in its D1 batch: it is the run's last, or the next
+ * statement starts the next batch. {@link commitWriteSet} slices the write set
+ * into batches of {@link MAX_STATEMENTS_PER_BATCH}, so statement `i` commits in
+ * batch `floor(i / MAX_STATEMENTS_PER_BATCH)`.
+ */
+function closesBatch(index: number, lastIndex: number): boolean {
+  return (
+    index === lastIndex ||
+    Math.floor((index + 1) / MAX_STATEMENTS_PER_BATCH) !==
+      Math.floor(index / MAX_STATEMENTS_PER_BATCH)
+  );
+}
+
+/**
+ * The database's own words when a guest insert built by {@link insertGuest}
+ * found no room under the cap. No other write in the set puts NULL in
+ * `guests.family_id`: every planned guest names its household.
+ */
+const NO_ROOM_FOR_GUEST = "NOT NULL constraint failed: guests.family_id";
+
+/**
+ * One planned guest's insert. When `checkCap` is set, the row names its
+ * household only while the wedding has room for one more guest under the cap
+ * its tier gives it now, counting every guest written before it, the earlier
+ * rows of its own batch included. Without room the household is NULL: the NOT
+ * NULL column fails the statement and, on D1, rolls back the batch it rides in.
+ */
+function insertGuest(
+  db: Db,
+  gc: GuestCreate,
+  weddingId: string,
+  now: Date,
+  checkCap: boolean,
+): BatchItem<"sqlite"> {
+  return db.insert(guests).values({
+    id: gc.id,
+    familyId: checkCap
+      ? sql`CASE WHEN ${roomForOneMoreGuest(weddingId)} THEN ${gc.familyId} END`
+      : gc.familyId,
+    firstName: gc.firstName,
+    lastName: gc.lastName,
+    nickname: gc.nickname,
+    sortOrder: gc.sortOrder,
+    source: gc.source ?? "import",
+    createdAt: now,
+    updatedAt: now,
+  });
 }
 
 export function applyImport(
@@ -1124,21 +1195,15 @@ export function applyImport(
       statements.push(db.delete(guests).where(eq(guests.id, gr.id)));
     }
 
-    // 7. guest creates
+    // 7. guest creates. The last guest insert of each D1 batch checks the cap,
+    // counting the batch's earlier guests (see insertGuest): nothing else
+    // writes inside a batch, so a batch commits only when it ends within the
+    // cap, whatever another writer committed after the check below. Every
+    // removal sits in steps 1-6, so the places it frees are already counted.
+    const lastGuestCreate = statements.length + plan.guestCreates.length - 1;
     for (const gc of plan.guestCreates) {
-      statements.push(
-        db.insert(guests).values({
-          id: gc.id,
-          familyId: gc.familyId,
-          firstName: gc.firstName,
-          lastName: gc.lastName,
-          nickname: gc.nickname,
-          sortOrder: gc.sortOrder,
-          source: gc.source ?? "import",
-          createdAt: now,
-          updatedAt: now,
-        }),
-      );
+      const checkCap = closesBatch(statements.length, lastGuestCreate);
+      statements.push(insertGuest(db, gc, weddingId, now, checkCap));
     }
 
     // 8. guest updates. `firstName` is set through only on an id-matched rename
@@ -1174,22 +1239,21 @@ export function applyImport(
       );
     }
 
-    // Capacity gate — enforce the wedding's tier guest ceiling on the NET new
-    // guests this plan introduces, before any write. Atomic: a breach fails the
-    // whole apply, nothing is committed. We pass the NET delta (creates minus
-    // removals) so a churn import that removes K guests and adds K guests at cap
-    // is correctly allowed: assertGuestCapacity does `current + incoming > cap`,
-    // and a negative or zero incoming can never exceed.
+    // Capacity check before any write, on the NET change in guests (creates
+    // minus removals), for every plan that adds a guest. A refusal here writes
+    // nothing. The net figure is what the guarded inserts in step 7 arrive at,
+    // since every removal lands before them: a churn import that removes K and
+    // adds K at the cap passes, and a wedding already over its cap passes only
+    // an import that ends within it. So step 7 refuses only when another
+    // writer took a place after this check.
     const netGuestDelta = plan.guestCreates.length - plan.guestRemoves.length;
-    if (netGuestDelta > 0) {
+    if (plan.guestCreates.length > 0) {
       // `plan.derivedCap` — set by `diffAgainstDb` in the SAME request when its
       // own preview warning already read the tier — lets this skip a second
-      // read of the same row. Absent (a plan built before
-      // this field existed, the pre-check branch that proved the cap
+      // read of the same row. Absent (the pre-check branch that proved the cap
       // couldn't matter without learning it, or any other caller of
-      // `applyImport`), `assertGuestCapacity` runs its own query and enforces
-      // exactly as it always has — a missing cap is never a reason to skip
-      // the check.
+      // `applyImport`), `assertGuestCapacity` runs its own query — a missing
+      // cap is never a reason to skip the check. Step 7 reads the tier itself.
       yield* tierService.assertGuestCapacity(weddingId, netGuestDelta, plan.derivedCap);
     }
 
@@ -1198,7 +1262,24 @@ export function applyImport(
     yield* Effect.tryPromise({
       try: () => commitWriteSet(db, statements),
       catch: (cause) => new ImportError({ reason: "apply failed", cause }),
-    });
+    }).pipe(
+      // A guest insert found no room: a batch would have ended past the cap,
+      // and D1 rolled it back. Earlier batches stay committed.
+      Effect.catchTag("ImportError", (failure) =>
+        driverErrorText(failure.cause).includes(NO_ROOM_FOR_GUEST)
+          ? tierService.capacityRefusal(weddingId).pipe(
+              Effect.mapError(
+                (capacity) =>
+                  new ImportError({
+                    reason: "no room under the guest cap",
+                    cause: failure.cause,
+                    capacity,
+                  }),
+              ),
+            )
+          : Effect.fail(failure),
+      ),
+    );
 
     yield* Effect.logInfo(
       `import applied: families=${plan.familyCreates.length} guests=${plan.guestCreates.length} events=${plan.eventCreates.length}`,

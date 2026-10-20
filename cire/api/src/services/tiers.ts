@@ -181,8 +181,9 @@ function guestCapSql(weddingId: string): SQL<number> {
  *
  * Raw `sql` over `guests`, `families` and `weddings` by their own names, so it
  * reads the same tables whatever alias the statement around it gives them. Use
- * it in a WHERE: in a select list Drizzle writes its columns without their
- * table, and `id` then names more than one table.
+ * it in a WHERE or in an INSERT's VALUES, never in a select list: there Drizzle
+ * writes its columns without their table, and `id` then names more than one
+ * table.
  */
 export function roomForOneMoreGuest(weddingId: string): SQL {
   return sql`${realGuestCountSql(weddingId)} < ${guestCapSql(weddingId)}`;
@@ -438,5 +439,25 @@ export const tierService = {
         );
       }
     }).pipe(Effect.withSpan("cire.tier.assertGuestCapacity"));
+  },
+
+  /**
+   * The {@link CapacityExceeded} for a guest write that passed
+   * {@link assertGuestCapacity} and was then refused by the cap inside its own
+   * statement ({@link roomForOneMoreGuest}): another writer took the place in
+   * between. The wedding's cap and its real guests now, in one statement, and
+   * the tier above the one it has, which holds the write plus what the other
+   * writers added. The tier named does not depend on this read seeing the
+   * guest that took the place, so a replica a little behind still answers it.
+   */
+  capacityRefusal(weddingId: string): Effect.Effect<never, CapacityExceeded, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const { tier, current } = yield* tierAndGuestCount(db, weddingId);
+      const limit = capForTier(tier);
+      return yield* Effect.fail(
+        new CapacityExceeded({ limit, current, requiredTier: tierForGuests(limit + 1) }),
+      );
+    }).pipe(Effect.withSpan("cire.tier.capacityRefusal"));
   },
 };

@@ -150,7 +150,8 @@ const manualParse = { parse: () => ({}) };
  * The 402 a change answers when it would take the wedding past its tier's guest
  * cap. `tier` is the lowest tier whose cap would hold the change, or `null`
  * when even the top tier's would not. `entitlement: "capacity"` stays for a
- * portal build that reads it rather than `tier`.
+ * portal build that reads it rather than `tier`. An apply refused while it was
+ * writing adds `reason: "head_moved"` (see the apply route).
  */
 function paymentRequired(set: { status?: number | string }, e: CapacityExceeded) {
   set.status = 402;
@@ -740,13 +741,26 @@ export const createOrganiserChangeRoutes = (
                     return claimRefused(set, e, "State changed — re-preview");
                   }),
                 ),
-                Effect.catchTag("ImportError", () =>
+                Effect.catchTag("ImportError", (e) =>
                   Effect.gen(function* () {
+                    if (e.capacity) {
+                      // Refused while writing: the change may have written
+                      // part of its data and the head has moved, so this
+                      // preview is spent. The portal acts on the reason once
+                      // englishstreetventures/osn#1592 lands; until then a retry
+                      // answers 409 head_moved.
+                      yield* Effect.logWarning(
+                        "change refused: no room under the guest cap while writing",
+                      );
+                      return { ...paymentRequired(set, e.capacity), reason: "head_moved" as const };
+                    }
                     yield* Effect.logError("change apply failed");
                     set.status = 500;
                     return { error: "Apply failed" };
                   }),
                 ),
+                // Refused before any write: the head stays, so the same
+                // preview applies after an upgrade.
                 Effect.catchTag("CapacityExceeded", (e) =>
                   Effect.sync(() => paymentRequired(set, e)),
                 ),
@@ -815,15 +829,25 @@ export const createOrganiserChangeRoutes = (
                     return { error: "Stored CSV failed to re-parse" };
                   }),
                 ),
-                Effect.catchTag("ImportError", () =>
+                // A guests revert re-creates the guests the change removed, so it
+                // can take a wedding past a cap that has shrunk since (refused
+                // before any write, CapacityExceeded), or past one whose last
+                // places another writer took while it wrote (ImportError with
+                // `capacity`). A revert has no preview to spend: a retry reads
+                // the head afresh.
+                Effect.catchTag("ImportError", (e) =>
                   Effect.gen(function* () {
+                    if (e.capacity) {
+                      yield* Effect.logWarning(
+                        "revert refused: no room under the guest cap while writing",
+                      );
+                      return paymentRequired(set, e.capacity);
+                    }
                     yield* Effect.logError("change revert failed");
                     set.status = 500;
                     return { error: "Revert failed" };
                   }),
                 ),
-                // A guests revert re-creates the guests the change removed, so it
-                // can take a wedding past a cap that has shrunk since.
                 Effect.catchTag("CapacityExceeded", (e) =>
                   Effect.sync(() => paymentRequired(set, e)),
                 ),
