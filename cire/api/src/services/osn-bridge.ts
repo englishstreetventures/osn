@@ -284,19 +284,45 @@ export async function createHandleResolverFromEnv(env: {
 export interface OsnProfileDisplay {
   readonly handle: string;
   readonly displayName: string | null;
-  /** The profile's photo, only ever an https URL: every member's browser loads
-   *  it as an image. `null` when the profile has none, or osn-api sent
-   *  anything else. */
+  /** The profile's photo, only ever an https URL on one of musubi's own hosts:
+   *  every member's browser loads it as an image. `null` when the profile has
+   *  none, or osn-api sent anything else. */
   readonly avatarUrl: string | null;
 }
 
-/** `value` when it is an absolute https URL, else `null`. */
-function httpsUrlOrNull(value: unknown): string | null {
-  if (typeof value !== "string") return null;
+/** Longest photo URL passed on. A profile photo's URL is a host and a short
+ *  path; anything near the cap is not one. */
+const AVATAR_URL_MAX = 2048;
+
+/**
+ * `value` when it is an absolute `https:` URL on one of `origins`, with no user
+ * name or password and at most {@link AVATAR_URL_MAX} characters; else `null`.
+ * Every reader's browser fetches the photo, so its host sees their IP address
+ * and when they open the page: only musubi's own hosts may be that host, and the
+ * portal's CSP is the second check, not the only one.
+ */
+function allowedAvatarUrl(value: unknown, origins: readonly string[]): string | null {
+  if (typeof value !== "string" || value.length > AVATAR_URL_MAX) return null;
   try {
-    return new URL(value).protocol === "https:" ? value : null;
+    const url = new URL(value);
+    const allowed =
+      url.protocol === "https:" &&
+      url.username === "" &&
+      url.password === "" &&
+      origins.includes(url.origin);
+    return allowed ? value : null;
   } catch {
     return null;
+  }
+}
+
+/** `[origin]` of `url`, or `[]` when it is absent or does not parse. */
+function originsOf(url: string | undefined): string[] {
+  if (!url) return [];
+  try {
+    return [new URL(url).origin];
+  } catch {
+    return [];
   }
 }
 
@@ -322,7 +348,10 @@ export type OsnProfileDisplayResolver = (
  * registered automatically gets host-handle display too.
  */
 export function createArcProfileDisplayResolver(
-  config: ArcResolverConfig,
+  config: ArcResolverConfig & {
+    /** The origins a photo URL may name; one on any other host is dropped. */
+    avatarOrigins: readonly string[];
+  },
 ): OsnProfileDisplayResolver {
   const base = config.osnApiUrl.replace(/\/+$/, "");
 
@@ -357,7 +386,7 @@ export function createArcProfileDisplayResolver(
         map.set(p.id, {
           handle: p.handle,
           displayName: typeof p.displayName === "string" ? p.displayName : null,
-          avatarUrl: httpsUrlOrNull(p.avatarUrl),
+          avatarUrl: allowedAvatarUrl(p.avatarUrl, config.avatarOrigins),
         });
       }
       return map;
@@ -377,6 +406,9 @@ export function createArcProfileDisplayResolver(
  */
 export async function createProfileDisplayResolverFromEnv(env: {
   osnApiUrl?: string;
+  /** musubi serves profile photos from its identity host, the OIDC issuer: its
+   *  origin is the one a photo may load from. Absent, no photo is passed on. */
+  osnIssuerUrl?: string;
   arcPrivateKeyJwk?: string;
   arcKeyId?: string;
 }): Promise<OsnProfileDisplayResolver | null> {
@@ -389,6 +421,7 @@ export async function createProfileDisplayResolverFromEnv(env: {
     osnApiUrl: env.osnApiUrl,
     arcPrivateKey,
     arcKeyId: env.arcKeyId,
+    avatarOrigins: originsOf(env.osnIssuerUrl),
   });
 }
 

@@ -404,6 +404,9 @@ describe("a holder's face", () => {
     const photo = face("Book venue", "whost_sam").querySelector("img")!;
     expect(photo).toHaveAttribute("src", "https://photos.example/sam.jpg");
     expect(photo).toHaveAttribute("alt", "");
+    // The photo's host learns who loaded it from their IP address; it is not
+    // told which wedding's page they were on.
+    expect(photo).toHaveAttribute("referrerpolicy", "no-referrer");
     expect(silhouette(face("Book venue", "whost_sam"))).toBeNull();
     expect(silhouette(face("Book venue", "whost_jo"))).not.toBeNull();
     expect(face("Book venue", "whost_jo").querySelector("img")).toBeNull();

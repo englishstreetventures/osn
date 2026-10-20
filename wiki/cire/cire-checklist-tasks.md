@@ -260,7 +260,7 @@ them through both keys.
 
 `GET …/hosts` names each seat by its id (`hostId`), what `assigneeHostIds`
 name, and gives its OSN photo as `avatarUrl` when the profile has an https one
-([[cire-auth]]).
+on musubi's identity host ([[cire-auth]]).
 
 The counter `cire.tasks.assignment.changed` (unit `{request}`) counts every
 write by `action` (`add`, `remove`) and `result` (`ok`, `unchanged`,

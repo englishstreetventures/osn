@@ -339,6 +339,7 @@ const handler: ExportedHandler<Env> = {
       const resolveOsnProfileDisplays =
         (await createProfileDisplayResolverFromEnv({
           osnApiUrl: env.OSN_API_URL,
+          osnIssuerUrl: env.OSN_ISSUER_URL,
           arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
           arcKeyId: env.CIRE_API_ARC_KEY_ID,
         })) ?? undefined;

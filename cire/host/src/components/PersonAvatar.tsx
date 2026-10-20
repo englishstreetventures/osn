@@ -23,7 +23,8 @@ function httpsOnly(url: string | undefined): string | null {
  * A photo that will not load — a dead link, a response that is not an image,
  * or a host the portal's CSP `img-src` does not list, which today is every
  * avatar host (englishstreetventures/osn#1207) — falls back to the empty avatar.
- * The failure is kept per URL, so a new photo gets its own try.
+ * The failure is kept per URL, so a new photo gets its own try. The request
+ * carries no `Referer`: the photo's host is not told which page loaded it.
  *
  * Decorative: the caller names the person in text. The circle's size comes in
  * through `class`.
@@ -44,6 +45,7 @@ export default function PersonAvatar(props: { url?: string; class?: string }) {
           <img
             src={url}
             alt=""
+            referrerpolicy="no-referrer"
             onError={() => setFailedUrl(url)}
             class="h-full w-full object-cover"
           />
