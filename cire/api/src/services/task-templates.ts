@@ -170,12 +170,9 @@ export const taskTemplatesService = {
                   dueSource: bound("template", tasks.dueSource),
                 })
                 .from(sql`json_each(${JSON.stringify(rows)}) AS picked`)
-                // A removal recorded after the caller's preview still holds:
-                // only the removals cleared above, for items the couple
-                // picked, let an item back in.
-                .where(
-                  sql`NOT EXISTS (SELECT 1 FROM ${taskTemplateDismissals} WHERE ${taskTemplateDismissals.weddingId} = ${weddingId} AND ${taskTemplateDismissals.templateId} = ${templateId} AND ${taskTemplateDismissals.templateItem} = ${picked("item")})`,
-                ),
+                // SQLite needs a WHERE before the ON CONFLICT of an
+                // INSERT … SELECT, or it reads ON as a join constraint.
+                .where(sql`true`),
             )
             .onConflictDoNothing(),
           db

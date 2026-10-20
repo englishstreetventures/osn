@@ -328,7 +328,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   due_source TEXT NOT NULL DEFAULT 'manual'
 );
 CREATE INDEX IF NOT EXISTS tasks_wedding_bucket_sort_idx ON tasks(wedding_id, timeframe_bucket, sort_order);
-CREATE UNIQUE INDEX IF NOT EXISTS tasks_wedding_template_item_unique ON tasks(wedding_id, template_id, template_item);
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_wedding_template_item_unique ON tasks(wedding_id, template_id, template_item) WHERE template_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS task_template_dismissals (
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,

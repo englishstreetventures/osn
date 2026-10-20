@@ -9,7 +9,7 @@ import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api"
 import { TIMEFRAME_BUCKETS } from "../lib/checklist-buckets";
 import { haptic } from "../lib/haptics";
 import { toLocalDateKey } from "../lib/overview-agenda";
-import { invalidateTasks, setCachedTasks, type TaskRow } from "../lib/tasks-store";
+import { setFreshTasks, type TaskRow } from "../lib/tasks-store";
 
 /** One template item as `GET …/tasks/templates/:id` previews it. */
 interface PreviewItem {
@@ -67,6 +67,7 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
   async function show() {
     setOpen(true);
     setPreview(null);
+    setPicked(new Set<string>());
     setLoadError(null);
     setApplyError(null);
     try {
@@ -86,8 +87,10 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
     }
   }
 
+  // Every close — Cancel, Escape, the backdrop, even while an apply is in
+  // flight — goes through here, so the signal never says open about a dialog
+  // the browser has closed (which would stop the next `show()` reopening it).
   function close() {
-    if (busy()) return;
     setOpen(false);
   }
 
@@ -123,11 +126,8 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`apply ${res.status}`);
       const { added, tasks } = (await res.json()) as { added: number; tasks: TaskRow[] };
-      // The answer is the whole checklist after the apply. A list read already
-      // in flight started before it, so it is dropped rather than left to land
-      // on top of this.
-      invalidateTasks(props.weddingId);
-      setCachedTasks(props.weddingId, tasks);
+      // The answer is the whole checklist after the apply, so it is the list.
+      setFreshTasks(props.weddingId, tasks);
       haptic("commit");
       toast.success(
         added === 0
@@ -138,7 +138,10 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       haptic("reject");
-      setApplyError("Couldn't add those tasks. Try again in a moment.");
+      const message = "Couldn't add those tasks. Try again in a moment.";
+      // Closed while the apply was in flight: the dialog is not there to say so.
+      if (open()) setApplyError(message);
+      else toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -206,14 +209,19 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
             change or delete any task later.
           </p>
         </div>
-        <div class="flex min-h-0 flex-col gap-4 overflow-y-auto px-6 pb-4">
+        <div
+          class="flex min-h-0 flex-col gap-4 overflow-y-auto px-6 pb-4"
+          aria-busy={!preview() && !loadError()}
+        >
           <Show when={loadError()}>
             <Notice tone="danger" alert>
               {loadError()}
             </Notice>
           </Show>
           <Show when={!preview() && !loadError()}>
-            <p class="text-text-muted text-ui-sm">Loading…</p>
+            <p class="text-text-muted text-ui-sm" role="status">
+              Loading…
+            </p>
           </Show>
           <Show when={preview()}>
             {(shown) => (
@@ -278,7 +286,7 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
             <Button
               variant="primary"
               onClick={() => void apply()}
-              disabled={busy() || count() === 0}
+              disabled={busy() || !preview() || count() === 0}
             >
               {busy() ? "Adding…" : `Add ${count()} ${count() === 1 ? "task" : "tasks"}`}
             </Button>

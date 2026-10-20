@@ -9,6 +9,7 @@ import {
   openTaskCount,
   peekCachedTasks,
   setCachedTasks,
+  setFreshTasks,
   taskCounts,
   type TaskRow,
   tasksAccessor,
@@ -180,6 +181,30 @@ describe("tasks-store", () => {
 
     expect(tasksAccessor("wed_1")()?.map((t) => t.id)).toEqual(["fresh"]);
     expect(hasCachedTasks("wed_1")).toBe(true);
+  });
+
+  // An apply answers with the whole list. A list read sent before it must not
+  // land on top, and the answer must not cost a second read.
+  it("setFreshTasks keeps a write's whole list over a read already in flight, and asks for no other", async () => {
+    let resolveStale!: (rows: TaskRow[]) => void;
+    const stale = new Promise<TaskRow[]>((r) => {
+      resolveStale = r;
+    });
+    invalidateTasks("wed_1");
+    const pending = ensureTasksLoaded("wed_1", () => stale);
+
+    setFreshTasks("wed_1", [row({ id: "applied" })]);
+    resolveStale([row({ id: "stale" })]);
+    await pending;
+
+    expect(tasksAccessor("wed_1")()?.map((t) => t.id)).toEqual(["applied"]);
+    expect(hasCachedTasks("wed_1")).toBe(true);
+    let fetched = false;
+    await ensureTasksLoaded("wed_1", async () => {
+      fetched = true;
+      return [];
+    });
+    expect(fetched).toBe(false);
   });
 
   it("peekCachedTasks reflects fresh rows after an invalidate/reload cycle", async () => {

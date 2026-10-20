@@ -3,7 +3,7 @@ import { Effect, Schema } from "effect";
 import { TIMEFRAME_BUCKETS } from "../lib/checklist-buckets";
 import type { TimeframeBucket } from "../lib/checklist-buckets";
 
-const MAX_TITLE_CHARS = 200;
+export const MAX_TITLE_CHARS = 200;
 const MAX_NOTES_CHARS = 2000;
 
 // The bucket enum, sourced from the single list so the two never drift.

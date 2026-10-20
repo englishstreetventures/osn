@@ -44,7 +44,7 @@ template columns and the unique index (`ALTER TABLE ADD`, no rebuild).
 **Indexes:**
 
 - `tasks_wedding_bucket_sort_idx ON tasks (wedding_id, timeframe_bucket, sort_order)` — serves the list read (filtered + ordered) without a full scan.
-- `tasks_wedding_template_item_unique ON tasks (wedding_id, template_id, template_item)`, unique — one task per template item per wedding, so a repeated or racing apply adds nothing. SQLite treats NULLs as distinct, so typed tasks never collide.
+- `tasks_wedding_template_item_unique ON tasks (wedding_id, template_id, template_item) WHERE template_id IS NOT NULL`, unique and partial — one task per template item per wedding, so a repeated or racing apply adds nothing. A typed task has no template and no entry in it.
 
 ## Bucket single-source
 
@@ -182,8 +182,9 @@ The apply is one batch with no read before it
 
 1. Delete the removal records of the picked keys. Picking an item the couple
    removed is their confirmation to bring it back; the portal never pre-ticks one.
-2. `INSERT INTO tasks SELECT … FROM json_each(?) … WHERE NOT EXISTS (removal)
-   ON CONFLICT DO NOTHING`. The picked items ride as one bound JSON array, so
+2. `INSERT INTO tasks SELECT … FROM json_each(?) WHERE true ON CONFLICT DO
+   NOTHING` (SQLite needs the `WHERE` there, or it reads `ON` as a join
+   constraint). The picked items ride as one bound JSON array, so
    the statement binds the same handful of parameters whatever the template's
    length ([[d1-limits]]). The unique index skips an item already there. Each
    task's `due_at` is computed in SQL from the stored wedding date, and its
@@ -219,7 +220,7 @@ date. The preview computes the same date in JS (`addDays`), and
 | Event | What happens to `due_at` |
 |---|---|
 | Apply | The wedding date moved by the item's offset; NULL without a date |
-| A settings save that carries `weddingDate` | Every open task with `due_source = 'template'` is re-dated from the date as stored, in the same batch as the date write. A done task keeps its date, a date the couple set is never touched, a refused save moves nothing, and clearing the date clears these due dates |
+| A settings save that carries `weddingDate` | Every open task with `due_source = 'template'` whose date differs from the stored date's is re-dated, in the same batch as the date write; one already right is not written, so a save that does not move the date writes no task row. A done task keeps its date, a date the couple set is never touched, a refused save moves nothing, and clearing the date clears these due dates |
 | The couple sends a `dueAt` | The task's `due_source` becomes `'manual'`, unless the date sent is the one already there (an edit form sends it back with every change) |
 | Reopening (`status: "open"` with no `dueAt`) | A seeded task done before the date moved catches up with the current date |
 
@@ -235,10 +236,13 @@ and ticks every one whose date is still ahead (or that has none yet). An item
 whose date has passed starts unticked and says so, so a late start does not
 fill the Overview with overdue tasks; the removed items start unticked under
 "You removed these earlier". Without a wedding date an owner is asked to add it
-in Settings, and an editor is told an owner can. After an apply the dialog
-marks the cache stale (dropping any list read already in flight) and writes the
-answer's list into it. `SettingsPanel` marks the cache stale after a save that
-moved the wedding date.
+in Settings, and an editor is told an owner can. Each opening starts with
+nothing ticked until its preview arrives, so a pick from an earlier opening is
+never sent. After an apply the answer's list goes into the cache through
+`setFreshTasks`, which drops any list read already in flight. Every close —
+Escape and the backdrop included, even mid-apply — clears the dialog's open
+state; an apply that fails after the dialog closed says so in a toast.
+`SettingsPanel` marks the cache stale after a save that moved the wedding date.
 
 The portal has no due-date editor, so a couple cannot yet move a seeded task's
 date by hand there: englishstreetventures/osn#1590.
@@ -258,6 +262,7 @@ Public API:
 | `tasksAccessor(weddingId)` | Reactive `Accessor<TaskRow[] \| null>` |
 | `hasCachedTasks(weddingId)` | Boolean: are the cached tasks fresh? `false` both before the first load and while the wedding is marked stale (see [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]]) — it is the refetch trigger, not a render gate |
 | `setCachedTasks(weddingId, tasks)` | Populate/replace cache from a fetch. Does not clear the stale mark |
+| `setFreshTasks(weddingId, tasks)` | Replace the cache with the whole list a write answered with: drops a load in flight, bumps the generation and clears the stale mark, so no second read follows |
 | `peekCachedTasks(weddingId)` | Snapshot read; subscribes only once the entry exists — never track it, use `tasksAccessor` |
 | `invalidateTasks(weddingId)` | Mark stale after a write. The rows stay on screen and the signal is untouched — the next `ensureTasksLoaded` is what refetches |
 | `ensureTasksLoaded(weddingId, fetcher)` | Fetch if not fresh; dedupes concurrent callers. On success, writes the rows and clears the stale mark; on a refused/failed refetch, blanks the signal and rethrows |

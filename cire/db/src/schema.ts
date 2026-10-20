@@ -454,9 +454,11 @@ export const tasks = sqliteTable(
   (t) => [
     index("tasks_wedding_bucket_sort_idx").on(t.weddingId, t.timeframeBucket, t.sortOrder),
     // One task per template item per wedding, so applying a template twice —
-    // or two applies racing — adds nothing the second time. SQLite treats
-    // NULLs as distinct here, so tasks the couple typed never collide.
-    uniqueIndex("tasks_wedding_template_item_unique").on(t.weddingId, t.templateId, t.templateItem),
+    // or two applies racing — adds nothing the second time. Partial: a task
+    // the couple typed has no template and needs no entry.
+    uniqueIndex("tasks_wedding_template_item_unique")
+      .on(t.weddingId, t.templateId, t.templateItem)
+      .where(sql`template_id IS NOT NULL`),
   ],
 );
 

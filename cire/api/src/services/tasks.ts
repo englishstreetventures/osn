@@ -111,20 +111,25 @@ export const anchoredDueAt = (weddingId: string, offset: SQL): SQL =>
  * Re-date every open task of `weddingId` whose due date follows the wedding
  * date, from the date as stored. A done task keeps the date it was done
  * against, and a date the couple set (`due_source = 'manual'`) is never
- * touched. Returned unrun, so the settings save can commit it in the same
- * batch as the date it reads.
+ * touched. A task already on the right date is not written, so a save that
+ * does not move the date writes no task row. Returned unrun, so the settings
+ * save can commit it in the same batch as the date it reads.
  */
-export const reanchorTemplateDueDates = (db: Db, weddingId: string) =>
-  db
+export const reanchorTemplateDueDates = (db: Db, weddingId: string) => {
+  const anchored = anchoredDueAt(weddingId, sql`${tasks.dueOffsetDays}`);
+  return db
     .update(tasks)
-    .set({ dueAt: anchoredDueAt(weddingId, sql`${tasks.dueOffsetDays}`) })
+    .set({ dueAt: anchored })
     .where(
       and(
         eq(tasks.weddingId, weddingId),
+        isNotNull(tasks.templateId),
         eq(tasks.dueSource, "template"),
         eq(tasks.status, "open"),
+        sql`${tasks.dueAt} IS NOT ${anchored}`,
       ),
     );
+};
 
 export const tasksService = {
   list(weddingId: string): Effect.Effect<TaskDto[], never, DbService> {

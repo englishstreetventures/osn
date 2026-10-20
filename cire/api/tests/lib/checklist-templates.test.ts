@@ -2,13 +2,11 @@ import { describe, expect, it } from "bun:test";
 
 import { TIMEFRAME_BUCKET_KEYS } from "../../src/lib/checklist-buckets";
 import { STARTER_OFFSET_DAYS } from "../../src/lib/checklist-starter";
-import { addDays, CHECKLIST_TEMPLATES } from "../../src/lib/checklist-templates";
+import { CHECKLIST_TEMPLATES } from "../../src/lib/checklist-templates";
+import { MAX_TITLE_CHARS } from "../../src/schemas/tasks";
 
 // The template is content someone edits by hand. These are the edits that would
 // break a wedding's checklist without any other test noticing.
-
-/** The task title limit the create and update schemas enforce. */
-const MAX_TITLE_CHARS = 200;
 
 describe.each(Object.entries(CHECKLIST_TEMPLATES))("the %s template", (_id, items) => {
   it("gives every item its own key, so none is skipped as already applied", () => {
@@ -41,13 +39,5 @@ describe("the starter's offsets", () => {
       expect(offsets[i]!, TIMEFRAME_BUCKET_KEYS[i]).toBeGreaterThan(offsets[i - 1]!);
     }
     expect(STARTER_OFFSET_DAYS.day_of).toBe(0);
-  });
-});
-
-// That the preview's dates match the stored ones is shown end to end in
-// tests/routes/task-templates.test.ts.
-describe("addDays", () => {
-  it("keeps a year below 100 as written", () => {
-    expect(addDays("0050-06-15", -14)).toBe("0050-06-01");
   });
 });

@@ -27,6 +27,7 @@ import {
   authFetchMock,
   redirectSpy,
   resetOrganiserMocks,
+  toastError,
   toastSuccess,
 } from "../test-support/mocks";
 
@@ -172,7 +173,8 @@ describe("the starter's preview", () => {
     authFetchMock.mockReturnValueOnce(new Promise<Response>((r) => (answer = r)));
     renderChecklist();
     const dialog = await openPreview();
-    expect(dialog.getByText("Loading…")).toBeInTheDocument();
+    expect(dialog.getByRole("status")).toHaveTextContent("Loading…");
+    expect(dialog.getByRole("button", { name: "Add 0 tasks" })).toBeDisabled();
     answer(preview(null, [BUDGET]));
     await dialog.findByRole("checkbox", { name: /agree on an overall budget/i });
     expect(dialog.queryByText("Loading…")).not.toBeInTheDocument();
@@ -328,7 +330,7 @@ describe("the starter with a wedding date", () => {
     expect(dialog.getByRole("button", { name: "Add 0 tasks" })).toBeDisabled();
   });
 
-  it("shows the applied tasks from the answer, closes, and marks the list for a fresh read", async () => {
+  it("shows the applied tasks from the answer, closes, and keeps the answer as the list", async () => {
     setCachedTasks("wed_1", []);
     authFetchMock.mockResolvedValueOnce(preview("2027-06-05", ITEMS));
     let answer!: (res: Response) => void;
@@ -360,7 +362,45 @@ describe("the starter with a wedding date", () => {
     await waitFor(() => expect(dialogNamed()).toBeNull());
     expect(toastSuccess).toHaveBeenCalledWith("Added 1 task to your checklist.");
     expect(authFetchMock).toHaveBeenCalledTimes(2);
-    expect(hasCachedTasks("wed_1")).toBe(false);
+    expect(hasCachedTasks("wed_1")).toBe(true);
+  });
+
+  it("starts a reopened preview from nothing ticked, so a pick from before cannot be sent", async () => {
+    setCachedTasks("wed_1", []);
+    authFetchMock.mockResolvedValueOnce(preview("2027-06-05", ITEMS));
+    renderChecklist();
+    let dialog = await openPreview();
+    fireEvent.click(await dialog.findByRole("checkbox", { name: /plan what you will wear/i }));
+    fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(dialogNamed()).toBeNull());
+
+    authFetchMock.mockReturnValueOnce(new Promise(() => {}));
+    dialog = await openPreview();
+    expect(dialog.getByRole("button", { name: "Add 0 tasks" })).toBeDisabled();
+  });
+
+  it("closes on Escape mid-apply, reports a failure there as a toast, and opens again", async () => {
+    setCachedTasks("wed_1", []);
+    authFetchMock.mockResolvedValueOnce(preview("2027-06-05", ITEMS));
+    let answer!: (res: Response) => void;
+    authFetchMock.mockReturnValueOnce(new Promise<Response>((r) => (answer = r)));
+    renderChecklist();
+    const dialog = await openPreview();
+    fireEvent.click(await dialog.findByRole("button", { name: "Add 2 tasks" }));
+    await dialog.findByRole("button", { name: "Adding…" });
+
+    // What the browser does on Escape: close the element, then fire `close`.
+    const element = screen.getByRole("dialog", { name: "Starter checklist" });
+    element.removeAttribute("open");
+    element.dispatchEvent(new Event("close"));
+    answer(json({ error: "Internal error" }, 500));
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("Couldn't add those tasks. Try again in a moment."),
+    );
+
+    authFetchMock.mockResolvedValueOnce(preview("2027-06-05", ITEMS));
+    const again = await openPreview();
+    expect(await again.findByRole("checkbox", { name: /send your invitations/i })).toBeChecked();
   });
 
   it("says when nothing was new to add", async () => {

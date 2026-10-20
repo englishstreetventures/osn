@@ -17,6 +17,7 @@ import { CHECKLIST_TEMPLATES } from "../../src/lib/checklist-templates";
 import { CIRE_METRICS } from "../../src/metrics";
 import { appRequest, jsonBody, setTier } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { insertWedding } from "../test-helpers/wedding";
@@ -301,13 +302,18 @@ describe("the starter without a wedding date", () => {
 });
 
 describe("the starter with a wedding date", () => {
-  it("stores the due dates its preview showed", async () => {
+  // The preview counts in JavaScript and the stored date comes from SQLite's
+  // date(): across a leap day, and in a year below 100, which JavaScript's
+  // Date.UTC would read as 19xx.
+  it.each([
+    ["2028-03-01", "2027-03-02"],
+    ["0050-06-15", "0049-06-15"],
+  ])("stores the due dates its preview showed, for a wedding on %s", async (date, budgetDue) => {
     const { app } = build();
-    // A leap day falls inside the year before this date.
-    expect((await setWeddingDate(app, "2028-03-01")).status).toBe(200);
+    expect((await setWeddingDate(app, date)).status).toBe(200);
     const shown = await preview(app);
-    expect(shown.weddingDate).toBe("2028-03-01");
-    expect(shown.items.find((i) => i.key === "agree-budget")?.dueAt).toBe("2027-03-02");
+    expect(shown.weddingDate).toBe(date);
+    expect(shown.items.find((i) => i.key === "agree-budget")?.dueAt).toBe(budgetDue);
     const { tasks: rows } = await apply(app);
     for (const item of shown.items) expect(seeded(rows, item.key).dueAt).toBe(item.dueAt);
   });
@@ -345,6 +351,34 @@ describe("moving the wedding date", () => {
     await setWeddingDate(app, "2027-09-04");
     const reopened = await patchTask(app, task.id, { status: "open" });
     expect(reopened.dueAt).toBe(anchored("book-venues", "2027-09-04"));
+  });
+
+  it("leaves the date of a reopened task whose date is not the template's", async () => {
+    const { app, rows } = await seededWedding();
+    const typed = await req(app, "POST", `${weddingBase(BOOTSTRAP_WEDDING_ID)}/tasks`, EDITOR, {
+      title: "Typed by hand",
+      timeframeBucket: "3m",
+      dueAt: "2027-03-01",
+    });
+    const { task: own } = (await typed.json()) as { task: Task };
+    const moved = seeded(rows, "send-invitations");
+    await patchTask(app, moved.id, { dueAt: "2027-02-14" });
+    for (const id of [own.id, moved.id]) await patchTask(app, id, { status: "done" });
+    await setWeddingDate(app, "2027-09-04");
+    expect((await patchTask(app, own.id, { status: "open" })).dueAt).toBe("2027-03-01");
+    expect((await patchTask(app, moved.id, { status: "open" })).dueAt).toBe("2027-02-14");
+  });
+
+  it("does not count an empty due date sent back on an undated seeded task as the couple's own", async () => {
+    const { app } = build();
+    const { tasks: rows } = await apply(app, ["send-invitations"]);
+    const task = seeded(rows, "send-invitations");
+    const edited = await patchTask(app, task.id, { title: "Post the invitations", dueAt: null });
+    expect(edited.dueSource).toBe("template");
+    await setWeddingDate(app, "2027-09-04");
+    expect(seeded(await list(app), "send-invitations").dueAt).toBe(
+      anchored("send-invitations", "2027-09-04"),
+    );
   });
 
   it("keeps the date a reopen sends with it", async () => {
@@ -556,11 +590,43 @@ describe("who may preview and apply the starter", () => {
       { items: "agree-budget" },
       {},
       { items: [42] },
+      { items: Array.from({ length: 101 }, () => "agree-budget") },
     ]) {
       const res = await req(app, "POST", starterPath(), EDITOR, body);
       expect(res.status, JSON.stringify(body)).toBe(400);
       expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
     }
     expect(await list(app)).toEqual([]);
+  });
+
+  it("adds nothing for an empty pick, and answers with the checklist", async () => {
+    const { app } = build();
+    const empty = await apply(app, []);
+    expect(empty).toEqual({ added: 0, tasks: [] });
+  });
+
+  // The portal reaches these routes with the organiser session cookie, so the
+  // cookie path has to hold for them, not only the bearer the tests above send.
+  it("accepts the session cookie and refuses a dead one", async () => {
+    const { app, db } = build();
+    const token = await seedOrganiserSession(db, EDITOR);
+    const ok = await appRequest(app, starterPath(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie: `cire_org_session=${token}` },
+      body: JSON.stringify({ items: ["agree-budget"] }),
+    });
+    expect(ok.status).toBe(200);
+    expect(((await ok.json()) as { added: number }).added).toBe(1);
+    for (const method of ["GET", "POST"]) {
+      const dead = await appRequest(app, starterPath(), {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          cookie: "cire_org_session=not-a-live-session-token",
+        },
+        body: method === "POST" ? JSON.stringify({ items: ["agree-budget"] }) : undefined,
+      });
+      expect(dead.status, method).toBe(401);
+    }
   });
 });
