@@ -127,6 +127,79 @@ test("cire-privacy-notice", async ({ page, browser, flow }) => {
     flow.check("a link to #guests selects Guests", "hosts=false guests=true", await selected());
   });
 
+  await flow.step("open the Hosts tab in a new browser tab with Ctrl or Cmd", async () => {
+    const [opened] = await Promise.all([
+      page.context().waitForEvent("page"),
+      hostsTab.click({ modifiers: ["ControlOrMeta"] }),
+    ]);
+    await opened.waitForURL(`${PRIVACY}#hosts`);
+    flow.check("a modified click opens #hosts in a new tab", "#hosts", new URL(opened.url()).hash);
+    await opened.close();
+    flow.check(
+      "a modified click leaves this tab as it was",
+      "hosts=false guests=true",
+      await selected(),
+    );
+  });
+
+  await flow.step("follow a link to a heading inside the hidden panel", async () => {
+    // Reduced motion turns the page's smooth scrolling off, so the position is
+    // final the moment the handler returns.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.evaluate(() => {
+      window.location.hash = "hosts";
+    });
+    await expect(hostsPanel).toBeVisible();
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await page.evaluate(() => {
+      window.location.hash = "guests-heading";
+    });
+    await expect(guestsPanel).toBeVisible();
+    flow.check(
+      "a link into the Guests panel selects Guests",
+      "hosts=false guests=true",
+      await selected(),
+    );
+    const top = await page.evaluate(
+      () => document.getElementById("guests-heading")?.getBoundingClientRect().top ?? -1,
+    );
+    flow.check("a link into the Guests panel scrolls to its target", true, top >= 0 && top < 200);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+  });
+
+  await flow.step("switch panels with the module script blocked", async () => {
+    // Only the inline script in NoticeTabs.astro is left to choose a panel.
+    const context = await browser.newContext();
+    await context.route(
+      (url) =>
+        url.pathname.endsWith("/lib/notice-tabs.ts") ||
+        (url.pathname.endsWith("/NoticeTabs.astro") && url.search.includes("type=script")),
+      (route) => route.abort(),
+    );
+    const bare = await context.newPage();
+    await bare.goto(`${PRIVACY}#guests`);
+    await expect(bare.locator("#guests")).toBeVisible();
+    await expect(bare.locator("#hosts")).toBeHidden();
+    flow.check(
+      "without the module there is no tab list role",
+      0,
+      await bare.getByRole("tablist").count(),
+    );
+    flow.check(
+      "without the module #guests still opens Guests",
+      "hosts=false guests=true",
+      `hosts=${await bare.locator("#hosts").isVisible()} guests=${await bare.locator("#guests").isVisible()}`,
+    );
+    await bare.getByRole("link", { name: "Hosts", exact: true }).click();
+    await expect(bare.locator("#hosts")).toBeVisible();
+    flow.check(
+      "without the module the Hosts link still switches panels",
+      "hosts=true guests=false",
+      `hosts=${await bare.locator("#hosts").isVisible()} guests=${await bare.locator("#guests").isVisible()}`,
+    );
+    await context.close();
+  });
+
   await flow.step("print the Guests tab", async () => {
     await page.emulateMedia({ media: "print" });
     await expect(tablist).toBeHidden();
@@ -181,11 +254,46 @@ test("cire-privacy-notice", async ({ page, browser, flow }) => {
   await flow.step("compare the Guests tab with the guest site's notice", async () => {
     await page.goto(`${PRIVACY}#guests`);
     const landing = await guestNoticeText(page);
+    // Here the notice sits under the tab's own heading, one level down, and has
+    // no privacy-choices button: those choices live on the guest site.
+    flow.check(
+      "the Guests tab has one level-2 heading, its own",
+      1,
+      await guestsPanel.locator("h2").count(),
+    );
+    flow.check(
+      "the notice's sections are level 3 on cireweddings.com",
+      1,
+      await guestsPanel.getByRole("heading", { name: "Who decides what", level: 3 }).count(),
+    );
+    const choices = guestsPanel.locator("[data-notice-choices]");
+    flow.check(
+      "cireweddings.com points at the invitation's footer",
+      true,
+      ((await choices.textContent()) ?? "")
+        .replace(/\s+/g, " ")
+        .includes("footer of every page of the site."),
+    );
+    flow.check(
+      "cireweddings.com shows no privacy-choices button",
+      0,
+      await choices.getByRole("button").count(),
+    );
+
     const invites = await page.context().newPage();
     await invites.goto(`${ORIGINS.cireInvites}/privacy`);
     await expect(invites.locator("[data-guest-notice]")).toBeVisible();
     const guestSite = await guestNoticeText(invites);
-    await expect(invites.getByRole("button", { name: "Open my privacy choices" })).toBeVisible();
+    flow.check(
+      "the notice's sections are level 2 on the guest site",
+      1,
+      await invites.getByRole("heading", { name: "Who decides what", level: 2 }).count(),
+    );
+    // The button is a hydrated island passed through the notice's slot.
+    await invites.getByRole("button", { name: "Open my privacy choices" }).click();
+    const sheet = invites.getByRole("dialog", { name: "Your privacy choices" });
+    await expect(sheet).toBeVisible();
+    flow.check("the guest site's button opens the privacy choices", true, await sheet.isVisible());
     await invites.close();
     flow.check("the guest notice is the same text on both sites", true, landing === guestSite);
     flow.check(
