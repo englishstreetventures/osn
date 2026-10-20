@@ -14,6 +14,7 @@ import {
   type TaskRow,
   tasksAccessor,
 } from "../../src/lib/tasks-store";
+import { __resetWeddingScope, closeWeddingScope } from "../../src/lib/wedding-scope";
 
 const row = (over: Partial<TaskRow>): TaskRow => ({
   id: "tsk_1",
@@ -29,7 +30,10 @@ const row = (over: Partial<TaskRow>): TaskRow => ({
   ...over,
 });
 
-beforeEach(() => __resetTasksCache());
+beforeEach(() => {
+  __resetTasksCache();
+  __resetWeddingScope();
+});
 
 describe("tasks-store", () => {
   it("loads once and reuses the cache", async () => {
@@ -205,6 +209,13 @@ describe("tasks-store", () => {
       return [];
     });
     expect(fetched).toBe(false);
+  });
+
+  it("setFreshTasks writes nothing for a wedding the organiser has left", () => {
+    setCachedTasks("wed_1", [row({ id: "before" })]);
+    closeWeddingScope("wed_1");
+    setFreshTasks("wed_1", [row({ id: "late answer" })]);
+    expect(peekCachedTasks("wed_1")?.map((t) => t.id)).toEqual(["before"]);
   });
 
   it("peekCachedTasks reflects fresh rows after an invalidate/reload cycle", async () => {

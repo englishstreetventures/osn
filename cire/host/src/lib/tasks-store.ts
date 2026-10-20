@@ -55,13 +55,12 @@ export function setCachedTasks(weddingId: string, tasks: TaskRow[]): void {
 
 /**
  * Replace the list with the whole list a write just answered with. It is the
- * newest read there is, so the wedding is fresh again, and a load already in
- * flight — started before the write — is dropped rather than left to land on
- * top of it.
+ * newest read there is, so the wedding is fresh again, and the generation moves
+ * on so a load already in flight — started before the write — discards what it
+ * fetches instead of landing on top.
  */
 export function setFreshTasks(weddingId: string, tasks: TaskRow[]): void {
   if (isWeddingClosed(weddingId)) return;
-  inflight.delete(weddingId);
   generation.set(weddingId, generationOf(weddingId) + 1);
   entryFor(weddingId).setTasks(tasks);
   stale.delete(weddingId);

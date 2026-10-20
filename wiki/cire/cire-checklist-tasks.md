@@ -239,7 +239,7 @@ fill the Overview with overdue tasks; the removed items start unticked under
 in Settings, and an editor is told an owner can. Each opening starts with
 nothing ticked until its preview arrives, so a pick from an earlier opening is
 never sent. After an apply the answer's list goes into the cache through
-`setFreshTasks`, which drops any list read already in flight. Every close —
+`setFreshTasks`, so a list read already in flight is discarded. Every close —
 Escape and the backdrop included, even mid-apply — clears the dialog's open
 state; an apply that fails after the dialog closed says so in a toast.
 `SettingsPanel` marks the cache stale after a save that moved the wedding date.
@@ -262,7 +262,7 @@ Public API:
 | `tasksAccessor(weddingId)` | Reactive `Accessor<TaskRow[] \| null>` |
 | `hasCachedTasks(weddingId)` | Boolean: are the cached tasks fresh? `false` both before the first load and while the wedding is marked stale (see [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]]) — it is the refetch trigger, not a render gate |
 | `setCachedTasks(weddingId, tasks)` | Populate/replace cache from a fetch. Does not clear the stale mark |
-| `setFreshTasks(weddingId, tasks)` | Replace the cache with the whole list a write answered with: drops a load in flight, bumps the generation and clears the stale mark, so no second read follows |
+| `setFreshTasks(weddingId, tasks)` | Replace the cache with the whole list a write answered with: bumps the generation (a load in flight discards what it fetches) and clears the stale mark, so no second read follows. Writes nothing for a closed wedding |
 | `peekCachedTasks(weddingId)` | Snapshot read; subscribes only once the entry exists — never track it, use `tasksAccessor` |
 | `invalidateTasks(weddingId)` | Mark stale after a write. The rows stay on screen and the signal is untouched — the next `ensureTasksLoaded` is what refetches |
 | `ensureTasksLoaded(weddingId, fetcher)` | Fetch if not fresh; dedupes concurrent callers. On success, writes the rows and clears the stale mark; on a refused/failed refetch, blanks the signal and rethrows |

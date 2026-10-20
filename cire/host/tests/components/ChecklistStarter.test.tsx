@@ -173,11 +173,15 @@ describe("the starter's preview", () => {
     authFetchMock.mockReturnValueOnce(new Promise<Response>((r) => (answer = r)));
     renderChecklist();
     const dialog = await openPreview();
-    expect(dialog.getByRole("status")).toHaveTextContent("Loading…");
+    const status = dialog.getByRole("status");
+    expect(status).toHaveTextContent("Loading…");
+    const list = status.closest("[aria-busy]")!;
+    expect(list).toHaveAttribute("aria-busy", "true");
     expect(dialog.getByRole("button", { name: "Add 0 tasks" })).toBeDisabled();
     answer(preview(null, [BUDGET]));
     await dialog.findByRole("checkbox", { name: /agree on an overall budget/i });
     expect(dialog.queryByText("Loading…")).not.toBeInTheDocument();
+    expect(list).toHaveAttribute("aria-busy", "false");
   });
 
   it("says so when everything is already on the checklist, and offers nothing to add", async () => {
