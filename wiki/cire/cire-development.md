@@ -575,7 +575,8 @@ In `worker` mode the script sums the gzip size of each file under
 chunk as its own module. It leaves out only the adapter's top-level
 `wrangler.json` and real source maps — a `.map` beside the chunk it is named
 after that parses as a source map. Any other `.map`-named file is counted, so
-the total can run above what wrangler uploads but never below it. It also
+the total can run above what wrangler uploads but never below it. A total
+over the app's budget is a warning, not a failure ([[bundle-size-guards]]). It
 fails if any `.map` file turns up under `dist/client`, which is served
 publicly as Static Assets — see the source-map warning below.
 

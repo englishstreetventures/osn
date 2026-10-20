@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # Guards that gate on a number
@@ -71,6 +71,18 @@ only ever passes is indistinguishable from one that cannot fail.
 scripts/guard-bundle-size.sh <package-dir>   # one app, e.g. from a build script
 scripts/guard-bundle-size.sh --all           # every app, what ci.yml calls
 ```
+
+**Going over a budget is a warning, not a failure.** The guard prints
+`::warning::<app> <dir> gzip total <n> bytes exceeds the <budget> byte guard`
+and exits 0, so the line shows in a local build's output and GitHub annotates
+the CI or deploy run with it, but nothing goes red. Everything else it refuses
+still fails with a non-zero exit: a source map under cire/invites' public
+`dist/client` (that would publish the guest site's source), a measured directory
+that is missing, empty or holds a symlink, `bun` missing in `worker` mode, and a
+budgets file that is absent, empty or malformed or has no row for the app. A
+warning is acted on the way a failure used to be: find what is newly reachable
+from an import that runs in the build, or, if the growth is intended,
+re-baseline the row as below.
 
 Mode and threshold are not arguments — **`scripts/bundle-size-budgets.txt` is
 the single source of truth**, and this page's table below is a mirror of it
