@@ -17,7 +17,7 @@
 //
 // Covers, one case per independent decision point:
 //
-//   1. total under threshold -> exit 0
+//   1. total under threshold -> exit 0, no "::warning::"
 //   2. total over threshold -> exit 0, a "::warning::" line saying "exceeds the"
 //   3. the measured directory missing -> exit 1, "is missing"
 //   4. the measured directory holding only excluded files -> exit 1, "holds no
@@ -29,14 +29,18 @@
 //   5b. only the adapter's top-level wrangler.json is skipped, not one nested
 //      deeper
 //   6. a *.map under the sibling dist/client -> exit 1
-//   7. static mode counts only *.js/*.css, ignoring everything else
+//   7. static mode counts only *.js/*.css, ignoring everything else; a total
+//      exactly at its budget does not warn
 //   8. a package-dir with no row in the budgets file -> exit 1, naming the file
 //   9. --all runs every row, resolved against BUNDLE_SIZE_BUDGETS_ROOT
 //  10. a malformed row (wrong field count / bad mode / non-numeric threshold)
-//      -> exit 1, naming the file and line
+//      -> exit 1, naming the file and line, with nothing measured
 //  11. blank lines and comment-only lines in the budgets file are ignored
 //  12. --all with a row whose package directory does not exist -> exit 1,
 //      naming the directory, and still runs the other rows
+//  13. the budgets file missing -> exit 1, with nothing measured
+//  14. --all with one row refused and a later row over budget -> exit 1, with
+//      the refusal and the warning both printed
 //
 // No `bun install`: this only imports `bun:test` and Node built-ins, matching
 // every other file under scripts/ (the `script-tests` CI job runs with none).
@@ -120,6 +124,7 @@ test("exits 0 when the worker total is under the threshold", async () => {
 
     const { exitCode, stdout } = await runCli(budgetsFile, root, pkgDir);
     expect(stdout).toContain("gzip total");
+    expect(stdout).not.toContain("::warning::");
     expect(exitCode).toBe(0);
   });
 });
@@ -377,10 +382,13 @@ test("static mode counts only *.js and *.css, ignoring everything else in dist/_
 
     const jsSize = await gzipSize(jsPath);
     const budgetsFile = join(root, "budgets.txt");
+    // The budget is exactly the total, which also pins the boundary: a total
+    // equal to its budget is not over it and does not warn.
     await writeFile(budgetsFile, `fixture-app/pkg static ${jsSize}\n`);
 
     const { exitCode, stdout } = await runCli(budgetsFile, root, pkgDir);
     expect(stdout).toContain(`${jsSize} bytes across 1 files`);
+    expect(stdout).not.toContain("::warning::");
     expect(exitCode).toBe(0);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -450,13 +458,46 @@ test("--all warns for the row over budget, reports both apps, and exits 0", asyn
   }
 });
 
+// What ci.yml runs: a refusal in one row fails the whole run, and a warning in
+// another neither hides it nor stops that row being measured. The refusing
+// row comes first, so the warning row after it must not clear the failure.
+test("--all exits non-zero when one row refuses, and still warns for a later row over budget", async () => {
+  const root = await mkdtemp(join(tmpdir(), "guard-bundle-size-cli-"));
+  try {
+    const appADir = join(root, "fixture-a", "pkg");
+    const appBDir = join(root, "fixture-b", "pkg");
+    await mkdir(join(appADir, "dist/server"), { recursive: true });
+    await writeFile(join(appADir, "dist/server/entry.mjs"), "export default 1;\n");
+    await mkdir(join(appADir, "dist/client/_astro"), { recursive: true });
+    await writeFile(join(appADir, "dist/client/_astro/chunk.js.map"), "{}");
+    await mkdir(join(appBDir, "dist/server"), { recursive: true });
+    await writeFile(join(appBDir, "dist/server/entry.mjs"), "export default 1;\n");
+
+    const budgetsFile = join(root, "budgets.txt");
+    // fixture-a is well under budget but publishes a source map; fixture-b is
+    // clean but given an impossible (zero) threshold.
+    await writeFile(budgetsFile, "fixture-a/pkg worker 999999999\nfixture-b/pkg worker 0\n");
+
+    const { exitCode, stdout } = await runCli(budgetsFile, root, "--all");
+    expect(stdout).toContain("::error::fixture-a/pkg dist/client holds 1 source map");
+    expect(stdout).toContain("::warning::fixture-b/pkg dist/server gzip total");
+    expect(exitCode).not.toBe(0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// The malformed-row cases hold a real build, so the directory could be
+// measured and nothing but the row's validation is left to refuse it.
 test("exits non-zero on a malformed row (wrong field count), naming the file and line", async () => {
   await withFixture(["fixture-app/pkg worker"], async ({ pkgDir, root, budgetsFile }) => {
     await mkdir(join(pkgDir, "dist/server"), { recursive: true });
+    await writeFile(join(pkgDir, "dist/server/entry.mjs"), "export default 1;\n");
 
-    const { exitCode, stderr } = await runCli(budgetsFile, root, pkgDir);
+    const { exitCode, stdout, stderr } = await runCli(budgetsFile, root, pkgDir);
     expect(stderr).toContain(budgetsFile);
     expect(stderr).toContain(":1:");
+    expect(stdout).not.toContain("gzip total");
     expect(exitCode).not.toBe(0);
   });
 });
@@ -476,12 +517,30 @@ test("exits non-zero on a row with a non-numeric threshold", async () => {
     ["fixture-app/pkg worker not-a-number"],
     async ({ pkgDir, root, budgetsFile }) => {
       await mkdir(join(pkgDir, "dist/server"), { recursive: true });
+      await writeFile(join(pkgDir, "dist/server/entry.mjs"), "export default 1;\n");
 
-      const { exitCode, stderr } = await runCli(budgetsFile, root, pkgDir);
+      const { exitCode, stdout, stderr } = await runCli(budgetsFile, root, pkgDir);
       expect(stderr).toContain("must be a positive integer");
+      expect(stdout).not.toContain("gzip total");
       expect(exitCode).not.toBe(0);
     },
   );
+});
+
+test("exits non-zero when the budgets file does not exist, measuring nothing", async () => {
+  await withFixture(["fixture-app/pkg worker 999999999"], async ({ pkgDir, root }) => {
+    await mkdir(join(pkgDir, "dist/server"), { recursive: true });
+    await writeFile(join(pkgDir, "dist/server/entry.mjs"), "export default 1;\n");
+
+    const { exitCode, stdout, stderr } = await runCli(
+      join(root, "no-such-budgets.txt"),
+      root,
+      pkgDir,
+    );
+    expect(stderr).toContain("budgets file not found");
+    expect(stdout).not.toContain("gzip total");
+    expect(exitCode).not.toBe(0);
+  });
 });
 
 test("blank lines and comment-only lines in the budgets file are ignored", async () => {
