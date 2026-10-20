@@ -339,7 +339,7 @@ describe("the moodboard", () => {
     }
   });
 
-  it("offers the way back off at 44px, deaf to the second tap of a double tap (B13)", async () => {
+  it("offers the way back off at 44px, deaf to the second tap of a double tap, keeping focus in the sheet (B13, B14)", async () => {
     const release = holdBackScripts();
     // One frozen instant stands for "straight after", however long the
     // runner takes between the two presses.
@@ -361,6 +361,12 @@ describe("the moodboard", () => {
       now += 1_000;
       await userEvent.click(stop);
       expect(isCategoryGranted("pinterest")).toBe(false);
+      // The runner's reload is a no-op, as a real one is when the cookie
+      // write cannot be confirmed: the button is gone and the page stays, so
+      // focus has to stay in the sheet (B14).
+      expect(stop.isConnected).toBe(false);
+      expect(document.activeElement).not.toBe(document.body);
+      expect(dialog().contains(document.activeElement)).toBe(true);
     } finally {
       clock.mockRestore();
       release();

@@ -329,6 +329,27 @@ describe("PinterestBoard", () => {
       expect(note?.textContent).toContain("reloads the page");
     });
 
+    it("ignores a press for the 500ms after Show it here, and takes one from then on (F23)", () => {
+      // The span of a double tap: the second tap must not undo the first.
+      let now = 50_000;
+      const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+      try {
+        refuseThirdPartyContent();
+        const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+        allowThirdPartyContent(container);
+
+        now += 499;
+        fireEvent.click(stopButton(container)!);
+        expect(readConsentFromDocument()!.grants.pinterest).toBe(true);
+
+        now += 1;
+        fireEvent.click(stopButton(container)!);
+        expect(readConsentFromDocument()!.grants.pinterest).toBe(false);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
     it("withdraws Pinterest moodboards and nothing else, and reloads to stop the script (F22)", () => {
       seedConsentForTest({ pinterest: true, maps: true });
       const reload = vi.fn();

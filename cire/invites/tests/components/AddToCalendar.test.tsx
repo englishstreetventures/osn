@@ -164,13 +164,12 @@ describe("AddToCalendar", () => {
   it("draws a text action, never a filled or outlined button, at a 44px target", () => {
     // It sits on the date row of the details, under the RSVP button that is
     // the panel's call to action: a box here would compete with that button.
-    // Underlined at rest, as a phone shows no hover. The 44px and the
-    // underline are measured in `DetailsPanel.browser.test.tsx`.
+    // The 44px, and the underline a phone needs at rest, are measured in
+    // `DetailsPanel.browser.test.tsx`.
     const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
     const button = getByRole("button", { name: /add to calendar/i });
     const classes = button.className.split(/\s+/);
     expect(classes).toContain("base:border-transparent");
-    expect(classes).toContain("base:underline");
     expect(button.className).not.toContain("bg-gold");
     expect(classes).toContain("min-h-11");
     expect(button.getAttribute("aria-haspopup")).toBe("menu");

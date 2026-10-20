@@ -436,9 +436,11 @@ render wherever the server ran.
   pressed ([[cire-consent]]). Pressing it leaves focus on the moodboard's own
   wrapper, inside the sheet, as the block and its button give way to the
   board. While the board is on, "Stop showing moodboards" sits under it and
-  says the page reloads; it ignores a press for the half second after "Show it
-  here", because near the foot of the sheet the scroll shifts as the block
-  gives way and the button can arrive under the finger that just pressed.
+  says the page reloads, and it leaves focus on the same wrapper when the
+  reload does not come (a cookie write it could not confirm). It ignores a
+  press for the half second after "Show it here", because near the foot of the
+  sheet the scroll shifts as the block gives way and the button can arrive
+  under the finger that just pressed.
 
 Tests: `tests/components/DetailsPanel.test.tsx` (which rows and sections
 render, the words, the notice), `event-details.test.ts` and

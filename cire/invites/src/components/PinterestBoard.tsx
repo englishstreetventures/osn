@@ -141,9 +141,10 @@ function isEmbedTransformed(
  * on, "Stop showing moodboards" turns it off again from the same place.
  *
  * The block, and the button pressed in it, go when the board takes their
- * place, so "Show it here" first moves focus to this component's own wrapper,
+ * place, so "Show it here" then moves focus to this component's own wrapper,
  * which stays: the guest is left inside the sheet, on the moodboard, rather
- * than dropped to the document's `<body>` outside a modal dialog.
+ * than dropped to the document's `<body>` outside a modal dialog. "Stop
+ * showing moodboards" does the same on its way out.
  *
  * The embed uses Pinterest's documented embed widget pattern
  * (https://developers.pinterest.com/docs/web-features/widgets/#board-widget),
@@ -185,6 +186,13 @@ export function PinterestBoard(props: PinterestBoardProps) {
     grantCategory("pinterest");
     wrapper?.focus();
   };
+  // The same move the other way. A withdrawal that reloads the page takes
+  // focus with it; one that does not (the cookie write could not be confirmed)
+  // leaves the button gone and focus to be kept.
+  const stopShowing = () => {
+    withdrawCategory("pinterest");
+    wrapper?.focus();
+  };
 
   return (
     <Show when={isSafePinterestLinkUrl(props.url)}>
@@ -207,7 +215,7 @@ export function PinterestBoard(props: PinterestBoardProps) {
             <Show when={status() === "failed"}>
               <MoodboardBlock url={props.url} state="failed" />
             </Show>
-            <SwitchOff shownAt={() => shownAt} />
+            <SwitchOff shownAt={() => shownAt} onStop={stopShowing} />
           </ConsentGate>
         </Show>
 
@@ -238,17 +246,17 @@ const DOUBLE_TAP_MS = 500;
  * teardown for code running in it (see `saveConsent`) — and the note says so
  * before the guest presses it.
  *
- * It takes no press for {@link DOUBLE_TAP_MS} after "Show it here". The block
- * that held that button is shorter than what replaces it at first, so near the
- * foot of the sheet the scroll shifts and this button can arrive under the
+ * It takes no press for {@link DOUBLE_TAP_MS} after "Show it here". What
+ * replaces the block that held that button is shorter at first, so near the
+ * foot of the sheet the scroll clamps and this button can arrive under the
  * finger: the second tap of a double tap would switch the board off as it
  * appears, and reload the page.
  */
-function SwitchOff(props: { shownAt: () => number }) {
+function SwitchOff(props: { shownAt: () => number; onStop: () => void }) {
   const noteId = createUniqueId();
   const withdraw = () => {
     if (performance.now() - props.shownAt() < DOUBLE_TAP_MS) return;
-    withdrawCategory("pinterest");
+    props.onStop();
   };
 
   return (
@@ -280,8 +288,9 @@ const BLOCK_LEAD = {
 
 /**
  * The moodboard as one block when the board itself is not on screen: what and
- * where it is, the way out to it, and — only while Pinterest moodboards are
- * switched off for a board that could show here — the way to show it here.
+ * where it is, the way out to it, and — given `onShow`, which only the gate's
+ * fallback passes, while Pinterest moodboards are switched off for a board that
+ * could show here — the way to show it here.
  *
  * The note says what pressing "Show it here" switches on before the guest
  * presses it: every moodboard on the invite, in this browser, since the choice
@@ -291,14 +300,13 @@ const BLOCK_LEAD = {
  */
 function MoodboardBlock(props: { url: string; state: BlockState; onShow?: () => void }) {
   const noteId = createUniqueId();
-  const offerToShow = () => props.state === "switched-off";
 
   return (
     <div class="border-border rounded-md border px-4 py-4">
       <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
         {BLOCK_LEAD[props.state]}
       </p>
-      <Show when={offerToShow()}>
+      <Show when={props.onShow}>
         <p id={noteId} class="font-body text-text-muted text-ui-xs leading-ui-normal mt-1.5">
           Showing it here switches on Pinterest moodboards in this browser. They load from
           Pinterest's servers, which lets Pinterest see your IP address and browser.
@@ -314,16 +322,18 @@ function MoodboardBlock(props: { url: string; state: BlockState; onShow?: () => 
           Open on Pinterest
           <span aria-hidden="true">↗</span>
         </a>
-        <Show when={offerToShow()}>
-          <Button
-            variant="quiet"
-            size="sm"
-            class="min-h-11"
-            aria-describedby={noteId}
-            onClick={() => props.onShow?.()}
-          >
-            Show it here
-          </Button>
+        <Show when={props.onShow}>
+          {(show) => (
+            <Button
+              variant="quiet"
+              size="sm"
+              class="min-h-11"
+              aria-describedby={noteId}
+              onClick={() => show()()}
+            >
+              Show it here
+            </Button>
+          )}
         </Show>
       </div>
     </div>
