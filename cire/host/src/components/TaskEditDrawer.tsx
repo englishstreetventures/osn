@@ -51,7 +51,7 @@ export default function TaskEditDrawer(props: TaskEditDrawerProps) {
   // selected. Replaced, the browser would show the first option instead,
   // whoever holds the task.
   const seatIds = createMemo(() => (props.seats ?? []).map((s) => s.hostId));
-  const seatById = createMemo(() => new Map((props.seats ?? []).map((s) => [s.hostId, s])));
+  const seatById = createMemo(() => new Map(props.seats?.map((s) => [s.hostId, s])));
 
   return (
     <Modal

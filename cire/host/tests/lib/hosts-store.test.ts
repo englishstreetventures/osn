@@ -117,6 +117,16 @@ describe("hosts-store", () => {
     expect(hostsAccessor("wed_1")()?.map((s) => s.hostId)).toEqual(["whost_panel"]);
   });
 
+  it("setFreshHosts moves the generation on, so a load from before it never lands after a later invalidate", async () => {
+    const old = held<HostSeat[]>();
+    const pending = ensureHostsLoaded("wed_1", old.fetcher);
+    setFreshHosts("wed_1", [seat({ hostId: "whost_panel" })]);
+    invalidateHosts("wed_1");
+    old.resolve([seat({ hostId: "whost_old" })]);
+    expect(await pending).toBe(false);
+    expect(hostsAccessor("wed_1")()?.map((s) => s.hostId)).toEqual(["whost_panel"]);
+  });
+
   it("setFreshHosts writes nothing for a wedding the organiser has left", () => {
     closeWeddingScope("wed_1");
     setFreshHosts("wed_1", [seat({ hostId: "whost_late" })]);

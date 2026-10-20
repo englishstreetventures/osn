@@ -615,6 +615,21 @@ describe("HostsPanel", () => {
       expect(asked).toBe(false);
     });
 
+    it("leaves the checklist's people alone when the list carries no seat ids", async () => {
+      // An API older than the field: the checklist reads the seats itself.
+      await ensureHostsLoaded("wed_a", async () => [
+        { hostId: "whost_amy", osnProfileId: "usr_amy", role: "owner" },
+      ]);
+      authFetchMock.mockResolvedValueOnce(
+        json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "helper", createdAt: 1 }] }),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      expect(hostsAccessor("wed_a")()?.map((s) => s.hostId)).toEqual(["whost_amy"]);
+      expect(hasCachedHosts("wed_a")).toBe(true);
+    });
+
     it("hands over a role it does not know as the narrowest one", async () => {
       authFetchMock.mockResolvedValueOnce(json({ hosts: [{ ...BOB, role: "planner" }] }));
       render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
@@ -657,7 +672,10 @@ describe("HostsPanel", () => {
     it("marks the checklist stale after removing a seat one of its tasks names", async () => {
       // The server clears a removed seat's assignments; a checklist cached
       // before the removal still names them until it is read again.
-      await ensureTasksLoaded("wed_a", async () => [task("whost_bob")]);
+      await ensureTasksLoaded("wed_a", async () => [
+        task("whost_bob"),
+        { ...task(null), id: "tsk_2" },
+      ]);
       authFetchMock.mockResolvedValueOnce(json({ hosts: [BOB] }));
       authFetchMock.mockResolvedValueOnce(json({ removed: true }));
       render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
@@ -684,6 +702,18 @@ describe("HostsPanel", () => {
       await waitFor(() => expect(screen.queryByText("@bob")).toBeNull());
       expect(hasCachedTasks("wed_a")).toBe(true);
       expect(hasCachedHosts("wed_a")).toBe(false);
+    });
+
+    it("removes a seat while no checklist is cached", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [BOB] }));
+      authFetchMock.mockResolvedValueOnce(json({ removed: true }));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      fireEvent.click(screen.getByRole("button", { name: /Remove/i }));
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+      expect(screen.queryByText("@bob")).toBeNull();
+      expect(toastError).not.toHaveBeenCalled();
     });
 
     it("marks the checklist stale after removing someone added in this visit, whose seat id it never saw", async () => {

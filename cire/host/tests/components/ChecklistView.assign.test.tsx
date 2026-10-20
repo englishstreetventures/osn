@@ -73,9 +73,9 @@ function held() {
 
 /** Responses the test hands over one by one, by the order the requests came in. */
 function heldEach() {
-  const answers: ((res: Response) => void)[] = [];
+  const answers: ((res: Response | Promise<Response>) => void)[] = [];
   const route: Route = () => new Promise<Response>((resolve) => answers.push(resolve));
-  return { route, answer: (k: number, res: Response) => answers[k]!(res) };
+  return { route, answer: (k: number, res: Response | Promise<Response>) => answers[k]!(res) };
 }
 
 const calls = (suffix: string, method = "GET") =>
@@ -555,15 +555,73 @@ describe("picks made while a write is out", () => {
     reread.answer(json({ tasks: [row({ id: "a", title: "Book venue" })] }));
   });
 
-  it("sends no waiting pick once a write finds the session gone", async () => {
+  it.each([
+    [
+      "answers 401",
+      (writes: ReturnType<typeof heldEach>) =>
+        writes.answer(0, new Response(null, { status: 401 })),
+    ],
+    [
+      "finds the session expired",
+      (writes: ReturnType<typeof heldEach>) =>
+        writes.answer(0, Promise.reject(new Error("AuthExpiredError"))),
+    ],
+  ])("sends no waiting pick once a write %s", async (_, signOut) => {
     const { select, writes } = await drawerWithHeldWrites();
 
     fireEvent.change(select, { target: { value: "whost_jo" } });
     fireEvent.change(select, { target: { value: "whost_sam" } });
-    writes.answer(0, new Response(null, { status: 401 }));
+    signOut(writes);
     await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
     await waitFor(() => expect(select).not.toHaveAttribute("aria-busy"));
     expect(sent()).toEqual([{ assignedHostId: "whost_jo" }]);
+  });
+
+  it("puts back the holder a finished pick stored when a later pick fails", async () => {
+    const reread = held();
+    const { drawer, select, writes } = await drawerWithHeldWrites(reread.route);
+
+    fireEvent.change(select, { target: { value: "whost_jo" } });
+    writes.answer(0, stored("whost_jo"));
+    await waitFor(() => expect(select).not.toHaveAttribute("aria-busy"));
+    fireEvent.change(select, { target: { value: "whost_sam" } });
+    writes.answer(1, json({ error: "Internal error" }, 500));
+
+    expect(await within(drawer).findByRole("alert")).toHaveTextContent(
+      "Couldn't change who holds that task.",
+    );
+    expect(within(rowOf("Book venue")).getByText("@jo")).toBeVisible();
+    reread.answer(
+      json({ tasks: [row({ id: "a", title: "Book venue", assignedHostId: "whost_jo" })] }),
+    );
+  });
+
+  it("puts back the holder a re-read found when a later pick fails", async () => {
+    // Someone else gave the task to Sam while the first pick was being refused.
+    // The re-read after the second refusal is held, so only the put-back shows.
+    let reads = 0;
+    const later = held();
+    const { drawer, select, writes } = await drawerWithHeldWrites((init) => {
+      reads += 1;
+      return reads === 1
+        ? json({ tasks: [row({ id: "a", title: "Book venue", assignedHostId: "whost_sam" })] })
+        : later.route(init);
+    });
+
+    fireEvent.change(select, { target: { value: "whost_jo" } });
+    writes.answer(0, json({ error: "Internal error" }, 500));
+    await waitFor(() => expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible());
+
+    fireEvent.change(select, { target: { value: "whost_jo" } });
+    writes.answer(1, json({ error: "Internal error" }, 500));
+    expect(await within(drawer).findByRole("alert")).toHaveTextContent(
+      "Couldn't change who holds that task.",
+    );
+    expect(within(rowOf("Book venue")).getByText("Sam Lee")).toBeVisible();
+    expect(reads).toBe(2);
+    later.answer(
+      json({ tasks: [row({ id: "a", title: "Book venue", assignedHostId: "whost_sam" })] }),
+    );
   });
 });
 
