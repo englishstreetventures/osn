@@ -487,6 +487,8 @@ jobs:
           # this must never deep-link to the production account surface.
           PUBLIC_OSN_ACCOUNT_URL: https://dev.musubi.social
           PUBLIC_CIRE_WEB_URL: https://invite.dev.cireweddings.com
+          # The RSVP editor's privacy link: the dev marketing site's /privacy.
+          PUBLIC_MARKETING_URL: https://dev.cireweddings.com
 
       # Tracker #619 (see scripts/guard-bundle-size.sh's own comment and
       # wiki/conventions/bundle-size-guards.md). Chained onto the `build`
