@@ -26,9 +26,11 @@ const FACES = 3;
 /** More people than this, and the popover opens on a search. */
 const SEARCH_ABOVE = 5;
 
+/** Built on the first list a row names, then kept for every row after. */
+let conjunction: Intl.ListFormat | undefined;
 /** "Sam Lee, @jo and Priya Raman". */
 const listOf = (names: string[]) =>
-  new Intl.ListFormat("en-AU", { type: "conjunction" }).format(names);
+  (conjunction ??= new Intl.ListFormat("en-AU", { type: "conjunction" })).format(names);
 
 interface TaskHoldersProps {
   /** The task's title, for the trigger's name. */
