@@ -125,6 +125,11 @@ test("cire-privacy-pages", async ({ page, browser, flow }) => {
       false,
       vendors.includes("Which organiser changed a guest"),
     );
+    flow.check(
+      "the vendors' notice describes the vendor's own account",
+      true,
+      vendors.includes("Your vendor account"),
+    );
   });
 
   await flow.step("compare the guests' page with the guest site's notice", async () => {
