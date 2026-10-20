@@ -39,6 +39,12 @@ interface Props {
 
 const { tabs, label } = Astro.props
 const ids = tabs.map((tab) => tab.id)
+
+// An id goes into a selector, a fragment and a generated `<style>` unescaped,
+// so it must be a plain token. The build fails on anything else.
+for (const id of ids) {
+  if (!/^[a-z][a-z0-9-]*$/.test(id)) throw new Error(`NoticeTabs: tab id "${id}" is not a plain token`)
+}
 const panels = await Promise.all(tabs.map((tab) => Astro.slots.render(tab.id)))
 
 // One rule per tab: the selected panel shows. Generated because CSS cannot
@@ -67,9 +73,14 @@ const shown = `${tabs
   </div>
   <script is:inline define:vars={{ ids }}>
     const root = document.currentScript.closest('[data-notice-tabs]')
+    // A fragment that does not decode (`#%`) names no tab, like an unknown one.
     const named = () => {
-      const id = decodeURIComponent(location.hash.slice(1))
-      return ids.includes(id) ? id : null
+      try {
+        const id = decodeURIComponent(location.hash.slice(1))
+        return ids.includes(id) ? id : null
+      } catch {
+        return null
+      }
     }
     root.dataset.selected = named() ?? ids[0]
     addEventListener('hashchange', () => {

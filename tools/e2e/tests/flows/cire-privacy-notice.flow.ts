@@ -114,6 +114,21 @@ test("cire-privacy-notice", async ({ page, browser, flow }) => {
     );
   });
 
+  await flow.step("open the page at a fragment that does not decode", async () => {
+    await page.goto("about:blank");
+    await page.goto(`${PRIVACY}#%`);
+    await expect(hostsPanel).toBeVisible();
+    await expect(guestsPanel).toBeHidden();
+    flow.check(
+      "#% opens the Hosts tab, as an unknown fragment does",
+      "hosts=true guests=false",
+      await selected(),
+    );
+    await guestsTab.click();
+    await expect(guestsPanel).toBeVisible();
+    flow.check("after #% the tabs still work", "hosts=false guests=true", await selected());
+  });
+
   await flow.step("follow links to #hosts and back to #guests", async () => {
     await page.evaluate(() => {
       window.location.hash = "hosts";

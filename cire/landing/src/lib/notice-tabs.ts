@@ -10,6 +10,19 @@
  * announces, one tab in the tab order, arrow keys, Home and End — and keeps
  * the address in step without adding history entries or scrolling.
  */
+/**
+ * The address fragment, decoded. A fragment that does not decode — `#%`, a
+ * link cut off mid-escape — names nothing, as an unknown one does; without
+ * this the throw would stop the tabs half-built, roles set and no tab selected.
+ */
+function decodedHash(): string | null {
+  try {
+    return decodeURIComponent(location.hash.slice(1));
+  } catch {
+    return null;
+  }
+}
+
 export function enhanceNoticeTabs(root: HTMLElement): void {
   const list = root.querySelector<HTMLElement>("[data-notice-tablist]");
   const tabs = [...root.querySelectorAll<HTMLAnchorElement>("[data-notice-tab]")];
@@ -55,7 +68,7 @@ export function enhanceNoticeTabs(root: HTMLElement): void {
 
   /** The panel the address names, directly or by naming something inside it. */
   function fromHash(): { id: string; target: HTMLElement } | null {
-    const hash = decodeURIComponent(location.hash.slice(1));
+    const hash = decodedHash();
     if (!hash) return null;
     const target = document.getElementById(hash);
     const panel = target?.closest<HTMLElement>("[data-notice-panel]");
