@@ -12,6 +12,7 @@ import { weddingTier } from "../middleware/wedding-tier";
 import { runCire } from "../observability";
 import {
   ApplyTemplateBody,
+  AssignTaskBody,
   CreateTaskBody,
   ReorderTasksBody,
   UpdateTaskBody,
@@ -72,6 +73,7 @@ export const createTaskReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
  *   GET    /api/organiser/weddings/:weddingId/tasks/templates/:templateId (weddingEditor)
  *   POST   /api/organiser/weddings/:weddingId/tasks/templates/:templateId (weddingEditor)
  *   PATCH  /api/organiser/weddings/:weddingId/tasks/:taskId   (weddingEditor)
+ *   PUT    /api/organiser/weddings/:weddingId/tasks/:taskId/assignee (weddingEditor)
  *   DELETE /api/organiser/weddings/:weddingId/tasks/:taskId   (weddingEditor)
  *
  * The template preview is a read, but it sits here: it shows what applying
@@ -79,7 +81,9 @@ export const createTaskReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
  *
  * A viewer gets 403 `read_only_role`; a wedding below Gold gets 402
  * `payment_required`. The service re-scopes every write by
- * wedding_id, so a cross-tenant task id 404s (`TaskNotInWedding`).
+ * wedding_id, so a cross-tenant task id 404s (`TaskNotInWedding`), and the
+ * assignee write takes only a seat of the same wedding: anything else is 422
+ * `assignee_not_in_wedding` (`HostNotInWedding`), with nothing written.
  *
  * NOTE: `/tasks/reorder` is registered BEFORE `/tasks/:taskId` so the literal
  * wins over the param.
@@ -258,6 +262,54 @@ export const createTaskWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
                   Effect.sync(() => {
                     set.status = 404;
                     return { error: "task_not_found" };
+                  }),
+                ),
+                Effect.catchDefect(() =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
+              ),
+            );
+          },
+          manualParse,
+        )
+        .put(
+          "/tasks/:taskId/assignee",
+          async ({ weddingId, params, request, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknownEffect(AssignTaskBody)(raw);
+                const task = yield* tasksService.assign(
+                  weddingId,
+                  params.taskId,
+                  body.assignedHostId,
+                );
+                return { task };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("SchemaError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
+                Effect.catchTag("TaskNotInWedding", () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "task_not_found" };
+                  }),
+                ),
+                Effect.catchTag("HostNotInWedding", () =>
+                  Effect.sync(() => {
+                    set.status = 422;
+                    return { error: "assignee_not_in_wedding" };
                   }),
                 ),
                 Effect.catchDefect(() =>

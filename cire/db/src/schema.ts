@@ -450,9 +450,23 @@ export const tasks = sqliteTable(
     dueSource: text("due_source", { enum: ["manual", "template"] })
       .notNull()
       .default("manual"),
+    // ── Assignee (migration 0086) ───────────────────────────────────────────
+    // The seat (`wedding_hosts.id`) this task is assigned to, or NULL for a
+    // task nobody holds. A seat, not a profile: `runSheetVisibleTo` filters a
+    // helper's run sheet on it. The service only ever writes a seat of the
+    // task's own wedding. SET NULL, so a seat that is removed or leaves takes
+    // its assignments with it and the task survives, unassigned.
+    assignedHostId: text("assigned_host_id").references(() => weddingHosts.id, {
+      onDelete: "set null",
+    }),
   },
   (t) => [
     index("tasks_wedding_bucket_sort_idx").on(t.weddingId, t.timeframeBucket, t.sortOrder),
+    // The probe the SET NULL runs on every seat delete. Partial: most tasks
+    // are unassigned and need no entry.
+    index("tasks_assigned_host_idx")
+      .on(t.assignedHostId)
+      .where(sql`assigned_host_id IS NOT NULL`),
     // One task per template item per wedding, so applying a template twice —
     // or two applies racing — adds nothing the second time. Partial: a task
     // the couple typed has no template and needs no entry.

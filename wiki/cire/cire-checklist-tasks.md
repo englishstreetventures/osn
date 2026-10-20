@@ -7,6 +7,7 @@ related:
   - "[[cire-host-portal-layout]]"
   - "[[drag-and-drop]]"
   - "[[cire-entitlements]]"
+  - "[[cire-auth]]"
   - "[[d1-limits]]"
 last-reviewed: 2026-10-20
 ---
@@ -17,12 +18,15 @@ freeform per-wedding task list, file each task under a lead-time **bucket**
 (12 months out → day-of), optionally set a due date, check tasks off, and
 reorder tasks within a bucket. A couple can also seed the list from the
 **starter checklist**, whose due dates follow the wedding date
-([[#Starter checklist]]).
+([[#Starter checklist]]), and hand any task to someone seated on the wedding
+([[#Assignee]]).
 
 ## `tasks` table
 
-Created by `0038_tasks.sql`; `0085_task_templates.sql` added the four
-template columns and the unique index (`ALTER TABLE ADD`, no rebuild).
+Built by the baseline `0001_initial.sql` (`migrations-archive/0038_tasks.sql`
+first); `0085_task_templates.sql` added the four template columns and the
+unique index, and `0086_task_assigned_host.sql` the assignee, both with
+`ALTER TABLE ADD` and no rebuild.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -40,11 +44,13 @@ template columns and the unique index (`ALTER TABLE ADD`, no rebuild).
 | `template_item` | `text` | the item's stable key in that template; NULL on a typed task |
 | `due_offset_days` | `integer` | days from the wedding date the item was seeded with, negative before the day; NULL on a typed task |
 | `due_source` | `text` NOT NULL | `'template'`: `due_at` follows the wedding date. `'manual'` (default, and every typed task): `due_at` is whatever the couple set |
+| `assigned_host_id` | `text` | FK → `wedding_hosts(id)` ON DELETE SET NULL; the seat holding the task, NULL for nobody. Only ever a seat of the task's own wedding ([[#Assignee]]) |
 
 **Indexes:**
 
 - `tasks_wedding_bucket_sort_idx ON tasks (wedding_id, timeframe_bucket, sort_order)` — serves the list read (filtered + ordered) without a full scan.
 - `tasks_wedding_template_item_unique ON tasks (wedding_id, template_id, template_item) WHERE template_id IS NOT NULL`, unique and partial — one task per template item per wedding, so a repeated or racing apply adds nothing. A typed task has no template and no entry in it.
+- `tasks_assigned_host_idx ON tasks (assigned_host_id) WHERE assigned_host_id IS NOT NULL`, partial — the probe the foreign key's SET NULL runs on every seat delete. Most tasks are unassigned and need no entry.
 
 ## Bucket single-source
 
@@ -85,6 +91,7 @@ read/write split pattern used by the hosts routes in `app.ts`):
 | `POST` | `/tasks` | `weddingEditor` (owner or editor co-host) | `createTaskWriteRoutes` |
 | `PATCH` | `/tasks/reorder` | `weddingEditor` | `createTaskWriteRoutes` |
 | `PATCH` | `/tasks/:taskId` | `weddingEditor` | `createTaskWriteRoutes` |
+| `PUT` | `/tasks/:taskId/assignee` | `weddingEditor` | `createTaskWriteRoutes` |
 | `DELETE` | `/tasks/:taskId` | `weddingEditor` | `createTaskWriteRoutes` |
 | `GET` | `/tasks/templates/:templateId` | `weddingEditor` | `createTaskWriteRoutes` |
 | `POST` | `/tasks/templates/:templateId` | `weddingEditor` | `createTaskWriteRoutes` |
@@ -132,6 +139,86 @@ for screen readers, from `@shared/sortable` through `ReorderControls.tsx`. The
 move is announced in that bucket's live region and focus stays on the moved
 task. A task never moves between buckets by dragging — that would change when
 it is due, not its order. See [[drag-and-drop]].
+
+## Assignee
+
+Any task can be handed to one seat of its wedding — an owner's, an editor's, a
+viewer's or a helper's. The column holds the seat id (`wedding_hosts.id`), not
+a profile id, because the helper run sheet filters on the seat
+(`runSheetVisibleTo`, [[cire-auth]]).
+
+| Route | Body | Answer |
+|---|---|---|
+| `PUT …/tasks/:taskId/assignee` | `{ assignedHostId: string \| null }`, required; `null` leaves the task with nobody | `{ task }` |
+
+It sits in the write group, so an owner or editor on Gold may call it; a viewer
+gets 403 `read_only_role`, a helper 403 `forbidden`, a wedding below Gold 402.
+The body is decoded with Effect Schema (`AssignTaskBody` in
+`cire/api/src/schemas/tasks.ts`): a missing field, a non-string, an empty string
+or one over 64 characters is 400. A task of another wedding is 404
+`task_not_found`. A string that is not a seat of this wedding — another
+wedding's seat, a guest's id, an id that names nothing — is **422
+`assignee_not_in_wedding`**, with nothing written.
+
+`tasksService.assign` (`cire/api/src/services/tasks.ts`) sends one
+`UPDATE … RETURNING`, whose WHERE carries the seat check (`EXISTS` a
+`wedding_hosts` row with that id and this wedding's id). The check is in the
+write itself, so a seat removed while it runs is either not found or cleared
+after by the foreign key. Only when the UPDATE writes nothing does a second
+statement read the task, to tell the refusals apart: no task is
+`TaskNotInWedding`, a task left as it was is `HostNotInWedding`. A gap between
+the two can change which refusal is named, never what is written.
+
+**A seat that goes takes its assignments with it.** Removing a co-host or
+leaving the wedding (`hostsService.remove`) deletes the seat, and the foreign
+key's ON DELETE SET NULL clears every task it held; the tasks stay. A refused
+last-owner leave deletes nothing and keeps the assignment.
+
+**"Needs an owner" is derived, not stored.** The portal shows it on every open
+task nobody holds; ticking the task done or assigning someone clears it.
+
+`GET …/hosts` names each seat by its id (`hostId`), so the portal can turn an
+`assignedHostId` into a name. The counter `cire.tasks.assignment.changed` (unit
+`{request}`) counts every write by `action` (`assign`, `unassign`) and `result`
+(`ok`, `task_not_found`, `assignee_not_in_wedding`); the span is
+`cire.tasks.assign`, with attribute `task.assignment`.
+
+### In the portal
+
+Each row of `ChecklistView.tsx` names who holds the task — the display name,
+else `@handle`, else the profile id — or shows "Needs an owner" when it is open
+and nobody does, for a viewer too. The seats come from `lib/hosts-store.ts`, a
+cache with the contract in [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]];
+the checklist reads it only once some task is assigned. Until it answers, an
+assigned row says only "Assigned"; a seat the list no longer has has gone, and
+the row and the drawer treat its task as held by nobody.
+
+An owner or editor gets an **Edit** button on each row, which opens
+`TaskEditDrawer.tsx`: the shared `Modal` with `presentation="drawer"`. Its
+"Assigned to" select offers "Nobody yet" and every seat with its role. Each
+field in the drawer saves itself when it changes, the way a co-host's role
+select does, so a field added later brings its own write. The pick shows at
+once and rolls back if the API refuses it.
+
+The select is never disabled while a write is out; it carries `aria-busy`
+instead. In Chrome on Windows and Linux an arrow key on a closed select changes
+its value and fires `change`, so a keyboard user arrowing through the options
+picks once per key press, and a control disabled under them would drop their
+focus. The writes go one at a time: a pick made while one is out waits, a later
+pick for the same task replaces it, and only the latest is written once the
+write is back. A write that a later pick replaced changes nothing on screen,
+whatever it answers; a refusal of the last write puts the row back to whoever
+the server last said holds the task. The options are keyed by seat id, so a
+re-read of the seats keeps the selected option in place: replaced, it would
+leave Chrome showing "Nobody yet" for a task that is still held.
+
+The first opening of the drawer on a visit to the checklist reads the seats
+from the server unless the visit has read them already; later openings use
+that read. A 422 reads the seats again; on the last write of a run it also
+reads the tasks again and says so inside the drawer. The co-host panel hands the checklist the seats it reads on opening,
+and marks them stale after each add, role change and removal. A removal marks
+the tasks stale too when a cached task names the removed seat, or when the
+seat was added on this visit and the panel never saw its id.
 
 ## Starter checklist
 
@@ -270,9 +357,10 @@ Public API:
 | `taskCounts(weddingId)` | `{ open, done, total } \| null` — reactive counts for the Overview completion bar |
 
 `TaskRow` mirrors `TaskDto` from the API (ms-epoch numbers for `createdAt` /
-`completedAt`; `timeframeBucket` string key; `status: "open" | "done"`). The
-DTO's provenance fields (`templateId`, `templateItem`, `dueSource`) are left
-out of it: nothing in the portal reads them.
+`completedAt`; `timeframeBucket` string key; `status: "open" | "done"`;
+`assignedHostId`, a seat id or null). The DTO's provenance fields
+(`templateId`, `templateItem`, `dueSource`) are left out of it: nothing in the
+portal reads them.
 
 ## Deferred items
 
@@ -283,7 +371,6 @@ additively:
 |---|---|
 | Due-date editor | Change a task's due date from the portal (englishstreetventures/osn#1590) |
 | Category taxonomy | Closed enum (e.g. venue / catering / flowers / admin); filter UI |
-| Assignee | Co-host / organiser assignment per task |
 | Vendor linkage | `tasks.vendor_id` → `vendors` (Phase 2); booking a vendor ticks matching tasks |
 | Day-of → Schedule sync | Day-of tasks reference a `schedule_event_id`; surface in a run-sheet view |
 | `skipped` status | Third status alongside `open`/`done` for tasks that don't apply |
@@ -296,6 +383,13 @@ additively:
   regression test (`tasks.test.ts` — "reorder is wedding-scoped") proves an
   owner of wedding B cannot shuffle wedding A's checklist. Complements the
   existing update/delete tenancy tests.
+- **Tenancy (assignee)** — the assign UPDATE is scoped by `(task id,
+  wedding_id)` and admits only a seat of that same wedding.
+  `tests/routes/tasks.test.ts` ("assigning a task to a seat") proves another
+  wedding's seat, a guest id and a stray id are each 422 with the assignee
+  unchanged, and that a task of another wedding is 404 and untouched;
+  `tests/db/d1-integration.test.ts` runs the UPDATE, the refusal's task read
+  and the SET NULL on Miniflare.
 - **Tenancy (templates)** — every statement of the preview, the apply and the
   re-dating is scoped by the wedding id, and
   `tests/routes/task-templates.test.ts` proves a date change on one wedding
