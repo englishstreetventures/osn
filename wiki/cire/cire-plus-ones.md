@@ -14,7 +14,7 @@ related:
   - "[[cire-landing]]"
 last-reviewed: 2026-10-20
 ---
-# Plus-ones
+# Cire plus-ones
 
 A guest may bring a plus-one when an editor co-host allows it. The household names the plus-one on the invite, and from then on the plus-one is a guest like any other: they appear in the Respond dialog, reply to their events, and count in every tally.
 
@@ -143,7 +143,7 @@ The organiser portal's **RSVPs** tab (`RsvpView`) lists a plus-one like any gues
 - **The provenance badge.** A reply the household gave for its plus-one (`inviter_attested`) is badged **Household-entered**, in muted ink, apart from the gold **Host-entered** of an organiser's reply. A guest's or household's reply whose status a host changed since also carries a gold **Host-updated** (the view's `statusRecordedByHost`). A guest's own reply carries no badge.
 - **Search.** The marker is part of what a word matches, so "plus-one" lists every plus-one and the inviter's name finds the guest they brought.
 
-Recording a reply for a plus-one offers the same dietary picker and free text as for any guest, prefilled with the stored answer. Left as they are, the form says the stored requirements stay. Once the organiser edits them, an unticked box appears with the organiser's plus-one wording ("I confirm the plus-one consented…"), and the save carries that wording's version and the plus-one's full name.
+Recording a reply for a plus-one offers the same dietary picker and free text as for any guest, prefilled with the stored answer. Left as they are, the form says the stored requirements stay. Once the organiser edits them, an unticked box appears with the organiser's plus-one wording ("I confirm the plus-one consented…"), and the save carries that wording's version and the plus-one's full name. Under the box, and only on a plus-one's reply, a line asks the organiser to pass on the notice the plus-one may never see: "Share our privacy notice with them: cireweddings.com/privacy", linked to that page in a new tab; the page leads to the guests' notice ([[cire-landing#Privacy pages]]). The line is not part of the attested wording, so it carries no version.
 
 The portal sends a save that leaves the dietary fields alone as `{ status }`. **A body with neither `dietary` nor `dietaryPresets` is status-only** for every guest, and the route then writes the status and nothing else (`rsvpService.recordStatus`, one upsert). For a plus-one:
 
@@ -248,7 +248,7 @@ Migration 0066 only adds. Dropping the columns means rebuilding `guests`, and un
 | Pipeline | `cire/api/src/services/import.ts`, `state-export.ts`, `revert.ts` |
 | Editor draft | `cire/host/src/lib/guest-event-draft.ts` |
 | Portal controls | `cire/host/src/components/GuestTable.tsx`, `cire/host/src/lib/plus-one-permission.ts` |
-| RSVP table | `cire/host/src/components/RsvpView.tsx`, `cire/host/src/lib/rsvp-filter.ts` |
+| RSVP table | `cire/host/src/components/RsvpView.tsx`, `cire/host/src/lib/rsvp-filter.ts`, `cire/host/src/lib/osn.ts` (`CIRE_MARKETING_URL`, the privacy link's origin) |
 | Attestation wording and version | `cire/dietary/src/attestation.ts` |
 | Consent version and "current" | `cire/api/src/services/rsvp.ts` (`dietaryConsentVersionFor`, `isDietaryConsentCurrent`) |
 | Guest capture | `cire/invites/src/components/PlusOnePrompt.tsx`, `plus-one.ts`, `plus-one-updates.ts`, `LoginSection.tsx`, `RsvpPanel.tsx`, `designs/{classic,gala}/InvitePage.tsx` |

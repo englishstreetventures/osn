@@ -131,7 +131,10 @@ each kind of person who uses Cire. Each notice carries its own "Last updated".
 | `/privacy/guests` | `src/pages/privacy/guests.astro`, rendering `cire/ui/src/guest-privacy-notice.astro` | Invited households and the people they bring |
 | `/privacy/vendors` | `src/pages/privacy/vendors.astro` | Wedding suppliers |
 
-The site footer links `/privacy`, which links to the three notices.
+The site footer links `/privacy`, which links to the three notices. So does the
+organiser portal's RSVP editor, under a plus-one's dietary attestation; the
+portal reads this site's origin from `PUBLIC_MARKETING_URL`
+(`CIRE_MARKETING_URL` in `cire/host/src/lib/osn.ts`).
 
 **One guest notice, two sites.** The guest site renders the same component as
 its own `/privacy` page, so a plus-one sent to cireweddings.com/privacy reaches
