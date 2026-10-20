@@ -3,9 +3,9 @@
   "pr": {
     "number": 1589,
     "branch": "feat/cire-member-step-for-all",
-    "base_sha": "263599f251e63750e639c548265f6ae7b124cb12",
-    "head_sha": "1009f62a4e6285edf827220e3429a01a1ff6c3cc",
-    "generated_at": "2026-10-19T17:02:54.724Z",
+    "base_sha": "a02547d58d05eda64ed06f8ad917e883df8ff5d2",
+    "head_sha": "235eaaf38d27e33113578b2a34507941115668ac",
+    "generated_at": "2026-10-20T02:19:32.709Z",
     "merged_at": null,
     "phase": "at-open"
   },
@@ -23,76 +23,76 @@
     "method": "unconfirmed"
   },
   "window": {
-    "sessions": 6,
+    "sessions": 9,
     "first_ts": "2026-10-19T15:30:19.228Z",
-    "last_ts": "2026-10-19T17:02:51.847Z",
-    "span_seconds": 5553,
-    "active_seconds": 5624,
+    "last_ts": "2026-10-20T02:19:31.701Z",
+    "span_seconds": 38952,
+    "active_seconds": 6402,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 94.022091,
+    "usd_equivalent": 106.54772020000004,
     "tokens": {
-      "input": 1542,
-      "output": 18866,
-      "thinking": 4319,
-      "cache_write_5m": 2588971,
+      "input": 1614,
+      "output": 20665,
+      "thinking": 5027,
+      "cache_write_5m": 3370597,
       "cache_write_1h": 0,
-      "cache_read": 201734370
+      "cache_read": 223187448
     },
     "by_model": {
       "claude-opus-5-5": {
         "tokens": {
-          "input": 1542,
-          "output": 18866,
-          "thinking": 4319,
-          "cache_write_5m": 2588971,
+          "input": 1614,
+          "output": 20665,
+          "thinking": 5027,
+          "cache_write_5m": 3370597,
           "cache_write_1h": 0,
-          "cache_read": 201734370
+          "cache_read": 223187448
         },
-        "usd_equivalent": 94.022091,
-        "messages": 765
+        "usd_equivalent": 106.54772020000004,
+        "messages": 800
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 28,
-          "output": 5593,
-          "thinking": 1632,
-          "cache_write_5m": 91303,
+          "input": 38,
+          "output": 6942,
+          "thinking": 2340,
+          "cache_write_5m": 110116,
           "cache_write_1h": 0,
-          "cache_read": 241305
+          "cache_read": 270036
         },
-        "usd_equivalent": 0.665009,
-        "messages": 14
+        "usd_equivalent": 0.7975863999999999,
+        "messages": 19
       },
       "subagent": {
         "tokens": {
-          "input": 1514,
-          "output": 13273,
+          "input": 1576,
+          "output": 13723,
           "thinking": 2687,
-          "cache_write_5m": 2497668,
+          "cache_write_5m": 3260481,
           "cache_write_1h": 0,
-          "cache_read": 201493065
+          "cache_read": 222917412
         },
-        "usd_equivalent": 93.35708199999999,
-        "messages": 751
+        "usd_equivalent": 105.75013380000003,
+        "messages": 781
       }
     },
     "effort": {
-      "medium": 14,
+      "medium": 19,
       "high": 152,
-      "xhigh": 599
+      "xhigh": 629
     },
     "unpriced_models": []
   },
   "diff": {
     "files": {
       "generated": 1,
-      "test": 13,
+      "test": 14,
       "docs": 6,
-      "config": 1,
+      "config": 2,
       "source": 21
     },
     "loc": {
@@ -101,15 +101,15 @@
         "deleted": 0
       },
       "test": {
-        "added": 788,
+        "added": 797,
         "deleted": 62
       },
       "docs": {
-        "added": 68,
-        "deleted": 31
+        "added": 67,
+        "deleted": 30
       },
       "config": {
-        "added": 20,
+        "added": 186,
         "deleted": 0
       },
       "source": {
@@ -123,7 +123,7 @@
       "tools/e2e"
     ],
     "touches_migration": false,
-    "commits": 5
+    "commits": 8
   },
   "interaction": {
     "user_turns": 0,
@@ -131,14 +131,14 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 635,
-      "Edit": 126,
-      "Read": 115,
+      "Bash": 661,
+      "Edit": 129,
+      "Read": 119,
       "Skill": 11,
-      "SubagentHandback": 7,
-      "Write": 6,
+      "SubagentHandback": 8,
+      "StructuredOutput": 8,
+      "Write": 7,
       "Agent": 6,
-      "StructuredOutput": 5,
       "Grep": 4
     },
     "edit_churn": {
