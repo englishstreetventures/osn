@@ -62,12 +62,14 @@ The platform shape is in [[backend-patterns]]. Cire's departures:
 - **Errors are tagged classes** extending `Data.TaggedError`. Nothing in the
   service layer throws.
 - **Tell one constraint failure from another by `driverErrorText(e)`**
-  (`cire/api/src/db/index.ts`), never `String(e)`. On D1, drizzle wraps a failed
+  (`cire/api/src/db/index.ts`), never `String(e)`. Drizzle wraps a failed
   single statement in `DrizzleQueryError`, whose message names only the
-  statement; the database's reason (`D1_ERROR: UNIQUE constraint failed: …`)
-  sits on its `cause`. bun:sqlite and a failed `batch()` put it on the error
-  itself, so a sniffer reading `String(e)` passes every route test and misses
-  every conflict in production. Match the database's own `table.column`
+  statement, on D1 and bun:sqlite alike; the database's reason sits down its
+  `cause` chain, one level deeper on D1 (`D1_ERROR: UNIQUE constraint failed:
+  …`) than on bun:sqlite. A failed D1 `batch()` puts it on the error itself.
+  `driverErrorText` walks the whole chain; a sniffer reading `String(e)` misses
+  every conflict, and one reading a fixed depth of `cause` can pass every
+  bun:sqlite test and miss on D1. Match the database's own `table.column`
   wording (`guest_account_links.guest_id`), never a bare column or table name:
   on D1 the text also holds the statement, and drizzle's INSERT names every
   column of the table whatever the conflict was on. Drizzle quotes each name,
