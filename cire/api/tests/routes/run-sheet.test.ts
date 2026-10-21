@@ -12,6 +12,7 @@ import type { OsnProfileDisplay } from "../../src/services/osn-bridge";
 import { appRequest, failStatements, jsonBody, recordStatements, setTier } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { insertWedding } from "../test-helpers/wedding";
@@ -499,9 +500,29 @@ describe("GET /run-sheet: gates", () => {
     for (const who of [OWNER, EDITOR, VIEWER, HELPER, FULL]) {
       const res = await get(app, who);
       expect(res.status, who).toBe(402);
-      const body = (await jsonBody(res)) as { error: string; tier: string };
-      expect(body.error).toBe("payment_required");
-      expect(body.tier).toBe("gold");
+      expect(await jsonBody(res), who).toEqual({ error: "payment_required", tier: "gold" });
+    }
+  });
+
+  // A helper's phone reads the run sheet on the session cookie, and the seat
+  // it narrows to is that cookie's account's.
+  it("reads the run sheet on the session cookie, narrowed to that seat, and refuses a dead one", async () => {
+    const db = build();
+    const app = buildApp(db);
+    const read = (cookie: string) => appRequest(app, PATH, { headers: { cookie } });
+
+    const live = await read(`cire_org_session=${await seedOrganiserSession(db, HELPER)}`);
+    expect(live.status).toBe(200);
+    const sheet = (await live.json()) as Sheet;
+    expect(sheet.scope).toBe("own");
+    expect(sheet.viewerHostId).toBe(SEAT.helper);
+    expect(sheet.items.map((i) => i.id)).toEqual(["programmes", "evt_arrival", "rings", "stray"]);
+
+    const dead = await read("cire_org_session=not-a-live-session-token");
+    expect(dead.status).toBe(401);
+    const raw = await dead.text();
+    for (const secret of ["programmes", "evt_arrival", "Guest arrival", SEAT.helper]) {
+      expect(raw, secret).not.toContain(secret);
     }
   });
 
