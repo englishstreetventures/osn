@@ -74,7 +74,7 @@ describe("events template", () => {
 describe("guests template", () => {
   it("emits the required + optional guest columns followed by the example event columns", () => {
     expect(firstLine(buildGuestsTemplateCsv())).toBe(
-      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname,Ceremony,Reception",
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname,Guest Email,Ceremony,Reception",
     );
   });
 

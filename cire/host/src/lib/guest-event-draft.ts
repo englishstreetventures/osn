@@ -23,6 +23,7 @@
 // Effect is deliberately NOT imported — this is frontend code (cire CLAUDE.md:
 // "Effect is backend + DB only — never import it in cire/invites or cire/host").
 // Plain Solid primitives + a structural clone, matching events-/guests-store.
+import { normaliseGuestEmail, parseGuestEmail } from "@cire/guest-email";
 import { batch, createMemo, createSignal } from "solid-js";
 import { createStore, produce, reconcile, unwrap } from "solid-js/store";
 
@@ -133,6 +134,22 @@ export interface DraftGuest {
   firstName: string;
   lastName: string;
   nickname: string | null;
+  /**
+   * The guest's address as the organiser sees and edits it: `""` for none.
+   * Absent when the rows came from an API older than the column, and then the
+   * draft says nothing about addresses.
+   */
+  email?: string;
+  /**
+   * The address as loaded, never edited. The draft sends an address only when
+   * `email` differs from it, and sends it back as `emailExpected`, so a save
+   * never touches an address the organiser did not change, and never
+   * overwrites one a guest saved since the load.
+   */
+  emailLoaded?: string;
+  /** Who gave the loaded address. A guest's own is read-only in the editor:
+   *  the organiser may remove it, never change it. */
+  emailSource?: "guest" | "organiser_attested" | null;
   /** Client keys of the events this guest attends (matrix cells). Kept as event
    *  KEYS (not ids) so a not-yet-saved event could be referenced later in E6;
    *  serialisation resolves keys → the event's current name for the wire. */
@@ -167,6 +184,11 @@ interface WireGuest {
   lastName: string;
   nickname: string | null;
   eventNames: string[];
+  /** Present only for a guest whose address the organiser changed: `null`
+   *  removes it. */
+  email?: string | null;
+  /** The address the editor loaded, sent with `email`. */
+  emailExpected?: string | null;
 }
 interface WireFamily {
   id?: string;
@@ -284,7 +306,7 @@ function buildDraft(
       };
       byFamily.set(g.familyId, fam);
     }
-    fam.guests.push({
+    const guest: DraftGuest = {
       key: nextKey(),
       id: g.guestId,
       firstName: g.firstName,
@@ -293,7 +315,15 @@ function buildDraft(
       // Resolve invited event ids → the draft's event keys; drop any dangling id
       // (an event removed out from under us) defensively.
       eventKeys: g.events.map((id) => eventKeyById.get(id)).filter((k): k is string => Boolean(k)),
-    });
+    };
+    // A row from an API older than addresses carries no `email`; the draft
+    // then says nothing about addresses.
+    if (g.email !== undefined) {
+      guest.email = g.email ?? "";
+      guest.emailLoaded = g.email ?? "";
+      guest.emailSource = g.emailSource ?? null;
+    }
+    fam.guests.push(guest);
   }
 
   for (const h of households) {
@@ -389,6 +419,11 @@ export function toDesiredState(
             .filter((n): n is string => Boolean(n)),
         };
         if (g.id) guest.id = g.id;
+        const email = emailEdit(g);
+        if (email) {
+          guest.email = email.email;
+          guest.emailExpected = email.expected;
+        }
         return guest;
       }),
     };
@@ -398,6 +433,24 @@ export function toDesiredState(
   });
 
   return { events, families };
+}
+
+/** An address in the form the server stores, or null for none. */
+function storedEmail(value: string | undefined): string | null {
+  const stored = normaliseGuestEmail(value ?? "");
+  return stored.length === 0 ? null : stored;
+}
+
+/**
+ * The address change a guest row sends, or null when the organiser made none.
+ * Comparing stored forms means retyping the same address in another case, or
+ * with spaces around it, is no change.
+ */
+function emailEdit(g: DraftGuest): { email: string | null; expected: string | null } | null {
+  if (g.email === undefined) return null;
+  const email = storedEmail(g.email);
+  const expected = storedEmail(g.emailLoaded);
+  return email === expected ? null : { email, expected };
 }
 
 // ── Replay: keep unsaved edits across a reload ────────────────────────────────
@@ -424,7 +477,7 @@ const EVENT_FIELDS = [
   "mapsUrl",
 ] as const;
 
-const GUEST_FIELDS = ["firstName", "lastName", "nickname"] as const;
+const GUEST_FIELDS = ["firstName", "lastName", "nickname", "email"] as const;
 
 /** Equal as values. A run of show's client keys are not part of its value:
  *  the fresh rows carry new ones for the same items. */
@@ -831,6 +884,9 @@ export function validateDraft(draft: DraftState): FieldError[] {
       if (g.nickname && tooLong(g.nickname)) {
         errors.push({ key: g.key, message: "Nickname is too long." });
       }
+      if (g.email !== undefined && g.email.trim().length > 0 && parseGuestEmail(g.email) === null) {
+        errors.push({ key: g.key, message: "Enter one email address, like name@example.com." });
+      }
     }
   }
   return errors;
@@ -917,7 +973,7 @@ export interface GuestEventDraft {
   addGuest: (familyKey: string) => string;
   updateGuest: (
     guestKey: string,
-    patch: Partial<Pick<DraftGuest, "firstName" | "lastName" | "nickname">>,
+    patch: Partial<Pick<DraftGuest, "firstName" | "lastName" | "nickname" | "email">>,
   ) => void;
   removeGuest: (guestKey: string) => void;
   toggleAttendance: (guestKey: string, eventKey: string) => void;
@@ -1181,7 +1237,17 @@ export function createGuestEventDraft(): GuestEventDraft {
       fi,
       "guests",
       produce((gs) => {
-        gs.push({ key, id: null, firstName: "", lastName: "", nickname: null, eventKeys: [] });
+        gs.push({
+          key,
+          id: null,
+          firstName: "",
+          lastName: "",
+          nickname: null,
+          email: "",
+          emailLoaded: "",
+          emailSource: null,
+          eventKeys: [],
+        });
       }),
     );
     return key;
@@ -1189,7 +1255,7 @@ export function createGuestEventDraft(): GuestEventDraft {
 
   function updateGuest(
     guestKey: string,
-    patch: Partial<Pick<DraftGuest, "firstName" | "lastName" | "nickname">>,
+    patch: Partial<Pick<DraftGuest, "firstName" | "lastName" | "nickname" | "email">>,
   ) {
     const loc = findGuest(guestKey);
     if (!loc) return;

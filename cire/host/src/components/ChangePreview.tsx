@@ -1,7 +1,10 @@
+import { ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
 import Button from "@cire/ui/button";
 import { Notice } from "@shared/ui/ui/notice";
 import { Table, Td, Th } from "@shared/ui/ui/table";
 import { createSignal, createUniqueId, For, Show } from "solid-js";
+
+import EmailAttestationCheck from "./EmailAttestationCheck";
 // The SHARED change-preview renderer (guest+event editor §8): "extract
 // ImportPanel's plan-rendering into a shared component so both ImportPanel and
 // the editor save-flow render the same preview". Both front doors of the
@@ -48,6 +51,9 @@ export interface LinkedTaskPreview {
 export interface ChangeChoice {
   /** The linked tasks to remove with their events; empty keeps them all. */
   removeLinkedTasks: string[];
+  /** The organiser attestation's version, once ticked, for a change that sets
+   *  guest addresses on the organiser's word. */
+  emailAttestation?: string;
 }
 
 /** `POST …/changes/apply`'s body (`ApplyBody` in cire-api's
@@ -58,6 +64,9 @@ export interface ApplyChangeBody {
   confirmClears?: ClearedHalves;
   /** The linked tasks to remove with their events; absent keeps them all. */
   removeLinkedTasks?: string[];
+  /** The organiser attestation's version, for a change that sets guest
+   *  addresses on the organiser's word. */
+  emailAttestation?: string;
 }
 
 /** How many rows an editor save removes from each list it leaves EMPTY
@@ -76,6 +85,12 @@ interface ChangePreviewProps {
   /** Impact warnings (RSVP loss on delete/un-invite, claim-code loss on
    *  household delete). Confirm-gated — surfaced but non-blocking. */
   warnings: string[];
+  /**
+   * How many guest addresses the change sets on the organiser's word
+   * (`emailAttestations` on the `changes/preview` response). Above zero the
+   * preview shows the attestation, and Confirm waits for its tick.
+   */
+  emailAttestations?: number;
   /** Apply the previewed change, with what the organiser chose. */
   onConfirm: (choice: ChangeChoice) => void;
   /** Dismiss without applying. */
@@ -239,6 +254,17 @@ export default function ChangePreview(props: ChangePreviewProps) {
     [props.clears ? clearsId : null, linked().length > 0 ? linkedId : null]
       .filter((id) => id !== null)
       .join(" ") || undefined;
+  const [attested, setAttested] = createSignal(false);
+  const needsAttestation = () => (props.emailAttestations ?? 0) > 0;
+  const choice = (): ChangeChoice => {
+    const chosen: ChangeChoice = {
+      removeLinkedTasks: removeLinked() ? linked().map((task) => task.id) : [],
+    };
+    if (needsAttestation() && attested()) {
+      chosen.emailAttestation = ORGANISER_EMAIL_ATTESTATION.version;
+    }
+    return chosen;
+  };
   return (
     <div class="border-border bg-bg/40 flex flex-col gap-4 rounded-sm border p-4">
       <h3 class="font-display text-gold-dim text-ui-md">Diff preview</h3>
@@ -284,16 +310,21 @@ export default function ChangePreview(props: ChangePreviewProps) {
         </div>
       </Show>
 
+      <Show when={needsAttestation()}>
+        <EmailAttestationCheck
+          count={props.emailAttestations ?? 0}
+          checked={attested()}
+          onChange={setAttested}
+          disabled={props.busy}
+        />
+      </Show>
+
       <div class="flex flex-wrap items-center gap-3">
         <Button
           variant="primary"
           type="button"
-          onClick={() =>
-            props.onConfirm({
-              removeLinkedTasks: removeLinked() ? linked().map((task) => task.id) : [],
-            })
-          }
-          disabled={props.busy}
+          onClick={() => props.onConfirm(choice())}
+          disabled={props.busy || (needsAttestation() && !attested())}
           aria-describedby={describedBy()}
         >
           {props.busy ? "Applying…" : (props.confirmLabel ?? "Apply changes")}

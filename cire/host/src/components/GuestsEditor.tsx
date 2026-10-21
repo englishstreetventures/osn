@@ -46,6 +46,18 @@ interface PreviewResponse {
   baseRevision: string;
   /** Set when the save removes every household; apply echoes it back. */
   clears: ClearedHalves | null;
+  /** How many guest addresses the save sets on the organiser's word. Absent
+   *  from an API older than addresses. */
+  emailAttestations?: number;
+}
+
+/** The `changes/apply` body the editor sends. */
+interface ApplyRequest {
+  changeId: string;
+  /** The counts the preview showed, echoed back for a save that empties a list. */
+  confirmClears?: ClearedHalves;
+  /** `ORGANISER_EMAIL_ATTESTATION.version`, once the organiser ticked it. */
+  emailAttestation?: string;
 }
 
 /**
@@ -248,7 +260,16 @@ export default function GuestsEditor(props: { weddingId: string }) {
     }
   }
 
-  async function handleApply() {
+  /** The apply body: the change, the counts a clear needs echoed back, and
+   *  the address attestation once ticked. */
+  function applyBody(p: PreviewResponse, attested: { emailAttestation?: string }): ApplyRequest {
+    const body: ApplyRequest = { changeId: p.changeId };
+    if (p.clears) body.confirmClears = p.clears;
+    if (attested.emailAttestation !== undefined) body.emailAttestation = attested.emailAttestation;
+    return body;
+  }
+
+  async function handleApply(attested: { emailAttestation?: string } = {}) {
     const p = preview();
     if (!p) return;
     setSaveError(null);
@@ -259,9 +280,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
         headers: { "Content-Type": "application/json" },
         // Removing every household is applied only with the count the preview
         // showed echoed back.
-        body: JSON.stringify(
-          p.clears ? { changeId: p.changeId, confirmClears: p.clears } : { changeId: p.changeId },
-        ),
+        body: JSON.stringify(applyBody(p, attested)),
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
@@ -414,9 +433,10 @@ export default function GuestsEditor(props: { weddingId: string }) {
                 plan={p().plan}
                 warnings={p().warnings}
                 clears={p().clears}
+                emailAttestations={p().emailAttestations ?? 0}
                 busy={busy()}
                 confirmLabel="Confirm & save"
-                onConfirm={() => void handleApply()}
+                onConfirm={(attested) => void handleApply(attested)}
                 onCancel={() => setPreview(null)}
               />
               {/* An apply error has to render HERE as well as in the sticky
@@ -581,6 +601,7 @@ function FamilyCard(props: {
             <Th>First name</Th>
             <Th>Last name</Th>
             <Th>Nickname</Th>
+            <Th>Email</Th>
             <For each={props.events}>
               {(evt) => <Th align="center">{evt.name || "Untitled event"}</Th>}
             </For>
@@ -622,6 +643,75 @@ function FamilyCard(props: {
         Add guest
       </Button>
     </div>
+  );
+}
+
+/**
+ * A guest's address in the editor. The organiser types one for a guest who
+ * has none, or changes one an organiser added; saving asks them to confirm
+ * the guest agreed. An address the guest gave themselves on the invite is
+ * theirs: it shows as text with Remove, never as a field, and a removal can be
+ * undone until the save. With no `email` on the draft row (an API older than
+ * addresses) the cell is empty and the draft sends nothing.
+ */
+function GuestEmailCell(props: {
+  guest: DraftGuest;
+  store: ReturnType<typeof createGuestEventDraft>;
+}) {
+  const guestsOwn = () => props.guest.emailSource === "guest" && Boolean(props.guest.emailLoaded);
+  return (
+    <Show when={props.guest.email !== undefined}>
+      <Show
+        when={guestsOwn()}
+        fallback={
+          <Input
+            size="sm"
+            type="email"
+            autocomplete="off"
+            value={props.guest.email ?? ""}
+            aria-label="Email"
+            placeholder="—"
+            onInput={(e) =>
+              props.store.updateGuest(props.guest.key, { email: e.currentTarget.value })
+            }
+          />
+        }
+      >
+        <Show
+          when={(props.guest.email ?? "").length > 0}
+          fallback={
+            <span class="text-text-muted text-ui-sm flex flex-wrap items-center gap-x-2">
+              Removed on save
+              <Button
+                variant="bare"
+                size="sm"
+                type="button"
+                onClick={() =>
+                  props.store.updateGuest(props.guest.key, { email: props.guest.emailLoaded ?? "" })
+                }
+                aria-label={`Keep ${props.guest.firstName || "the guest"}’s email address`}
+              >
+                Undo
+              </Button>
+            </span>
+          }
+        >
+          <span class="text-ui-sm flex flex-wrap items-center gap-x-2">
+            <span class="text-text break-all">{props.guest.email}</span>
+            <span class="text-text-muted">added by the guest</span>
+            <Button
+              variant="bareDanger"
+              size="sm"
+              type="button"
+              onClick={() => props.store.updateGuest(props.guest.key, { email: "" })}
+              aria-label={`Remove ${props.guest.firstName || "the guest"}’s email address`}
+            >
+              Remove
+            </Button>
+          </span>
+        </Show>
+      </Show>
+    </Show>
   );
 }
 
@@ -677,6 +767,9 @@ function GuestRow(props: {
             }
           />
         </Td>
+        <Td>
+          <GuestEmailCell guest={props.guest} store={props.store} />
+        </Td>
         <For each={props.events}>
           {(evt) => (
             <Td align="center">
@@ -704,7 +797,7 @@ function GuestRow(props: {
       </tr>
       <Show when={props.errors.length > 0}>
         <tr>
-          <td colspan={3 + props.events.length + 1} class="px-2 pb-2">
+          <td colspan={4 + props.events.length + 1} class="px-2 pb-2">
             <For each={props.errors}>{(msg) => <p class="text-error text-ui-sm">{msg}</p>}</For>
           </td>
         </tr>

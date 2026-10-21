@@ -108,7 +108,7 @@ describe("the consent wordings", () => {
   it("pins the organiser's attestation to its version", () => {
     expect(ORGANISER_EMAIL_ATTESTATION.version).toBe("organiser-email-2026-10-21");
     expect(ORGANISER_EMAIL_ATTESTATION.text).toBe(
-      "I confirm each guest whose email address I’m adding or changing agreed to get emails about this wedding, and I’ll share Cire’s guest privacy notice (cireweddings.com/privacy/guests) with them.",
+      "I confirm each guest whose email address I’m adding or changing agreed to get emails about this wedding, and I’ll share Cire’s guest privacy notice with them.",
     );
   });
 
