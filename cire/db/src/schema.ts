@@ -382,12 +382,13 @@ export const events = sqliteTable(
     venueName: text("venue_name"),
     address: text("address"),
     // Free-text parking, transport and accessibility notes, shown last on the
-    // event's details sheet under "Getting there". NULL ⇒ none. Migration 0092.
+    // event's details sheet under "Getting there". NULL ⇒ none. Migration
+    // 20261021132850_event_run_of_show.
     gettingThere: text("getting_there"),
     // The guest policy: two presets and a note, wording only. The RSVP form and
     // each guest's `plus_one_allowed` stay the source of truth; the guest site
     // never shows a plus-one line that contradicts the household's own
-    // permission. NULL ⇒ not stated. Migration 0092.
+    // permission. NULL ⇒ not stated. Migration 20261021132850_event_run_of_show.
     childrenPolicy: text("children_policy", { enum: ["adults_only", "children_welcome"] }),
     plusOnePolicy: text("plus_one_policy", { enum: ["by_invitation", "welcome"] }),
     guestPolicyNote: text("guest_policy_note"),
@@ -445,9 +446,10 @@ export const events = sqliteTable(
   ],
 );
 
-// An event's run of show (migration 0092): the timed list a guest reads on the
-// event's details sheet ("4:00 pm Ceremony"). Organiser-written, edited and
-// reordered in the event drawer or the events sheet's Run of Show column.
+// An event's run of show (migration 20261021132850_event_run_of_show): the
+// timed list a guest reads on the event's details sheet ("4:00 pm Ceremony").
+// Organiser-written, edited and reordered in the event drawer or the events
+// sheet's Run of Show column.
 //
 // `time` is a 24-hour wall clock, `HH:MM`, in the event's own zone: no date and
 // no offset, so moving the event carries its run of show with it. `sort_order`

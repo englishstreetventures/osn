@@ -17,8 +17,8 @@ CREATE TABLE `run_of_show_items` (
 	`sort_order` integer NOT NULL,
 	`time` text NOT NULL,
 	`label` text NOT NULL,
-	PRIMARY KEY(`event_id`, `sort_order`),
-	FOREIGN KEY (`event_id`,`wedding_id`) REFERENCES `events`(`id`,`wedding_id`) ON UPDATE no action ON DELETE cascade
+	CONSTRAINT `run_of_show_items_pk` PRIMARY KEY(`event_id`, `sort_order`),
+	CONSTRAINT `fk_run_of_show_items_event_id_wedding_id_events_id_wedding_id_fk` FOREIGN KEY (`event_id`,`wedding_id`) REFERENCES `events`(`id`,`wedding_id`) ON DELETE CASCADE
 );
 --> statement-breakpoint
 ALTER TABLE `events` ADD `getting_there` text;--> statement-breakpoint

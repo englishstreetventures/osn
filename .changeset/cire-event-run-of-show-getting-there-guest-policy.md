@@ -30,7 +30,7 @@ Organisers can give each event a run of show, getting-there notes and a guest po
   (`4:00 pm`), is refused with its row named. Both re-importable downloads
   carry the columns, so do the restore points a revert reads, and the
   reporting `events.csv` gains them before Invited Guests.
-- **Storage.** Migration `0092_event_run_of_show.sql` adds a
+- **Storage.** Migration `20261021132850_event_run_of_show.sql` adds a
   `run_of_show_items` table (event, wedding, sort order, time, label; deleted
   with its event) and four nullable `events` columns: `getting_there`,
   `children_policy`, `plus_one_policy` and `guest_policy_note`. A run of show
