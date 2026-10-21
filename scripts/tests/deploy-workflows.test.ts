@@ -176,6 +176,7 @@ const DEV_BUILDS: Readonly<
         PUBLIC_CIRE_API_URL: hostOutput("cire_api_origin"),
         PUBLIC_OSN_ACCOUNT_URL: hostOutput("musubi_social_origin"),
         PUBLIC_CIRE_WEB_URL: hostOutput("cire_invites_origin"),
+        PUBLIC_MARKETING_URL: hostOutput("cire_landing_origin"),
       },
     },
     {
