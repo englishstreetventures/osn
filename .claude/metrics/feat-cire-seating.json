@@ -4,8 +4,8 @@
     "number": 1640,
     "branch": "feat/cire-seating",
     "base_sha": "ad5d69f70c2a380608cb41af0b6a4eceaa9be112",
-    "head_sha": "8812689e7831fe14ef0b3c4703d737da0bec5b0a",
-    "generated_at": "2026-10-21T01:19:03.636Z",
+    "head_sha": "f714289061590b00a0114bce43a719dcceacb172",
+    "generated_at": "2026-10-21T01:19:28.060Z",
     "merged_at": null,
     "phase": "at-open"
   },
@@ -23,35 +23,35 @@
     "method": "unconfirmed"
   },
   "window": {
-    "sessions": 21,
+    "sessions": 22,
     "first_ts": "2026-10-20T05:27:36.323Z",
-    "last_ts": "2026-10-21T01:19:00.689Z",
-    "span_seconds": 71484,
-    "active_seconds": 15086,
+    "last_ts": "2026-10-21T01:19:26.416Z",
+    "span_seconds": 71510,
+    "active_seconds": 15116,
     "compactions": 1
   },
   "spend": {
-    "usd_equivalent": 253.11455860000038,
+    "usd_equivalent": 253.87675300000043,
     "tokens": {
-      "input": 3364,
-      "output": 34790,
-      "thinking": 9024,
-      "cache_write_5m": 9708845,
+      "input": 3372,
+      "output": 35249,
+      "thinking": 9079,
+      "cache_write_5m": 9714577,
       "cache_write_1h": 0,
-      "cache_read": 509652694
+      "cache_read": 511463500
     },
     "by_model": {
       "claude-opus-5-5": {
         "tokens": {
-          "input": 3364,
-          "output": 34790,
-          "thinking": 9024,
-          "cache_write_5m": 9708845,
+          "input": 3372,
+          "output": 35249,
+          "thinking": 9079,
+          "cache_write_5m": 9714577,
           "cache_write_1h": 0,
-          "cache_read": 509652694
+          "cache_read": 511463500
         },
-        "usd_equivalent": 253.11455860000038,
-        "messages": 1666
+        "usd_equivalent": 253.87675300000043,
+        "messages": 1670
       },
       "<synthetic>": {
         "tokens": {
@@ -69,32 +69,32 @@
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 82,
-          "output": 15605,
-          "thinking": 8522,
-          "cache_write_5m": 391783,
+          "input": 84,
+          "output": 16043,
+          "thinking": 8577,
+          "cache_write_5m": 394520,
           "cache_write_1h": 0,
-          "cache_read": 836372
+          "cache_read": 842999
         },
-        "usd_equivalent": 2.6058918,
-        "messages": 40
+        "usd_equivalent": 2.6309956,
+        "messages": 41
       },
       "subagent": {
         "tokens": {
-          "input": 3282,
-          "output": 19185,
+          "input": 3288,
+          "output": 19206,
           "thinking": 502,
-          "cache_write_5m": 9317062,
+          "cache_write_5m": 9320057,
           "cache_write_1h": 0,
-          "cache_read": 508816322
+          "cache_read": 510620501
         },
-        "usd_equivalent": 250.50866680000033,
-        "messages": 1631
+        "usd_equivalent": 251.24575740000037,
+        "messages": 1634
       }
     },
     "effort": {
-      "medium": 40,
-      "xhigh": 1388,
+      "medium": 41,
+      "xhigh": 1391,
       "high": 238
     },
     "unpriced_models": []
@@ -104,7 +104,7 @@
       "generated": 2,
       "test": 30,
       "docs": 21,
-      "config": 2,
+      "config": 3,
       "source": 46
     },
     "loc": {
@@ -121,7 +121,7 @@
         "deleted": 56
       },
       "config": {
-        "added": 4682,
+        "added": 4867,
         "deleted": 0
       },
       "source": {
@@ -138,7 +138,7 @@
       "shared/sortable"
     ],
     "touches_migration": true,
-    "commits": 8
+    "commits": 9
   },
   "interaction": {
     "user_turns": 0,
@@ -146,12 +146,12 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 1528,
+      "Bash": 1531,
       "Read": 76,
       "Edit": 28,
       "Write": 26,
+      "StructuredOutput": 19,
       "Skill": 18,
-      "StructuredOutput": 18,
       "Monitor": 13,
       "Grep": 12,
       "Agent": 10,
