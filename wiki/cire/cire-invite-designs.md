@@ -364,17 +364,24 @@ event and the panel to open on.
 
     *Measured 2026-10-21 — a temporary probe in Chromium 1194 compositing each preset's `--color-surface` at 80–100% over #000 and #fff and reading `--color-gold-ink` against it; the 75% figures are `EventSheet.browser.test.tsx` "frosts the bar"*
   - **The title** is the event's name in the display face (`text-ui-lg`,
-    light italic), whole: it wraps onto as many lines as it needs in the room
-    the badge and the cross leave it, with `wrap-anywhere` breaking a word too
-    long for its line, and is never cut short or clamped. The bar grows with
-    it. On a 320px phone "Sangeet and Reception, Thiruvananthapuram" takes
-    four lines beside "Give RSVP →" or "← See details", "Thiruvananthapuram"
-    breaking inside itself, and seven beside "View your RSVP →", the
-    narrowest room the title gets, where even "Reception," parts from its
-    comma; "Mehndi" takes one beside any of them. The badge and the cross
+    and one step down, `text-ui-md`, on a phone narrower than 380px; light
+    italic), whole: it wraps onto as many lines as it needs in the room the
+    badge and the cross leave it, and is never cut short or clamped. The bar
+    grows with it. It breaks between words, and inside a word only when the
+    word is longer than a whole line (`wrap-break-word`), hyphenated there
+    where the engine has the page's language (`hyphens-auto`; the invite's
+    `<html>` is `lang="en"`). The smaller step is what keeps a word and the
+    comma after it on one line where the title has least room: at `text-ui-lg`
+    on a 320px phone beside "View your RSVP →", "Reception," does not fit a
+    line and its comma is left alone on the next. On a 320px phone "Sangeet
+    and Reception, Thiruvananthapuram" takes four lines beside any of the
+    badge's labels, only "Thiruvananthapuram" breaking inside itself; "Mehndi"
+    takes one. A word longer than a whole line still breaks where the line
+    ends, and with no hyphenation dictionary (Chromium on Linux, where these
+    are measured) that can be just before a comma. The badge and the cross
     never shrink.
 
-    *Measured 2026-10-21 — `EventSheet.browser.test.tsx` "shows the whole of …" screenshots at 320×568 and 390×844, Chromium 1194*
+    *Measured 2026-10-21 — `EventSheet.browser.test.tsx` "shows the whole of …" screenshots at 320×568 and 390×844, and the same test with `text-ui-lg` at every width, Chromium 1194*
   - **Nothing hides under it.** The bar takes its own height in flow, so the
     content starts below it, and the scrollport's `scroll-padding-top` is that
     same height, whatever the title's lines make it: a `ResizeObserver` on the
@@ -397,14 +404,18 @@ event and the panel to open on.
   - **Two labels in one button.** Both labels sit stacked in one grid cell,
     so the badge is always as wide as the wider of them ("← See details" on
     an open invite, "View your RSVP →" past the deadline) and never changes
-    width, at rest or mid-swipe. The label for the panel on screen shows;
-    the other is transparent and `aria-hidden`, so the button's name is only
-    ever "Give RSVP", "See details" or "View your RSVP".
-  - **Its words follow a swipe.** One custom property on the button,
-    `--badge-progress`, is 0 on the details and 1 on the form. The details'
-    label is at `opacity: calc(1 - p)` and slides `p × 0.5rem` toward the
-    start; the form's is at `opacity: p` and slides in from `0.5rem` toward
-    the end — the way the panels go. The property is written only through
+    width, at rest or mid-swipe. The cell is the badge's window, clipped
+    (`overflow-clip`) inside the button's padding, pill and hairline. The
+    label for the panel on screen fills it; the other waits just outside it,
+    transparent and `aria-hidden`, so the button's name is only ever "Give
+    RSVP", "See details" or "View your RSVP".
+  - **Its words follow a swipe, like a ticker.** One custom property on the
+    button, `--badge-progress`, is 0 on the details and 1 on the form. Each
+    label is the window's full width; the details' moves `p × 100%` of it
+    out by the start and fades to `opacity: calc(1 - p)`, while the form's
+    comes in from `100%` by the end at `opacity: p` — the way the panels go.
+    The two stay exactly one width apart, so mid-swipe each shows in part,
+    side by side, and never over the other. The property is written only through
     `setBadgeProgress`: as the badge is built, from the panel on screen (so a
     sheet opened on the form shows its words with no fade); on every switch;
     and by the swipe, which writes the share of the panels' width the finger
@@ -543,9 +554,11 @@ cross inside the bar and the scroll padding at the bar's height; a long name
 wrapping at 320px; Shift+Tab up a form under a four-line bar never parking a
 control under it at any step; the sheet's height read on every frame of a journey by
 badge and by swipe, for a sparse event and a full one; a full event's panels
-scrolled to their ends; the badge's words mid-drag at the finger's share,
-back on a cancel, landed on a commit, eased on a press and still on open,
-and its width the same throughout; the quiet focus after a swipe or a click
+scrolled to their ends; the badge's words mid-drag at 20px and 60px holds,
+each moved and faded by the finger's share, side by side in its clipped
+window, back on a cancel, landed on a commit, eased on a press and still on
+open, and its width the same throughout; no comma left alone on a line of
+the title, and the title a type step down below 380px; the quiet focus after a swipe or a click
 and the ring after a key press; with screenshots of each panel, of the bar
 at both sizes for each label and name and scrolled on each scheme, and of the
 badge mid-swipe under `__screenshots__/`), `AnimatedModal.browser.test.tsx`
