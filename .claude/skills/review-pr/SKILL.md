@@ -210,7 +210,8 @@ When the rebase has finished, regenerate once, in a commit of its own:
    | In `devDependencies`, `optionalDependencies` or `peerDependencies` | the same, plus `--dev`, `--optional` or `--peer` |
    | A removal | `bun remove '<pkg>' --cwd <dir>` |
    | An `overrides` entry, or anything else `bun add` cannot express | Edit the manifest and splice the lockfile entry by hand, as `wiki/conventions/contributing.md` says. Build the entry from the registry (`npm view '<pkg>@<version>' dist.integrity`), never copy it from the branch's lockfile |
-   | A new workspace, a `patchedDependencies` change, or a version `minimumReleaseAge` refuses | Stop and report: this recipe does not cover it |
+   | A new workspace whose `package.json` pins only versions main's lockfile already resolves | Splice by hand, as `wiki/conventions/contributing.md` says: copy the workspace's block under `"workspaces"` (its `name`, `version` and dependency maps, from its `package.json`) and add its `"<name>": ["<name>@workspace:<dir>"]` line under `"packages"`. Step 4's section 3 must then list only `<name>@workspace:<dir>`, and `bun install --frozen-lockfile` must exit 0 |
+   | A new workspace that needs a resolution main lacks, a `patchedDependencies` change, or a version `minimumReleaseAge` refuses | Stop and report: this recipe does not cover it |
 
 4. **Prove only the branch's packages moved**, with main's copy of the evidence
    script and the two commits you recorded:
