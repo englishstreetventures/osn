@@ -41,13 +41,13 @@
     "@shared/turnstile": "workspace:*",
     "@simplewebauthn/server": "^13.3.3",
     "drizzle-orm": "1.0.0-rc.4",
-    "effect": "4.0.3",
+    "effect": "4.0.5",
     "elysia": "^1.4.30",
     "jose": "^6.2.12"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
-    "@effect/vitest": "4.0.3",
+    "@effect/vitest": "4.0.5",
     "@shared/dev-urls": "workspace:*",
     "@shared/osn-auth-client": "workspace:*",
     "@shared/typescript-config": "workspace:*",
