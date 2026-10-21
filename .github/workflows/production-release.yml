@@ -379,6 +379,11 @@ jobs:
           # *.cireweddings.com). Present ⇒ real Embed iframe; absent ⇒ CSS-card
           # fallback.
           PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
+          # The commit this release is built from. The footer prints its first
+          # seven characters as the version, so a report from a phone says
+          # which build it was. A `PUBLIC_*` var is in turbo's build hash, so
+          # a new commit never replays an older `dist/`.
+          PUBLIC_BUILD_SHA: ${{ github.sha }}
 
       # Warns (the step stays green) when the SSR bundle is over its budget
       # in scripts/bundle-size-budgets.txt; `ci.yml` annotates the same on
