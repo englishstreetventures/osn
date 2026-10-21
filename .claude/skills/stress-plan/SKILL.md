@@ -99,6 +99,13 @@ The prompt, adapted to the plan's path:
 >   claim it relies on, that the code contradicts
 > - a test case the change deletes that the plan's table of deleted tests does not
 >   list, or whose named replacement does not cover the same behaviour
+> - for every decision the plan makes from data it reads at run time (an API
+>   response, a record, a file another process writes), ask who else can write
+>   that data, what the plan does when it is false, and what it costs when the item
+>   it wants is missing (a walk to a cap, a rate limit)
+> - every cost the plan concedes (an extra round trip, statement, request or
+>   re-render that the plan states and accepts): can the design avoid it, and what
+>   does keeping it cost?
 >
 > Cite a file and line for every claim. Do not edit any file, do not run a build,
 > and do not write code. Return the findings as your final report; the caller
@@ -145,11 +152,30 @@ out to be a reviewer measuring a build directory two processes had written into 
 once; the tell was a file count that disagreed with what the app emits. Check the
 claim's numbers against the artefact before you either accept or dismiss it.
 
+**An untested guarantee is closed only by a test that fails without it.** A
+finding that the change leaves a guarantee untested is fixed by a planned test
+that goes red when the guarantee is taken out of the code as it will ship. A
+mutation run that needs a made-up change first, such as adding a class before
+removing another, shows only that the test can see the property somewhere. It
+does not show that anything holds the guarantee.
+
+**A finding that a planned step undoes a security control is fixed or escalated,
+never documented.** A step that puts back an old secret or key, widens a
+permission or skips an approval stays open when the plan only adds a sentence to
+a runbook. Fix the design, or escalate with the options. Rate such a finding by
+its consequence, not by how unlikely it looks.
+
+**A fix that exempts a class from a bound reopens that bound.** Before the
+finding counts as closed, the plan states the new worst case: the most rows,
+statements or CPU the class can now use in one run. Check that number against
+the limits it touches, not against the old cap.
+
 ## Step 4 — Re-run, or don't
 
 Re-run this stage when the plan **changes shape** — a new step, a re-cut
 dependency, a different approach. Not for wording, and not for closing the
-findings it just produced.
+findings it just produced. A fix that adds an exemption to a bound is a change of
+shape, so it gets a re-run even though it closes a finding.
 
 ## Finish
 
