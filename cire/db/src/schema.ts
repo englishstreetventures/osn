@@ -419,7 +419,7 @@ export const events = sqliteTable(
     // from event names, deduped only within the wedding.
     uniqueIndex("events_wedding_slug_unique").on(t.weddingId, t.slug),
     // The parent key of `seating_tables (event_id, wedding_id)` (migration
-    // 0088), which ties a seating table's wedding to its event's. Unique
+    // 0089), which ties a seating table's wedding to its event's. Unique
     // already, since `id` is; SQLite needs it spelt out to accept the foreign
     // key. A rebuild of `events` that drops it makes every seating-table write
     // and every event delete fail with "foreign key mismatch".
@@ -1882,7 +1882,7 @@ export const unlockCodeRedemptions = sqliteTable(
   ],
 );
 
-// ── Seating (migration 0088, [[wiki/cire/cire-seating]]) ────────────────────
+// ── Seating (migration 0089, [[wiki/cire/cire-seating]]) ────────────────────
 // A table at one event. `wedding_id` is the event's wedding, held by the
 // composite foreign key to `events (id, wedding_id)`, so a table can never be
 // filed under one wedding while sitting at another's event. A wedding's tables

@@ -234,7 +234,7 @@ Flag to the root compliance programme as each phase lands (root `wiki/compliance
 - **Phase 0**: organiser-recorded dietary RSVPs — Art. 9 consent capture variant (organiser attests guest consent; record `consent_source`). **DONE (PR 5b)**: migration `0037` added `rsvps.consent_source` (`'guest' | 'organiser_attested'`); DPIA/data-map/retention updated for the organiser-attested variant; no new subprocessor. Geocoding API (organiser-typed wedding address sent to Google) → subprocessor + data-map rows; key-optional, so the degraded mode has no third-party flow.
 - **Phase 2**: vendor contact details (personal data for sole traders) → data-map + retention rows; enquiry message content.
 - **Phase 3 v2**: quoted-price aggregation — k-anonymity floor documented.
-- **Phase 4 seating — DONE** (migration 0088): seat assignments, guest data that can imply who sits with whom → [[compliance/data-map|data-map]], [[retention]] and [[compliance/dsar|DSAR]] rows; the venue CSV carries no dietary data.
+- **Phase 4 seating — DONE** (migration 0089): seat assignments, guest data that can imply who sits with whom → [[compliance/data-map|data-map]], [[retention]] and [[compliance/dsar|DSAR]] rows; the venue CSV carries no dietary data.
 - **Phase 4**: guest emails (new high-sensitivity class: contactability) → data-map, retention, DPIA delta, suppression list; comms log retention.
 - Wedding lat/lng + budget figures: organiser-provided, wedding-scoped; add data-map rows, low sensitivity.
 

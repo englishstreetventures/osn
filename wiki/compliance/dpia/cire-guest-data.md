@@ -66,7 +66,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   `rsvps.status`. The choice is the guest's word, backed by the household
   code: the household trust model the claim has always had. The guest privacy
   notice lists which member sent each reply.
-- **Seat assignments (migration 0088, a Gold module).** An organiser may set
+- **Seat assignments (migration 0089, a Gold module).** An organiser may set
   out tables for an event and seat invited guests at them
   (`seating_assignments`). A seat says who sits beside whom, so it can imply a
   relationship; it holds ids only and no answer, is read by the wedding's

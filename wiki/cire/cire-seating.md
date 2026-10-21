@@ -25,7 +25,7 @@ moved below Gold takes its chart back from the locked card.
 
 ## Tables
 
-Migration `0088_seating.sql` adds two tables and one index on `events`. No
+Migration `0089_seating.sql` adds two tables and one index on `events`. No
 table is rebuilt.
 
 ### `seating_tables`

@@ -7,7 +7,7 @@
 ---
 
 Seating chart: tables per event and which guest sits at which, with one seat
-per guest per event enforced by the database (migration 0088). A Gold module
+per guest per event enforced by the database (migration 0089). A Gold module
 in the host portal: seat a guest by dragging them onto a table or by choosing
 the table from their menu, see who declined, said maybe, has not replied or
 was withdrawn, print the chart, and download `seating.csv` (owner). The
