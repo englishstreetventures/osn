@@ -178,8 +178,8 @@ plays.
 (`sectionVars(theme, "welcome")`, passed in as `themeVars`). The welcome
 greeting and the closing note are the couple's two direct addresses to their
 guests, so they read as a matched pair — and the builder gains no extra knob for
-a section whose whole job is a sentence and an image. `THEME_SECTIONS` stays the
-four lanes it has always had.
+a section whose whole job is a sentence and an image. `THEME_SECTIONS` holds four
+lanes, none of them the closing section's.
 
 **It is NOT part of `SiteFooter`.** Two different things live at the bottom of
 an invite and the distinction is load-bearing:

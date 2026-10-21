@@ -348,8 +348,8 @@ event and the panel to open on.
   the panel passes beneath it rather than past it. It is no part of either
   panel: a swipe never moves it, and a touch on it starts none.
   - **Its look.** Full-bleed across the sheet and 3.75rem tall (`h-15`), with
-    the title on the content's 24px edge, the cross in the 8px corner it has
-    always had, a hairline (`border-border/60`) under it, and 1.25rem between
+    the title on the content's 24px edge, the cross 8px in from the sheet's
+    corner, a hairline (`border-border/60`) under it, and 1.25rem between
     it and the content at rest. Frosted: 75% of the sheet's own surface
     (`bg-surface/75`) over a 12px blur (`backdrop-blur-md`) of what passes
     under it, so the content shows through as a soft shadow moving under the
