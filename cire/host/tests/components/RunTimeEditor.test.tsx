@@ -496,11 +496,13 @@ describe.skipIf(!DESIGNED)("RunTimeEditor", () => {
   });
 
   it("sets a fixed time in a zone picked from the list", async () => {
-    authFetchMock.mockResolvedValue(saved({ runAt: "2099-06-20T12:00:00+05:30" }));
+    authFetchMock.mockResolvedValue(saved({ runAt: "2099-06-20T12:00:00+01:00" }));
     editor();
     fireEvent.click(trigger());
+    // A zone every runtime's list spells the same way (Node's names Kolkata
+    // "Asia/Calcutta").
     fireEvent.change(await screen.findByLabelText("Time zone"), {
-      target: { value: "Asia/Kolkata" },
+      target: { value: "Europe/London" },
     });
     fireEvent.input(screen.getByLabelText("Date"), { target: { value: "2099-06-20" } });
     fireEvent.input(screen.getByLabelText("Time"), { target: { value: "12:00" } });
@@ -509,7 +511,7 @@ describe.skipIf(!DESIGNED)("RunTimeEditor", () => {
       expect(sentRunTime()).toEqual({
         kind: "fixed",
         at: "2099-06-20T12:00",
-        timezone: "Asia/Kolkata",
+        timezone: "Europe/London",
       }),
     );
   });
