@@ -1,4 +1,4 @@
-import { createMemo, createSignal, createUniqueId, For, onMount, Show, type JSX } from "solid-js";
+import { createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js";
 
 import { AddToCalendar } from "./AddToCalendar";
 import { isValidColor, truncateSwatchName } from "./dress-code-render";
@@ -43,19 +43,18 @@ export interface DetailsPanelProps {
   replied?: boolean;
   /** The deadline day in words, for the closed notice ("RSVPs closed on …"). */
   rsvpClosedOn?: string;
-  /** `id` for the heading, which names the sheet while this panel shows. */
-  titleId?: string;
-  /** Receives the heading, which takes focus when the guest switches here. */
-  headingRef?: (el: HTMLHeadingElement) => void;
 }
 
-/** A labelled part of the occasion, under its gold eyebrow. */
+/**
+ * A labelled part of the occasion, under its gold eyebrow: an `<h3>`, one
+ * level under the sheet's title, which is an `<h2>` in its bar.
+ */
 function Section(props: { label: string; children: JSX.Element }) {
   return (
     <section>
-      <h4 class="font-body text-gold-ink text-ui-xs tracking-ui-ultra mb-3 font-normal uppercase">
+      <h3 class="font-body text-gold-ink text-ui-xs tracking-ui-ultra mb-3 font-normal uppercase">
         {props.label}
-      </h4>
+      </h3>
       {props.children}
     </section>
   );
@@ -140,11 +139,11 @@ function PeopleGlyph() {
 
 /**
  * The holistic "everything about this event" view, one of `EventSheet`'s two
- * panels. The way to the RSVP form is the sheet's, in its chrome beside the
- * close button (`EventSheet`).
+ * panels. Its title, the event's name, and the way to the RSVP form are the
+ * sheet's, in the bar above it (`EventSheet`).
  *
- * It leads with the plan, the facts a guest opens it for, as a short list under
- * the heading: when (in the event's own zone,
+ * It leads with the plan, the facts a guest opens it for, as a short list at
+ * its top: when (in the event's own zone,
  * spelt out, and on the guest's own clock where that reads differently, with
  * Add to calendar on the row), where (the address, a small map and Open in
  * maps), for a household not all of whom are asked who is invited, and the
@@ -153,15 +152,14 @@ function PeopleGlyph() {
  * there.
  *
  * Every row and section renders only when it has content, so a sparse event —
- * a name, a start and a timezone — collapses to its heading and its date,
- * with no empty label and no hairline over nothing.
+ * a name, a start and a timezone — collapses to its date, with no empty label
+ * and no hairline over nothing.
  */
 export function DetailsPanel(props: DetailsPanelProps) {
   // Memos: each is read by its `Show` and again inside it.
   const day = createMemo(() => formatEventDay(props.event));
   const timeRange = createMemo(() => formatTimeRange(props.event));
   const zone = createMemo(() => timezoneName(props.event));
-  const titleId = props.titleId ?? createUniqueId();
   const invited = () => invitedNames(props.members ?? [], props.event.id);
   const description = () => (hasText(props.event.description) ? props.event.description : null);
   const swatches = () =>
@@ -215,24 +213,9 @@ export function DetailsPanel(props: DetailsPanelProps) {
 
   return (
     <>
-      <header class="mb-6">
-        {/* The eyebrow is part of the heading, not a paragraph above it. The
-            sheet moves focus here when the guest switches panels, and both
-            panels' titles are the event's name — so "Details" is what tells a
-            screen-reader user which panel they have arrived on. The comma is
-            for the ear only. */}
-        <h3
-          id={titleId}
-          ref={(el) => props.headingRef?.(el)}
-          tabindex="-1"
-          class="font-display text-text text-ui-xl mb-5 leading-tight font-light italic"
-        >
-          <span class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 block leading-normal [font-weight:var(--invite-body-weight,400)] uppercase [font-style:var(--invite-body-style,normal)]">
-            Details
-            <span class="sr-only">,</span>
-          </span>{" "}
-          {props.event.name}
-        </h3>
+      {/* Room under it only while it says something: with RSVPs open the
+          header is an empty live region, and the facts start at the top. */}
+      <header classList={{ "mb-6": closedNotice() !== null }}>
         {/* Rendered whether or not RSVPs have closed, and empty while they
             are open: assistive tech announces a change inside a live region
             it was already watching, so a deadline that passes with this

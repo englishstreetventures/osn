@@ -85,6 +85,13 @@ function scroller(): HTMLElement {
   return document.querySelector("dialog")!.lastElementChild as HTMLElement;
 }
 
+/** The headings inside `root` whose words include `text`. */
+function headingsNaming(text: string, root: HTMLElement): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")].filter((h) =>
+    (h.textContent ?? "").includes(text),
+  );
+}
+
 function fieldsetFor(name: string): HTMLElement {
   for (const l of document.querySelectorAll("legend")) {
     if ((l.textContent ?? "").includes(name)) return l.closest("fieldset") as HTMLElement;
@@ -156,6 +163,32 @@ describe("EventSheet", () => {
     expect(getByRole("heading", { name: "Respond, Mehndi" })).toBeTruthy();
     expect(queryByRole("button", { name: /add to calendar/i })).toBeNull();
     expect(panelOf("details")).toBeNull();
+  });
+
+  it("titles the sheet in its bar, with one title per panel", () => {
+    // One title per panel, so every switch moves focus to a different
+    // element: focus sent to the element already holding it is no move at
+    // all, and nothing would be announced.
+    const { getByRole } = open("details");
+    const bar = scroller().firstElementChild as HTMLElement;
+    const details = getByRole("heading", { name: "Details, Mehndi" });
+    expect(details.tagName).toBe("H2");
+    expect(bar.contains(details)).toBe(true);
+    // Focusable by script only: it is where a switch sends focus, and a
+    // title has no place in the Tab order.
+    expect(details.getAttribute("tabindex")).toBe("-1");
+    expect(document.querySelector("dialog")!.getAttribute("aria-labelledby")).toBe(details.id);
+    // The panels carry no title of their own: the bar's is the only one.
+    expect(headingsNaming("Mehndi", panelOf("details")!)).toEqual([]);
+
+    fireEvent.click(segment("Respond"));
+    const respond = getByRole("heading", { name: "Respond, Mehndi" });
+    expect(respond).not.toBe(details);
+    expect(respond.tagName).toBe("H2");
+    expect(bar.contains(respond)).toBe(true);
+    expect(details.hidden).toBe(true);
+    expect(document.querySelector("dialog")!.getAttribute("aria-labelledby")).toBe(respond.id);
+    expect(headingsNaming("Mehndi", panelOf("rsvp")!)).toEqual([]);
   });
 
   it("names the dialog after the panel on screen", () => {
@@ -289,15 +322,30 @@ describe("EventSheet", () => {
       },
     );
 
-    it("clears the content of the row it sits in", () => {
+    it("sits in a bar ahead of both panels in the scroller, so they scroll under it", () => {
       open("details");
-      expect(scroller().className).toContain("pt-16");
+      const bar = scroller().firstElementChild as HTMLElement;
+      expect(bar.contains(panelSwitch())).toBe(true);
+      expect(
+        bar.contains(
+          within(document.querySelector("dialog")!).getByRole("button", { name: "Close" }),
+        ),
+      ).toBe(true);
+      // The panels follow the bar, in their own wrapper: the bar is no part of
+      // either, so a swipe never moves it and never starts on it.
+      expect(bar.contains(panelOf("details"))).toBe(false);
+      expect(bar.compareDocumentPosition(panelOf("details")!)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
     });
 
     it("keeps Details pressable on the form once RSVPs have closed — the details still are", () => {
-      open("rsvp", { closed: true });
+      const { getByRole, queryByRole } = open("rsvp", { closed: true });
       expect(segment("Details").disabled).toBe(false);
       expect(segment("Your RSVP").getAttribute("aria-pressed")).toBe("true");
+      // Nothing is left to respond to, so the title names what the form shows.
+      expect(getByRole("heading", { name: "Your RSVP, Mehndi" })).toBeTruthy();
+      expect(queryByRole("heading", { name: "Respond, Mehndi" })).toBeNull();
     });
 
     it("disables Details on the form while a save is in flight and once it has saved", async () => {

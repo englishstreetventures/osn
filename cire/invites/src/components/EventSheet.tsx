@@ -28,10 +28,7 @@ import type { EventSummary } from "./types";
 export type EventPanel = "details" | "rsvp";
 
 /** What the RSVP panel needs from the page, passed through unchanged. */
-type RsvpData = Omit<
-  RsvpPanelProps,
-  "event" | "onClose" | "active" | "titleId" | "headingRef" | "onBusyChange"
->;
+type RsvpData = Omit<RsvpPanelProps, "event" | "onClose" | "active" | "onBusyChange">;
 
 export interface EventSheetProps extends RsvpData {
   event: EventSummary;
@@ -81,6 +78,13 @@ function without(panels: ReadonlySet<EventPanel>, panel: EventPanel): ReadonlySe
   return next;
 }
 
+/**
+ * The sheet's title in its bar: the event's name in the display face, on one
+ * line, cut short with an ellipsis before the switch or the close button give
+ * way.
+ */
+const TITLE = "font-display text-text text-ui-lg truncate leading-tight font-light italic";
+
 /** A touch on the panels, from the moment it goes down. */
 interface Touch {
   id: number;
@@ -97,11 +101,23 @@ interface Touch {
 /**
  * One dialog per event holding two panels side by side in the guest's mind:
  * the event's details on the start side, its RSVP form on the end side, in the
- * order of the event card's buttons. A switch in the sheet's chrome, beside the
- * close button, moves between them without closing anything: two segments,
- * Details and Respond ("Your RSVP" past the deadline), in the order the guest
- * can also swipe, the one on screen filled gold ({@link PanelSwitch}). Its pill
- * follows a swipe's finger rather than jumping when the panels land.
+ * order of the event card's buttons. The sheet's bar, which stays put while the
+ * panel scrolls under it ({@link AnimatedModal}'s `toolbar`), holds the event's
+ * name as the title, then a switch that moves between the panels without
+ * closing anything: two segments, Details and Respond ("Your RSVP" past the
+ * deadline), in the order the guest can also swipe, the one on screen filled
+ * gold ({@link PanelSwitch}). Its pill follows a swipe's finger rather than
+ * jumping when the panels land. The panels carry no title of their own.
+ *
+ * ## One title per panel
+ *
+ * The bar holds two titles, the details' and the form's, and shows the one for
+ * the panel on screen. Each reads as the event's name and says its panel's name
+ * to assistive technology only — "Details, Mehndi", "Respond, Mehndi" ("Your
+ * RSVP, Mehndi" past the deadline) — and the dialog takes its name from the one
+ * shown. Two elements rather than one relabelled, because a switch moves focus
+ * to the arriving panel's title: focus sent to the element already holding it
+ * is no move, and nothing would be announced.
  *
  * ## A panel mounts the first time it is asked for and stays mounted
  *
@@ -116,7 +132,7 @@ interface Touch {
  * From the details whenever RSVPs are open, and past the deadline only for a
  * household with a reply on file (the form's segment reads "Your RSVP"); with
  * none there is no switch and no swipe, and if focus was on the switch as it
- * went it moves to the details heading. From the form whenever it is not busy:
+ * went it moves to the details' title. From the form whenever it is not busy:
  * not while a save is in flight, nor while the sheet closes itself on a saved
  * reply, when the Details segment is disabled. One rule, {@link EventSheet}'s
  * `leavable`, gates the switch and the swipe alike.
@@ -134,20 +150,19 @@ interface Touch {
  * The RSVP panel's wrapper, and the panels' own wrapper around it, grow to
  * fill the scrollport, and the form's action bar sits at the foot of its
  * column, so the bar is on the sheet's bottom edge however short the form is.
- * The details wrapper does not: as a flex column it would stop its heading's
- * margin collapsing into its header's, and open a gap under the heading. It
- * carries the sheet's bottom padding itself, so the scrollport has none for
- * either panel, and the bar — a sticky box, which keeps inside its
+ * The details wrapper does not grow: nothing in it sits at a foot. It carries
+ * the sheet's bottom padding itself, so the scrollport has none for either
+ * panel, and the action bar — a sticky box, which keeps inside its
  * scrollport's padding — reaches the edge even while a swipe draws the form
  * in beside the details.
  *
  * ## The switch
  *
  * Everything that matters happens at once, on the press: the panel swaps, the
- * scroll goes back to the top, and focus moves to the new panel's heading,
- * whose words say which panel it is. After a tap, a click or a swipe that move
- * is quiet (`quiet-focus.ts`): nobody reached the heading by keyboard, and a
- * ring on it would read as the heading being selected. A key press keeps the
+ * scroll goes back to the top, and focus moves to the new panel's title in the
+ * bar, whose words say which panel it is. After a tap, a click or a swipe that
+ * move is quiet (`quiet-focus.ts`): nobody reached the title by keyboard, and a
+ * ring on it would read as the title being selected. A key press keeps the
  * ring, so a keyboard user sees where focus went. The motion runs after and
  * changes nothing a guest can act on:
  *
@@ -175,9 +190,11 @@ interface Touch {
  *
  * A touch that moves sideways toward the other panel drags both: the one on
  * screen follows the finger, and the other is drawn beside it, a panel's width
- * away, level with the top of the scrollport. The decisions — when a touch is
- * a swipe, how far it may go, whether a release carries on or springs back —
- * are `sheet-swipe.ts`'s; this component only moves the boxes.
+ * away, where it will rest under the bar. The decisions — when a touch is a
+ * swipe, how far it may go, whether a release carries on or springs back — are
+ * `sheet-swipe.ts`'s; this component only moves the boxes. The bar is no part
+ * of either panel, so it never moves with them and a touch on it starts no
+ * swipe.
  *
  * - Touch only. A mouse drag on a desktop is text selection.
  * - The wrapper is `touch-action: pan-y pinch-zoom`, so the browser keeps the
@@ -189,10 +206,10 @@ interface Touch {
  *   moves between the panels.
  * - A touch in a text field, or in a box that scrolls sideways of its own
  *   (the dietary chips, the moodboard), belongs to that, not to the sheet.
- * - The arriving panel is held to the scrollport's height, from the top of
- *   what is on screen to the sheet's bottom edge, so the form's action bar is
- *   drawn where it will rest rather than under a short form, which would drop
- *   to the edge as the form landed.
+ * - The arriving panel is held to the height it will have at rest, from where
+ *   the panels start under the bar to the sheet's bottom edge, so the form's
+ *   action bar is drawn where it will rest rather than under a short form,
+ *   which would drop to the edge as the form landed.
  * - The arriving panel is `inert` until it has arrived, and its entry slide
  *   is suppressed (`quiet`) for as long as it is on screen: it is already in
  *   place, and adding the animation class to a shown element would play it.
@@ -239,7 +256,7 @@ export function EventSheet(props: EventSheetProps) {
     details: createUniqueId(),
     rsvp: createUniqueId(),
   } satisfies Record<EventPanel, string>;
-  const headings: Partial<Record<EventPanel, HTMLHeadingElement>> = {};
+  const titles: Partial<Record<EventPanel, HTMLHeadingElement>> = {};
   const wrappers: Partial<Record<EventPanel, HTMLDivElement>> = {};
   let scroller: HTMLDivElement | undefined;
   let rail: HTMLDivElement | undefined;
@@ -256,10 +273,10 @@ export function EventSheet(props: EventSheetProps) {
   // The deadline can pass while the details are open, and for a household with
   // no reply the switch goes with it. (One with a reply keeps it, the form's
   // segment under a new label, so its focus never moves.) If focus was ON the
-  // switch, the browser
-  // drops it to `<body>` — outside a modal dialog, with no keyboard way back in
-  // — so focus goes to the details heading instead. It acts only on that loss:
-  // focus resting on any real element is left where the guest put it.
+  // switch, the browser drops it to `<body>` — outside a modal dialog, with no
+  // keyboard way back in — so focus goes to the details' title instead. It
+  // acts only on that loss: focus resting on any real element is left where
+  // the guest put it.
   let wasReachable = rsvpReachable();
   createEffect(() => {
     const reachable = rsvpReachable();
@@ -267,7 +284,7 @@ export function EventSheet(props: EventSheetProps) {
     wasReachable = reachable;
     if (!withdrawn || active() !== "details") return;
     const focused = document.activeElement;
-    if (!focused || focused === document.body) headings.details?.focus();
+    if (!focused || focused === document.body) titles.details?.focus();
   });
 
   /** Lift the arriving panel's switch-time limits once its slide has ended. */
@@ -279,8 +296,8 @@ export function EventSheet(props: EventSheetProps) {
   /**
    * Switch to `next`. `arrived` is a swipe's: the panel is already in place,
    * so it gets no slide of its own. `quietly` is a touch's or a click's: the
-   * heading takes focus without the keyboard's ring (`quiet-focus.ts`). A
-   * swipe is always a touch.
+   * title takes focus without the keyboard's ring (`quiet-focus.ts`). A swipe
+   * is always a touch.
    */
   function show(next: EventPanel, arrived = false, quietly = arrived) {
     if (next === active() || (!arrived && gesture())) return;
@@ -297,7 +314,7 @@ export function EventSheet(props: EventSheetProps) {
     });
 
     if (scroller) scroller.scrollTop = 0;
-    moveFocus(headings[next], quietly, { preventScroll: true });
+    moveFocus(titles[next], quietly, { preventScroll: true });
 
     if (!arrived) {
       // The panel's own slide only — not its subtree, where a loading spinner
@@ -350,10 +367,11 @@ export function EventSheet(props: EventSheetProps) {
   function beginDrag(state: Touch) {
     const target = otherPanel(active());
     // Read before the batch shows the incoming panel, so they force no layout.
+    // The rail starts under the bar, its own height and gap above it in the
+    // scroll content, so the panel at rest runs from there to the sheet's
+    // bottom edge. `offsetTop` is layout, unmoved by the scroll.
     const top = scroller?.scrollTop ?? 0;
-    const tall = scroller
-      ? scroller.clientHeight - Number.parseFloat(getComputedStyle(scroller).paddingTop)
-      : 0;
+    const tall = scroller && rail ? scroller.clientHeight - rail.offsetTop : 0;
     batch(() => {
       setShown((panels) => new Set(panels).add(target));
       setQuiet((panels) => new Set(panels).add(target));
@@ -367,10 +385,10 @@ export function EventSheet(props: EventSheetProps) {
     state.state = "dragging";
     const incoming = wrappers[target];
     if (!incoming) return;
-    // Level with the scrollport's top, wherever the panel on screen is
-    // scrolled to: the wrapper's own top is the scroll content's. And down to
-    // the scrollport's bottom edge, so the form's action bar is drawn where it
-    // will rest (see "The swipe").
+    // Where it will rest, under the bar, wherever the panel on screen is
+    // scrolled to: the wrapper's own top is the rail's, in the scroll content.
+    // And down to the scrollport's bottom edge, so the form's action bar is
+    // drawn where it will rest (see "The swipe").
     incoming.style.top = `${top}px`;
     incoming.style.minHeight = `${tall}px`;
   }
@@ -479,7 +497,7 @@ export function EventSheet(props: EventSheetProps) {
    * is still running, so a second tap of a double tap, or a tap as the panels
    * move, cannot send the guest straight back; the segment already chosen does
    * nothing at all (`show`). A key press is deliberate and goes through, and
-   * leaves the heading's ring on.
+   * leaves the title's ring on.
    */
   function pressSegment(next: EventPanel, e: MouseEvent) {
     const byPointer = pressedByPointer(e);
@@ -498,8 +516,8 @@ export function EventSheet(props: EventSheetProps) {
   }
 
   /**
-   * The switch, in the sheet's chrome. On the details only while the form can
-   * be reached; on the form always, its Details segment disabled while busy.
+   * The switch, in the sheet's bar. On the details only while the form can be
+   * reached; on the form always, its Details segment disabled while busy.
    */
   const panelSwitchRow = (
     <Show when={active() === "rsvp" || rsvpReachable()}>
@@ -511,6 +529,38 @@ export function EventSheet(props: EventSheetProps) {
         onPress={pressSegment}
       />
     </Show>
+  );
+
+  /**
+   * The bar's two titles, one per panel, the inactive one hidden. Each is
+   * focusable by script only (`tabindex="-1"`), the place a switch sends
+   * focus, and names the dialog while its panel shows. The panel's name is
+   * for the ear; the eye has the switch. The comma is inside the hidden words,
+   * so no engine reads a space before it; the space after it is a text node
+   * of its own, because a name is built from each element's trimmed text, and
+   * on screen it is collapsed away at the start of the line.
+   */
+  const sheetTitles = (
+    <>
+      <h2
+        id={titleIds.details}
+        ref={(el) => (titles.details = el)}
+        tabindex="-1"
+        hidden={active() !== "details"}
+        class={TITLE}
+      >
+        <span class="sr-only">Details,</span> {own.event.name}
+      </h2>
+      <h2
+        id={titleIds.rsvp}
+        ref={(el) => (titles.rsvp = el)}
+        tabindex="-1"
+        hidden={active() !== "rsvp"}
+        class={TITLE}
+      >
+        <span class="sr-only">{rsvp.closed ? "Your RSVP," : "Respond,"}</span> {own.event.name}
+      </h2>
+    </>
   );
 
   return (
@@ -527,6 +577,7 @@ export function EventSheet(props: EventSheetProps) {
       flushBottom
       scrollRef={(el) => (scroller = el)}
       toolbar
+      title={sheetTitles}
       action={panelSwitchRow}
     >
       {/* `-mx-6 px-6` puts this box's edge on the scrollport's own padding
@@ -577,8 +628,6 @@ export function EventSheet(props: EventSheetProps) {
               replied={own.replied}
               rsvpClosed={rsvp.closed}
               rsvpClosedOn={rsvp.closedOn}
-              titleId={titleIds.details}
-              headingRef={(el) => (headings.details = el)}
             />
           </div>
         </Show>
@@ -602,8 +651,6 @@ export function EventSheet(props: EventSheetProps) {
               event={own.event}
               onClose={own.onClose}
               active={active() === "rsvp"}
-              titleId={titleIds.rsvp}
-              headingRef={(el) => (headings.rsvp = el)}
               onBusyChange={setBusy}
             />
           </div>

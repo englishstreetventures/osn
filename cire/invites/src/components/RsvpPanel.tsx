@@ -8,7 +8,6 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  createUniqueId,
   onCleanup,
   Show,
   For,
@@ -37,8 +36,8 @@ export interface RsvpPanelProps {
   /**
    * The wedding's RSVP deadline has passed — the sheet becomes a read-only view
    * of whatever this household already answered: the submit button is gone, so
-   * there is nothing to send, and its title reads "Your RSVP" rather than
-   * "Respond". Each member's answer on file is written out ("Attending", "Not
+   * there is nothing to send, and the sheet's title for it reads "Your RSVP"
+   * rather than "Respond" (`EventSheet`). Each member's answer on file is written out ("Attending", "Not
    * attending", "Not decided", "No reply") in place of the answer buttons, the
    * dietary choices stay on show but disabled, and the consent boxes give way to
    * a line saying dietary requirements on file are shared with the caterers.
@@ -59,10 +58,6 @@ export interface RsvpPanelProps {
    * panel must not take focus for itself (see the deadline focus rescue).
    */
   active?: boolean;
-  /** `id` for the heading, which names the sheet while this panel shows. */
-  titleId?: string;
-  /** Receives the heading, which takes focus when the guest switches here. */
-  headingRef?: (el: HTMLHeadingElement) => void;
   /**
    * Told whether the form is busy: a save in flight, or a saved reply the
    * sheet is about to close on. While it is there is nothing to come back to,
@@ -352,7 +347,6 @@ export function RsvpPanel(props: RsvpPanelProps) {
   // Terminal success state: the reply is recorded, the Save button is filling
   // gold behind a drawn tick, and the sheet is counting down to closing itself.
   const [saved, setSaved] = createSignal(false);
-  const titleId = props.titleId ?? createUniqueId();
   createEffect(() => props.onBusyChange?.(loading() || saved()));
 
   // Abort the in-flight submit if the modal unmounts mid-request — keeps the
@@ -711,34 +705,10 @@ export function RsvpPanel(props: RsvpPanelProps) {
   // `flushBottom`). The sheet keeps one height whatever the form holds, so the
   // form grows to fill the column `EventSheet` lays this panel out in, and the
   // bar sits at its foot: on the edge however short the form is.
+  // The panel's title, the event's name, is the sheet's, in the bar above it
+  // (`EventSheet`), so the form starts with its first notice or its first guest.
   return (
     <>
-      <header
-        classList={{
-          "mb-6": !props.preview && !props.closed,
-          "mb-3": props.preview || props.closed,
-        }}
-      >
-        {/* The eyebrow is part of the heading, not a paragraph above it. The
-            sheet moves focus here when the guest switches panels, and both
-            panels' titles are the event's name — so "Respond" is what tells a
-            screen-reader user which panel they have arrived on. Past the
-            deadline there is nothing to respond to, so it names what the
-            panel shows instead. The comma is for the ear only. */}
-        <h3
-          id={titleId}
-          ref={(el) => props.headingRef?.(el)}
-          tabindex="-1"
-          class="font-display text-text text-ui-xl font-light italic"
-        >
-          <span class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 block leading-normal [font-weight:var(--invite-body-weight,400)] uppercase [font-style:var(--invite-body-style,normal)]">
-            {props.closed ? "Your RSVP" : "Respond"}
-            <span class="sr-only">,</span>
-          </span>{" "}
-          {props.event.name}
-        </h3>
-      </header>
-
       <Show when={props.closed}>
         <p
           class="border-border bg-surface-raised text-text-muted text-ui-xs mb-6 rounded-sm border px-3.5 py-2.5 leading-relaxed"

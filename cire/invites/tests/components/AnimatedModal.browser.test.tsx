@@ -20,6 +20,7 @@ describe("the guest sheet, in a real engine", () => {
     cleanup();
     document.documentElement.style.overflow = "";
     document.documentElement.style.scrollbarGutter = "";
+    document.documentElement.style.overscrollBehavior = "";
   });
 
   /**
@@ -142,9 +143,13 @@ describe("the guest sheet, in a real engine", () => {
       await userEvent.wheel(getByRole("dialog"), { delta: { y: 600 } });
       await new Promise((resolve) => requestAnimationFrame(resolve));
       expect(window.scrollY).toBe(0);
+      // Nor does a drag that reaches the end of the sheet's own scroll chain
+      // into the page, or rubber-band it, where an engine does either.
+      expect(getComputedStyle(document.documentElement).overscrollBehaviorY).toBe("none");
 
       unmount();
       expect(document.documentElement.style.overflow).toBe("");
+      expect(getComputedStyle(document.documentElement).overscrollBehaviorY).toBe("auto");
       await userEvent.wheel(tall, { delta: { y: 600 } });
       await new Promise((resolve) => setTimeout(resolve, 100));
       expect(window.scrollY).toBeGreaterThan(0);

@@ -46,12 +46,11 @@ afterEach(() => unpinZone());
 describe("DetailsPanel", () => {
   afterEach(() => cleanup());
 
-  it("shows the event name and the timezone-aware date / time range", () => {
-    const { getByText, getByRole } = renderPanel(baseEvent);
+  it("shows the timezone-aware date / time range", () => {
+    // The event's name is the sheet's title, in its bar (`EventSheet`), so
+    // the panel starts with the date.
+    const { getByText } = renderPanel(baseEvent);
 
-    // "Details" is part of the heading, so a guest who lands on it hears
-    // which panel this is as well as which event.
-    expect(getByRole("heading", { name: "Details, Mehndi" })).toBeTruthy();
     expect(getByText(/Friday\s+18 September 2026/)).toBeTruthy();
     // Time range rendered in the event's own timezone (4pm–10pm Sydney).
     expect(getByText(/4:00\s*pm\s*–\s*10:00\s*pm/i)).toBeTruthy();
@@ -284,25 +283,6 @@ describe("DetailsPanel", () => {
 
     expect(queryByText("Evil")).toBeNull();
     expect(getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Safe"]);
-  });
-
-  it("gives the sheet a heading it can focus and name the dialog by", () => {
-    let received: HTMLHeadingElement | undefined;
-    const { getByRole } = render(() => (
-      <DetailsPanel
-        event={baseEvent}
-        siteUrl={SITE_URL}
-        titleId="details-title"
-        headingRef={(el) => (received = el)}
-      />
-    ));
-
-    const heading = getByRole("heading", { name: "Details, Mehndi" });
-    expect(heading.id).toBe("details-title");
-    // Focusable by script only: the sheet moves focus here on a switch, and a
-    // heading has no business in the Tab order.
-    expect(heading.getAttribute("tabindex")).toBe("-1");
-    expect(received).toBe(heading);
   });
 });
 

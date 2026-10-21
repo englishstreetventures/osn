@@ -39,9 +39,13 @@ const LABEL =
 
 /**
  * The event sheet's way between its panels: two segments, Details and
- * Respond, in the sheet's chrome beside the close button. Both are always
- * there, so the row never stands empty and the guest can see where else there
- * is to go; the one on screen is filled gold.
+ * Respond, in the sheet's bar between its title and the close button. Both are
+ * always there, so the bar never stands without them and the guest can see
+ * where else there is to go; the one on screen is filled gold. It keeps an
+ * opaque fill of the sheet's surface, as the close button beside it does: the
+ * bar is frosted (`AnimatedModal`), and the gold words would fall below 4.5:1
+ * over dark or light content passing under it. It never shrinks; the title
+ * gives way first.
  *
  * ## The pill follows the finger
  *
@@ -112,7 +116,7 @@ export function PanelSwitch(props: PanelSwitchProps) {
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<fieldset>`: these are no form's controls, and a fieldset would bring its UA border, padding and min-content sizing into the sheet's chrome.
       role="group"
       aria-label="Event sheet"
-      class="border-gold/40 bg-surface relative grid grid-cols-2 rounded-full border"
+      class="border-gold/40 bg-surface relative grid shrink-0 grid-cols-2 rounded-full border"
     >
       <span
         aria-hidden="true"

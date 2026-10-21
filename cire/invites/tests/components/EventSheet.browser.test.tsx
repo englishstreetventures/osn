@@ -2,14 +2,17 @@
  * The event sheet's switch between its two panels, in a real engine.
  *
  * `EventSheet.test.tsx` holds the state: what mounts, what is hidden, which
- * heading is handed focus. None of what is below exists in jsdom — no
+ * title is handed focus. None of what is below exists in jsdom — no
  * `<dialog>` modality, no layout to hide a panel from, no animation to slide
- * one in, no focus restore when the dialog closes, no reduced-motion clamp —
- * and each is part of what the issue asked for: the guest moves between the
- * panels without the dialog closing, focus lands on the new heading and goes
- * back to the opener on close, nothing typed is lost, the move is animated,
- * under reduced motion it is instant, and the sheet keeps one height.
+ * one in, no focus restore when the dialog closes, no reduced-motion clamp, no
+ * sticky bar for the content to scroll under — and each is part of what the
+ * issues asked for: the guest moves between the panels without the dialog
+ * closing, focus lands on the new title and goes back to the opener on close,
+ * nothing typed is lost, the move is animated, under reduced motion it is
+ * instant, the sheet keeps one height, and its bar stays put, frosted, while
+ * the panel scrolls under it.
  */
+import { contrastRatio, PALETTE_PRESET_KEYS, WCAG_TEXT_MIN, WCAG_UI_MIN } from "@cire/theme";
 import { cleanup, render, within } from "@solidjs/testing-library";
 import { createSignal, Show } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
@@ -18,6 +21,7 @@ import { cdp, commands, page, userEvent } from "vitest/browser";
 import "../../src/styles/global.css";
 import { EventCard } from "../../src/components/EventCard";
 import { EventSheet, type EventPanel } from "../../src/components/EventSheet";
+import { applyPaletteToRoot } from "../../src/components/invite-theme";
 import type { EventSummary, FamilyMember } from "../../src/components/types";
 
 /** Typed accessor for the command registered in `vitest.config.ts`. */
@@ -100,8 +104,23 @@ function scroller(): HTMLElement {
   return dialog().lastElementChild as HTMLElement;
 }
 
+/** The sheet's bar: its title, the switch and the close button, first in the scrollport. */
+function bar(): HTMLElement {
+  return scroller().firstElementChild as HTMLElement;
+}
+
+/** The title on screen: the bar's heading for the panel shown, which names the dialog. */
+function title(): HTMLElement {
+  return document.getElementById(dialog().getAttribute("aria-labelledby")!)!;
+}
+
 function wrapperOf(panel: EventPanel): HTMLElement {
   return dialog().querySelector<HTMLElement>(`[data-panel="${panel}"]`)!;
+}
+
+/** The box both panels are laid out in, and the swipe moves them inside. */
+function rail(): HTMLElement {
+  return dialog().querySelector<HTMLElement>("[data-panel]")!.parentElement!;
 }
 
 function button(name: string | RegExp): HTMLButtonElement {
@@ -147,6 +166,49 @@ function pillProgress(): number {
   const { pill } = panelSwitch();
   // The layout width, not the painted one: the sheet's own entry scales it.
   return new DOMMatrix(getComputedStyle(pill).transform).m41 / pill.offsetWidth;
+}
+
+/**
+ * Colours painted one over another, as the 8-bit sRGB pixel the screen shows.
+ * A canvas does the compositing, so a translucent layer is blended with what
+ * is under it rather than measured as if it were opaque.
+ */
+function painted(...layers: string[]): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  for (const layer of layers) {
+    ctx.fillStyle = layer;
+    ctx.fillRect(0, 0, 1, 1);
+  }
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/** How opaque a CSS colour is, 0–255, read off the pixel it paints. */
+function alphaOf(colour: string): number {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = colour;
+  ctx.fillRect(0, 0, 1, 1);
+  return ctx.getImageData(0, 0, 1, 1).data[3] ?? 0;
+}
+
+/**
+ * The pixel behind `el`'s words when the bar is over `content`: every fill
+ * from the bar down to `el`'s own, over that content. Blurring a field of one
+ * colour leaves it that colour, so the backdrop filter changes nothing here.
+ */
+function groundUnder(el: Element, content: string): string {
+  const fills: string[] = [];
+  for (let node: Element | null = el; node; node = node.parentElement) {
+    fills.unshift(getComputedStyle(node).backgroundColor);
+    if (node === bar()) break;
+  }
+  return painted(content, ...fills);
 }
 
 function cardButton(label: string): HTMLButtonElement {
@@ -197,7 +259,8 @@ describe("EventSheet — moving between the panels", () => {
 
     await userEvent.click(segment("Respond"));
     expect(document.activeElement?.textContent).toMatch(/Respond.*Mehndi/);
-    expect(document.activeElement?.tagName).toBe("H3");
+    expect(document.activeElement?.tagName).toBe("H2");
+    expect(bar().contains(document.activeElement)).toBe(true);
     await settle();
     expect(dialog()).toBe(sheet);
     expect(sheet.matches(":modal")).toBe(true);
@@ -304,7 +367,7 @@ describe("EventSheet — the motion", () => {
     // Nothing to scroll sideways — and the clip that makes it so. Measured
     // first, so a missing clip fails here, on the symptom a guest would see.
     expect(scroller().scrollWidth).toBeLessThanOrEqual(scroller().clientWidth);
-    const panels = scroller().firstElementChild as HTMLElement;
+    const panels = rail();
     expect(getComputedStyle(panels).overflowX).toBe("clip");
 
     slide!.finish();
@@ -352,8 +415,9 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(segment("Respond"));
     await settle();
 
-    const bar = button("Save").parentElement as HTMLElement;
-    const gap = scroller().getBoundingClientRect().bottom - bar.getBoundingClientRect().bottom;
+    const actionBar = button("Save").parentElement as HTMLElement;
+    const gap =
+      scroller().getBoundingClientRect().bottom - actionBar.getBoundingClientRect().bottom;
     expect(Math.abs(gap)).toBeLessThan(1);
   });
 
@@ -402,7 +466,7 @@ describe("EventSheet — the motion", () => {
     await settle();
 
     expect(getComputedStyle(wrapperOf("details")).pointerEvents).toBe("auto");
-    const panels = scroller().firstElementChild as HTMLElement;
+    const panels = rail();
     expect(getComputedStyle(panels).overflowX).toBe("visible");
   });
 
@@ -427,7 +491,7 @@ describe("EventSheet — the motion", () => {
     await new Promise(requestAnimationFrame);
 
     expect(getComputedStyle(wrapperOf("details")).pointerEvents).toBe("none");
-    const panels = scroller().firstElementChild as HTMLElement;
+    const panels = rail();
     expect(getComputedStyle(panels).overflowX).toBe("clip");
 
     slide!.finish();
@@ -484,9 +548,10 @@ describe("EventSheet — the switch", () => {
     const { group } = panelSwitch();
     const radius = Number.parseFloat(getComputedStyle(group).borderTopLeftRadius);
     expect(radius).toBeGreaterThanOrEqual(group.getBoundingClientRect().height / 2);
-    // Opaque, because the sheet's content scrolls underneath it — and filled
-    // like the close button beside it.
-    expect(getComputedStyle(group).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+    // Opaque, on a bar the content scrolls under: the bar is frosted, and the
+    // gold words need a surface of their own to hold 4.5:1 over whatever
+    // passes beneath ("frosts the bar" below) — filled like the close button.
+    expect(alphaOf(getComputedStyle(group).backgroundColor)).toBe(255);
     expect(getComputedStyle(group).backgroundColor).toBe(
       getComputedStyle(button("Close")).backgroundColor,
     );
@@ -504,16 +569,18 @@ describe("EventSheet — the switch", () => {
     await settle();
   });
 
-  it("keeps the heading clear of the switch's row on a 320px phone", async () => {
+  it("starts the content below the bar on a 320px phone", async () => {
     await page.viewport(320, 640);
     render(() => <Harness />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
-    const row = button("Close").parentElement!.getBoundingClientRect();
-    const heading = dialog().querySelector("h3")!.getBoundingClientRect();
-    expect(heading.top).toBeGreaterThanOrEqual(row.bottom);
-    // Nor does the row run off the sheet's start edge.
-    expect(row.left).toBeGreaterThanOrEqual(dialog().getBoundingClientRect().left);
+    const row = bar().getBoundingClientRect();
+    const first = wrapperOf("details").querySelector("dl")!.getBoundingClientRect();
+    expect(first.top).toBeGreaterThanOrEqual(row.bottom);
+    // Nor does the bar run off either of the sheet's edges.
+    const sheet = dialog().getBoundingClientRect();
+    expect(row.left).toBeGreaterThanOrEqual(sheet.left);
+    expect(row.right).toBeLessThanOrEqual(sheet.right);
   });
 
   it.each([
@@ -554,6 +621,181 @@ describe("EventSheet — the switch", () => {
     await mouseClick({ x: 10, y: 10 });
     await afterTheCloseEvent();
     expect(document.querySelector("dialog")).toBeNull();
+  });
+});
+
+/** A name too long for the bar on any phone, so its title has to give way. */
+const longName: EventSummary = {
+  ...event,
+  name: "Sangeet and Reception at the Glasshouse",
+};
+
+describe("EventSheet — the bar", () => {
+  afterEach(() => {
+    applyPaletteToRoot(null);
+    const root = document.documentElement;
+    for (const name of Array.from(root.style)) {
+      if (name.startsWith("--")) root.style.removeProperty(name);
+    }
+  });
+
+  for (const [w, h] of [
+    [390, 844],
+    [320, 568],
+  ] as const) {
+    it(`stays put while the details scroll under it, at ${w}×${h}`, async () => {
+      const shotOf = (name: string) =>
+        page.screenshot({
+          path: `__screenshots__/EventSheet.browser.test.tsx/bar-${w}x${h}-${name}.png`,
+        });
+      await page.viewport(w, h);
+      render(() => <Harness event={full} members={fullParty} />);
+      await userEvent.click(cardButton("Event Details"));
+      await settle();
+      const atRest = bar().getBoundingClientRect();
+      const facts = wrapperOf("details").querySelector("dl")!;
+      // At rest the content starts under the bar, not beneath it.
+      expect(facts.getBoundingClientRect().top).toBeGreaterThanOrEqual(atRest.bottom);
+      await shotOf("details");
+
+      scroller().scrollTop = 200;
+      await new Promise(requestAnimationFrame);
+      expect(scroller().scrollTop).toBe(200);
+      // The bar has not moved, and the facts have gone up under it.
+      expect(bar().getBoundingClientRect().toJSON()).toEqual(atRest.toJSON());
+      const under = facts.getBoundingClientRect();
+      expect(under.top).toBeLessThan(atRest.top);
+      expect(under.bottom).toBeGreaterThan(atRest.bottom);
+      // Painted over them: the bar answers a hit test where the two meet, and
+      // the facts are still there beneath it.
+      const at = { x: atRest.left + atRest.width / 2, y: atRest.top + atRest.height / 2 };
+      const stack = document.elementsFromPoint(at.x, at.y);
+      expect(bar().contains(stack[0]!)).toBe(true);
+      expect(stack).toContain(facts);
+      await shotOf("details-scrolled");
+
+      await userEvent.click(segment("Respond"));
+      await settle();
+      expect(bar().getBoundingClientRect().toJSON()).toEqual(atRest.toJSON());
+      await shotOf("rsvp");
+    });
+  }
+
+  describe.each(PALETTE_PRESET_KEYS)("on the %s scheme", (palettePreset) => {
+    it("frosts the bar, and holds its words over the darkest and lightest content", async () => {
+      applyPaletteToRoot({ palettePreset, headingFont: null, bodyFont: null });
+      await page.viewport(390, 844);
+      render(() => <Harness event={full} members={fullParty} />);
+      await userEvent.click(cardButton("Event Details"));
+      await settle();
+      const style = getComputedStyle(bar());
+      // Frosted: what passes under it is blurred, and shows through a fill
+      // that is neither clear nor opaque.
+      expect(style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter")).toContain(
+        "blur(",
+      );
+      const alpha = alphaOf(style.backgroundColor);
+      expect(alpha).toBeGreaterThan(0);
+      expect(alpha).toBeLessThan(255);
+
+      // Whatever the guest scrolls under it — a black swatch, a white
+      // photograph — the bar's words stay readable: the title on the frost,
+      // the segment's word and the cross on fills of their own.
+      const words = [
+        { name: "title", el: title(), min: WCAG_TEXT_MIN },
+        { name: "Respond", el: segment("Respond"), min: WCAG_TEXT_MIN },
+        { name: "Close", el: button("Close"), min: WCAG_UI_MIN },
+      ];
+      for (const content of ["#000", "#fff"]) {
+        for (const word of words) {
+          const ground = groundUnder(word.el, content);
+          const measured =
+            contrastRatio(painted(ground, getComputedStyle(word.el).color), ground) ?? 0;
+          expect({ word: word.name, content, ok: measured >= word.min, measured }).toMatchObject({
+            word: word.name,
+            content,
+            ok: true,
+          });
+        }
+      }
+
+      // For review: the details passing under the frost on this scheme.
+      scroller().scrollTop = 200;
+      await new Promise(requestAnimationFrame);
+      await page.screenshot({
+        path: `__screenshots__/EventSheet.browser.test.tsx/bar-390x844-${palettePreset}-scrolled.png`,
+      });
+    });
+  });
+
+  for (const variant of [
+    { label: "Respond", closed: false },
+    { label: "Your RSVP", closed: true },
+  ] as const) {
+    it(`fits the title, the switch and the close button on a 320px phone, with ${variant.label}`, async () => {
+      await page.viewport(320, 568);
+      render(() => (
+        <EventSheet
+          event={longName}
+          panel="details"
+          siteUrl="https://invite.test/w"
+          members={[priya]}
+          apiUrl="https://api.test"
+          closed={variant.closed}
+          replied
+          onClose={() => {}}
+        />
+      ));
+      await settle();
+      const row = bar().getBoundingClientRect();
+      const heading = title().getBoundingClientRect();
+      const { group } = panelSwitch();
+      const pill = group.getBoundingClientRect();
+      const close = button("Close").getBoundingClientRect();
+
+      // In a row, inside the bar, none over another.
+      expect(heading.left).toBeGreaterThanOrEqual(row.left);
+      expect(heading.right).toBeLessThanOrEqual(pill.left + 0.5);
+      expect(pill.right).toBeLessThanOrEqual(close.left + 0.5);
+      expect(close.right).toBeLessThanOrEqual(row.right + 0.5);
+      for (const box of [heading, pill, close]) {
+        expect(box.top).toBeGreaterThanOrEqual(row.top);
+        expect(box.bottom).toBeLessThanOrEqual(row.bottom);
+      }
+      // The switch and the cross never give way: every segment shows its whole
+      // word at its full 44px, and the cross keeps its 44px target.
+      for (const name of ["Details", variant.label] as const) {
+        const seg = segment(name);
+        expect(seg.scrollWidth).toBeLessThanOrEqual(seg.clientWidth);
+        expect(seg.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+      }
+      expect(close.width).toBeGreaterThanOrEqual(44);
+      expect(close.height).toBeGreaterThanOrEqual(44);
+      // The title does: cut short on its one line, not wrapped onto a second.
+      expect(title().scrollWidth).toBeGreaterThan(title().clientWidth);
+      expect(getComputedStyle(title()).textOverflow).toBe("ellipsis");
+      expect(heading.height).toBeLessThan(
+        2 * Number.parseFloat(getComputedStyle(title()).lineHeight),
+      );
+      await page.screenshot({
+        path: `__screenshots__/EventSheet.browser.test.tsx/bar-320x568-${variant.closed ? "closed" : "open"}.png`,
+      });
+    });
+  }
+
+  it("names neither panel inside it: the switch and the bar's title say which is on screen", async () => {
+    await openOn("details");
+    await userEvent.click(segment("Respond"));
+    await settle();
+    for (const panel of ["details", "rsvp"] as const) {
+      expect(wrapperOf(panel).textContent).not.toMatch(/\b(Details|Respond|Your RSVP)\b/);
+    }
+    // The bar's title shows the event's name alone; the panel's name is for
+    // the ear, clipped to nothing on screen.
+    const spoken = title().querySelector(".sr-only")!;
+    expect(spoken.textContent).toBe("Respond,");
+    expect(spoken.getBoundingClientRect().width).toBeLessThanOrEqual(1);
+    expect(title().textContent).toBe("Respond, Mehndi");
   });
 });
 
@@ -651,33 +893,38 @@ describe("EventSheet — the switch follows a swipe", () => {
 });
 
 /**
- * What the arriving heading shows after a switch. A heading is never reached by
- * keyboard, so after a touch or a click the ring would read as the heading
- * being selected. Chromium draws none either way; the engines that do (iOS
- * Safari) are out of reach here, so these pin the mechanism: the mark on a
- * pointer's or a swipe's move, none on a key's, and the rule that drops the
+ * What the arriving title shows after a switch. The bar's title is never
+ * reached by keyboard, so after a touch or a click the ring would read as the
+ * title being selected. Chromium draws none either way; the engines that do
+ * (iOS Safari) are out of reach here, so these pin the mechanism: the mark on
+ * a pointer's or a swipe's move, none on a key's, and the rule that drops the
  * ring where the mark is.
  */
 describe("EventSheet — focus after a switch", () => {
-  it("hands the heading focus quietly after a swipe", async () => {
+  it("hands the bar's title focus quietly after a swipe", async () => {
     await openOn("details");
     const start = bodyOf("details");
     await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
     await settleSwipe();
 
-    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    const heading = title();
+    expect(heading.textContent).toMatch(/^Respond, /);
+    expect(bar().contains(heading)).toBe(true);
     expect(document.activeElement).toBe(heading);
     expect(heading.hasAttribute("data-quiet-focus")).toBe(true);
+    expect(getComputedStyle(heading).outlineStyle).toBe("none");
   });
 
-  it("hands the heading focus quietly after a click on the switch", async () => {
+  it("hands the bar's title focus quietly after a click on the switch", async () => {
     await openOn("details");
     await userEvent.click(segment("Respond"));
     await settle();
 
-    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    const heading = title();
+    expect(heading.textContent).toMatch(/^Respond, /);
     expect(document.activeElement).toBe(heading);
     expect(heading.hasAttribute("data-quiet-focus")).toBe(true);
+    expect(getComputedStyle(heading).outlineStyle).toBe("none");
   });
 
   it("keeps the ring for a key press on the switch, and drops it only where the mark is", async () => {
@@ -686,24 +933,30 @@ describe("EventSheet — focus after a switch", () => {
     await userEvent.keyboard("{Enter}");
     await settle();
 
-    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    const heading = title();
+    expect(heading.textContent).toMatch(/^Respond, /);
     expect(document.activeElement).toBe(heading);
     expect(heading.hasAttribute("data-quiet-focus")).toBe(false);
     // Reached by keyboard, so the engine draws the ring, and the page's rule
-    // paints it.
+    // paints it — on a title that is on screen, in the bar.
     expect(heading.matches(":focus-visible")).toBe(true);
     expect(getComputedStyle(heading).outlineStyle).toBe("solid");
+    expect(heading.checkVisibility()).toBe(true);
+    const box = heading.getBoundingClientRect();
+    const row = bar().getBoundingClientRect();
+    expect(box.top).toBeGreaterThanOrEqual(row.top);
+    expect(box.bottom).toBeLessThanOrEqual(row.bottom);
 
     // The same focus, marked: the rule in `global.css` takes the ring away.
     heading.setAttribute("data-quiet-focus", "");
     expect(getComputedStyle(heading).outlineStyle).toBe("none");
   });
 
-  it("clears the mark once the heading loses focus", async () => {
+  it("clears the mark once the title loses focus", async () => {
     await openOn("details");
     await userEvent.click(segment("Respond"));
     await settle();
-    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    const heading = title();
     expect(heading.hasAttribute("data-quiet-focus")).toBe(true);
 
     button("Close").focus();
@@ -714,8 +967,8 @@ describe("EventSheet — focus after a switch", () => {
     // A long press can start a native selection on the panel's text; the drag
     // that follows must not carry it along, highlighted, under the finger.
     await openOn("details");
-    const heading = wrapperOf("details").querySelector("h3")!;
-    getSelection()!.selectAllChildren(heading);
+    const day = wrapperOf("details").querySelector("dl p")!;
+    getSelection()!.selectAllChildren(day);
     expect(getSelection()!.isCollapsed).toBe(false);
 
     const start = bodyOf("details");
@@ -723,14 +976,13 @@ describe("EventSheet — focus after a switch", () => {
     await new Promise(requestAnimationFrame);
     try {
       expect(getSelection()!.isCollapsed).toBe(true);
-      const rail = wrapperOf("details").parentElement!;
-      expect(getComputedStyle(rail).userSelect).toBe("none");
+      expect(getComputedStyle(rail()).userSelect).toBe("none");
     } finally {
       await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
       await settleSwipe();
     }
     // Once still, the text can be selected again (a long press to copy the address).
-    expect(getComputedStyle(wrapperOf("details").parentElement!).userSelect).not.toBe("none");
+    expect(getComputedStyle(rail()).userSelect).not.toBe("none");
   });
 });
 
@@ -844,10 +1096,17 @@ async function mouseDrag(from: Point, to: Point) {
   });
 }
 
-/** A point in the middle of a panel's body, clear of every control. */
+/**
+ * A point on the first line of a panel's content, across the middle of the
+ * panel and clear of every control: the event's day on the details, the first
+ * guest's name on the form. Never on the bar, which is no part of a panel and
+ * starts no swipe.
+ */
 function bodyOf(panel: EventPanel): Point {
-  const heading = wrapperOf(panel).querySelector("h3")!.getBoundingClientRect();
-  return { x: heading.left + heading.width / 2, y: heading.top + heading.height / 2 };
+  const first = wrapperOf(panel).querySelector(panel === "details" ? "dl p" : "legend")!;
+  const line = first.getBoundingClientRect();
+  const across = wrapperOf(panel).getBoundingClientRect();
+  return { x: across.left + across.width / 2, y: line.top + line.height / 2 };
 }
 
 /** Wait for the swipe's settle, which is a transition rather than an animation. */
@@ -898,6 +1157,7 @@ describe("EventSheet — swiping between the panels", () => {
 
   it("draws the details level with the top of a scrolled form, clipped at its sides", async () => {
     await openOn("rsvp", party);
+    const restTop = wrapperOf("rsvp").getBoundingClientRect().top;
     scroller().scrollTop = 200;
     const start = bodyOf("rsvp");
     // The heading is scrolled away: start in the visible part of the form.
@@ -906,19 +1166,22 @@ describe("EventSheet — swiping between the panels", () => {
     await new Promise(requestAnimationFrame);
 
     const details = wrapperOf("details");
-    const port = scroller().getBoundingClientRect();
-    const padTop = Number.parseFloat(getComputedStyle(scroller()).paddingTop);
     expect(details.hidden).toBe(false);
     expect(details.inert).toBe(true);
-    expect(details.getBoundingClientRect().top).toBeCloseTo(port.top + padTop, 0);
+    // Where the form starts at rest, under the bar, wherever the form is
+    // scrolled: the place the details will be once they land.
+    expect(details.getBoundingClientRect().top).toBeCloseTo(restTop, 0);
     // A panel's width to the left of the form, moved with the finger.
-    const rail = details.parentElement!;
-    expect(details.style.transform).toBe(`translateX(${100 - rail.clientWidth}px)`);
-    expect(getComputedStyle(rail).overflowX).toBe("clip");
+    expect(details.style.transform).toBe(`translateX(${100 - rail().clientWidth}px)`);
+    expect(getComputedStyle(rail()).overflowX).toBe("clip");
+    // Under the bar, which a swipe never moves.
+    expect(details.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      bar().getBoundingClientRect().bottom,
+    );
 
     await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
     await settleSwipe();
-    expect(getComputedStyle(rail).overflowX).not.toBe("clip");
+    expect(getComputedStyle(rail()).overflowX).not.toBe("clip");
   });
 
   it("eases a released panel to rest rather than snapping it", async () => {
@@ -988,9 +1251,8 @@ describe("EventSheet — swiping between the panels", () => {
     try {
       viewport.dispatchEvent(new Event("resize"));
       await new Promise(requestAnimationFrame);
-      const rail = wrapperOf("details").parentElement!;
       // `touch-action: auto`, so the browser pans the zoomed view sideways.
-      expect(getComputedStyle(rail).touchAction).toBe("auto");
+      expect(getComputedStyle(rail()).touchAction).toBe("auto");
 
       const start = bodyOf("details");
       await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
@@ -1025,10 +1287,12 @@ describe("EventSheet — swiping between the panels", () => {
     await settleSwipe();
   });
 
-  it("carries on to the form past a third of the way, with focus on its heading at the top", async () => {
+  it("carries on to the form past a third of the way, with focus on its title at the top", async () => {
     await openOn("details");
-    scroller().scrollTop = 40;
+    // Taken before the scroll, which carries the day up under the bar: a
+    // touch there would be on the bar, which starts no swipe.
     const start = bodyOf("details");
+    scroller().scrollTop = 40;
     await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
     await settleSwipe();
 
@@ -1324,9 +1588,8 @@ describe("EventSheet — one height for both panels", () => {
         await userEvent.click(cardButton("Event Details"));
         await settle();
         let stop = watchHeight();
-        const h3 = wrapperOf("details").querySelector("h3")!.getBoundingClientRect();
         const dl = wrapperOf("details").querySelector("dl")!.getBoundingClientRect();
-        const headingGap = dl.top - h3.bottom;
+        const underBar = dl.top - bar().getBoundingClientRect().bottom;
         await shot(`${vp.name}-${fx.name}-details`);
         await userEvent.click(segment("Respond"));
         await settle();
@@ -1350,8 +1613,9 @@ describe("EventSheet — one height for both panels", () => {
         await settle();
         // Nothing of the details has loaded for the form's sake.
         expect(dialog().querySelector('[data-panel="details"]')).toBeNull();
-        const bar = button("Save").parentElement as HTMLElement;
-        const gap = scroller().getBoundingClientRect().bottom - bar.getBoundingClientRect().bottom;
+        const actionBar = button("Save").parentElement as HTMLElement;
+        const gap =
+          scroller().getBoundingClientRect().bottom - actionBar.getBoundingClientRect().bottom;
         await shot(`${vp.name}-${fx.name}-rsvp-attending`);
         await swipeFrom("rsvp");
         await userEvent.click(segment("Respond"));
@@ -1364,11 +1628,11 @@ describe("EventSheet — one height for both panels", () => {
         expect(Math.abs(heights.fromDetails[0]! - vp.height)).toBeLessThan(1);
         // The form's action bar sits on the sheet's bottom edge.
         expect(Math.abs(gap)).toBeLessThan(1);
-        // The details are laid out as before: their header's 1.5rem under the
-        // heading, with the heading's own margin collapsed into it. A details
-        // wrapper made a flex column would add the two.
+        // The details start one 1.25rem gap under the bar, with nothing of
+        // their empty header between: its live region is there from the
+        // start, and takes no room while it says nothing.
         const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
-        expect(headingGap).toBeCloseTo(1.5 * rem, 1);
+        expect(underBar).toBeCloseTo(1.25 * rem, 1);
       });
     }
   }
@@ -1403,11 +1667,13 @@ describe("EventSheet — a full event inside the sheet", () => {
       scroller().scrollTop = scroller().scrollHeight;
       await new Promise(requestAnimationFrame);
       const guests = wrapperOf("rsvp").querySelectorAll("form > fieldset");
-      const bar = button("Save").parentElement!.getBoundingClientRect();
+      const actionBar = button("Save").parentElement!.getBoundingClientRect();
       expect(guests[guests.length - 1]!.getBoundingClientRect().bottom).toBeLessThanOrEqual(
-        bar.top,
+        actionBar.top,
       );
-      expect(Math.abs(scroller().getBoundingClientRect().bottom - bar.bottom)).toBeLessThan(1);
+      expect(Math.abs(scroller().getBoundingClientRect().bottom - actionBar.bottom)).toBeLessThan(
+        1,
+      );
       await shot(`${vp.name}-full-rsvp-end`);
     });
   }
