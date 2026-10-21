@@ -169,7 +169,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
         when={!editing() && props.email}
         fallback={
           <form class="flex flex-col gap-3" onSubmit={(e) => void save(e)}>
-            <p role="status" class="text-text-muted text-ui-sm leading-ui-normal font-light">
+            <output class="text-text-muted text-ui-sm leading-ui-normal block font-light">
               <Show
                 when={removedNote()}
                 fallback={
@@ -182,7 +182,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                 Removed. Your hosts won’t email that address about the wedding unless you add it
                 again.
               </Show>
-            </p>
+            </output>
             <div>
               <label for={inputId} class="font-body text-text-muted text-ui-sm block">
                 Your email, {props.member.firstName}
