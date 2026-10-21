@@ -3630,7 +3630,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         expect(
           await chainD1
             .prepare("SELECT id, assigned_host_id FROM tasks WHERE id = 'tsk_ed'")
-            .first(),
+            .first<{ id: string; assigned_host_id: string | null }>(),
         ).toEqual({ id: "tsk_ed", assigned_host_id: null });
       } finally {
         await chainMf.dispose();
