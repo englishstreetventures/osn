@@ -20,13 +20,13 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "effect": "4.0.3"
+    "effect": "4.0.5"
   },
   "peerDependencies": {
     "solid-js": ">=1.0.0"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.3",
+    "@effect/vitest": "4.0.5",
     "@shared/typescript-config": "workspace:*",
     "solid-js": "^1.9.15",
     "vite-plugin-solid": "^2.11.14",
