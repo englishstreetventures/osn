@@ -1,5 +1,5 @@
 /**
- * Search and status filtering for the RSVP list.
+ * Search, status filtering and sorting for the RSVP list.
  *
  * ## Why the merge lives here
  *
@@ -131,6 +131,11 @@ export interface RsvpRow {
   responded: boolean;
   /** Everything a typed word can land on, lower-cased once at merge time. */
   search: string;
+  /** The surname and household name a sort compares, trimmed once at merge
+   *  time: a sort compares each row many times, and the names never change
+   *  between loads. */
+  sortSurname: string;
+  sortHousehold: string;
 }
 
 export const RSVP_FILTERS: readonly { key: RsvpFilterKey; label: string }[] = [
@@ -192,6 +197,8 @@ export function mergeRows(event: RsvpFilterEvent): RsvpRow[] {
       ...link,
       responded: true,
       search: haystack(guest, link),
+      sortSurname: guest.lastName.trim(),
+      sortHousehold: guest.familyName.trim(),
     };
   });
   const silent: RsvpRow[] = event.unresponded.map((guest) => {
@@ -211,6 +218,8 @@ export function mergeRows(event: RsvpFilterEvent): RsvpRow[] {
       ...link,
       responded: false,
       search: haystack(guest, link),
+      sortSurname: guest.lastName.trim(),
+      sortHousehold: guest.familyName.trim(),
     };
   });
   return [...replied, ...silent];
@@ -231,15 +240,11 @@ export function filterRows(rows: RsvpRow[], query: string, filter: RsvpFilterKey
 }
 
 /**
- * How many rows each chip would show, summed over every event. A guest invited
- * to three events counts three times — the chips label rows, and rows are what
- * the list shows.
- *
- * Takes the merged rows rather than the raw events so the caller can hand over
- * a merge it already holds; re-merging here would do the same work twice on
- * every load.
+ * How many rows each chip would show in one event. The chips filter the event
+ * on screen, so they count its rows — every one, whatever the search, because
+ * they are the way out of the current search rather than a description of it.
  */
-export function statusCounts(rowGroups: Iterable<RsvpRow[]>) {
+export function statusCounts(rows: readonly RsvpRow[]) {
   const counts = {
     all: 0,
     attending: 0,
@@ -247,11 +252,77 @@ export function statusCounts(rowGroups: Iterable<RsvpRow[]>) {
     maybe: 0,
     none: 0,
   } satisfies Record<RsvpFilterKey, number>;
-  for (const rows of rowGroups) {
-    for (const row of rows) {
-      counts.all += 1;
-      counts[row.status] += 1;
-    }
+  for (const row of rows) {
+    counts.all += 1;
+    counts[row.status] += 1;
   }
   return counts;
+}
+
+/** The columns a host can sort by. */
+export type RsvpSortKey = "guest" | "household";
+/** Spelled as `aria-sort` spells it, so the head can carry it as it is. */
+export type RsvpSortDirection = "ascending" | "descending";
+export interface RsvpSort {
+  key: RsvpSortKey;
+  direction: RsvpSortDirection;
+}
+
+/**
+ * The next sort after a click on a column head: a new column sorts ascending,
+ * and the column already sorted turns round.
+ */
+export function nextSort(current: RsvpSort | null, key: RsvpSortKey): RsvpSort {
+  if (current?.key === key) {
+    return { key, direction: current.direction === "ascending" ? "descending" : "ascending" };
+  }
+  return { key, direction: "ascending" };
+}
+
+// The host's own locale, base sensitivity: "de Vries" and "De Vries" are one
+// surname, and "Ó Súilleabháin" files with the Os. One collator for every
+// comparison, because building one per call is most of what a sort costs.
+const collator = new Intl.Collator(undefined, { sensitivity: "base" });
+
+/** Blank text sorts after any text, whichever way the column runs. Takes the
+ *  trimmed sort keys. */
+function blankLast(a: string, b: string): number {
+  return Number(a === "") - Number(b === "");
+}
+
+/**
+ * Rows in the order a column head asks for, as a new array; `null` hands the
+ * rows back as `mergeRows` built them: replies, then the guests still to
+ * answer, each in the API's order.
+ *
+ * - **Guest** sorts by surname, then first name. A guest with no surname — the
+ *   column defaults to empty — comes after every guest with one, in both
+ *   directions, ordered among themselves by first name. A plus-one with a
+ *   surname of their own leaves their inviter's side; the line under their
+ *   name still says who brought them.
+ * - **Household** sorts whole households by name, and two households with one
+ *   name by their codes so they never interleave. Inside a household the rows
+ *   keep the order they came in: the replies, then the guests still to answer,
+ *   each in the API's order — the couple's own, with a plus-one after the
+ *   guest who brought them when both are on the same side. A household with
+ *   no name comes last.
+ *
+ * The sort is stable, so rows that tie keep the order they came in.
+ */
+export function sortRows(rows: RsvpRow[], sort: RsvpSort | null): RsvpRow[] {
+  if (sort === null) return rows;
+  const sign = sort.direction === "ascending" ? 1 : -1;
+  const compare =
+    sort.key === "guest"
+      ? (a: RsvpRow, b: RsvpRow) =>
+          blankLast(a.sortSurname, b.sortSurname) ||
+          sign *
+            (collator.compare(a.sortSurname, b.sortSurname) ||
+              collator.compare(a.firstName, b.firstName))
+      : (a: RsvpRow, b: RsvpRow) =>
+          blankLast(a.sortHousehold, b.sortHousehold) ||
+          sign *
+            (collator.compare(a.sortHousehold, b.sortHousehold) ||
+              collator.compare(a.familyCode, b.familyCode));
+  return rows.toSorted(compare);
 }

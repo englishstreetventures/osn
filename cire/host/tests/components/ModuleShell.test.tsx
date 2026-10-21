@@ -85,7 +85,12 @@ vi.mock("../../src/components/ImportPanel", () => ({
   ),
 }));
 vi.mock("../../src/components/RsvpView", () => ({
-  default: (p: { weddingId: string }) => <div data-testid="rsvps">{p.weddingId}</div>,
+  default: (p: { weddingId: string; event?: string; onEvent?: (eventId: string) => void }) => (
+    <div data-testid="rsvps" data-event={p.event ?? ""}>
+      {p.weddingId}
+      <button onClick={() => p.onEvent?.("evt_9")}>rsvp-pick-event</button>
+    </div>
+  ),
 }));
 // Counts mounts, so a test can tell a move that passed through the builder on
 // its way somewhere else from one that never touched it. Surfaces the wedding
@@ -237,6 +242,8 @@ function renderShell(opts: {
   role?: WeddingRole;
   onLeftWedding?: () => void;
   onTierRaised?: (tier: "gold" | "crimson") => void;
+  rsvpEvent?: string;
+  onRsvpEvent?: (eventId: string) => void;
 }) {
   const [module, setModule] = createSignal<Module>(opts.module ?? "overview");
   const [sub, setSub] = createSignal(opts.sub ?? "index");
@@ -278,6 +285,8 @@ function renderShell(opts: {
       guestCap={opts.guestCap ?? 100}
       onLeftWedding={opts.onLeftWedding}
       onTierRaised={opts.onTierRaised}
+      rsvpEvent={opts.rsvpEvent}
+      onRsvpEvent={opts.onRsvpEvent}
     />
   ));
   return { ...utils, onModule, onSub, setModule, setSub };
@@ -551,6 +560,14 @@ describe("ModuleShell", () => {
     it("still gives a viewer the read RSVPs view", () => {
       renderShell({ canManage: false, canEdit: false, module: "guests", sub: "rsvps" });
       expect(screen.getByTestId("rsvps")).toBeTruthy();
+    });
+
+    it("hands the RSVP view the event from the address, and reports the one picked", () => {
+      const onRsvpEvent = vi.fn();
+      renderShell({ module: "guests", sub: "rsvps", rsvpEvent: "evt_2", onRsvpEvent });
+      expect(screen.getByTestId("rsvps").dataset.event).toBe("evt_2");
+      fireEvent.click(screen.getByRole("button", { name: "rsvp-pick-event" }));
+      expect(onRsvpEvent).toHaveBeenCalledWith("evt_9");
     });
   });
 

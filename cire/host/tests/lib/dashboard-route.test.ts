@@ -361,3 +361,65 @@ describe("a dot-segment wedding id", () => {
     ]);
   });
 });
+
+/**
+ * The RSVP page carries the event it shows as a fifth segment, so a reload or a
+ * shared link opens the same event. No other page carries anything past its sub.
+ */
+describe("the RSVP page's event", () => {
+  const rsvps = (rsvpEvent?: string): DashboardRoute => ({
+    view: "weddings",
+    weddingId: "wed_1",
+    module: "guests",
+    sub: "rsvps",
+    ...(rsvpEvent === undefined ? {} : { rsvpEvent }),
+  });
+
+  it("parses the event from #/w/<id>/guests/rsvps/<event>", () => {
+    expect(parseRoute("#/w/wed_1/guests/rsvps/evt_2")).toEqual(rsvps("evt_2"));
+  });
+
+  it("round-trips the event, percent-encoding an id with reserved characters", () => {
+    expect(serializeRoute(rsvps("evt_2"))).toBe("#/w/wed_1/guests/rsvps/evt_2");
+    expect(serializeRoute(rsvps("evt/2 b"))).toBe("#/w/wed_1/guests/rsvps/evt%2F2%20b");
+    for (const id of ["evt_2", "evt/2 b"]) {
+      expect(parseRoute(serializeRoute(rsvps(id)))).toEqual(rsvps(id));
+    }
+  });
+
+  it("ignores a fifth segment on any other page", () => {
+    expect(parseRoute("#/w/wed_1/guests/list/evt_2")).toEqual({
+      view: "weddings",
+      weddingId: "wed_1",
+      module: "guests",
+      sub: "list",
+    });
+    expect(parseRoute("#/w/wed_1/guests/bogus/evt_2")).toEqual({
+      view: "weddings",
+      weddingId: "wed_1",
+      module: "guests",
+      sub: "list",
+    });
+  });
+
+  it.each(["..", ".", "%2E%2E"])("drops a dot-segment event (%s) and stays on the page", (seg) => {
+    expect(parseRoute(`#/w/wed_1/guests/rsvps/${seg}`)).toEqual(rsvps());
+  });
+
+  it("writes no event onto a route that is not the RSVP page", () => {
+    expect(
+      serializeRoute({
+        view: "weddings",
+        weddingId: "wed_1",
+        module: "guests",
+        sub: "list",
+        rsvpEvent: "evt_2",
+      }),
+    ).toBe("#/w/wed_1/guests");
+  });
+
+  it("leaves the RSVP page's address as it was when no event is named", () => {
+    expect(serializeRoute(rsvps())).toBe("#/w/wed_1/guests/rsvps");
+    expect(parseRoute("#/w/wed_1/guests/rsvps")).toEqual(rsvps());
+  });
+});

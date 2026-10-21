@@ -317,7 +317,8 @@ is given the house dark.
 
 ## 7. Components
 
-`src/components/ui/` holds the parts every module is built from. They are
+The parts every module is built from come from `@shared/ui`
+(`shared/ui/src/ui/`), with `Button` and `Card` from `@cire/ui`. They are
 class-mapping components: they own a look and its variants, and almost no
 behaviour. A part that grows real behaviour takes its own file with it.
 
@@ -334,7 +335,7 @@ by variant map, and the caller's own `class` is appended last.
 | `EmptyState` | A title, an optional line of prose, and the one thing to do about it. |
 | `Meter`, `meterPct` | A thin bar. Scaled by transform rather than resized — see the file. `meterPct` clamps at both ends and reads a zero or missing maximum as empty, not as a division by zero. |
 | `Stat` | A figure, then what it is, then an optional hint. |
-| `Table`, `Th`, `Td` | The five tables as one set of parts. The wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse. `label` is required. |
+| `Table`, `Th`, `Td` | Every table in the portal as one set of parts. The wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse. `label` is required. `Th` and `Td` take `pin` for a head row or first column held in view (§A table that keeps its heads in view). |
 
 ### Who holds a task: faces, not names
 
@@ -396,7 +397,7 @@ scrolls toward the panel before then jumps the page up to that corner.
 
 **Anything spread onto an element takes `SafeProps`.** Solid's `HTMLAttributes`
 includes `innerHTML`, `innerText` and `textContent`, and dom-expressions assigns
-`innerHTML` unescaped. `SafeProps<E>` (`src/components/ui/props.ts`) is
+`innerHTML` unescaped. `SafeProps<E>` (`shared/ui/src/ui/props.ts`) is
 `ComponentProps<E>` with those three removed, so a call site cannot pass
 unsanitised markup through a primitive without noticing.
 
@@ -406,7 +407,7 @@ Every state that reports an outcome pairs its hue with a shape and a word.
 
 ### Testing them
 
-`ui.test.tsx` asserts what a call site can rely on — that the variants differ
+`shared/ui/tests/` asserts what a call site can rely on — that the variants differ
 from each other, that props reach the DOM, that the accessibility wiring is
 there, and that the one piece of arithmetic in the set is right. It does not
 assert class strings: that pins the current answer rather than the contract, and
@@ -422,3 +423,68 @@ badge keeps its own colours and stays out of the tab order, so keyboard and
 touch users see the word alone. An explanation a host needs in order to act goes
 in visible text instead. Never a `title`: Chrome would hand a screen reader the
 words a second time. `wiki/shared/component-library.md` §`Tooltip` has the rest.
+
+### A tab strip inside a view
+
+A view that shows one of several things at a time — the RSVP page's events —
+picks it from a tab strip in the module sub-tabs' look: a hairline track on `--surface` at 30%, uppercase
+`text-ui-xs` labels at `tracking-ui-wider`, and one `bg-gold/12` pill that
+travels to the chosen tab (`createSlidingPill`). Same look, same keys: the
+arrows, Home and End move focus and Enter or Space chooses, because a panel
+that draws hundreds of rows is not instant, and choosing what you only passed
+over would draw it anyway.
+
+A strip that can outgrow its row scrolls sideways rather than wrapping, and
+brings a tab into view by scrolling itself, never the page. A count beside a
+tab's label sits in the mono face at normal tracking (`tracking-normal`).
+Anything a tab needs to say about what it holds — the RSVP page's "New" — is a
+word in the row badge's look, never a dot: colour does not carry a meaning
+alone. A tab whose name is a phrase (the event and its count) gets an
+`aria-label` in sentence case, since Chrome reads out the label's capitals; a
+one-word label can stay in capitals, as the module sub-tabs do
+([frontend-patterns](../../wiki/shared/frontend-patterns.md) §Chrome exposes a
+`title` as a description).
+
+Ids carry a per-view prefix, so a strip nested in the module shell's tab panel
+never meets its `subtab-*` and `subpanel-*`.
+
+### A table that keeps its heads in view
+
+A long table whose head row and first column must stay on screen — the RSVP
+table — scrolls in its own box. A sticky head can only stick to the box that
+scrolls, and `Table`'s box already scrolls
+([frontend-patterns](../../wiki/shared/frontend-patterns.md) §`position:
+sticky` resolves its offsets against the scrollport). On the box:
+
+- `max-h-[calc(100svh-6rem)]` — a height to scroll within. The top bar is at
+  most 4rem and a hairline, so the whole box fits on screen under it at once.
+- `scroll-pt-12 scroll-ps-50` — scroll padding a little larger than the head
+  row and the 12rem Guest column, so a control that takes keyboard focus is
+  scrolled clear of the pinned cells instead of being left beneath them.
+- `isolate`, so the pinned cells' layers stay inside the box, and `relative`,
+  so hidden text inside it belongs to it.
+
+`@shared/ui`'s `pin` variant on `Th` and `Td` (`top`, `top-start`, `start`)
+pins the cells; classes at the call site cannot, because a pinned cell paints
+the page ground so the rows passing under it never show through. That only
+reads right on a table set straight on the ground, not on a tinted card. The
+pinned column carries a full hairline on its end edge; that line is what says
+where the held column stops once the others slide beneath it. A row's hover
+fill still reaches its pinned cell.
+
+Pin a column only where the box can scroll sideways. Each pinned cell costs
+every scrolled frame, so the RSVP table's Guest cells drop back into flow once
+the module panel is wide enough for every column
+(`@min-[47rem]/panel:static`, `39rem` for a viewer's narrower table).
+
+The trade is that the table scrolls inside the page: a wheel over it moves the
+rows first and the page once the box reaches its end.
+
+### A column head that sorts
+
+A sortable head holds a button, and the `th` around it carries `aria-sort` — on
+the sorted column only. The button sets `uppercase` itself, because a button
+does not inherit a text transform. Beside the label, at 14px and stroke 1.75:
+`arrow-up` or `arrow-down` on the sorted head, a faint `chevrons-up-down` on
+one that could be. A click sorts ascending, a second click reverses. The sort
+belongs to the view, not the address.
