@@ -35,6 +35,17 @@ import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support
  *  8. The two 422s, each in words.
  *  9. Focus back on the trigger after a save.
  * 10. A 401: sign in again.
+ *
+ * Added to kill what mutation testing found unpinned (testing-patterns
+ * §Mutation testing), each a thing the organiser sees or sends:
+ * 11. A linked task opens on its event, minutes and side, and says where that
+ *     lands; minutes after the start go as a positive offset, a day at most.
+ * 12. What is missing, said, and nothing sent.
+ * 13. The events in the order they start, each with its day and time.
+ * 14. A new time starts on the first event's day, and follows a picked
+ *     event's day until a date is typed.
+ * 15. The zone the events share, not the browser's.
+ * 16. The trigger names a zone that is not the reader's, and a removed event.
  */
 
 const task = (over: Partial<TaskRow> = {}): TaskRow => ({
@@ -247,5 +258,152 @@ describe.skipIf(!DESIGNED)("RunTimeEditor", () => {
     fireEvent.input(screen.getByLabelText("Time"), { target: { value: "12:00" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+  });
+
+  it("opens a linked task on its event, its minutes and its side, and says where that lands", async () => {
+    authFetchMock.mockResolvedValue(saved({ eventId: "evt_reception", anchored: true }));
+    editor({
+      task: task({
+        runAt: "2099-06-20T19:30:00+10:00",
+        runTimezone: "Australia/Sydney",
+        eventId: "evt_reception",
+        runOffsetMinutes: 90,
+        anchored: true,
+      }),
+    });
+    fireEvent.click(trigger());
+    expect(((await screen.findByLabelText("Event")) as HTMLSelectElement).value).toBe(
+      "evt_reception",
+    );
+    expect(
+      (screen.getByRole("radio", { name: "Before or after the start" }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    expect((screen.getByLabelText("Minutes") as HTMLInputElement).value).toBe("90");
+    expect((screen.getByLabelText("Before or after") as HTMLSelectElement).value).toBe("after");
+    expect(screen.getByText(/^Sat 20 Jun, 7:30\s?pm, on Reception's clock$/)).toBeTruthy();
+
+    fireEvent.input(screen.getByLabelText("Minutes"), { target: { value: "45" } });
+    expect(screen.getByText(/^Sat 20 Jun, 6:45\s?pm, on Reception's clock$/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(sentRunTime()).toEqual({
+        kind: "offset",
+        eventId: "evt_reception",
+        offsetMinutes: 45,
+      }),
+    );
+  });
+
+  it("takes a whole day before the start at most", async () => {
+    authFetchMock.mockResolvedValue(saved({ eventId: "evt_ceremony", anchored: true }));
+    editor();
+    fireEvent.click(trigger());
+    fireEvent.change(await screen.findByLabelText("Event"), { target: { value: "evt_ceremony" } });
+    fireEvent.input(screen.getByLabelText("Minutes"), { target: { value: "1440" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(sentRunTime()).toEqual({
+        kind: "offset",
+        eventId: "evt_ceremony",
+        offsetMinutes: -1440,
+      }),
+    );
+  });
+
+  it("says what is missing, and sends nothing", async () => {
+    editor();
+    fireEvent.click(trigger());
+    await screen.findByLabelText("Event");
+    // No time yet, on the day the events give it.
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Pick a date and a time.")).toBeTruthy();
+    fireEvent.input(screen.getByLabelText("Time"), { target: { value: "14:00" } });
+    fireEvent.input(screen.getByLabelText("Date"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByText("Pick a date and a time.")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Event"), { target: { value: "evt_ceremony" } });
+    for (const typed of ["", "1441", "2.5", "30x"]) {
+      fireEvent.input(screen.getByLabelText("Minutes"), { target: { value: typed } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(
+        await screen.findByText("Minutes must be a whole number from 0 to 1440."),
+        `"${typed}" refused`,
+      ).toBeTruthy();
+    }
+    expect(authFetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
+  });
+
+  it("offers the events in the order they start, each with its day and time", async () => {
+    editor({
+      events: [
+        // Two at one start: the schedule's own order decides.
+        event({ id: "c", name: "Reception", startAt: "2099-06-20T18:00:00+10:00", sortOrder: 1 }),
+        event({ id: "b", name: "Speeches", startAt: "2099-06-20T18:00:00+10:00", sortOrder: 0 }),
+        event({ id: "a", name: "Rehearsal", startAt: "2099-06-19T18:00:00+10:00" }),
+        event({ id: "d", name: "Ceremony", startAt: "2099-06-20T15:00:00+10:00" }),
+      ],
+    });
+    fireEvent.click(trigger());
+    const picker = (await screen.findByLabelText("Event")) as HTMLSelectElement;
+    expect([...picker.options].map((o) => o.textContent?.replace(/\s/g, " "))).toEqual([
+      "No event — a fixed time",
+      "Rehearsal · Fri 19 Jun, 6:00 pm",
+      "Ceremony · Sat 20 Jun, 3:00 pm",
+      "Speeches · Sat 20 Jun, 6:00 pm",
+      "Reception · Sat 20 Jun, 6:00 pm",
+    ]);
+  });
+
+  it("starts a new time on the first event's day, and follows a picked event's until a date is typed", async () => {
+    editor({
+      events: [
+        event({ id: "evt_ceremony", name: "Ceremony" }),
+        event({ id: "evt_rehearsal", name: "Rehearsal", startAt: "2099-06-19T18:00:00+10:00" }),
+      ],
+    });
+    fireEvent.click(trigger());
+    const date = () => (screen.getByLabelText("Date") as HTMLInputElement).value;
+    await screen.findByLabelText("Event");
+    expect(date()).toBe("2099-06-19");
+    fireEvent.change(screen.getByLabelText("Event"), { target: { value: "evt_ceremony" } });
+    fireEvent.click(screen.getByRole("radio", { name: "At a clock time" }));
+    expect(date()).toBe("2099-06-20");
+    fireEvent.input(screen.getByLabelText("Date"), { target: { value: "2099-06-25" } });
+    fireEvent.change(screen.getByLabelText("Event"), { target: { value: "evt_rehearsal" } });
+    expect(date()).toBe("2099-06-25");
+  });
+
+  it("defaults a fixed time to the zone the events share, not the browser's", async () => {
+    editor({
+      events: [
+        event({ id: "a", name: "Mehndi", timezone: "Asia/Kolkata" }),
+        event({ id: "b", name: "Sangeet", timezone: "Asia/Kolkata" }),
+      ],
+    });
+    fireEvent.click(trigger());
+    expect(((await screen.findByLabelText("Time zone")) as HTMLSelectElement).value).toBe(
+      "Asia/Kolkata",
+    );
+  });
+
+  it("names a zone on the trigger only when it is not the reader's, and a removed event", () => {
+    // The runner's zone is Sydney's.
+    editor({
+      task: task({ runAt: "2099-06-20T10:00:00+05:30", runTimezone: "Asia/Kolkata" }),
+    });
+    expect(trigger().textContent).toMatch(/^10:00\s?amGMT\+5:30,/);
+    cleanup();
+    editor({
+      task: task({
+        runAt: "2099-06-20T15:00:00+10:00",
+        runTimezone: "Australia/Sydney",
+        eventRemoved: true,
+      }),
+    });
+    expect(trigger().textContent).toMatch(
+      /^3:00\s?pm, time for Bring the rings, its event removed$/,
+    );
   });
 });

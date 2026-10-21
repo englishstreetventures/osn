@@ -334,7 +334,11 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
               hint={props.eventsFailed ? "Couldn't load the events: set a fixed time." : undefined}
             >
               {(field) => (
-                <Select {...field} onChange={(e) => pickEvent(e.currentTarget.value)}>
+                <Select
+                  {...field}
+                  value={eventId()}
+                  onChange={(e) => pickEvent(e.currentTarget.value)}
+                >
                   <option value="" selected={eventId() === ""}>
                     No event — a fixed time
                   </option>
@@ -350,8 +354,10 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                       {props.events === null ? "Its event" : "An event no longer on the schedule"}
                     </option>
                   </Show>
-                  {/* `selected` on each option, not `value` on the select: the
-                      events can be read again under an open popover. */}
+                  {/* `selected` on each option as well as `value` on the
+                      select: the events can be read again under an open
+                      popover, and a select sets its value only when the
+                      value changes, not when its options do. */}
                   <For each={events()}>
                     {(entry) => (
                       <option value={entry.event.id} selected={entry.event.id === eventId()}>

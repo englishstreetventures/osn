@@ -381,6 +381,47 @@ describe("a task's time on its row, painted", () => {
   }
 });
 
+describe("the event picker", () => {
+  it("shows the event a task is linked to, not the first one", async () => {
+    await page.viewport(390, 1100);
+    setCachedTasks(
+      "wed_1",
+      readTaskList("wed_1", {
+        tasks: [
+          row({
+            id: "dance",
+            title: "Cue the first dance",
+            runAt: "2099-06-20T19:30:00+10:00",
+            runTimezone: SYDNEY,
+            eventId: "evt_reception",
+            runOffsetMinutes: 120,
+            anchored: true,
+          }),
+        ],
+        viewerHostId: "whost_ana",
+      }),
+    );
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByTestId("tasks-day_of");
+    const dialog = await openFor("Cue the first dance");
+    await waitFor(() =>
+      expect(dialog.textContent).toContain("Sat 20 Jun, 7:30 pm, on Reception's clock"),
+    );
+    const picker = within(dialog).getByLabelText("Event") as HTMLSelectElement;
+    expect(picker.value).toBe("evt_reception");
+    expect(picker.selectedOptions[0]?.textContent).toMatch(/^Reception/);
+    // Again, with the events already read when the popover opens.
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Time on the day" })).toBeNull(),
+    );
+    const again = await openFor("Cue the first dance");
+    const reopened = within(again).getByLabelText("Event") as HTMLSelectElement;
+    expect(reopened.value).toBe("evt_reception");
+    expect(reopened.selectedOptions[0]?.textContent).toMatch(/^Reception/);
+  });
+});
+
 describe("the popover, from the keyboard", () => {
   it("keeps Tab inside while open, and Escape hands the focus back", async () => {
     await page.viewport(390, 1100);

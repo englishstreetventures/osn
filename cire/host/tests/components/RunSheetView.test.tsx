@@ -18,6 +18,7 @@ import { COMING_UP_MS } from "../../src/lib/run-sheet";
 import {
   __resetRunSheetCache,
   type RunSheet,
+  type RunSheetEventItem,
   type RunSheetTaskItem,
 } from "../../src/lib/run-sheet-store";
 import { TasksChangedContext } from "../../src/lib/tasks-changed";
@@ -52,6 +53,17 @@ import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support
  * 12. A re-read on `tasks-changed` and on `members-changed`.
  * 13. Empty states, by scope and role.
  * 14. A way to the checklist for owners and editors only.
+ *
+ * Added to kill what mutation testing found unpinned (testing-patterns
+ * §Mutation testing), each a thing the reader sees:
+ * 15. The zone, once for a day on one clock, on every row for a day on two;
+ *     the year on a day that is not this year's.
+ * 16. A time on a clock this browser does not know, read as stored.
+ * 17. An event's place, and an end past midnight naming its day.
+ * 18. A linked task's distance in hours, and at the start; none for an event
+ *     the reader cannot see.
+ * 19. A 401 sends the reader to sign in; Try again reads again.
+ * 20. Every stack is read-only, and an open task nobody holds says so.
  */
 
 const ARRIVAL = Date.parse("2099-06-20T14:30:00+10:00");
@@ -361,5 +373,150 @@ describe.skipIf(!DESIGNED)("RunSheetView", () => {
     view({ callerRole: "viewer", canEdit: false, onOpenChecklist: undefined });
     await waitFor(() => expect(rowOf("programmes")).toBeTruthy());
     expect(screen.queryByRole("button", { name: /checklist/i })).toBeNull();
+  });
+
+  it("names the zone once for a day on one clock, and on every row for a day on two", async () => {
+    authFetchMock.mockResolvedValue(json(DAY));
+    view();
+    await waitFor(() => expect(rowOf("flowers")).toBeTruthy());
+    // The fixture's day is in 2099, not this year: the heading says so.
+    expect(screen.getByRole("heading", { name: "Saturday 20 June 2099" })).toBeTruthy();
+    expect(screen.getByText("Each time on its own clock")).toBeTruthy();
+    expect(rowOf("flowers")!.textContent).toContain("GMT+5:30");
+    expect(rowOf("programmes")!.textContent).toContain("AEST");
+    cleanup();
+
+    __resetRunSheetCache();
+    authFetchMock.mockResolvedValue(
+      json({ ...DAY, items: DAY.items.filter((item) => item.id !== "flowers") }),
+    );
+    view();
+    await waitFor(() => expect(rowOf("programmes")).toBeTruthy());
+    expect(screen.getByText("Times in AEST")).toBeTruthy();
+    expect(screen.queryByText("Each time on its own clock")).toBeNull();
+    expect(rowOf("programmes")!.textContent).not.toContain("AEST");
+  });
+
+  it("reads a time on a clock this browser does not know as it was stored", async () => {
+    const mars = (id: string, runAt: string) =>
+      task({ id, runAt, runTimezone: "Mars/Olympus", assigneeHostIds: [] });
+    authFetchMock.mockResolvedValue(
+      json({
+        ...DAY,
+        items: [
+          mars("dawn", "2099-06-20T00:15:00+10:00"),
+          mars("noon", "2099-06-20T12:00:00+10:00"),
+          task({ id: "tea", runAt: "2099-06-20T15:30:00+10:00", runTimezone: "Australia/Sydney" }),
+        ],
+      }),
+    );
+    view();
+    await waitFor(() => expect(rowOf("dawn")).toBeTruthy());
+    expect(rowOf("dawn")!.textContent).toMatch(/12:15\s?am/);
+    expect(rowOf("noon")!.textContent).toMatch(/12:00\s?pm/);
+    // Two clocks on the day, so each row names its own.
+    expect(rowOf("noon")!.textContent).toContain("Mars/Olympus");
+    expect(rowOf("tea")!.textContent).toMatch(/3:30\s?pm/);
+  });
+
+  it("gives an event its place, and names the day an end past midnight falls on", async () => {
+    const at = (id: string, over: Partial<RunSheetEventItem>): RunSheetEventItem => ({
+      kind: "event",
+      id,
+      name: id,
+      startAt: "2099-06-20T18:00:00+10:00",
+      endAt: "",
+      timezone: "Australia/Sydney",
+      venueName: null,
+      address: null,
+      ...over,
+    });
+    authFetchMock.mockResolvedValue(
+      json({
+        ...DAY,
+        items: [
+          at("party", {
+            endAt: "2099-06-21T00:30:00+10:00",
+            venueName: "The Hall",
+            address: "1 Hall St",
+          }),
+          at("toast", {
+            startAt: "2099-06-20T19:00:00+10:00",
+            endAt: "2099-06-20T19:15:00+10:00",
+            address: "2 Hall St",
+          }),
+          at("drinks", { startAt: "2099-06-20T20:00:00+10:00" }),
+        ],
+        people: [],
+      }),
+    );
+    view();
+    await waitFor(() => expect(rowOf("party")).toBeTruthy());
+    expect(rowOf("party")!.textContent).toMatch(/to 12:30\s?am Sun/);
+    expect(rowOf("party")!.textContent).toContain("The Hall · 1 Hall St");
+    expect(rowOf("toast")!.textContent).toMatch(/to 7:15\s?pm/);
+    expect(rowOf("toast")!.textContent).not.toMatch(/Sat|Sun|·/);
+    expect(rowOf("toast")!.textContent).toContain("2 Hall St");
+    expect(rowOf("drinks")!.textContent).not.toMatch(/to /);
+  });
+
+  it("says how far a linked task is from its event in hours too, and at its start", async () => {
+    const linked = (id: string, runOffsetMinutes: number, over: Partial<RunSheetTaskItem> = {}) =>
+      task({
+        id,
+        runAt: "2099-06-20T14:30:00+10:00",
+        runTimezone: "Australia/Sydney",
+        eventId: "evt_arrival",
+        runOffsetMinutes,
+        anchored: true,
+        ...over,
+      });
+    authFetchMock.mockResolvedValue(
+      json({
+        ...DAY,
+        items: [
+          DAY.items[1]!,
+          linked("start", 0),
+          linked("later", 90),
+          linked("hour", -60),
+          linked("unseen", 30, { eventId: "evt_hidden" }),
+          linked("loose", 30, { anchored: false }),
+        ],
+      }),
+    );
+    view();
+    await waitFor(() => expect(rowOf("start")).toBeTruthy());
+    expect(rowOf("start")!.textContent).toContain("At the start of Guest arrival");
+    expect(rowOf("later")!.textContent).toContain("1 hr 30 min after Guest arrival");
+    expect(rowOf("hour")!.textContent).toContain("1 hr before Guest arrival");
+    // An event the reader is not given, or a link that no longer holds the
+    // time: no distance to say.
+    expect(rowOf("unseen")!.textContent).not.toMatch(/before|after/);
+    expect(rowOf("loose")!.textContent).not.toMatch(/before|after/);
+  });
+
+  it("sends a reader whose session ended to sign in", async () => {
+    authFetchMock.mockResolvedValue(json({ error: "unauthorized" }, 401));
+    view();
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+  });
+
+  it("reads again when asked to after a failure", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ error: "x" }, 500));
+    authFetchMock.mockResolvedValue(json(DAY));
+    view();
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(rowOf("programmes")).toBeTruthy());
+    expect(runSheetReads()).toBe(2);
+    expect(screen.queryByText("Couldn't load the run sheet.")).toBeNull();
+  });
+
+  it("shows who holds each task without a way to change it, and an open task nobody holds", async () => {
+    authFetchMock.mockResolvedValue(json(DAY));
+    view();
+    await waitFor(() => expect(rowOf("cake")).toBeTruthy());
+    expect(screen.queryAllByRole("button", { name: /^Assign people/ })).toHaveLength(0);
+    expect(within(rowOf("cake")!).getByRole("img", { name: "Nobody assigned yet" })).toBeTruthy();
+    expect(within(rowOf("kit")!).queryByRole("img", { name: "Nobody assigned yet" })).toBeNull();
   });
 });
