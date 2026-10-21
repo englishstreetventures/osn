@@ -100,6 +100,26 @@ describe("isValidClaimResponse", () => {
     expect(withVenue(null)).toBe(true);
     expect(withVenue("The Glasshouse")).toBe(true);
     expect(withVenue(42)).toBe(false);
+
+    // The run of show, notes and policy, by the same rule: absent or null is a
+    // household, a note of the wrong type is not. A malformed run of show or
+    // an unknown preset costs only its own block (`runOfShowLines`,
+    // `guestPolicyLines`), never the invite.
+    const withDetails = (details: object) =>
+      isValidClaimResponse({
+        publicId: "T",
+        familyName: "T",
+        members: [],
+        events: [{ ...baseEvent, ...details }],
+        rsvps: [],
+      });
+    expect(withDetails({ gettingThere: null, guestPolicyNote: null })).toBe(true);
+    expect(withDetails({ gettingThere: "Park on the lane.", guestPolicyNote: "Hats." })).toBe(true);
+    expect(withDetails({ gettingThere: 42 })).toBe(false);
+    expect(withDetails({ guestPolicyNote: ["Hats."] })).toBe(false);
+    expect(withDetails({ runOfShow: "16:00 Tea", childrenPolicy: "kids_ok" })).toBe(true);
+    expect(withDetails({ childrenPolicy: 3 })).toBe(false);
+    expect(withDetails({ plusOnePolicy: {} })).toBe(false);
     expect(
       isValidClaimResponse({
         publicId: "T",

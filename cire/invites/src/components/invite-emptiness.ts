@@ -12,17 +12,19 @@
  *
  * These are the single source of truth for which invite segments render on the
  * guest site (InviteHeader hero + story, the packs' FAQ section, InviteClosing,
- * DetailsPanel's venue, about, dress code and inspiration). The organiser
- * builder mirrors the hero, story, closing and FAQ predicates and their four
- * state functions in `cire/host/src/lib/invite-emptiness.ts`, so its badges
- * always match what a guest actually sees; keep those two copies in lockstep.
- * The per-event predicates have no organiser twin. The switch vocabulary and
+ * DetailsPanel's venue, run of show, guest policy, about, dress code,
+ * inspiration and getting there). The organiser builder mirrors the hero,
+ * story, closing and FAQ predicates and their four state functions in
+ * `cire/host/src/lib/invite-emptiness.ts`, so its badges always match what a
+ * guest actually sees; the organiser's events tab mirrors `hasRunOfShow` and
+ * `hasGuestPolicy` there too. Keep the two copies in lockstep. The other
+ * per-event predicates have no organiser twin. The switch vocabulary and
  * `sectionState` itself are shared through `@cire/theme`.
  */
 
 import { sectionState, type SectionState } from "@cire/theme";
 
-import { resolveMapsUrl } from "./event-details";
+import { isRunOfShowItem, resolveMapsUrl } from "./event-details";
 import { isSafePinterestLinkUrl } from "./pinterest";
 
 /** A value is "present" when it is a non-empty, non-whitespace-only string. */
@@ -162,6 +164,36 @@ export function hasVenue(
       mapsUrl: mapsUrl ?? null,
       venueName: venueName ?? null,
     }) !== null
+  );
+}
+
+/**
+ * The run of show renders when any item can be shown: a 24-hour time and a
+ * label (`isRunOfShowItem`). Takes the payload as it arrived, since the claim
+ * guard does not check it.
+ */
+export function hasRunOfShow(items: unknown): boolean {
+  return Array.isArray(items) && (items as unknown[]).some(isRunOfShowItem);
+}
+
+/**
+ * The guest policy has something to say with a children or plus-one preset
+ * this build knows, or a note. The sheet's row also needs the household:
+ * "Plus-ones welcome" is not said to one that cannot bring anyone
+ * (`guestPolicyLines`), so a policy of only that and no note shows no row to
+ * such a household.
+ */
+export function hasGuestPolicy(
+  childrenPolicy: string | null | undefined,
+  plusOnePolicy: string | null | undefined,
+  note: string | null | undefined,
+): boolean {
+  return (
+    childrenPolicy === "adults_only" ||
+    childrenPolicy === "children_welcome" ||
+    plusOnePolicy === "by_invitation" ||
+    plusOnePolicy === "welcome" ||
+    hasText(note)
   );
 }
 

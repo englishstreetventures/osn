@@ -7,7 +7,9 @@ import {
   formatEventDay,
   formatTimeRange,
   guestLocalTime,
+  guestPolicyLines,
   invitedNames,
+  runOfShowLines,
   timezoneName,
 } from "./event-details";
 import { hasDressCode, hasPinterest, hasText, hasVenue } from "./invite-emptiness";
@@ -107,6 +109,17 @@ function PinGlyph() {
   );
 }
 
+/** A guest and a plus: who may come. */
+function GuestPolicyGlyph() {
+  return (
+    <Glyph>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3.5 19c.6-3 2.8-5 5.5-5s4.9 2 5.5 5" />
+      <path d="M18 7.5v6M15 10.5h6" />
+    </Glyph>
+  );
+}
+
 function PeopleGlyph() {
   return (
     <Glyph>
@@ -127,8 +140,10 @@ function PeopleGlyph() {
  * the heading: when (in the event's own zone,
  * spelt out, and on the guest's own clock where that reads differently, with
  * Add to calendar on the row), where (the address, a small map and Open in
- * maps), and — for a household not all of whom are asked — who is invited.
- * One hairline, then the occasion: about, the dress code, and the moodboard.
+ * maps), for a household not all of whom are asked who is invited, and the
+ * guest policy. Then, each under its own hairline: the run of show in time
+ * order, the occasion (about, the dress code and the moodboard), and how to get
+ * there.
  *
  * Every row and section renders only when it has content, so a sparse event —
  * a name, a start and a timezone — collapses to its heading and its date,
@@ -151,6 +166,11 @@ export function DetailsPanel(props: DetailsPanelProps) {
     hasText(props.event.dressCodeDescription) ? props.event.dressCodeDescription : null;
   const moodboard = () =>
     hasPinterest(props.event.pinterestUrl) ? props.event.pinterestUrl : null;
+  const runOfShow = createMemo(() => runOfShowLines(props.event));
+  // Needs the household: "Plus-ones welcome" is said only to one that can
+  // bring someone.
+  const policy = createMemo(() => guestPolicyLines(props.event, props.members));
+  const gettingThere = () => (hasText(props.event.gettingThere) ? props.event.gettingThere : null);
 
   // The guest's own clock is read in the browser, once mounted, so the first
   // render matches a server render whatever zone the server ran in.
@@ -252,7 +272,69 @@ export function DetailsPanel(props: DetailsPanelProps) {
             </Fact>
           )}
         </Show>
+
+        {/* Last of the facts, so the date and the venue keep the first screen. */}
+        <Show when={policy()}>
+          {(lines) => (
+            <Fact term="Guest policy" icon={<GuestPolicyGlyph />}>
+              <Show when={lines().presets.length > 0}>
+                <p class="font-body text-text text-ui-base font-light">
+                  <For each={lines().presets}>
+                    {(preset, i) => (
+                      <>
+                        <Show when={i() > 0}>
+                          <span aria-hidden="true"> · </span>
+                          <span class="sr-only">, </span>
+                        </Show>
+                        {preset}
+                      </>
+                    )}
+                  </For>
+                </p>
+              </Show>
+              <Show when={lines().note}>
+                {(note) => (
+                  <p class="font-body text-text-muted text-ui-sm leading-ui-normal mt-0.5 wrap-anywhere whitespace-pre-line">
+                    {note()}
+                  </p>
+                )}
+              </Show>
+            </Fact>
+          )}
+        </Show>
       </dl>
+
+      {/* The run of show, in time order from the start, on the event's own
+          clock; the zone is named when the guest's own clock reads
+          differently, as the When row's "Your time" is. */}
+      <Show when={runOfShow().length > 0}>
+        <div class="border-border/80 mt-7 border-t pt-7">
+          <Section label="Run of show">
+            <ol class="m-0 flex list-none flex-col gap-2.5 p-0">
+              <For each={runOfShow()}>
+                {(line) => (
+                  <li class="grid grid-cols-[4.75rem_minmax(0,1fr)] gap-x-3">
+                    <time
+                      datetime={line.time}
+                      class="font-body text-text-muted text-ui-sm pt-0.5 whitespace-nowrap tabular-nums"
+                    >
+                      {line.clock}
+                    </time>
+                    <span class="font-body text-text text-ui-base leading-ui-normal font-light wrap-anywhere">
+                      {line.label}
+                    </span>
+                  </li>
+                )}
+              </For>
+            </ol>
+            <Show when={localTime() && zone()}>
+              {(name) => (
+                <p class="font-body text-text-muted text-ui-sm mt-3">Times are {name()}.</p>
+              )}
+            </Show>
+          </Section>
+        </div>
+      </Show>
 
       {/* The occasion, under one hairline, and only when there is any. */}
       <Show when={description() || dressCode() || moodboard()}>
@@ -314,6 +396,20 @@ export function DetailsPanel(props: DetailsPanelProps) {
             )}
           </Show>
         </div>
+      </Show>
+
+      {/* How to get there: last, after the occasion. Line breaks kept, and
+          `wrap-anywhere` for a pasted link, as About has. */}
+      <Show when={gettingThere()}>
+        {(notes) => (
+          <div class="border-border/80 mt-7 border-t pt-7">
+            <Section label="Getting there">
+              <p class="font-body text-text-muted text-ui-base leading-ui-relaxed font-light wrap-anywhere whitespace-pre-line">
+                {notes()}
+              </p>
+            </Section>
+          </div>
+        )}
       </Show>
     </>
   );

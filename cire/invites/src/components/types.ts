@@ -32,6 +32,24 @@ export interface EventSummary {
    */
   venueName?: string | null;
   address: string | null;
+  /**
+   * The run of show, as it arrived: the organiser's items, each a 24-hour
+   * `HH:MM` in the event's zone and a label. Unproven, like the FAQ: the claim
+   * guard does not check it, and `runOfShowLines` keeps only well-formed
+   * items, so a malformed list costs the guest the list, never the invite.
+   * Absent from an API that predates it.
+   */
+  runOfShow?: unknown;
+  /** Parking, transport and access notes. Optional on the wire, like `venueName`. */
+  gettingThere?: string | null;
+  /**
+   * The guest policy's presets, as stored (`adults_only` / `children_welcome`,
+   * `by_invitation` / `welcome`), and its note. A preset this build does not
+   * know reads as not stated (`guestPolicyLines`). Optional on the wire.
+   */
+  childrenPolicy?: string | null;
+  plusOnePolicy?: string | null;
+  guestPolicyNote?: string | null;
   dressCodeDescription: string | null;
   dressCodePalette: DressSwatch[] | null;
   pinterestUrl: string | null;

@@ -81,6 +81,30 @@ describe("DetailsPanel", () => {
     expect(container.querySelector(".border-t")).toBeNull();
   });
 
+  // The run of show, the policy and the getting-there notes each go with what
+  // fills them: an empty list, a list of nothing readable, presets nobody
+  // stated, a "welcome" this household cannot take up and blank notes leave
+  // no label, row or hairline behind.
+  it("shows no run of show, guest policy or getting there when none has content", () => {
+    const { container, queryByText } = renderPanel({
+      ...baseEvent,
+      description: "",
+      address: null,
+      runOfShow: [
+        { time: "6pm", label: "Doors" },
+        { time: "18:00", label: " " },
+      ],
+      gettingThere: "  \n ",
+      childrenPolicy: null,
+      plusOnePolicy: "welcome",
+      guestPolicyNote: " ",
+    });
+    expect([...container.querySelectorAll("dt")].map((dt) => dt.textContent)).toEqual(["When"]);
+    expect(queryByText("Run of show")).toBeNull();
+    expect(queryByText("Getting there")).toBeNull();
+    expect(container.querySelector(".border-t")).toBeNull();
+  });
+
   it("shows no About for a description of only spaces", () => {
     const { queryByText } = renderPanel({ ...baseEvent, description: "   \n " });
     expect(queryByText("About")).toBeNull();

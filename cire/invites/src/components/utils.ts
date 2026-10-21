@@ -155,6 +155,29 @@ export function isValidClaimResponse(data: unknown): data is ClaimResult {
     // Optional, as the plus-one fields are: required here, it would send every
     // household back to the code form while the site runs ahead of the API.
     if ("venueName" in e && e.venueName !== null && typeof e.venueName !== "string") return false;
+    // The same for the notes and the presets' keys. The run of show is not
+    // checked here: `runOfShowLines` keeps what it can read, as `faqEntries`
+    // does, and an unknown preset key reads as not stated.
+    if ("gettingThere" in e && e.gettingThere !== null && typeof e.gettingThere !== "string") {
+      return false;
+    }
+    if (
+      "guestPolicyNote" in e &&
+      e.guestPolicyNote !== null &&
+      typeof e.guestPolicyNote !== "string"
+    ) {
+      return false;
+    }
+    if (
+      "childrenPolicy" in e &&
+      e.childrenPolicy !== null &&
+      typeof e.childrenPolicy !== "string"
+    ) {
+      return false;
+    }
+    if ("plusOnePolicy" in e && e.plusOnePolicy !== null && typeof e.plusOnePolicy !== "string") {
+      return false;
+    }
     if (!("dressCodeDescription" in e)) return false;
     if (e.dressCodeDescription !== null && typeof e.dressCodeDescription !== "string") return false;
     if (!("dressCodePalette" in e)) return false;

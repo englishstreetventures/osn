@@ -4,9 +4,11 @@ import {
   formatEventDay,
   formatTimeRange,
   guestLocalTime,
+  guestPolicyLines,
   invitedNames,
   resolveMapsEmbedUrl,
   resolveMapsUrl,
+  runOfShowLines,
   timezoneLabel,
   timezoneName,
   venueLine,
@@ -356,5 +358,153 @@ describe("resolveMapsEmbedUrl", () => {
     expect(out).toContain(`q=${encodeURIComponent("Café & Co, 1 A&B St #2")}`);
     // The raw ampersand must not appear unescaped in the query segment.
     expect(out?.split("&q=")[1]).not.toContain("&");
+  });
+});
+
+describe("runOfShowLines", () => {
+  /** A 6 pm reception that runs past midnight, in Sydney. */
+  const reception = {
+    startAt: "2026-11-14T18:00:00+11:00",
+    timezone: "Australia/Sydney",
+  };
+  const lines = (runOfShow: unknown, event: { startAt: string; timezone: string } = reception) =>
+    runOfShowLines({ ...event, runOfShow }).map((l) => `${l.clock} ${l.label}`);
+
+  // The guest reads the list in time order from the start, whatever order the
+  // organiser kept it in; a time earlier than the start is after midnight.
+  it("reads the list in time order from the event's start, after-midnight items last", () => {
+    expect(
+      lines([
+        { time: "21:00", label: "Speeches" },
+        { time: "00:30", label: "Carriages" },
+        { time: "18:00", label: "Canapés" },
+        { time: "19:30", label: "Dinner" },
+      ]),
+    ).toEqual(["6:00 pm Canapés", "7:30 pm Dinner", "9:00 pm Speeches", "12:30 am Carriages"]);
+  });
+
+  it("keeps the organiser's order for items at the same time", () => {
+    expect(
+      lines([
+        { time: "19:00", label: "Entrées" },
+        { time: "18:00", label: "Doors" },
+        { time: "19:00", label: "Wine" },
+      ]),
+    ).toEqual(["6:00 pm Doors", "7:00 pm Entrées", "7:00 pm Wine"]);
+  });
+
+  // The start's clock is the event's own zone's: the stored offset is only
+  // trusted when the zone cannot be read, and then the stored clock is used.
+  it("reads the start on the event's own clock, and falls back to the stored clock", () => {
+    const items = [
+      { time: "08:00", label: "Breakfast" },
+      { time: "12:00", label: "Lunch" },
+    ];
+    // 11 am Sydney is midnight UTC: an instant read on a UTC clock would start
+    // the day at 00:00 and put breakfast first.
+    expect(lines(items, { startAt: "2026-11-14T00:00:00Z", timezone: "Australia/Sydney" })).toEqual(
+      ["12:00 pm Lunch", "8:00 am Breakfast"],
+    );
+    expect(lines(items, { startAt: "2026-11-14T11:00:00+11:00", timezone: "Not/AZone" })).toEqual([
+      "12:00 pm Lunch",
+      "8:00 am Breakfast",
+    ]);
+    expect(lines(items, { startAt: "", timezone: "Australia/Sydney" })).toEqual([
+      "8:00 am Breakfast",
+      "12:00 pm Lunch",
+    ]);
+  });
+
+  it("writes noon and midnight on a 12-hour clock", () => {
+    expect(
+      lines(
+        [
+          { time: "00:00", label: "Midnight" },
+          { time: "12:00", label: "Noon" },
+          { time: "23:59", label: "Late" },
+        ],
+        { startAt: "2026-11-14T00:00:00+11:00", timezone: "Australia/Sydney" },
+      ),
+    ).toEqual(["12:00 am Midnight", "12:00 pm Noon", "11:59 pm Late"]);
+  });
+
+  // A payload this build cannot read costs the guest the item, never the sheet.
+  it("keeps only items with a 24-hour time and a label", () => {
+    expect(lines(undefined)).toEqual([]);
+    expect(lines("18:00 Doors")).toEqual([]);
+    expect(
+      lines([
+        null,
+        { time: "18:00" },
+        { time: "6pm", label: "Doors" },
+        { time: "18:00", label: "   " },
+        { time: 1800, label: "Doors" },
+        { time: "18:30", label: "Dinner" },
+      ]),
+    ).toEqual(["6:30 pm Dinner"]);
+  });
+});
+
+describe("guestPolicyLines", () => {
+  const member = (overrides: Partial<FamilyMember> = {}): FamilyMember => ({
+    guestId: "g1",
+    firstName: "Ada",
+    lastName: "Lee",
+    nickname: null,
+    eventIds: ["evt"],
+    ...overrides,
+  });
+  const event = (policy: object) => ({
+    id: "evt",
+    childrenPolicy: null,
+    plusOnePolicy: null,
+    guestPolicyNote: null,
+    ...policy,
+  });
+
+  it("writes each preset in the guest's words, with the note", () => {
+    expect(
+      guestPolicyLines(
+        event({
+          childrenPolicy: "adults_only",
+          plusOnePolicy: "by_invitation",
+          guestPolicyNote: "Hats.",
+        }),
+        [member()],
+      ),
+    ).toEqual({ presets: ["Adults only", "Plus-ones by invitation"], note: "Hats." });
+    expect(guestPolicyLines(event({ childrenPolicy: "children_welcome" }), [member()])).toEqual({
+      presets: ["Children welcome"],
+      note: null,
+    });
+  });
+
+  // The household's own plus-one permission is the truth: "welcome" is said
+  // only to a household with a member, invited to this event, who may bring one.
+  it("says plus-ones are welcome only to a household one of whose invited members may bring one", () => {
+    const welcome = event({ plusOnePolicy: "welcome" });
+    expect(guestPolicyLines(welcome, [member({ plusOneAllowed: true })])?.presets).toEqual([
+      "Plus-ones welcome",
+    ]);
+    expect(guestPolicyLines(welcome, [member()])).toBeNull();
+    expect(guestPolicyLines(welcome, [member({ plusOneAllowed: false })])).toBeNull();
+    // Allowed, but not invited to this event: their plus-one is not either.
+    expect(
+      guestPolicyLines(welcome, [member({ plusOneAllowed: true, eventIds: ["other"] })]),
+    ).toBeNull();
+    expect(guestPolicyLines(welcome, undefined)).toBeNull();
+    // The note still shows when the preset does not.
+    expect(guestPolicyLines({ ...welcome, guestPolicyNote: "Hats." }, [member()])).toEqual({
+      presets: [],
+      note: "Hats.",
+    });
+  });
+
+  it("ignores a preset this build does not know, and is null with nothing to say", () => {
+    expect(
+      guestPolicyLines(event({ childrenPolicy: "kids_ok", plusOnePolicy: "maybe" }), [member()]),
+    ).toBeNull();
+    expect(guestPolicyLines(event({ guestPolicyNote: "   " }), [member()])).toBeNull();
+    expect(guestPolicyLines({ id: "evt" }, [member()])).toBeNull();
   });
 });
