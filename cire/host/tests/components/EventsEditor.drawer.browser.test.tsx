@@ -181,13 +181,17 @@ describe.each([
   // over the fields or Remove.
   it("keeps every control clear of the others while a move button is focused", async () => {
     const { list } = await openDrawer(width, height);
-    const moves = [...list.querySelectorAll<HTMLElement>("button")].filter((b) =>
-      (b.textContent ?? "").startsWith("Move "),
+    // The enabled ones: an item at an end has no move that way, and a
+    // disabled button takes no focus.
+    const moves = [...list.querySelectorAll<HTMLButtonElement>("button")].filter(
+      (b) => (b.textContent ?? "").startsWith("Move ") && !b.disabled,
     );
     expect(moves.length).toBeGreaterThan(0);
     for (const move of moves) {
       move.focus();
       await settle();
+      // Shown, not still a one-pixel sr-only box.
+      expect(move.getBoundingClientRect().width).toBeGreaterThan(MINIMUM_TARGET);
       const boxes = visibleControls(list).map((el) => ({
         name: el.getAttribute("aria-label") ?? el.textContent ?? el.id,
         box: el.getBoundingClientRect(),
