@@ -1,5 +1,17 @@
 # @osn/landing
 
+## 0.2.13
+
+### Patch Changes
+
+- fa0f54a: The footer's Docs link falls back to `https://github.com/englishstreetventures/osn#readme` when `PUBLIC_DOCS_URL` is unset. It fell back to an `osn-social` repository that does not exist.
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
+- Updated dependencies [fa0f54a]
+  - @shared/legal@0.0.7
+
 ## 0.2.12
 
 ### Patch Changes

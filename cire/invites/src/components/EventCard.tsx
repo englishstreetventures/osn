@@ -8,7 +8,7 @@ import { buildSrcSet, variantSrc } from "./invite-images";
 const EVENT_DEFAULT_ASPECT = 4 / 3;
 import Button from "@cire/ui/button";
 
-import { formatEventDay, venueLine } from "./event-details";
+import { formatEventDay, venueLine, venueName } from "./event-details";
 import { TOTAL_DURATION_MS } from "./rsvp-responded";
 import type { EventSummary } from "./types";
 
@@ -247,7 +247,7 @@ export function EventCard(props: EventCardProps) {
       >
         {/* Text column — always first in the DOM. On `alt` rows it sits on the
             RIGHT on md+ (order-2); on `norm` rows it stays left (order-1). */}
-        <div classList={{ "md:order-2": isAlt(), "md:order-1": !isAlt() }}>
+        <div class="min-w-0" classList={{ "md:order-2": isAlt(), "md:order-1": !isAlt() }}>
           {/* The badge sits beside the heading, never inside it: inside, it
               would rename the heading for anyone moving through the page by
               headings. A plain span with no live region — the events-section
@@ -266,13 +266,22 @@ export function EventCard(props: EventCardProps) {
               these per card was the page's largest source of eyebrow noise.
               `text-gold-ink`, not `text-gold`: at 0.92rem this is normal-size
               text (4.5:1), while the metal token is only held to the 3:1 UI
-              floor — which shipped this line at 3.58:1 on `chapel` and 3.91:1
-              on `garden` (C-M2). */}
+              floor, and measures 3.58:1 on `chapel` and 3.91:1 on `garden`. */}
           <p class="font-body text-gold-ink text-ui-base mb-1">{formatEventDay(props.event)}</p>
-          <Show when={venueLine(props.event)}>
-            {(venue) => <p class="font-body text-text-muted text-ui-base mb-3">{venue()}</p>}
+          {/* One line about the venue: its name when it has one, which is
+              what a guest recognises; the address is in the details. The
+              organiser's text here and below may hold a word with nowhere to
+              break (a pasted link, a venue named in one token), so
+              `wrap-anywhere` gives it somewhere rather than let it widen the
+              card and push the answer button off the screen. */}
+          <Show when={venueName(props.event) ?? venueLine(props.event)}>
+            {(venue) => (
+              <p class="font-body text-text-muted text-ui-base mb-3 wrap-anywhere">{venue()}</p>
+            )}
           </Show>
-          <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-5 font-light">
+          {/* A teaser: the organiser can write paragraphs, and the whole of
+              it, line breaks kept, is under About in the details. */}
+          <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-5 line-clamp-3 font-light wrap-anywhere whitespace-pre-line">
             {props.event.description}
           </p>
           {/* One act matters on this page: answering. So "Respond" is the only

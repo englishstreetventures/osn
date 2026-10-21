@@ -5,8 +5,6 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { makeDbLive, makeD1DbLive, type Db as DbHandle } from "@shared/db-utils";
 import { Context, type Layer } from "effect";
 
-import * as schema from "./schema";
-
 /**
  * bun:sqlite path, resolved LAZILY. `fileURLToPath(import.meta.url)` throws on
  * workerd (`import.meta.url` is undefined there), so it must not run at module
@@ -21,13 +19,13 @@ const resolveLocalDbPath = (): string =>
 export interface DbService {
   // Broadened over both SQLite result kinds so the same query code runs against
   // bun:sqlite (the `local` env) and Cloudflare D1 (`dev`/`staging`/`prod`).
-  readonly db: DbHandle<typeof schema>;
+  readonly db: DbHandle;
 }
 
 export class Db extends Context.Service<Db, DbService>()("@osn/db/Db") {}
 
 /** bun:sqlite-backed layer — the `local` environment (dev servers + tests). */
-export const DbLive = makeDbLive(Db, resolveLocalDbPath, schema);
+export const DbLive = makeDbLive(Db, resolveLocalDbPath);
 
 /** D1-backed layer for the Workers runtime (`dev`/`staging`/`prod`). */
-export const makeDbD1Live = (d1: D1Database): Layer.Layer<Db> => makeD1DbLive(Db, d1, schema);
+export const makeDbD1Live = (d1: D1Database): Layer.Layer<Db> => makeD1DbLive(Db, d1);

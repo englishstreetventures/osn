@@ -58,7 +58,7 @@ interface ConsentBannerProps {
  * ## The prompt says what is off, and what turns it on
  *
  * Third-party content waits for the guest's yes (see
- * `lib/consent/categories.ts`): nothing of Google's or Pinterest's loads before
+ * `cire/ui/src/consent-categories.ts`): nothing of Google's or Pinterest's loads before
  * an answer. The copy names the two companies and what they would see, says
  * the content stays off until allowed, and names the answer that allows it.
  *

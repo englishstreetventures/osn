@@ -4,6 +4,7 @@ import { DrizzleQueryError } from "drizzle-orm/errors";
 import { Effect, Layer } from "effect";
 
 import type { Db } from "../src/db";
+import { driverErrorText } from "../src/db";
 import type { TestDb } from "../src/db/setup";
 import type { Tier } from "../src/services/tiers";
 
@@ -121,12 +122,30 @@ export interface RecordedStatement {
 }
 
 /**
+ * The database's reason for refusing `write`, read through every `cause`:
+ * drizzle wraps a failed statement in `DrizzleQueryError` on bun:sqlite as on
+ * D1, so the constraint text sits below the outer message. Throws when `write`
+ * does not fail, so a refusal test cannot pass on a write that went through.
+ */
+export function refusal(write: () => unknown): string {
+  try {
+    write();
+  } catch (error) {
+    return driverErrorText(error);
+  }
+  throw new Error("expected the database to refuse the write, and it accepted it");
+}
+
+/**
  * Records every statement the bun:sqlite client prepares from here on, with
  * the number of rows each read returned. `countingDb` counts `.select()` calls,
  * which is not the same thing: a `unionAll` of two selects is one statement and
- * one round trip. Drizzle's bun:sqlite session prepares every query through
- * `client.prepare` and reads rows through the statement's `values()` or
- * `all()`, so shadowing `prepare` on the client instance sees all of it.
+ * one round trip. Drizzle's bun:sqlite session gets every statement through
+ * `client.query` and reads rows through the statement's `values()` or
+ * `all()`, so shadowing `query` on the client instance sees all of it. The
+ * shadow prepares a fresh statement each time rather than calling `query`:
+ * Bun caches what `query` returns, and wrapping a cached statement's reads
+ * again on every call would count each row once per earlier call.
  *
  * Takes the concrete test handle (`createDb`'s return), because the service
  * `Db` type does not surface `$client`. Install it after seeding, or the seed's
@@ -136,20 +155,30 @@ export function recordStatements(db: TestDb): RecordedStatement[] {
   const client = db.$client;
   const prepare = client.prepare.bind(client);
   const recorded: RecordedStatement[] = [];
-  Object.defineProperty(client, "prepare", {
+  Object.defineProperty(client, "query", {
     configurable: true,
     value: (sql: string) => {
-      const entry: RecordedStatement = { sql, rowCounts: [] };
-      recorded.push(entry);
       const statement = prepare(sql);
+      // An entry per run, not per `query` call: drizzle's raw `db.all(sql)`
+      // asks the client for its statement twice and runs it once.
       for (const read of ["values", "all"] as const) {
         const original = statement[read].bind(statement);
         Object.defineProperty(statement, read, {
           configurable: true,
           value: (...params: Parameters<typeof original>) => {
             const rows = original(...params);
-            entry.rowCounts.push(rows.length);
+            recorded.push({ sql, rowCounts: [rows.length] });
             return rows;
+          },
+        });
+      }
+      for (const write of ["run", "get"] as const) {
+        const original = statement[write].bind(statement) as (...p: unknown[]) => unknown;
+        Object.defineProperty(statement, write, {
+          configurable: true,
+          value: (...params: unknown[]) => {
+            recorded.push({ sql, rowCounts: [] });
+            return original(...params);
           },
         });
       }
@@ -163,7 +192,7 @@ export function recordStatements(db: TestDb): RecordedStatement[] {
  * Makes every statement whose SQL `matches` fail from here on, as a database
  * would: the driver throws when the statement is prepared, so the query
  * rejects. Same mechanism as {@link recordStatements} — drizzle's bun:sqlite
- * session prepares every query through `client.prepare` — and the same rule:
+ * session gets every statement through `client.query` — and the same rule:
  * takes the concrete test handle, and is installed after seeding. `failed()`
  * says how many statements it failed, so a test can show its failure was the
  * one hit; `restore()` puts the driver back, for a test that runs again once
@@ -174,10 +203,10 @@ export function failStatements(
   matches: (sql: string) => boolean,
 ): { failed: () => number; restore: () => void } {
   const client = db.$client;
-  const own = Object.getOwnPropertyDescriptor(client, "prepare");
+  const own = Object.getOwnPropertyDescriptor(client, "query");
   const prepare = client.prepare.bind(client);
   let failed = 0;
-  Object.defineProperty(client, "prepare", {
+  Object.defineProperty(client, "query", {
     configurable: true,
     value: (sql: string) => {
       if (matches(sql)) {
@@ -190,8 +219,8 @@ export function failStatements(
   return {
     failed: () => failed,
     restore: () => {
-      if (own) Object.defineProperty(client, "prepare", own);
-      else Reflect.deleteProperty(client, "prepare");
+      if (own) Object.defineProperty(client, "query", own);
+      else Reflect.deleteProperty(client, "query");
     },
   };
 }
@@ -211,7 +240,7 @@ export function failStatements(
 export function failLikeD1(db: TestDb): void {
   const client = db.$client;
   const prepare = client.prepare.bind(client);
-  Object.defineProperty(client, "prepare", {
+  Object.defineProperty(client, "query", {
     configurable: true,
     value: (sql: string) => {
       const statement = prepare(sql);
@@ -246,7 +275,7 @@ export function beforeStatement(db: TestDb, pattern: RegExp, write: () => void):
   const client = db.$client;
   const prepare = client.prepare.bind(client);
   let spent = false;
-  Object.defineProperty(client, "prepare", {
+  Object.defineProperty(client, "query", {
     configurable: true,
     value: (sql: string) => {
       if (!spent && pattern.test(sql)) {

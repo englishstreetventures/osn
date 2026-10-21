@@ -30,7 +30,8 @@ import {
 import type { Result } from "@shared/observability/metrics";
 import { Effect } from "effect";
 
-import type { WeddingRole } from "./services/hosts";
+import type { ChecklistTemplateId } from "./lib/checklist-templates";
+import type { RunSheetScope, WeddingRole } from "./services/hosts";
 import type { ImageVariant, OutputFormat } from "./services/invite-image-transform";
 import type { PaidTier, Tier } from "./services/tiers";
 
@@ -97,6 +98,10 @@ export const CIRE_METRICS = {
   plusOneChanged: "cire.plus_one.changed",
   plusOneBlocked: "cire.plus_one.blocked",
   plusOnePermissionSet: "cire.plus_one.permission.set",
+  // Checklist tasks seeded from a template, by template.
+  checklistTemplateApplied: "cire.tasks.template.applied",
+  // Seats put on or taken off a checklist task, by action and outcome.
+  taskAssignmentChanged: "cire.tasks.assignment.changed",
   // Organiser spreadsheet import.
   importApplied: "cire.import.applied",
   importRows: "cire.import.rows",
@@ -157,6 +162,8 @@ export const CIRE_METRICS = {
   hostRemoved: "cire.host.removed",
   // Co-host role changes (owner flips a host between editor and viewer).
   hostRoleChanged: "cire.host.role_changed",
+  // An owner opening a helper's run sheet to every task, or narrowing it back.
+  hostRunSheetScopeChanged: "cire.host.run_sheet_scope.changed",
   // S2S osn-api handle→profile resolve latency (the ARC call for add-host).
   hostResolveDuration: "cire.host.resolve.duration",
   // CSP violation reports posted to the public collector (`POST /api/csp-report`)
@@ -169,6 +176,11 @@ export const CIRE_METRICS = {
   // a metric attribute (those belong in spans + logs).
   registryItemWrite: "cire.registry.item.write",
   registryGift: "cire.registry.gift",
+  // Seating chart writes, by action, and the writes the chart refused, by
+  // reason. Never a wedding, event, table or guest id.
+  seatingTableWrite: "cire.seating.table.write",
+  seatingSeatWrite: "cire.seating.seat.write",
+  seatingWriteRefused: "cire.seating.write.refused",
   // Self-serve upgrades. `tier` and `from_tier` are closed sets of plan tiers
   // and never a wedding, purchase or profile id — the whole point of the two
   // counters is that a spike is visible without anything per-tenant reaching
@@ -336,6 +348,15 @@ export type HostRoleChangeResult =
  *  column's enum. */
 export type HostMetricRole = WeddingRole | "none";
 
+/** Outcome of setting a helper's run-sheet scope. `not_a_helper` — refused,
+ *  the seat holds another role, for which the scope means nothing; `error` — a
+ *  malformed body or a failed write. */
+export type HostRunSheetScopeResult = "ok" | "not_found" | "not_a_helper" | "error";
+
+/** The scope a write asked for, as a metric attribute: `own`, `full`, or
+ *  `none` before a request body named one. Bounded by the column's enum. */
+export type HostMetricRunSheetScope = RunSheetScope | "none";
+
 /**
  * The CSP directive a violation report names, reduced to a BOUNDED label so it
  * is safe as a metric attribute (CSP directive names are a small fixed set; a
@@ -464,13 +485,16 @@ type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" 
  *  `plus_one_dietary` = dietary data on a plus-one's reply without the
  *  household's attestation in the wording this API stamps, or attested for a
  *  name the plus-one no longer has — found by the route's read, or inside the
- *  write when a rename lands between the two. */
+ *  write when a rename lands between the two. `member_required` = a household
+ *  of several that has said nobody is answering; `member_changed` = the page
+ *  showed a member the session no longer holds. */
 export type RsvpBlockedReason =
   | "deadline"
   | "preview"
   | "dietary_consent"
   | "plus_one_dietary"
-  | "member_required";
+  | "member_required"
+  | "member_changed";
 type RsvpBlockedAttrs = { reason: RsvpBlockedReason };
 type RsvpChangeRecordedAttrs = { kind: RsvpChangeKind };
 type RsvpChangeSweptAttrs = { result: "ok" | "error" };
@@ -488,6 +512,23 @@ export type PlusOneAction = "added" | "renamed" | "removed";
  *  revoking permission with the remove flag. */
 export type PlusOneActor = "guest" | "organiser";
 type PlusOneChangedAttrs = { action: PlusOneAction; actor: PlusOneActor };
+type ChecklistTemplateAppliedAttrs = { template: ChecklistTemplateId };
+/** `add` puts a seat on a task; `remove` takes one off. */
+export type TaskAssignmentAction = "add" | "remove";
+/** `ok` — the write changed the task's holders; `unchanged` — the seat was
+ *  already on it (add) or not on it (remove); `task_not_found` — no such task
+ *  on the wedding; `assignee_not_in_wedding` — the seat named is not one of
+ *  the wedding's (add only); `error` — the database failed the write. */
+export type TaskAssignmentResult =
+  | "ok"
+  | "unchanged"
+  | "task_not_found"
+  | "assignee_not_in_wedding"
+  | "error";
+type TaskAssignmentChangedAttrs = {
+  action: TaskAssignmentAction;
+  result: TaskAssignmentResult;
+};
 /** Why a guest plus-one write was refused before any write — one label per
  *  gate on the guest routes. */
 export type PlusOneBlockedReason = "preview" | "deadline" | "not_allowed" | "capacity";
@@ -500,7 +541,23 @@ type PlusOnePermissionSetAttrs = { scope: PlusOnePermissionScope; allowed: "on" 
 type DietaryPresetAttrs = { preset: DietaryPreset };
 /** Which organiser write touched a registry item. Bounded, one per route. */
 export type RegistryItemAction = "create" | "update" | "remove";
-type RegistryItemWriteAttrs = { action: RegistryItemAction };
+/** Which kind of item it was: a gift to reserve, or a cash fund. Two values. */
+export type RegistryItemKindAttr = "product" | "cash_fund";
+type RegistryItemWriteAttrs = { action: RegistryItemAction; kind: RegistryItemKindAttr };
+/** Which seating-table write ran. One per route. */
+export type SeatingTableAction = "create" | "update" | "remove" | "reorder";
+type SeatingTableWriteAttrs = { action: SeatingTableAction };
+/** What a seat write did: a new seat, a move to another table, or a seat
+ *  given up. A write that changed nothing counts nowhere. */
+export type SeatingSeatAction = "seat" | "move" | "unseat";
+type SeatingSeatWriteAttrs = { action: SeatingSeatAction };
+/** Why the chart refused a write that was otherwise allowed. */
+export type SeatingRefusedReason =
+  | "table_full"
+  | "table_limit"
+  | "capacity_below_seated"
+  | "household_withdrawn";
+type SeatingWriteRefusedAttrs = { reason: SeatingRefusedReason };
 /** What happened to a gift-log row. `thanked`/`unthanked` are the toggle's two
  *  directions — worth separating, since a couple un-thanking in bulk is a
  *  different (and more suspicious) signal than thanking. `note_hidden` /
@@ -673,6 +730,10 @@ type WeddingSettingsSavedAttrs = { result: WeddingSettingsSavedResult };
 type HostAddedAttrs = { result: HostAddResult; role: HostMetricRole };
 type HostRemovedAttrs = { result: HostRemoveResult; actor: HostRemoveActor };
 type HostRoleChangedAttrs = { result: HostRoleChangeResult; role: HostMetricRole };
+type HostRunSheetScopeChangedAttrs = {
+  result: HostRunSheetScopeResult;
+  scope: HostMetricRunSheetScope;
+};
 type HostResolveDurationAttrs = { result: ResolveResult };
 export type CspReportAttrs = {
   effectiveDirective: CspDirective;
@@ -809,7 +870,7 @@ const rsvpUpserted = createCounter<RsvpUpsertedAttrs>({
 
 const registryItemWrite = createCounter<RegistryItemWriteAttrs>({
   name: CIRE_METRICS.registryItemWrite,
-  description: "Organiser registry item writes, by action",
+  description: "Organiser registry item writes, by action and item kind",
   unit: "{write}",
 });
 
@@ -817,6 +878,24 @@ const registryGift = createCounter<RegistryGiftAttrs>({
   name: CIRE_METRICS.registryGift,
   description: "Registry gift-log thank-you toggles and note hides, by action",
   unit: "{gift}",
+});
+
+const seatingTableWrite = createCounter<SeatingTableWriteAttrs>({
+  name: CIRE_METRICS.seatingTableWrite,
+  description: "Seating-table writes, by action",
+  unit: "{write}",
+});
+
+const seatingSeatWrite = createCounter<SeatingSeatWriteAttrs>({
+  name: CIRE_METRICS.seatingSeatWrite,
+  description: "Seat writes that changed where a guest sits, by action",
+  unit: "{write}",
+});
+
+const seatingWriteRefused = createCounter<SeatingWriteRefusedAttrs>({
+  name: CIRE_METRICS.seatingWriteRefused,
+  description: "Seating writes the chart refused, by reason",
+  unit: "{write}",
 });
 
 const upgradeCheckoutStarted = createCounter<UpgradeCheckoutStartedAttrs>({
@@ -897,6 +976,18 @@ const plusOneChanged = createCounter<PlusOneChangedAttrs>({
   name: CIRE_METRICS.plusOneChanged,
   description: "Plus-one rows named, renamed or removed, by action and actor",
   unit: "{plus_one}",
+});
+
+const checklistTemplateApplied = createCounter<ChecklistTemplateAppliedAttrs>({
+  name: CIRE_METRICS.checklistTemplateApplied,
+  description: "Checklist tasks added from a template, by template",
+  unit: "{task}",
+});
+
+const taskAssignmentChanged = createCounter<TaskAssignmentChangedAttrs>({
+  name: CIRE_METRICS.taskAssignmentChanged,
+  description: "Seats put on or taken off a checklist task, by action and outcome",
+  unit: "{request}",
 });
 
 const plusOneBlocked = createCounter<PlusOneBlockedAttrs>({
@@ -1135,6 +1226,12 @@ const hostRoleChanged = createCounter<HostRoleChangedAttrs>({
   unit: "{host}",
 });
 
+const hostRunSheetScopeChanged = createCounter<HostRunSheetScopeChangedAttrs>({
+  name: CIRE_METRICS.hostRunSheetScopeChanged,
+  description: "Helper run-sheet scope writes, by outcome and the scope asked for",
+  unit: "{host}",
+});
+
 const hostResolveDuration = createHistogram<HostResolveDurationAttrs>({
   name: CIRE_METRICS.hostResolveDuration,
   description: "S2S osn-api handle→profile resolve latency (the ARC call for add-host)",
@@ -1253,17 +1350,41 @@ export const metricRsvpDigestEmails = (outcome: RsvpDigestOutcome, count = 1): v
 export const metricPlusOneChanged = (action: PlusOneAction, actor: PlusOneActor, count = 1): void =>
   plusOneChanged.add(count, { action, actor });
 
+/** Tasks one apply of a checklist template added (none when every picked item
+ *  was already on the list). */
+export const metricChecklistTemplateApplied = (
+  template: ChecklistTemplateId,
+  count: number,
+): void => checklistTemplateApplied.add(count, { template });
+
+/** One seat put on or taken off a checklist task, and how it ended. */
+export const metricTaskAssignmentChanged = (
+  action: TaskAssignmentAction,
+  result: TaskAssignmentResult,
+): void => taskAssignmentChanged.inc({ action, result });
+
 export const metricPlusOneBlocked = (reason: PlusOneBlockedReason): void =>
   plusOneBlocked.inc({ reason });
 
 export const metricPlusOnePermissionSet = (scope: PlusOnePermissionScope, allowed: boolean): void =>
   plusOnePermissionSet.inc({ scope, allowed: allowed ? "on" : "off" });
 
-export const metricRegistryItemWrite = (action: RegistryItemAction): void =>
-  registryItemWrite.inc({ action });
+export const metricRegistryItemWrite = (
+  action: RegistryItemAction,
+  kind: RegistryItemKindAttr,
+): void => registryItemWrite.inc({ action, kind });
 
 export const metricRegistryGift = (action: RegistryGiftAction): void =>
   registryGift.inc({ action });
+
+export const metricSeatingTableWrite = (action: SeatingTableAction): void =>
+  seatingTableWrite.inc({ action });
+
+export const metricSeatingSeatWrite = (action: SeatingSeatAction): void =>
+  seatingSeatWrite.inc({ action });
+
+export const metricSeatingWriteRefused = (reason: SeatingRefusedReason): void =>
+  seatingWriteRefused.inc({ reason });
 
 export const metricUpgradeCheckoutStarted = (
   tier: PaidTier,
@@ -1447,6 +1568,11 @@ export const metricHostRoleChanged = (
   result: HostRoleChangeResult,
   role: HostMetricRole = "none",
 ): void => hostRoleChanged.inc({ result, role });
+
+export const metricHostRunSheetScopeChanged = (
+  result: HostRunSheetScopeResult,
+  scope: HostMetricRunSheetScope = "none",
+): void => hostRunSheetScopeChanged.inc({ result, scope });
 
 /** The bounded CSP directive labels, as a runtime Set for `bucketCspDirective`. */
 const CSP_DIRECTIVE_LABELS = new Set<CspDirective>([

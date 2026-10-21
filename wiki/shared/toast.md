@@ -9,7 +9,8 @@ related:
   - "[[cire-invite-builder]]"
   - "[[browser-tests]]"
   - "[[component-lab]]"
-last-reviewed: 2026-09-17
+  - "[[cire-registry]]"
+last-reviewed: 2026-10-21
 ---
 # Toasts — `@shared/toast` and the `--toast-*` contract
 
@@ -58,6 +59,11 @@ await toast.promise(save(), {
 `toast.promise` re-throws on rejection — the toast reports on the promise, it
 does not handle it. Swallowing would turn a failed save into a caller that
 believes it succeeded.
+
+A toast whose action is the user's way forward pins itself
+(`duration: Infinity`) and sets `dismissible: true`: one that leaves on its own
+takes the action with it. Cire's gift page does this for a cash fund that closed
+under the guest, whose **Refresh** re-reads the list ([[cire-registry]]).
 
 Three behaviours worth knowing, all of them bugs first:
 
@@ -185,6 +191,14 @@ that section and stacked inside it, below every page-level overlay, whatever
 it fires under (Motion One leaves an inline `transform` on the events section).
 The portal makes it robust by construction.
 
+The centred positions (`top-center`, `bottom-center`) set both side insets and
+centre the container with auto margins and `width: fit-content`. Never place
+one at `left: 50%` with a translate: a shrink-to-fit box offset by half the
+viewport may use only the other half, and on a phone that leaves the message of
+a toast with an action a letter wide.
+`cire/invites/tests/components/gift-registry/GiftRegistryPage.browser.test.tsx`
+checks the message keeps its width at 375px.
+
 The package sets **no `z-index`**. Pass the layer as a class —
 `class={Z_CLASS.TOAST}` — so it participates in the consumer's own stacking
 order. For cire that order is `STICKY_RAIL (20) < TOAST (150) < CONSENT (200)`;
@@ -229,7 +243,7 @@ Current mounts:
 
 | App | Position | Notes |
 |---|---|---|
-| `@cire/invites` | `top-center` | Per design pack; `Z_CLASS.TOAST` + `topLayer`, 4s dwell. The RSVP sheet's sticky bar owns the bottom edge |
+| `@cire/invites` | `top-center` | Invite page, per design pack: `Z_CLASS.TOAST` + `topLayer`, 4s dwell; the RSVP sheet's sticky bar owns the bottom edge. Gift page (`GiftRegistryPage`): `Z_CLASS.TOAST`, no `topLayer`, since its only modals are the consent dialogs, which make the page inert while open |
 | `@cire/host`, `@cire/vendor` | `bottom-right` | `topLayer` — both apps' dialogs are `@shared/ui` `Modal`s |
 | `@musubi/social` | responsive | `top-center` on mobile with a `top` offset clearing the 3rem bar + `env(safe-area-inset-top)`. No `topLayer`: its dialogs are Kobalte's, which are not top-layer |
 | `@pulse/web` | `bottom-right` | As musubi — Kobalte dialogs, no `topLayer` |

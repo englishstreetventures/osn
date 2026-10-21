@@ -138,7 +138,7 @@ shared/
   realtime/            # @shared/realtime — invalidation signals over WebSocket: the per-topic Durable Object hub, publish/subscribe helpers, the browser client and useTopic
   redis/               # @shared/redis — Redis client wrapper, rate-limiter Lua, JTI / rotated-session stores
   rp-auth/             # @shared/rp-auth — browser half of an OSN relying party: the redirect sign-in flow and its cookie contract
-  sortable/            # @shared/sortable — drag-to-reorder for SolidJS: pointer sensor, closestCenter, multi-container, and the whole keyboard / screen-reader path
+  sortable/            # @shared/sortable — drag for SolidJS: re-order lists (pointer sensor, closestCenter, the whole keyboard / screen-reader path) and drop zones for moving an item between containers
   toast/               # @shared/toast — SolidJS toasts themed through --toast-* custom properties
   turnstile/           # @shared/turnstile — key-optional, fail-closed Turnstile verifier
   typescript-config/   # @shared/typescript-config — base.json, node.json, solid.json

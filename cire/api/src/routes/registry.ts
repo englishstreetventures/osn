@@ -294,12 +294,15 @@ export const createRegistryWriteRoutes = (
               Effect.gen(function* () {
                 const body = yield* Schema.decodeUnknownEffect(CreateRegistryItemBody)(raw);
                 const item = yield* registryService.createItem({ weddingId, ...body });
-                yield* Effect.sync(() => metricRegistryItemWrite("create"));
+                yield* Effect.sync(() => metricRegistryItemWrite("create", item.kind));
                 return { item };
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () => badRequest(set)),
                 Effect.catchTag("InvalidQuantity", () => badRequest(set)),
+                Effect.catchTag("RegistryItemFieldsInvalid", () =>
+                  badRequestCode(set, "invalid_item_fields"),
+                ),
                 Effect.catchTag("ImageKeyNotInWedding", () =>
                   badRequestCode(set, "image_key_not_in_wedding"),
                 ),
@@ -346,12 +349,15 @@ export const createRegistryWriteRoutes = (
                   itemId: params.itemId,
                   patch: body,
                 });
-                yield* Effect.sync(() => metricRegistryItemWrite("update"));
+                yield* Effect.sync(() => metricRegistryItemWrite("update", item.kind));
                 return { item };
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () => badRequest(set)),
                 Effect.catchTag("InvalidQuantity", () => badRequest(set)),
+                Effect.catchTag("RegistryItemFieldsInvalid", () =>
+                  badRequestCode(set, "invalid_item_fields"),
+                ),
                 Effect.catchTag("ImageKeyNotInWedding", () =>
                   badRequestCode(set, "image_key_not_in_wedding"),
                 ),
@@ -367,7 +373,7 @@ export const createRegistryWriteRoutes = (
           if (!weddingId) return internalSync(set);
           return runCire(
             registryService.removeItem(weddingId, params.itemId).pipe(
-              Effect.tap(() => Effect.sync(() => metricRegistryItemWrite("remove"))),
+              Effect.tap(({ kind }) => Effect.sync(() => metricRegistryItemWrite("remove", kind))),
               // Nothing else references the object now, so it is an orphan.
               // Reap it rather than leaving it to the 7-day reconcile sweep:
               // the picture came off a shop page or the couple's camera roll,
@@ -377,7 +383,7 @@ export const createRegistryWriteRoutes = (
               //
               // `imageKeyOrphaned` is the service's verdict, taken with the
               // delete: two items may name the same key, and reaping on the
-              // first delete would blank the survivor's picture (S-M1).
+              // first delete would blank the survivor's picture.
               Effect.tap(({ imageKey, imageKeyOrphaned }) =>
                 reapAfterResponse(request, assets, imageKeyOrphaned ? imageKey : null),
               ),

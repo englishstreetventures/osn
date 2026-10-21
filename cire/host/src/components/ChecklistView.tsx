@@ -10,25 +10,41 @@ import {
   SortableProvider,
   useDragDropContext,
 } from "@shared/sortable";
+import { toast } from "@shared/toast";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
-import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
 import { haptic } from "../lib/haptics";
+import { createHolderWrites, readerFirst } from "../lib/holder-writes";
+import {
+  ensureHostsLoaded,
+  type HostSeat,
+  hostsAccessor,
+  invalidateHosts,
+} from "../lib/hosts-store";
 import { sameButOrder } from "../lib/sortable-rows";
 import {
   ensureTasksLoaded,
   invalidateTasks,
   peekCachedTasks,
+  readTaskList,
+  readTaskRow,
   setCachedTasks,
+  type TaskList,
   type TaskRow,
+  type TaskWire,
   tasksAccessor,
+  viewerHostIdOf,
 } from "../lib/tasks-store";
+import { normaliseWeddingRole } from "../lib/wedding-roles";
+import ChecklistStarter from "./ChecklistStarter";
 import ReorderControls from "./ReorderControls";
+import TaskHolders, { type Holder } from "./TaskHolders";
 /** A bucket with nothing in it. One shared array, so `sameRows` sees an empty
  *  bucket as unchanged from one write to the next. */
 const NO_TASKS: TaskRow[] = [];
@@ -42,6 +58,8 @@ interface ChecklistViewProps {
   weddingId: string;
   /** Owner/editor may add, edit, complete, reorder; a viewer sees a read-only list. */
   canEdit?: boolean;
+  /** Owner? Decides how the starter checklist asks for a missing wedding date. */
+  canManage?: boolean;
 }
 
 export default function ChecklistView(props: ChecklistViewProps) {
@@ -61,7 +79,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
       return [];
     }
     if (!res.ok) throw new Error(`Failed to load checklist (${res.status})`);
-    return ((await res.json()) as { tasks: TaskRow[] }).tasks;
+    return readTaskList(props.weddingId, (await res.json()) as TaskList);
   };
 
   onMount(() => {
@@ -70,6 +88,108 @@ export default function ChecklistView(props: ChecklistViewProps) {
       setError("Couldn't load your checklist. Refresh to try again.");
     });
   });
+
+  // ── Who holds each task ────────────────────────────────────────────────
+  // The seats are read only once some task is held: a checklist nobody is on
+  // needs no names, and an owner or editor who opens a task's popover asks
+  // for them then.
+  const seats = hostsAccessor(props.weddingId);
+  const seatById = createMemo(() => new Map(seats()?.map((s) => [s.hostId, s])));
+  const [seatsFailed, setSeatsFailed] = createSignal(false);
+  /** Has this visit asked the server for the seats? Until it has, the first
+   *  popover opened asks: seats cached before the visit may miss someone
+   *  seated or re-roled in another session since. */
+  let seatsReadThisVisit = false;
+  /** The reader's own seat, first among a task's holders. */
+  const viewerHostId = () => viewerHostIdOf(props.weddingId);
+
+  const loadSeats = async (): Promise<HostSeat[]> => {
+    seatsReadThisVisit = true;
+    const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/hosts")));
+    if (res.status === 401) {
+      redirectToLogin();
+      return [];
+    }
+    if (!res.ok) throw new Error(`Failed to load the wedding's people (${res.status})`);
+    const { hosts } = (await res.json()) as { hosts: HostSeat[] };
+    // A role the portal does not know reads as the narrowest one.
+    for (const seat of hosts) seat.role = normaliseWeddingRole(seat.role);
+    return hosts;
+  };
+
+  /** Read the seats unless they are fresh. A failure from an earlier read is
+   *  forgotten as this one starts, so a retry says it is looking, not that it
+   *  failed. */
+  const ensureSeats = () => {
+    setSeatsFailed(false);
+    return ensureHostsLoaded(props.weddingId, loadSeats).catch((err: unknown) => {
+      if (isAuthExpired(err)) return redirectToLogin();
+      setSeatsFailed(true);
+    });
+  };
+
+  const anyAssigned = createMemo(() => (tasks() ?? []).some((t) => t.assigneeHostIds.length > 0));
+  createEffect(() => {
+    if (anyAssigned()) void untrack(ensureSeats);
+  });
+
+  /** Open a task's popover with the seats it offers. The first opening of a
+   *  visit reads them from the server unless the visit already has; later
+   *  ones use that read. */
+  const openPeople = () => {
+    if (!seatsReadThisVisit) invalidateHosts(props.weddingId);
+    void ensureSeats();
+  };
+
+  const holderWrites = createHolderWrites({
+    send: (taskId, hostId, on) =>
+      authFetch(
+        apiUrl(
+          weddingPath(
+            props.weddingId,
+            `/tasks/${encodeURIComponent(taskId)}/assignees/${encodeURIComponent(hostId)}`,
+          ),
+        ),
+        { method: on ? "PUT" : "DELETE" },
+      ),
+    holdersOf: (taskId) =>
+      peekCachedTasks(props.weddingId)?.find((t) => t.id === taskId)?.assigneeHostIds,
+    setHolders: (taskId, assigneeHostIds) =>
+      patchTasks((rows) => rows.map((t) => (t.id === taskId ? { ...t, assigneeHostIds } : t))),
+    isAuthExpired,
+    onSignedOut: redirectToLogin,
+    // Not one of the wedding's seats any more: removed since the popover read
+    // them, so they are read again.
+    onSeatGone: () => {
+      invalidateHosts(props.weddingId);
+      void ensureSeats();
+    },
+    onRefused: (why) => {
+      haptic("reject");
+      toast.error(
+        why === "not_in_wedding"
+          ? "That person is no longer on this wedding. Pick someone else."
+          : "Couldn't change who holds that task.",
+      );
+      void reload();
+    },
+  });
+
+  /**
+   * A task's holders as its row shows them, from what it holds with the picks
+   * still out laid over it: the reader first, then the order they were put on
+   * it. Once the seats have loaded, a seat the list no longer has has gone —
+   * the server took it off its tasks — and is left out until the tasks are
+   * read again.
+   */
+  const holdersOf = (holding: readonly string[]): Holder[] => {
+    const ids = readerFirst(holding, viewerHostId());
+    if (seats() === null) return ids.map((hostId) => ({ hostId }));
+    return ids.flatMap((hostId) => {
+      const seat = seatById().get(hostId);
+      return seat ? [{ hostId, seat }] : [];
+    });
+  };
 
   // Refetch from the server and repopulate the cache (used after a write fails).
   const reload = async () => {
@@ -125,7 +245,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`create ${res.status}`);
-      const { task } = (await res.json()) as { task: TaskRow };
+      const task = readTaskRow(((await res.json()) as { task: TaskWire }).task);
       // No list to add it to: load one, which will carry the new task.
       if (!patchTasks((rows) => [...rows, task])) void reload();
       haptic("commit");
@@ -154,7 +274,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
       );
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`patch ${res.status}`);
-      const { task: updated } = (await res.json()) as { task: TaskRow };
+      const updated = readTaskRow(((await res.json()) as { task: TaskWire }).task);
       patchTasks((rows) => rows.map((t) => (t.id === updated.id ? updated : t)));
     } catch {
       // The optimistic tick is about to be taken back — say so.
@@ -227,6 +347,14 @@ export default function ChecklistView(props: ChecklistViewProps) {
         <Notice tone="danger" alert>
           {error()}
         </Notice>
+      </Show>
+
+      <Show when={props.canEdit}>
+        <ChecklistStarter
+          weddingId={props.weddingId}
+          canManage={props.canManage}
+          taskCount={tasks()?.length ?? null}
+        />
       </Show>
 
       <Show when={props.canEdit}>
@@ -321,11 +449,14 @@ export default function ChecklistView(props: ChecklistViewProps) {
                           {(id, i) => {
                             // By id, so a move moves this row's node rather than rebuilding
                             // it; `sameButOrder` keeps the old object when only the stored
-                            // order changed, and the keyed `Show` rebuilds the row when
-                            // anything else did, as an edit always has.
+                            // order or the holders changed, and the keyed `Show` rebuilds
+                            // the row when anything else did, as an edit always has. The
+                            // holders are read live below, so a change of who holds the
+                            // task keeps the row — and its popover open.
                             const row = createMemo(() => taskById().get(id), undefined, {
-                              equals: sameButOrder,
+                              equals: (a, b) => sameButOrder(a, b, ["assigneeHostIds"]),
                             });
+                            const live = () => taskById().get(id);
                             return (
                               <Show when={row()} keyed>
                                 {(task) => {
@@ -333,6 +464,15 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                   // Non-null: rendered inside the DragDropProvider above.
                                   const [dndState] = useDragDropContext()!;
                                   const item = reorder.item(task.id, i, count);
+                                  // Every pick anywhere re-reads this; the
+                                  // same seats in the same order stop there.
+                                  const holding = createMemo(
+                                    () =>
+                                      holderWrites.shown(task.id, (live() ?? task).assigneeHostIds),
+                                    [],
+                                    { equals: sameRows },
+                                  );
+                                  const holders = createMemo(() => holdersOf(holding()));
                                   return (
                                     <li
                                       ref={sortable.ref}
@@ -369,6 +509,22 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                           </span>
                                         </Show>
                                       </span>
+                                      <TaskHolders
+                                        title={task.title}
+                                        open={task.status === "open"}
+                                        holders={holders()}
+                                        canAssign={props.canEdit === true}
+                                        seats={seats()}
+                                        seatsFailed={seatsFailed()}
+                                        viewerHostId={viewerHostId()}
+                                        holds={(hostId) => holding().includes(hostId)}
+                                        busy={holderWrites.busy(task.id)}
+                                        onOpen={openPeople}
+                                        onToggle={(hostId) => {
+                                          haptic("commit");
+                                          holderWrites.toggle(task.id, hostId);
+                                        }}
+                                      />
                                       <Show when={props.canEdit}>
                                         <Button
                                           variant="bareDanger"

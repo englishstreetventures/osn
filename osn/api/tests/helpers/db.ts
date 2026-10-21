@@ -1,6 +1,5 @@
 import { Database } from "bun:sqlite";
 
-import * as schema from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { applySchema } from "@osn/db/testing";
 import { EmailService, makeLogEmailLive } from "@shared/email";
@@ -25,7 +24,7 @@ export function createTestLayerWithSqlite() {
   // Parity with the production migration chain is enforced by
   // osn/db/tests/ddl-lockstep.test.ts.
   applySchema(sqlite);
-  const db = drizzle(sqlite, { schema });
+  const db = drizzle({ client: sqlite });
   const dbLayer = Layer.succeed(Db, { db });
   const email = makeLogEmailLive();
   return { layer: Layer.merge(dbLayer, email.layer), sqlite, db, email };
@@ -47,8 +46,8 @@ export function createCapturingTestLayer() {
   const captured: CapturedStatement[] = [];
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
-  const db = drizzle(sqlite, {
-    schema,
+  const db = drizzle({
+    client: sqlite,
     logger: { logQuery: (sql, params) => captured.push({ sql, params }) },
   });
   const email = makeLogEmailLive();

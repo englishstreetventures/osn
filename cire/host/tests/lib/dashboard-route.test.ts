@@ -277,6 +277,7 @@ describe("dashboard-route", () => {
       expect(isSubOf("guests", "codes")).toBe(false);
       expect(isSubOf("invite", "codes")).toBe(true);
       expect(isSubOf("overview", "index")).toBe(true);
+      expect(isSubOf("seating", "index")).toBe(true);
     });
   });
 });

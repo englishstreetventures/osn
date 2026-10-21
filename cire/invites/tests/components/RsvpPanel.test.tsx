@@ -296,6 +296,8 @@ describe("RsvpPanel", () => {
         onClose={() => {}}
         onSubmitted={onSubmitted}
         onConfirmed={onConfirmed}
+        // A page that shows nobody answering: the API refuses a null member.
+        answeringAs={null}
       />
     ));
 
@@ -311,6 +313,7 @@ describe("RsvpPanel", () => {
     const parsed = JSON.parse(fetchSpy.mock.calls[0]![1].body);
     expect(parsed.rsvps).toHaveLength(1);
     expect(parsed.rsvps[0]).toMatchObject({ guestId: "guest-priya", eventId: "event-1" });
+    expect(parsed).not.toHaveProperty("memberGuestId");
     expect(onSubmitted).toHaveBeenCalledWith(updatedRsvps);
 
     // A partial reply gets the toast, same as a complete one, but not the
@@ -3049,70 +3052,29 @@ describe("RsvpPanel — the heading and the way to the details", () => {
     expect(received).toBe(heading);
   });
 
-  it("offers no way to the details on its own", () => {
-    const { queryByRole } = render(() => (
-      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
-    ));
-    expect(queryByRole("button", { name: "View event details" })).toBeNull();
-  });
-
-  it("offers the details as a quiet link, outside the form", () => {
-    const onShowDetails = vi.fn();
-    const { getByRole } = render(() => (
-      <RsvpPanel
-        event={event}
-        members={[priya]}
-        apiUrl="https://api.test"
-        onClose={() => {}}
-        onShowDetails={onShowDetails}
-      />
-    ));
-
-    const link = getByRole("button", { name: "View event details" });
-    // Not in the form: it is not part of the reply, and it must not send one.
-    expect(link.closest("form")).toBeNull();
-    fireEvent.click(link);
-    expect(onShowDetails).toHaveBeenCalledTimes(1);
-  });
-
-  it("stays available once RSVPs have closed — the details still are", () => {
-    const { getByRole } = render(() => (
-      <RsvpPanel
-        event={event}
-        members={[priya]}
-        apiUrl="https://api.test"
-        closed
-        onClose={() => {}}
-        onShowDetails={() => {}}
-      />
-    ));
-    expect(
-      (getByRole("button", { name: "View event details" }) as HTMLButtonElement).disabled,
-    ).toBe(false);
-  });
-
-  it("is withdrawn while a save is in flight and while the sheet closes on a saved reply", async () => {
-    // Nothing to come back to: the sheet closes itself one dwell after a save.
+  it("tells the sheet it is busy while a save is in flight and once the reply has saved", async () => {
+    // Nothing to come back to: the sheet closes itself one dwell after a save,
+    // so it offers no way to the details meanwhile.
     let resolve!: (r: Response) => void;
     vi.stubGlobal(
       "fetch",
       vi.fn(() => new Promise<Response>((r) => (resolve = r))),
     );
+    const busy: boolean[] = [];
     const { getByRole } = render(() => (
       <RsvpPanel
         event={event}
         members={[priya]}
         apiUrl="https://api.test"
         onClose={() => {}}
-        onShowDetails={() => {}}
+        onBusyChange={(b) => busy.push(b)}
       />
     ));
-    const link = () => getByRole("button", { name: "View event details" }) as HTMLButtonElement;
-    expect(link().disabled).toBe(false);
+    expect(busy.at(-1)).toBe(false);
 
     fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
     fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
-    await waitFor(() => expect(link().disabled).toBe(true));
+    await waitFor(() => expect(busy.at(-1)).toBe(true));
 
     resolve(
       new Response(JSON.stringify({ rsvps: [] }), {
@@ -3121,7 +3083,7 @@ describe("RsvpPanel — the heading and the way to the details", () => {
       }),
     );
     await waitFor(() => expect(getByRole("button", { name: "Saved" })).toBeTruthy());
-    expect(link().disabled).toBe(true);
+    expect(busy.at(-1)).toBe(true);
   });
 
   it.each([
@@ -3130,17 +3092,18 @@ describe("RsvpPanel — the heading and the way to the details", () => {
       "the server fails",
       () => Promise.resolve(new Response(JSON.stringify({ error: "boom" }), { status: 500 })),
     ],
-  ])("comes back once a save fails because %s", async (_why, reply) => {
+  ])("is no longer busy once a save fails because %s", async (_why, reply) => {
     // A guest whose save failed is still in the sheet, with the error showing,
     // and may well want the details before trying again.
     vi.stubGlobal("fetch", vi.fn(reply));
+    const busy: boolean[] = [];
     const { getByRole } = render(() => (
       <RsvpPanel
         event={event}
         members={[priya]}
         apiUrl="https://api.test"
         onClose={() => {}}
-        onShowDetails={() => {}}
+        onBusyChange={(b) => busy.push(b)}
       />
     ));
 
@@ -3148,8 +3111,7 @@ describe("RsvpPanel — the heading and the way to the details", () => {
     fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
     await waitFor(() => expect(getByRole("alert")).toBeTruthy());
 
-    expect(
-      (getByRole("button", { name: "View event details" }) as HTMLButtonElement).disabled,
-    ).toBe(false);
+    expect(busy).toContain(true);
+    expect(busy.at(-1)).toBe(false);
   });
 });

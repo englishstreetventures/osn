@@ -35,6 +35,49 @@ export const CIRE_RSVP_DEADLINE = "2099-01-01";
 export const CIRE_RSVP_CLOSED_ISO = "2099-01-02T00:00:00.000Z";
 
 /**
+ * The gift-list wedding cire-api adds when the stack sets `CIRE_E2E_REGISTRY=1`
+ * (`seedE2eGiftList` in `cire/api/src/db/setup.ts`, which these values copy):
+ * on Gold, with a published list, one household of one, and the wedding's host
+ * preview household. The locked flow checks that none of `gifts`, `headline`
+ * or `message` reaches a visitor without a claim; the claimed flow checks that
+ * each of them reaches the household, so a value that drifts from the seed
+ * fails that flow. `previewCode` is the host household's code, which "Preview
+ * invite" opens the invitation with.
+ *
+ * `fund` is a cash fund on the same list. The couple's settings take money,
+ * but the stack's cire-api has no Stripe key, so no guest may be offered the
+ * fund or the money form. The locked flow checks the fund absent without a
+ * claim, and the claimed flow checks it absent with one; the claimed flow
+ * reads the fund's row from the database, so a drifted value fails there.
+ */
+export const CIRE_GIFT_LIST = {
+  slug: "gift-wedding",
+  code: "TESTGFT-FIG-EE55",
+  previewCode: "HOST-E2E00000000000000000000000000001",
+  guestName: "Gil",
+  gifts: ["Copper saucepan", "Stoneware mixing bowls", "A walk on the beach together"],
+  /** The first gift's id, for a write a flow sends by hand. */
+  firstGiftId: "reg_e2e_gift_0001",
+  headline: "Our gift list",
+  message: "Your being there is the gift. This list is here if you would like it.",
+  fund: {
+    id: "reg_e2e_gift_fund",
+    title: "Honeymoon in Kyoto",
+    description: "Trains, temples and a very good dinner.",
+  },
+} as const;
+
+/**
+ * The client address a flow's organiser claims from (TEST-NET-1, never routed).
+ * The organiser previews from their own network, not the guests', so their
+ * claim spends its own per-address window of cire-api's claim limit. The
+ * stack's cire-api keeps a `cf-connecting-ip` the request sends
+ * (`CIRE_E2E_CLIENT_ADDRESS`, `localClientAddress` in cire/api); any other
+ * local cire-api replaces it with the socket peer.
+ */
+export const ORGANISER_ADDRESS = "192.0.2.10";
+
+/**
  * The fixed ports `PORTLESS=0` uses. Written out rather than imported because
  * Playwright loads this file under Node, which cannot run a workspace package's
  * TypeScript; `tests/config.test.ts` holds them equal to `DEV_APPS` in
@@ -47,6 +90,8 @@ export const PORTS = {
   musubi: 1422,
   pulseWeb: 1420,
   cireInvites: 4321,
+  cireHost: 4322,
+  cireLanding: 4323,
   /** The Resend stand-in osn-api sends OTP mail to. Not a dev app. */
   mail: 4590,
 } as const;
@@ -81,6 +126,80 @@ export const PULSE_OIDC = {
   redirectUri: `${ORIGINS.pulseApi}/api/auth/oidc/callback`,
 } as const;
 
+/**
+ * cire registered with osn-api as a first-party OIDC client, so an organiser
+ * with an OSN session signs in to the portal with no consent screen. cire-api
+ * reads the id and secret as `CIRE_OIDC_CLIENT_ID` / `CIRE_OIDC_CLIENT_SECRET`.
+ */
+export const CIRE_OIDC = {
+  rowId: "oc_cire_e2e",
+  clientId: "cid_cire_e2e",
+  secret: "e2e-cire-client-secret-not-a-real-secret",
+  redirectUri: `${ORIGINS.cireApi}/api/auth/oidc/callback`,
+} as const;
+
+/**
+ * osn-api's dev sign-in (`GET /dev/login`, local and dev tiers only, mounted
+ * when this is set). It signs in as the fixed dev principal, whose profile id
+ * owns cire's sample wedding (`DEV_OWNER_PROFILE_ID`) and the `CIRE_ORGANISER`
+ * weddings below. Local only.
+ */
+export const DEV_LOGIN_SECRET = "e2e-dev-login-secret-not-a-real-secret";
+
+/**
+ * The organiser weddings cire-api adds when the stack sets
+ * `CIRE_E2E_ORGANISER=1` (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`,
+ * which these values copy). All three are on Gold and owned by `profileId`,
+ * the profile osn-api's `/dev/login` signs in as. The co-hosts are bare
+ * profile ids: the local cire-api resolves no names, so the portal shows the
+ * ids, and a flow finds each person by theirs.
+ */
+export const CIRE_ORGANISER = {
+  profileId: "usr_dev_bootstrap_owner",
+  /** A wedding date and an empty checklist, for the starter checklist. */
+  checklist: {
+    weddingId: "wed_e2e_checklist",
+    weddingDate: "2099-06-20",
+    /** The starter's first item, due a year before the wedding date. */
+    firstItem: {
+      key: "agree-budget",
+      title: "Agree on an overall budget",
+      timeframeBucket: "12m",
+      dueAt: "2098-06-20",
+    },
+  },
+  /** One open task nobody holds, an editor and a viewer. */
+  holders: {
+    weddingId: "wed_e2e_holders",
+    taskId: "tsk_e2e_holders_venue",
+    taskTitle: "Book the venue",
+    editor: { hostId: "whost_e2e_bea", profileId: "usr_e2e_bea" },
+    viewer: { hostId: "whost_e2e_cal", profileId: "usr_e2e_cal" },
+  },
+  /** A helper who sees their own tasks on the run sheet. */
+  scope: {
+    weddingId: "wed_e2e_scope",
+    helper: { hostId: "whost_e2e_dee", profileId: "usr_e2e_dee" },
+  },
+} as const;
+
+/**
+ * The organiser's edit in `cire-event-details`: the sample wedding's Kitchen
+ * Tea (`cire/db/seed/data/events.ts`) gains a venue name and a description.
+ * No other flow reads Kitchen Tea, so the edit reaches none of them.
+ */
+export const CIRE_EVENT_EDIT = {
+  weddingId: "wed_bootstrap",
+  slug: "cire-wedding",
+  event: "Kitchen Tea",
+  address: "124 Sample Avenue, Exampleville NSW 2001",
+  venueName: "The Glasshouse",
+  description: "High tea on the lawn, then games; bring a hat.\nCars can park on Sample Lane.",
+  /** What the second save changes, so the venue name and description it
+   *  carries are the ones the editor read back. */
+  dressCode: "Garden party. Flat shoes for the lawn.",
+} as const;
+
 /** Seeded cire guest: the first canonical family in `cire/db/seed/data/guests.ts`. */
 export const CIRE_GUEST = {
   slug: "cire-wedding",
@@ -108,6 +227,20 @@ export const CIRE_PART_GUEST = {
   code: "TESTTWO-OAK-BB22",
   answering: "Bo",
   silent: ["Cleo", "Dot"],
+} as const;
+
+/**
+ * Seeded cire household of several: the second canonical family in
+ * `cire/db/seed/data/guests.ts` (Bo, Cleo, Dot; Bo and Cleo are invited to the
+ * Reception). `member` is who says they are answering.
+ */
+export const CIRE_HOUSEHOLD = {
+  slug: "cire-wedding",
+  code: "TESTTWO-OAK-BB22",
+  members: ["Bo", "Cleo", "Dot"],
+  member: "Cleo",
+  /** Who a second tab says is answering, after "Not you?". */
+  otherMember: "Bo",
 } as const;
 
 /** Identities the flows create. Fixed, so every run registers the same people. */

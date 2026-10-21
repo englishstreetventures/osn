@@ -77,10 +77,18 @@
   left: 0;
   align-items: flex-start;
 }
+/*
+ * The centred positions span both insets and centre the box with auto margins.
+ * Never `left: 50%` and a translate: a shrink-to-fit box offset by half the
+ * viewport may use only the other half, which on a phone squeezes the message
+ * of a toast with an action to a letter per line.
+ */
 .ui-toaster--top-center {
   top: 0;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
+  width: fit-content;
+  margin-inline: auto;
   align-items: center;
 }
 .ui-toaster--top-right {
@@ -95,8 +103,10 @@
 }
 .ui-toaster--bottom-center {
   bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
+  width: fit-content;
+  margin-inline: auto;
   align-items: center;
 }
 .ui-toaster--bottom-right {

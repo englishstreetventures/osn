@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-21
 ---
 
 # DSAR Runbook
@@ -128,7 +128,8 @@ owners, each with an `owner` seat. Two consequences:
 - **DSAR reachability (Art. 15 / 17 / 20).** A DSAR from the *organiser*
   reaches their cire data via their `wedding_hosts` seats: export/erasure can
   query cire's D1 for the weddings they own, the `families` / `guests` /
-  `rsvps` / `imports` rows under them, and the R2 `cire-sheets` CSVs. On a
+  `rsvps` / `seating_assignments` / `imports` rows under them, and the R2
+  `cire-sheets` CSVs. On a
   wedding with another owner, erasing one owner removes their seat and leaves
   the wedding to the others; the last owner's seat cannot be removed through
   the API, so erasing a sole owner means erasing the wedding. An owner can now
@@ -167,10 +168,10 @@ owners, each with an `owner` seat. Two consequences:
   replies and the link to the guest who brought them
   (`plus_one_of_guest_id`) — holds data another guest supplied, and the
   plus-one never holds the household's code. Their requests go to the
-  organiser like any guest's. Access: the row, its `rsvps` and its
-  `guest_events`, found by `plus_one_of_guest_id` or by name within the
-  household. Erasure has three ready paths, each deleting the row with its
-  replies and invitations by cascade: the household removes them on the invite
+  organiser like any guest's. Access: the row, its `rsvps`, its
+  `guest_events` and its `seating_assignments`, found by `plus_one_of_guest_id`
+  or by name within the household. Erasure has three ready paths, each deleting
+  the row with its replies, invitations and seats by cascade: the household removes them on the invite
   (`DELETE /api/plus-one/:guestId`) until the RSVP deadline; an editor turns
   the inviting guest's permission off, confirming the plus-one by id and
   stored name (`PUT …/guests/:guestId/plus-one`,
@@ -280,6 +281,26 @@ owners, each with an `owner` seat. Two consequences:
   `UPDATE unlock_code_redemptions SET redeemed_by_osn_profile_id = NULL WHERE redeemed_by_osn_profile_id = ?`.
   The row stays, so the code's use and the wedding's tier keep their record; it
   goes with the wedding when the purge deletes it ([[retention]]).
+- **Checklist assignments (migration 0091).** Each `task_assignees` row names
+  a `wedding_hosts` seat holding a task and when it was put on it, so which
+  tasks an organiser holds is part of their cire data. An access request finds
+  them through the requester's seats:
+  `SELECT a.wedding_id, t.title, t.status, a.assigned_at FROM task_assignees a JOIN wedding_hosts h ON h.id = a.host_id AND h.wedding_id = a.wedding_id JOIN tasks t ON t.id = a.task_id WHERE h.osn_profile_id = ?`.
+  The other seats on the same tasks are their co-holders, other people's data
+  (Art. 15(4)), so the export leaves them out. Removing the seat — an erasure,
+  an owner removing them, or their own leave — deletes every one of its rows
+  through the foreign key (ON DELETE CASCADE) and keeps the tasks, which are the
+  wedding's planning record, with their other holders, so no separate step is
+  needed. An OSN account deletion does not reach the seat, so its assignments
+  stay with it, the same orphan as `wedding_hosts` below. Until the first
+  cire-api release after the one shipping 0091 reaches production drops it
+  (englishstreetventures/osn#1636), `tasks.assigned_host_id` (migration 0087)
+  also holds, per task, the seat that held it when 0091 copied it onto
+  `task_assignees`, read and written only by the Worker before 0091 if it
+  serves again; an access request reads it too,
+  `SELECT t.wedding_id, t.title FROM tasks t JOIN wedding_hosts h ON h.id = t.assigned_host_id WHERE h.osn_profile_id = ?`,
+  and removing the seat clears it (ON DELETE SET NULL). See
+  [[cire-checklist-tasks#Assignees]].
 
 **Cross-DB deletion orphan — decision: orphan-tolerance (for now).** Nothing
 fans OSN-account deletion out into cire. `DELETE /account` and

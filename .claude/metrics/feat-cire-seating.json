@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1640,
+    "branch": "feat/cire-seating",
+    "base_sha": "f5a9859fa9c20fdc61f48471571410c90bd87f91",
+    "head_sha": "aa9c273ca9057ae9f8a77fb89c0b1267206c8edd",
+    "generated_at": "2026-10-21T01:45:21.381Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 479,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:5",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 25,
+    "first_ts": "2026-10-20T05:27:36.323Z",
+    "last_ts": "2026-10-21T01:45:17.507Z",
+    "span_seconds": 73061,
+    "active_seconds": 15924,
+    "compactions": 1
+  },
+  "spend": {
+    "usd_equivalent": 266.8361692000004,
+    "tokens": {
+      "input": 3464,
+      "output": 38075,
+      "thinking": 10781,
+      "cache_write_5m": 10431078,
+      "cache_write_1h": 0,
+      "cache_read": 534763558
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 3464,
+          "output": 38075,
+          "thinking": 10781,
+          "cache_write_5m": 10431078,
+          "cache_write_1h": 0,
+          "cache_read": 534763558
+        },
+        "usd_equivalent": 266.8361692000004,
+        "messages": 1715
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 5
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 98,
+          "output": 18405,
+          "thinking": 10279,
+          "cache_write_5m": 466009,
+          "cache_write_1h": 0,
+          "cache_read": 1019522
+        },
+        "usd_equivalent": 3.1063458,
+        "messages": 48
+      },
+      "subagent": {
+        "tokens": {
+          "input": 3366,
+          "output": 19670,
+          "thinking": 502,
+          "cache_write_5m": 9965069,
+          "cache_write_1h": 0,
+          "cache_read": 533744036
+        },
+        "usd_equivalent": 263.7298234000005,
+        "messages": 1672
+      }
+    },
+    "effort": {
+      "medium": 48,
+      "xhigh": 1429,
+      "high": 238
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 30,
+      "docs": 21,
+      "config": 3,
+      "source": 46
+    },
+    "loc": {
+      "generated": {
+        "added": 25,
+        "deleted": 0
+      },
+      "test": {
+        "added": 4159,
+        "deleted": 20
+      },
+      "docs": {
+        "added": 406,
+        "deleted": 53
+      },
+      "config": {
+        "added": 4874,
+        "deleted": 0
+      },
+      "source": {
+        "added": 3166,
+        "deleted": 108
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "cire/host",
+      "cire/landing",
+      "cire/ui",
+      "shared/sortable"
+    ],
+    "touches_migration": true,
+    "commits": 12
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 1569,
+      "Read": 78,
+      "Edit": 28,
+      "Write": 27,
+      "StructuredOutput": 22,
+      "Skill": 18,
+      "Grep": 14,
+      "Monitor": 13,
+      "Agent": 10,
+      "SubagentHandback": 9,
+      "ToolSearch": 1,
+      "Glob": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 11
+    },
+    "skills": {
+      "new-feat": 1,
+      "design-system": 1,
+      "stress-plan": 1,
+      "write-wiki": 2,
+      "obsidian:obsidian-markdown": 2,
+      "prep-pr": 1,
+      "review-performance": 2,
+      "review-security": 1,
+      "review-tests": 2,
+      "review-docs": 2,
+      "write-issue": 1,
+      "write-pr": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "attacker": 2,
+      "reviewer": 8
+    }
+  }
+}

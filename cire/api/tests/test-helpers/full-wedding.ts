@@ -21,6 +21,8 @@ export const WEDDING_CHILD_TABLES = [
   "wedding_faqs",
   "imports",
   "tasks",
+  "task_assignees",
+  "task_template_dismissals",
   "budget_items",
   "payments",
   "vendors",
@@ -32,6 +34,8 @@ export const WEDDING_CHILD_TABLES = [
   "registry_contributions",
   "wedding_upgrade_purchases",
   "unlock_code_redemptions",
+  "seating_tables",
+  "seating_assignments",
 ] as const;
 
 /** The household's claim code {@link fullWeddingStatements} writes. Upper
@@ -94,6 +98,8 @@ export function fullWeddingStatements(
     sql`INSERT INTO guests (id, family_id, first_name, created_at, updated_at) VALUES (${guest}, ${fam}, 'Ada', ${s}, ${s})`,
     sql`INSERT INTO events (id, wedding_id, slug, name, start_at, end_at, timezone, event_image_key) VALUES (${event}, ${id}, 'ceremony', 'Ceremony', '2027-01-01T10:00', '2027-01-01T11:00', 'UTC', ${keys.assets[3]!})`,
     sql`INSERT INTO guest_events (guest_id, event_id) VALUES (${guest}, ${event})`,
+    sql`INSERT INTO seating_tables (id, wedding_id, event_id, name, capacity, created_at, updated_at) VALUES (${`stb_${id}`}, ${id}, ${event}, 'Table 1', 8, ${s}, ${s})`,
+    sql`INSERT INTO seating_assignments (table_id, event_id, guest_id, created_at) VALUES (${`stb_${id}`}, ${event}, ${guest}, ${s})`,
     sql`INSERT INTO rsvps (id, guest_id, event_id, status, created_at) VALUES (${`rsvp_${id}`}, ${guest}, ${event}, 'attending', ${s})`,
     sql`INSERT INTO rsvp_changes (wedding_id, family_id, guest_id, kind, created_at) VALUES (${id}, ${fam}, ${guest}, 'attending', ${s})`,
     sql`INSERT INTO host_rsvp_notices (wedding_id, osn_profile_id, updated_at) VALUES (${id}, ${owner}, ${s})`,
@@ -103,6 +109,8 @@ export function fullWeddingStatements(
     sql`INSERT INTO wedding_faqs (id, wedding_id, question, answer, created_at, updated_at) VALUES (${`faq_${id}`}, ${id}, 'Q', 'A', ${s}, ${s})`,
     sql`INSERT INTO imports (id, wedding_id, uploaded_at, format, events_r2_key, guests_r2_key, before_events_r2_key, before_guests_r2_key, summary, status) VALUES (${`imp_${id}`}, ${id}, ${s}, 'csv', ${keys.sheets[0]!}, ${keys.sheets[1]!}, ${keys.sheets[2]!}, ${keys.sheets[3]!}, '{}', 'applied')`,
     sql`INSERT INTO tasks (id, wedding_id, title, timeframe_bucket, created_at) VALUES (${`task_${id}`}, ${id}, 'Book', '12m', ${s})`,
+    sql`INSERT INTO task_assignees (task_id, host_id, wedding_id, assigned_at) VALUES (${`task_${id}`}, ${`whost_${id}`}, ${id}, ${s})`,
+    sql`INSERT INTO task_template_dismissals (wedding_id, template_id, template_item, dismissed_at) VALUES (${id}, 'starter', 'plan-outfits', ${s})`,
     sql`INSERT INTO budget_items (id, wedding_id, category, name, created_at, updated_at) VALUES (${budget}, ${id}, 'venue', 'Hall', ${s}, ${s})`,
     sql`INSERT INTO payments (id, budget_item_id, label, amount_minor, created_at) VALUES (${`pay_${id}`}, ${budget}, 'Deposit', 100, ${s})`,
     sql`INSERT INTO directory_vendors (id, name, created_at, updated_at) VALUES (${dirVendor}, 'Listing', ${s}, ${s})`,

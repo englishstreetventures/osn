@@ -16,7 +16,7 @@ In-memory SQLite in tests (see `@shared/db-utils`).
 ## Scripts
 
 ```bash
-bun run --cwd pulse/db db:migrate
+bun run --cwd pulse/db db:generate --name <snake_case>   # write the next migration (one timestamped file)
 bun run --cwd pulse/db db:push
 bun run --cwd pulse/db db:studio
 bun run --cwd pulse/db db:seed

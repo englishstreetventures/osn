@@ -18,11 +18,42 @@ export interface TaskRow {
   sortOrder: number;
   createdAt: number;
   completedAt: number | null;
+  /** The seats (`hostId` in `GET …/hosts`) holding the task, in the order they
+   *  were put on it; empty for nobody. */
+  assigneeHostIds: string[];
+}
+
+/**
+ * A task as either API release sends it. The API before holders names one
+ * `assignedHostId` and no `assigneeHostIds`, and a release can put this portal
+ * in front of it, so every answer the portal reads goes through
+ * {@link readTaskRow}. Read until englishstreetventures/osn#1636 drops the
+ * column that API reads; no API that sends the old shape can serve after it.
+ */
+export type TaskWire = Omit<TaskRow, "assigneeHostIds"> & {
+  assigneeHostIds?: string[];
+  assignedHostId?: string | null;
+};
+
+/** A task as the portal keeps it, from either shape: its `assigneeHostIds`,
+ *  else the one `assignedHostId` as its only holder, else nobody. */
+export function readTaskRow(task: TaskWire): TaskRow {
+  const { assignedHostId, assigneeHostIds, ...rest } = task;
+  return { ...rest, assigneeHostIds: assigneeHostIds ?? (assignedHostId ? [assignedHostId] : []) };
+}
+
+/** `GET …/tasks` as the API answers it. */
+export interface TaskList {
+  tasks: TaskWire[];
+  /** The caller's own seat on the wedding. Absent from an API older than it. */
+  viewerHostId?: string | null;
 }
 
 interface CacheEntry {
   tasks: Accessor<TaskRow[] | null>;
   setTasks: Setter<TaskRow[] | null>;
+  viewerHostId: Accessor<string | null>;
+  setViewerHostId: Setter<string | null>;
 }
 
 const cache = new Map<string, CacheEntry>();
@@ -31,7 +62,8 @@ function entryFor(weddingId: string): CacheEntry {
   let entry = cache.get(weddingId);
   if (!entry) {
     const [tasks, setTasks] = createSignal<TaskRow[] | null>(null);
-    entry = { tasks, setTasks };
+    const [viewerHostId, setViewerHostId] = createSignal<string | null>(null);
+    entry = { tasks, setTasks, viewerHostId, setViewerHostId };
     cache.set(weddingId, entry);
   }
   return entry;
@@ -39,6 +71,24 @@ function entryFor(weddingId: string): CacheEntry {
 
 export function tasksAccessor(weddingId: string): Accessor<TaskRow[] | null> {
   return entryFor(weddingId).tasks;
+}
+
+/**
+ * Take a `GET …/tasks` answer apart: keep the caller's own seat id, which the
+ * checklist puts first among a task's holders, and hand back the rows, read
+ * through {@link readTaskRow}, for the loader to return. Every reader of the
+ * list goes through here, so the seat is known whichever module read the tasks
+ * first.
+ */
+export function readTaskList(weddingId: string, list: TaskList): TaskRow[] {
+  if (!isWeddingClosed(weddingId)) entryFor(weddingId).setViewerHostId(list.viewerHostId ?? null);
+  return list.tasks.map(readTaskRow);
+}
+
+/** The caller's own seat on the wedding, as the last task read named it;
+ *  `null` before one. Reactive, and subscribes from a cold cache too. */
+export function viewerHostIdOf(weddingId: string): string | null {
+  return entryFor(weddingId).viewerHostId();
 }
 
 /** Subscribes only when the entry already exists — a read from a cold cache
@@ -51,6 +101,19 @@ export function hasCachedTasks(weddingId: string): boolean {
 export function setCachedTasks(weddingId: string, tasks: TaskRow[]): void {
   if (isWeddingClosed(weddingId)) return;
   entryFor(weddingId).setTasks(tasks);
+}
+
+/**
+ * Replace the list with the whole list a write just answered with. It is the
+ * newest read there is, so the wedding is fresh again, and the generation moves
+ * on so a load already in flight — started before the write — discards what it
+ * fetches instead of landing on top.
+ */
+export function setFreshTasks(weddingId: string, tasks: TaskRow[]): void {
+  if (isWeddingClosed(weddingId)) return;
+  generation.set(weddingId, generationOf(weddingId) + 1);
+  entryFor(weddingId).setTasks(tasks);
+  stale.delete(weddingId);
 }
 
 /** Subscribes only when the entry already exists — a read from a cold cache

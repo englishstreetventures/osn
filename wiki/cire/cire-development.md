@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Cire development guide
@@ -152,9 +152,11 @@ row arrives. Workers Free allows 10 ms of CPU, and a ceiling applied to rows
 already read, sorted and built bounds the file but not the Worker. A display
 order that is not the stored key's text order goes into the `ORDER BY` with
 `displayRank` (`cire/api/src/lib/display-rank.ts`). `giftsCsv`
-(`services/gift-export.ts`) and `budgetCsv`/`tasksCsv`
-(`services/planning-export.ts`) are the patterns, and their tests read the
-statements back to pin the row count each read returns.
+(`services/gift-export.ts`), `budgetCsv`/`tasksCsv`
+(`services/planning-export.ts`) and `seatingCsv` (`services/seating-export.ts`)
+are the patterns, and their tests read the statements back to pin the row
+count each read returns. A file a locked module's card offers also needs its
+count in `GET …/module-rows` and an entry in the portal's `LOCKED_EXPORTS`.
 
 ## Tests
 
@@ -317,9 +319,22 @@ the archived chain in `cire/db/migrations-archive/`, and
 that chain, where wrangler would skip the rest without a word. Why, and how to
 squash the chain again: `cire/db/README.md`.
 
-Local sign-in also needs an `oauth_clients` row in the local OSN D1 and
-`CIRE_OIDC_CLIENT_SECRET` in `cire/api/.dev.vars`. Without them `/api/auth/oidc/*`
-answers 503 and the rest of cire works as normal.
+Organiser sign-in needs five values, read by `oidcConfigFromEnv`
+(`cire/api/src/lib/oidc.ts`) in the Worker and the Bun server alike:
+`OSN_ISSUER_URL`, `OSN_JWKS_URL`, `CIRE_API_ORIGIN`, `CIRE_OIDC_CLIENT_ID` and
+`CIRE_OIDC_CLIENT_SECRET`. `wrangler dev` reads the first four from
+`wrangler.toml` and the secret from `cire/api/.dev.vars`. `bun run dev:cire`
+gets the issuer, the JWKS URL and `CIRE_API_ORIGIN` from `dev-env` (the
+worktree's own portless host), and the client id and secret from
+`cire/api/.env`; the Bun server (`src/local.ts`) takes the issuer's own JWKS
+path when `OSN_JWKS_URL` is unset. Either way the local OSN database needs an
+`oauth_clients` row for that client whose redirect URI is exactly
+`<CIRE_API_ORIGIN>/api/auth/oidc/callback` and whose `client_secret_hash` is the
+secret's SHA-256; only the E2E suite seeds one (`tools/e2e/src/seed.ts`), and
+its stack sets every value, against its own osn-api
+([[testing-patterns#The end-to-end suite]]). With any of it missing,
+`/api/auth/oidc/*` sends the browser back to `/login` with
+`?auth_error=sign_in_unavailable`, and the rest of cire works as normal.
 
 Local mail goes to the in-memory recorder. To read it in an inbox instead, run
 the Resend emulator and set `RESEND_API_KEY` and `RESEND_API_URL` in
@@ -335,17 +350,17 @@ rather than emitting one:
 bun run --cwd cire/db db:generate --name rsvp_dietary_presets
 ```
 
-Pass `--name`. Without it drizzle-kit invents one, and the journal entry's `tag`
-is the emitted filename — renaming the file by hand afterwards fails the first
-assertion in `cire/api/tests/db/ddl-lockstep.test.ts`.
+`--name` is required, in snake_case. The file it writes is
+`cire/db/migrations/<YYYYMMDDHHMMSS>_<name>.sql`, stamped in UTC, and it is the
+whole migration: no journal and no snapshot go with it, so two branches that
+each add a migration never conflict. How it is generated, and what it refuses,
+is in `cire/db/README.md` §How a migration is made; the same workflow serves
+osn, pulse and zap ([[commands#Migrations]]).
 
-**A boolean column with a default needs one hand edit.** drizzle-kit writes
-`integer(..., { mode: "boolean" }).default(true)` into the migration as
-`DEFAULT true`. SQLite accepts it, but `PRAGMA table_info` then reads the
-default back as the text `true`, while the lockstep test renders Drizzle's
-boolean default as `1`. Change it to `DEFAULT 1` (or `DEFAULT 0`) in the
-generated SQL and use the same literal in `setup.ts`; leave the snapshot as
-drizzle-kit wrote it. `0063_invite_section_visibility.sql` is the example.
+**A boolean default is written `1` or `0`.** `db:generate` corrects drizzle-kit's
+`DEFAULT true` to `DEFAULT 1` (SQLite would read `true` back as text, where the
+lockstep test renders Drizzle's boolean default as `1`). Use the same literal in
+`setup.ts`. `0063_invite_section_visibility.sql` in the archive is the example.
 
 **A cire column has three DDL surfaces, not two.** The migration and
 `cire/db/src/schema.ts` are the two an agent reaches for; the third is the test
@@ -354,15 +369,40 @@ against. Miss it and `bun test cire/api/tests/` fails in the lockstep test with
 the column's own name, after every other gate has passed. Full contract for the
 mirror is in [[cire-platform-plan]] §Code map.
 
+**A new table also needs `bun run --cwd cire/db seed:generate`.** It rewrites
+`cire/db/seed/dev-reset.sql`, which drops every schema table before the dev
+tier is reseeded, and `cire/db/tests/seed/seed.test.ts` fails on a table the
+file does not drop.
+
 **Dropping a column is `ALTER TABLE … DROP COLUMN`, never a copy-and-swap.**
-Check what `db:generate` wrote before keeping it: a `__new_<table>` rebuild drops
-the table, and D1 enforces foreign keys, so the drop cascades into every child
-table. SQLite refuses to drop an indexed column, so `DROP INDEX` comes first,
+`db:generate` refuses a `__new_<table>` rebuild, which drops the table, and D1
+enforces foreign keys, so the drop cascades into every child table. Write such a
+change by hand with `--custom`. SQLite refuses to drop an indexed column, so `DROP INDEX` comes first,
 and each statement needs its own `--> statement-breakpoint`, because
 `d1-integration.test.ts` and D1's `prepare` take one statement at a time. A data
 step that has to run before the drop goes at the top of the same file.
 `0076_wedding_owners.sql` is the example, and `migration-0076.test.ts` is the
 shape of its test: seed rows before the migration, then prove nothing cascaded.
+
+**A column the serving Worker uses is dropped a release later.** Every deploy
+migrates before the new Worker serves, and a rollback leaves the migration in
+place ([[production-deploy#4. Database migrations]]). So the release that stops
+using a column keeps it in the database, and a later one drops it. Stopping
+means taking it out of `cire/db/src/schema.ts`, not only out of the reads:
+Drizzle names every declared column in each insert, select and `returning`, so
+a declared column is still in the Worker's statements. In that first release,
+`db:generate` writes a drop or a `__new_<table>` rebuild for the column. Delete
+it from the migration by hand, and leave the snapshot as drizzle-kit wrote it.
+Keep the column in `setup.ts`, and list it in `UNDECLARED_COLUMNS` in
+`ddl-lockstep.test.ts`, which excuses it from the Drizzle comparison only while
+the chain still has it. This works only for a nullable column or one with a
+`DEFAULT`: every insert the Worker sends leaves the column out, and SQLite fills
+it with NULL or the default. A `NOT NULL` column with no default cannot be
+retired this way, since each insert would fail, and needs its own plan; the same
+test fails on one. The drop comes once the first release is in production:
+`db:generate --custom`, then `DROP INDEX` and `DROP COLUMN` as above.
+`tasks.assigned_host_id` is the example: `0091_task_assignees.sql` keeps it, and
+englishstreetventures/osn#1636 drops it.
 
 **A field the guest site reads is optional there.** `deploy-cire-invites` has no
 `needs:` edge on `deploy-cire-api` in `production-release.yml`, and a release can
@@ -376,6 +416,15 @@ it is present, and let the reader supply a default that fails closed — as the 
 dietary fields on `RsvpSummary` do. If the page also writes the field back, an
 API older than the column accepts the write and drops the field, so a value
 entered in that window is not stored.
+
+**The organiser portal reads both shapes of a field the API changes.**
+`deploy-cire-host` has no `needs:` edge on `deploy-cire-api` either
+([[production-deploy#5.6 Approval order when a cire release changes what a plan tier opens]]),
+so the portal can serve against the API before the one it ships with. A portal
+that reads only the new shape throws, or shows nothing, for that window. Read the
+old shape as well, at the one place every answer passes through, until the old
+API is gone: `readTaskRow` (`cire/host/src/lib/tasks-store.ts`) takes a task's
+`assigneeHostIds`, or the single `assignedHostId` the API before holders sends.
 
 ### Deploying by hand
 
@@ -563,9 +612,9 @@ the portal, and holds back the next release behind it.
 
 ## Guest-site SSR bundle size
 
-Tracker #619 generalised this guard out of cire/invites: it is now
-`scripts/guard-bundle-size.sh` (repo root, `worker` mode for this app), shared
-with a `static`-mode measurement for the five non-SSR Astro apps. The
+This guard is `scripts/guard-bundle-size.sh` (repo root, `worker` mode for
+this app), shared with a `static`-mode measurement for the five non-SSR Astro
+apps. The
 cross-app mechanism — where it runs, why it runs twice, every app's current
 threshold — lives in [[bundle-size-guards]]. What stays here is what is
 genuinely cire/invites-only: WHY its bundle is shaped the way it is.
@@ -575,9 +624,11 @@ In `worker` mode the script sums the gzip size of each file under
 chunk as its own module. It leaves out only the adapter's top-level
 `wrangler.json` and real source maps — a `.map` beside the chunk it is named
 after that parses as a source map. Any other `.map`-named file is counted, so
-the total can run above what wrangler uploads but never below it. It also
-fails if any `.map` file turns up under `dist/client`, which is served
-publicly as Static Assets — see the source-map warning below.
+the total can run above what wrangler uploads but never below it. A total
+over the app's budget is a warning, not a failure ([[bundle-size-guards]]). It
+fails if a source map turns up under `dist/client`, which is served publicly
+as Static Assets: a `.map` file, or a script or stylesheet carrying an inline
+`sourceMappingURL=data:` map. See the source-map warning below.
 
 `cire/invites/package.json`'s `build` script chains it on
 (`… && ../../scripts/guard-bundle-size.sh .`), so it fires wherever the build
@@ -599,10 +650,10 @@ bytes, motion's cost back when the build was unminified. The arithmetic is
 spelled out in the comment above `threshold=` so the next reader can check it
 without rebuilding.
 
-Three tracker follow-ups (#618, #616, #617) to the original size audit
-(#287) cut the bundle from 285 KB to 163 KB gzip:
+Three choices keep the bundle small; together they took it from 285 KB to
+163 KB gzip:
 
-- **Sessions off (#618).** Astro's session config accepts `session: false`
+- **Sessions off.** Astro's session config accepts `session: false`
   (`astro/dist/core/session/config.js`), and `@astrojs/cloudflare`'s
   KV-binding auto-provisioning is gated on that same literal
   (`@astrojs/cloudflare/dist/index.js`, `if (session !== false && ...)`), so
@@ -610,7 +661,7 @@ Three tracker follow-ups (#618, #616, #617) to the original size audit
   drops the session runtime and `unstorage` from `dist/server` with no KV
   binding required. Safe here because the guest site never reads or writes
   `Astro.session`.
-- **SSR minification (#616).** `vite: { build: { minify: true } }` in
+- **SSR minification.** `vite: { build: { minify: true } }` in
   `astro.config.mjs` does nothing for the server build: Astro's
   `createViteBuildConfig` (`astro/dist/core/build/vite-build-config.js`)
   spreads the user's `vite.build` and then hard-sets `minify: false`
@@ -644,10 +695,10 @@ Three tracker follow-ups (#618, #616, #617) to the original size audit
   > `"assets": { "directory": "../client" }` into the generated wrangler
   > config) and Cloudflare serves everything in it verbatim, so those maps
   > publish the guest site's unminified source at `/_astro/<chunk>.js.map` to
-  > anyone who asks. The plain form was written that way first and caught in
-  > review; `guard-bundle-size.sh` now fails the build if any `.map` file appears
-  > under `dist/client`.
-- **`zod` stays (#617).** Traced to Astro's own actions request handler
+  > anyone who asks. `guard-bundle-size.sh` fails the build if a source map
+  > appears under `dist/client`, as a `.map` file or inlined into a script or
+  > stylesheet.
+- **`zod` stays.** Traced to Astro's own actions request handler
   (`actions/handler.js` → `actions/runtime/server.js`, top-level
   `import * as z from "zod/v4/core"`), which `core/routing/handler.js` calls
   on every non-prerendered request whether or not the app defines any

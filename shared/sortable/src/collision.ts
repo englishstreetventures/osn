@@ -38,3 +38,26 @@ export function closestCenter(
   }
   return best ? { id: best.id, node: best.node } : null;
 }
+
+/**
+ * The drop zone whose rectangle holds the pointer, or `null` between zones.
+ *
+ * The detector for dropping INTO a container — a guest onto a table — where
+ * "nearest" would be wrong: a release in the gap between two tables, or over
+ * anything that is not a table, must drop nowhere rather than on whichever
+ * table happens to be closest. Measured against geometry captured at drag
+ * start, as `closestCenter` is. Overlapping zones resolve to the first.
+ */
+export function pointerWithin(
+  _draggable: DragTarget,
+  droppables: MeasuredTarget[],
+  pointer: { x: number; y: number },
+): DragTarget | null {
+  for (const candidate of droppables) {
+    const { left, right, top, bottom } = candidate.rect;
+    if (pointer.x >= left && pointer.x <= right && pointer.y >= top && pointer.y <= bottom) {
+      return { id: candidate.id, node: candidate.node };
+    }
+  }
+  return null;
+}

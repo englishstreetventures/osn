@@ -1,6 +1,6 @@
 {
   "name": "@shared/crypto",
-  "version": "0.14.4",
+  "version": "0.14.6",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -26,7 +26,7 @@
   "dependencies": {
     "@osn/db": "workspace:*",
     "@shared/observability": "workspace:*",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "1.0.0-rc.4",
     "effect": "4.0.3",
     "jose": "^6.2.12"
   },

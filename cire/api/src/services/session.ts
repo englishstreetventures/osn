@@ -1,7 +1,7 @@
-import { families, sessions, weddings } from "@cire/db";
+import { families, guests, sessions, weddings } from "@cire/db";
 import { generateToken, hashToken } from "@shared/crypto/tokens";
-import { rowsChanged } from "@shared/db-utils";
-import { and, eq, lte, sql } from "drizzle-orm";
+import { jsonEachIn, rowsChanged } from "@shared/db-utils";
+import { and, eq, exists, isNull, lte, notInArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
 
@@ -213,6 +213,63 @@ export const sessionService = {
         ),
       );
     }).pipe(Effect.withSpan("cire.session.setMember"));
+  },
+
+  /**
+   * Record `guestId` as the member the session behind `token` says it is, in
+   * one statement that also checks the choice: the guest is a member of the
+   * session's own guest household, not a plus-one, and not in one of
+   * `excludedWeddings`. Answers whether the session row was written; `false`
+   * leaves the caller to find which check refused it.
+   */
+  chooseMember(
+    token: string,
+    familyId: string,
+    guestId: string,
+    excludedWeddings: readonly string[],
+  ): Effect.Effect<boolean, SessionWriteError, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const tokenHash = yield* hashToken(token);
+      const choosable = db
+        .select({ id: guests.id })
+        .from(guests)
+        .innerJoin(families, eq(families.id, guests.familyId))
+        .where(
+          and(
+            eq(guests.id, guestId),
+            eq(guests.familyId, familyId),
+            isNull(guests.plusOneOfGuestId),
+            eq(families.kind, "guest"),
+            excludedWeddings.length > 0
+              ? notInArray(families.weddingId, jsonEachIn(excludedWeddings))
+              : undefined,
+          ),
+        );
+      const written = yield* Effect.tryPromise({
+        try: () =>
+          Promise.resolve(
+            db
+              .update(sessions)
+              .set({ memberGuestId: guestId })
+              .where(
+                and(
+                  eq(sessions.token, tokenHash),
+                  eq(sessions.familyId, familyId),
+                  exists(choosable),
+                ),
+              )
+              .returning({ id: sessions.id })
+              .all(),
+          ),
+        catch: (e) => new SessionWriteError({ op: "setMember", reason: String(e) }),
+      }).pipe(
+        Effect.tapError((err) =>
+          Effect.logError("session member write failed", { reason: err.reason }),
+        ),
+      );
+      return written.length > 0;
+    }).pipe(Effect.withSpan("cire.session.chooseMember"));
   },
 
   revokeAllForFamily(familyId: string): Effect.Effect<void, SessionWriteError, DbService> {

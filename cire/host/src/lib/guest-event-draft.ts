@@ -61,6 +61,10 @@ export interface DraftEvent {
   startAt: string;
   endAt: string;
   timezone: string;
+  /** The event's About text; `""` when it has none (the column is NOT NULL). */
+  description: string;
+  /** The venue's name, shown above the address; null when it has none. */
+  venueName: string | null;
   address: string | null;
   dressCodeDescription: string | null;
   dressCodePalette: { name: string; color: string }[];
@@ -79,6 +83,8 @@ export type EventPatch = Partial<
     | "startAt"
     | "endAt"
     | "timezone"
+    | "description"
+    | "venueName"
     | "address"
     | "dressCodeDescription"
     | "dressCodePalette"
@@ -140,7 +146,13 @@ interface WireEvent {
   startAt: string;
   endAt: string;
   timezone: string;
-  location: string | null;
+  /** Required by cire-api releases older than the venue name; the current API
+   *  ignores it. Always null. */
+  location: null;
+  /** Left out of a guests save, which governs no event; absent leaves the
+   *  stored value. */
+  description?: string;
+  venueName?: string | null;
   address: string | null;
   dressCodeDescription: string | null;
   dressCodePalette: { name: string; color: string }[];
@@ -185,6 +197,9 @@ function buildDraft(
       startAt: e.startAt,
       endAt: e.endAt,
       timezone: e.timezone,
+      description: e.description,
+      // Absent from an API older than the column: no name.
+      venueName: e.venueName ?? null,
       address: e.address,
       dressCodeDescription: e.dressCodeDescription,
       dressCodePalette: (e.dressCodePalette ?? []).map((s) => ({ name: s.name, color: s.color })),
@@ -247,8 +262,15 @@ function buildDraft(
  * Attendance is emitted as event NAMES (the wire's `eventNames`), resolved from
  * each guest's event keys through the draft's current event list — so ticking a
  * box after renaming an event still links the right event.
+ *
+ * `scope` is the save's: a `"guests"` save governs no event, so its events
+ * leave out the description and venue name, which can run long and which the
+ * server would only store with the change; absent means "leave as stored".
  */
-export function toDesiredState(draft: DraftState): DesiredStateWire {
+export function toDesiredState(
+  draft: DraftState,
+  scope: "events" | "guests" | "both" = "both",
+): DesiredStateWire {
   const eventNameByKey = new Map(draft.events.map((e) => [e.key, e.name]));
 
   const events: WireEvent[] = draft.events.map((e) => {
@@ -257,8 +279,11 @@ export function toDesiredState(draft: DraftState): DesiredStateWire {
       startAt: e.startAt,
       endAt: e.endAt,
       timezone: e.timezone,
-      // The draft doesn't carry the venue-name fallback separately; `address` is
-      // authoritative (the reconcile writes `address ?? location`).
+      // Kept, null, because a cire-api older than the venue name requires it:
+      // such an API still takes the save during a deploy, and the current API
+      // keeps the key in the change it stores, so that change still applies
+      // after a rollback. An older API drops `description` and `venueName`, so
+      // values typed while it serves are not stored.
       location: null,
       address: e.address,
       dressCodeDescription: e.dressCodeDescription,
@@ -267,6 +292,10 @@ export function toDesiredState(draft: DraftState): DesiredStateWire {
       mapsUrl: e.mapsUrl,
       sortOrder: e.sortOrder,
     };
+    if (scope !== "guests") {
+      wire.description = e.description;
+      wire.venueName = e.venueName;
+    }
     if (e.id) wire.id = e.id;
     return wire;
   });
@@ -305,6 +334,8 @@ const EVENT_FIELDS = [
   "startAt",
   "endAt",
   "timezone",
+  "description",
+  "venueName",
   "address",
   "dressCodeDescription",
   "dressCodePalette",
@@ -623,21 +654,33 @@ export function validateDraft(draft: DraftState): FieldError[] {
       errors.push({ key: evt.key, message: "Timezone is too long." });
     }
 
+    if (evt.venueName && tooLong(evt.venueName)) {
+      errors.push({ key: evt.key, message: "Venue name is too long." });
+    }
     if (evt.address && tooLong(evt.address)) {
       errors.push({ key: evt.key, message: "Address is too long." });
+    }
+    if (tooLong(evt.description)) {
+      errors.push({ key: evt.key, message: "Description is too long." });
     }
     if (evt.dressCodeDescription && tooLong(evt.dressCodeDescription)) {
       errors.push({ key: evt.key, message: "Dress code description is too long." });
     }
     if (evt.pinterestUrl && !isHttpUrl(evt.pinterestUrl)) {
       errors.push({ key: evt.key, message: "Pinterest link must be an http(s) URL." });
+    } else if (evt.pinterestUrl && tooLong(evt.pinterestUrl)) {
+      errors.push({ key: evt.key, message: "Pinterest link is too long." });
     }
     if (evt.mapsUrl && !isHttpUrl(evt.mapsUrl)) {
       errors.push({ key: evt.key, message: "Maps link must be an http(s) URL." });
+    } else if (evt.mapsUrl && tooLong(evt.mapsUrl)) {
+      errors.push({ key: evt.key, message: "Maps link is too long." });
     }
     for (const swatch of evt.dressCodePalette) {
       if (isBlankName(swatch.name)) {
         errors.push({ key: evt.key, message: "A palette swatch needs a name." });
+      } else if (tooLong(swatch.name)) {
+        errors.push({ key: evt.key, message: "A palette swatch name is too long." });
       }
       if (!isPaletteColorSafe(swatch.color)) {
         errors.push({ key: evt.key, message: "A palette colour isn't an allowed colour value." });
@@ -769,8 +812,9 @@ export interface GuestEventDraft {
   /** Adopt the current draft as the new baseline (call after a successful save). */
   commit: () => void;
 
-  /** Serialise the current draft to the DesiredState wire payload. */
-  toWire: () => DesiredStateWire;
+  /** Serialise the current draft to the DesiredState wire payload for a save
+   *  of `scope` (see {@link toDesiredState}). */
+  toWire: (scope?: "events" | "guests" | "both") => DesiredStateWire;
 }
 
 /** A deep structural clone via `unwrap` — snapshots the store for undo/baseline
@@ -896,6 +940,8 @@ export function createGuestEventDraft(): GuestEventDraft {
           // "+10:00 in November" Sydney event happens). Still fully editable in
           // the drawer's dropdown.
           timezone: browserTimeZone(),
+          description: "",
+          venueName: null,
           address: null,
           dressCodeDescription: null,
           dressCodePalette: [],
@@ -1083,6 +1129,6 @@ export function createGuestEventDraft(): GuestEventDraft {
     undo,
     discard,
     commit,
-    toWire: () => toDesiredState(draft),
+    toWire: (scope) => toDesiredState(draft, scope),
   };
 }

@@ -284,6 +284,37 @@ describe("the peek", () => {
     expect(fourth?.getAttribute("class")).toContain("hidden md:block");
   });
 
+  it("takes a cash fund's picture too, in the couple's order", async () => {
+    // A couple saving for a honeymoon may have no gift with a picture at all;
+    // their fund's photo is what the band can show. Funds arrive only while
+    // the couple are taking money, so a fund here is one a guest can give to.
+    stubFetch(
+      json(
+        registry({
+          items: [item({ id: "a", imageName: "registry-a", sortOrder: 1 })],
+          funds: [
+            {
+              id: "fund-1",
+              title: "Honeymoon in Kyoto",
+              description: null,
+              imageName: "registry-fund",
+              imageCrop: null,
+              sortOrder: 0,
+            },
+          ],
+        }),
+      ),
+    );
+    const { container } = renderTeaser();
+
+    await waitFor(() => expect(container.querySelector("[data-gift-teaser-preview]")).toBeTruthy());
+    const tiles = [...container.querySelectorAll("[data-gift-teaser-preview] img")];
+    expect(tiles.map((t) => t.getAttribute("src"))).toEqual([
+      expect.stringContaining("registry-fund"),
+      expect.stringContaining("registry-a"),
+    ]);
+  });
+
   it("skips the row entirely when no gift has a picture", async () => {
     stubFetch(json(registry()));
     const { container } = renderTeaser();

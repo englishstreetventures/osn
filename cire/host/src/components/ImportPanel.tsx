@@ -68,7 +68,6 @@ interface ApplyResponse {
     guestsCreated: number;
     guestsUpdated: number;
     guestsRemoved: number;
-    warnings: string[];
   };
 }
 
@@ -686,8 +685,25 @@ function EventsGuidance() {
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">Venue</dt>
             <dd class="text-text-muted">
-              The invite's "Where" and its map link come from <Col>Address</Col>. A{" "}
-              <Col>Location</Col> venue name fills in when <Col>Address</Col> is blank.
+              <Col>Location</Col> is the venue's name, shown above the <Col>Address</Col> on the
+              invite. Without a <Col>Maps URL</Col>, the map searches for the address, or for the
+              name when there is no address.
+            </dd>
+          </div>
+          <div class="flex flex-col gap-0.5">
+            <dt class="text-text">Description</dt>
+            <dd class="text-text-muted">
+              Shown under About in the event's details. Line breaks are kept. A cell can't begin
+              with <span class="text-text font-mono">=</span>,{" "}
+              <span class="text-text font-mono">+</span>, <span class="text-text font-mono">-</span>{" "}
+              or <span class="text-text font-mono">@</span>, so start a list with a word or a •.
+            </dd>
+          </div>
+          <div class="flex flex-col gap-0.5">
+            <dt class="text-text">Leaving a column out</dt>
+            <dd class="text-text-muted">
+              A sheet without a <Col>Location</Col> or <Col>Description</Col> column leaves what
+              each event already has. A blank cell in one clears it.
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">

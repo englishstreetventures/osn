@@ -1,7 +1,9 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
+import { listMigrations, migrationStatements } from "../../../../scripts/migration-files";
 import { DEV_OWNER_SEAT_ID, faqs, hosts } from "../../seed/data";
 import { BOOTSTRAP_WEDDING_ID } from "../../src/schema";
 
@@ -16,10 +18,10 @@ const SEED = new URL("../../seed/dev-seed.sql", import.meta.url);
 function seededDatabase(): Database {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
-  for (const file of readdirSync(MIGRATIONS)
-    .filter((f) => f.endsWith(".sql"))
-    .toSorted()) {
-    db.exec(readFileSync(new URL(file, MIGRATIONS), "utf8"));
+  for (const file of listMigrations(fileURLToPath(MIGRATIONS))) {
+    for (const statement of migrationStatements(readFileSync(new URL(file, MIGRATIONS), "utf8"))) {
+      db.exec(statement);
+    }
   }
   db.exec(readFileSync(SEED, "utf8"));
   return db;

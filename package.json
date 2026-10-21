@@ -93,12 +93,12 @@
     "smol-toml": "^1.7.1",
     "source-map-js": "^1.2.2",
     "undici": "^8.10.2",
-    "vite": "^8.2.2",
+    "vite": "8.3.3",
     "ws": "^8.21.0",
     "yaml": "^2.9.0"
   },
   "patchedDependencies": {
-    "drizzle-orm@0.45.2": "patches/drizzle-orm@0.45.2.patch",
-    "@stryker-mutator/vitest-runner@10.0.0": "patches/@stryker-mutator%2Fvitest-runner@10.0.0.patch"
+    "@stryker-mutator/vitest-runner@10.0.0": "patches/@stryker-mutator%2Fvitest-runner@10.0.0.patch",
+    "drizzle-orm@1.0.0-rc.4": "patches/drizzle-orm@1.0.0-rc.4.patch"
   }
 }

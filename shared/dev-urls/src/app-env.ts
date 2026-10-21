@@ -104,6 +104,7 @@ export const DEV_ENV = {
     PUBLIC_API_URL: urls["@cire/api"],
     PUBLIC_CIRE_API_URL: urls["@cire/api"],
     PUBLIC_CIRE_WEB_URL: urls["@cire/invites"],
+    PUBLIC_MARKETING_URL: urls["@cire/landing"],
     PUBLIC_OSN_ACCOUNT_URL: urls["@musubi/social"],
   }),
   "@cire/vendor": (urls: Urls, _self: DevAppId, _env: DevEnv) => ({

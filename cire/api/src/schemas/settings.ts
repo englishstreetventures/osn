@@ -70,8 +70,8 @@ const BudgetTotalMinor = Schema.Number.check(
  * semantics: omitted fields keep their stored value, an explicit `null` clears
  * a nullable field. `displayName`
  * and `currency` are NOT NULL columns, so they can be replaced but never
- * cleared. Location is deliberately absent — an event's place is its free-text
- * `address` (the sole location source); the wedding holds only the MAIN
+ * cleared. Location is deliberately absent — an event's place is its venue
+ * name and free-text `address`; the wedding holds only the MAIN
  * currency + budget.
  * The SLUG is deliberately absent too (read-only in Settings): renaming frees
  * the old slug for another organiser to claim, and printed invite links can't

@@ -19,6 +19,10 @@ import {
   registrySettings,
   rsvpChanges,
   rsvps,
+  seatingAssignments,
+  seatingTables,
+  taskAssignees,
+  taskTemplateDismissals,
   tasks,
   unlockCodeRedemptions,
   unlockCodes,
@@ -41,15 +45,17 @@ import { asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { Miniflare } from "miniflare";
 
+import { listMigrations, migrationStatements } from "../../../../scripts/migration-files";
 import {
   createSessionRoutedClient,
   D1_SESSION_CONSTRAINT,
   runInD1Session,
   withD1Session,
 } from "../../src/db/d1-session";
-import { commitBatch, createD1Db, DbService } from "../../src/db/index";
+import { commitBatch, createD1Db, DbService, driverErrorText } from "../../src/db/index";
 import type { Db } from "../../src/db/index";
 import { DDL } from "../../src/db/setup";
+import { CHECKLIST_TEMPLATES } from "../../src/lib/checklist-templates";
 import { decodeEnquiryCursor, type EnquiryCursor } from "../../src/lib/enquiry-page";
 import { isDirectoryDuplicate } from "../../src/routes/vendor-directory";
 import type { ImportPlan } from "../../src/schemas/import";
@@ -97,11 +103,18 @@ import { rsvpService } from "../../src/services/rsvp";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import { rsvpDigestService } from "../../src/services/rsvp-digest";
 import {
+  SeatingEventNotFound,
+  SeatingTableFull,
+  seatingLoss,
+  seatingService,
+} from "../../src/services/seating";
+import {
   SHEET_LIST_LIMITS,
   sheetReconcileService,
   type SheetsBucket,
 } from "../../src/services/sheet-reconcile";
 import type { StripeClient } from "../../src/services/stripe";
+import { taskTemplatesService } from "../../src/services/task-templates";
 import { tasksService } from "../../src/services/tasks";
 import { BASE_GUEST_CAP, TIER_PEOPLE_LIMIT, tierService } from "../../src/services/tiers";
 import { unlockCodeService } from "../../src/services/unlock-codes";
@@ -137,6 +150,8 @@ const MIGRATION_0063 = "0063_invite_section_visibility.sql";
 const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
 const MIGRATION_0073 = "0073_wedding_tiers.sql";
 const MIGRATION_0076 = "0076_wedding_owners.sql";
+// A live migration, read from MIGRATIONS_DIR.
+const MIGRATION_0091 = "0091_task_assignees.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -144,17 +159,8 @@ const MIGRATION_0076 = "0076_wedding_owners.sql";
  * of each archived file named above, holds one statement, and D1's `prepare`
  * takes exactly one. Archived files before 0058 do not all keep to that.
  */
-function migrationStatements(file: string, dir: string = ARCHIVE_DIR): string[] {
-  return readFileSync(join(dir, file), "utf8")
-    .split("--> statement-breakpoint")
-    .map((chunk) =>
-      chunk
-        .split("\n")
-        .filter((line) => !line.trimStart().startsWith("--"))
-        .join("\n")
-        .trim(),
-    )
-    .filter(Boolean);
+function fileStatements(file: string, dir: string = ARCHIVE_DIR): readonly string[] {
+  return migrationStatements(readFileSync(join(dir, file), "utf8"));
 }
 
 /**
@@ -338,10 +344,14 @@ beforeEach(async () => {
     rsvpChanges,
     hostRsvpNotices,
     rsvps,
+    seatingAssignments,
+    seatingTables,
     guestEvents,
     guests,
     families,
     events,
+    taskTemplateDismissals,
+    taskAssignees,
     tasks,
     registrySettings,
     weddingFaqs,
@@ -666,7 +676,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
               startAt: "2026-11-22T10:00",
               endAt: "2026-11-22T14:00",
               timezone: "Australia/Sydney",
-              location: "Hall",
+              venueName: "Hall",
               address: null,
               dressCodeDescription: null,
               dressCodePalette: [],
@@ -877,6 +887,211 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "the starter checklist seeds, skips, remembers a removal and follows the wedding date over D1",
+    async () => {
+      // The statements only D1 can judge: the INSERT … SELECT FROM json_each …
+      // ON CONFLICT DO NOTHING (bound-parameter cap, parsing), the
+      // tombstone-and-delete batch, and the settings save batched with the
+      // re-dating UPDATE.
+      const keys = CHECKLIST_TEMPLATES.starter.map((item) => item.key);
+      await run(
+        weddingSettingsService.update(
+          BOOTSTRAP_WEDDING_ID,
+          { weddingDate: "2027-06-05" },
+          "usr_d1",
+        ),
+      );
+      await run(
+        tasksService.create({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title: "Ours first",
+          timeframeBucket: "12m",
+          notes: null,
+          dueAt: null,
+        }),
+      );
+
+      const first = await run(
+        taskTemplatesService.apply({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          templateId: "starter",
+          keys,
+        }),
+      );
+      expect(first.added).toBe(keys.length);
+      const twelve = first.tasks
+        .filter((t) => t.timeframeBucket === "12m")
+        .toSorted((a, b) => a.sortOrder - b.sortOrder)
+        .map((t) => [t.templateItem, t.sortOrder]);
+      expect(twelve).toEqual([
+        [null, 0],
+        ["agree-budget", 1],
+        ["draft-guest-list", 2],
+        ["book-venues", 3],
+      ]);
+      expect(first.tasks.find((t) => t.templateItem === "agree-budget")?.dueAt).toBe("2026-06-05");
+
+      const again = await run(
+        taskTemplatesService.apply({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          templateId: "starter",
+          keys,
+        }),
+      );
+      expect(again.added).toBe(0);
+      expect(again.tasks.length).toBe(keys.length + 1);
+
+      const outfits = first.tasks.find((t) => t.templateItem === "plan-outfits")!;
+      await run(tasksService.remove(BOOTSTRAP_WEDDING_ID, outfits.id));
+      const shown = await run(taskTemplatesService.preview(BOOTSTRAP_WEDDING_ID, "starter"));
+      expect(shown.items.find((i) => i.key === "plan-outfits")?.state).toBe("removed");
+      expect(shown.items.find((i) => i.key === "agree-budget")?.state).toBe("added");
+      const unpicked = await run(
+        taskTemplatesService.apply({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          templateId: "starter",
+          keys: keys.filter((k) => k !== "plan-outfits"),
+        }),
+      );
+      expect(unpicked.added).toBe(0);
+      const picked = await run(
+        taskTemplatesService.apply({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          templateId: "starter",
+          keys: ["plan-outfits"],
+        }),
+      );
+      expect(picked.added).toBe(1);
+
+      await run(
+        weddingSettingsService.update(
+          BOOTSTRAP_WEDDING_ID,
+          { weddingDate: "2027-09-04" },
+          "usr_d1",
+        ),
+      );
+      const moved = await db
+        .select({ item: tasks.templateItem, dueAt: tasks.dueAt })
+        .from(tasks)
+        .where(eq(tasks.templateItem, "agree-budget"));
+      expect(moved).toEqual([{ item: "agree-budget", dueAt: "2026-09-04" }]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "a task's holders are seats of its wedding, and go when the seat or the task does, over D1",
+    async () => {
+      // The statements only D1 can judge: the guarded INSERT … SELECT and the
+      // DELETE, each batched with the reads that name the answer; the composite
+      // foreign keys that refuse a task and a seat of different weddings; and
+      // both cascades, from the seat delete in hostsService.remove's batch and
+      // from the task delete.
+      const now = new Date();
+      await db.insert(weddingHosts).values([
+        {
+          ...ownerSeat(BOOTSTRAP_WEDDING_ID, "usr_helper", now),
+          id: "whost_d1_helper",
+          role: "helper",
+        },
+        {
+          ...ownerSeat(BOOTSTRAP_WEDDING_ID, "usr_viewer", now),
+          id: "whost_d1_viewer",
+          role: "viewer",
+        },
+      ]);
+      await db.insert(weddings).values({
+        id: "wed_d1_other",
+        slug: "other",
+        displayName: "Other",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db
+        .insert(weddingHosts)
+        .values({ ...ownerSeat("wed_d1_other", "usr_other", now), id: "whost_d1_other" });
+      const newTask = (title: string) =>
+        run(
+          tasksService.create({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            title,
+            timeframeBucket: "day_of",
+            notes: null,
+            dueAt: null,
+          }),
+        );
+      const task = await newTask("Carry the rings");
+      const doomed = await newTask("Mind the cake");
+
+      const add = (weddingId: string, taskId: string, hostId: string) =>
+        run(tasksService.addAssignee(weddingId, taskId, hostId));
+      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).assigneeHostIds).toEqual(
+        ["whost_d1_helper"],
+      );
+      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer")).assigneeHostIds).toEqual(
+        ["whost_d1_helper", "whost_d1_viewer"],
+      );
+      // Already there: unchanged, still one row.
+      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).assigneeHostIds).toEqual(
+        ["whost_d1_helper", "whost_d1_viewer"],
+      );
+      await add(BOOTSTRAP_WEDDING_ID, doomed.id, "whost_d1_viewer");
+
+      const refusal = async (eff: Effect.Effect<unknown, unknown, DbService>) => {
+        const exit = await Effect.runPromiseExit(eff.pipe(Effect.provideService(DbService, db)));
+        return Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined;
+      };
+      expect(
+        await refusal(tasksService.addAssignee(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_other")),
+      ).toMatchObject({ _tag: "HostNotInWedding" });
+      expect(
+        await refusal(tasksService.addAssignee("wed_d1_other", task.id, "whost_d1_other")),
+      ).toMatchObject({ _tag: "TaskNotInWedding" });
+      expect(
+        await refusal(tasksService.removeAssignee("wed_d1_other", task.id, "whost_d1_helper")),
+      ).toMatchObject({ _tag: "TaskNotInWedding" });
+
+      // Past the service, the database itself refuses a row that pairs this
+      // wedding's task with another wedding's seat, whichever wedding it names.
+      for (const weddingId of [BOOTSTRAP_WEDDING_ID, "wed_d1_other"]) {
+        const written = await db
+          .insert(taskAssignees)
+          .values({ taskId: task.id, hostId: "whost_d1_other", weddingId, assignedAt: now })
+          .then(
+            () => "written",
+            (error: unknown) => driverErrorText(error),
+          );
+        expect(written, weddingId).toMatch(/FOREIGN KEY constraint failed/);
+      }
+
+      const stored = async (taskId: string) =>
+        (
+          await db
+            .select({ hostId: taskAssignees.hostId })
+            .from(taskAssignees)
+            .where(eq(taskAssignees.taskId, taskId))
+            .orderBy(asc(taskAssignees.assignedAt), asc(sql`rowid`))
+        ).map((r) => r.hostId);
+      expect(await stored(task.id)).toEqual(["whost_d1_helper", "whost_d1_viewer"]);
+
+      await run(
+        hostsService.remove({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_helper" }),
+      );
+      expect(await stored(task.id)).toEqual(["whost_d1_viewer"]);
+
+      const removed = await run(
+        tasksService.removeAssignee(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer"),
+      );
+      expect(removed.assigneeHostIds).toEqual([]);
+      expect(await stored(task.id)).toEqual([]);
+
+      await run(tasksService.remove(BOOTSTRAP_WEDDING_ID, doomed.id));
+      expect(await stored(doomed.id)).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "tasks.reorder commits its per-row updates over the D1 batch path",
     async () => {
       // Regression guard: reorder used to run through db.transaction(), which the
@@ -943,6 +1158,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         id: "rcon_d1",
         weddingId: BOOTSTRAP_WEDDING_ID,
         itemId: "ritem_d1",
+        itemTitle: "Copper Pan",
         familyId: FAMILY_ID,
         status: "succeeded",
         displayName: "Uncle Jo",
@@ -1010,7 +1226,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "guest registry gate: one joined read decides the list, and the image, on D1",
     async () => {
-      // The correlated EXISTS columns and the LEFT JOIN's NULL settings run
+      // The correlated subquery columns and the LEFT JOIN's NULL settings run
       // through the D1 driver's positional row mapping here, not only through
       // bun:sqlite's.
       const now = new Date();
@@ -1028,7 +1244,9 @@ describe("cire/api over real D1 (Miniflare)", () => {
         updatedAt: now,
       });
       expect(await run(registryGuestService.visibleWeddingId("w"))).toBe(BOOTSTRAP_WEDDING_ID);
-      const view = await run(registryGuestService.guestView({ slug: "w", familyId: FAMILY_ID }));
+      const view = await run(
+        registryGuestService.guestView({ slug: "w", familyId: FAMILY_ID, takesPayments: true }),
+      );
       expect(view.headline).toBe("Gifts");
       expect(view.cashGiftsEnabled).toBe(false);
 
@@ -1040,12 +1258,254 @@ describe("cire/api over real D1 (Miniflare)", () => {
         createdAt: now,
         updatedAt: now,
       });
-      expect(await run(registryGuestService.visibleImageKey("w", "registry-d1"))).toBe(
+      expect(await run(registryGuestService.visibleImageKey("w", "registry-d1", false))).toBe(
         `assets/${BOOTSTRAP_WEDDING_ID}/registry-d1`,
       );
       expect(
-        Exit.isFailure(await visible(registryGuestService.visibleImageKey("w", "registry-gone"))),
+        Exit.isFailure(
+          await visible(registryGuestService.visibleImageKey("w", "registry-gone", false)),
+        ),
       ).toBe(true);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "guest registry: a cash fund is offered, given to and never reserved, on D1",
+    async () => {
+      // The gate's fund-title and image-kind subqueries, and the claim's kind
+      // predicate, run through the D1 driver here, not only bun:sqlite.
+      const now = new Date();
+      const tag = async <A, E extends { _tag: string }>(
+        eff: Effect.Effect<A, E, DbService>,
+      ): Promise<string> => (await run(Effect.flip(eff)))._tag;
+      await db.update(weddings).set({ tier: "gold" }).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+      await db.insert(registrySettings).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        published: true,
+        cashGiftsEnabled: true,
+        stripeAccountId: "acct_d1",
+        stripeChargesEnabled: true,
+        stripeDefaultCurrency: "AUD",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(registryItems).values([
+        {
+          id: "ritem_d1_pan",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title: "Copper Pan",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "ritem_d1_fund",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          kind: "cash_fund",
+          title: "Honeymoon",
+          imageKey: `assets/${BOOTSTRAP_WEDDING_ID}/registry-d1-fund`,
+          targetMinor: 500_000,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      const view = await run(
+        registryGuestService.guestView({ slug: "w", familyId: FAMILY_ID, takesPayments: true }),
+      );
+      expect(view.items.map((i) => i.id)).toEqual(["ritem_d1_pan"]);
+      expect(view.funds.map((f) => f.id)).toEqual(["ritem_d1_fund"]);
+      expect(
+        (
+          await run(
+            registryGuestService.guestView({
+              slug: "w",
+              familyId: FAMILY_ID,
+              takesPayments: false,
+            }),
+          )
+        ).funds,
+      ).toEqual([]);
+
+      const context = await run(
+        registryService.contributionContext({
+          slug: "w",
+          familyId: FAMILY_ID,
+          itemId: "ritem_d1_fund",
+        }),
+      );
+      expect(context.itemTitle).toBe("Honeymoon");
+      expect(
+        await tag(
+          registryService.contributionContext({
+            slug: "w",
+            familyId: FAMILY_ID,
+            itemId: "ritem_d1_pan",
+          }),
+        ),
+      ).toBe("FundUnavailable");
+
+      expect(
+        await tag(
+          registryService.claim({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            itemId: "ritem_d1_fund",
+            familyId: FAMILY_ID,
+            quantity: 1,
+            status: "reserved",
+            note: null,
+            displayName: null,
+          }),
+        ),
+      ).toBe("RegistryItemNotInWedding");
+
+      expect(await run(registryGuestService.visibleImageKey("w", "registry-d1-fund", true))).toBe(
+        `assets/${BOOTSTRAP_WEDDING_ID}/registry-d1-fund`,
+      );
+      expect(await tag(registryGuestService.visibleImageKey("w", "registry-d1-fund", false))).toBe(
+        "RegistryNotVisible",
+      );
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "guest registry: the host preview household reads the list and every write refuses it, on D1",
+    async () => {
+      // The household's kind is read inside the gate's statement, the claim's
+      // INSERT … SELECT and the release's UPDATE, so each runs here through the
+      // D1 driver, with a foreign household beside it for the gate's NULL.
+      const now = new Date();
+      const HOST = "fam_d1_host";
+      const failure = async <A, E extends { _tag: string }>(
+        eff: Effect.Effect<A, E, DbService>,
+      ): Promise<string> => (await run(Effect.flip(eff)))._tag;
+      await db.update(weddings).set({ tier: "gold" }).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+      await db.insert(weddings).values({
+        id: "wed_d1_other",
+        slug: "other",
+        displayName: "Other",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(families).values([
+        {
+          id: HOST,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          publicId: "HOST-D1",
+          familyName: "Host",
+          kind: "host",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "fam_d1_foreign",
+          weddingId: "wed_d1_other",
+          publicId: "FOREIGN-D1",
+          familyName: "Foreign",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+      await db.insert(registrySettings).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        published: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(registryItems).values([
+        {
+          id: "ritem_free",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title: "Pan",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "ritem_held",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title: "Bowl",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+      await db.insert(registryClaims).values({
+        id: "rcl_d1_host",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: "ritem_held",
+        familyId: HOST,
+        quantity: 1,
+        status: "reserved",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const claimAs = (familyId: string, itemId = "ritem_free") =>
+        registryService.claim({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          itemId,
+          familyId,
+          quantity: 1,
+          status: itemId === "ritem_free" ? "reserved" : "purchased",
+          note: null,
+          displayName: null,
+        });
+
+      // Reads stay open, and the household read says it is a preview.
+      expect(
+        (
+          await run(
+            registryGuestService.guestView({ slug: "w", familyId: HOST, takesPayments: true }),
+          )
+        ).items,
+      ).toHaveLength(2);
+      expect(await run(registryGuestService.householdView({ slug: "w", familyId: HOST }))).toEqual({
+        claims: [
+          { itemId: "ritem_held", quantity: 1, status: "reserved", note: null, displayName: null },
+        ],
+        preview: true,
+      });
+
+      // Every write refuses it, and writes nothing: a new claim, and a change
+      // to the one it holds (the statement's update arm).
+      expect(await failure(claimAs(HOST))).toBe("RegistryPreviewSession");
+      expect(await failure(claimAs(HOST, "ritem_held"))).toBe("RegistryPreviewSession");
+      expect(
+        await failure(
+          registryService.releaseClaim({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            itemId: "ritem_held",
+            familyId: HOST,
+          }),
+        ),
+      ).toBe("RegistryPreviewSession");
+      // Cash gifts are off, so the order shows too: a guest would hear
+      // `CashGiftsUnavailable`, the preview is refused before that.
+      expect(
+        await failure(registryService.contributionContext({ slug: "w", familyId: HOST })),
+      ).toBe("RegistryPreviewSession");
+      expect(
+        await db
+          .select({ itemId: registryClaims.itemId, status: registryClaims.status })
+          .from(registryClaims)
+          .where(eq(registryClaims.familyId, HOST)),
+      ).toEqual([{ itemId: "ritem_held", status: "reserved" }]);
+
+      // A guest household still writes; a household of another wedding still
+      // fails the gate.
+      await run(claimAs(FAMILY_ID));
+      expect(
+        "preview" in
+          (await run(registryGuestService.householdView({ slug: "w", familyId: FAMILY_ID }))),
+      ).toBe(false);
+      expect(
+        await failure(
+          registryGuestService.guestView({
+            slug: "w",
+            familyId: "fam_d1_foreign",
+            takesPayments: true,
+          }),
+        ),
+      ).toBe("RegistryNotVisible");
     },
     MF_TIMEOUT_MS,
   );
@@ -2888,7 +3348,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "runs migration 0065 on D1's own SQLite: every section on, the FAQ switch kept",
     async () => {
-      const statements = migrationStatements(MIGRATION_0065);
+      const statements = fileStatements(MIGRATION_0065);
       expect(statements).toHaveLength(1);
 
       await db.delete(weddingInviteCustomisations);
@@ -3073,12 +3533,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
       try {
         const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
-        const files = readdirSync(MIGRATIONS_DIR)
-          .filter((f) => f.endsWith(".sql"))
-          .toSorted();
+        const files = listMigrations(MIGRATIONS_DIR);
         expect(files[0]).toBe("0001_initial.sql");
         for (const file of files) {
-          for (const stmt of migrationStatements(file, MIGRATIONS_DIR)) {
+          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
             await chainD1.prepare(stmt).run();
           }
         }
@@ -3168,7 +3626,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           await chainD1.prepare(stmt).run();
         }
 
-        const statements = migrationStatements(MIGRATION_0076);
+        const statements = fileStatements(MIGRATION_0076);
         expect(statements).toHaveLength(3);
         for (const stmt of statements) await chainD1.prepare(stmt).run();
 
@@ -3211,6 +3669,81 @@ describe("cire/api over real D1 (Miniflare)", () => {
           )
           .first<{ w: number; f: number; g: number }>();
         expect(left).toEqual({ w: 2, f: 1, g: 1 });
+      } finally {
+        await chainMf.dispose();
+      }
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "runs migration 0091 on D1's own SQLite: each assignee becomes a holder, the old column kept",
+    async () => {
+      // Its own instance, holding the live chain up to 0090 with tasks that
+      // 0087's single assignee already holds, so the copy runs over rows that
+      // exist before it. The live chain is one statement per chunk throughout.
+      const chainMf = new Miniflare({
+        modules: true,
+        script: "export default { fetch() { return new Response('ok'); } };",
+        d1Databases: { DB: ":memory:" },
+      });
+      try {
+        const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
+        const files = listMigrations(MIGRATIONS_DIR);
+        const cut = files.indexOf(MIGRATION_0091);
+        expect(cut).toBeGreaterThan(0);
+        for (const file of files.slice(0, cut)) {
+          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
+            await chainD1.prepare(stmt).run();
+          }
+        }
+        // `tsk_stray` names the other wedding's seat, which 0087's key allowed.
+        for (const stmt of [
+          "INSERT INTO weddings (id, slug, display_name, created_at, updated_at) VALUES ('wed_h1', 'h1', 'H1', 1, 1), ('wed_h2', 'h2', 'H2', 1, 1)",
+          "INSERT INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, created_at) VALUES ('whost_h1_owner', 'wed_h1', 'usr_h1', 'usr_h1', 'owner', 1), ('whost_h1_ed', 'wed_h1', 'usr_ed', 'usr_h1', 'editor', 1), ('whost_h2_owner', 'wed_h2', 'usr_h2', 'usr_h2', 'owner', 1)",
+          "INSERT INTO tasks (id, wedding_id, title, timeframe_bucket, created_at, assigned_host_id) VALUES ('tsk_ed', 'wed_h1', 'Book the venue', '12m', 1, 'whost_h1_ed'), ('tsk_none', 'wed_h1', 'Send thanks', 'after', 1, NULL), ('tsk_stray', 'wed_h1', 'Order the cake', '3m', 1, 'whost_h2_owner'), ('tsk_h2', 'wed_h2', 'Pick the music', '6m', 1, 'whost_h2_owner')",
+        ]) {
+          await chainD1.prepare(stmt).run();
+        }
+        const tasksBefore = await chainD1.prepare("SELECT * FROM tasks ORDER BY id").all();
+
+        const before = Math.floor(Date.now() / 1000);
+        const statements = fileStatements(MIGRATION_0091, MIGRATIONS_DIR);
+        expect(statements).toHaveLength(6);
+        for (const stmt of statements) await chainD1.prepare(stmt).run();
+
+        const holders = async () =>
+          (
+            await chainD1
+              .prepare(
+                "SELECT task_id, host_id, wedding_id, assigned_at FROM task_assignees ORDER BY task_id",
+              )
+              .all<{ task_id: string; host_id: string; wedding_id: string; assigned_at: number }>()
+          ).results;
+        const copied = await holders();
+        expect(copied.map((r) => [r.task_id, r.host_id, r.wedding_id])).toEqual([
+          ["tsk_ed", "whost_h1_ed", "wed_h1"],
+          ["tsk_h2", "whost_h2_owner", "wed_h2"],
+        ]);
+        for (const row of copied) {
+          expect(row.assigned_at).toBeGreaterThanOrEqual(before);
+          expect(row.assigned_at).toBeLessThan(before + 60);
+        }
+        // The Worker before 0091 still reads the column: every task, and every
+        // value in it, is as it was.
+        expect((await chainD1.prepare("SELECT * FROM tasks ORDER BY id").all()).results).toEqual(
+          tasksBefore.results,
+        );
+
+        // With foreign keys enforced, a removed seat takes its holder row and
+        // clears its old assignee, and the task stays.
+        await chainD1.prepare("DELETE FROM wedding_hosts WHERE id = 'whost_h1_ed'").run();
+        expect((await holders()).map((r) => r.task_id)).toEqual(["tsk_h2"]);
+        expect(
+          await chainD1
+            .prepare("SELECT id, assigned_host_id FROM tasks WHERE id = 'tsk_ed'")
+            .first<{ id: string; assigned_host_id: string | null }>(),
+        ).toEqual({ id: "tsk_ed", assigned_host_id: null });
       } finally {
         await chainMf.dispose();
       }
@@ -3325,6 +3858,79 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(Exit.isFailure(overCap) && Cause.squash(overCap.cause)).toMatchObject({
         _tag: "HostConflict",
         reason: "host_cap_reached",
+      });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "guards a helper's run-sheet scope on D1, and resets it over the role change's batch",
+    async () => {
+      // The scope write is one guarded UPDATE whose RETURNING is the answer,
+      // with a read of the seat after it only when it matched nothing, to name
+      // the refusal. The role change rides one batch with the seat read that
+      // names a refusal; bun:sqlite runs that batch one statement at a time.
+      // These are the results D1 hands back.
+      const storedScope = async (osnProfileId: string) =>
+        (
+          await db
+            .select({ scope: weddingHosts.runSheetScope })
+            .from(weddingHosts)
+            .where(eq(weddingHosts.osnProfileId, osnProfileId))
+        )[0]?.scope;
+      const scopeExit = (osnProfileId: string) =>
+        Effect.runPromiseExit(
+          hostsService
+            .setRunSheetScope({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId, scope: "full" })
+            .pipe(Effect.provideService(DbService, db)),
+        );
+      const setRole = (role: "helper" | "viewer") =>
+        run(
+          hostsService.setRole({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_helper",
+            role,
+            actorOsnProfileId: "usr_test",
+          }),
+        );
+
+      await run(
+        hostsService.add({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_helper",
+          addedByOsnProfileId: "usr_test",
+          role: "helper",
+        }),
+      );
+      expect(await storedScope("usr_helper")).toBe("own");
+
+      const widened = await run(
+        hostsService.setRunSheetScope({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_helper",
+          scope: "full",
+        }),
+      );
+      expect(widened).toMatchObject({ role: "helper", runSheetScope: "full" });
+      expect(await storedScope("usr_helper")).toBe("full");
+
+      // helper → helper keeps it; any move away resets it, so coming back is own.
+      expect((await setRole("helper")).runSheetScope).toBe("full");
+      expect(await storedScope("usr_helper")).toBe("full");
+      await setRole("viewer");
+      expect(await storedScope("usr_helper")).toBe("own");
+      expect((await setRole("helper")).runSheetScope).toBe("own");
+
+      // The owner's seat exists and is no helper: refused, unchanged. A
+      // profile with no seat here is not found.
+      const owner = await scopeExit("usr_test");
+      expect(Exit.isFailure(owner) && Cause.squash(owner.cause)).toMatchObject({
+        _tag: "NotAHelper",
+      });
+      expect(await storedScope("usr_test")).toBe("own");
+      const ghost = await scopeExit("usr_ghost");
+      expect(Exit.isFailure(ghost) && Cause.squash(ghost.cause)).toMatchObject({
+        _tag: "HostNotFound",
       });
     },
     MF_TIMEOUT_MS,
@@ -3583,7 +4189,14 @@ describe("cire/api over real D1 (Miniflare)", () => {
       // The cascade ran on D1's enforced foreign keys: no table keeps a row
       // naming the purged wedding, and the live one is whole.
       for (const table of WEDDING_CHILD_TABLES) {
-        const direct = ["guests", "guest_events", "rsvps", "sessions", "payments"].includes(table);
+        const direct = [
+          "guests",
+          "guest_events",
+          "rsvps",
+          "sessions",
+          "payments",
+          "seating_assignments",
+        ].includes(table);
         if (direct) continue;
         const [row] = await db.all<{ n: number }>(
           sql.raw(`SELECT count(*) AS n FROM ${table} WHERE wedding_id = '${gone}'`),
@@ -3598,6 +4211,18 @@ describe("cire/api over real D1 (Miniflare)", () => {
         sql.raw(`SELECT count(*) AS n FROM guests WHERE family_id = 'fam_${gone}'`),
       );
       expect(orphans!.n).toBe(0);
+      // A seat names no wedding: it hangs off a table and an invitation, and
+      // goes with whichever cascade reaches it first.
+      const seatCount = async (weddingId: string) =>
+        (
+          await db.all<{ n: number }>(
+            sql.raw(
+              `SELECT count(*) AS n FROM seating_assignments WHERE guest_id = 'gst_${weddingId}'`,
+            ),
+          )
+        )[0]!.n;
+      expect(await seatCount(gone)).toBe(0);
+      expect(await seatCount(live)).toBe(1);
       const [sales] = await db.all<{ n: number }>(
         sql.raw(
           `SELECT count(*) AS n FROM platform_sales WHERE purchase_id IN ('upg_${gone}', 'upg_${live}')`,
@@ -3616,9 +4241,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       // and the narrowed index, so only the migration's UPDATEs are replayed:
       // what is proven is that D1 accepts them (`unixepoch()` included) and
       // that they lift each wedding to the tier its legacy rows paid for.
-      const updates = migrationStatements(MIGRATION_0073).filter((stmt) =>
-        stmt.startsWith("UPDATE"),
-      );
+      const updates = fileStatements(MIGRATION_0073).filter((stmt) => stmt.startsWith("UPDATE"));
       expect(updates).toHaveLength(3);
 
       const stamp = new Date(1_790_000_000_000);
@@ -4193,4 +4816,163 @@ describe("cire/api over real D1 (Miniflare)", () => {
       MF_TIMEOUT_MS,
     );
   });
+});
+
+describe("seating over real D1 (Miniflare)", () => {
+  const table = async (id: string, eventId: string, capacity: number) => {
+    const now = new Date();
+    await db.insert(seatingTables).values({
+      id,
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      eventId,
+      name: id,
+      capacity,
+      createdAt: now,
+      updatedAt: now,
+    });
+  };
+  const seatsAt = async (eventId: string) =>
+    (
+      await db
+        .select({ tableId: seatingAssignments.tableId, guestId: seatingAssignments.guestId })
+        .from(seatingAssignments)
+        .where(eq(seatingAssignments.eventId, eventId))
+    ).toSorted((a, b) => a.guestId.localeCompare(b.guestId));
+  const seat = (eventId: string, guestId: string, tableId: string | null) =>
+    seatingService.seat({ weddingId: BOOTSTRAP_WEDDING_ID, eventId, guestId, tableId });
+
+  it(
+    "refuses, in the database, a second seat for one guest at one event, a seat at another event's table, and an uninvited guest",
+    async () => {
+      await table("stb_a1", EVENT_A, 8);
+      await table("stb_a2", EVENT_A, 8);
+      await table("stb_b1", EVENT_B, 8);
+      const now = new Date();
+      await db
+        .insert(seatingAssignments)
+        .values({ tableId: "stb_a1", eventId: EVENT_A, guestId: GUEST_1, createdAt: now });
+      const refusal = async (values: typeof seatingAssignments.$inferInsert) => {
+        try {
+          await db.insert(seatingAssignments).values(values);
+          return "accepted";
+        } catch (error) {
+          return String((error as { cause?: unknown }).cause ?? error);
+        }
+      };
+      expect(
+        await refusal({ tableId: "stb_a2", eventId: EVENT_A, guestId: GUEST_1, createdAt: now }),
+      ).toContain(
+        "UNIQUE constraint failed: seating_assignments.event_id, seating_assignments.guest_id",
+      );
+      expect(
+        await refusal({ tableId: "stb_b1", eventId: EVENT_A, guestId: GUEST_2, createdAt: now }),
+      ).toContain("FOREIGN KEY constraint failed");
+      // GUEST_2 is not invited to EVENT_B.
+      expect(
+        await refusal({ tableId: "stb_b1", eventId: EVENT_B, guestId: GUEST_2, createdAt: now }),
+      ).toContain("FOREIGN KEY constraint failed");
+      expect(await seatsAt(EVENT_A)).toEqual([{ tableId: "stb_a1", guestId: GUEST_1 }]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "seats and moves through one batch, and a refused move keeps the old seat",
+    async () => {
+      await table("stb_small", EVENT_A, 1);
+      await table("stb_big", EVENT_A, 8);
+      // A success is read back from the batch's last element — the rows array.
+      expect(await run(seat(EVENT_A, GUEST_1, "stb_small"))).toEqual({
+        guestId: GUEST_1,
+        tableId: "stb_small",
+      });
+      expect(await run(seat(EVENT_A, GUEST_2, "stb_big"))).toEqual({
+        guestId: GUEST_2,
+        tableId: "stb_big",
+      });
+      const refused = await Effect.runPromiseExit(
+        seat(EVENT_A, GUEST_2, "stb_small").pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(refused) && Cause.squash(refused.cause)).toBeInstanceOf(
+        SeatingTableFull,
+      );
+      expect(await seatsAt(EVENT_A)).toEqual([
+        { tableId: "stb_small", guestId: GUEST_1 },
+        { tableId: "stb_big", guestId: GUEST_2 },
+      ]);
+      // A move to a table with room lands, and leaves one seat.
+      await run(seat(EVENT_A, GUEST_1, "stb_big"));
+      expect(await seatsAt(EVENT_A)).toEqual([
+        { tableId: "stb_big", guestId: GUEST_1 },
+        { tableId: "stb_big", guestId: GUEST_2 },
+      ]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "seats only one of two guests racing for a table's last place",
+    async () => {
+      await table("stb_one", EVENT_A, 1);
+      const results = await Promise.all(
+        [GUEST_1, GUEST_2].map((guestId) =>
+          Effect.runPromiseExit(
+            seat(EVENT_A, guestId, "stb_one").pipe(Effect.provideService(DbService, db)),
+          ),
+        ),
+      );
+      expect(results.filter(Exit.isSuccess)).toHaveLength(1);
+      expect(await seatsAt(EVENT_A)).toHaveLength(1);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "reads the chart's three batched reads apart, and unseats, on D1",
+    async () => {
+      await table("stb_a1", EVENT_A, 8);
+      await run(seat(EVENT_A, GUEST_1, "stb_a1"));
+      await db.insert(rsvps).values({
+        id: "rsvp_d1",
+        guestId: GUEST_2,
+        eventId: EVENT_A,
+        status: "declined",
+        createdAt: new Date(),
+      });
+      const chart = await run(seatingService.chart(BOOTSTRAP_WEDDING_ID, EVENT_A));
+      expect(chart.event).toEqual({ id: EVENT_A, name: "Ceremony" });
+      expect(chart.tables.map((t) => [t.id, t.capacity])).toEqual([["stb_a1", 8]]);
+      expect(chart.guests.map((g) => [g.id, g.firstName, g.rsvp, g.tableId])).toEqual([
+        [GUEST_1, "Alice", null, "stb_a1"],
+        [GUEST_2, "Bob", "declined", null],
+      ]);
+
+      expect(await run(seat(EVENT_A, GUEST_1, null))).toEqual({ guestId: GUEST_1, tableId: null });
+      expect(await seatsAt(EVENT_A)).toEqual([]);
+      const unknown = await Effect.runPromiseExit(
+        seat("evt_nope", GUEST_1, null).pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(unknown) && Cause.squash(unknown.cause)).toBeInstanceOf(
+        SeatingEventNotFound,
+      );
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "counts the seats a change removes with more than a hundred pairs in one statement",
+    async () => {
+      await table("stb_a1", EVENT_A, 8);
+      await run(seat(EVENT_A, GUEST_1, "stb_a1"));
+      // D1 allows 100 bound parameters; 150 pairs ride as one.
+      const links = [
+        { guestId: GUEST_1, eventId: EVENT_A },
+        ...Array.from({ length: 149 }, (_, i) => ({ guestId: `g_none_${i}`, eventId: EVENT_B })),
+      ];
+      expect(
+        await run(seatingLoss(BOOTSTRAP_WEDDING_ID, { guestIds: [], eventIds: [], links })),
+      ).toEqual({ seats: 1, tables: 0 });
+    },
+    MF_TIMEOUT_MS,
+  );
 });

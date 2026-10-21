@@ -1,6 +1,6 @@
 import { organisations, organisationMembers, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { commitBatch } from "@shared/db-utils";
+import { commitBatch, driverErrorText } from "@shared/db-utils";
 import { and, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
@@ -133,7 +133,7 @@ export function createOrganisationService() {
             }),
           ]),
         catch: (cause) => {
-          const msg = cause instanceof Error ? cause.message : String(cause);
+          const msg = driverErrorText(cause);
           if (msg.includes("UNIQUE constraint failed")) {
             return new OrgError({ message: "Handle unavailable" });
           }

@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The merge queue tests each group of pull requests on the commit it would
+  # land as. Migrations from two pull requests meet for the first time there,
+  # so the migration order check below has to run on it.
+  merge_group:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -92,9 +96,14 @@ jobs:
       # rather than in the script-tests job, which does no `bun install` on
       # purpose. Those installs can reach the registry, so on a pull request
       # it runs only when something it exercises changed; it runs on every
-      # push to main.
+      # push to main. A merge-queue group skips it: each pull request in the
+      # group already ran it when it touched what the test exercises.
       - name: Test the lint-warning ceiling guard
         run: |
+          if [ "$GITHUB_EVENT_NAME" = "merge_group" ]; then
+            echo "Merge-queue group: each pull request ran this when it needed to; skipped."
+            exit 0
+          fi
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && git diff --quiet HEAD^1 HEAD -- \
             scripts/guard-lint-warnings.sh scripts/lint-warning-count.ts \
             scripts/tests/guard-lint-warnings.test.sh package.json bun.lock .bun-version; then
@@ -106,8 +115,7 @@ jobs:
       - name: Format check
         run: bun run fmt:check
 
-      # Tracker #619 — the general half of the tracker #287 finding. Astro
-      # routes every file under `src/pages`, so an un-prefixed `*.test.ts`
+      # Astro routes every file under `src/pages`, so an un-prefixed `*.test.ts`
       # there is built and deployed as a live route (which is exactly how
       # cire/invites' Worker picked up 119 KB gzip of vitest). Needs no build
       # and no per-app baseline, so it belongs in the fast job rather than
@@ -242,36 +250,37 @@ jobs:
       - name: Test
         run: bun run test
 
-      # Tracker #287: the cire/invites SSR Worker bundle reached 470 KB gzip
-      # unnoticed — a whole animation library in the server module graph with
-      # nothing there calling it, and three drift-guard tests routed as pages.
-      # `bun run build` above already produced every app's `dist/`, so
-      # measuring it here costs a few seconds and puts the budget check on the
-      # merge gate. The deploy workflow runs the same script, but only after a
-      # merge to main — which is one merge too late to stop the regression.
+      # A bundle can grow by a whole library with nobody noticing: the
+      # cire/invites SSR Worker bundle once reached 470 KB gzip, with an
+      # animation library in the server module graph that nothing there
+      # called. `bun run build` above already produced every app's `dist/`, so
+      # checking it here costs a few seconds and shows the result on the pull
+      # request, before it merges.
       #
-      # The three tests that were routed have since moved to `tests/pages/`,
-      # out of `src/pages` entirely, so Astro cannot route them at all — but
-      # the guard stays: it is what catches the NEXT library that wanders into
-      # the server graph, which is the half of #287 a file move does nothing
-      # about.
+      # Two different outcomes. An app over its budget gets a ::warning::
+      # annotation on this run and the job stays green: the budget watches
+      # growth and is not a hard cap, so a warning is read and acted on (find
+      # what is newly reachable, or re-baseline) rather than blocking the
+      # merge. Everything else the script refuses fails the job, and with it
+      # the `ci` gate: a source map anywhere an app is served publicly, a
+      # missing or empty `dist/`, a symlink in what it measures, a missing or
+      # malformed budgets file.
       #
-      # Tracker #619 generalised the script per-app: cire/invites is the only
-      # `output: "server"` app (a Worker, `dist/server`); the other five are
-      # `output: "static"` (Cloudflare Pages, `dist/_astro/*.js` +
-      # `dist/_astro/*.css` only — see scripts/guard-bundle-size.sh's own
-      # comment for why static measures an allowlist rather than a directory).
-      # Every app's mode and threshold is a row in
-      # scripts/bundle-size-budgets.txt, not an argument here — that file is
-      # the single source of truth, and `--all` walks every row in it. See
-      # that file's own comment for the re-baselining steps, and
+      # cire/invites is the only `output: "server"` app (a Worker,
+      # `dist/server`); the other five are `output: "static"` (Cloudflare
+      # Pages, `dist/_astro/*.js` + `dist/_astro/*.css` only — see
+      # scripts/guard-bundle-size.sh's own comment for why static measures an
+      # allowlist rather than a directory). Every app's mode and threshold is
+      # a row in scripts/bundle-size-budgets.txt, not an argument here — that
+      # file is the single source of truth, and `--all` walks every row in it.
+      # See that file's own comment for the re-baselining steps, and
       # wiki/conventions/bundle-size-guards.md for every app's reading.
       #
       # This reads the `dist/` each build step already made and takes well
-      # under a second per app, so it sits after Test deliberately: a size
-      # trip fails the job either way, and running it last means the author
-      # still gets the test result in the same round trip.
-      - name: Guard Astro app bundle sizes
+      # under a second per app, so it sits after Test deliberately: a refusal
+      # fails the job either way, and running it last means the author still
+      # gets the test result in the same round trip.
+      - name: Check Astro app bundle sizes and refuse public source maps
         run: ./scripts/guard-bundle-size.sh --all
 
       # Each API's d1-integration.test.ts lives under `tests/d1/` (cire's under
@@ -367,7 +376,11 @@ jobs:
     # a shasum, and `bun test ./scripts/` with no install.
     timeout-minutes: 5
     steps:
+      # Two commits deep so a pull request's merge commit has its base,
+      # `HEAD^1`, for the migration order check below.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       # No bun needed, so it runs right after checkout. The `lint` job runs
       # this same script too, and that copy is the one that matters for
@@ -417,6 +430,27 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
+
+      # A migration is named by when it was generated, so one generated before
+      # another can merge after it: the dev tier then applies it after main's
+      # files, while a database built from zero, or a daily release catching
+      # up, applies everything in name order. Both orders must apply and leave
+      # one schema. On a pull request the files it adds are those on its merge
+      # commit's second side (`HEAD^1` is the base it merges into); in the merge
+      # queue they are everything since the queue's base. No install: the
+      # script imports bun:sqlite and sibling scripts only.
+      - name: Check new migrations apply in either order
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        env:
+          QUEUE_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          if [ -n "$QUEUE_BASE" ]; then
+            git fetch --no-tags --depth=1 origin "$QUEUE_BASE"
+            base="$QUEUE_BASE"
+          else
+            base="$(git rev-parse HEAD^1)"
+          fi
+          bun run scripts/check-migration-orders.ts --base "$base"
 
       # `scripts/` is not a workspace, so `turbo test` never reaches it and the
       # tests under it ran nowhere: `test:migration` was declared in the root
@@ -539,13 +573,16 @@ jobs:
         run: git diff --exit-code shared/openapi/
 
   # The end-to-end suite (`tools/e2e`): boots osn-api, pulse-api, cire-api and
-  # three frontends on their PORTLESS=0 ports, drives Chromium through each
+  # five frontends on their PORTLESS=0 ports, drives Chromium through each
   # product's flows, and runs the whole thing twice so a results.json that
   # differs between runs fails here rather than in someone's review. Not in the
   # `ci` aggregator's `needs` yet, so it reports without gating merges while it
   # earns trust; promote it once it has a record of staying green.
   e2e:
     name: E2E
+    # Not one of `ci`'s needs, so nothing reads its result on a merge-queue
+    # group, and the push to main that follows runs it on the same commit.
+    if: github.event_name != 'merge_group'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -608,10 +645,56 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  # The migration workflow end to end: `db:generate` on parallel branches of
+  # copies of cire's and osn's real schemas (cire/db's migration-flow), and
+  # timestamped migrations applied by the real wrangler to a local D1 that
+  # already holds the chain and to one built from zero (cire/api's
+  # migrate-wrapper). Several minutes of drizzle-kit and wrangler runs that
+  # test no package's own code, so they are a job of their own rather than
+  # part of every package's tests and every deploy. Both write the ledgers,
+  # schemas and verdicts they end with to e2e-artifacts/migrations/.
+  migration-flow:
+    name: Migration workflow
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: db:generate across parallel branches
+        timeout-minutes: 12
+        run: bun run --cwd cire/db test:migration-flow
+
+      - name: Timestamped migrations on a local D1
+        timeout-minutes: 6
+        run: bun run --cwd cire/api test:migration-flow
+
+      - name: Upload migration artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-artifacts
+          path: e2e-artifacts/migrations/
+          if-no-files-found: ignore
+
   ci:
     name: CI
     if: always()
-    needs: [lint, typecheck, build-test, script-tests, openapi-freshness]
+    needs: [lint, typecheck, build-test, script-tests, openapi-freshness, migration-flow]
     runs-on: ubuntu-latest
     steps:
       - name: Check results

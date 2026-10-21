@@ -20,7 +20,6 @@
 import { Database } from "bun:sqlite";
 
 import { sessions, securityEvents } from "@osn/db/schema";
-import * as schema from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { applySchema } from "@osn/db/testing";
 import { base32Decode, deriveTotpCode } from "@shared/crypto/totp";
@@ -85,7 +84,7 @@ type Recorder = () => readonly RecordedEmail[];
 function makeApp(emailLayer?: Layer.Layer<EmailService>, overrides: Partial<AuthConfig> = {}) {
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
-  const db = drizzle(sqlite, { schema });
+  const db = drizzle({ client: sqlite });
   const recorder = makeLogEmailLive();
   const layer = Layer.merge(Layer.succeed(Db, { db }), emailLayer ?? recorder.layer);
   const merged = { ...config, ...overrides };
@@ -825,8 +824,8 @@ function makeCountingApp() {
   const hops = zeroHops();
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
-  const db = drizzle(sqlite, {
-    schema,
+  const db = drizzle({
+    client: sqlite,
     logger: {
       logQuery: (query: string) => {
         if (query.includes("totp_credentials")) hops.totpCredentials += 1;

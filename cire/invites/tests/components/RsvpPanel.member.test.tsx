@@ -68,27 +68,35 @@ describe("RsvpPanel and the member step", () => {
     expect(fetchSpy()).not.toHaveBeenCalled();
   });
 
-  it("hands the page the member step on a 409 member_required", async () => {
-    const fetchMock = vi.fn(() =>
-      Promise.resolve(Response.json({ error: "member_required" }, { status: 409 })),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const onMemberRequired = vi.fn();
-    render(() => (
-      <RsvpPanel
-        event={event}
-        members={[priya, raj]}
-        apiUrl="http://x"
-        onClose={() => {}}
-        onMemberRequired={onMemberRequired}
-      />
-    ));
-    const priyaSet = screen.getByText(/Priya Sharma/).closest("fieldset") as HTMLElement;
-    fireEvent.click(within(priyaSet).getByRole("button", { name: "Attending" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onMemberRequired).toHaveBeenCalled());
-    expect(screen.getByRole("alert").textContent).toContain("Choose who you are");
-  });
+  it.each(["member_required", "member_changed"])(
+    "sends the member it shows, and hands the page the member step on a 409 %s",
+    async (code) => {
+      const fetchMock = vi.fn((_url: string, _init: RequestInit) =>
+        Promise.resolve(Response.json({ error: code }, { status: 409 })),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const onMemberRequired = vi.fn();
+      render(() => (
+        <RsvpPanel
+          event={event}
+          members={[priya, raj]}
+          apiUrl="http://x"
+          onClose={() => {}}
+          answeringAs="guest-raj"
+          onMemberRequired={onMemberRequired}
+        />
+      ));
+      const priyaSet = screen.getByText(/Priya Sharma/).closest("fieldset") as HTMLElement;
+      fireEvent.click(within(priyaSet).getByRole("button", { name: "Attending" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(onMemberRequired).toHaveBeenCalled());
+      expect(screen.getByRole("alert").textContent).toContain("Choose who you are");
+      const sent = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+        memberGuestId?: unknown;
+      };
+      expect(sent.memberGuestId).toBe("guest-raj");
+    },
+  );
 
   it("shows who answered under each stored reply", () => {
     vi.stubGlobal("fetch", vi.fn());

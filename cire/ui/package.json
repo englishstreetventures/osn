@@ -11,8 +11,11 @@
   "exports": {
     "./button": "./src/button.tsx",
     "./card": "./src/card.tsx",
+    "./consent-categories": "./src/consent-categories.ts",
+    "./consent-vendors": "./src/consent-vendors.ts",
     "./dietary-presets": "./src/dietary-presets.tsx",
     "./dietary-presets-popover": "./src/dietary-presets-popover.tsx",
+    "./guest-privacy-notice.astro": "./src/guest-privacy-notice.astro",
     "./loading": "./src/loading.tsx",
     "./reveal": "./src/reveal.tsx",
     "./username-input": "./src/username-input.tsx"
@@ -26,6 +29,7 @@
   "dependencies": {
     "@cire/dietary": "workspace:*",
     "@shared/design-tokens": "workspace:*",
+    "@shared/legal": "workspace:*",
     "@shared/ui": "workspace:*"
   },
   "devDependencies": {
@@ -35,7 +39,7 @@
     "happy-dom": "^20.12.2",
     "solid-js": "^1.9.15",
     "typescript": "^6.0.3",
-    "vite": "^8.2.2",
+    "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "5.0.3"
   },

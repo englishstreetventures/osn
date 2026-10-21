@@ -49,7 +49,7 @@ function seedWedding(db: TestDb, id: string, deletedAt: Date | null) {
 const countFor = (db: TestDb, table: string, weddingId: string): number => {
   // Every child table either carries `wedding_id` or hangs off one that does.
   const viaFamily = ["guests", "sessions"];
-  const viaGuest = ["guest_events", "rsvps"];
+  const viaGuest = ["guest_events", "rsvps", "seating_assignments"];
   let query: string;
   if (viaFamily.includes(table)) {
     query = `SELECT count(*) AS n FROM ${table} WHERE family_id IN (SELECT id FROM families WHERE wedding_id = '${weddingId}')`;

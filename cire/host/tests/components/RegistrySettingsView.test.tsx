@@ -120,6 +120,15 @@ beforeEach(() => {
 });
 
 describe("publishing", () => {
+  it("opens on a first visit, before anything is cached", async () => {
+    // The settings tab can be the first registry view a session opens: its
+    // publish gate runs before the registry read has answered.
+    authFetch.mockResolvedValueOnce(json(snapshot({ items: [item()] })));
+    renderPanel();
+    const publish = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
+    expect(publish.disabled).toBe(false);
+  });
+
   it("is blocked while the list is empty, and says why", async () => {
     setCachedRegistry("wed_1", snapshot());
     renderPanel();
@@ -136,6 +145,10 @@ describe("publishing", () => {
     expect(document.getElementById("registry-publish-blocked")?.textContent).toMatch(
       /Add a gift before publishing/i,
     );
+    // No fund, so nothing to say about funds.
+    expect(document.getElementById("registry-publish-blocked")?.textContent).not.toMatch(
+      /cash funds/i,
+    );
   });
 
   it("is allowed once there is a gift", async () => {
@@ -147,6 +160,48 @@ describe("publishing", () => {
     expect(screen.queryByText(/Add a gift before publishing/i)).toBeNull();
     // The description goes with the notice — a dangling id describes nothing.
     expect(publish.closest("fieldset")?.getAttribute("aria-describedby")).toBeNull();
+  });
+
+  it("counts a cash fund only while guests can give to it", async () => {
+    // Guests see a fund only while money gifts are on. A list of funds alone,
+    // with money off, would publish a page with nothing on it.
+    const funds = [item({ kind: "cash_fund", title: "Honeymoon", targetMinor: 500_000 })];
+    setCachedRegistry("wed_1", snapshot({ items: funds }));
+    const { unmount } = renderPanel();
+    const blocked = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
+    expect(blocked.disabled).toBe(true);
+    expect(document.getElementById("registry-publish-blocked")?.textContent).toMatch(
+      /cash funds count once money gifts are on/i,
+    );
+    unmount();
+
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: funds,
+        settings: {
+          cashGiftsEnabled: true,
+          stripeConnected: true,
+          stripeChargesEnabled: true,
+        } as never,
+      }),
+    );
+    const { unmount: unmountOpen } = renderPanel();
+    const open = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
+    expect(open.disabled).toBe(false);
+    unmountOpen();
+
+    // Half on is off: the switch off with Stripe charging, or the reverse.
+    for (const half of [
+      { cashGiftsEnabled: false, stripeConnected: true, stripeChargesEnabled: true },
+      { cashGiftsEnabled: true, stripeConnected: true, stripeChargesEnabled: false },
+    ]) {
+      setCachedRegistry("wed_1", snapshot({ items: funds, settings: half as never }));
+      const { unmount: unmountHalf } = renderPanel();
+      const halfOn = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
+      expect(halfOn.disabled).toBe(true);
+      unmountHalf();
+    }
   });
 
   it("never traps a couple whose published list lost its last gift", async () => {

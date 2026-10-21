@@ -1,3 +1,4 @@
+import { Toaster } from "@shared/toast";
 import {
   createMemo,
   createSignal,
@@ -25,11 +26,13 @@ import {
   type GiftRegistry,
   type GiftRegistryClaimBody,
   type GiftRegistryFetch,
+  type GiftRegistryFund,
   type GiftRegistryHouseholdClaim,
   type GiftRegistryHouseholdFetch,
   type GiftRegistryItem,
   type GiftRegistryWrite,
 } from "../../lib/gift-registry";
+import { Z_CLASS } from "../../lib/z-index";
 import { CLAIM_SESSION_EVENT, hasClaimedHint } from "../claim-session";
 import { GiftRegistryItemCard } from "./GiftRegistryItemCard";
 
@@ -70,10 +73,9 @@ const GiftMoneyPanel = lazy(() =>
  * which they typed, echoed back to them.
  *
  * A CLAIM IS NOT A PURCHASE. It reserves, so the same pan is not offered to a
- * second household. Money — contributions to a cash fund — is a separate later
- * change; `kind: "cash_fund"` is a declared seam and renders exactly like any
- * other item here, on purpose. Inventing a contribute flow for a backend that
- * has none would be UI standing in for something that does not exist.
+ * second household. Money is the money panel's: a gift in general, or to one
+ * of the couple's cash funds, which arrive apart from the gifts (`funds`) and
+ * are offered there, never on the shelves — a fund is given to, not reserved.
  *
  * THE RACE IS THE ORDINARY CASE. A shared invite link means two guests tapping
  * the last item at the same moment, and the API answers the loser 409
@@ -123,6 +125,8 @@ export function giftRegistryWriteMessage(
         : `That was a lot of changes at once. Try again in ${outcome.retryAfterSeconds} seconds.`;
     case "invalid":
       return "That number is not available any more. Pick a smaller one and try again.";
+    case "preview":
+      return "Preview mode. Nothing can be reserved from a preview.";
     case "error":
       return "Could not reach the gift list. Check your connection and try again.";
   }
@@ -227,6 +231,8 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
   // Sorted client-side by `sortOrder` then `id`, so a refetched list keeps the
   // same order whatever order the rows arrive in.
   const items = createMemo(() => sortGiftRegistryItems(registry()?.items ?? []));
+  /** The couple's cash funds, in their order. Absent from an older API: none. */
+  const funds = createMemo(() => sortGiftRegistryItems(registry()?.funds ?? []));
 
   /**
    * The list is rendered over IDS, not over the item objects.
@@ -256,6 +262,13 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
 
   const signedIn = createMemo(() => household() !== null);
 
+  /**
+   * The organiser's "Preview invite" session. It reads the list as guests do
+   * and may not write to it, so the page shows the controls disabled rather
+   * than offering ones the API refuses.
+   */
+  const preview = createMemo(() => household()?.preview === true);
+
   /** This household's own claims, by item. Empty when signed out. */
   const claims = createMemo(() => {
     const map = new Map<string, GiftRegistryHouseholdClaim>();
@@ -280,8 +293,8 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
    */
   const shippingAddress = createMemo(() => household()?.shippingAddress?.trim() || null);
 
-  /** The item's image route, or `null` when the couple uploaded no picture. */
-  function imageBase(item: GiftRegistryItem): string | null {
+  /** The gift's or fund's image route, or `null` when the couple gave no picture. */
+  function imageBase(item: GiftRegistryItem | GiftRegistryFund): string | null {
     const name = item.imageName;
     return name === null ? null : giftRegistryImageBase(props.apiUrl, props.slug, name);
   }
@@ -456,6 +469,18 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
               </p>
             </Show>
 
+            {/* The organiser's preview. Same opening words as the invite's own
+                preview note, so the two read as one mode. */}
+            <Show when={preview()}>
+              <p
+                data-gift-preview
+                class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
+              >
+                Preview mode. Guests reserve gifts and give money here; nothing can be reserved or
+                given from a preview.
+              </p>
+            </Show>
+
             <Show when={shippingAddress()}>
               {(address) => (
                 <div
@@ -500,6 +525,12 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                   slug={props.slug}
                   currency={registry()?.currency ?? ""}
                   inviteHref={props.inviteHref}
+                  preview={preview()}
+                  funds={funds()}
+                  fundImageBase={imageBase}
+                  // The Refresh on a closed fund's toast: the fresh list drops
+                  // the fund, and the panel's choice goes back to the couple.
+                  refreshList={() => void loadList()}
                 />
               </Suspense>
             </Show>
@@ -508,10 +539,14 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
               when={items().length > 0}
               fallback={
                 /* PUBLISHED BUT EMPTY — a real state, and not the same as an
-                   unpublished list, which answers the 404 above. */
-                <p class="font-body text-text-muted text-ui-base py-10 text-center">
-                  The couple haven’t added any gifts yet.
-                </p>
+                   unpublished list, which answers the 404 above. A list of
+                   cash funds and no gifts to reserve is not empty: the funds
+                   are in the money panel above. */
+                <Show when={funds().length === 0}>
+                  <p class="font-body text-text-muted text-ui-base py-10 text-center">
+                    The couple haven’t added any gifts yet.
+                  </p>
+                </Show>
               }
             >
               {/* The ledger: what is already yours, and nothing about how much of
@@ -568,7 +603,8 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                                       currency={registry()?.currency ?? ""}
                                       imageBase={imageBase(item())}
                                       claim={claims().get(id)}
-                                      canClaim={signedIn()}
+                                      canClaim={signedIn() && !preview()}
+                                      preview={preview()}
                                       busy={busyItem() === id}
                                       onClaim={(claimBody) =>
                                         claimItem(id, item().title, claimBody)
@@ -590,6 +626,12 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
           </Match>
         </Switch>
       </div>
+      {/* The page's one toaster. `@shared/toast` portals it to <body>, so
+          where it sits here does not matter. `top-center`, as on the
+          invitation; `Z_CLASS.TOAST` puts it over the sticky rail. No
+          `topLayer`: the only modals here are the consent dialogs, which make
+          the page inert while open, so no gift is given under one. */}
+      <Toaster position="top-center" class={Z_CLASS.TOAST} />
     </section>
   );
 }
