@@ -376,12 +376,14 @@ describe("applying it", () => {
     });
   });
 
-  it("commits each removed event's tasks and the event itself in one batch", async () => {
+  it("removes every event and writes all their tasks in one batch, a statement each, whatever their number", async () => {
     const db = build();
-    // Twelve more events with a linked task each, so the write set runs past
-    // one batch and a removed event's statements would straddle it if they
-    // were not kept together.
+    // Twelve more events, an hour apart, with a task linked to each at its
+    // start: written an event at a time, their statements would run past one
+    // batch, and each task keeps its own event's time though all share an
+    // offset.
     const now = new Date();
+    const hour = (i: number) => `2099-06-20T${12 + i}:00:00+10:00`;
     for (let i = 0; i < 12; i += 1) {
       db.insert(events)
         .values({
@@ -389,7 +391,7 @@ describe("applying it", () => {
           weddingId: W,
           slug: `x${i}`,
           name: `X ${i}`,
-          startAt: "2099-06-20T12:00:00+10:00",
+          startAt: hour(i),
           endAt: "",
           timezone: "Australia/Sydney",
           sortOrder: 10 + i,
@@ -403,15 +405,21 @@ describe("applying it", () => {
           timeframeBucket: "day_of",
           createdAt: now,
           eventId: `evt_x${i}`,
-          runOffsetMinutes: i,
+          runOffsetMinutes: 0,
         })
         .run();
     }
     const plan = await planKeeping(db, [BRUNCH]);
-    const chunks: string[][] = [];
+    expect(plan.eventRemoves).toHaveLength(14);
+    const chunks: { sql: string; params: unknown[] }[][] = [];
     (db as unknown as { batch: (stmts: unknown[]) => Promise<unknown> }).batch = async (stmts) => {
       chunks.push(
-        stmts.map((s) => (s as { toSQL: () => { sql: string } }).toSQL().sql.toLowerCase()),
+        stmts.map((s) => {
+          const { sql, params } = (
+            s as { toSQL: () => { sql: string; params: unknown[] } }
+          ).toSQL();
+          return { sql: sql.toLowerCase(), params };
+        }),
       );
       const out: unknown[] = [];
       for (const s of stmts) out.push(await (s as Promise<unknown>));
@@ -420,23 +428,52 @@ describe("applying it", () => {
 
     await apply(db, plan, ["t_cake"]);
 
-    expect(chunks.length).toBeGreaterThan(1);
-    for (const chunk of chunks) {
-      expect(chunk.length).toBeLessThanOrEqual(50);
-      const freezes = chunk.filter((sql) => sql.startsWith('update "tasks"')).length;
-      const deletes = chunk.filter((sql) => sql.startsWith('delete from "events"')).length;
-      expect(freezes).toBe(deletes);
+    const where = (starts: string) =>
+      chunks.flatMap((chunk, at) =>
+        chunk.filter((s) => s.sql.startsWith(starts)).map((s) => ({ at, params: s.params })),
+      );
+    const deletes = where('delete from "events"');
+    // One statement each for every removed event and its tasks.
+    expect(deletes).toHaveLength(1);
+    expect(where('update "tasks"')).toHaveLength(1);
+    expect(where('delete from "tasks"')).toHaveLength(1);
+    expect(where('insert into "task_template_dismissals"')).toHaveLength(1);
+    // The Reception's delete commits in the batch that removes its chosen
+    // task, leaves that task's dismissal and freezes its kept one.
+    expect(JSON.stringify(deletes[0]!.params)).toContain(RECEPTION);
+    for (const write of [
+      'update "tasks"',
+      'delete from "tasks"',
+      'insert into "task_template_dismissals"',
+    ]) {
+      expect(where(write)[0]!.at, write).toBe(deletes[0]!.at);
     }
     for (let i = 0; i < 12; i += 1) {
-      expect(row(db, `t_x${i}`)).toMatchObject({ eventId: null, runTimezone: "Australia/Sydney" });
+      expect(row(db, `t_x${i}`)).toMatchObject({
+        eventId: null,
+        runOffsetMinutes: null,
+        runAt: hour(i),
+        runTimezone: "Australia/Sydney",
+      });
     }
+    expect(row(db, "t_cake")).toBeUndefined();
+    expect(row(db, "t_toast")).toMatchObject({
+      eventId: null,
+      runAt: "2099-06-20T18:30:00+10:00",
+      runTimezone: "Australia/Sydney",
+    });
+    expect(row(db, "t_sunrise")).toMatchObject({
+      eventId: null,
+      runAt: "2099-10-04T03:30:00+11:00",
+      runTimezone: "Australia/Sydney",
+    });
   });
 
-  it("checks the guest cap on each batch's last guest insert when removed events move the batch edges", async () => {
+  it("checks the guest cap on each batch's last guest insert, with the removed events' group in the first batch", async () => {
     const db = build();
-    // Thirteen removed events of four or more statements each, packed whole,
-    // leave the first batch short of 50; the guests after them then straddle
-    // a batch edge that is not at a multiple of 50.
+    // Thirteen removed events, written as one group in the first batch, and
+    // thirty families and guests after them: the guests run across a batch
+    // edge, and the last guest insert on each side of it checks the cap.
     for (let i = 0; i < 11; i += 1) {
       db.insert(events)
         .values({
@@ -479,7 +516,7 @@ describe("applying it", () => {
 
     await apply(db, plan);
 
-    expect(chunks[0]!.length).toBeLessThan(50);
+    expect(chunks[0]!.filter((q) => q.startsWith('delete from "events"'))).toHaveLength(1);
     const guestInserts = (sqls: string[]) =>
       sqls.flatMap((q, i) => (q.startsWith('insert into "guests"') ? [i] : []));
     const withGuests = chunks.filter((sqls) => guestInserts(sqls).length > 0);

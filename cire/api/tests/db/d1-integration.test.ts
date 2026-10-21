@@ -827,6 +827,151 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "applyImport removes events with their linked tasks in one D1 batch: chosen ones deleted, the rest frozen on their own event's clock",
+    async () => {
+      const now = new Date();
+      await db.insert(events).values([
+        {
+          id: "evt_rm_lunch",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: "rm-lunch",
+          name: "RM Lunch",
+          startAt: "2099-06-20T12:00:00+10:00",
+          endAt: "",
+          timezone: "Australia/Sydney",
+          sortOrder: 80,
+        },
+        {
+          id: "evt_rm_dinner",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: "rm-dinner",
+          name: "RM Dinner",
+          startAt: "2099-06-20T19:00:00+05:30",
+          endAt: "",
+          timezone: "Asia/Kolkata",
+          sortOrder: 81,
+        },
+      ]);
+      const linked = (
+        id: string,
+        eventId: string,
+        over: Partial<typeof tasks.$inferInsert> = {},
+      ) => ({
+        id,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        title: id,
+        timeframeBucket: "day_of",
+        createdAt: now,
+        eventId,
+        runOffsetMinutes: -30,
+        ...over,
+      });
+      await db.insert(tasks).values([
+        linked("tsk_rm_lunch", "evt_rm_lunch"),
+        linked("tsk_rm_dinner", "evt_rm_dinner"),
+        linked("tsk_rm_seeded", "evt_rm_dinner", {
+          templateId: "starter",
+          templateItem: "rm-seeded",
+          dueSource: "template",
+        }),
+      ]);
+      const plan: ImportPlan = {
+        eventCreates: [],
+        eventUpdates: [],
+        eventRemoves: [
+          { id: "evt_rm_lunch", name: "RM Lunch" },
+          { id: "evt_rm_dinner", name: "RM Dinner" },
+        ],
+        familyCreates: [],
+        familyUpdates: [],
+        familyRemoves: [],
+        guestCreates: [],
+        guestUpdates: [],
+        guestRemoves: [],
+        eventLinkCreates: [],
+        eventLinkRemoves: [],
+        warnings: [],
+        linkedTasks: [
+          {
+            id: "tsk_rm_lunch",
+            title: "tsk_rm_lunch",
+            eventId: "evt_rm_lunch",
+            offsetMinutes: -30,
+            frozenRunAt: "2099-06-20T11:30:00+10:00",
+            frozenTimezone: "Australia/Sydney",
+          },
+          {
+            id: "tsk_rm_dinner",
+            title: "tsk_rm_dinner",
+            eventId: "evt_rm_dinner",
+            offsetMinutes: -30,
+            frozenRunAt: "2099-06-20T18:30:00+05:30",
+            frozenTimezone: "Asia/Kolkata",
+          },
+          {
+            id: "tsk_rm_seeded",
+            title: "tsk_rm_seeded",
+            eventId: "evt_rm_dinner",
+            offsetMinutes: -30,
+            frozenRunAt: "2099-06-20T18:30:00+05:30",
+            frozenTimezone: "Asia/Kolkata",
+          },
+        ],
+      };
+
+      await run(
+        applyImport("imp_rm_linked", plan, BOOTSTRAP_WEDDING_ID, [], {
+          removeLinkedTasks: ["tsk_rm_seeded"],
+        }),
+      );
+
+      const left = await db
+        .select({
+          id: tasks.id,
+          eventId: tasks.eventId,
+          runOffsetMinutes: tasks.runOffsetMinutes,
+          runAt: tasks.runAt,
+          runTimezone: tasks.runTimezone,
+          removed: isNotNull(tasks.eventRemovedAt),
+        })
+        .from(tasks)
+        .where(inArray(tasks.id, ["tsk_rm_lunch", "tsk_rm_dinner", "tsk_rm_seeded"]))
+        .orderBy(asc(tasks.id));
+      expect(left).toEqual([
+        {
+          id: "tsk_rm_dinner",
+          eventId: null,
+          runOffsetMinutes: null,
+          runAt: "2099-06-20T18:30:00+05:30",
+          runTimezone: "Asia/Kolkata",
+          removed: 1,
+        },
+        {
+          id: "tsk_rm_lunch",
+          eventId: null,
+          runOffsetMinutes: null,
+          runAt: "2099-06-20T11:30:00+10:00",
+          runTimezone: "Australia/Sydney",
+          removed: 1,
+        },
+      ]);
+      expect(
+        await db
+          .select({ item: taskTemplateDismissals.templateItem })
+          .from(taskTemplateDismissals)
+          .where(eq(taskTemplateDismissals.templateItem, "rm-seeded")),
+      ).toEqual([{ item: "rm-seeded" }]);
+      expect(
+        await db
+          .select({ id: events.id })
+          .from(events)
+          .where(inArray(events.id, ["evt_rm_lunch", "evt_rm_dinner"])),
+      ).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "applyImport writes full runs of show under D1's parameter cap, and the claim and the diff read them back",
     async () => {
       // 40 items of five columns is 200 values: a plain multi-row insert of

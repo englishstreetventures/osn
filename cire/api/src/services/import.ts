@@ -1104,10 +1104,11 @@ export function diffAgainstDb(
  *    of at most `MAX_STATEMENTS_PER_BATCH` (50: D1 Free counts every statement
  *    of a batch as one of the invocation's 50 queries) — one Workers↔D1
  *    round-trip per chunk, all-or-nothing *within* a chunk, and a group never
- *    split across two. Every statement is its own group but these: a removed
- *    event's checklist-task writes and its delete, so a task is never unlinked
- *    from an event that survives, nor its event gone while it still names it;
- *    and the caller's `finalize` statements.
+ *    split across two. Every statement is its own group but these: the removed
+ *    events' checklist-task writes and their deletes (at most six statements
+ *    for any number of events), so a task is never unlinked from an event that
+ *    survives, nor its event gone while it still names it; and the caller's
+ *    `finalize` statements.
  *  - bun:sqlite (tests/local): awaited sequentially in the same order
  *    (bun:sqlite exposes no `.batch()`; awaiting a Drizzle builder executes it).
  *
@@ -1139,33 +1140,38 @@ export interface ApplyImportOptions {
 }
 
 /**
- * The write group for one removed event: the checklist tasks linked to it
- * first, then its RSVPs, invitations and the event row.
+ * The one write group for every removed event: the checklist tasks linked to
+ * them first, then their RSVPs, invitations and the event rows — at most six
+ * statements however many events the change removes, each binding the ids as
+ * one JSON parameter.
  *
- *  1. The tasks the organiser chose to remove, still linked to this event —
- *     a removed seeded task leaves its dismissal, as a delete from the
- *     checklist does, so the starter does not bring it back.
- *  2. Every other task still linked to it is FROZEN: unlinked, at the time
- *     the diff read for its offset (`linkedTasks`), on the event's clock, and
- *     marked removed. The times ride as one bound JSON parameter keyed by
- *     offset, so the statement binds a handful of values however many tasks
- *     there are. A task linked since the diff read, at an offset it did not
- *     see, keeps no time rather than an offset with no event.
+ *  1. The tasks the organiser chose to remove, still linked to an event this
+ *     change removes — a removed seeded task leaves its dismissal, as a delete
+ *     from the checklist does, so the starter does not bring it back.
+ *  2. Every other task still linked to one is FROZEN: unlinked, at the time
+ *     the diff read for its offset (`linkedTasks`), on its event's clock and in
+ *     its event's zone, and marked removed. The times ride as one bound JSON
+ *     parameter keyed by event and offset. A task linked since the diff read,
+ *     at an offset it did not see, keeps no time rather than an offset with no
+ *     event.
+ *  3. The events' RSVPs, invitations and rows: after the tasks, so no task is
+ *     ever left naming an event that is gone.
  */
-function removedEventGroup(
+function removedEventsGroup(
   db: Db,
   weddingId: string,
-  eventId: string,
+  eventIds: readonly string[],
   linked: readonly LinkedTask[],
   removing: ReadonlySet<string>,
   now: Date,
 ): BatchItem<"sqlite">[] {
   const group: BatchItem<"sqlite">[] = [];
+  const removed = jsonEachIn(eventIds);
   const chosen = linked.filter((t) => removing.has(t.id)).map((t) => t.id);
   if (chosen.length > 0) {
     const doomed = and(
       eq(tasks.weddingId, weddingId),
-      eq(tasks.eventId, eventId),
+      inArray(tasks.eventId, removed),
       inArray(tasks.id, jsonEachIn(chosen)),
     );
     group.push(
@@ -1189,22 +1195,25 @@ function removedEventGroup(
   const times = JSON.stringify(
     linked
       .filter((t) => t.offsetMinutes !== null && t.frozenRunAt !== null)
-      .map((t) => ({ o: t.offsetMinutes, r: t.frozenRunAt })),
+      .map((t) => ({ e: t.eventId, o: t.offsetMinutes, r: t.frozenRunAt, z: t.frozenTimezone })),
   );
-  const zone = linked.find((t) => t.frozenTimezone !== null)?.frozenTimezone ?? null;
-  // Every SET reads the row as it was, so the lookup sees the old offset.
-  const frozenAt = sql`(SELECT json_extract(value, '$.r') FROM json_each(${times}) WHERE json_extract(value, '$.o') = ${tasks.runOffsetMinutes})`;
+  // Every SET reads the row as it was, so the lookup sees the old link.
+  const frozen = (field: "r" | "z") =>
+    sql`(SELECT json_extract(value, ${`$.${field}`}) FROM json_each(${times}) WHERE json_extract(value, '$.e') = ${tasks.eventId} AND json_extract(value, '$.o') = ${tasks.runOffsetMinutes})`;
   group.push(
     db
       .update(tasks)
       .set({
-        runAt: frozenAt,
-        runTimezone: sql`CASE WHEN ${frozenAt} IS NULL THEN NULL ELSE ${zone} END`,
+        runAt: frozen("r"),
+        runTimezone: frozen("z"),
         eventId: null,
         runOffsetMinutes: null,
         eventRemovedAt: now,
       })
-      .where(and(eq(tasks.weddingId, weddingId), eq(tasks.eventId, eventId))),
+      .where(and(eq(tasks.weddingId, weddingId), inArray(tasks.eventId, removed))),
+    db.delete(rsvps).where(inArray(rsvps.eventId, removed)),
+    db.delete(guestEvents).where(inArray(guestEvents.eventId, removed)),
+    db.delete(events).where(and(inArray(events.id, removed), eq(events.weddingId, weddingId))),
   );
   return group;
 }
@@ -1358,24 +1367,21 @@ export function applyImport(
         ),
       );
     }
-    // Then each removed event, as one group with the checklist tasks linked
-    // to it (see removedEventGroup).
+    // Then the removed events themselves, as one group with the checklist
+    // tasks linked to them (see removedEventsGroup).
     const linkedTasks = plan.linkedTasks ?? [];
     const removing = new Set(options.removeLinkedTasks ?? []);
-    for (const er of plan.eventRemoves) {
-      addGroup([
-        ...removedEventGroup(
+    if (plan.eventRemoves.length > 0) {
+      addGroup(
+        removedEventsGroup(
           db,
           weddingId,
-          er.id,
-          linkedTasks.filter((t) => t.eventId === er.id),
+          plan.eventRemoves.map((er) => er.id),
+          linkedTasks,
           removing,
           now,
         ),
-        db.delete(rsvps).where(eq(rsvps.eventId, er.id)),
-        db.delete(guestEvents).where(eq(guestEvents.eventId, er.id)),
-        db.delete(events).where(eq(events.id, er.id)),
-      ]);
+      );
     }
 
     // Two reads before any write, sent together: neither needs the other.
