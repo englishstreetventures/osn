@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 # Host Portal Layout System
 
@@ -427,11 +427,15 @@ drops the rows. The re-read runs on:
 
 - **a push signal for the open wedding.** `Dashboard` listens on
   `cire:wedding:<id>` with `useTopic` (`@shared/realtime/solid`) while a
-  wedding's dashboard is open, and not for a helper's seat. A signal, a
-  dropped socket, a reconnect and a stop each re-read the list at once,
-  outside the once-a-minute limit. A member removed, who left, or narrowed to
-  `helper`, and every member of a deleted wedding, gets the signal and then a
-  1008 close, so their tab re-reads and stops listening. See [[realtime]].
+  wedding is open, for every role — a helper's seat included
+  (`surfacesFor().canListen`). A `members-changed` signal, a dropped socket, a
+  reconnect and a stop each re-read the list at once, outside the
+  once-a-minute limit; a `tasks-changed` signal does not, since no task
+  changes who may open the wedding. A member removed or who left, and every
+  member of a deleted wedding, gets the signal and then a 1008 close, so their
+  tab re-reads and stops listening. A member narrowed to `helper` keeps the
+  socket: the re-read swaps in the helper's seat, which goes on listening. See
+  [[realtime]].
 - **a 403 from a wedding route.** `Dashboard` provides its own `AuthContext`
   whose `authFetch` is wrapped by `watchForbidden` (`lib/forbidden-watch.ts`).
   Every request below it is watched.
@@ -462,12 +466,35 @@ untouched waits for its next request, move or return to view. Each time push
 stops, the tab reports it to `POST /api/realtime/fallback`
 ([realtime.ts](../../cire/host/src/lib/realtime.ts)).
 
-The co-host panel (`HostsPanel`) reads the seats from the same socket, not a
-socket of its own. `Dashboard` counts each signal and each reconnect in
-`MembersChangedContext` ([members-changed.ts](../../cire/host/src/lib/members-changed.ts)),
-and an open panel reads `GET /hosts` again on each change, so it shows an
-added, re-roled or removed member within seconds. A failed re-read keeps the
-list on screen, and only the newest read's answer is applied.
+The views below read from the same socket, never one of their own.
+`Dashboard` sorts each signal by its kind and counts it in one of two
+contexts:
+
+| Event | Caches marked stale | Context bumped | Read by |
+|---|---|---|---|
+| `members-changed` | the seats (`hosts-store`) | `MembersChangedContext` ([members-changed.ts](../../cire/host/src/lib/members-changed.ts)) | the co-host panel; the checklist, for its holder faces |
+| `tasks-changed` | the tasks (`tasks-store`) | `TasksChangedContext` ([tasks-changed.ts](../../cire/host/src/lib/tasks-changed.ts)) | the checklist; Overview's checklist card |
+| a reconnect | both | both | all of the above |
+
+Marking a cache stale sends nothing: a view that is not on screen reads again
+when it next mounts. A view that is on screen reads again at once.
+
+- **The co-host panel** (`HostsPanel`) reads `GET /hosts` again, so it shows an
+  added, re-roled or removed member, and a helper's new scope, within seconds.
+  A failed re-read keeps the list on screen, and only the newest read's answer
+  is applied. The panel's own add, removal, role change and accepted scope
+  change each drop a read already in flight, which may predate the write. A
+  seat the re-read shows as the panel already does keeps its row object, so
+  `<For>` keeps the row and the focus of an owner on its role or scope select.
+- **The checklist** (`ChecklistView`) reads `GET /tasks` again on
+  `tasks-changed`, and `GET /hosts` on `members-changed` once it has needed the
+  seats. Its own create, tick, delete, move and holder writes are marked out
+  in `tasks-store` (`beginTaskWrite`): a read that lands while one is out, or
+  was sent before one ended, is dropped, and the write's own signal asks
+  again. So a re-read never undoes what the organiser just did on screen.
+  See [[cire-checklist-tasks#Live refresh]].
+- **Overview** reads the tasks again on `tasks-changed`, unless the checklist
+  is locked below Gold.
 
 ## Testing
 

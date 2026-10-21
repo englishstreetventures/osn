@@ -13,7 +13,7 @@ related:
   - "[[cire-auth]]"
   - "[[dev-environment]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -185,9 +185,13 @@ once both APIs are in production. Re-verify pricing.
 
 **Source:** [DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) · [DO limits](https://developers.cloudflare.com/durable-objects/platform/limits/) · [state API](https://developers.cloudflare.com/durable-objects/api/state/) · [lifecycle](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/) — re-verify.
 
-Durable Objects run on Workers Free since 2025-04-07, **SQLite storage backend only**. `@shared/realtime`'s `TopicHub` is the one class the repo defines ([[realtime]]), and cire-api binds it as `REALTIME_HUB` on both tiers. Production may rely on it only once englishstventures/osn#1585 has measured the ping cost below.
+Durable Objects run on Workers Free since 2025-04-07, **SQLite storage backend only**. `@shared/realtime`'s `TopicHub` is the one class the repo defines ([[realtime]]), and cire-api binds it as `REALTIME_HUB` on both tiers. Production may rely on it only once englishstreetventures/osn#1585 has measured the ping cost below.
 
-**cire's bound.** Each organiser gets at most 300 subscribes a UTC day (`REALTIME_SUBSCRIBES_PER_DAY` in `cire/api/src/services/realtime.ts`), so spending the allowance on subscribes alone takes more than 300 accounts. The count lives in D1 (`realtime_subscribe_budget`), from the same account-wide 100,000 rows written a day: each subscribe under the ceiling writes one row, whether or not the membership check then admits it, plus one primary-key entry on an organiser's first of the day; a refusal at the ceiling writes none. Publishes (seat changes, owner-only and limited per user) and the client's pings are not bounded per day; whether pings are billed is englishstventures/osn#1585. Every publish and every subscribe also costs a Worker request, so neither spends the Durable Object allowance faster than the Workers allowance anyone can spend.
+**cire's bound.** Each organiser gets at most 300 subscribes a UTC day (`REALTIME_SUBSCRIBES_PER_DAY` in `cire/api/src/services/realtime.ts`), so spending the allowance on subscribes alone takes more than 333 accounts (100,000 ÷ 300). A helper is an organiser account with the same ceiling, and any account can already create a wedding and subscribe as its owner, so helpers listening adds no subscriber the ceiling did not already bound. The count lives in D1 (`realtime_subscribe_budget`), from the same account-wide 100,000 rows written a day: each subscribe under the ceiling writes one row, whether or not the membership check then admits it, plus one primary-key entry on an organiser's first of the day; a refusal at the ceiling writes none.
+
+Publishes and the client's pings are not bounded per day. A publish is one request (one RPC on the hub's stub; the fan-out to the topic's sockets is outgoing and free), sent only by a write that changed something: a seat change (owner-only, limited per user) and every checklist write (`tasks-changed`, [[cire-checklist-tasks#Live refresh]]). Every publish and every subscribe also costs a Worker request, so neither spends the Durable Object allowance faster than the Workers allowance anyone can spend. Each publish also makes every listening tab that shows the changed rows send one Worker request to re-read them; a tab that does not show them only marks its cache stale. A topic holds at most 50 sockets.
+
+Whether pings are billed is englishstreetventures/osn#1585, and helpers make it matter more: a helper keeps a phone open on the day. If a ping is one request, 10 helpers with the run sheet visible for 8 hours spend 11,520 a wedding-day (10 × 1,152, below), so nine such weddings on one day spend more than the whole allowance; at 20:1 it is 580 a wedding-day (10 × 58). Until englishstreetventures/osn#1396 ships the run-sheet view, a helper's screen has nothing to keep visible.
 
 | Limit | Free value (re-verify) |
 |---|---|

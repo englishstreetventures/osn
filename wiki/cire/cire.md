@@ -24,7 +24,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Cire
@@ -163,15 +163,19 @@ one-time Turnstile widget step, and post-deploy smoke checks live in the
 
 cire-api binds the `@shared/realtime` hub as `REALTIME_HUB` in every tier of
 [wrangler.toml](../../cire/api/wrangler.toml) and answers `GET /realtime/:topic`
-before the Elysia app. After a seat is added, re-roled, removed or left, and
-after the wedding is deleted, it publishes `members-changed` on
-`cire:wedding:<id>`, and an open organiser tab
-re-reads its wedding list and its co-host panel. A member who lost the
-dashboard is revoked: their sockets close and their tab stops listening. See
-[[realtime]], [[cire-auth]] and [[cire-host-portal-layout]].
+before the Elysia app, for every seat that reads the run sheet — a helper's
+included. On `cire:wedding:<id>` it publishes `members-changed` after a seat is
+added, re-roled, removed or left, after a helper's run-sheet scope moves, and
+after the wedding is deleted, and `tasks-changed` after every checklist write
+that changed something. An open organiser tab re-reads its wedding list and its
+co-host panel on the first, and its checklist and Overview on the second. A
+member who lost their seat is revoked: their sockets close and their tab stops
+listening. See [[realtime]], [[cire-auth]], [[cire-checklist-tasks]] and
+[[cire-host-portal-layout]].
 Seed runs (the nightly dev rebuild) and data migrations change `wedding_hosts`
-with no signal. Open tabs catch up on their next refetch. A helper's seat does
-not listen, so when a helper view (the run sheet) ships, it must subscribe too.
+and `tasks` with no signal. Open tabs catch up on their next refetch. A helper's
+tab listens today but has no rows to re-read; the run-sheet view
+(englishstreetventures/osn#1396) must re-read on both kinds.
 
 ### Turning realtime push off
 

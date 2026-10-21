@@ -11,7 +11,7 @@ related:
   - "[[cire-auth]]"
   - "[[cire-host-portal-layout]]"
 packages: ["@shared/realtime"]
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Realtime push
@@ -22,7 +22,16 @@ cire is the one product that uses it, so `cire` is the one entry in `REALTIME_PR
 
 ## Topics
 
-`<product>:<entity>:<id>`, matched by `TOPIC_PATTERN` in [protocol.ts](../../shared/realtime/src/protocol.ts): a lowercase product, a lowercase entity of at most 32 letters, and an id of 1–64 characters of `[A-Za-z0-9_-]`. A topic's product must be in `REALTIME_PRODUCTS`. Kinds are `SIGNAL_KINDS`, and today there is one, `members-changed`.
+`<product>:<entity>:<id>`, matched by `TOPIC_PATTERN` in [protocol.ts](../../shared/realtime/src/protocol.ts): a lowercase product, a lowercase entity of at most 32 letters, and an id of 1–64 characters of `[A-Za-z0-9_-]`. A topic's product must be in `REALTIME_PRODUCTS`.
+
+Kinds are `SIGNAL_KINDS`, a closed list, so a publish with a misspelt kind fails the type check:
+
+| Kind | Says |
+|---|---|
+| `members-changed` | who holds a place on the entity, or what that place lets them see, changed |
+| `tasks-changed` | the entity's tasks, or who holds them, changed |
+
+A kind is coarse on purpose: it tells a tab which of its views to re-read, never what changed, and every re-read goes through the product's own gates. A client built before a kind existed drops a frame carrying it (`isSignal`), so adding a kind never makes an older tab misread one.
 
 ## Pieces
 
@@ -127,9 +136,11 @@ For one change, a member who keeps access and is evicted gets three signals: the
 ## Adopters
 
 - **cire** — hub bound as `REALTIME_HUB` in [wrangler.toml](../../cire/api/wrangler.toml) (entry `src/entry.ts`).
-  - **Route.** `GET /realtime/:topic` ([routes/realtime.ts](../../cire/api/src/routes/realtime.ts)) checks a per-IP limit of 30 a minute, for requests from the portal's origin only, before it looks anything up; a page on another site cannot spend a visitor's limit, and `subscribe()` refuses that origin anyway. Its `allow` is 30 a minute per organiser and its `allowDaily` is 300 a day per organiser (`REALTIME_SUBSCRIBES_PER_DAY`), counted in D1 (`realtime_subscribe_budget`), so every isolate reads the same count. The per-IP and per-organiser limits count in memory, per isolate. A per-IP refusal answers 429 and logs `realtime subscribe refused` with `outcome: "ip_rate_limited"`, never the address. See [[cire-auth]].
-  - **Publish.** `members-changed` on `cire:wedding:<id>` after a seat is added, re-roled, removed or left, and after the wedding is deleted (revoking every seat holder), in the request's `waitUntil` ([services/realtime.ts](../../cire/api/src/services/realtime.ts)). A removal or leave publishes only when a seat went, and a role change only when the role changed. A removal, a leave, and a role change to one without the dashboard (`helper`) **revoke** that member, so their sockets close with 1008 and their tab stops. Any other change closes nobody, since the member's access still holds.
-  - **Portal.** `Dashboard` listens on the open wedding and re-reads the wedding list on every event. A signal or a reconnect also makes an open co-host panel (`HostsPanel`) read the seats again, from the same socket. When push stops, the portal reports the outcome to `POST /api/realtime/fallback`. See [[cire-host-portal-layout]].
+  - **Route.** `GET /realtime/:topic` ([routes/realtime.ts](../../cire/api/src/routes/realtime.ts)) admits every seat that reads the run sheet — owner, editor, viewer and helper, a helper at either scope — by the same capability `weddingRunSheet()` checks (`LISTEN_CAPABILITY`). It checks a per-IP limit of 30 a minute, for requests from the portal's origin only, before it looks anything up; a page on another site cannot spend a visitor's limit, and `subscribe()` refuses that origin anyway. Its `allow` is 30 a minute per organiser and its `allowDaily` is 300 a day per organiser (`REALTIME_SUBSCRIBES_PER_DAY`), counted in D1 (`realtime_subscribe_budget`), so every isolate reads the same count. The per-IP and per-organiser limits count in memory, per isolate. A per-IP refusal answers 429 and logs `realtime subscribe refused` with `outcome: "ip_rate_limited"`, never the address. See [[cire-auth]].
+  - **Publish.** On `cire:wedding:<id>`, in the request's `waitUntil` ([services/realtime.ts](../../cire/api/src/services/realtime.ts)), and only when the write changed something:
+    - `members-changed` after a seat is added, re-roled (the role moved), removed or left (a seat went), after a helper's run-sheet scope moves, and after the wedding is deleted (revoking every seat holder). A removal and a leave **revoke** that member, so their sockets close with 1008 and their tab stops. A role change revokes only a role that may not listen, which none is, so a member narrowed to `helper` keeps listening. A scope change, narrowing or widening, closes nobody.
+    - `tasks-changed` after every checklist write that changed the checklist, a settings save that re-dated a seeded task included. The list is in [[cire-checklist-tasks#Live refresh]].
+  - **Portal.** `Dashboard` listens on the open wedding for every seat, a helper's included. `members-changed` re-reads the wedding list and tells the views that show seats; `tasks-changed` tells the views that show tasks and reads no list; a reconnect does both. A view's own write drops a re-read that may predate it. When push stops, the portal reports the outcome to `POST /api/realtime/fallback`. See [[cire-host-portal-layout]].
 
 ## Observability
 

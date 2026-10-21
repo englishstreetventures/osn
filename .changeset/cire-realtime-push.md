@@ -5,20 +5,26 @@
 "@cire/build-tools": minor
 ---
 
-Push a seat change to every open organiser tab. cire-api binds the
-`@shared/realtime` hub as `REALTIME_HUB` (the `TopicHub` class is exported from
-the new Worker entry `src/entry.ts`), answers `GET /realtime/:topic` before the
-Elysia app, and publishes `members-changed` on `cire:wedding:<id>` after a seat
-is added, re-roled, removed or left, and after the wedding is deleted. A member
-who was removed, left, or lost the dashboard, and every member of a deleted
-wedding, is revoked: their sockets close with 1008 and their tab stops
-listening. The subscribe route limits each client address (from the portal's
-origin) and each organiser per minute, and each organiser to 300 subscribes a
-UTC day, counted in the new `realtime_subscribe_budget` table (migration 0092),
-which the daily cron also clears of earlier days. The host portal listens on the
-open wedding, re-reads the wedding list on a signal, so a removed or narrowed
+Push seat and checklist changes to every open organiser tab, a helper's
+included. cire-api binds the `@shared/realtime` hub as `REALTIME_HUB` (the
+`TopicHub` class is exported from the new Worker entry `src/entry.ts`), answers
+`GET /realtime/:topic` before the Elysia app for every seat that reads the run
+sheet, and publishes on `cire:wedding:<id>`: `members-changed` after a seat is
+added, re-roled, removed or left, after a helper's run-sheet scope moves, and
+after the wedding is deleted; `tasks-changed` after every checklist write that
+changed something — create, edit, tick, untick, delete, reorder, a starter apply
+that added a task, a holder put on or taken off, and a settings save that
+re-dated a seeded task. A member who was removed or left, and every member of a
+deleted wedding, is revoked: their sockets close with 1008 and their tab stops
+listening; a member narrowed to helper keeps listening. The subscribe route
+limits each client address (from the portal's origin) and each organiser per
+minute, and each organiser to 300 subscribes a UTC day, counted in the new
+`realtime_subscribe_budget` table (migration 0092), which the daily cron also
+clears of earlier days. The host portal listens on the open wedding for every
+role: `members-changed` re-reads the wedding list, so a removed or narrowed
 member's idle tab drops the wedding's rows within seconds, and has an open
-co-host panel read the seats again from the same socket. The portal's CSP allows
+co-host panel read the seats again; `tasks-changed` has the checklist and
+Overview read the tasks again. A re-read never undoes the tab's own write. The portal's CSP allows
 the `wss:` API origin, which the shared build integration retargets per tier.
 The portal reports a push fallback, and why, to a new rate-limited
 `POST /api/realtime/fallback` beacon. The beacon and the CSP report collector
