@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Decide whether a PR must carry a changeset, given its list of changed files on
 # stdin (one path per line). Prints "required" or "skip" and exits 0 — unless
-# stdin is a terminal, meaning nothing was piped, which exits 1 instead of
-# guessing.
+# stdin is a terminal or /dev/null, meaning nothing was piped, which exits 1
+# instead of guessing.
 #
 # Why this exists: some PRs touch nothing that any versioned package ships —
 # Swift/Xcode scaffolding, CI workflows, wiki pages. Forcing a changeset there
@@ -22,10 +22,14 @@ set -euo pipefail
 # An interactive run with no redirect leaves stdin attached to a terminal, and
 # reading it would just hang or return nothing — indistinguishable, in the
 # empty case, from a real "skip" answer. Refuse it outright rather than let a
-# misuse print the same word a genuine no-changeset PR gets. A pipe or a file
-# redirect always fails `-t 0`, so every real caller — CI's
-# `printf '%s\n' "$diff" | bash …` included — is unaffected.
-if [ -t 0 ]; then
+# misuse print the same word a genuine no-changeset PR gets.
+#
+# The second test catches a coding agent's shell, whose stdin is /dev/null, not
+# a terminal, so `-t 0` is false there and the script would print `skip`. A
+# character device is the only thing a pipe or a file redirect is never, so
+# `-c /dev/stdin` covers /dev/null and leaves every real caller — CI's
+# `printf '%s\n' "$diff" | bash …` included — untouched.
+if [ -t 0 ] || [ -c /dev/stdin ]; then
   echo "error: changeset-required.sh reads the changed-file list on stdin." >&2
   echo "       git diff --name-only origin/main...HEAD | bash scripts/changeset-required.sh" >&2
   exit 1
