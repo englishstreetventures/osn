@@ -91,9 +91,9 @@ interface AnimatedModalProps {
  * touch on the sheet's chrome or backdrop. Locking takes a classic scrollbar
  * away, so a page showing one — a window wider than its root — gets
  * `scrollbar-gutter: stable` for as long as the lock holds, and keeps its
- * width; a page showing none (a short invite, a phone's overlay scrollbar)
- * gets no gutter, which would only narrow it. Both are put back as the sheet
- * closes.
+ * width; a page showing none gets no gutter. On a short invite with classic
+ * scrollbars a gutter would only narrow it, and an overlay scrollbar (a
+ * phone's) has no gutter to reserve. Both are put back as the sheet closes.
  *
  * The **frame/scrollport split**. The close button is a sibling of the scroller
  * rather than a child, so it cannot leave the viewport on a sheet tall enough
@@ -137,9 +137,9 @@ export function AnimatedModal(props: AnimatedModalProps) {
     root.style.overflow = "hidden";
     // `hidden` takes that scrollbar away; a gutter of the same width keeps the
     // invite behind the sheet from shifting sideways as it opens and closes.
-    // Only for a page that shows one, and only while locked: on a page with no
-    // scrollbar to give back (a short invite, an overlay scrollbar), the
-    // gutter would itself narrow the page as the sheet opens.
+    // Only for a page that shows one, and only while locked: on a short invite
+    // with no scrollbar to give back, the gutter would itself narrow the page
+    // as the sheet opens.
     if (showsScrollbar) root.style.scrollbarGutter = "stable";
     onCleanup(() => {
       root.style.overflow = previousOverflow;

@@ -43,6 +43,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -176,7 +177,10 @@ function fail(message: string, code = 1): never {
 }
 
 async function main(args: Args): Promise<void> {
-  const { packageDir } = args;
+  // A real path, like the repository root git reports below: every path this
+  // function hands git is made relative to that root, and a package reached
+  // through a link (macOS's `/var` is one) would otherwise sit outside it.
+  const packageDir = realpathSync(args.packageDir);
   const config = (
     (await import(join(packageDir, "drizzle.config.ts"))) as { default: DrizzleConfig }
   ).default;
