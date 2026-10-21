@@ -398,7 +398,7 @@ it with NULL or the default. A `NOT NULL` column with no default cannot be
 retired this way, since each insert would fail, and needs its own plan; the same
 test fails on one. The drop comes once the first release is in production:
 `db:generate --custom`, then `DROP INDEX` and `DROP COLUMN` as above.
-`tasks.assigned_host_id` is the example: `0088_task_assignees.sql` keeps it, and
+`tasks.assigned_host_id` is the example: `0090_task_assignees.sql` keeps it, and
 englishstreetventures/osn#1636 drops it.
 
 **A field the guest site reads is optional there.** `deploy-cire-invites` has no

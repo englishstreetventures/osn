@@ -150,7 +150,7 @@ const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
 const MIGRATION_0073 = "0073_wedding_tiers.sql";
 const MIGRATION_0076 = "0076_wedding_owners.sql";
 // A live migration, read from MIGRATIONS_DIR.
-const MIGRATION_0088 = "0088_task_assignees.sql";
+const MIGRATION_0090 = "0090_task_assignees.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -3687,9 +3687,9 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "runs migration 0088 on D1's own SQLite: each assignee becomes a holder, the old column kept",
+    "runs migration 0090 on D1's own SQLite: each assignee becomes a holder, the old column kept",
     async () => {
-      // Its own instance, holding the live chain up to 0087 with tasks that
+      // Its own instance, holding the live chain up to 0089 with tasks that
       // 0087's single assignee already holds, so the copy runs over rows that
       // exist before it. The live chain is one statement per chunk throughout.
       const chainMf = new Miniflare({
@@ -3702,7 +3702,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         const files = readdirSync(MIGRATIONS_DIR)
           .filter((f) => f.endsWith(".sql"))
           .toSorted();
-        const cut = files.indexOf(MIGRATION_0088);
+        const cut = files.indexOf(MIGRATION_0090);
         expect(cut).toBeGreaterThan(0);
         for (const file of files.slice(0, cut)) {
           for (const stmt of migrationStatements(file, MIGRATIONS_DIR)) {
@@ -3720,7 +3720,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         const tasksBefore = await chainD1.prepare("SELECT * FROM tasks ORDER BY id").all();
 
         const before = Math.floor(Date.now() / 1000);
-        const statements = migrationStatements(MIGRATION_0088, MIGRATIONS_DIR);
+        const statements = migrationStatements(MIGRATION_0090, MIGRATIONS_DIR);
         expect(statements).toHaveLength(6);
         for (const stmt of statements) await chainD1.prepare(stmt).run();
 
@@ -3741,7 +3741,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           expect(row.assigned_at).toBeGreaterThanOrEqual(before);
           expect(row.assigned_at).toBeLessThan(before + 60);
         }
-        // The Worker before 0088 still reads the column: every task, and every
+        // The Worker before 0090 still reads the column: every task, and every
         // value in it, is as it was.
         expect((await chainD1.prepare("SELECT * FROM tasks ORDER BY id").all()).results).toEqual(
           tasksBefore.results,
