@@ -11,6 +11,7 @@ import {
   type DraftState,
   draftWarnings,
   replayDraft,
+  runOfShowItem,
   toDesiredState,
   validateDraft,
 } from "../../src/lib/guest-event-draft";
@@ -583,6 +584,156 @@ describe("an event's description and venue name", () => {
   });
 });
 
+describe("an event's run of show, getting-there notes and guest policy", () => {
+  const FULL: EventRow = {
+    ...EVENTS[0]!,
+    runOfShow: [
+      { time: "17:15", label: "Speeches" },
+      { time: "15:00", label: "Vows" },
+    ],
+    gettingThere: "Park on Sample Lane.",
+    childrenPolicy: "adults_only",
+    plusOnePolicy: "welcome",
+    guestPolicyNote: "Hats encouraged.",
+  };
+  const items = (event: DraftEvent) => event.runOfShow.map(({ time, label }) => ({ time, label }));
+
+  // What the events read sends is what the drawer opens on; an API older
+  // than these fields sends none, which is none of each.
+  it("loads them from the events read, and an API that sends none as empty", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load([FULL, EVENTS[1]!], GUESTS, [], REVISION);
+      const [ceremony, reception] = store.draft.events;
+      expect(items(ceremony!)).toEqual(FULL.runOfShow);
+      expect(ceremony).toMatchObject({
+        gettingThere: "Park on Sample Lane.",
+        childrenPolicy: "adults_only",
+        plusOnePolicy: "welcome",
+        guestPolicyNote: "Hats encouraged.",
+      });
+      expect(reception).toMatchObject({
+        runOfShow: [],
+        gettingThere: null,
+        childrenPolicy: null,
+        plusOnePolicy: null,
+        guestPolicyNote: null,
+      });
+      expect(store.dirty()).toBe(false);
+      dispose();
+    });
+  });
+
+  // An events save states all of them, in the organiser's order, trimmed, so
+  // a download of what is stored re-imports unchanged; blank notes are none.
+  // A guests save governs no event and leaves them out.
+  it("sends them on an events save and leaves them out of a guests save", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events[0]!.key;
+      store.updateEvent(key, {
+        runOfShow: [runOfShowItem("16:45", "  Garden games "), runOfShowItem("16:00", "Tea")],
+        gettingThere: "  Park on Sample Lane.\n",
+        childrenPolicy: "children_welcome",
+        plusOnePolicy: "by_invitation",
+        guestPolicyNote: "   ",
+      });
+      expect(store.toWire("events").events[0]).toMatchObject({
+        runOfShow: [
+          { time: "16:45", label: "Garden games" },
+          { time: "16:00", label: "Tea" },
+        ],
+        gettingThere: "Park on Sample Lane.",
+        childrenPolicy: "children_welcome",
+        plusOnePolicy: "by_invitation",
+        guestPolicyNote: null,
+      });
+      for (const event of store.toWire("guests").events) {
+        for (const field of [
+          "runOfShow",
+          "gettingThere",
+          "childrenPolicy",
+          "plusOnePolicy",
+          "guestPolicyNote",
+        ]) {
+          expect(event).not.toHaveProperty(field);
+        }
+      }
+      expect(store.dirty()).toBe(true);
+      dispose();
+    });
+  });
+
+  // The drawer says what the server would refuse, before the save does.
+  it("flags a run of show or notes the server would refuse", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events[0]!.key;
+      const messagesFor = (patch: Parameters<typeof store.updateEvent>[1]) => {
+        store.updateEvent(key, patch);
+        return validateDraft(store.draft).map((e) => e.message);
+      };
+      expect(messagesFor({ runOfShow: [runOfShowItem("", "Tea")] })).toContain(
+        "Each run-of-show item needs a time.",
+      );
+      expect(messagesFor({ runOfShow: [runOfShowItem("16:00", "  ")] })).toContain(
+        "Each run-of-show item needs a name.",
+      );
+      expect(messagesFor({ runOfShow: [runOfShowItem("16:00", "x".repeat(201))] })).toContain(
+        "A run-of-show item is longer than 200 characters.",
+      );
+      expect(
+        messagesFor({ runOfShow: Array.from({ length: 41 }, () => runOfShowItem("16:00", "Tea")) }),
+      ).toContain("A run of show holds at most 40 items.");
+      expect(messagesFor({ runOfShow: [], gettingThere: "x".repeat(10_001) })).toContain(
+        "Getting-there notes are too long.",
+      );
+      expect(messagesFor({ gettingThere: null, guestPolicyNote: "x".repeat(10_001) })).toContain(
+        "The guest policy note is too long.",
+      );
+      store.updateEvent(key, {
+        runOfShow: Array.from({ length: 40 }, () => runOfShowItem("23:59", "x".repeat(200))),
+        gettingThere: "x".repeat(10_000),
+        guestPolicyNote: "x".repeat(10_000),
+      });
+      expect(validateDraft(store.draft)).toEqual([]);
+      dispose();
+    });
+  });
+
+  // Someone else's change landed; the organiser's unsaved run of show, policy
+  // and notes go back on top, and what they did not touch takes the new rows.
+  it("keeps unsaved changes to them across a stale reload, and takes fresh ones it did not touch", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load([FULL, EVENTS[1]!], GUESTS, [], REVISION);
+      const key = store.draft.events[0]!.key;
+      store.updateEvent(key, {
+        runOfShow: [runOfShowItem("15:00", "Vows"), runOfShowItem("17:15", "Speeches")],
+        childrenPolicy: "children_welcome",
+      });
+      store.rebase(
+        [{ ...FULL, gettingThere: "Park behind the hall.", plusOnePolicy: null }, EVENTS[1]!],
+        GUESTS,
+        [],
+        "rev-2",
+      );
+      const [ceremony] = store.draft.events;
+      expect(items(ceremony!)).toEqual([
+        { time: "15:00", label: "Vows" },
+        { time: "17:15", label: "Speeches" },
+      ]);
+      expect(ceremony).toMatchObject({
+        childrenPolicy: "children_welcome",
+        gettingThere: "Park behind the hall.",
+        plusOnePolicy: null,
+      });
+      expect(store.dirty()).toBe(true);
+      dispose();
+    });
+  });
+});
+
 describe("validateDraft — event field rules (E6)", () => {
   it("flags a blank name + start on a new event", () => {
     createRoot((dispose) => {
@@ -899,6 +1050,11 @@ describe("replayDraft — keeping unsaved edits across a reload", () => {
       description: "",
       venueName: null,
       address: null,
+      runOfShow: [],
+      gettingThere: null,
+      childrenPolicy: null,
+      plusOnePolicy: null,
+      guestPolicyNote: null,
       dressCodeDescription: null,
       dressCodePalette: [],
       pinterestUrl: null,
@@ -1130,6 +1286,11 @@ describe("replayDraft — edge branches", () => {
       description: "",
       venueName: null,
       address: null,
+      runOfShow: [],
+      gettingThere: null,
+      childrenPolicy: null,
+      plusOnePolicy: null,
+      guestPolicyNote: null,
       dressCodeDescription: null,
       dressCodePalette: [],
       pinterestUrl: null,

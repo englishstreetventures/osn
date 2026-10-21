@@ -23,10 +23,17 @@
 // Effect is deliberately NOT imported — this is frontend code (cire CLAUDE.md:
 // "Effect is backend + DB only — never import it in cire/invites or cire/host").
 // Plain Solid primitives + a structural clone, matching events-/guests-store.
-import { createMemo, createSignal } from "solid-js";
+import { batch, createMemo, createSignal } from "solid-js";
 import { createStore, produce, reconcile, unwrap } from "solid-js/store";
 
 import { isDateOnly } from "./event-datetime";
+import {
+  type ChildrenPolicy,
+  isClockTime,
+  MAX_RUN_OF_SHOW_ITEMS,
+  MAX_RUN_OF_SHOW_LABEL,
+  type PlusOnePolicy,
+} from "./event-guest-details";
 import type { EventRow } from "./events-store";
 import {
   isBlankName,
@@ -50,6 +57,15 @@ import { browserTimeZone } from "./timezones";
 let keySeq = 0;
 const nextKey = () => `new-${++keySeq}`;
 
+/** One item of an event's run of show, as the drawer edits it. */
+export interface DraftRunOfShowItem {
+  /** Stable `<For>` key (client-only; never sent). */
+  readonly key: string;
+  /** A 24-hour `HH:MM` in the event's zone, or `""` while not yet set. */
+  time: string;
+  label: string;
+}
+
 export interface DraftEvent {
   /** Stable `<For>` key (client-only; never sent). */
   readonly key: string;
@@ -66,6 +82,14 @@ export interface DraftEvent {
   /** The venue's name, shown above the address; null when it has none. */
   venueName: string | null;
   address: string | null;
+  /** The run of show in the organiser's order; the guest reads it in time order. */
+  runOfShow: DraftRunOfShowItem[];
+  /** Parking, transport and accessibility notes; null when there are none. */
+  gettingThere: string | null;
+  /** The guest policy: two presets (null ⇒ not stated) and a note. */
+  childrenPolicy: ChildrenPolicy | null;
+  plusOnePolicy: PlusOnePolicy | null;
+  guestPolicyNote: string | null;
   dressCodeDescription: string | null;
   dressCodePalette: { name: string; color: string }[];
   pinterestUrl: string | null;
@@ -86,12 +110,22 @@ export type EventPatch = Partial<
     | "description"
     | "venueName"
     | "address"
+    | "runOfShow"
+    | "gettingThere"
+    | "childrenPolicy"
+    | "plusOnePolicy"
+    | "guestPolicyNote"
     | "dressCodeDescription"
     | "dressCodePalette"
     | "pinterestUrl"
     | "mapsUrl"
   >
 >;
+
+/** A fresh run-of-show item with its own `<For>` key. */
+export function runOfShowItem(time = "", label = ""): DraftRunOfShowItem {
+  return { key: nextKey(), time, label };
+}
 
 export interface DraftGuest {
   readonly key: string;
@@ -153,6 +187,11 @@ interface WireEvent {
    *  stored value. */
   description?: string;
   venueName?: string | null;
+  runOfShow?: { time: string; label: string }[];
+  gettingThere?: string | null;
+  childrenPolicy?: ChildrenPolicy | null;
+  plusOnePolicy?: PlusOnePolicy | null;
+  guestPolicyNote?: string | null;
   address: string | null;
   dressCodeDescription: string | null;
   dressCodePalette: { name: string; color: string }[];
@@ -201,6 +240,12 @@ function buildDraft(
       // Absent from an API older than the column: no name.
       venueName: e.venueName ?? null,
       address: e.address,
+      // Absent from an API older than them: none of each.
+      runOfShow: (e.runOfShow ?? []).map((item) => runOfShowItem(item.time, item.label)),
+      gettingThere: e.gettingThere ?? null,
+      childrenPolicy: e.childrenPolicy ?? null,
+      plusOnePolicy: e.plusOnePolicy ?? null,
+      guestPolicyNote: e.guestPolicyNote ?? null,
       dressCodeDescription: e.dressCodeDescription,
       dressCodePalette: (e.dressCodePalette ?? []).map((s) => ({ name: s.name, color: s.color })),
       pinterestUrl: e.pinterestUrl,
@@ -256,6 +301,12 @@ function buildDraft(
 
 // ── Serialise: draft → DesiredState wire ──────────────────────────────────────
 
+/** The text trimmed, or null when nothing is left. */
+function trimmedOrNull(value: string | null): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 /**
  * Serialise the draft into the DesiredState the editor front door POSTs. Existing
  * rows send their `id` (rename-safe update); new rows omit it (server mints).
@@ -295,6 +346,13 @@ export function toDesiredState(
     if (scope !== "guests") {
       wire.description = e.description;
       wire.venueName = e.venueName;
+      // Trimmed, and blank notes are none, so what is stored is what a
+      // download writes and a re-upload of it reads back unchanged.
+      wire.runOfShow = e.runOfShow.map((item) => ({ time: item.time, label: item.label.trim() }));
+      wire.gettingThere = trimmedOrNull(e.gettingThere);
+      wire.childrenPolicy = e.childrenPolicy;
+      wire.plusOnePolicy = e.plusOnePolicy;
+      wire.guestPolicyNote = trimmedOrNull(e.guestPolicyNote);
     }
     if (e.id) wire.id = e.id;
     return wire;
@@ -337,6 +395,11 @@ const EVENT_FIELDS = [
   "description",
   "venueName",
   "address",
+  "runOfShow",
+  "gettingThere",
+  "childrenPolicy",
+  "plusOnePolicy",
+  "guestPolicyNote",
   "dressCodeDescription",
   "dressCodePalette",
   "pinterestUrl",
@@ -345,7 +408,11 @@ const EVENT_FIELDS = [
 
 const GUEST_FIELDS = ["firstName", "lastName", "nickname"] as const;
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/** Equal as values. A run of show's client keys are not part of its value:
+ *  the fresh rows carry new ones for the same items. */
+const same = (a: unknown, b: unknown) =>
+  JSON.stringify(a, (k, v: unknown) => (k === "key" ? undefined : v)) ===
+  JSON.stringify(b, (k, v: unknown) => (k === "key" ? undefined : v));
 const quoted = (name: string) => `“${name.trim() || "Untitled"}”`;
 
 /** What {@link replayDraft} made of the organiser's edits. */
@@ -686,6 +753,30 @@ export function validateDraft(draft: DraftState): FieldError[] {
         errors.push({ key: evt.key, message: "A palette colour isn't an allowed colour value." });
       }
     }
+
+    // The run of show: each rule named once per event, however many items
+    // break it, so the drawer's list of errors stays short.
+    const runOfShowErrors = new Set<string>();
+    if (evt.runOfShow.length > MAX_RUN_OF_SHOW_ITEMS) {
+      runOfShowErrors.add(`A run of show holds at most ${MAX_RUN_OF_SHOW_ITEMS} items.`);
+    }
+    for (const item of evt.runOfShow) {
+      if (!isClockTime(item.time)) runOfShowErrors.add("Each run-of-show item needs a time.");
+      if (isBlankName(item.label)) {
+        runOfShowErrors.add("Each run-of-show item needs a name.");
+      } else if (item.label.trim().length > MAX_RUN_OF_SHOW_LABEL) {
+        runOfShowErrors.add(
+          `A run-of-show item is longer than ${MAX_RUN_OF_SHOW_LABEL} characters.`,
+        );
+      }
+    }
+    for (const message of runOfShowErrors) errors.push({ key: evt.key, message });
+    if (evt.gettingThere && tooLong(evt.gettingThere.trim())) {
+      errors.push({ key: evt.key, message: "Getting-there notes are too long." });
+    }
+    if (evt.guestPolicyNote && tooLong(evt.guestPolicyNote.trim())) {
+      errors.push({ key: evt.key, message: "The guest policy note is too long." });
+    }
   }
 
   // ── Guests ──
@@ -943,6 +1034,11 @@ export function createGuestEventDraft(): GuestEventDraft {
           description: "",
           venueName: null,
           address: null,
+          runOfShow: [],
+          gettingThere: null,
+          childrenPolicy: null,
+          plusOnePolicy: null,
+          guestPolicyNote: null,
           dressCodeDescription: null,
           dressCodePalette: [],
           pinterestUrl: null,
@@ -958,7 +1054,14 @@ export function createGuestEventDraft(): GuestEventDraft {
     const ei = eventIndex(key);
     if (ei === -1) return;
     checkpoint();
-    setDraft("events", ei, patch);
+    const { runOfShow, ...rest } = patch;
+    // A run of show is merged by item key, so an item that is only edited
+    // keeps its identity: `<For>` keeps its row, and the input being typed in
+    // keeps the focus. One batch, so the draft's memos recompute once.
+    batch(() => {
+      setDraft("events", ei, rest);
+      if (runOfShow) setDraft("events", ei, "runOfShow", reconcile(runOfShow, { key: "key" }));
+    });
   }
 
   function removeEvent(key: string) {

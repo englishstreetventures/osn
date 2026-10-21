@@ -700,10 +700,34 @@ function EventsGuidance() {
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
+            <dt class="text-text">Run of show</dt>
+            <dd class="text-text-muted">
+              <Col>Run of Show</Col> is one item per line in the cell: a 24-hour time, a space, then
+              what happens — e.g. <span class="text-text font-mono">15:30 Vows</span>. Times are the
+              event's own <Col required>Timezone</Col>. Guests see the items in time order from the
+              start, so a time earlier than <Col required>Start</Col> reads as after midnight. At
+              most 40 items of 200 characters.
+            </dd>
+          </div>
+          <div class="flex flex-col gap-0.5">
+            <dt class="text-text">Getting there and guest policy</dt>
+            <dd class="text-text-muted">
+              <Col>Getting There</Col> is parking, transport and access, shown last in the event's
+              details. <Col>Children</Col> is <span class="text-text">Adults only</span> or{" "}
+              <span class="text-text">Children welcome</span>; <Col>Plus-Ones</Col> is{" "}
+              <span class="text-text">By invitation</span> or <span class="text-text">Welcome</span>
+              . Leave either blank to say nothing. Who may bring a plus-one is still set per guest,
+              and the invite never tells a household without one that plus-ones are welcome.{" "}
+              <Col>Guest Policy Note</Col> is any words to go with them.
+            </dd>
+          </div>
+          <div class="flex flex-col gap-0.5">
             <dt class="text-text">Leaving a column out</dt>
             <dd class="text-text-muted">
-              A sheet without a <Col>Location</Col> or <Col>Description</Col> column leaves what
-              each event already has. A blank cell in one clears it.
+              A sheet without a <Col>Location</Col>, <Col>Description</Col>, <Col>Run of Show</Col>,{" "}
+              <Col>Getting There</Col>, <Col>Children</Col>, <Col>Plus-Ones</Col> or{" "}
+              <Col>Guest Policy Note</Col> column leaves what each event already has. A blank cell
+              in one clears it.
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">

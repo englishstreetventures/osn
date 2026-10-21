@@ -21,7 +21,7 @@ const lines = (csv: string) => csv.split("\r\n");
 describe("events template", () => {
   it("emits the required + optional event headers, in parser order, as the first row", () => {
     expect(firstLine(buildEventsTemplateCsv())).toBe(
-      "Event Name,Start,Timezone,End,Location,Address,Description,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
+      "Event Name,Start,Timezone,End,Location,Address,Description,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL,Run of Show,Getting There,Children,Plus-Ones,Guest Policy Note",
     );
   });
 

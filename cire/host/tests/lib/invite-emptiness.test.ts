@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   faqState,
   footerState,
+  hasGuestPolicy,
+  hasRunOfShow,
   hasText,
   heroState,
   isFaqEmpty,
@@ -197,4 +199,44 @@ describe("faqState", () => {
     [{ question: "Parking?", answer: "Yes." }],
     [{ question: "Parking?", answer: " " }],
   );
+});
+
+// The per-event blocks of the guest's details sheet. The guest site's run of
+// show keeps only an item with a 24-hour time and a label, and its policy row
+// needs a preset it knows or a note.
+describe("hasRunOfShow", () => {
+  it("is empty with no items, or none with both a time and a label", () => {
+    expect(hasRunOfShow([])).toBe(false);
+    expect(hasRunOfShow(null)).toBe(false);
+    expect(hasRunOfShow(undefined)).toBe(false);
+    for (const value of ABSENT) {
+      expect(hasRunOfShow([{ time: "16:00", label: value as string }])).toBe(false);
+      expect(hasRunOfShow([{ time: value as string, label: "Tea" }])).toBe(false);
+    }
+    expect(hasRunOfShow([{ time: "4pm", label: "Tea" }])).toBe(false);
+  });
+
+  it("has content once any one item has both", () => {
+    expect(
+      hasRunOfShow([
+        { time: "16:00", label: " " },
+        { time: "17:15", label: "Speeches" },
+      ]),
+    ).toBe(true);
+  });
+});
+
+describe("hasGuestPolicy", () => {
+  it("is empty with no preset it knows and no note", () => {
+    expect(hasGuestPolicy(null, null, null)).toBe(false);
+    expect(hasGuestPolicy(undefined, undefined, undefined)).toBe(false);
+    expect(hasGuestPolicy("kids_ok", "sometimes", null)).toBe(false);
+    for (const value of ABSENT) expect(hasGuestPolicy(null, null, value)).toBe(false);
+  });
+
+  it("has content with either preset or a note", () => {
+    expect(hasGuestPolicy("adults_only", null, null)).toBe(true);
+    expect(hasGuestPolicy(null, "by_invitation", null)).toBe(true);
+    expect(hasGuestPolicy(null, null, "Hats encouraged.")).toBe(true);
+  });
 });

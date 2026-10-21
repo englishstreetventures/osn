@@ -9,6 +9,12 @@ import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api"
 import { downloadBlob } from "../lib/download";
 import { formatEventWhen } from "../lib/event-display";
 import {
+  CHILDREN_POLICY_WORDS,
+  clockLabel,
+  isClockTime,
+  PLUS_ONE_POLICY_WORDS,
+} from "../lib/event-guest-details";
+import {
   ensureEventsLoaded,
   type EventRow,
   eventsAccessor,
@@ -21,6 +27,7 @@ import {
   cropBackgroundStyle,
   type ImageCrop,
 } from "../lib/image-crop";
+import { hasGuestPolicy, hasRunOfShow, hasText } from "../lib/invite-emptiness";
 import SectionIntro from "./SectionIntro";
 const ImageCropModal = lazy(() => import("./ImageCropModal"));
 
@@ -248,6 +255,44 @@ export default function EventTable(props: EventTableProps) {
                   </Show>
                   <Show when={event.dressCodeDescription}>
                     <Detail label="Dress code" value={event.dressCodeDescription!} span />
+                  </Show>
+                  {/* What the guest's details sheet adds for this event, each
+                      shown when the sheet would show it (`invite-emptiness`).
+                      The run of show is in the organiser's order here; the
+                      sheet reads it in time order from the start. */}
+                  <Show when={hasRunOfShow(event.runOfShow)}>
+                    <Detail
+                      label="Run of show"
+                      value={(event.runOfShow ?? [])
+                        .filter((item) => isClockTime(item.time) && hasText(item.label))
+                        .map((item) => `${clockLabel(item.time)}  ${item.label}`)
+                        .join("\n")}
+                      span
+                      multiline
+                    />
+                  </Show>
+                  <Show
+                    when={hasGuestPolicy(
+                      event.childrenPolicy,
+                      event.plusOnePolicy,
+                      event.guestPolicyNote,
+                    )}
+                  >
+                    <Detail
+                      label="Guest policy"
+                      value={[
+                        event.childrenPolicy ? CHILDREN_POLICY_WORDS[event.childrenPolicy] : null,
+                        event.plusOnePolicy ? PLUS_ONE_POLICY_WORDS[event.plusOnePolicy] : null,
+                        hasText(event.guestPolicyNote) ? event.guestPolicyNote! : null,
+                      ]
+                        .filter((line) => line !== null)
+                        .join("\n")}
+                      span
+                      multiline
+                    />
+                  </Show>
+                  <Show when={hasText(event.gettingThere)}>
+                    <Detail label="Getting there" value={event.gettingThere!} span multiline />
                   </Show>
                 </dl>
 

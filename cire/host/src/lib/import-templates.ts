@@ -24,8 +24,12 @@ export const EVENT_REQUIRED_HEADERS = ["Event Name", "Start", "Timezone"] as con
  * Optional event columns, exact labels the parser looks up. `End` may be blank
  * (or omitted) for an open-ended event, and like `Start` is a local wall-clock
  * time read against the row's `Timezone`; `Location` is the venue's name, shown
- * above the `Address`; `Description` is the event's About text. A sheet that
- * leaves out `Location` or `Description` keeps what is stored for it.
+ * above the `Address`; `Description` is the event's About text. `Run of Show`
+ * holds one `HH:MM name` line per item, the time on a 24-hour clock in the
+ * event's zone; `Children` is "Adults only" or "Children welcome" and
+ * `Plus-Ones` "By invitation" or "Welcome", blank meaning not stated. A sheet
+ * that leaves out `Location`, `Description` or any column from `Run of Show`
+ * on keeps what is stored for it.
  */
 export const EVENT_OPTIONAL_HEADERS = [
   "End",
@@ -36,6 +40,11 @@ export const EVENT_OPTIONAL_HEADERS = [
   "Dress Code Palette",
   "Pinterest URL",
   "Maps URL",
+  "Run of Show",
+  "Getting There",
+  "Children",
+  "Plus-Ones",
+  "Guest Policy Note",
 ] as const;
 
 /** Full events header row = required, then optional. */
@@ -83,8 +92,9 @@ function toCsv(rows: readonly (readonly string[])[]): string {
  * Events starter CSV: header row + two illustrative rows showing the LOCAL
  * Start (and optional End — the second row leaves it blank for an open-ended
  * event), an IANA Timezone, a venue name, a quoted multi-part Address, a
- * description, and the
- * `Name:#hex|Name:#hex` dress-code palette format the parser splits on.
+ * description, the `Name:#hex|Name:#hex` dress-code palette format the parser
+ * splits on, a run of show (one `HH:MM name` line per item), getting-there
+ * notes, and a guest policy's presets and note.
  *
  * Start/End are wall-clock times — `YYYY-MM-DDTHH:MM`, NO UTC offset. The
  * Timezone column says which clock they are on, and the offset the stored
@@ -110,6 +120,11 @@ export function buildEventsTemplateCsv(): string {
       "Blush:#f4c2c2|Sage:#b2ac88",
       "https://pinterest.com/example/ceremony",
       "https://maps.google.com/?q=St+Marys+Cathedral+Sydney",
+      "15:00 Processional\n15:20 Vows\n15:45 Signing of the register",
+      "Street parking on St Marys Rd. St James station is a five-minute walk.",
+      "Children welcome",
+      "By invitation",
+      "",
     ],
     // Second row shows the optional End left blank — an open-ended event.
     [
@@ -124,6 +139,11 @@ export function buildEventsTemplateCsv(): string {
       "Midnight:#191970|Gold:#d4af37",
       "https://pinterest.com/example/reception",
       "https://maps.google.com/?q=The+Grounds+of+Alexandria",
+      "18:00 Canapés\n19:30 Dinner\n21:00 Speeches\n00:30 Carriages",
+      "",
+      "Adults only",
+      "",
+      "Babes in arms are welcome.",
     ],
   ];
   return toCsv(rows);

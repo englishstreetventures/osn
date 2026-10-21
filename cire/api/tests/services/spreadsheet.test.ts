@@ -339,9 +339,9 @@ describe("parseEventsCsv", () => {
     // this copy must be updated in the same PR). Feeding it through the parser
     // guarantees the shipped starter CSV can never fail its own import.
     const template = [
-      "Event Name,Start,Timezone,End,Location,Address,Description,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
-      'Ceremony,2026-11-14T15:00,Australia/Sydney,2026-11-14T16:00,St Mary\'s Cathedral,"St Marys Rd, Sydney NSW 2000, Australia",The service begins at 3 pm sharp. Please be seated by 2:45.,Formal — suits and cocktail dresses,Blush:#f4c2c2|Sage:#b2ac88,https://pinterest.com/example/ceremony,https://maps.google.com/?q=St+Marys+Cathedral+Sydney',
-      'Reception,2026-11-14T18:00,Australia/Sydney,,The Grounds of Alexandria,"7A/2 Huntley St, Alexandria NSW 2015, Australia","Dinner, speeches and dancing until late.",Black tie,Midnight:#191970|Gold:#d4af37,https://pinterest.com/example/reception,https://maps.google.com/?q=The+Grounds+of+Alexandria',
+      "Event Name,Start,Timezone,End,Location,Address,Description,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL,Run of Show,Getting There,Children,Plus-Ones,Guest Policy Note",
+      'Ceremony,2026-11-14T15:00,Australia/Sydney,2026-11-14T16:00,St Mary\'s Cathedral,"St Marys Rd, Sydney NSW 2000, Australia",The service begins at 3 pm sharp. Please be seated by 2:45.,Formal — suits and cocktail dresses,Blush:#f4c2c2|Sage:#b2ac88,https://pinterest.com/example/ceremony,https://maps.google.com/?q=St+Marys+Cathedral+Sydney,"15:00 Processional\n15:20 Vows\n15:45 Signing of the register",Street parking on St Marys Rd. St James station is a five-minute walk.,Children welcome,By invitation,',
+      'Reception,2026-11-14T18:00,Australia/Sydney,,The Grounds of Alexandria,"7A/2 Huntley St, Alexandria NSW 2015, Australia","Dinner, speeches and dancing until late.",Black tie,Midnight:#191970|Gold:#d4af37,https://pinterest.com/example/reception,https://maps.google.com/?q=The+Grounds+of+Alexandria,"18:00 Canapés\n19:30 Dinner\n21:00 Speeches\n00:30 Carriages",,Adults only,,Babes in arms are welcome.',
     ].join("\r\n");
     const events = await Effect.runPromise(parseEventsCsv(template));
     expect(events).toHaveLength(2);
@@ -351,6 +351,18 @@ describe("parseEventsCsv", () => {
     expect(events[1]!.venueName).toBe("The Grounds of Alexandria");
     expect(events[0]!.address).toBe("St Marys Rd, Sydney NSW 2000, Australia");
     expect(events[1]!.description).toBe("Dinner, speeches and dancing until late.");
+    expect(events[0]!.runOfShow).toHaveLength(3);
+    expect(events[1]!.runOfShow?.at(-1)).toEqual({ time: "00:30", label: "Carriages" });
+    expect(events[0]!).toMatchObject({
+      childrenPolicy: "children_welcome",
+      plusOnePolicy: "by_invitation",
+    });
+    expect(events[1]!).toMatchObject({
+      childrenPolicy: "adults_only",
+      plusOnePolicy: null,
+      gettingThere: null,
+      guestPolicyNote: "Babes in arms are welcome.",
+    });
   });
 
   it("accepts http and https URLs", async () => {

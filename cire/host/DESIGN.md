@@ -392,6 +392,43 @@ a list in it follows its highlight by setting its own `scrollTop`, never with
 page's top left and moves it beside its trigger a frame later, and anything that
 scrolls toward the panel before then jumps the page up to that corner.
 
+### A list inside a form: the event drawer's run of show
+
+The event drawer holds one list a host builds item by item: the run of show
+(`RunOfShowField` in `EventsEditor.tsx`). What it settles, for any later list
+of short rows inside a drawer:
+
+- **One row per item, in the house reorder pattern.** The grip, Arrow keys from
+  it and the `sr-only` move buttons come from `createSortableList`, as on the
+  events list itself, so the two lists in one editor move the same way. The
+  grip leads the row; Remove (`bareDanger`, a ✕ with an `aria-label` naming the
+  item) ends it. All four visible controls clear 24px.
+- **The fields wrap rather than squeeze.** The time is a native
+  `type="time"` input at a fixed 8.5rem; the name takes the rest with an 8rem
+  floor, and drops under the time when the drawer is narrower than both. At
+  390px the row stays on one line with room for a short name; nothing scrolls
+  sideways.
+- **The labels are hidden, the fieldset is not.** Each control's label is
+  "Time of item N" / "Item N", visually hidden, under a visible "Run of show
+  (optional)" legend and one muted line naming the zone the times are in.
+- **A consequence the host cannot see is said on the row.** The guest reads the
+  list in time order from the event's start, so an item earlier on the clock
+  than the start gets a muted line under it — it reads as after midnight. Muted
+  ink, not warn: it is a fact about the list, and often the intended one.
+- **Add item** is an `outline` button under the list, never inside it, and a new
+  item starts at the last item's time.
+- **Two presets side by side, then a note.** The guest policy is two native
+  `Select`s that share a row at 9rem minimum each and stack on a phone, then a
+  note. "Not stated" is the first option of each, not a blank one, because
+  saying nothing is a choice the host makes.
+- **The list's changes merge by item key.** Each edit patches the whole list;
+  the draft reconciles it by key, so the row being typed in keeps its node and
+  its focus.
+
+`EventsEditor.drawer.browser.test.tsx` measures the row at 390px and 1280px:
+every control inside the drawer and at least 24px, and the after-midnight line
+on the right item.
+
 ### Two rules that apply to all of them
 
 **Anything spread onto an element takes `SafeProps`.** Solid's `HTMLAttributes`
