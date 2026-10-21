@@ -46,8 +46,8 @@ export interface DetailsPanelProps {
 }
 
 /**
- * A labelled part of the occasion, under its gold eyebrow: an `<h3>`, one
- * level under the sheet's title, which is an `<h2>` in its bar.
+ * A labelled part of the panel, under its gold eyebrow: an `<h3>`, one level
+ * under the sheet's title, which is an `<h2>` in its bar.
  */
 function Section(props: { label: string; children: JSX.Element }) {
   return (

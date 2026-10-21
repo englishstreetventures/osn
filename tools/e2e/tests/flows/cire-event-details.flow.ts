@@ -617,7 +617,8 @@ test("cire-event-details", async ({ page, context, flow }) => {
   const layout = await flow.step("read the sheet's blocks, in order", async () => {
     await expect(details.getByText(CIRE_EVENT_EDIT.policyNote, { exact: true })).toBeVisible();
     const read = await details.evaluate((panel) => {
-      const sections = [...panel.querySelectorAll("h4")];
+      // Each block's label is an h3, under the sheet's h2 title in its bar.
+      const sections = [...panel.querySelectorAll("h3")];
       const dl = panel.querySelector("dl");
       const runOfShow = sections.find((h) => h.textContent === "Run of show");
       return {
@@ -640,7 +641,13 @@ test("cire-event-details", async ({ page, context, flow }) => {
       ["1280", DESKTOP],
     ] as const) {
       await page.setViewportSize(size);
-      await sheet.getByRole("heading", { name: /^Details/ }).scrollIntoViewIfNeeded();
+      // Back to the top for the facts. The title is in the sheet's bar, which
+      // stays in view however far the details are scrolled, so it cannot be
+      // scrolled to.
+      await sheet.evaluate(async (d) => {
+        (d.lastElementChild as HTMLElement).scrollTop = 0;
+        await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+      });
       await shot(page, `sheet-${label}-facts`);
       await details.getByText("Run of show", { exact: true }).scrollIntoViewIfNeeded();
       await shot(page, `sheet-${label}-run-of-show`);
