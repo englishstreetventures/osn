@@ -157,6 +157,42 @@ function shiftOf(el: Element): number {
   return new DOMMatrix(getComputedStyle(el).transform).m41;
 }
 
+/** The part of `box` inside `frame`, left to right, as on screen through a clip. */
+function shownIn(box: DOMRect, frame: DOMRect) {
+  const left = Math.max(box.left, frame.left);
+  return { left, width: Math.max(0, Math.min(box.right, frame.right) - left) };
+}
+
+/**
+ * The punctuation in `el`'s words that starts a line instead of ending the
+ * line of the character before it — a comma left alone on a line of its own,
+ * say. Read off each character's own box. The `sr-only` words are left out:
+ * they are clipped to nothing on screen.
+ */
+function strandedPunctuation(el: Element): string[] {
+  const stranded: string[] = [];
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.parentElement?.closest(".sr-only")) continue;
+    const text = node.textContent ?? "";
+    const boxOf = (at: number) => {
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + 1);
+      return range.getClientRects()[0];
+    };
+    for (let i = 1; i < text.length; i++) {
+      if (!/[\p{Pd}\p{Pe}\p{Pf}\p{Po}]/u.test(text[i]!)) continue;
+      const before = boxOf(i - 1);
+      const mark = boxOf(i);
+      if (!before || !mark || Math.abs(mark.top - before.top) > mark.height / 2) {
+        stranded.push(`${text.slice(Math.max(0, i - 8), i)}|${text[i]}`);
+      }
+    }
+  }
+  return stranded;
+}
+
 /**
  * Colours painted one over another, as the 8-bit sRGB pixel the screen shows.
  * A canvas does the compositing, so a translucent layer is blended with what
@@ -757,6 +793,9 @@ describe("EventSheet — the bar", () => {
           expect(title().scrollHeight).toBeLessThanOrEqual(title().clientHeight);
           expect(getComputedStyle(title()).textOverflow).not.toBe("ellipsis");
           expect(getComputedStyle(title()).overflow).toBe("visible");
+          // Broken where a reader expects: no comma or other closing mark
+          // pushed onto a line of its own, away from the word it ends.
+          expect(strandedPunctuation(title())).toEqual([]);
           // And whatever height that takes, focus scrolling keeps clear of it.
           expect(Number.parseFloat(getComputedStyle(scroller()).scrollPaddingTop)).toBeCloseTo(
             row.height,
@@ -793,6 +832,30 @@ describe("EventSheet — the bar", () => {
     // The details still start one gap under it, wherever its foot now is.
     const facts = wrapperOf("details").querySelector("dl")!.getBoundingClientRect();
     expect(facts.top - bar().getBoundingClientRect().bottom).toBeCloseTo(1.25 * rem, 1);
+  });
+
+  it("steps the title down a type size on a phone narrower than 380px", async () => {
+    // Where the badge leaves the title least room, a smaller face keeps most
+    // names' words whole.
+    await page.viewport(390, 844);
+    render(() => (
+      <EventSheet
+        event={longName}
+        panel="details"
+        siteUrl="https://invite.test/w"
+        members={[priya]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+    await settle();
+    const wide = Number.parseFloat(getComputedStyle(title()).fontSize);
+    await page.viewport(379, 844);
+    await new Promise(requestAnimationFrame);
+    const narrow = Number.parseFloat(getComputedStyle(title()).fontSize);
+    expect(narrow).toBeLessThan(wide);
+    // One step, not a different face: the same family and weight.
+    expect(narrow / wide).toBeGreaterThan(0.75);
   });
 
   it("keeps a control reached by Shift+Tab clear of the bar, however tall a long name makes it", async () => {
@@ -885,9 +948,9 @@ describe("EventSheet — the bar", () => {
 
 describe("EventSheet — the badge follows a swipe", () => {
   it("is drawn at 390px on the details, mid-swipe and on the form", async () => {
-    // Screenshots for review: "Give RSVP →" at rest, its words crossing over
-    // to "← See details" under the finger, and "← See details" once the form
-    // has landed.
+    // Screenshots for review: "Give RSVP →" at rest, its words moving out by
+    // the start as "← See details" comes in from the end under the finger,
+    // and "← See details" once the form has landed.
     const shotOf = (name: string) =>
       page.screenshot({ path: `__screenshots__/EventSheet.browser.test.tsx/badge-${name}.png` });
     await page.viewport(390, 844);
@@ -918,44 +981,63 @@ describe("EventSheet — the badge follows a swipe", () => {
     await shotOf("rsvp");
   });
 
-  it("crossfades its words with the finger, with no easing, and back when the drag is cancelled", async () => {
-    await openOn("details");
-    const width = rail().clientWidth;
-    const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
-    const start = bodyOf("details");
-    await touchDrag(start, { x: start.x - 120, y: start.y }, { end: "hold" });
-    await new Promise(requestAnimationFrame);
-    const { chip, details, rsvp } = badgeParts();
-    // The share of the panels' width the finger has covered.
-    const share = 120 / width;
-    try {
-      // Both words part-way, each at the finger's share.
-      for (const label of [details, rsvp]) {
-        expect(opacityOf(label)).toBeGreaterThan(0);
-        expect(opacityOf(label)).toBeLessThan(1);
+  it.each([20, 60])(
+    "moves its words through the badge with a finger held %ipx in, side by side, with no easing, and back on a cancel",
+    async (dx) => {
+      await openOn("details");
+      const width = rail().clientWidth;
+      const start = bodyOf("details");
+      await touchDrag(start, { x: start.x - dx, y: start.y }, { end: "hold" });
+      await new Promise(requestAnimationFrame);
+      const { chip, details, rsvp } = badgeParts();
+      // The share of the panels' width the finger has covered.
+      const share = dx / width;
+      // Each label is the window's full width, so it moves by its share of it.
+      // Its box, which its own sideways move does not resize, unrounded.
+      const span = details.getBoundingClientRect().width;
+      try {
+        // A ticker the way the panels go: the details' words out by the start,
+        // the form's in from the end, each by the finger's share.
+        expect(Math.abs(-shiftOf(details) / span - share)).toBeLessThan(0.05);
+        expect(Math.abs(shiftOf(rsvp) / span - (1 - share))).toBeLessThan(0.05);
+        // Through the badge's window: some of each shows, side by side, and
+        // what shows of one never lies over what shows of the other.
+        const frame = chip.firstElementChild!.getBoundingClientRect();
+        const out = shownIn(details.getBoundingClientRect(), frame);
+        const into = shownIn(rsvp.getBoundingClientRect(), frame);
+        expect(out.width).toBeGreaterThan(0);
+        expect(into.width).toBeGreaterThan(0);
+        const overlap = Math.min(out.left + out.width, into.left + into.width) - into.left;
+        expect(out.left).toBeLessThan(into.left);
+        expect(overlap).toBeLessThanOrEqual(0.5);
+        // And the window really clips: just outside it, where each label's box
+        // runs on, neither label is there to be painted or hit (a clip cuts
+        // both), so neither spills over the badge's padding, the title or ×.
+        const mid = frame.top + frame.height / 2;
+        expect(document.elementsFromPoint(frame.left - 1, mid)).not.toContain(details);
+        expect(document.elementsFromPoint(frame.right + 1, mid)).not.toContain(rsvp);
+        // Fading as they go, at the same share.
+        expect(Math.abs(opacityOf(details) - (1 - share))).toBeLessThan(0.05);
+        expect(Math.abs(opacityOf(rsvp) - share)).toBeLessThan(0.05);
+        expect(chip.hasAttribute("data-dragging")).toBe(true);
+        // Under the finger nothing eases, or the words would trail it.
+        expect(getComputedStyle(details).transitionProperty).toBe("none");
+        expect(getComputedStyle(rsvp).transitionProperty).toBe("none");
+        // Its name is the details' until the form lands.
+        expect(badge("Give RSVP")).toBe(chip);
+      } finally {
+        await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+        await settleSwipe();
       }
-      expect(Math.abs(opacityOf(details) - (1 - share))).toBeLessThan(0.05);
-      expect(Math.abs(opacityOf(rsvp) - share)).toBeLessThan(0.05);
-      // Each slid its share of half a rem, the way the panels go: the
-      // details' words out to the start, the form's in from the end.
-      expect(shiftOf(details)).toBeCloseTo(-share * 0.5 * rem, 1);
-      expect(shiftOf(rsvp)).toBeCloseTo((1 - share) * 0.5 * rem, 1);
-      expect(chip.hasAttribute("data-dragging")).toBe(true);
-      // Under the finger nothing eases, or the words would trail it.
-      expect(getComputedStyle(details).transitionProperty).toBe("none");
-      expect(getComputedStyle(rsvp).transitionProperty).toBe("none");
-      // Its name is the details' until the form lands.
-      expect(badge("Give RSVP")).toBe(chip);
-    } finally {
-      await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
-      await settleSwipe();
-    }
 
-    expect(opacityOf(details)).toBe(1);
-    expect(opacityOf(rsvp)).toBe(0);
-    expect(chip.hasAttribute("data-dragging")).toBe(false);
-    expect(getComputedStyle(details).transitionProperty).toBe("opacity, transform");
-  });
+      expect(shiftOf(details)).toBeCloseTo(0, 1);
+      expect(shiftOf(rsvp)).toBeCloseTo(span, 1);
+      expect(opacityOf(details)).toBe(1);
+      expect(opacityOf(rsvp)).toBe(0);
+      expect(chip.hasAttribute("data-dragging")).toBe(false);
+      expect(getComputedStyle(details).transitionProperty).toBe("opacity, transform");
+    },
+  );
 
   it("keeps one width on both panels, at rest and mid-drag", async () => {
     // Both words share one grid cell, so the badge is as wide as the wider of
@@ -1018,7 +1100,7 @@ describe("EventSheet — the badge follows a swipe", () => {
 
   it("opens on the form with the form's words already shown, not fading in", async () => {
     // Their place is written before the first paint, so a sheet opened on the
-    // form shows no crossfade as it opens.
+    // form shows no words moving as it opens.
     await page.viewport(...PHONE);
     render(() => <Harness />);
     await userEvent.click(cardButton("Respond"));

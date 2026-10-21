@@ -81,16 +81,25 @@ function without(panels: ReadonlySet<EventPanel>, panel: EventPanel): ReadonlySe
 
 /**
  * The sheet's title in its bar: the event's name in the display face, whole.
- * It wraps onto as many lines as it needs rather than being cut short, and a
- * word too long for its line breaks anywhere, so the badge and the close
- * button never push it out of the bar; the bar grows with it.
+ * It wraps onto as many lines as it needs rather than being cut short, and the
+ * bar grows with it. It breaks between words, and inside a word only when the
+ * word is longer than a whole line (`break-word`), hyphenated there where the
+ * engine has the page's language (`hyphens-auto`, the invite's `lang="en"`).
+ * A phone narrower than 380px takes it a type step down, where the badge
+ * leaves the title least room: that is what keeps most names' words, and the
+ * comma after one, on a line together. A word longer than a whole line still
+ * breaks where the line ends, and with no hyphenation dictionary to hand
+ * (Chromium on Linux has none) that can be just before its comma.
  */
-const TITLE = "font-display text-text text-ui-lg wrap-anywhere leading-tight font-light italic";
+const TITLE =
+  "font-display text-text text-ui-md min-[380px]:text-ui-lg wrap-break-word hyphens-auto leading-tight font-light italic";
 
 /**
  * One of the badge's two labels. Both sit in the same grid cell, so the badge
- * is as wide as the wider of them whichever shows, and a swipe that crossfades
- * them never changes its width.
+ * is as wide as the wider of them whichever shows, and a swipe that moves them
+ * through it never changes its width. Each is the cell's full width, so the
+ * two stay exactly one width apart wherever the swipe has them, and never
+ * overlap.
  */
 const BADGE_LABEL =
   "transition-badge-settle col-start-1 row-start-1 flex items-center justify-center gap-2";
@@ -170,11 +179,14 @@ interface Touch {
  *
  * One button, whose two labels — the details' and the form's — share one grid
  * cell, so it is always as wide as the wider. The one for the panel on screen
- * shows; the other is transparent and `aria-hidden`, so the button's name is
- * "Give RSVP", "See details" or "View your RSVP" and never both. A press goes
- * to the other panel. A custom property on the button, `--badge-progress`, is
- * 0 on the details and 1 on the form, and the labels crossfade on it, each
- * sliding half a rem the way the panels go. It has one writer,
+ * shows; the other waits outside the window the cell clips to, transparent
+ * and `aria-hidden`, so the button's name is "Give RSVP", "See details" or
+ * "View your RSVP" and never both. A press goes to the other panel. A custom
+ * property on the button, `--badge-progress`, is 0 on the details and 1 on
+ * the form, and the labels move on it like a ticker, the way the panels go:
+ * toward the form the details' words leave by the start as the form's come in
+ * from the end, a whole label's width apart, fading as they go. It has one
+ * writer,
  * `setBadgeProgress`: as the badge is built, from the panel on screen, so a
  * sheet opened on the form does not fade its words in; on every switch, when
  * the words ease on the panels' 280ms (`transition-badge-settle`); and during a
@@ -244,8 +256,8 @@ interface Touch {
  *   earlier swipe and the guest is now swiping it away.
  * - Both panels are `will-change: transform` while they move, so the drag
  *   moves two composited layers rather than repainting the sheet each frame.
- * - The badge's words crossfade with the finger, by the share of the panels'
- *   width it has covered (see "The badge"), and ease to rest with them.
+ * - The badge's words move with the finger, by the share of the panels' width
+ *   it has covered (see "The badge"), and ease to rest with them.
  * - Released, both panels ease to their resting places on
  *   `transition-panel-settle`, the slide's own duration and curve, read back
  *   from the computed style so the reduced-motion clamp reaches it. A
@@ -577,13 +589,16 @@ export function EventSheet(props: EventSheetProps) {
         disabled={busy()}
         onClick={pressBadge}
       >
-        <span class="grid">
+        {/* The window the labels move through: clipped, so a label on its way
+            in or out shows only the part inside the badge's padding, which
+            the button keeps around it with its pill and hairline. */}
+        <span class="grid overflow-clip">
           <span
             class={BADGE_LABEL}
             aria-hidden={active() !== "details" || undefined}
             style={{
               opacity: "calc(1 - var(--badge-progress))",
-              transform: "translateX(calc(var(--badge-progress) * -0.5rem))",
+              transform: "translateX(calc(var(--badge-progress) * -100%))",
             }}
           >
             {rsvp.closed ? "View your RSVP" : "Give RSVP"}
@@ -594,7 +609,7 @@ export function EventSheet(props: EventSheetProps) {
             aria-hidden={active() !== "rsvp" || undefined}
             style={{
               opacity: "var(--badge-progress)",
-              transform: "translateX(calc((1 - var(--badge-progress)) * 0.5rem))",
+              transform: "translateX(calc((1 - var(--badge-progress)) * 100%))",
             }}
           >
             <span aria-hidden="true">←</span>
