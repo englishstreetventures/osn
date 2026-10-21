@@ -342,7 +342,7 @@ describe("an event's description and venue name", () => {
   // is always blank and no Description column. Re-uploading one clears what
   // the editor set since, and the preview is where the organiser can see that.
   it("warns when a sheet's blank cells would clear an event's venue name or description, and not when the columns are left out", async () => {
-    const { app } = buildApp();
+    const { app, db } = buildApp();
     await previewAndApply(app, {
       desiredState: {
         events: [editorEvent({ description: "High tea.", venueName: "The Glasshouse" })],
@@ -379,6 +379,21 @@ describe("an event's description and venue name", () => {
       await warningsFor(
         "Event Name,Start,Timezone,Address",
         "Kitchen Tea,2026-11-20T16:00,Australia/Sydney,124 Sample Avenue",
+      ),
+    ).toEqual([]);
+
+    // Nothing to lose, nothing to warn about: blank cells beside an event
+    // that has no venue name and no description.
+    await previewAndApply(app, {
+      desiredState: {
+        events: [editorEvent({ id: stored(db)[0]!.id, description: "", venueName: null })],
+        families: [],
+      },
+    });
+    expect(
+      await warningsFor(
+        "Event Name,Start,Timezone,Location,Address,Description",
+        "Kitchen Tea,2026-11-20T16:00,Australia/Sydney,,124 Sample Avenue,",
       ),
     ).toEqual([]);
   });

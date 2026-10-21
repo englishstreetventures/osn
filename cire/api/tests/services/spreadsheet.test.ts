@@ -2,11 +2,12 @@ import { describe, it, expect } from "bun:test";
 
 import { Cause, Effect, Exit, Option } from "effect";
 
-import { MAX_EVENTS } from "../../src/schemas/import";
+import { MAX_CELL_LENGTH, MAX_EVENTS } from "../../src/schemas/import";
 import {
   parseEventsCsv,
   parseGuestsCsv,
   parseCsv,
+  parseCsvBounded,
   FormulaInjectionDetected,
   MissingRequiredColumn,
   UnmatchedEventColumn,
@@ -902,6 +903,16 @@ describe("CSV input caps", () => {
     const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
     expect(error).toBeInstanceOf(MalformedSpreadsheet);
     expect((error as MalformedSpreadsheet).reason).toBe("cell too large");
+  });
+
+  // The raw cap is twice the stored one, because a download's formula guard
+  // can lengthen a value; the stored cap is checked once the guard is off.
+  it("takes a raw cell of exactly twice MAX_CELL_LENGTH before any terminator, and refuses one more", () => {
+    const atCap = "x".repeat(2 * MAX_CELL_LENGTH);
+    for (const end of [",", "\r\n", "\n", ""]) {
+      expect({ end, ok: parseCsvBounded(`${atCap}${end}`).ok }).toEqual({ end, ok: true });
+    }
+    expect(parseCsvBounded(`${atCap}x`)).toEqual({ ok: false, reason: "cell too large" });
   });
 
   it("rejects an unterminated quoted cell at EOF", async () => {
