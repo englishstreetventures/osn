@@ -89,15 +89,18 @@ export default function TaskHolders(props: TaskHoldersProps) {
     return `Held by ${listOf(holders.map((h) => nameOf(h)!))}`;
   };
 
-  // The count overlaps the + by half as much as the faces overlap each other,
-  // so the + never covers its figure.
-  //
   // Each layer of the stack is positioned (the faces are, for their photos),
   // so they paint in document order and every one covers the edge of the one
   // before it — the + last, on top. One left static would paint under all of
   // them. A face's own name shows on hover, for a sighted reader with a mouse;
   // a screen reader hears the names once, from the text above.
-  const stack = (): JSX.Element => (
+  //
+  // `beforePlus`: the + follows the stack. It covers the count's edge as it
+  // covers a face's — the 8px overlap and its 2px ring — so the count holds
+  // that strip as padding at its inline end, and its figures, however many,
+  // keep 6px clear of the dotted circle. With nothing after it the count is a
+  // disc with its figures centred.
+  const stack = (beforePlus: boolean): JSX.Element => (
     <>
       <For each={faces()}>
         {(hostId) => {
@@ -117,7 +120,7 @@ export default function TaskHolders(props: TaskHoldersProps) {
             .map((h) => nameOf(h))
             .filter(Boolean)
             .join(", ")}
-          class="bg-surface-raised text-text border-border-strong ring-bg font-body text-ui-xs relative -me-1 flex size-7 shrink-0 items-center justify-center rounded-full border font-medium tabular-nums ring-2"
+          class={`bg-surface-raised text-text border-border-strong ring-bg font-body text-ui-xs relative flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full border ps-1.5 font-medium tabular-nums ring-2 ${beforePlus ? "pe-4" : "pe-1.5"}`}
         >
           {`+${rest().length}`}
         </span>
@@ -146,7 +149,7 @@ export default function TaskHolders(props: TaskHoldersProps) {
             }
           >
             <span aria-hidden="true" class="flex items-center -space-x-2">
-              {stack()}
+              {stack(false)}
             </span>
           </Show>
         }
@@ -158,7 +161,7 @@ export default function TaskHolders(props: TaskHoldersProps) {
 }
 
 /** The + trigger and its popover, for an owner or editor. */
-function AssignPopover(props: TaskHoldersProps & { stack: () => JSX.Element }) {
+function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) => JSX.Element }) {
   const [open, setOpen] = createSignal(false);
 
   return (
@@ -175,7 +178,7 @@ function AssignPopover(props: TaskHoldersProps & { stack: () => JSX.Element }) {
         aria-label={`Assign people to ${props.title}`}
         class="group flex items-center -space-x-2 rounded-full outline-offset-2"
       >
-        {props.stack()}
+        {props.stack(true)}
         <span
           data-assign-plus
           aria-hidden="true"

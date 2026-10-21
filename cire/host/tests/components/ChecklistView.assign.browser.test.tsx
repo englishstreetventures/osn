@@ -225,6 +225,30 @@ function backdropOf(element: Element): string {
 /** The element painted on top at a point, as a pointer would hit it. */
 const topAt = (x: number, y: number) => document.elementFromPoint(x, y);
 
+/** Where an element's text is drawn: the box of a range over it. */
+function textBox(el: Element): DOMRect {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  return range.getBoundingClientRect();
+}
+
+/** The least room, in px, between the count's last figure and the + after it. */
+const CLEAR_OF_THE_PLUS = 2;
+
+/** What an element covers when it paints: its border box, and past it the
+ *  spread of any outer box-shadow — the `ring-*` utilities draw one in the
+ *  page's colour, which hides whatever is under it as surely as the border. */
+function paintedBox(el: Element): { left: number; right: number } {
+  const box = el.getBoundingClientRect();
+  const spreads = getComputedStyle(el)
+    .boxShadow.split(/,(?![^(]*\))/)
+    .filter((shadow) => !shadow.includes("inset"))
+    .map((shadow) => [...shadow.matchAll(/(-?[\d.]+)px/g)].map((m) => Number(m[1])))
+    .map((lengths) => lengths[3] ?? 0);
+  const spread = Math.max(0, ...spreads);
+  return { left: box.left - spread, right: box.right + spread };
+}
+
 const optionNamed = (listbox: HTMLElement, name: string) =>
   within(listbox)
     .getAllByRole("option")
@@ -320,6 +344,26 @@ describe("the holders on each row, painted", () => {
                 ? "on top"
                 : "under";
           expect(plusPaint).toBe(role === "editor" ? "on top" : "none");
+          // The count's figures are whole: they sit inside its own disc, and
+          // nothing painted after it — an editor's +, with its ring — comes
+          // within a clear gap of them, so the last figure never reads as part
+          // of the dotted circle. A viewer has no layer after the count.
+          const count = welcome.querySelector("[data-more]")!;
+          const figures = textBox(count);
+          expect(contains(more, figures), `"${count.textContent}" inside its disc`).toBe(true);
+          const after = [...count.parentElement!.children].slice(
+            [...count.parentElement!.children].indexOf(count) + 1,
+          );
+          expect(after.map((layer) => layer.hasAttribute("data-assign-plus"))).toEqual(
+            role === "editor" ? [true] : [],
+          );
+          for (const layer of after) {
+            const cover = paintedBox(layer);
+            expect(
+              figures.right + CLEAR_OF_THE_PLUS <= cover.left,
+              `"${count.textContent}" is drawn to ${figures.right}px; the + covers from ${cover.left}px`,
+            ).toBe(true);
+          }
           expect(within(list).queryAllByRole("button", { name: /^Assign people/ })).toHaveLength(
             role === "editor" ? TASKS.length : 0,
           );

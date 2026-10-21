@@ -334,8 +334,12 @@ later stack of people:
   positioned, so they paint in document order and each covers the edge of the
   one before it; a layer left static paints under all of them.
 - **Three faces, then a count.** "+N" is a disc of `--surface-raised` with a
-  `--border-strong` edge and `--text` figures; it overlaps what follows by half
-  as much, so nothing covers its figures.
+  `--border-strong` edge and `--text` figures, widening to a pill when its
+  figures need the room. A layer after it covers its edge as it covers a
+  face's — the 8px overlap and that layer's 2px ring — so the count holds that
+  strip as padding at its inline end, and its figures keep 6px clear of what
+  follows at any width, two digits included. Nothing may cover a figure: a
+  last digit touching the dotted circle reads as part of it.
 - **The reader comes first** when they are among the people shown.
 - **A person with no photo, or one that will not load, gets the empty avatar** —
   their outline in `--bg`, cut out of a disc of `--text-faint` laid over `--bg`

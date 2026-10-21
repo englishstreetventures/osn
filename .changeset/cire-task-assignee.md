@@ -28,7 +28,9 @@ In the organiser portal each checklist row shows who holds the task as an
 overlapping stack of faces — the reader first, then the order they were added,
 three faces and a "+N" count — with each person's OSN photo, or a default empty
 avatar when they have none or it will not load. An owner or editor gets a dotted
-+ on top of the stack that opens a popover of everyone on the wedding: clicking
++ on top of the stack, over the count's edge as over a face's; the count widens
+to a pill when its figures need the room and keeps them clear of the +, so
+"+2" or "+12" always reads whole. The + opens a popover of everyone on the wedding: clicking
 a person puts them on the task or takes them off at once, and the popover stays
 open until a click outside it, Escape or Tab. Above five people it opens on a
 search over names and handles. The person Enter will toggle is marked by a bar
