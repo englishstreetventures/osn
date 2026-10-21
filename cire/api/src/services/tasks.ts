@@ -10,12 +10,13 @@
  * `TaskNotInWedding` rather than touching a row.
  */
 import { taskAssignees, taskTemplateDismissals, tasks, weddingHosts, weddings } from "@cire/db";
-import { and, asc, eq, exists, isNotNull, type SQL, sql } from "drizzle-orm";
+import { rowsChanged } from "@shared/db-utils";
+import { and, asc, eq, exists, isNotNull, ne, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
-import { bound, commitBatchResults, DbService, commitGroupedBatches, dbQuery } from "../db";
+import { bound, commitBatchResults, commitGroupedBatchResults, DbService, dbQuery } from "../db";
 import type { Db } from "../db";
 import type { TimeframeBucket } from "../lib/checklist-buckets";
 import { metricTaskAssignmentChanged } from "../metrics";
@@ -489,22 +490,27 @@ export const tasksService = {
     }).pipe(Effect.withSpan("cire.tasks.remove"));
   },
 
+  /**
+   * Give each id its array index as `sort_order`, and answer how many tasks
+   * moved. A foreign or wrong-bucket id, and a task already at its index,
+   * match nothing, so an order that changes nothing answers 0 and writes no
+   * row.
+   */
   reorder(
     weddingId: string,
     bucket: TimeframeBucket,
     orderedIds: readonly string[],
-  ): Effect.Effect<void, never, DbService> {
+  ): Effect.Effect<number, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      // Each id gets its array index as sort_order, scoped to (wedding, bucket)
-      // so a foreign or wrong-bucket id is a no-op UPDATE rather than a write.
-      // commitGroupedBatches, not db.transaction(): D1 has no BEGIN/COMMIT —
-      // batch() is its only atomic primitive — and the body allows up to 500
-      // ids, so the write set must chunk under the 50-statement batch cap.
-      // Singleton groups: each row's UPDATE is independent (a re-sent reorder
-      // converges), so chunking loses nothing.
-      yield* dbQuery(() =>
-        commitGroupedBatches(
+      // Each UPDATE is scoped to (wedding, bucket) and to a task not already at
+      // its index. commitGroupedBatchResults, not db.transaction(): D1 has no
+      // BEGIN/COMMIT — batch() is its only atomic primitive — and the body
+      // allows up to 500 ids, so the write set must chunk under the
+      // 50-statement batch cap. Singleton groups: each row's UPDATE is
+      // independent (a re-sent reorder converges), so chunking loses nothing.
+      const results = yield* dbQuery(() =>
+        commitGroupedBatchResults(
           db,
           orderedIds.map((id, index) => [
             db
@@ -515,11 +521,13 @@ export const tasksService = {
                   eq(tasks.id, id),
                   eq(tasks.weddingId, weddingId),
                   eq(tasks.timeframeBucket, bucket),
+                  ne(tasks.sortOrder, index),
                 ),
               ),
           ]),
         ),
       );
+      return results.reduce<number>((moved, result) => moved + rowsChanged(result), 0);
     }).pipe(Effect.withSpan("cire.tasks.reorder"));
   },
 };

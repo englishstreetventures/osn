@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, guests, taskAssignees, tasks, weddingHosts } from "@cire/db";
+import { createRateLimiter } from "@shared/rate-limit";
 import type { CloseTargets, HubNamespace } from "@shared/realtime/server";
 import { eq, sql } from "drizzle-orm";
 
@@ -28,8 +29,15 @@ beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
 
+/** The app's options here: a task-write limit of its own per app, far above
+ *  anything a test sends, so no test spends another's. */
+const appOptions = () => ({
+  osnTestKey: auth.key,
+  taskWriteLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+});
+
 function buildApp(tier: "ivory" | "gold" | "crimson" = "gold") {
-  return createApp(buildDb(tier), { osnTestKey: auth.key });
+  return createApp(buildDb(tier), appOptions());
 }
 
 /** The checklist is a Gold module, so every wedding here is on it unless a test
@@ -134,7 +142,7 @@ describe("tasks routes", () => {
   // scoped to its own rows, so the checklist read stays behind the member gate.
   it("refuses the checklist to a helper, even one that holds a task", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const created = await req(app, "POST", base, EDITOR, CREATE);
     const { task } = (await created.json()) as { task: { id: string } };
     expect(
@@ -151,7 +159,7 @@ describe("tasks routes", () => {
   // names as the reader's comes from that cookie's account.
   it("reads the checklist on the session cookie, naming the caller's seat, and refuses a dead one", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const read = (cookie: string) => appRequest(app, base, { headers: { cookie } });
 
     const live = await read(`cire_org_session=${await seedOrganiserSession(db, VIEWER)}`);
@@ -235,7 +243,7 @@ describe("the checklist is a Gold module", () => {
 
   it("keeps a wedding's tasks while it is locked, and shows them again on Gold", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     expect((await req(app, "POST", base, EDITOR, CREATE)).status).toBe(200);
     setTier(db, BOOTSTRAP_WEDDING_ID, "ivory");
     expect((await req(app, "GET", base, OWNER)).status).toBe(402);
@@ -295,7 +303,7 @@ describe("the people holding a task", () => {
 
   it("422s a seat of another wedding, a guest id, a task id and an id that names nothing, and writes nothing", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     await add(app, id, "whost_helper");
     const guestId = db.select({ id: guests.id }).from(guests).limit(1).all()[0]!.id;
@@ -313,7 +321,7 @@ describe("the people holding a task", () => {
 
   it("400s a seat id past 64 characters, and routes no empty one, writing nothing", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     await add(app, id, "whost_helper");
     const overLong = "w".repeat(65);
@@ -331,7 +339,7 @@ describe("the people holding a task", () => {
 
   it("404s a task of another wedding and a missing one, for adding and removing, and leaves the task alone", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     await add(app, id, "whost_viewer");
     const addedBefore = await counted("add", "task_not_found");
@@ -357,7 +365,7 @@ describe("the people holding a task", () => {
 
   it("refuses a viewer, a helper, a stranger and no token, adding or removing, and changes nothing", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     await add(app, id, "whost_viewer");
 
@@ -382,7 +390,7 @@ describe("the people holding a task", () => {
   // cookie path has to hold for them, not only the bearer the tests above send.
   it("accepts the session cookie, and refuses a dead one without writing", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     const send = (method: string, cookie: string, seat: string) =>
       appRequest(app, seatPath(id, seat), { method, headers: { cookie } });
@@ -401,7 +409,7 @@ describe("the people holding a task", () => {
   // task route may write one: creating or editing a task drops the field.
   it("writes no holder sent to the task create or edit route", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     await add(app, id, "whost_helper");
 
@@ -436,7 +444,7 @@ describe("the people holding a task", () => {
 
   it("answers 500 and writes nothing when the database fails the write", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     await add(app, id, "whost_viewer");
     const addErrors = await counted("add", "error");
@@ -489,7 +497,7 @@ describe("the people holding a task", () => {
 
   it("answers 200 unchanged to adding a seat the task holds, and keeps its place", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     await add(app, id, "whost_helper");
     await add(app, id, "whost_viewer");
@@ -527,7 +535,7 @@ describe("the people holding a task", () => {
 
   it("keeps the order seats were added in when they were added in the same second", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     // Written straight in, so the second is the same for all three; the seat
     // ids run against the order they were added in.
@@ -553,7 +561,7 @@ describe("the people holding a task", () => {
   // they were added; the order must not rest on which index the database picks.
   it("keeps the order seats were added in, whichever index the database reads them through", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     // Written out of order: by row, editor, viewer, helper; by seat id, editor,
     // helper, viewer; by when they were added, viewer, helper, editor.
@@ -602,7 +610,7 @@ describe("the people holding a task", () => {
 
   it("takes only the removed seat off its tasks, and keeps the tasks", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const shared = await createTask(app);
     const alone = await createTask(app, "Mind the cake");
     await add(app, shared, "whost_helper");
@@ -654,7 +662,7 @@ describe("the people holding a task", () => {
 
   it("takes a deleted task's holders with it, and no other task's", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const gone = await createTask(app);
     const kept = await createTask(app, "Mind the cake");
     await add(app, gone, "whost_helper");
@@ -698,10 +706,14 @@ describe("task writes publish tasks-changed", () => {
     return { hub, publishes };
   }
 
-  function buildWithHub(tier: "ivory" | "gold" = "gold", rejects = false) {
+  function buildWithHub(
+    tier: "ivory" | "gold" = "gold",
+    rejects = false,
+    taskWriteLimiter = createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+  ) {
     const db = buildDb(tier);
     const { hub, publishes } = recordingHub(rejects);
-    const app = createApp(db, { osnTestKey: auth.key, realtimeHub: hub });
+    const app = createApp(db, { ...appOptions(), realtimeHub: hub, taskWriteLimiter });
     return { db, app, publishes };
   }
 
@@ -822,6 +834,54 @@ describe("task writes publish tasks-changed", () => {
     const reorder = { timeframeBucket: "12m", orderedIds: [] };
     expect((await req(app, "PATCH", `${base}/reorder`, EDITOR, reorder)).status).toBe(200);
     expect(publishes).toStrictEqual([]);
+  });
+
+  it("not for a reorder that moves nothing", async () => {
+    const { app, publishes } = buildWithHub();
+    const first = await newTask(app, "One");
+    const second = await newTask(app, "Two");
+    const other = await req(app, "POST", "/api/organiser/weddings/wed_other/tasks", "usr_bob", {
+      ...CREATE,
+      title: "Theirs",
+    });
+    expect(other.status).toBe(200);
+    const theirs = ((await other.json()) as { task: { id: string } }).task.id;
+    const reorder = (timeframeBucket: string, orderedIds: string[]) =>
+      req(app, "PATCH", `${base}/reorder`, EDITOR, { timeframeBucket, orderedIds });
+    // Put the bucket in a known order first.
+    expect((await reorder("12m", [second, first])).status).toBe(200);
+    publishes.length = 0;
+
+    // The order it is already in.
+    expect((await reorder("12m", [second, first])).status).toBe(200);
+    // Another wedding's task.
+    expect((await reorder("12m", [theirs])).status).toBe(200);
+    // This wedding's tasks, named under a bucket they are not in.
+    expect((await reorder("6m", [first, second])).status).toBe(200);
+    expect(publishes).toStrictEqual([]);
+
+    // A real move still tells the open tabs, once.
+    expect((await reorder("12m", [first, second])).status).toBe(200);
+    expect(publishes).toStrictEqual([changed()]);
+  });
+
+  it("not for a write past the organiser's limit, which is refused 429", async () => {
+    const { app, publishes } = buildWithHub(
+      "gold",
+      false,
+      createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    );
+    expect((await req(app, "POST", base, EDITOR, CREATE)).status).toBe(200);
+    const refused = await req(app, "POST", base, EDITOR, CREATE);
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get("retry-after")).toBe("60");
+    expect(publishes).toStrictEqual([changed()]);
+    // Each organiser has a limit of their own, and reading spends none of it.
+    expect((await req(app, "POST", base, OWNER, CREATE)).status).toBe(200);
+    expect((await req(app, "GET", base, EDITOR)).status).toBe(200);
+    // A caller the gates refuse is refused by them, before the limit.
+    expect((await req(app, "POST", base, VIEWER, CREATE)).status).toBe(403);
+    expect((await req(app, "POST", base, VIEWER, CREATE)).status).toBe(403);
   });
 
   it("never on a wedding below Gold, which refuses every task write", async () => {

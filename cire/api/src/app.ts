@@ -193,6 +193,17 @@ const defaultHostLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000
  */
 const defaultOrganiserRsvpLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 /**
+ * Default per-USER limiter for the checklist's writes (create, edit, tick,
+ * delete, reorder, starter apply, holders, and the starter preview that shares
+ * their group), mounted after the editor and tier gates. Every accepted task
+ * write publishes `tasks-changed`, and every open tab showing the tasks reads
+ * them again, so one seat's write rate is multiplied by the tabs listening, up
+ * to 50. 120 a minute is two a second for a whole minute: a person ticking,
+ * dragging and assigning by hand sends a burst of a few, then reads, so no
+ * editing session reaches it, while a script is held to it.
+ */
+const defaultTaskWriteLimiter = createRateLimiter({ maxRequests: 120, windowMs: 60_000 });
+/**
  * Default per-USER limiter shared by an owner's wedding delete and restore.
  * Owner-gated already, so this only caps a scripted toggle; 5/min is more than
  * anyone deletes or restores weddings by hand.
@@ -437,6 +448,8 @@ export interface AppOptions {
   weddingLifecycleLimiter?: RateLimiterBackend;
   /** Override the organiser recorded-RSVP rate limiter (useful for testing). */
   organiserRsvpLimiter?: RateLimiterBackend;
+  /** Override the checklist write rate limiter (useful for testing). */
+  taskWriteLimiter?: RateLimiterBackend;
   /** Override the co-host handle-search rate limiter (useful for testing). */
   handleSearchLimiter?: RateLimiterBackend;
   /** Override the public CSP-report collector rate limiter (useful for testing). */
@@ -736,6 +749,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     hostLimiter = defaultHostLimiter,
     weddingLifecycleLimiter = defaultWeddingLifecycleLimiter,
     organiserRsvpLimiter = defaultOrganiserRsvpLimiter,
+    taskWriteLimiter = defaultTaskWriteLimiter,
     handleSearchLimiter = defaultHandleSearchLimiter,
     cspReportLimiter = defaultCspReportLimiter,
     vendorPortalLimiter = defaultVendorPortalLimiter,
@@ -1117,10 +1131,11 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createOrganiserPlusOneRoutes(db, osnAuthOptions))
       // Checklist tasks (platform Phase 1). Reads admit any member role
       // (weddingMember); writes require editor or owner (weddingEditor; viewer
-      // gets 403 read_only_role). Split into sibling instances so the read gate
-      // never cross-contaminates with the write gate.
+      // gets 403 read_only_role), then spend a per-user limiter. Split into
+      // sibling instances so the read gate never cross-contaminates with the
+      // write gate.
       .use(createTaskReadRoutes(db, osnAuthOptions))
-      .use(createTaskWriteRoutes(db, osnAuthOptions, weddingSignals))
+      .use(createTaskWriteRoutes(db, osnAuthOptions, taskWriteLimiter, weddingSignals))
       .use(createBudgetReadRoutes(db, osnAuthOptions))
       .use(createBudgetWriteRoutes(db, osnAuthOptions))
       // Gift registry. Same read/write gate split as the modules above, and the

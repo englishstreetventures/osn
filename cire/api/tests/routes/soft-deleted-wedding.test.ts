@@ -84,6 +84,7 @@ const LIMITER_OPTIONS = [
   "remintLimiter",
   "hostLimiter",
   "weddingLifecycleLimiter",
+  "taskWriteLimiter",
   "handleSearchLimiter",
   "cspReportLimiter",
   "vendorPortalLimiter",

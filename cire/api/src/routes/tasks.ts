@@ -1,3 +1,4 @@
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
@@ -6,6 +7,7 @@ import type { Db } from "../db";
 import { CHECKLIST_TEMPLATES, isChecklistTemplateId } from "../lib/checklist-templates";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
+import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingTier } from "../middleware/wedding-tier";
@@ -151,9 +153,13 @@ export const createTaskReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
  *
  * Every write that changed the checklist then tells the wedding's open tabs
  * (`signals.tasksChanged`), after it commits: a create, an edit, a tick or
- * untick, a delete, a reorder, a starter apply that added a task, and a holder
- * put on or taken off. A refused write, and one that changed nothing, tells
- * nobody.
+ * untick, a delete, a reorder that moved a task, a starter apply that added a
+ * task, and a holder put on or taken off. A refused write, and one that
+ * changed nothing, tells nobody.
+ *
+ * Each organiser's requests to this group, past both gates, spend `limiter`
+ * (429 past it): a publish makes every open tab showing the tasks read them
+ * again, so one seat's write rate is multiplied by the tabs listening.
  *
  * NOTE: `/tasks/reorder` is registered BEFORE `/tasks/:taskId` so the literal
  * wins over the param.
@@ -161,6 +167,7 @@ export const createTaskReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
 export const createTaskWriteRoutes = (
   db: Db,
   osnAuthOptions: OsnAuthOptions,
+  limiter: RateLimiterBackend,
   signals: WeddingSignals = createWeddingSignals(undefined),
 ) =>
   new Elysia({ prefix: "/api/organiser" })
@@ -169,6 +176,7 @@ export const createTaskWriteRoutes = (
       group
         .use(weddingEditor(db))
         .use(weddingTier(db, "gold"))
+        .use(rateLimitMiddlewareByUser(limiter))
         .post(
           "/tasks",
           async ({ weddingId, request, set }) => {
@@ -219,8 +227,12 @@ export const createTaskWriteRoutes = (
             return runCire(
               Effect.gen(function* () {
                 const body = yield* Schema.decodeUnknownEffect(ReorderTasksBody)(raw);
-                yield* tasksService.reorder(weddingId, body.timeframeBucket, body.orderedIds);
-                if (body.orderedIds.length > 0) yield* signals.tasksChanged(weddingId, request);
+                const moved = yield* tasksService.reorder(
+                  weddingId,
+                  body.timeframeBucket,
+                  body.orderedIds,
+                );
+                if (moved > 0) yield* signals.tasksChanged(weddingId, request);
                 return { ok: true as const };
               }).pipe(
                 Effect.provideService(DbService, db),
