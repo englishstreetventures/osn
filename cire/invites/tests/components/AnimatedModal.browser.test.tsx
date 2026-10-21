@@ -154,6 +154,60 @@ describe("the guest sheet, in a real engine", () => {
     }
   });
 
+  /**
+   * The gutter stands in for a classic scrollbar while the lock takes it away,
+   * and has to go with the sheet: left behind, every page after the first
+   * sheet is a scrollbar narrower for the rest of the visit.
+   *
+   * This Chromium never shows a classic scrollbar — it reports `innerWidth`
+   * equal to the root's `clientWidth` whatever the page holds — so the sheet
+   * would never reserve a gutter here. The stub is that one reading, a window
+   * 15px wider than its root as a classic scrollbar makes it; the rest is the
+   * engine's own, and the gutter it reserves really does narrow the page.
+   */
+  it("gives the page its full width back when the sheet closes", () => {
+    const root = document.documentElement;
+    const before = document.body.getBoundingClientRect().width;
+    vi.stubGlobal("innerWidth", root.clientWidth + 15);
+    try {
+      const { unmount } = render(() => (
+        <AnimatedModal onClose={() => {}} label="Event details">
+          <p>body</p>
+        </AnimatedModal>
+      ));
+      // Open, the gutter takes the scrollbar's place, so the page is narrower.
+      expect(document.body.getBoundingClientRect().width).toBeLessThan(before);
+
+      unmount();
+      expect({
+        width: document.body.getBoundingClientRect().width,
+        gutter: getComputedStyle(root).scrollbarGutter,
+      }).toEqual({ width: before, gutter: "auto" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  /**
+   * A page that shows no classic scrollbar — an invite shorter than the
+   * window, or any page on a phone, whose scrollbars overlay the content —
+   * has no width for the lock to take away, so a gutter would only narrow it
+   * as the sheet opens and widen it again as it closes. This engine shows
+   * none, as above.
+   */
+  it("adds no gutter to a page that shows no scrollbar, so it does not narrow as the sheet opens", () => {
+    const before = document.body.getBoundingClientRect().width;
+    render(() => (
+      <AnimatedModal onClose={() => {}} label="Event details">
+        <p>body</p>
+      </AnimatedModal>
+    ));
+    expect({
+      width: document.body.getBoundingClientRect().width,
+      gutter: getComputedStyle(document.documentElement).scrollbarGutter,
+    }).toEqual({ width: before, gutter: "auto" });
+  });
+
   it("leaves the page where it was when the sheet closes", async () => {
     const tall = document.createElement("div");
     tall.style.height = "4000px";

@@ -88,7 +88,12 @@ interface AnimatedModalProps {
  * `overflow-x: clip` (`global.css`), and a root whose overflow is not
  * `visible` keeps the body's value from reaching the viewport, so a body lock
  * styles the body box and leaves the page free to scroll under a wheel or a
- * touch on the sheet's chrome or backdrop.
+ * touch on the sheet's chrome or backdrop. Locking takes a classic scrollbar
+ * away, so a page showing one — a window wider than its root — gets
+ * `scrollbar-gutter: stable` for as long as the lock holds, and keeps its
+ * width; a page showing none (a short invite, a phone's overlay scrollbar)
+ * gets no gutter, which would only narrow it. Both are put back as the sheet
+ * closes.
  *
  * The **frame/scrollport split**. The close button is a sibling of the scroller
  * rather than a child, so it cannot leave the viewport on a sheet tall enough
@@ -126,12 +131,16 @@ export function AnimatedModal(props: AnimatedModalProps) {
     const root = document.documentElement;
     const previousOverflow = root.style.overflow;
     const previousGutter = root.style.scrollbarGutter;
+    // Read before the lock, which takes the scrollbar away: a window wider
+    // than its root is one showing a classic (non-overlay) scrollbar.
+    const showsScrollbar = window.innerWidth > root.clientWidth;
     root.style.overflow = "hidden";
-    // `hidden` takes a classic (non-overlay) scrollbar away; a gutter of the
-    // same width keeps the invite behind the sheet from shifting sideways as
-    // it opens and closes. Only while locked: held all the time, it would
-    // narrow every page that has no scrollbar to give back.
-    root.style.scrollbarGutter = "stable";
+    // `hidden` takes that scrollbar away; a gutter of the same width keeps the
+    // invite behind the sheet from shifting sideways as it opens and closes.
+    // Only for a page that shows one, and only while locked: on a page with no
+    // scrollbar to give back (a short invite, an overlay scrollbar), the
+    // gutter would itself narrow the page as the sheet opens.
+    if (showsScrollbar) root.style.scrollbarGutter = "stable";
     onCleanup(() => {
       root.style.overflow = previousOverflow;
       root.style.scrollbarGutter = previousGutter;
