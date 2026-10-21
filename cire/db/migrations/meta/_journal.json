@@ -57,6 +57,13 @@
       "when": 1792542085672,
       "tag": "0088_contribution_item_title",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "6",
+      "when": 1792546958759,
+      "tag": "0089_seating",
+      "breakpoints": true
     }
   ]
 }

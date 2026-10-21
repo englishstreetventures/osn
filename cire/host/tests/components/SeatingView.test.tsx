@@ -331,7 +331,8 @@ describe("SeatingView — guest menus", () => {
     await screen.findByText("Ada Alpha seated at Table 2.");
     // Ada's row moved tables and was built again; no row holds a menu now.
     expect(menuRoots()).toBe(0);
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Seat Cy Charlie" }), { button: 0 });
+    const cy = await waitFor(() => screen.getByRole("button", { name: "Seat Cy Charlie" }));
+    fireEvent.pointerDown(cy, { button: 0 });
     await screen.findByRole("menuitemradio", { name: /^Table 2/ });
     expect(menuRoots()).toBe(1);
     // The menu's own trigger keeps the row's name.
@@ -415,11 +416,14 @@ describe("SeatingView — guest menus", () => {
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     setCanEdit(false);
     setCanEdit(true);
+    // Kobalte clears the closed menu's outside `aria-hidden` from a timer
+    // then a frame (testing-patterns §Kobalte overlays); a role query before
+    // that finds nothing on a slow runner.
     await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     expect(screen.queryByRole("menu")).toBeNull();
-    expect(screen.getByRole("button", { name: "Seat Ada Alpha" }).hasAttribute("data-closed")).toBe(
-      false,
-    );
+    const trigger = await waitFor(() => screen.getByRole("button", { name: "Seat Ada Alpha" }));
+    expect(trigger.hasAttribute("data-closed")).toBe(false);
   });
 
   it("opens no menu for any other key", async () => {
