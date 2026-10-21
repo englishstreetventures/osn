@@ -862,6 +862,9 @@ export interface ParseGuestsOptions {
   readonly snapshot?: boolean;
 }
 
+/** A before-image's `Guest Email Record` cell, compiled once per isolate. */
+const decodeEmailRecord = Schema.decodeUnknownOption(Schema.fromJsonString(EmailRecord));
+
 export function parseGuestsCsv(
   content: string,
   // Only the names are read: they are what the attendance columns must match.
@@ -1014,9 +1017,7 @@ export function parseGuestsCsv(
       if (idx === -1) return undefined;
       const cell = (row[idx] ?? "").trim();
       if (cell.length === 0) return undefined;
-      return Option.getOrUndefined(
-        Schema.decodeUnknownOption(Schema.fromJsonString(EmailRecord))(cell),
-      );
+      return Option.getOrUndefined(decodeEmailRecord(cell));
     };
     const provenanceAt = (idx: number, row: string[]): Provenance | undefined => {
       if (idx === -1) return undefined;

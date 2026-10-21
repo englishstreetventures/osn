@@ -247,6 +247,7 @@ export function buildCreatePlusOne(
             emailConsentAt: sql`NULL`.as("email_consent_at"),
             emailConsentVersion: sql`NULL`.as("email_consent_version"),
             emailAttestedByOsnProfileId: sql`NULL`.as("email_attested_by_osn_profile_id"),
+            emailHash: sql`NULL`.as("email_hash"),
           })
           .from(inviter)
           .where(

@@ -395,7 +395,15 @@ export const retentionService = {
           let guestsDeleteAt: number | null = null;
           const result = yield* Effect.tryPromise({
             try: () => {
-              const stmts: BatchItem<"sqlite">[] = [];
+              // The wedding's email opt-outs first: they are children of
+              // `guests` too (`guest_id` SET NULL), so deleting them before
+              // the guests leaves that action nothing to rewrite. Kept no
+              // longer than the addresses they stop mail to.
+              const stmts: BatchItem<"sqlite">[] = [
+                db
+                  .delete(emailSuppressions)
+                  .where(inArray(emailSuppressions.weddingId, jsonEachIn(ids))),
+              ];
               if (familyIds.length > 0) {
                 // seats + rsvps + guest_events → guests (children) before
                 // families (parent). guest_events and the seats included for
@@ -459,11 +467,6 @@ export const retentionService = {
               return commitBatchResults(db, [
                 ...stmts,
                 db.delete(imports).where(inArray(imports.weddingId, jsonEachIn(ids))),
-                // The wedding's email opt-outs: kept no longer than the
-                // addresses they stop mail to.
-                db
-                  .delete(emailSuppressions)
-                  .where(inArray(emailSuppressions.weddingId, jsonEachIn(ids))),
                 ...(toStore.size > 0 ? storeGiftSummaries(db, toStore, now) : []),
               ]);
             },

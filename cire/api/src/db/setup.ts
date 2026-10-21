@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
 
 import * as schema from "@cire/db";
 import {
@@ -113,7 +114,8 @@ CREATE TABLE IF NOT EXISTS guests (
   email_source TEXT,
   email_consent_at INTEGER,
   email_consent_version TEXT,
-  email_attested_by_osn_profile_id TEXT
+  email_attested_by_osn_profile_id TEXT,
+  email_hash TEXT
 );
 CREATE INDEX IF NOT EXISTS guests_family_id_sort_idx ON guests(family_id, sort_order);
 CREATE UNIQUE INDEX IF NOT EXISTS guests_plus_one_of_uniq ON guests(plus_one_of_guest_id) WHERE plus_one_of_guest_id IS NOT NULL;
@@ -1487,6 +1489,9 @@ export function seedE2eOrganiser(db: TestDb): void {
         createdAt: now,
         updatedAt: now,
         email: "hana.own@e2e.test",
+        // The value `hashGuestEmail` (services/email-suppression.ts) gives,
+        // computed with node:crypto because the seed runs synchronously.
+        emailHash: createHash("sha256").update("wed_e2e_emails:hana.own@e2e.test").digest("hex"),
         emailSource: "guest",
         emailConsentAt: now,
         emailConsentVersion: GUEST_EMAIL_CONSENT.version,

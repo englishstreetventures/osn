@@ -358,6 +358,12 @@ export const guests = sqliteTable(
     // cross-DB FK, like `rsvps.dietary_attested_by_osn_profile_id`); NULL for
     // `'guest'`.
     emailAttestedByOsnProfileId: text("email_attested_by_osn_profile_id"),
+    // The address's suppression hash (`hashGuestEmail` in
+    // `cire/api/src/services/email-suppression.ts`), written with the address,
+    // so the guest list matches it against `email_suppressions` without
+    // hashing on read, and a guest's removal records the address the row holds
+    // at that moment. NULL iff `email` is NULL.
+    emailHash: text("email_hash"),
   },
   (t) => [
     index("guests_family_id_sort_idx").on(t.familyId, t.sortOrder),
@@ -384,8 +390,9 @@ export const guests = sqliteTable(
  * Holds no address: `email_hash` is the SHA-256 hex of
  * `wedding_id + ":" + address` (`hashGuestEmail` in
  * `cire/api/src/services/email-suppression.ts`), so a withdrawn address is not
- * kept in plain text here and one person's rows cannot be joined across
- * weddings. It is still pseudonymous personal data.
+ * kept in plain text here, and without a candidate address one person's rows
+ * cannot be joined across weddings. Anyone holding a candidate address can
+ * test it, so it is pseudonymous personal data.
  *
  * An address is suppressed for the wedding when ANY row matches
  * `(wedding_id, email_hash)`: one seat's objection stops mail to that address

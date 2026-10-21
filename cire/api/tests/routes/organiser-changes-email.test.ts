@@ -7,6 +7,7 @@ import {
   families,
   guests,
   imports,
+  weddingHosts,
 } from "@cire/db";
 import { GUEST_EMAIL_CONSENT, ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
 import { eq } from "drizzle-orm";
@@ -16,10 +17,12 @@ import { createApp } from "../../src/app";
 import { DbService } from "../../src/db";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
+import { CIRE_METRICS } from "../../src/metrics";
 import { hashGuestEmail } from "../../src/services/email-suppression";
 import { applyImport, diffAgainstDb } from "../../src/services/import";
 import { createR2Stub } from "../../src/services/r2-imports";
 import { appRequest, jsonBody } from "../test-helpers";
+import { counterValue } from "../test-helpers/metrics-harness";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -400,8 +403,7 @@ describe("what a change leaves alone", () => {
     guestGave(db, "Ada", "guest.own@example.test");
     await run(
       applyImport("imp_race", plan, BOOTSTRAP_WEDDING_ID, [], {
-        osnProfileId: OWNER,
-        version: ORGANISER_EMAIL_ATTESTATION.version,
+        emailStamp: { osnProfileId: OWNER, version: ORGANISER_EMAIL_ATTESTATION.version },
       }),
     );
     expect(record(db, "Ada")?.email).toBe("guest.own@example.test");
@@ -606,5 +608,255 @@ describe("GET /guests", () => {
       emailOptedOut: false,
     });
     expect(byName.get("Bo")).toMatchObject({ email: "bo@example.test", emailOptedOut: true });
+  });
+});
+
+describe("more of what a change must not do to an address", () => {
+  it("refuses an editor draft whose address is not one, or is past the raw cap", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    const head = ((await (await get(app, `${CHANGES}/head`)).json()) as { revision: string })
+      .revision;
+    for (const email of ["Bo <bo@example.test>", `${"b".repeat(1020)}@example.test`]) {
+      const res = await post(app, `${CHANGES}/preview`, {
+        ...draft(db, { Bo: { email } }),
+        baseRevision: head,
+      });
+      expect(res.status).toBe(400);
+    }
+    expect(record(db, "Bo")?.email).toBeNull();
+  });
+
+  it("says where the bad Guest Email cell is", async () => {
+    const { app } = buildApp();
+    const res = await post(app, `${CHANGES}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: guestsCsv("not-an-address", ""),
+    });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({
+      reason: "Guest Email is not a valid email address",
+      row: 2,
+      column: 5,
+    });
+  });
+
+  // The organiser attests the guest agreed; a guest who withdrew that address
+  // has said the opposite, and the organiser must see that before attesting.
+  it("warns, before the attestation, that an address being added was withdrawn", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    db.insert(emailSuppressions)
+      .values({
+        id: "sup_bo",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, "bo@example.test"),
+        guestId: null,
+        reason: "guest_removed",
+        createdAt: new Date(),
+      })
+      .run();
+    const p = await preview(app, { guestsCsv: guestsCsv("", "bo@example.test") });
+    expect(p.warnings.join(" ")).toContain("removed by the guest");
+    expect(p.warnings.join(" ")).not.toContain("bo@example.test");
+    expect((await apply(app, p.changeId, ATTESTED)).status).toBe(200);
+  });
+
+  // A guest who re-saves the same address as their own between the diff and
+  // the commit has made it theirs: the organiser's planned clear must not land.
+  it("does not clear an address a guest made their own between the diff and the commit", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    const run = <A, E>(effect: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(effect.pipe(Effect.provideService(DbService, db)));
+    const ada = db.select().from(guests).where(eq(guests.firstName, "Ada")).all()[0]!;
+    const plan = await run(
+      diffAgainstDb(
+        [],
+        [
+          {
+            id: ada.familyId,
+            familyName: "Testfamily",
+            guests: [
+              {
+                id: ada.id,
+                firstName: "Ada",
+                lastName: "Testfamily",
+                nickname: null,
+                eventNames: ["Mehndi", "Reception"],
+                email: null,
+                emailExpected: "ada@example.test",
+              },
+            ],
+          },
+        ],
+        BOOTSTRAP_WEDDING_ID,
+        { scope: "guests", matchByName: false, removeManual: false, emails: "editor" },
+      ),
+    );
+    expect(plan.emailWrites).toHaveLength(1);
+    guestGave(db, "Ada", "ada@example.test");
+    await run(applyImport("imp_same_address", plan, BOOTSTRAP_WEDDING_ID));
+    expect(record(db, "Ada")).toMatchObject({ email: "ada@example.test", source: "guest" });
+  });
+
+  // An objection outlives the seat: deleting the guest keeps the opt-out, and
+  // the same address on a new guest of the wedding reads as opted out.
+  it("keeps an opt-out when its guest is deleted", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "", "bo@example.test");
+    const bo = guestId(db, "Bo");
+    db.insert(emailSuppressions)
+      .values({
+        id: "sup_bo_seat",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, "bo@example.test"),
+        guestId: bo,
+        reason: "guest_removed",
+        createdAt: new Date(),
+      })
+      .run();
+    await change(app, {
+      guestsCsv: [
+        "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Email,Mehndi,Reception",
+        "1,Testfamily,Ada,Testfamily,,yes,yes",
+      ].join("\n"),
+      removeManual: true,
+    });
+    expect(db.select().from(guests).where(eq(guests.firstName, "Bo")).all()).toHaveLength(0);
+    expect(db.select({ guestId: emailSuppressions.guestId }).from(emailSuppressions).all()).toEqual(
+      [{ guestId: null }],
+    );
+
+    await change(app, { guestsCsv: guestsCsv("", "bo@example.test") });
+    const rows = (await (await get(app, `${BASE}/guests`)).json()) as {
+      firstName: string;
+      emailOptedOut: boolean;
+    }[];
+    expect(rows.find((r) => r.firstName === "Bo")?.emailOptedOut).toBe(true);
+  });
+
+  it("counts a refused attestation and the organiser's changes", async () => {
+    const { app } = buildApp();
+    const refused = () =>
+      counterValue(CIRE_METRICS.guestEmailBlocked, { reason: "attestation_required" });
+    const set = () =>
+      counterValue(CIRE_METRICS.guestEmailChanged, { by: "organiser", action: "set" });
+    const cleared = () =>
+      counterValue(CIRE_METRICS.guestEmailChanged, { by: "organiser", action: "cleared" });
+    const before = { refused: await refused(), set: await set(), cleared: await cleared() };
+    const p = await preview(app, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: guestsCsv("ada@example.test", ""),
+    });
+    expect((await apply(app, p.changeId)).status).toBe(422);
+    expect((await apply(app, p.changeId, ATTESTED)).status).toBe(200);
+    await change(app, { guestsCsv: guestsCsv("", "") });
+    expect(await refused()).toBe(before.refused + 1);
+    expect(await set()).toBe(before.set + 1);
+    expect(await cleared()).toBe(before.cleared + 1);
+  });
+});
+
+describe("more of what a revert restores", () => {
+  it("restores a guest's own address an editor removed, as the guest's", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    guestGave(db, "Ada", "ada.own@example.test");
+    const original = record(db, "Ada");
+    const p = await editorChange(app, db, {
+      Ada: { email: null, emailExpected: "ada.own@example.test" },
+    });
+    expect((await apply(app, p.changeId)).status).toBe(200);
+    expect(record(db, "Ada")?.email).toBeNull();
+    await revert(app, p.changeId);
+    expect(record(db, "Ada")).toEqual(original);
+  });
+
+  it("restores an address a two-sheet change cleared", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    const original = record(db, "Ada");
+    const cleared = await change(app, { eventsCsv: EVENTS_CSV, guestsCsv: guestsCsv("", "") });
+    expect(record(db, "Ada")?.email).toBeNull();
+    await revert(app, cleared);
+    expect(record(db, "Ada")).toEqual(original);
+  });
+
+  it("leaves an address cleared when the before-image's record is unreadable", async () => {
+    const { db, r2, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    const cleared = await change(app, { guestsCsv: guestsCsv("", "") });
+    const [row] = db.select().from(imports).where(eq(imports.id, cleared)).all();
+    const key = row!.beforeGuestsR2Key!;
+    const csv = await (await r2.get(key))!.text();
+    const tampered = csv.replace(/"\{[^\n]*\}"/, '"{not json"');
+    expect(tampered).not.toBe(csv);
+    await r2.put(key, tampered);
+    await revert(app, cleared);
+    expect(record(db, "Ada")?.email).toBeNull();
+  });
+
+  it("leaves the live address when the before-image's cell is not an address", async () => {
+    const { db, r2, app } = buildApp();
+    await seeded(app, "");
+    const added = await change(app, { guestsCsv: guestsCsv("ada@example.test", "") });
+    const [row] = db.select().from(imports).where(eq(imports.id, added)).all();
+    const key = row!.beforeGuestsR2Key!;
+    const csv = await (await r2.get(key))!.text();
+    const lines = csv.split("\r\n");
+    const header = lines[0]!.split(",");
+    const at = header.indexOf("Guest Email");
+    const tampered = lines
+      .map((line, i) => {
+        if (i === 0 || !line.includes("Testfamily")) return line;
+        const cells = line.split(",");
+        cells[at] = "not-an-address";
+        return cells.join(",");
+      })
+      .join("\r\n");
+    expect(tampered).not.toBe(csv);
+    await r2.put(key, tampered);
+    await revert(app, added);
+    expect(record(db, "Ada")?.email).toBe("ada@example.test");
+  });
+
+  // An organiser who no longer holds a seat (removed, or erased on request)
+  // is not written back into a restored record.
+  it("does not restore the attester of an organiser who no longer holds a seat", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_email_editor",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: "usr_email_editor",
+        addedByOsnProfileId: OWNER,
+        role: "editor",
+        createdAt: new Date(),
+      })
+      .run();
+    const editorBearer = await auth.sign("usr_email_editor");
+    const asEditor = (path: string, body: object) =>
+      appRequest(app, path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${editorBearer}` },
+        body: JSON.stringify(body),
+      });
+    const pr = (await (
+      await asEditor(`${CHANGES}/preview`, { guestsCsv: guestsCsv("ada@example.test", "") })
+    ).json()) as Preview;
+    expect(
+      (await asEditor(`${CHANGES}/apply`, { changeId: pr.changeId, ...ATTESTED })).status,
+    ).toBe(200);
+    expect(record(db, "Ada")?.attestedBy).toBe("usr_email_editor");
+    const cleared = await change(app, { guestsCsv: guestsCsv("", "") });
+    db.delete(weddingHosts).where(eq(weddingHosts.id, "whost_email_editor")).run();
+    await revert(app, cleared);
+    expect(record(db, "Ada")).toMatchObject({
+      email: "ada@example.test",
+      source: "organiser_attested",
+      attestedBy: null,
+    });
   });
 });
