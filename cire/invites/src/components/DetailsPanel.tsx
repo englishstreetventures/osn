@@ -215,7 +215,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
     <>
       {/* Room under it only while it says something: with RSVPs open the
           header is an empty live region, and the facts start at the top. */}
-      <header classList={{ "mb-6": closedNotice() !== null }}>
+      <header classList={{ "mb-6": props.rsvpClosed === true }}>
         {/* Rendered whether or not RSVPs have closed, and empty while they
             are open: assistive tech announces a change inside a live region
             it was already watching, so a deadline that passes with this
