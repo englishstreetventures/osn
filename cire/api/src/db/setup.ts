@@ -107,10 +107,26 @@ CREATE TABLE IF NOT EXISTS guests (
   plus_one_allowed INTEGER NOT NULL DEFAULT 0,
   plus_one_of_guest_id TEXT REFERENCES guests(id) ON DELETE CASCADE,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  email TEXT,
+  email_source TEXT,
+  email_consent_at INTEGER,
+  email_consent_version TEXT,
+  email_attested_by_osn_profile_id TEXT
 );
 CREATE INDEX IF NOT EXISTS guests_family_id_sort_idx ON guests(family_id, sort_order);
 CREATE UNIQUE INDEX IF NOT EXISTS guests_plus_one_of_uniq ON guests(plus_one_of_guest_id) WHERE plus_one_of_guest_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS email_suppressions (
+  id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  email_hash TEXT NOT NULL,
+  guest_id TEXT REFERENCES guests(id) ON DELETE SET NULL,
+  reason TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS email_suppressions_seat_uniq ON email_suppressions(wedding_id, email_hash, guest_id);
+CREATE INDEX IF NOT EXISTS email_suppressions_guest_idx ON email_suppressions(guest_id) WHERE guest_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,

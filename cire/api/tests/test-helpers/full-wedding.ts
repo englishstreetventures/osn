@@ -39,6 +39,7 @@ export const WEDDING_CHILD_TABLES = [
   "seating_assignments",
   "seating_copy_budget",
   "run_of_show_items",
+  "email_suppressions",
 ] as const;
 
 /** The household's claim code {@link fullWeddingStatements} writes. Upper
@@ -98,7 +99,8 @@ export function fullWeddingStatements(
     sql`INSERT INTO weddings (id, slug, display_name, tier, created_at, updated_at, deleted_at, deleted_by_osn_profile_id) VALUES (${id}, ${`slug-${id}`}, ${`Wedding ${id}`}, 'crimson', ${s}, ${s}, ${deletedAt}, ${deletedBy})`,
     sql`INSERT INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, created_at) VALUES (${`whost_${id}`}, ${id}, ${owner}, ${owner}, 'owner', ${s})`,
     sql`INSERT INTO families (id, wedding_id, public_id, family_name, created_at, updated_at) VALUES (${fam}, ${id}, ${fullWeddingCode(id)}, 'Family', ${s}, ${s})`,
-    sql`INSERT INTO guests (id, family_id, first_name, created_at, updated_at) VALUES (${guest}, ${fam}, 'Ada', ${s}, ${s})`,
+    sql`INSERT INTO guests (id, family_id, first_name, created_at, updated_at, email, email_source, email_consent_at, email_consent_version) VALUES (${guest}, ${fam}, 'Ada', ${s}, ${s}, 'ada@example.test', 'guest', ${s}, 'guest-email-2026-10-21')`,
+    sql`INSERT INTO email_suppressions (id, wedding_id, email_hash, guest_id, reason, created_at) VALUES (${`sup_${id}`}, ${id}, ${`hash_${id}`}, ${guest}, 'guest_removed', ${s})`,
     sql`INSERT INTO events (id, wedding_id, slug, name, start_at, end_at, timezone, event_image_key) VALUES (${event}, ${id}, 'ceremony', 'Ceremony', '2027-01-01T10:00', '2027-01-01T11:00', 'UTC', ${keys.assets[3]!})`,
     sql`INSERT INTO guest_events (guest_id, event_id) VALUES (${guest}, ${event})`,
     sql`INSERT INTO run_of_show_items (event_id, wedding_id, sort_order, time, label) VALUES (${event}, ${id}, 0, '16:00', 'Ceremony')`,

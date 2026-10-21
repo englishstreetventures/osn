@@ -240,6 +240,13 @@ export function buildCreatePlusOne(
             plusOneOfGuestId: inviter.id,
             createdAt: bound(input.now, guests.createdAt),
             updatedAt: bound(input.now, guests.updatedAt),
+            // A plus-one never holds an address: nobody but them could
+            // consent to one, and they never see the invite.
+            email: sql`NULL`.as("email"),
+            emailSource: sql`NULL`.as("email_source"),
+            emailConsentAt: sql`NULL`.as("email_consent_at"),
+            emailConsentVersion: sql`NULL`.as("email_consent_version"),
+            emailAttestedByOsnProfileId: sql`NULL`.as("email_attested_by_osn_profile_id"),
           })
           .from(inviter)
           .where(

@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 
 import {
   weddings,
+  emailSuppressions,
   families,
   guests,
   guestEvents,
@@ -420,6 +421,43 @@ describe("retentionService.sweepExpiredGuestData", () => {
         .map((p) => p.id)
         .toSorted(),
     ).toEqual(["spl_kept", "spl_live"]);
+  });
+
+  // A suppression row hangs off the wedding, not a household, so a wedding
+  // whose households are all gone still holds one. Both must go at the year;
+  // a wedding still ahead keeps its own.
+  it("deletes an expired wedding's email suppressions, households or not, and keeps a live wedding's", async () => {
+    const db = freshDb();
+    const now = new Date();
+    const suppress = (weddingId: string, guestId: string | null) =>
+      db
+        .insert(emailSuppressions)
+        .values({
+          id: crypto.randomUUID(),
+          weddingId,
+          emailHash: `hash-${weddingId}`,
+          guestId,
+          reason: "guest_removed",
+          createdAt: now,
+        })
+        .run();
+    const withHousehold = await runOn(db, makeWedding({ eventDates: ["2025-04-01"] }));
+    suppress(withHousehold.weddingId, withHousehold.guestId);
+    const emptied = await runOn(db, makeWedding({ eventDates: ["2025-04-01"] }));
+    suppress(emptied.weddingId, null);
+    db.delete(families).where(eq(families.id, emptied.familyId)).run();
+    const live = await runOn(db, makeWedding({ eventDates: ["2027-01-10"] }));
+    suppress(live.weddingId, live.guestId);
+
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+
+    expect(
+      db
+        .select({ weddingId: emailSuppressions.weddingId })
+        .from(emailSuppressions)
+        .all()
+        .map((r) => r.weddingId),
+    ).toEqual([live.weddingId]);
   });
 
   it(
