@@ -54,7 +54,7 @@ describe("ResendEmailLive", () => {
         yield* email.send({
           template: "otp-registration",
           to: "alice@example.com",
-          data: { code: "000000", ttlMinutes: 10 },
+          data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
         });
       }).pipe(Effect.provide(layer)),
     );
@@ -74,7 +74,7 @@ describe("ResendEmailLive", () => {
     };
     expect(payload.from).toBe("noreply@osn.test");
     expect(payload.to).toEqual(["alice@example.com"]);
-    expect(payload.subject).toBe("Verify your OSN email");
+    expect(payload.subject).toBe("Verify your Musubi email");
     expect(payload.text).toContain("000000");
     expect(payload.html).toContain("000000");
   });
@@ -106,7 +106,7 @@ describe("ResendEmailLive", () => {
     await send({
       template: "otp-registration",
       to: "alice@example.com",
-      data: { code: "000000", ttlMinutes: 10 },
+      data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
     });
     expect(JSON.parse(captured!.body)).not.toHaveProperty("headers");
   });
@@ -136,7 +136,7 @@ describe("ResendEmailLive", () => {
       {
         template: "otp-step-up",
         to: "alice@example.com",
-        data: { code: "000000", ttlMinutes: 5 },
+        data: { code: "000000", ttlMinutes: 5, instanceName: "Musubi" },
       },
       "rate_limited",
     );
@@ -146,7 +146,7 @@ describe("ResendEmailLive", () => {
     responder = () => new Response("boom", { status: 500 });
     await expectFailsWith(
       buildLayer(),
-      { template: "passkey-added", to: "alice@example.com", data: {} },
+      { template: "passkey-added", to: "alice@example.com", data: { instanceName: "Musubi" } },
       "dispatch_failed",
     );
   });
@@ -158,7 +158,7 @@ describe("ResendEmailLive", () => {
       {
         template: "otp-registration",
         to: "alice@example.com",
-        data: { code: "000000", ttlMinutes: 10 },
+        data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
       },
       "dispatch_failed",
     );
@@ -173,7 +173,7 @@ describe("ResendEmailLive", () => {
     );
     await expectFailsWith(
       buildLayer(),
-      { template: "recovery-consumed", to: "alice@example.com", data: {} },
+      { template: "recovery-consumed", to: "alice@example.com", data: { instanceName: "Musubi" } },
       "api_unreachable",
     );
   });
@@ -184,7 +184,7 @@ describe("ResendEmailLive", () => {
       {
         template: "otp-registration",
         to: "alice@example.com",
-        data: { code: null as unknown as string, ttlMinutes: 10 },
+        data: { code: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
       },
       "render_failed",
     );
@@ -198,7 +198,7 @@ describe("ResendEmailLive", () => {
         yield* email.send({
           template: "passkey-added",
           to: "user+tag@sub.domain.example.com",
-          data: {},
+          data: { instanceName: "Musubi" },
         });
       }).pipe(Effect.provide(layer)),
     );
@@ -224,7 +224,7 @@ describe("ResendEmailLive", () => {
         yield* email.send({
           template: "otp-registration",
           to: "alice@example.com",
-          data: { code: "424242", ttlMinutes: 10 },
+          data: { code: "424242", ttlMinutes: 10, instanceName: "Musubi" },
         });
       }).pipe(Effect.provide(buildLayer()), Effect.provide(captureLogger)),
     );
@@ -244,7 +244,7 @@ describe("ResendEmailLive", () => {
         return yield* email.send({
           template: "passkey-removed",
           to: "alice@example.com",
-          data: {},
+          data: { instanceName: "Musubi" },
         });
       }).pipe(Effect.provide(buildLayer()), Effect.provide(captureLogger), Effect.result),
     );
@@ -265,7 +265,7 @@ const sendOne = (layer: ReturnType<typeof makeResendEmailLive>) =>
       yield* email.send({
         template: "otp-registration",
         to: "alice@example.com",
-        data: { code: "000000", ttlMinutes: 10 },
+        data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
       });
     }).pipe(Effect.provide(layer)),
   );

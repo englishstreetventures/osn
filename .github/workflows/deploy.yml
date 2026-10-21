@@ -681,9 +681,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
           # The profile given the seeded weddings' owner seat; empty seeds none.
           CIRE_DEV_OWNER_PROFILE_ID: ${{ vars.CIRE_DEV_OWNER_PROFILE_ID }}
-          # cire-api's dev Worker secrets; the guest site holds none.
+          # cire-api's dev Worker secrets; CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS
+          # is declared only while it holds a value. The guest site holds none.
           CIRE_API_ARC_KEY_ID: ${{ secrets.CIRE_API_ARC_KEY_ID }}
           CIRE_API_ARC_PRIVATE_KEY: ${{ secrets.CIRE_API_ARC_PRIVATE_KEY }}
+          CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS: ${{ secrets.CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS }}
           CIRE_OIDC_CLIENT_SECRET: ${{ secrets.CIRE_OIDC_CLIENT_SECRET }}
           STRIPE_PLATFORM_WEBHOOK_SECRET: ${{ secrets.STRIPE_PLATFORM_WEBHOOK_SECRET }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}

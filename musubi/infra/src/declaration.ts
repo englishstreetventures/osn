@@ -105,7 +105,7 @@ export function musubiDeclaration(input: {
         OSN_ENV: "dev",
         // The app's host: a WebAuthn ceremony runs only on an origin same-site with it.
         OSN_RP_ID: hosts.musubiSocial,
-        OSN_RP_NAME: `OSN (${stage})`,
+        OSN_RP_NAME: `Musubi (${stage})`,
         OSN_ORIGIN: app,
         OSN_ISSUER_URL: origin(hosts.osnApi),
         // Also the CSRF origin guard's list: only the app fetches osn-api from a browser.
@@ -121,7 +121,10 @@ export function musubiDeclaration(input: {
         OSN_AUTHORIZE_UI_URL: `${app}/authorize`,
         // The session marker cookie's domain: the app's host, never a parent shared with production.
         OSN_COOKIE_DOMAIN: hosts.musubiSocial,
-        OSN_EMAIL_FROM: "dev@cireweddings.com", // not a host: the sender on Resend's verified domain
+        // Resend refuses a sender on a domain it has not verified, so musubi.social must be
+        // verified before a deploy (englishstreetventures/osn#1548). Dev shares the address
+        // production moves to, by the owner's choice on that issue.
+        OSN_EMAIL_FROM: "Musubi <hello@musubi.social>", // not a host: the sender
       },
       bindings: {
         DB: { kind: "d1" },

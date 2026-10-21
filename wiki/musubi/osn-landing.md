@@ -1,6 +1,8 @@
 ---
-title: OSN Landing
-description: Marketing site for OSN — static Astro brochure emphasising user-owned connections and the opt-in app ecosystem
+title: Musubi Landing
+aliases:
+  - OSN Landing
+description: Marketing site for Musubi — static Astro brochure emphasising user-owned connections and the opt-in app ecosystem
 tags: [app, marketing]
 status: active
 packages:
@@ -10,15 +12,15 @@ related:
   - "[[social]]"
   - "[[pulse-landing]]"
   - "[[cire-landing]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-22
 ---
 
-# OSN Landing
+# Musubi Landing
 
 `@musubi/landing` (`musubi/landing`, dev port **4324**) is the **marketing site** for
-OSN — the page that explains the platform thesis (you own your identity and your
-social graph; apps opt in and out around it) and points visitors at the identity
-/ social app (`@musubi/social`). It is a pure brochure: no OSN auth, no first-party
+Musubi — the page that explains the platform thesis (you own your identity and your
+social graph; apps opt in and out around it) and points visitors at the Musubi
+app (`@musubi/social`). It is a pure brochure: no sign-in, no first-party
 API calls.
 
 ## Stack
@@ -89,9 +91,8 @@ under jsdom / SSR). No `console.*` anywhere (observability rule).
 
 | Var | Purpose | Dev default |
 |---|---|---|
-| `PUBLIC_APP_URL` | Primary CTA → the OSN identity / social app | `http://localhost:1422` |
-| `PUBLIC_DOCS_URL` | Optional docs / source link | unset |
-| `SITE` | Canonical origin for SEO meta (placeholder `https://osn.social`) | config default |
+| `PUBLIC_APP_URL` | Primary CTA → the Musubi app (`@musubi/social`) | `http://localhost:1422` |
+| `SITE` | Canonical origin for SEO meta (placeholder `https://www.musubi.social`) | config default |
 
 `public/_headers` ships a tight CSP: no external image host (`img-src 'self'
 data:`), Google Fonts allowed in `style-src` / `font-src`, immutable cache on
@@ -109,6 +110,6 @@ data:`), Google Fonts allowed in `style-src` / `font-src`, immutable cache on
   `musubi-landing-dev` ([[infrastructure-as-code#Sites]]). The
   `osn-landing` Pages project already exists and still serves an old preview build
   at `osn-landing.pages.dev`.
-- **Real domain** — `SITE` / `PUBLIC_APP_URL` use placeholders until OSN's
+- **Real domain** — `SITE` / `PUBLIC_APP_URL` use placeholders until Musubi's
   marketing + app hosts are decided.
 - **Marketing depth** — pricing, deeper feature pages, SEO/blog content.

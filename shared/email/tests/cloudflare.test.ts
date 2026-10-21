@@ -56,7 +56,7 @@ describe("CloudflareEmailLive", () => {
         yield* email.send({
           template: "otp-registration",
           to: "alice@example.com",
-          data: { code: "000000", ttlMinutes: 10 },
+          data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
         });
       }).pipe(Effect.provide(layer)),
     );
@@ -76,7 +76,7 @@ describe("CloudflareEmailLive", () => {
     };
     expect(payload.to).toEqual([{ email: "alice@example.com" }]);
     expect(payload.from).toEqual({ email: "noreply@osn.test" });
-    expect(payload.subject).toBe("Verify your OSN email");
+    expect(payload.subject).toBe("Verify your Musubi email");
     expect(payload.text).toContain("000000");
     expect(payload.html).toContain("000000");
   });
@@ -106,7 +106,7 @@ describe("CloudflareEmailLive", () => {
       {
         template: "otp-step-up",
         to: "alice@example.com",
-        data: { code: "000000", ttlMinutes: 5 },
+        data: { code: "000000", ttlMinutes: 5, instanceName: "Musubi" },
       },
       "rate_limited",
     );
@@ -116,7 +116,7 @@ describe("CloudflareEmailLive", () => {
     responder = () => new Response("boom", { status: 500 });
     await expectFailsWith(
       buildLayer(),
-      { template: "passkey-added", to: "alice@example.com", data: {} },
+      { template: "passkey-added", to: "alice@example.com", data: { instanceName: "Musubi" } },
       "dispatch_failed",
     );
   });
@@ -130,7 +130,7 @@ describe("CloudflareEmailLive", () => {
     );
     await expectFailsWith(
       buildLayer(),
-      { template: "recovery-consumed", to: "alice@example.com", data: {} },
+      { template: "recovery-consumed", to: "alice@example.com", data: { instanceName: "Musubi" } },
       "api_unreachable",
     );
   });
@@ -142,7 +142,7 @@ describe("CloudflareEmailLive", () => {
       {
         template: "otp-registration",
         to: "alice@example.com",
-        data: { code: "000000", ttlMinutes: 10 },
+        data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
       },
       "dispatch_failed",
     );
@@ -154,7 +154,7 @@ describe("CloudflareEmailLive", () => {
       {
         template: "otp-registration",
         to: "alice@example.com",
-        data: { code: null as unknown as string, ttlMinutes: 10 },
+        data: { code: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
       },
       "render_failed",
     );
@@ -168,7 +168,7 @@ describe("CloudflareEmailLive", () => {
         yield* email.send({
           template: "passkey-added",
           to: "user+tag@sub.domain.example.com",
-          data: {},
+          data: { instanceName: "Musubi" },
         });
       }).pipe(Effect.provide(layer)),
     );
@@ -187,7 +187,7 @@ describe("CloudflareEmailLive", () => {
         yield* email.send({
           template: "otp-registration",
           to: "alice@example.com",
-          data: { code: "999888", ttlMinutes: 10 },
+          data: { code: "999888", ttlMinutes: 10, instanceName: "Musubi" },
         });
       }).pipe(Effect.provide(layer)),
     );

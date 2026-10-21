@@ -1,6 +1,6 @@
 ---
 title: Social
-description: OSN Social app — identity and social-graph management UI
+description: Musubi app — identity and social-graph management UI
 tags: [app, identity, social-graph]
 status: active
 packages:
@@ -16,12 +16,12 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-22
 ---
 
 # Social
 
-`@musubi/social` is a SolidJS web app for managing your OSN identity and social graph. It is the first app dedicated to the cross-app identity layer — separate from Pulse (events) and Zap (messaging), which keep their own domain UI.
+`@musubi/social` is a SolidJS web app for managing your Musubi identity and social graph. It is the first app dedicated to the cross-app identity layer — separate from Pulse (events) and Zap (messaging), which keep their own domain UI.
 
 ## Architecture
 
@@ -44,7 +44,7 @@ The app ships as a web build only.
 | `/organisations` | `OrganisationsPage` | Orgs the user owns or belongs to; create new |
 | `/organisations/:id` | `OrgDetailPage` | Org detail + member management |
 | `/settings` | `SettingsPage` | Profile / Account / **Security** (passkey add/rename/delete, step-up gated) / Connected apps tabs. Which tab opens comes from the URL fragment (`/settings#security`), read off the router's location — so a deep link from another origin, Back/Forward, a tab click and an in-app link to a tab all behave the same. The Security tab is lazy-loaded (`SecuritySection` chunk). `@simplewebauthn/browser` is split across two wrappers: `src/lib/webauthn-ceremony.ts` (assertion) ships with the security-events banner, and `src/lib/webauthn-registration.ts` (enrolment) only when the Security tab opens — see below. |
-| `/authorize` | `AuthorizePage` | The OIDC consent screen — another app asking to sign the user in with their OSN account. Lazy-loaded, and the one route on a **bare layout**: no sidebar, nothing to click but the decision. Full contract in [[authorize-ui]]. |
+| `/authorize` | `AuthorizePage` | The OIDC consent screen — another app asking to sign the user in with their Musubi account. Lazy-loaded, and the one route on a **bare layout**: no sidebar, nothing to click but the decision. Full contract in [[authorize-ui]]. |
 
 `BARE_ROUTES` in `src/App.tsx` is the allow-list that strips the sidebar. Add
 a route there only when leaving the flow would be a security problem.

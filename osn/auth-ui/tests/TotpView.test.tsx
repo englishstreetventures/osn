@@ -32,7 +32,7 @@ interface StepUpStub {
 }
 
 const SECRET = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
-const URI = `otpauth://totp/OSN:alice@example.com?secret=${SECRET}&issuer=OSN&algorithm=SHA1&digits=6&period=30`;
+const URI = `otpauth://totp/Musubi:alice@example.com?secret=${SECRET}&issuer=Musubi&algorithm=SHA1&digits=6&period=30`;
 
 const assertion = {
   id: "cred",

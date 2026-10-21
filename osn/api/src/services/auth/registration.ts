@@ -40,7 +40,7 @@ export function createRegistrationModule(
   _profiles: ProfilesModule,
   tokens: TokensModule,
 ) {
-  const { stores, otpTtl } = ctx;
+  const { config, stores, otpTtl } = ctx;
   const { issueTokens } = tokens;
 
   /**
@@ -270,7 +270,7 @@ export function createRegistrationModule(
         .send({
           template: "otp-registration",
           to: normalisedEmail,
-          data: { code, ttlMinutes: otpTtl / 60 },
+          data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
         })
         .pipe(
           Effect.mapError(

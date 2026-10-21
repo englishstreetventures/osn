@@ -108,7 +108,7 @@ describe("the musubi stack, evaluated offline", () => {
     }).toEqual({
       OSN_ENV: "dev",
       OSN_RP_ID: `musubi.${DEV_DOMAIN}`,
-      OSN_RP_NAME: "OSN (dev)",
+      OSN_RP_NAME: "Musubi (dev)",
       OSN_ORIGIN: `https://musubi.${DEV_DOMAIN}`,
       OSN_ISSUER_URL: `https://id.musubi.${DEV_DOMAIN}`,
       OSN_CORS_ORIGIN: `https://musubi.${DEV_DOMAIN}`,
@@ -120,7 +120,7 @@ describe("the musubi stack, evaluated offline", () => {
       ].join(","),
       OSN_AUTHORIZE_UI_URL: `https://musubi.${DEV_DOMAIN}/authorize`,
       OSN_COOKIE_DOMAIN: `musubi.${DEV_DOMAIN}`,
-      OSN_EMAIL_FROM: "dev@cireweddings.com",
+      OSN_EMAIL_FROM: "Musubi <hello@musubi.social>",
     });
 
     // An investigation stage derives every name and host from its own name
@@ -134,7 +134,7 @@ describe("the musubi stack, evaluated offline", () => {
     expect(investigation.MusubiLanding?.Props.name).toBe("musubi-landing-probe");
     expect(investigation.OsnApi?.Props.domain).toBe(`id.musubi.probe.${DEV_DOMAIN}`);
     expect(investigation.OsnApi?.Props.env?.OSN_ENV).toBe("dev");
-    expect(investigation.OsnApi?.Props.env?.OSN_RP_NAME).toBe("OSN (probe)");
+    expect(investigation.OsnApi?.Props.env?.OSN_RP_NAME).toBe("Musubi (probe)");
   });
 
   test("RQ1: osn-api redacts query strings from its logs and traces, since dev sign-in takes its secret in one", () => {

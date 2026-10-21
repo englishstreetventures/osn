@@ -165,6 +165,18 @@ describe("secret inventory", () => {
     expect(tierSecrets("zap-api", "dev").forbidden).toContain("GROWTHBOOK_CLIENT_KEY");
   });
 
+  test("cire-api keeps its member-step exclusion list on both tiers once set, and needs it on neither", () => {
+    for (const tier of TIERS) {
+      const row = tierSecrets("cire-api", tier);
+      const name = "CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS";
+      expect({
+        tier,
+        optional: row.optional.includes(name),
+        required: row.secrets.includes(name),
+      }).toEqual({ tier, optional: true, required: false });
+    }
+  });
+
   test("zap-api production forbids the GrowthBook key no zap code reads, while cire-api production keeps its own", () => {
     expect(reads("zap/api/src", "GROWTHBOOK_CLIENT_KEY")).toBe(false);
     expect(tierSecrets("zap-api", "production").forbidden).toContain("GROWTHBOOK_CLIENT_KEY");

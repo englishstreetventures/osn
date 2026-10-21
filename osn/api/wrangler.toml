@@ -45,7 +45,7 @@ workers_dev = false
 [vars]
 OSN_ENV = "local"
 OSN_RP_ID = "localhost"
-OSN_RP_NAME = "OSN"
+OSN_RP_NAME = "Musubi"
 OSN_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322,http://localhost:5173,http://localhost:4326,http://localhost:4321"
 # 4000, not wrangler's default 8787. Every consumer's local expectation is
 # `http://localhost:4000` — cire's and pulse's wrangler dev blocks, all three
@@ -147,7 +147,7 @@ OSN_ENV = "staging"
 # deploy. OSN_RP_ID/OSN_ORIGIN need a real custom domain (workers.dev can't be a
 # WebAuthn RP ID across surfaces), so staging passkeys are deferred until then.
 OSN_RP_ID = "staging.osn.example"
-OSN_RP_NAME = "OSN (staging)"
+OSN_RP_NAME = "Musubi (staging)"
 OSN_ORIGIN = "https://staging.osn.example"
 OSN_ISSUER_URL = "https://api.staging.osn.example"
 OSN_CORS_ORIGIN = "https://staging.osn.example"
@@ -232,7 +232,7 @@ crons = ["0 */6 * * *"]
 [env.production.vars]
 OSN_ENV = "production"
 OSN_RP_ID = "musubi.social"
-OSN_RP_NAME = "OSN"
+OSN_RP_NAME = "Musubi"
 OSN_ORIGIN = "https://musubi.social"
 OSN_ISSUER_URL = "https://id.musubi.social"
 OSN_CORS_ORIGIN = "https://musubi.social"

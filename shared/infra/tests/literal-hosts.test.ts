@@ -23,6 +23,15 @@ describe("the literal-host scan each stack's K7 runs", () => {
     expect(
       literalHosts("sample.ts", 'const from = "dev@cireweddings.com"; // not a host: a sender'),
     ).toEqual([]);
+    expect(
+      literalHosts(
+        "sample.ts",
+        'const from = "Musubi <hello@musubi.social>"; // not a host: a sender',
+      ),
+    ).toEqual([]);
+    expect(
+      literalHosts("sample.ts", 'const issuer = "id.musubi.social"; // not a host: a sender'),
+    ).toEqual(["sample.ts:1: id.musubi.social"]);
   });
 
   test("K7: files, paths, template holes and comments are not hosts", () => {

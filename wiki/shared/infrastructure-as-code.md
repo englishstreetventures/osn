@@ -16,7 +16,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[database-environments]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 
 # Infrastructure as code (Alchemy)
@@ -294,7 +294,7 @@ A dispatch deploys every stack. A stack job builds every site of its stack befor
 |---|---|
 | `scriptName` | The deployed script name, or `null` where the tier has no Worker |
 | `secrets` | Required names, sorted. Declared on every deploy; a missing value fails it |
-| `optional` | Names declared only while their GitHub secret holds a value. Today only osn-api's `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS`, set while a TOTP key rotation drains |
+| `optional` | Names declared only while their GitHub secret holds a value: osn-api's `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS`, set while a TOTP key rotation drains, and cire-api's `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS`, the weddings kept off the household member step |
 | `forbidden` | Names that must never be set on that Worker on that tier |
 | `plainVars` | Names this tier holds as plain-text vars although another tier holds them as secrets. Only cire-api's dev `OSN_API_URL`, osn-api's dev origin derived from the dev domain |
 

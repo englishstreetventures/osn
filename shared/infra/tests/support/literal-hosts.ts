@@ -22,8 +22,11 @@ const FILE_EXTENSIONS = new Set(["ts", "js", "mjs", "cjs", "sql", "json", "jsonc
 /** String literals: double, single and template quotes, across lines. */
 const STRING = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
 
-/** The one literal that names a domain without naming a host, allowed on a line commented as such. */
-const ALLOWED = "cireweddings.com";
+/**
+ * Domains a literal may name without naming a host — a sender's domain, a
+ * pairwise sector — allowed only on a line commented as such.
+ */
+const ALLOWED: ReadonlySet<string> = new Set(["cireweddings.com", "musubi.social"]);
 
 /** Third-party hosts a stack may name: not ours, so never a dev host. */
 const THIRD_PARTY: ReadonlySet<string> = new Set(["cdn.growthbook.io"]);
@@ -40,8 +43,8 @@ function sources(dir: string): string[] {
 /**
  * Each host in a string literal outside comments, as `file:line: host`. A
  * template's `${…}` holes read as one label, so `id.${stage}.zone.test`
- * still shows. A `cireweddings.com` is allowed only on a line whose trailing
- * comment says it is not a host.
+ * still shows. A `cireweddings.com` or `musubi.social` is allowed only on a
+ * line whose trailing comment says it is not a host.
  */
 export function literalHosts(file: string, text: string): string[] {
   const withoutBlocks = text.replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, " "));
@@ -63,7 +66,7 @@ export function literalHosts(file: string, text: string): string[] {
       .filter((match) => !FILE_EXTENSIONS.has(match[0].slice(match[0].lastIndexOf(".") + 1)))
       .filter((match) => !THIRD_PARTY.has(match[0]))
       .map((match) => ({ host: match[0], line: lineOf(match.index ?? 0) }))
-      .filter(({ host, line }) => !(host === ALLOWED && lines[line]?.notAHost))
+      .filter(({ host, line }) => !(ALLOWED.has(host) && lines[line]?.notAHost))
       .map(({ host, line }) => `${file}:${line + 1}: ${host}`);
   });
 }

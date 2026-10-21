@@ -100,7 +100,9 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "STRIPE_SECRET_KEY",
           "STRIPE_WEBHOOK_SECRET",
         ],
-        optional: [],
+        // Weddings kept off the household member step; unset, every household
+        // gets it (cire/api/wrangler.toml, top-level vars note).
+        optional: ["CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS"],
         forbidden: ["RESEND_API_URL"],
         // osn-api's dev origin, derived from the dev domain; a secret on production.
         plainVars: ["OSN_API_URL"],
@@ -114,7 +116,7 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "GROWTHBOOK_CLIENT_KEY",
           "OSN_API_URL",
         ],
-        optional: [],
+        optional: ["CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS"],
         forbidden: ["RESEND_API_URL"],
       },
     },

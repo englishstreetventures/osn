@@ -14,7 +14,7 @@ describe("LogEmailLive", () => {
         yield* email.send({
           template: "otp-registration",
           to: "alice@example.com",
-          data: { code: "111111", ttlMinutes: 10 },
+          data: { code: "111111", ttlMinutes: 10, instanceName: "Musubi" },
         });
       }).pipe(Effect.provide(layer)),
     );
@@ -23,7 +23,7 @@ describe("LogEmailLive", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].template).toBe("otp-registration");
     expect(sent[0].to).toBe("alice@example.com");
-    expect(sent[0].subject).toBe("Verify your OSN email");
+    expect(sent[0].subject).toBe("Verify your Musubi email");
     expect(sent[0].text).toContain("111111");
   });
 
@@ -37,7 +37,7 @@ describe("LogEmailLive", () => {
         yield* email.send({
           template: "passkey-added",
           to: "a@example.com",
-          data: {},
+          data: { instanceName: "Musubi" },
         });
       }).pipe(Effect.provide(a.layer)),
     );
@@ -54,7 +54,7 @@ describe("LogEmailLive", () => {
         yield* email.send({
           template: "recovery-generated",
           to: "x@example.com",
-          data: {},
+          data: { instanceName: "Musubi" },
         });
       }).pipe(Effect.provide(layer)),
     );
@@ -71,7 +71,7 @@ describe("LogEmailLive", () => {
         yield* email.send({
           template: "otp-registration",
           to: "alice@example.com",
-          data: { code: null as unknown as string, ttlMinutes: 10 },
+          data: { code: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
         });
       }).pipe(Effect.provide(layer)),
     );
@@ -97,7 +97,7 @@ describe("LogEmailLive", () => {
           yield* email.send({
             template: "passkey-added",
             to: `user${String(i).padStart(3, "0")}@example.com`,
-            data: {},
+            data: { instanceName: "Musubi" },
           });
         }
       }).pipe(Effect.provide(layer)),

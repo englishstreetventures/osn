@@ -170,7 +170,10 @@ describe("<AuthorizePage />", () => {
     renderPage();
 
     expect(await screen.findByText("Cire")).toBeDefined();
-    expect(screen.getByText("wants to use your OSN account")).toBeDefined();
+    expect(screen.getByText("wants to use your Musubi account")).toBeDefined();
+    // A third-party client is called out and never carries the instance's badge.
+    expect(screen.getByText("Third-party app")).toBeDefined();
+    expect(screen.queryByText("Verified by Musubi")).toBeNull();
     expect(screen.getByText("Confirm who you are")).toBeDefined();
     expect(screen.getByText("See your profile")).toBeDefined();
     expect(screen.getByText("See your email address")).toBeDefined();
@@ -428,7 +431,11 @@ describe("<AuthorizePage />", () => {
       // Nothing is granted on Continue alone.
       expect(mocks.submitDecision).not.toHaveBeenCalled();
 
-      fireEvent.click(await screen.findByText("Allow"));
+      const allow = await screen.findByText("Allow");
+      // A first-party client carries the instance's badge, not the third-party label.
+      expect(screen.getByText("Verified by Musubi")).toBeDefined();
+      expect(screen.queryByText("Third-party app")).toBeNull();
+      fireEvent.click(allow);
       await waitFor(() =>
         expect(mocks.submitDecision).toHaveBeenCalledWith({
           requestId: REQUEST_ID,

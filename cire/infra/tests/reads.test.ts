@@ -30,8 +30,6 @@ const UNSET_ON_DEV: Readonly<Record<string, string>> = {
   CIRE_INTERNAL_REVOKE_SECRET:
     "unset, the back-channel revoke route answers 503 (index.ts); the inventory declares it on neither tier",
   CIRE_LOCAL_DB_PATH: "read only by src/local.ts, the Bun dev server",
-  CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS:
-    "unset, every guest household gets the member step (lib/account-linking.ts); the inventory declares it on neither tier",
   CIRE_OPS_EMAIL:
     "unset, no vendor-claim reminder is sent (lib/claim-review-email.ts); the inventory declares it on neither tier",
   GROWTHBOOK_CLIENT_KEY: "dev has no GrowthBook key; every flag serves its coded default",
