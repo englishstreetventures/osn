@@ -133,7 +133,7 @@ For one change, a member who keeps access and is evicted gets three signals: the
 
 ## Observability
 
-Counters in [metrics.ts](../../shared/realtime/src/server/metrics.ts) — see [[metrics]]. They run in the product Worker, never in the hub, and on workerd they record into a no-op meter until englishstventures/osn#501 lands:
+Counters in [metrics.ts](../../shared/realtime/src/server/metrics.ts) — see [[metrics]]. They run in the product Worker, never in the hub, and on workerd they record into a no-op meter until englishstreetventures/osn#501 lands:
 
 - `realtime.subscribe.attempts`, by `product` and `outcome` (the outcomes in the table above)
 - `realtime.signal.published`, by `product`, `kind` and `result` (`ok`, `error`, `disabled`)

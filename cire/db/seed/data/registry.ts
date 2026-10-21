@@ -33,12 +33,16 @@ export type SeedRegistrySettings = {
 
 export type SeedRegistryItem = {
   readonly id: string;
+  /** A gift to reserve, or a cash fund guests give money to. */
+  readonly kind: "product" | "cash_fund";
   readonly title: string;
   readonly description: string | null;
   readonly externalUrl: string | null;
   readonly priceMinor: number | null;
   readonly quantityWanted: number;
   readonly category: string | null;
+  /** A cash fund's goal, minor units; null on every product. */
+  readonly targetMinor: number | null;
   readonly sortOrder: number;
 };
 
@@ -74,6 +78,7 @@ const item = (n: number): string => `reg_c4b8a2f1-0000-4000-8000-${String(n).pad
 
 export const registryItems = [
   {
+    kind: "product",
     id: item(1),
     title: "Cast-iron casserole, 26cm",
     description: "Anything oven-to-table. Blue if there's a choice.",
@@ -81,9 +86,11 @@ export const registryItems = [
     priceMinor: 45_000,
     quantityWanted: 1,
     category: "Kitchen",
+    targetMinor: null,
     sortOrder: 0,
   },
   {
+    kind: "product",
     id: item(2),
     title: "Stand mixer",
     description: null,
@@ -91,9 +98,11 @@ export const registryItems = [
     priceMinor: 79_900,
     quantityWanted: 1,
     category: "Kitchen",
+    targetMinor: null,
     sortOrder: 1,
   },
   {
+    kind: "product",
     id: item(3),
     title: "Espresso machine",
     description: "The one gift that gets used every single morning.",
@@ -101,9 +110,11 @@ export const registryItems = [
     priceMinor: 129_900,
     quantityWanted: 1,
     category: "Kitchen",
+    targetMinor: null,
     sortOrder: 2,
   },
   {
+    kind: "product",
     id: item(4),
     title: "Wine glasses, set of six",
     description: "Two sets would not go astray.",
@@ -111,9 +122,11 @@ export const registryItems = [
     priceMinor: 12_000,
     quantityWanted: 2,
     category: "Table",
+    targetMinor: null,
     sortOrder: 3,
   },
   {
+    kind: "product",
     id: item(5),
     title: "Cutlery set, 24 piece",
     description: null,
@@ -121,9 +134,11 @@ export const registryItems = [
     priceMinor: 34_900,
     quantityWanted: 1,
     category: "Table",
+    targetMinor: null,
     sortOrder: 4,
   },
   {
+    kind: "product",
     id: item(6),
     title: "Hand-thrown serving platter",
     description: "Made in Bowral, so no two are the same.",
@@ -131,9 +146,11 @@ export const registryItems = [
     priceMinor: 18_000,
     quantityWanted: 1,
     category: "Table",
+    targetMinor: null,
     sortOrder: 5,
   },
   {
+    kind: "product",
     id: item(7),
     title: "Linen bedding set, queen",
     description: null,
@@ -141,9 +158,11 @@ export const registryItems = [
     priceMinor: 39_900,
     quantityWanted: 1,
     category: "Home",
+    targetMinor: null,
     sortOrder: 6,
   },
   {
+    kind: "product",
     id: item(8),
     title: "Wool throw",
     description: null,
@@ -151,9 +170,11 @@ export const registryItems = [
     priceMinor: 24_900,
     quantityWanted: 2,
     category: "Home",
+    targetMinor: null,
     sortOrder: 7,
   },
   {
+    kind: "product",
     id: item(9),
     title: "Picnic hamper",
     description: "For the drive up the coast afterwards.",
@@ -161,11 +182,13 @@ export const registryItems = [
     priceMinor: 15_900,
     quantityWanted: 1,
     category: "Outdoors",
+    targetMinor: null,
     sortOrder: 8,
   },
   {
     // Deliberately price-free: the column is nullable and the list, the guest
     // page and the gift log all have to render a line with no number on it.
+    kind: "product",
     id: item(10),
     title: "A recipe you actually cook",
     description: "Written out, in your handwriting. That's the whole gift.",
@@ -173,7 +196,24 @@ export const registryItems = [
     priceMinor: null,
     quantityWanted: 1,
     category: null,
+    targetMinor: null,
     sortOrder: 9,
+  },
+  {
+    // A cash fund, with a goal the couple alone see. Money gifts are off on
+    // dev (`cashGiftsEnabled` above, and no Stripe account), so it shows in
+    // the organiser's list and not on the guest page, which offers a fund only
+    // while money can be taken.
+    kind: "cash_fund",
+    id: item(11),
+    title: "Honeymoon in Kyoto",
+    description: "Trains, temples and one very good dinner.",
+    externalUrl: null,
+    priceMinor: null,
+    quantityWanted: 1,
+    category: null,
+    targetMinor: 500_000,
+    sortOrder: 10,
   },
 ] as const satisfies readonly SeedRegistryItem[];
 

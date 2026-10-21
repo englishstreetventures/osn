@@ -1032,6 +1032,7 @@ describe("householdReplied in the claim payload", () => {
           "eventId",
           "guestId",
           "status",
+          "submittedBy",
         ].toSorted(),
       );
     }

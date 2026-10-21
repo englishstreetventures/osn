@@ -11,10 +11,10 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-21
 ---
 
-# DPIA — Cire guest data
+# DPIA — Cire guest data (special-category dietary)
 
 A Data Protection Impact Assessment (GDPR Art. 35) for the cire
 wedding-invite app. This processing needs a DPIA because it
@@ -35,8 +35,8 @@ evidences the condition. The lawful-processing blocker is therefore **closed**;
 final sign-off now turns only on the residual retention gaps (C-H1) below.
 
 > **Label note.** This finding is labelled **C-H2 (cire dietary)** to
-> disambiguate it from the root **C-H2** (OSN account-erasure endpoint), which
-> is a separate finding in `englishstventures/osn-tracker`.
+> disambiguate it from the OSN account-erasure item that carries the same
+> label in [[gdpr]].
 
 ## 1. Description of the processing
 
@@ -47,18 +47,35 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   closed sixteen-entry vocabulary the guest picks from, and `rsvps.dietary`,
   free text for anything the vocabulary has no key for. See [[data-map]] for
   the full field list and [[cire-auth]] for the two-auth model.
-- **Member attribution (migration 0075, behind `cire.account-linking`).** A
-  claim code proves a household, not a person. After a claim the invite asks
-  "Who are you?" and the session records the member
-  (`sessions.member_guest_id`); every reply records the member who sent it
-  (`rsvps.submitted_by_guest_id`, plus `submitted_via_link` when sent while
-  signed in to that member's linked musubi account) and every change-log row
-  its actor (`rsvp_changes.actor_guest_id`). The household sees "Answered by
-  {first name}" under each reply; the organisers see the same rows they see
-  today. Ids only, kept as long as the row they sit on, nulled when the member
-  is deleted. Basis Art. 6(1)(f), wedding administration, as `rsvps.status`.
-  The choice is the guest's word, backed by the household code: the household
-  trust model the claim has always had.
+- **Member attribution (migration 0075, every guest household but a wedding
+  listed in `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS`, where it stays behind
+  `cire.account-linking`).** A claim
+  code proves a household, not a person. After a claim the invite asks "Who
+  are you?" (a household of one is chosen for) and the session records the
+  member (`sessions.member_guest_id`); every reply records the member who sent
+  it (`rsvps.submitted_by_guest_id`, plus `submitted_via_link` when sent while
+  signed in to that member's linked musubi account, only where
+  `cire.account-linking` is on) and every change-log row its actor
+  (`rsvp_changes.actor_guest_id`). The household sees "Answered by
+  {first name}" under each reply; the organisers see the same rows, each with
+  "Answered by {first name}", and a "linked musubi" mark where
+  `submitted_via_link` is set. Ids only, kept as long as the row they sit on.
+  Deleting a member nulls the id on `rsvps` and `sessions`; on `rsvp_changes`
+  it stays, with no foreign key, until the row ages out at 90 days
+  ([[retention]]). Basis Art. 6(1)(f), wedding administration, as
+  `rsvps.status`. The choice is the guest's word, backed by the household
+  code: the household trust model the claim has always had. The guest privacy
+  notice lists which member sent each reply.
+- **Seat assignments (migration 0089, a Gold module).** An organiser may set
+  out tables for an event and seat invited guests at them
+  (`seating_assignments`). A seat says who sits beside whom, so it can imply a
+  relationship; it holds ids only and no answer, is read by the wedding's
+  owners and co-hosts, and is never shown to other guests. An owner may
+  download it (`seating.csv`: names, household, table, reply, no dietary data)
+  and anyone who reads the chart may print it, for the venue. Basis
+  Art. 6(1)(f), wedding administration, as the guest list it is drawn from.
+  Seats go with the guest's invitation and with the 1-year guest-data sweep
+  ([[retention]]); the guest privacy notice lists them.
 - **Relayed dietary consent.** A household member often answers for others,
   and the sheet asks for consent once per submission. The record now shows
   which member ticked the box for whom, which makes visible a gap that already
@@ -103,7 +120,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   one's duties, with its essence available to guests, and Art. 28 asks for the
   processor terms. Neither is written yet: the organiser terms do not name the
   owners' duties or a point of contact, and the guest notice
-  (`cire/invites/src/pages/privacy.astro`, "Who decides what") does not say a
+  (`cire/ui/src/guest-privacy-notice.astro`, "Who decides what") does not say a
   guest may exercise their rights against any owner.
 - **Scale.** Per-wedding guest counts (tens to low hundreds today; multi-tenant
   scaffold allows many weddings). We collect special-category data from a
@@ -146,6 +163,34 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   per-wedding seat cap, and a wedding never loses its last owner. Mail about the wedding's data — the
   RSVP digest and the retention sweep's parting gift summary — goes to every
   owner. See [[cire-auth]].
+- **A helper's run-sheet scope (2026-10-20).** A `helper` seat reads none of
+  the guest data above — no guest list, dietary field, claim codes or replies
+  — and an owner may now set how much of the day's run sheet that helper is
+  shown: `own`, the tasks they hold, or `full`, every task and who is
+  doing each one (`PUT …/hosts/:osnProfileId/run-sheet-scope`, owner only).
+  Every new helper starts at `own`, any role change but helper to helper
+  resets the scope to `own`, and the portal asks before it is widened, saying the helper will see who
+  else is doing what. A `full` helper therefore receives the other seat
+  holders' names against their tasks, and the tasks' free-text titles and
+  notes, which an organiser may use to name a guest. **Those titles and notes
+  may also carry a guest's dietary or health detail** ("table 4: Sam's nut
+  allergy"), special-category data under Art. 9 that no guest-list gate
+  covers once an organiser has written it into a task, which a `full` helper
+  will receive with every task from englishstreetventures/osn#1396 (an `own`
+  helper only with the tasks they hold); it is mitigated by widening being an
+  owner's alone, behind a confirmation saying the helper will see every task,
+  and by every helper starting at `own` and returning to it on a role
+  change, and it is **accepted**, because the owner chose names readable to
+  every helper and widening needs an owner's confirmation. **The owner chose
+  (2026-10-20) that the names of the people the run sheet assigns are readable
+  to every helper, `own` helpers included**, so this is a deliberate
+  disclosure within the wedding team, not a leak to guard against. **The
+  disclosure begins when the run-sheet view ships**
+  (englishstreetventures/osn#1396): until then no route serves a helper any
+  task, so a scope set today discloses nothing. Assessed as acceptable: only
+  an owner widens it, behind a confirmation; it never opens the guest list;
+  and a helper's own-scope response is narrowed on the server, not in the
+  page. See [[cire-auth#The run-sheet scope]].
 - **Granularity (2026-08-01).** The field is stored per **(guest, event)** — a
   guest answers once per event they are invited to — and `GET …/rsvps.csv` now
   discloses it that way, one dietary column per event. It previously collapsed
@@ -291,7 +336,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
     organiser-attested variant above). **An organiser's status-only recording
     for a plus-one keeps the household's dietary answer, its consent record and
     `consent_source = 'inviter_attested'`**, and changes only the status (owner
-    decision, englishstventures/osn#1251), as it does for every guest. The
+    decision, englishstreetventures/osn#1251), as it does for every guest. The
     column then states the dietary data's consent basis, which is still the
     household's attestation, and no longer who wrote the status; who wrote it
     is `rsvps.recorded_by_osn_profile_id` and the save's `host_status_set`
@@ -306,11 +351,22 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   - **Art. 14 notice for a plus-one.** Their data is not obtained from them, so
     the controller owes them the Art. 14 information. The invite's plus-one
     prompt asks the household to share the privacy notice (`/privacy`) with
-    their guest, and the notice has a section for a person a guest brings: the
-    source of their details (the guest bringing them), the basis for each
-    (legitimate interest for name and RSVP; for dietary requirements, their
-    explicit consent as confirmed by that guest), and how to correct, withdraw
-    or delete them without a code of their own. The owners, as joint
+    their guest, and the notice — the same text on the guest site's `/privacy`
+    and at cireweddings.com/privacy/guests, which cireweddings.com/privacy
+    links to — has a section for a
+    person a guest brings: the source of their details (the guest bringing
+    them, or a host who records their reply and dietary requirements for them),
+    the basis for each (legitimate interest for name and RSVP; for dietary
+    requirements, their explicit consent as confirmed by that guest, or by the
+    host who records it), and how to correct, withdraw or delete them without a
+    code of their own. When an organiser records a plus-one's dietary answer
+    by phone or on paper, the controller gives the notice through that
+    organiser: under the organiser's plus-one attestation the portal asks them
+    to pass it on, with the line "Share our privacy notice with them:
+    cireweddings.com/privacy", linked to that page in a new tab
+    (`cire/host/src/components/RsvpView.tsx`). An owner who records the reply
+    gives it as one of the joint controllers; an editor passes it on for the
+    owners (§1 Roles). The owners, as joint
     controllers, answer their requests, and can correct a plus-one's name at any time (see
     [[dsar]]). Name alone (Art. 6(1)(f), wedding administration) rests on the
     same basis as every other guest name.
@@ -346,8 +402,8 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
 | Guest spreadsheets or invite photos permanently deleted by the daily R2 orphan reconciler while the rows naming them are missing — a bad migration, a wrong bulk delete, a `cire-db` restore — with no versioning or second copy of `cire-sheets` or `cire-assets` to restore from ([[backup-dr]]) | Low | High | Mitigated: only objects R2 says are 7 days old are judged; a failed or empty reference read, a database paired with another environment's bucket, or a lookup that loses its control deletes nothing; at most 500 objects a run; a run whose rows naming the bucket's objects fell by more than half holds, emails the operator, and keeps holding against the earlier count for up to 7 runs; an operator's `reconcile/stop` object stops a reconciler without a deploy, and the restore runbook in [[backup-dr]] sets it first; every delete batch logs a warning. Residuals: no backup of either bucket; a loss under half the rows is not held; a hold lasts 7 runs and a stop relies on an operator acting on the email; an empty table or a total wipe aborts every run with a warning log and sends no email. |
 | Cross-DB deletion orphan — OSN-account deletion does not erase cire guest data | Medium | Medium | No fan-out; orphan-tolerance documented in [[dsar]] (C-M1). |
 | A guest's gift amount and day outlive the year in the couple's record | Medium | Low | Kept unnamed, with no note or Stripe identifier, a day rather than a time, at most 200 lines a wedding; read only by the wedding's members and mailed to its owners. The couple can still match a line to the payer in their own Stripe account — but they were the recipients and hold that record anyway, so the residual is that cire keeps a copy past the year. Guests are told in the privacy notice; the record goes when the couple delete the wedding. |
-| A plus-one's name and reply held on another guest's word, and they may never see the notice | Medium | Low–Medium | The household names the plus-one; the plus-one never holds the claim code. Mitigated: dietary data on a plus-one's reply is stored only under an attestation that speaks of the plus-one — the household's, or the organiser's for a phone or paper reply — each in its own box and wording, pinned by its own version and to the name the plus-one carries now; a household rename clears the plus-one's dietary answers; the capture copy asks the household to pass on the privacy notice, which has a section for them; an editor can correct the name at any time; the household can remove the plus-one until the RSVP deadline and the organiser at any time (permission off with the remove flag); swept with the household at 1 year ([[retention]]). |
-| A member's reply attributed to the wrong person on a shared device | Low | Low | Anyone holding the household code can pick any member's name — the household trust model the claim has always had. Mitigated by "Not you?" (clears the member and ends the browser's musubi sign-in), by the invite naming the member answering, and by musubi always showing the signed-in account before a link (`prompt=select_account`). `submitted_via_link` lets the organisers tell "signed in as" from "picked from a list". |
+| A plus-one's name and reply held on another guest's word, and they may never see the notice | Medium | Low–Medium | The household names the plus-one; the plus-one never holds the claim code. Mitigated: dietary data on a plus-one's reply is stored only under an attestation that speaks of the plus-one — the household's, or the organiser's for a phone or paper reply — each in its own box and wording, pinned by its own version and to the name the plus-one carries now; a household rename clears the plus-one's dietary answers; the capture copy asks the household to pass on the privacy notice, which has a section for them, and the portal asks an organiser recording a plus-one's dietary answer to pass on cireweddings.com/privacy, which leads to it; an editor can correct the name at any time; the household can remove the plus-one until the RSVP deadline and the organiser at any time (permission off with the remove flag); swept with the household at 1 year ([[retention]]). |
+| A member's reply attributed to the wrong person on a shared device | Low | Low | Anyone holding the household code can pick any member's name — the household trust model the claim has always had. Mitigated by "Not you?" (clears the member and ends the browser's musubi sign-in), by the invite naming the member answering — the write refuses a reply when the session's member is no longer the one the page showed (409 `member_changed`), so another tab's choice never takes over this tab's answers — and, where account linking is on, by musubi always showing the signed-in account before a link (`prompt=select_account`). There `submitted_via_link` lets the organisers tell "signed in as" from "picked from a list"; where it is off, every attribution is "picked from a list". |
 | One household member relays another adult's dietary consent | Medium | Medium | Existing gap, now visible in the record (which member ticked the box for whom). Accepted: the consent gate is unchanged and the household relays consent on its own word; revisit on request. |
 | Guest claim code (`public_id`) leaking — it is a credential | Low–Medium | Medium | Rate-limited claim endpoint; redacted in logs (C-M2). Still a shared, low-entropy-looking string. |
 | Guest data in operator logs | Low | Medium | `@cire/api` has no redacted logger yet (C-M2); deny-list is the interim guard for cross-service logs only. |
@@ -449,7 +505,7 @@ household itself authenticated, the payload is unchanged in content (no new
 field, no new recipient class — see C-L1 in [[data-map]]), and the scope is one
 household. Art. 36 prior consultation is not triggered.
 
-**Mitigations in place on the branch.**
+**Mitigations in place.**
 
 - The payload is `Cache-Control: no-store` + `Vary: Origin, Cookie`, so no
   shared cache can retain or replay it to another household (S-H1).
@@ -459,14 +515,17 @@ household. Art. 36 prior consultation is not triggered.
 - Deactivating a family still deletes its sessions in the same commit, and the
   restore re-checks `deactivated_at` independently.
 
-**Outstanding mitigation — required, tracked as S-M2 in `englishstventures/osn-tracker`.**
-There is no guest sign-out: `sessionService.revoke` exists but is wired to no
-guest-facing route, and the guest site offers no session control at all. A
-credential that auto-exercises itself needs a user-controlled way to stop it.
-The planned fix is `POST /api/claim/signout` plus a "Not the <name> family?"
-control on the restored invite. Until it ships, the only ways to end a session
-are organiser-initiated (deactivate / remint) or 30-day expiry. Whether 30 days
-remains the right TTL for an auto-exercised cookie should be decided alongside it.
+**Guest sign-out — in place since 2026-08-09.** A credential that exercises
+itself needs a way for the guest to stop it. `POST /api/claim/signout`
+(`cire/api/src/routes/claim.ts`) clears the household cookie, revokes the
+session as a best effort, and always answers 204, so a stale cookie is cleared
+too. The restored invite shows a "Not the <name> family? Sign out" control
+(`cire/invites/src/components/LoginSection.tsx`). An organiser can still end a
+session by deactivating or reminting the family.
+
+**Open question.** Whether 30 days (`SESSION_TTL_SECONDS` in
+`cire/api/src/routes/claim.ts`) is the right lifetime for a cookie that
+exercises itself on every visit.
 
 ## 5. Consultation
 

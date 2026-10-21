@@ -1,5 +1,40 @@
 # @osn/social
 
+## 0.18.9
+
+### Patch Changes
+
+- 5ab88f0: Build with vite 8.3.3 (range `^8.3.3`), which clears the advisory on vite 8.2.0
+  through 8.2.3.
+- Updated dependencies [5ab88f0]
+  - @shared/ui@0.5.1
+  - @shared/toast@0.3.6
+  - @osn/auth-ui@3.0.14
+
+## 0.18.8
+
+### Patch Changes
+
+- Updated dependencies [745c4ea]
+  - @shared/ui@0.5.0
+  - @osn/auth-ui@3.0.13
+
+## 0.18.7
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
+- Updated dependencies [fa0f54a]
+  - @osn/auth-ui@3.0.12
+  - @osn/client@2.18.6
+  - @shared/design-tokens@0.3.6
+  - @shared/legal@0.0.7
+  - @shared/toast@0.3.5
+  - @shared/ui@0.4.4
+
 ## 0.18.6
 
 ### Patch Changes
@@ -192,7 +227,7 @@
   has to stand out from, which is why shadcn lightens it in the first place.
 
   `@source` and `@custom-variant base` are dropped from `App.css`: the contract
-  stylesheet carries both, per xchromo/osn#1041.
+  stylesheet carries both, per englishstreetventures/osn#1041.
 
   Two tokens are mapped but waived, each with the reason in the test: the input
   boundary at 1.30:1 and tertiary ink at 2.68:1, both predating this work and
@@ -485,7 +520,7 @@
   has to stand out from, which is why shadcn lightens it in the first place.
 
   `@source` and `@custom-variant base` are dropped from `App.css`: the contract
-  stylesheet carries both, per xchromo/osn#1041.
+  stylesheet carries both, per englishstreetventures/osn#1041.
 
   Two tokens are mapped but waived, each with the reason in the test: the input
   boundary at 1.30:1 and tertiary ink at 2.68:1, both predating this work and
@@ -815,11 +850,11 @@
 
 ### Patch Changes
 
-- b2b6b70: Clean up the `house/no-tracker-ref-in-comment` mechanical majority (xchromo/osn#924).
+- b2b6b70: Clean up the `house/no-tracker-ref-in-comment` mechanical majority (englishstreetventures/osn#924).
 
   Every finding-tag, phase-code, and narrative-phrase reference flagged by the rule in a short comment block is now gone from these packages: a bare parenthetical tag deleted, a leading label stripped and the remainder capitalized into its own sentence, or a "used to be" narration rewritten forward to state the current, still-true fact. No behavior changes anywhere — every edit is comment text.
 
-  A handful of leftover `osn-tracker#N` citations that predated both this batch and the separate tracker-number-refs cleanup (xchromo/osn#930) are also gone from `@osn/api` and `@pulse/api`, using the same treatment established there.
+  A handful of leftover `osn-tracker#N` citations that predated both this batch and the separate tracker-number-refs cleanup (englishstreetventures/osn#930) are also gone from `@osn/api` and `@pulse/api`, using the same treatment established there.
 
 - Updated dependencies [b2b6b70]
   - @osn/client@2.14.3
@@ -829,7 +864,7 @@
 
 ### Patch Changes
 
-- b78deb7: Rewrite every private-tracker comment reference in these packages to state the durable constraint directly (xchromo/osn#924's highest-priority batch).
+- b78deb7: Rewrite every private-tracker comment reference in these packages to state the durable constraint directly (englishstreetventures/osn#924's highest-priority batch).
 
   A comment citing `osn-tracker#N` (or the shorter `tracker#N` spelling, also found live and now caught by `house/no-tracker-ref-in-comment` too) means nothing to a reader who cannot open the private tracker, and stops resolving once the finding closes — this repo is public, the tracker is not, so the number was a disclosure as well as a dead end. Every citation is now the fact it stood for: which D1 bind-parameter cap a query respects and why, which cookie-scoping attack a `__Host-` prefix defeats, which reflow guard a `resize-none` textarea keeps sound, why a response is never cached. One citation (`#130`) is to a finding that is still **open** — its replacement states the constraint as a live rule rather than implying a fix that hasn't happened, and links nothing.
 
@@ -845,7 +880,7 @@
 
 ### Patch Changes
 
-- 6474854: Fix every `house/no-stacked-doc-block` site in these packages (xchromo/osn#926).
+- 6474854: Fix every `house/no-stacked-doc-block` site in these packages (englishstreetventures/osn#926).
 
   A declaration with two or more leading doc blocks only has its last block attached — the earlier one silently documents nothing, and an editor hovering the declaration never shows it. Two shapes accounted for all 26 sites across these packages: a genuine module doc that had been placed after the file's `import` line rather than at line 1, which the rule's module-block exemption checks literally, and so read as stacked in front of whatever the doc block happened to precede — moved to line 1, restoring both blocks to their correct attachment; and two doc blocks that were both actually describing the same declaration, split apart for no good reason — merged into one, with content preserved and no duplication.
 
@@ -1234,8 +1269,8 @@
 ### Patch Changes
 
 - d50c68e: Comments only: repoint every "tracked in wiki/TODO.md" reference at GitHub
-  Issues. Findings keep their IDs and now name the private `xchromo/osn-tracker`;
-  planned work points at open issues in `xchromo/osn`. No behaviour change.
+  Issues. Findings keep their IDs and now name the private `englishstreetventures/osn-tracker`;
+  planned work points at open issues in `englishstreetventures/osn`. No behaviour change.
 
 ## 0.12.5
 

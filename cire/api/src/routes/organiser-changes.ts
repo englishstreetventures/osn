@@ -156,7 +156,7 @@ function paymentRequired(set: { status?: number | string }, e: CapacityExceeded)
   set.status = 402;
   return {
     error: "payment_required",
-    // Removed by englishstventures/osn#1315.
+    // Removed by englishstreetventures/osn#1315.
     entitlement: "capacity",
     tier: e.requiredTier,
     limit: e.limit,
@@ -626,6 +626,9 @@ export const createOrganiserChangeRoutes = (
                     // From the column, as the preview's was from the body:
                     // an editor save's new rows are `'manual'`.
                     createSource: createSourceFor(row.kind),
+                    // The organiser saw the warnings on the preview; the apply
+                    // reads nothing only they need.
+                    warnings: false,
                   },
                 );
 

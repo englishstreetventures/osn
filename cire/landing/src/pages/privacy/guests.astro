@@ -1,0 +1,28 @@
+---
+// The privacy notice for guests: invited households and the people they bring.
+// The notice is `@cire/ui`'s guest privacy notice, the same file the guest site
+// renders as its own `/privacy`. Here it has no privacy-choices button: those
+// choices are stored on the guest site's origin.
+import GuestPrivacyNotice from '@cire/ui/guest-privacy-notice.astro'
+import LegalLayout from '../../layouts/LegalLayout.astro'
+import PrivacyNav from '../../components/PrivacyNav.astro'
+import { LEGAL_ENTITY, draftPending } from '@shared/legal'
+
+// Name every field this page publishes, the notice's included, that the
+// shared identity check does not already cover. Leave one out and the banner
+// can go while that field is still a token.
+const draft = draftPending(LEGAL_ENTITY.regulator)
+---
+<LegalLayout title="Privacy Notice for Guests">
+  {draft && (
+    <div class="draft-banner">
+      <strong>Draft</strong> — this notice is not final. Some details of the operator are
+      still to be confirmed, and this banner disappears once they are.
+    </div>
+  )}
+
+  <h1>Privacy Notice for Guests</h1>
+  <PrivacyNav current="guests" />
+
+  <GuestPrivacyNotice />
+</LegalLayout>

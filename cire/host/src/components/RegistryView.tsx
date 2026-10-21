@@ -62,6 +62,24 @@ interface RegistryViewProps {
   weddingSlug: string;
 }
 
+/**
+ * What an item edit sends (`UpdateRegistryItemBody` in cire-api). A cash fund
+ * sends its goal and none of a gift's fields; a gift sends its own and no goal.
+ */
+type ItemPatch = Partial<
+  Pick<
+    RegistryItem,
+    | "title"
+    | "description"
+    | "imageKey"
+    | "priceMinor"
+    | "quantityWanted"
+    | "category"
+    | "externalUrl"
+    | "targetMinor"
+  >
+>;
+
 /** Quantity range the API's schema allows (`Quantity` in `schemas/registry.ts`). */
 const MIN_QUANTITY = 1;
 const MAX_QUANTITY = 99;
@@ -72,9 +90,8 @@ const MAX_QUANTITY = 99;
  * `https:` only, matching the API schema that accepts the field and the message
  * the form shows on a 400 — the shared `isHttpUrl` also passes `http:` and
  * treats blank as valid, which is right for the guest-detail forms it was
- * written for and wrong at a render site (S-L2). A stored row can predate the
- * schema or come from a fixture, so the check belongs here as well as at write
- * time (precedent CON-S-L2).
+ * written for and wrong at a render site. A stored row can predate the schema
+ * or come from a fixture, so the check belongs here as well as at write time.
  */
 function isHttpsUrl(value: string): boolean {
   try {
@@ -147,7 +164,7 @@ const SUMMARY_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
  *
  * Guest-authored text (`note`, `displayName`, and the household's `familyName`)
  * is rendered through Solid's `{expr}` interpolation ONLY, which builds a text
- * node (S-L3). No `innerHTML`, no markdown pass: a guest writes the note and the
+ * node. No `innerHTML`, no markdown pass: a guest writes the note and the
  * couple reads it in an authenticated portal, so any HTML path here is stored
  * XSS against the account that owns the wedding.
  */
@@ -159,7 +176,11 @@ export default function RegistryView(props: RegistryViewProps) {
   const [loadingMore, setLoadingMore] = createSignal(false);
   const [exporting, setExporting] = createSignal(false);
 
-  // Add-item form state.
+  // Add-item form state. `newKind` picks a gift to reserve or a cash fund; each
+  // shows only its own fields, and the body carries only those.
+  const [newKind, setNewKind] = createSignal<RegistryItem["kind"]>("product");
+  const [newTarget, setNewTarget] = createSignal("");
+  const [newDescription, setNewDescription] = createSignal("");
   const [newTitle, setNewTitle] = createSignal("");
   const [newPrice, setNewPrice] = createSignal("");
   const [newQuantity, setNewQuantity] = createSignal("1");
@@ -179,6 +200,7 @@ export default function RegistryView(props: RegistryViewProps) {
   const [editQuantity, setEditQuantity] = createSignal("1");
   const [editCategory, setEditCategory] = createSignal("");
   const [editUrl, setEditUrl] = createSignal("");
+  const [editTarget, setEditTarget] = createSignal("");
   const [editImageKey, setEditImageKey] = createSignal<string | null>(null);
 
   // Every id in a path is percent-encoded: the wedding's by `weddingPath`,
@@ -237,7 +259,7 @@ export default function RegistryView(props: RegistryViewProps) {
   // The gift log, already ordered by the server. A memo rather than two
   // `snapshot()?.gifts ?? []` reads, so the empty-state `<Show>` and the `<For>`
   // resolve one array and `<For>` keeps its identity when the snapshot object is
-  // replaced by an unrelated write (REG-P-I2).
+  // replaced by an unrelated write.
   const gifts = createMemo(() => snapshot()?.gifts ?? []);
 
   /** The list's ids in display order — what the sortable list and a drop resolve against. */
@@ -248,6 +270,111 @@ export default function RegistryView(props: RegistryViewProps) {
   /** Its own memo so a row's move controls re-run when the length changes, not
    *  on every write to the list. */
   const itemCount = createMemo(() => items().length);
+  /** Guests can give money, so they see the couple's funds. */
+  const takingMoney = createMemo(() => {
+    const settings = snapshot()?.settings;
+    return settings?.cashGiftsEnabled === true && settings.stripeChargesEnabled;
+  });
+  /** Its own memo, so a write that leaves the items alone does not walk them. */
+  const hasFund = createMemo(() => items().some((it) => it.kind === "cash_fund"));
+  /** The couple have cash funds, and guests cannot see them: money is off. */
+  const fundsHidden = () => !takingMoney() && hasFund();
+
+  /**
+   * What a refused item write means, from the code the API sent. Read by its
+   * code: the schema's own 400 and the kind check's share a status.
+   */
+  const itemWriteRefusal = async (res: Response, kind: RegistryItem["kind"]): Promise<string> => {
+    const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+    if (body?.error === "invalid_item_fields") {
+      return kind === "cash_fund"
+        ? "A cash fund takes a name, a goal, a description and a picture, and nothing else."
+        : "A gift to reserve has no goal. Refresh and try again.";
+    }
+    return kind === "cash_fund"
+      ? "Check the fund’s name and goal."
+      : "A link must be a full https:// address.";
+  };
+
+  /**
+   * A fund's goal, typed in major units, as minor units of the wedding's
+   * currency; `null` for an empty box. `undefined` means it was refused, and
+   * the error is already on screen.
+   */
+  const typedGoal = (raw: string): number | null | undefined => {
+    const typed = raw.trim();
+    if (typed === "") return null;
+    const minor = parseMinor(typed, currency());
+    // A goal of nothing is no goal: the box is left empty for that.
+    if (minor === null || minor === 0) {
+      haptic("reject");
+      setError(belowSmallestUnitError(typed, currency()) ?? "A goal must be a positive amount.");
+      return undefined;
+    }
+    return minor;
+  };
+
+  // ── Add a cash fund ───────────────────────────────────────────────────────
+  // A fund carries its name, its goal, the couple's words and a picture, and
+  // none of a gift's fields. An API older than funds drops `kind` and would
+  // save a gift guests can reserve, so a fund answered as anything else is
+  // deleted at once and the couple told.
+  const addFund = async (title: string) => {
+    const targetMinor = typedGoal(newTarget());
+    if (targetMinor === undefined) return;
+    const body = {
+      kind: "cash_fund" as const,
+      title,
+      description: newDescription().trim() || null,
+      targetMinor,
+      imageKey: newImageKey(),
+    };
+    setNewTitle("");
+    setNewTarget("");
+    setNewDescription("");
+    setNewImageKey(null);
+    try {
+      const res = await authFetch(itemsUrl(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.status === 401) return redirectToLogin();
+      if (res.status === 409) {
+        haptic("reject");
+        setError("Your gift list is full — remove something before adding more.");
+        return;
+      }
+      if (res.status === 400) {
+        haptic("reject");
+        setError(await itemWriteRefusal(res, "cash_fund"));
+        return;
+      }
+      if (!res.ok) throw new Error(`create ${res.status}`);
+      const { item } = (await res.json()) as { item: RegistryItem };
+      if (item.kind !== "cash_fund") {
+        haptic("reject");
+        const removed = await authFetch(itemUrl(item.id), { method: "DELETE" }).catch(() => null);
+        if (removed?.ok) {
+          setError("Cash funds aren’t available yet. Try again in a few minutes.");
+          return;
+        }
+        // The gift is still on the list, where guests can reserve it. Show it
+        // to the couple so they can remove it themselves.
+        setError(
+          `Cash funds aren’t available yet, and “${item.title}” was saved as a gift guests can reserve. Remove it from your list.`,
+        );
+        void reload();
+        return;
+      }
+      patchSnap((s) => ({ ...s, items: [...s.items, item] }));
+      haptic("commit");
+    } catch {
+      haptic("reject");
+      setError("Couldn't add that fund.");
+      void reload();
+    }
+  };
 
   // ── Add item ──────────────────────────────────────────────────────────────
   const addItem = async (e: Event) => {
@@ -255,6 +382,7 @@ export default function RegistryView(props: RegistryViewProps) {
     const title = newTitle().trim();
     if (!title) return;
     setError(null);
+    if (newKind() === "cash_fund") return addFund(title);
 
     const priceRaw = newPrice().trim();
     const priceMinor = priceRaw === "" ? null : parseMinor(priceRaw, currency());
@@ -295,7 +423,7 @@ export default function RegistryView(props: RegistryViewProps) {
       }
       if (res.status === 400) {
         haptic("reject");
-        setError("A link must be a full https:// address.");
+        setError(await itemWriteRefusal(res, "product"));
         return;
       }
       if (!res.ok) throw new Error(`create ${res.status}`);
@@ -318,17 +446,20 @@ export default function RegistryView(props: RegistryViewProps) {
     setEditQuantity(String(item.quantityWanted));
     setEditCategory(item.category ?? "");
     setEditUrl(item.externalUrl ?? "");
+    setEditTarget(item.targetMinor == null ? "" : minorToInput(item.targetMinor, currency()));
     setEditImageKey(item.imageKey);
   };
 
   const closeEdit = () => setEditingId(null);
 
-  const saveEdit = async (e: Event, item: RegistryItem) => {
-    e.preventDefault();
-    const title = editTitle().trim();
-    if (!title) return;
-    setError(null);
-
+  /** The fields an edit sends: a fund's own, or a gift's, never the other's. */
+  const editPatch = (item: RegistryItem, title: string): ItemPatch | undefined => {
+    const description = editDescription().trim() || null;
+    if (item.kind === "cash_fund") {
+      const targetMinor = typedGoal(editTarget());
+      if (targetMinor === undefined) return undefined;
+      return { title, description, targetMinor, imageKey: editImageKey() };
+    }
     const priceRaw = editPrice().trim();
     const priceMinor = priceRaw === "" ? null : parseMinor(priceRaw, currency());
     if (priceRaw !== "" && priceMinor === null) {
@@ -347,15 +478,24 @@ export default function RegistryView(props: RegistryViewProps) {
       return;
     }
 
-    const patch = {
+    return {
       title,
-      description: editDescription().trim() || null,
+      description,
       priceMinor,
       quantityWanted,
       category: editCategory().trim() || null,
       externalUrl: editUrl().trim() || null,
       imageKey: editImageKey(),
     };
+  };
+
+  const saveEdit = async (e: Event, item: RegistryItem) => {
+    e.preventDefault();
+    const title = editTitle().trim();
+    if (!title) return;
+    setError(null);
+    const patch = editPatch(item, title);
+    if (!patch) return;
     closeEdit();
     try {
       const res = await authFetch(itemUrl(item.id), {
@@ -366,7 +506,7 @@ export default function RegistryView(props: RegistryViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (res.status === 400) {
         haptic("reject");
-        setError("A link must be a full https:// address.");
+        setError(await itemWriteRefusal(res, item.kind));
         void reload();
         return;
       }
@@ -709,57 +849,127 @@ export default function RegistryView(props: RegistryViewProps) {
             onSubmit={addItem}
             class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
           >
-            <Field label="Gift" class="min-w-48 flex-1">
-              {(field) => (
-                <Input
-                  {...field}
-                  value={newTitle()}
-                  onInput={(e) => setNewTitle(e.currentTarget.value)}
-                  placeholder="Copper pan, a good bottle of something…"
+            {/* A gift is a thing a household reserves; a cash fund is a named
+                purpose guests give money to. Each kind shows only its own
+                fields, so nothing typed here can belong to the other. */}
+            <fieldset class="flex w-full flex-wrap gap-x-5 gap-y-1 border-0 p-0">
+              <legend class="text-gold-dim font-body text-ui-xs tracking-ui-widest mb-1 uppercase">
+                Add
+              </legend>
+              <label class="text-text text-ui-sm flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="registry-new-kind"
+                  checked={newKind() === "product"}
+                  onChange={() => setNewKind("product")}
                 />
-              )}
-            </Field>
-            <Field label="Price (optional)" class="w-28">
-              {(field) => (
-                <Input
-                  {...field}
-                  type="number"
-                  min="0"
-                  // `any`, not `0.01`: how many decimals a price may carry is a
-                  // property of the wedding's currency (KWD has three, JPY none),
-                  // and a fixed hundredths step would reject a valid Kuwaiti
-                  // price outright. `parseMinor` rounds to the right exponent.
-                  step="any"
-                  value={newPrice()}
-                  onInput={(e) => setNewPrice(e.currentTarget.value)}
-                  placeholder="0.00"
+                A gift to reserve
+              </label>
+              <label class="text-text text-ui-sm flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="registry-new-kind"
+                  checked={newKind() === "cash_fund"}
+                  onChange={() => setNewKind("cash_fund")}
                 />
-              )}
-            </Field>
-            <Field label="How many" class="w-20">
-              {(field) => (
-                <Input
-                  {...field}
-                  type="number"
-                  min={MIN_QUANTITY}
-                  max={MAX_QUANTITY}
-                  step="1"
-                  value={newQuantity()}
-                  onInput={(e) => setNewQuantity(e.currentTarget.value)}
-                />
-              )}
-            </Field>
-            <Field label="Link (optional)" class="w-56">
-              {(field) => (
-                <Input
-                  {...field}
-                  type="url"
-                  value={newUrl()}
-                  onInput={(e) => setNewUrl(e.currentTarget.value)}
-                  placeholder="https://…"
-                />
-              )}
-            </Field>
+                A cash fund
+              </label>
+            </fieldset>
+            <Show
+              when={newKind() === "cash_fund"}
+              fallback={
+                <>
+                  <Field label="Gift" class="min-w-48 flex-1">
+                    {(field) => (
+                      <Input
+                        {...field}
+                        value={newTitle()}
+                        onInput={(e) => setNewTitle(e.currentTarget.value)}
+                        placeholder="Copper pan, a good bottle of something…"
+                      />
+                    )}
+                  </Field>
+                  <Field label="Price (optional)" class="w-28">
+                    {(field) => (
+                      <Input
+                        {...field}
+                        type="number"
+                        min="0"
+                        // `any`, not `0.01`: how many decimals a price may carry is a
+                        // property of the wedding's currency (KWD has three, JPY none),
+                        // and a fixed hundredths step would reject a valid Kuwaiti
+                        // price outright. `parseMinor` rounds to the right exponent.
+                        step="any"
+                        value={newPrice()}
+                        onInput={(e) => setNewPrice(e.currentTarget.value)}
+                        placeholder="0.00"
+                      />
+                    )}
+                  </Field>
+                  <Field label="How many" class="w-20">
+                    {(field) => (
+                      <Input
+                        {...field}
+                        type="number"
+                        min={MIN_QUANTITY}
+                        max={MAX_QUANTITY}
+                        step="1"
+                        value={newQuantity()}
+                        onInput={(e) => setNewQuantity(e.currentTarget.value)}
+                      />
+                    )}
+                  </Field>
+                  <Field label="Link (optional)" class="w-56">
+                    {(field) => (
+                      <Input
+                        {...field}
+                        type="url"
+                        value={newUrl()}
+                        onInput={(e) => setNewUrl(e.currentTarget.value)}
+                        placeholder="https://…"
+                      />
+                    )}
+                  </Field>
+                </>
+              }
+            >
+              <Field label="Fund" class="min-w-48 flex-1">
+                {(field) => (
+                  <Input
+                    {...field}
+                    value={newTitle()}
+                    onInput={(e) => setNewTitle(e.currentTarget.value)}
+                    placeholder="Honeymoon, a house deposit…"
+                  />
+                )}
+              </Field>
+              {/* The couple's own planning number. Guests never see it, nor
+                  how much has come in. */}
+              <Field label="Goal (optional)" class="w-32">
+                {(field) => (
+                  <Input
+                    {...field}
+                    type="number"
+                    min="0"
+                    // `any`, for the same reason as the price: the currency
+                    // decides how many decimals a goal may carry.
+                    step="any"
+                    value={newTarget()}
+                    onInput={(e) => setNewTarget(e.currentTarget.value)}
+                  />
+                )}
+              </Field>
+              <Field label="What it’s for (optional)" class="w-full">
+                {(field) => (
+                  <Textarea
+                    {...field}
+                    rows={2}
+                    value={newDescription()}
+                    onInput={(e) => setNewDescription(e.currentTarget.value)}
+                  />
+                )}
+              </Field>
+            </Show>
             <div class="w-full">
               <RegistryImageField
                 weddingId={props.weddingId}
@@ -769,9 +979,19 @@ export default function RegistryView(props: RegistryViewProps) {
               />
             </div>
             <Button type="submit" variant="primary">
-              Add gift
+              {newKind() === "cash_fund" ? "Add fund" : "Add gift"}
             </Button>
           </form>
+        </Show>
+
+        {/* Guests see a fund only while they can give money. The guest list
+            also needs the account to settle in the wedding's currency, which
+            Settings says when it matters. */}
+        <Show when={fundsHidden()}>
+          <Notice tone="info">
+            Guests see your cash funds only while money gifts are on. Turn them on in the Settings
+            tab.
+          </Notice>
         </Show>
 
         <Show
@@ -830,22 +1050,38 @@ export default function RegistryView(props: RegistryViewProps) {
                                     {formatMinor(item.priceMinor!, currency())}
                                   </span>
                                 </Show>
-                                {/* Claimed-vs-wanted, so the couple can see what is still
-                        open without reading the gift log. */}
-                                <span class="text-text-muted text-ui-sm">
-                                  {item.quantityClaimed} of {item.quantityWanted} claimed
-                                  {stillWanted(item) === 0 ? " · all taken" : ""}
-                                </span>
+                                {/* A fund is given to, never reserved, so it has no
+                        claimed count. Its goal is the couple's own planning
+                        number, shown here and never to a guest. */}
+                                <Show
+                                  when={item.kind === "cash_fund"}
+                                  fallback={
+                                    /* Claimed-vs-wanted, so the couple can see what is
+                            still open without reading the gift log. */
+                                    <span class="text-text-muted text-ui-sm">
+                                      {item.quantityClaimed} of {item.quantityWanted} claimed
+                                      {stillWanted(item) === 0 ? " · all taken" : ""}
+                                    </span>
+                                  }
+                                >
+                                  <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
+                                    Cash fund
+                                  </span>
+                                  <Show when={item.targetMinor != null}>
+                                    <span class="text-text-muted text-ui-sm">
+                                      Goal {formatMinor(item.targetMinor!, currency())}
+                                    </span>
+                                  </Show>
+                                </Show>
                                 {/* Scheme-checked at the render site, not merely at write
-                        time (precedent CON-S-L2: `vendor.privacyUrl` reached an
-                        `href` with no check). The API schema already refuses
+                        time. The API schema already refuses
                         anything but `https:`, but a row can also arrive from a
                         migration or a fixture, and a `javascript:` href here
                         runs in the organiser's own origin.
 
                         The `aria-label` names the item, because a screen-reader
                         user listing the page's links otherwise hears "Link,
-                        link, link" with nothing to tell them apart (C-L2). */}
+                        link, link" with nothing to tell them apart. */}
                                 <Show when={item.externalUrl && isHttpsUrl(item.externalUrl)}>
                                   <a
                                     href={item.externalUrl!}
@@ -892,7 +1128,10 @@ export default function RegistryView(props: RegistryViewProps) {
                                   onSubmit={(e) => saveEdit(e, item)}
                                   class="border-border/60 ml-2 flex flex-wrap items-end gap-3 border-l pl-3"
                                 >
-                                  <Field label="Gift" class="min-w-48 flex-1">
+                                  <Field
+                                    label={item.kind === "cash_fund" ? "Fund" : "Gift"}
+                                    class="min-w-48 flex-1"
+                                  >
                                     {(field) => (
                                       <Input
                                         {...field}
@@ -902,56 +1141,74 @@ export default function RegistryView(props: RegistryViewProps) {
                                       />
                                     )}
                                   </Field>
-                                  <Field label="Price" class="w-28">
-                                    {(field) => (
-                                      <Input
-                                        {...field}
-                                        size="sm"
-                                        type="number"
-                                        min="0"
-                                        step="any"
-                                        value={editPrice()}
-                                        onInput={(e) => setEditPrice(e.currentTarget.value)}
-                                      />
-                                    )}
-                                  </Field>
-                                  <Field label="How many" class="w-20">
-                                    {(field) => (
-                                      <Input
-                                        {...field}
-                                        size="sm"
-                                        type="number"
-                                        min={MIN_QUANTITY}
-                                        max={MAX_QUANTITY}
-                                        step="1"
-                                        value={editQuantity()}
-                                        onInput={(e) => setEditQuantity(e.currentTarget.value)}
-                                      />
-                                    )}
-                                  </Field>
-                                  <Field label="Category" class="w-32">
-                                    {(field) => (
-                                      <Input
-                                        {...field}
-                                        size="sm"
-                                        value={editCategory()}
-                                        onInput={(e) => setEditCategory(e.currentTarget.value)}
-                                        placeholder="Kitchen"
-                                      />
-                                    )}
-                                  </Field>
-                                  <Field label="Link" class="w-56">
-                                    {(field) => (
-                                      <Input
-                                        {...field}
-                                        size="sm"
-                                        type="url"
-                                        value={editUrl()}
-                                        onInput={(e) => setEditUrl(e.currentTarget.value)}
-                                        placeholder="https://…"
-                                      />
-                                    )}
-                                  </Field>
+                                  {/* A fund's own field; a gift's are below. */}
+                                  <Show when={item.kind === "cash_fund"}>
+                                    <Field label="Goal" class="w-32">
+                                      {(field) => (
+                                        <Input
+                                          {...field}
+                                          size="sm"
+                                          type="number"
+                                          min="0"
+                                          step="any"
+                                          value={editTarget()}
+                                          onInput={(e) => setEditTarget(e.currentTarget.value)}
+                                        />
+                                      )}
+                                    </Field>
+                                  </Show>
+                                  <Show when={item.kind !== "cash_fund"}>
+                                    <Field label="Price" class="w-28">
+                                      {(field) => (
+                                        <Input
+                                          {...field}
+                                          size="sm"
+                                          type="number"
+                                          min="0"
+                                          step="any"
+                                          value={editPrice()}
+                                          onInput={(e) => setEditPrice(e.currentTarget.value)}
+                                        />
+                                      )}
+                                    </Field>
+                                    <Field label="How many" class="w-20">
+                                      {(field) => (
+                                        <Input
+                                          {...field}
+                                          size="sm"
+                                          type="number"
+                                          min={MIN_QUANTITY}
+                                          max={MAX_QUANTITY}
+                                          step="1"
+                                          value={editQuantity()}
+                                          onInput={(e) => setEditQuantity(e.currentTarget.value)}
+                                        />
+                                      )}
+                                    </Field>
+                                    <Field label="Category" class="w-32">
+                                      {(field) => (
+                                        <Input
+                                          {...field}
+                                          size="sm"
+                                          value={editCategory()}
+                                          onInput={(e) => setEditCategory(e.currentTarget.value)}
+                                          placeholder="Kitchen"
+                                        />
+                                      )}
+                                    </Field>
+                                    <Field label="Link" class="w-56">
+                                      {(field) => (
+                                        <Input
+                                          {...field}
+                                          size="sm"
+                                          type="url"
+                                          value={editUrl()}
+                                          onInput={(e) => setEditUrl(e.currentTarget.value)}
+                                          placeholder="https://…"
+                                        />
+                                      )}
+                                    </Field>
+                                  </Show>
                                   <Field label="Description" class="min-w-56 flex-1">
                                     {(field) => (
                                       <Textarea
@@ -1159,13 +1416,13 @@ export default function RegistryView(props: RegistryViewProps) {
               {(gift) => {
                 // One formatting pass per row: `formatMinorPair` was called
                 // three times in the markup below, and it is the only
-                // non-trivial work a gift row does (REG-P-I1).
+                // non-trivial work a gift row does.
                 const money = giftMoney(gift);
                 const status = giftStatus(gift);
                 return (
                   <li class="border-border bg-surface/10 flex flex-col gap-1 rounded-sm border px-3 py-2">
                     <div class="flex flex-wrap items-center gap-3">
-                      {/* Guest-authored — a text node, never markup (S-L3). */}
+                      {/* Guest-authored — a text node, never markup. */}
                       <span class="text-text text-ui-base min-w-40 flex-1 font-medium">
                         {giftFrom(gift)}
                       </span>
@@ -1229,7 +1486,7 @@ export default function RegistryView(props: RegistryViewProps) {
                       fallback={
                         <Show when={gift.note}>
                           <div class="flex flex-wrap items-baseline gap-x-3">
-                            {/* Guest-authored — a text node, never markup (S-L3). */}
+                            {/* Guest-authored — a text node, never markup. */}
                             <p class="text-text-muted text-ui-sm min-w-0 flex-1 italic">
                               {gift.note}
                             </p>

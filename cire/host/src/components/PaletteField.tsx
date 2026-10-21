@@ -232,7 +232,7 @@ export default function PaletteField(props: {
               <div class="flex gap-2">
                 <span
                   class="text-ui-xs rounded-sm px-2 py-1"
-                  style={{ "background-color": "var(--color-gold)", color: "var(--color-bg)" }}
+                  style={{ "background-color": "var(--color-gold)", color: "var(--color-on-gold)" }}
                 >
                   Respond
                 </span>

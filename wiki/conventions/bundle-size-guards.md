@@ -1,6 +1,6 @@
 ---
-title: Guards that gate on a number
-description: The two rules any committed threshold obeys, and the guards that hold them — scripts/guard-bundle-size.sh over each Astro app's deployed bundle, the src/pages test-route check beside it, scripts/guard-d1-migration-cost.ts over what a from-zero D1 rebuild spends against the free-tier ceiling, and scripts/guard-lint-warnings.sh over how many warning-severity oxlint diagnostics the whole monorepo may carry
+title: Guards with a threshold
+description: The two rules any committed threshold obeys, and the guards that hold them — scripts/guard-bundle-size.sh, which warns when an Astro app's deployed bundle passes its budget and refuses a source map in its public output, the src/pages test-route check beside it, scripts/guard-d1-migration-cost.ts over what a from-zero D1 rebuild spends against the free-tier ceiling, and scripts/guard-lint-warnings.sh over how many warning-severity oxlint diagnostics the whole monorepo may carry
 tags: [convention, build, astro, performance, ops, d1, lint]
 related:
   - "[[cire-development]]"
@@ -9,17 +9,17 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-21
 ---
 
-# Guards that gate on a number
+# Guards with a threshold
 
-Tracker #287 found cire/invites' SSR Worker bundle at 470 KB gzip, unnoticed,
-from two mistakes: a whole animation library reachable from the server module
-graph though nothing there ran it, and drift-guard tests routed as live pages
-because they sat un-prefixed under `src/pages`. Tracker #619 generalised the
-fix cire/invites got: both mistakes can happen in any of the repo's six Astro
-apps, and both are now checked on every one of them.
+cire/invites' SSR Worker bundle once reached 470 KB gzip with nobody
+noticing, from two mistakes: a whole animation library reachable from the
+server module graph though nothing there ran it, and drift-guard tests routed
+as live pages because they sat un-prefixed under `src/pages`. Both mistakes can
+happen in any of the repo's six Astro apps, and both are checked on every one
+of them.
 
 Two separate scripts, because the two mistakes are different shapes.
 
@@ -28,11 +28,11 @@ gates what a from-zero D1 rebuild spends against a free-tier quota, and it is
 here because it obeys the same two rules and was built from this page. The page
 name still says bundles because the file has not moved.
 
-A fourth guard, `scripts/guard-lint-warnings.sh` (englishstventures/osn#1008), gates how
+A fourth guard, `scripts/guard-lint-warnings.sh` (englishstreetventures/osn#1008), gates how
 many warning-severity `oxlint` diagnostics the whole monorepo may carry —
 again nothing to do with bundles, again built from this page's two rules.
 
-## Two rules for any guard that gates on a number
+## Two rules for any guard with a threshold
 
 These are not about bundles. They apply to any guard with a threshold in it —
 a size budget, a query-count cap, a timing ceiling — and both were learned here
@@ -62,8 +62,11 @@ with `stubMotionForSsr()` removed and diff the total. Written into this page
 2026-09-07.*
 
 The corollary is a check, not a rule: **you have not verified a guard until you
-have seen it fail.** Break the input, watch the non-zero exit. A guard that
-only ever passes is indistinguishable from one that cannot fail.
+have seen it fire.** Break the input and watch what it does: the non-zero exit,
+for a guard that gates — the D1 migration-cost guard, the lint-warning ceiling,
+and every refusal in the size guard — or the `::warning::` line, for the size
+budget, which warns and never exits non-zero. A guard that only ever passes is
+indistinguishable from one that cannot fire.
 
 ## `scripts/guard-bundle-size.sh` — the size guard
 
@@ -71,6 +74,39 @@ only ever passes is indistinguishable from one that cannot fail.
 scripts/guard-bundle-size.sh <package-dir>   # one app, e.g. from a build script
 scripts/guard-bundle-size.sh --all           # every app, what ci.yml calls
 ```
+
+**Going over a budget is a warning, not a failure.** The guard prints
+`::warning::<app> <dir> gzip total <n> bytes exceeds the <budget> byte guard`
+and exits 0, so the line shows in a local build's output and GitHub annotates
+the CI or deploy run with it, but nothing goes red. Everything else it refuses
+fails with a non-zero exit, which fails the `ci` gate on a pull request and
+stops a deploy or release:
+
+- **a source map where the app is served publicly**, in either form — a
+  `*.map` file (any case), or a `.js`, `.mjs` or `.css` file carrying an inline
+  `sourceMappingURL=data:` map. For a `static` app that is anywhere under
+  `dist`, which Pages serves whole; for cire/invites it is `dist/client`, its
+  Static Assets (maps under `dist/server` are uploaded for symbolication, never
+  served). Either form publishes the app's unminified source. This runs before
+  anything is measured, so no budget can hide it. A file is read through a
+  symlink, since a link is served as what it points at, and one that cannot be
+  read is refused;
+- a measured directory that is missing, empty or holds a symlink;
+- `bun` missing in `worker` mode;
+- a budgets file that is absent, empty or malformed, or has no row for the app.
+
+A warning is acted on the way a failure would be: find what is newly reachable
+from an import that runs in the build, or, if the growth is intended,
+re-baseline the row as below.
+
+*Checked 2026-10-20 — `bunx --bun astro build` in each of the five static apps
+and `npx astro build` in cire/invites, then `scripts/guard-bundle-size.sh
+--all`: no app's public output holds a `.map` file or an inline map, and the
+guard passes all six. The same builds with `vite.build.sourcemap` set — to
+`"inline"` and to `true` in musubi/landing, and to `"inline"` in cire/invites,
+which puts maps in 30 of its client scripts — are each refused. Google
+Fonts could not be fetched there, so font files were missing; the check reads
+only scripts, stylesheets and `.map` names, so that does not change it.*
 
 Mode and threshold are not arguments — **`scripts/bundle-size-budgets.txt` is
 the single source of truth**, and this page's table below is a mirror of it
@@ -105,8 +141,9 @@ touching a threshold. In short:
   alone cannot hide bytes. That check runs through `bun`, which every caller
   already has. Both modes refuse a symlink in the directory they measure,
   since wrangler and Pages ship the file a link points at and `find -type f`
-  would skip it. It separately refuses any `*.map` under the sibling
-  `dist/client`, which is served publicly as Static Assets. See [[cire-development]] for why
+  would skip it. It separately refuses a source map under the sibling
+  `dist/client`, which is served publicly as Static Assets: a `*.map` file or an
+  inline `sourceMappingURL=data:` map. See [[cire-development]] for why
   cire/invites' bundle is shaped the way it is (sessions off, SSR-only
   minification, server-only source maps, why `zod` stays).
 - **`static`** — `cire/host`, `cire/landing`, `cire/vendor`, `musubi/landing`,
@@ -117,7 +154,8 @@ touching a threshold. In short:
   fetched at build time (hashed names, moves whenever Google's metadata moves,
   not a repo change) and `dist` holds one HTML file per page (grows with
   ordinary content). Neither belongs in a guard whose job is catching a library
-  that shouldn't have shipped.
+  that shouldn't have shipped. It separately refuses a source map anywhere
+  under `dist`, in either form, because Pages serves all of it.
 
 > [!warning] Known blind spot: inline `<style>`/`<script>` in the HTML
 > `build.inlineStylesheets: "auto"` is Astro's default and is unset in all
@@ -126,10 +164,10 @@ touching a threshold. In short:
 > see bytes that never land in the directory it reads. Measured on
 > musubi/landing: 5 inline style blocks + 4 inline script blocks in
 > `dist/index.html` alone, about 3116 bytes gzip-equivalent — real budget the
-> guard cannot see. Tracker issue `englishstventures/osn-tracker#636` holds the two ways to close this
-> (parse the HTML too, or force `inlineStylesheets: "never"` so everything
-> lands in `dist/_astro` where the guard already looks); this is a product
-> decision, not something fixed in this script.
+> guard cannot see. There are two ways to close this (parse the HTML too, or
+> force `inlineStylesheets: "never"` so everything lands in `dist/_astro`
+> where the guard already looks); this is a product decision, not something
+> fixed in this script.
 >
 > *Unverified — no command on record. Written into this page 2026-09-07;
 > recount the inline `<style>`/`<script>` blocks in
@@ -149,10 +187,9 @@ the script, so the chained invocation never runs on a cache hit — the explicit
 workflow step is what still checks the artifact that IS on disk in that case.
 Both invocations matter; neither one alone covers both paths.
 
-`musubi/landing` and `pulse/landing` also deploy from
-`.github/workflows/deploy-osn-pulse-landing.yml` (a feature-branch preview,
-`bun run --cwd <dir> build`) — that already runs each app's own chained `build`
-script, so the guard applies there too with no separate step needed.
+No workflow deploys `musubi/landing` or `pulse/landing`, so for those two the
+guard runs only from each app's own chained `build` script and the `--all` step
+in `ci.yml`.
 
 ### Per-app thresholds — mirrors `scripts/bundle-size-budgets.txt`
 
@@ -167,20 +204,23 @@ jobs inline real URLs and sitekeys, and the headroom absorbs the difference).
 Headroom is fixed at the same **~11.7 KB** cire/invites' own guard uses,
 deliberately smaller than a motion-class dependency (21261 bytes gzip,
 minified — see the script comment) so a mistake of that class always trips
-the guard regardless of how large or small the app's own baseline is:
+the guard's warning regardless of how large or small the app's own baseline is:
 
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
-| cire/invites | worker | 176733 B | 188433 B *(re-baselined, englishstventures/osn#1325 — see below)* |
-| cire/host | static | 268459 B | 280159 B *(re-baselined, englishstventures/osn#1304 — see below)* |
-| cire/vendor | static | 69961 B | 81644 B |
-| cire/landing | static | 177641 B | 189324 B |
-| musubi/landing | static | 15182 B | 26865 B |
+| cire/invites | worker | 176733 B | 188433 B *(re-baselined, englishstreetventures/osn#1325 — see below)* |
+| cire/host | static | 288927 B | 300627 B *(re-baselined, englishstreetventures/osn#479 — see below)* |
+| cire/vendor | static | 77305 B | 81644 B |
+| cire/landing | static | 164847 B | 176547 B |
+| musubi/landing | static | 15206 B | 26865 B |
 | pulse/landing | static | 16683 B | 28366 B |
 
 *Measured 2026-09-06 — clean `bun run build` at the worktree root with no
 `PUBLIC_*` vars set, then `scripts/guard-bundle-size.sh --all`, which prints
-each app's gzip total. `scripts/bundle-size-budgets.txt` is still the file the
+each app's gzip total. Each row now mirrors its `# measured` comment in
+`scripts/bundle-size-budgets.txt`, which moves with the threshold: the raises
+below carry their own measurements, and cire/vendor's and cire/landing's moved
+with the changes that file's comment names. That file is still the one the
 guard reads; this table only mirrors it.*
 
 `cire/landing` ships a Three.js scene by design (the wax-seal hero) — its
@@ -195,7 +235,7 @@ every file in `dist/_astro`, so **splitting a chunk cannot reduce it and usually
 raises it**: each chunk is compressed on its own, losing the shared dictionary,
 and carries its own boilerplate.
 
-`englishstventures/osn#1026` made a locked module unreachable rather than merely
+`englishstreetventures/osn#1026` made a locked module unreachable rather than merely
 upsold, and took the vendors module's three panels out of the first load on the
 same argument the registry was already split on. Measured both ways, clean, one
 build at a time:
@@ -216,7 +256,7 @@ on `feat/locked-module-nav`, reading the total the guard itself prints; the
 eager figure from the same build with the three `lazy()` calls replaced by
 static imports.*
 
-Headroom stays ~11.7 KB, so the guard is no less sensitive than before. A later raise, for englishstventures/osn#1086, measured the portal at
+Headroom stays ~11.7 KB, so the guard is no less sensitive than before. A later raise, for englishstreetventures/osn#1086, measured the portal at
 **237946 B** on `main` — the `# measured` comment in the budgets file had fallen
 behind at 231255 — and at **240953 B** with fifteen `lucide-solid` icons and
 Overview's own SVG in the module and command-palette rows, **+3007 B** across
@@ -225,7 +265,7 @@ the same 50 files.
 *Measured 2026-09-23 — `rm -rf cire/host/dist && bun run --cwd cire/host build`,
 before and after, on `chore/module-icons`, reading the total the guard prints.*
 
-The plus-one controls (englishstventures/osn#1238) raised it again. By then the
+The plus-one controls (englishstreetventures/osn#1238) raised it again. By then the
 portal had grown to **252496 B** against the 252653 B threshold, 157 B of
 headroom, and the Households tab's switches, household buttons, removal dialog
 and `plus-one-permission.ts` came to **256259 B**, **+3763 B**. Built on
@@ -237,7 +277,7 @@ on `feat/cire-plus-one-host-ui`, and the same build with `GuestTable.tsx` and
 `ModuleShell.tsx` taken from its parent `feat/cire-plus-one-api`, reading the
 total the guard prints.*
 
-Equal wedding owners and the wedding soft delete (englishstventures/osn#1304)
+Equal wedding owners and the wedding soft delete (englishstreetventures/osn#1304)
 raised it again. `main` measured **265496 B** against the 267959 B threshold,
 2463 B of headroom. The owner rows and step-down in the hosts panel, the
 delete dialog in Settings and the "Recently deleted" list with Restore came to
@@ -248,9 +288,25 @@ delete dialog in Settings and the "Recently deleted" list with Restore came to
 `claude/trusting-dijkstra-1eji1a` and on `origin/main`, reading the total the
 guard prints.*
 
+The seating chart (englishstreetventures/osn#479) raised it again, on the same
+trade as the vendors split. `main` measured **279974 B** across 54 files, 185 B
+under the 280159 B threshold. With the Seating module, loaded on demand like the
+registry, it came to **288927 B** across 61 files: **+8953 B**. Loading it
+eagerly instead put `OrganiserApp`'s chunk at **79585 B** against **63737 B**
+on demand: Seating is a Gold module, and its view, the sortable package's drop
+zones and the menu it shares with other on-demand panels would otherwise land on
+every organiser's first load, about 15.8 KB of it. The threshold moved to
+measured + ~11.7 KB, **300627 B**. No dependency was added.
+
+*Measured 2026-10-21 — `bun run --cwd cire/host build`, which ends with
+`../../scripts/guard-bundle-size.sh .`, on `feat/cire-seating` rebased onto
+`main` 0619a7dfd and on a clean checkout of 0619a7dfd. The chunk sizes are from
+2026-10-20, on the branch before that rebase, with `ModuleShell`'s `lazy()` for
+`SeatingView` replaced by a static import; `gzip -c <chunk> | wc -c`.*
+
 ### `cire/invites` went up for the household member step
 
-The household member step (englishstventures/osn#1325) — "Who are you?" in the
+The household member step (englishstreetventures/osn#1325) — "Who are you?" in the
 claim panel, the member-bound account-link box, "Answered by" in the RSVP
 sheet, and `household-member.ts` — took the guest Worker from **174402 B** on
 `main`'s source to **176733 B**, **+2331 B** across the same 38 files, past the
@@ -305,7 +361,7 @@ The cire dev deploy crossed a hard ceiling by growing. Every
 `ALTER TABLE ... DROP COLUMN` added to the migration chain made each from-zero
 rebuild a little dearer, and on 2026-09-09 thirteen merges spent 104,091 D1 rows
 written against a free-tier limit of 100,000 a day account-wide
-(englishstventures/osn#979). No commit was wrong; no version of the job failed a test.
+(englishstreetventures/osn#979). No commit was wrong; no version of the job failed a test.
 [[free-tier-limits]] holds the ceiling itself; [[dev-environment]] holds what the
 rebuild now does.
 
@@ -337,11 +393,11 @@ D1 rows written** — two schema writes at 27 apiece.
 *Measured 2026-09-10 — `bunx wrangler d1 insights cire-db-dev --time-period=7d --sort-by=writes --limit=200`. The `--limit` is the point: it returns the 200 heaviest queries, not the week.*
 
 **The soft anchor**, which agrees within about a fifth and no better. The
-57-file chain squashed by englishstventures/osn#984 measures 269 schema writes here, and
+57-file chain squashed by englishstreetventures/osn#984 measures 269 schema writes here, and
 its rebuild cost **8,007 D1 rows written** in total — but that total covers
 drop, replay *and* seed, so it bounds the chain only once the seed is taken off,
 and the seed's cost is the part not known precisely.
-<!-- 8,007 is unverified here: taken from [[free-tier-limits]] and the englishstventures/osn#979 investigation, not re-derived -->
+<!-- 8,007 is unverified here: taken from [[free-tier-limits]] and the englishstreetventures/osn#979 investigation, not re-derived -->
 
 | Bound on the constant | Where it comes from |
 |---:|---|
@@ -441,7 +497,7 @@ non-`correctness` finding at `warn`, so `bun run lint` exits 0 whatever the
 warning count is — the CI step at `ci.yml`'s `lint` job proved only that no
 error-level rule fired. Over one recent epic the count drifted 1020 → 1035 →
 1037 → 1061 with no CI step noticing, and the only way to know was to read
-the number by hand on every branch (englishstventures/osn#1008). Some of the rules
+the number by hand on every branch (englishstreetventures/osn#1008). Some of the rules
 sitting at `warn` are repo-specific and exist because the mistake they catch
 actually happened — `house/no-tracker-ref-in-comment`,
 `house/no-non-subscribing-store-read` — and with nothing enforcing the total
@@ -623,8 +679,8 @@ Three test files, for the three things that can go wrong independently:
 
 - [[free-tier-limits]] — the D1 ceilings this guard is measured against
 - [[dev-environment]] — what the nightly cire dev rebuild does and costs
-- [[cire-development]] — cire/invites' own bundle history (#618 sessions off,
-  #616 SSR minification, #617 why `zod` stays)
+- [[cire-development]] — why cire/invites' bundle is shaped the way it is
+  (sessions off, SSR minification, why `zod` stays)
 - [[frontend-patterns]] — general Astro/Solid patterns
-- [[review-findings]] — P-I8 (tracker #619) is where this convention traces
-  back to
+- [[review-findings]] — how the review findings these guards answer are
+  tagged and filed

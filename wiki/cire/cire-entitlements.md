@@ -16,7 +16,8 @@ related:
   - "[[cire-plus-ones]]"
   - "[[cire-invite-designs]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-16
+  - "[[cire-seating]]"
+last-reviewed: 2026-10-20
 ---
 # Plan tiers — what a wedding has paid for
 
@@ -35,7 +36,7 @@ everything a lower one does.
 | Tier | Price | Opens | Guest cap | People limit |
 |---|---|---|---|---|
 | `ivory` | free | The invite and its design, events, the guest list, RSVPs, import, settings, co-hosts | 100 | 6 |
-| `gold` | paid | Everything in Ivory, plus the budget, the checklist and the gift registry | 500 | 15 |
+| `gold` | paid | Everything in Ivory, plus the budget, the checklist, the gift registry and the seating chart | 500 | 15 |
 | `crimson` | paid | Everything in Gold, plus vendors (the CRM, the directory and enquiries) and every premium invite design | 1,000 | 40 |
 
 `cire/api/src/services/tiers.ts` is the authority (`TIERS`, `tierAtLeast`,
@@ -97,7 +98,7 @@ premium designs are dormant ([[cire-invite-designs]]).
 
 The other keys in the enum (`vendors`, `registry`, `capacity_500`,
 `capacity_1000`, `ai`) are what 0073 read to set each wedding's tier. Their rows
-are still in the table and nothing reads them. englishstventures/osn#1315
+are still in the table and nothing reads them. englishstreetventures/osn#1315
 deletes them and narrows the enum once the tier release is deployed.
 
 ---
@@ -147,6 +148,7 @@ already validated it) degrades to the 402 rather than throwing.
 | Gold | `routes/tasks.ts` | 2 | Every `/tasks/*` route, reads included ([[cire-checklist-tasks]]) |
 | Gold | `routes/registry.ts` | 6 | The organiser registry, its link preview and the preview's thumbnails ([[cire-registry]]) |
 | Gold | `routes/registry-stripe.ts` | 1 | Connect onboarding for gift payouts |
+| Gold | `routes/seating.ts` | 2 | The seating chart's read and write groups ([[cire-seating]]) |
 | Crimson | `routes/vendors.ts` | 2 | The vendor CRM ([[cire-vendors]]) |
 | Crimson | `routes/vendor-directory.ts` | 2 | Directory browse and add |
 | Crimson | `routes/organiser-enquiries.ts` | 2 | The couple's side of enquiries |
@@ -171,17 +173,19 @@ guest surface never tells a caller which of those it is.
 | `POST …/unlock-code` | The route that raises a tier with a code; a gate on it would be the same loop ([[#Unlock codes]]) |
 | `GET …/gifts.csv` | The couple's own record of gifts; they can take it away whatever tier the wedding is on ([[cire-registry]]) |
 | `GET …/budget.csv`, `GET …/tasks.csv` | The budget lines, payments and tasks the couple entered; they can take them away whatever tier the wedding is on ([[cire-budget]], [[cire-checklist-tasks]]) |
-| `GET …/module-rows` | How many rows `budget.csv`, `tasks.csv` and `gifts.csv` would carry (`{ budgetLines, tasks, gifts }`), so a locked card offers a download only when there is something in it |
+| `GET …/seating.csv` | The seating chart the couple set out; they can take it away whatever tier the wedding is on ([[cire-seating]]) |
+| `GET …/module-rows` | How many rows `budget.csv`, `tasks.csv`, `gifts.csv` and `seating.csv` would carry (`{ budgetLines, tasks, gifts, seats }`), so a locked card offers a download only when there is something in it |
 | `PUT …/settings` with `budgetTotalMinor` | A single number written by onboarding, not the budget module ([[cire-budget]]) |
 
 A wedding whose tier no longer includes a module keeps that module's rows; it
-cannot read them through the module until it is back on the tier. The budget
-and the checklist hand them back as CSV instead, through the three routes
-above: owner only, in the per-user-limited export group
+cannot read them through the module until it is back on the tier. The budget,
+the checklist and the seating chart hand them back as CSV instead, through the
+routes above: owner only, in the per-user-limited export group
 (`createOrganiserExportRoutes` in `cire/api/src/routes/organiser-weddings.ts`),
 like every CSV export. `cire/api/tests/routes/organiser-weddings.test.ts`
-downloads both files for an Ivory wedding whose module reads answer 402, so a
-tier gate added to that group fails it.
+downloads the budget and checklist files, and `cire/api/tests/routes/seating.test.ts`
+the seating file, for an Ivory wedding whose module reads answer 402, so a tier
+gate added to that group fails them.
 
 ---
 
@@ -230,7 +234,7 @@ imports and editor saves):
 
 `tier` is `requiredTier` — the portal names it in the import error ("upgrade
 to Gold") and says plainly when it is `null`. `entitlement: "capacity"` stays
-for a portal build that reads it, until englishstventures/osn#1315. Naming a
+for a portal build that reads it, until englishstreetventures/osn#1315. Naming a
 plus-one past the cap answers `409 guest_capacity` instead.
 
 ---
@@ -247,7 +251,7 @@ couple and never count; a third owner counts like a co-host, so promoting a
 co-host to owner frees no place. One SQL fragment, `peopleCountSql` in
 `cire/api/src/services/hosts.ts`, is the definition: every guard and every read
 of the count embeds it. Claimed vendors do not count yet
-(englishstventures/osn#1457).
+(englishstreetventures/osn#1457).
 
 **Where it is enforced** — inside the statement that writes, with the limit
 read from the wedding's tier in the same statement (`peopleLimitSql`), so two
@@ -311,7 +315,7 @@ payload without `peopleLimit` leaves the panel as it was.
 ## The wedding list
 
 `GET /api/organiser/weddings` returns, per wedding, `tier`, `guestCap` (the
-tier's cap) and `entitlements`. Until englishstventures/osn#1315,
+tier's cap) and `entitlements`. Until englishstreetventures/osn#1315,
 `entitlements` carries the legacy keys the tier stands for
 (`legacyEntitlementKeys`): Gold → `registry`, `capacity_500`; Crimson →
 `vendors`, `registry`, `capacity_1000`, `premium_templates`; plus
@@ -323,20 +327,20 @@ wedding with `tier: "ivory"`, `entitlements: []`, `guestCap: 100`.
 
 `isModuleLocked(id, tier)` (`cire/host/src/lib/module-nav.ts`) is the one
 predicate every surface uses: each `MODULE_NAV` entry with a `lock` names its
-`tier` — Checklist, Budget and Registry `gold`, Vendors `crimson`.
+`tier` — Checklist, Budget, Registry and Seating `gold`, Vendors `crimson`.
 
 - **`tierOf(summary)`** (`cire/host/src/lib/tiers.ts`) reads the list's `tier`.
   With no `tier` at all the list came from an API that predates tiers, and the
   legacy keys stand in for it with the same mapping 0073 used
   (`legacyTierFromEntitlements`), so a portal deployed ahead of its API locks
-  nothing the couple paid for. The fallback goes with englishstventures/osn#1315.
+  nothing the couple paid for. The fallback goes with englishstreetventures/osn#1315.
 - **`ModuleShell`** coerces a locked module to Overview: a deep link or a stale
   hash lands on a real view, and a locked module's panel never mounts.
 - **The rail and the sheet** keep a locked row visible but faded. Its accessible
   name and its card name the tier that includes it ("Included with Gold");
   the card's **Upgrade to Gold** button opens the purchase dialog
   ([[cire-upgrades]]), and a press on the row (Enter included) moves focus
-  straight to it. For an owner, the Budget, Checklist and Registry
+  straight to it. For an owner, the Budget, Checklist, Registry and Seating
   cards also offer the rows the wedding holds there: they ask `GET …/module-rows` when
   first opened (cached per wedding in `cire/host/src/lib/module-rows-store.ts`)
   and show **Download as CSV** when the module holds rows, or when the count
@@ -518,7 +522,7 @@ onboarding tier step can place it under the tier cards.
 The tier is one value per wedding, so it cannot hold purchase history: the money
 side lives in `wedding_upgrade_purchases` and `platform_sales`
 ([[cire-upgrades]]). Refunds do not lower a tier automatically; the customer
-wording for that is englishstventures/osn#1317.
+wording for that is englishstreetventures/osn#1317.
 
 ## Deploying a change to tiers
 
@@ -555,6 +559,6 @@ abuse; the people-limit checks ride the existing `cire.host.add` and
 - [[cire-upgrades]] — buying a tier: catalogue, checkout, the webhook that grants
 - [[cire-auth]] — the role gates the tier gate sits behind
 - [[cire-host-portal-layout]] — the locked nav row and its popover
-- [[cire-budget]], [[cire-checklist-tasks]], [[cire-registry]] — the Gold modules
+- [[cire-budget]], [[cire-checklist-tasks]], [[cire-registry]], [[cire-seating]] — the Gold modules
 - [[cire-vendors]] — the Crimson module
 - [[cire-plus-ones]] — the cap check inside a plus-one insert

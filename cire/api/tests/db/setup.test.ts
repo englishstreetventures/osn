@@ -11,6 +11,10 @@ import {
   DEV_OWNER_SEAT_ID,
   repointDevOwnerSeat,
   seedDb,
+  applyE2eGiftList,
+  applyE2eOrganiser,
+  applyE2eRsvpDeadline,
+  setSampleRsvpDeadline,
   type TestDb,
 } from "../../src/db/setup";
 
@@ -287,5 +291,88 @@ describe("repointDevOwnerSeat", () => {
 
       expect(allSeats(theirs)).toEqual(allSeats(ours));
     });
+  });
+});
+
+describe("setSampleRsvpDeadline", () => {
+  const deadlineOf = (db: TestDb) =>
+    db
+      .select({
+        date: schema.weddings.rsvpDeadline,
+        timezone: schema.weddings.rsvpDeadlineTimezone,
+      })
+      .from(schema.weddings)
+      .where(eq(schema.weddings.id, schema.BOOTSTRAP_WEDDING_ID))
+      .get();
+
+  it("refuses a date that is not a real calendar day, and leaves RSVPs open", () => {
+    // A malformed value would otherwise be stored and read back as "no
+    // deadline", so a run meant to test the closed invite would test an open
+    // one and pass.
+    const db = createDb();
+    seedDb(db);
+    for (const bad of ["2099-02-30", "2099-1-1", "tomorrow", ""]) {
+      expect(() => setSampleRsvpDeadline(db, bad)).toThrow();
+    }
+    expect(deadlineOf(db)).toEqual({ date: null, timezone: null });
+  });
+
+  it("leaves RSVPs open when the dev server boots without CIRE_E2E_RSVP_DEADLINE", () => {
+    // Every `bun run dev` outside the E2E suite: no variable, or an empty one.
+    for (const env of [{}, { CIRE_E2E_RSVP_DEADLINE: "" }]) {
+      const db = createDb();
+      seedDb(db);
+      applyE2eRsvpDeadline(db, env);
+      expect(deadlineOf(db)).toEqual({ date: null, timezone: null });
+    }
+  });
+
+  it("gives the sample wedding the deadline the E2E suite names, in UTC", () => {
+    const db = createDb();
+    seedDb(db);
+    applyE2eRsvpDeadline(db, { CIRE_E2E_RSVP_DEADLINE: "2099-01-01" });
+    expect(deadlineOf(db)).toEqual({ date: "2099-01-01", timezone: "UTC" });
+  });
+});
+
+describe("applyE2eGiftList", () => {
+  it("adds no gift-list wedding when the dev server boots without CIRE_E2E_REGISTRY", () => {
+    // Every `bun run dev:cire` outside the E2E suite: no variable, an empty
+    // one, or one that is not "1". A Gold wedding with a published list there
+    // would put a gift list in front of anyone testing the tier gate locally.
+    for (const env of [{}, { CIRE_E2E_REGISTRY: "" }, { CIRE_E2E_REGISTRY: "0" }]) {
+      const db = createDb();
+      seedDb(db);
+      applyE2eGiftList(db, env);
+      const slugs = db
+        .select({ slug: schema.weddings.slug })
+        .from(schema.weddings)
+        .all()
+        .map((w) => w.slug);
+      expect(slugs).toEqual(["cire-wedding"]);
+      expect(db.select().from(schema.registrySettings).all()).toEqual([]);
+      expect(db.select().from(schema.registryItems).all()).toEqual([]);
+    }
+  });
+});
+
+describe("applyE2eOrganiser", () => {
+  it("adds no organiser weddings when the dev server boots without CIRE_E2E_ORGANISER", () => {
+    // Every `bun run dev:cire` outside the E2E suite: no variable, an empty
+    // one, or one that is not "1". The dev profile signs in to the local
+    // portal; three test weddings with made-up co-hosts must not appear there.
+    for (const env of [{}, { CIRE_E2E_ORGANISER: "" }, { CIRE_E2E_ORGANISER: "0" }]) {
+      const db = createDb();
+      seedDb(db);
+      applyE2eOrganiser(db, env);
+      const slugs = db
+        .select({ slug: schema.weddings.slug })
+        .from(schema.weddings)
+        .all()
+        .map((w) => w.slug);
+      expect(slugs).toEqual(["cire-wedding"]);
+      expect(db.select().from(schema.weddingHosts).all()).toHaveLength(1);
+      expect(db.select().from(schema.tasks).all()).toEqual([]);
+    }
   });
 });

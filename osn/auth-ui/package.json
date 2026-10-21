@@ -1,13 +1,13 @@
 {
   "name": "@osn/auth-ui",
-  "version": "3.0.11",
+  "version": "3.0.14",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/englishstventures/osn.git"
+    "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -41,7 +41,7 @@
     "@solidjs/testing-library": "^0.8.10",
     "happy-dom": "^20.12.2",
     "solid-js": "^1.9.15",
-    "vite": "^8.2.2",
+    "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "5.0.3"
   },

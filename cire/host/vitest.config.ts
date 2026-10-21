@@ -25,6 +25,7 @@ import {
   emulateMedia,
   pushRealtime,
   realtimeSocketCount,
+  servePhotos,
   startRealtimeServer,
   stopRealtimeServer,
 } from "./tests/test-support/browser-commands.ts";
@@ -82,10 +83,12 @@ export default defineConfig({
             headless: true,
             instances: [{ browser: "chromium" }],
             // Lets a test flip `prefers-color-scheme` / `prefers-reduced-motion`
-            // for itself instead of running the whole suite once per preference.
+            // for itself instead of running the whole suite once per preference,
+            // and answer an https photo URL with a picture made in the runner.
             // The realtime commands hold a WebSocket server for the push tests.
             commands: {
               emulateMedia,
+              servePhotos,
               startRealtimeServer,
               pushRealtime,
               dropRealtime,

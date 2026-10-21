@@ -8,6 +8,9 @@ import {
   guestEvents,
   imports,
   organiserSessions,
+  rsvps,
+  seatingAssignments,
+  seatingTables,
   weddingHosts,
   weddings,
 } from "@cire/db";
@@ -22,7 +25,7 @@ import { MAX_EVENTS, MAX_ROWS } from "../../src/schemas/import";
 import { ChangeConflict } from "../../src/services/changes";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { createR2Stub } from "../../src/services/r2-imports";
-import { appRequest, jsonBody, setTier } from "../test-helpers";
+import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -197,6 +200,223 @@ describe("dress-code palette colours are checked on the server", () => {
     expect(body.find((e) => e.id === "evt_bad_palette")!.dressCodePalette).toEqual([
       { name: "Sage", color: "#b2ac88" },
     ]);
+  });
+});
+
+// ── An event's description and venue name ──────────────────────────────────
+
+describe("an event's description and venue name", () => {
+  const LONG = "x".repeat(10_001);
+  /** The events editor's event, as the current host sends it. */
+  const editorEvent = (extra: object = {}) => ({
+    name: "Kitchen Tea",
+    startAt: "2026-11-20T16:00:00+11:00",
+    endAt: "",
+    timezone: "Australia/Sydney",
+    location: null,
+    address: "124 Sample Avenue",
+    dressCodeDescription: null,
+    dressCodePalette: [],
+    pinterestUrl: null,
+    mapsUrl: null,
+    sortOrder: 0,
+    ...extra,
+  });
+
+  async function previewAndApply(app: ReturnType<typeof buildApp>["app"], body: object) {
+    const preview = await editorPreview(app, { ...body, scope: "events" });
+    expect(preview.status).toBe(200);
+    const json = (await preview.json()) as {
+      changeId: string;
+      plan: { eventCreates: { event: object }[]; eventUpdates: { event: object }[] };
+    };
+    const apply = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: json.changeId });
+    expect(apply.status).toBe(200);
+    return json.plan;
+  }
+
+  const stored = (db: ReturnType<typeof buildApp>["db"]) =>
+    db
+      .select({
+        id: events.id,
+        description: events.description,
+        venueName: events.venueName,
+        address: events.address,
+      })
+      .from(events)
+      .all();
+
+  it("sets both from the editor, on create and on update, and the preview's plan carries them", async () => {
+    const { app, db } = buildApp();
+    const created = await previewAndApply(app, {
+      desiredState: {
+        events: [
+          editorEvent({ description: "High tea.\nGames after.", venueName: "The Glasshouse" }),
+        ],
+        families: [],
+      },
+    });
+    expect(created.eventCreates[0]!.event).toMatchObject({
+      description: "High tea.\nGames after.",
+      venueName: "The Glasshouse",
+    });
+    const [row] = stored(db);
+    expect(row).toMatchObject({
+      description: "High tea.\nGames after.",
+      venueName: "The Glasshouse",
+      address: "124 Sample Avenue",
+    });
+
+    const updated = await previewAndApply(app, {
+      desiredState: {
+        events: [editorEvent({ id: row!.id, description: "", venueName: null })],
+        families: [],
+      },
+    });
+    expect(updated.eventUpdates[0]!.event).toMatchObject({ description: "", venueName: null });
+    expect(stored(db)[0]).toMatchObject({ description: "", venueName: null });
+  });
+
+  // An older host sends `location: null` and neither field. Its save must not
+  // wipe what a newer host (or a sheet) stored.
+  it("keeps both when an older host's save carries neither", async () => {
+    const { app, db } = buildApp();
+    await previewAndApply(app, {
+      desiredState: {
+        events: [editorEvent({ description: "High tea.", venueName: "The Glasshouse" })],
+        families: [],
+      },
+    });
+    const [row] = stored(db);
+    await previewAndApply(app, {
+      desiredState: {
+        events: [editorEvent({ id: row!.id, address: "125 Sample Avenue" })],
+        families: [],
+      },
+    });
+    expect(stored(db)[0]).toMatchObject({
+      description: "High tea.",
+      venueName: "The Glasshouse",
+      address: "125 Sample Avenue",
+    });
+  });
+
+  // One event, so the body is far under the 1 MB caps and the field check is
+  // what answers.
+  for (const field of ["description", "venueName"] as const) {
+    it(`400s an editor draft whose ${field} is over 10,000 characters, and stores nothing`, async () => {
+      const { app, db } = buildApp();
+      const res = await editorPreview(app, {
+        desiredState: { events: [editorEvent({ [field]: LONG })], families: [] },
+        scope: "events",
+      });
+      expect(res.status).toBe(400);
+      expect(db.select().from(imports).all()).toHaveLength(0);
+
+      const atCap = await editorPreview(app, {
+        desiredState: { events: [editorEvent({ [field]: LONG.slice(1) })], families: [] },
+        scope: "events",
+      });
+      expect(atCap.status).toBe(200);
+    });
+  }
+
+  // A sheet previewed before this change re-parses at apply, so it takes the
+  // new rule: its Location is the venue's name, and a blank Address stays blank.
+  it("applies a sheet's Location to the venue name, leaving a blank Address NULL", async () => {
+    const { app, db } = buildApp();
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: [
+        "Event Name,Start,Timezone,Location,Address",
+        "Kitchen Tea,2026-11-20T16:00,Australia/Sydney,The Glasshouse,",
+      ].join("\n"),
+    });
+    expect(preview.status).toBe(200);
+    const { changeId } = (await preview.json()) as { changeId: string };
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
+    expect(stored(db)[0]).toMatchObject({
+      venueName: "The Glasshouse",
+      address: null,
+      description: "",
+    });
+  });
+
+  // A download made before the venue name existed has a Location column that
+  // is always blank and no Description column. Re-uploading one clears what
+  // the editor set since, and the preview is where the organiser can see that.
+  it("warns when a sheet's blank cells would clear an event's venue name or description, and not when the columns are left out", async () => {
+    const { app, db } = buildApp();
+    await previewAndApply(app, {
+      desiredState: {
+        events: [editorEvent({ description: "High tea.", venueName: "The Glasshouse" })],
+        families: [],
+      },
+    });
+    const warningsFor = async (header: string, row: string) => {
+      const res = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        eventsCsv: [header, row].join("\n"),
+      });
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { warnings: string[] }).warnings;
+    };
+
+    expect(
+      await warningsFor(
+        "Event Name,Start,Timezone,Location,Address",
+        "Kitchen Tea,2026-11-20T16:00,Australia/Sydney,,124 Sample Avenue",
+      ),
+    ).toEqual(['Event "Kitchen Tea" would lose its venue name.']);
+    expect(
+      await warningsFor(
+        "Event Name,Start,Timezone,Location,Address,Description",
+        "Kitchen Tea,2026-11-20T16:00,Australia/Sydney,,124 Sample Avenue,",
+      ),
+    ).toEqual(['Event "Kitchen Tea" would lose its venue name and description.']);
+    expect(
+      await warningsFor(
+        "Event Name,Start,Timezone,Location,Address,Description",
+        "Kitchen Tea,2026-11-20T16:00,Australia/Sydney,The Glasshouse,124 Sample Avenue,",
+      ),
+    ).toEqual(['Event "Kitchen Tea" would lose its description.']);
+    expect(
+      await warningsFor(
+        "Event Name,Start,Timezone,Address",
+        "Kitchen Tea,2026-11-20T16:00,Australia/Sydney,124 Sample Avenue",
+      ),
+    ).toEqual([]);
+
+    // Nothing to lose, nothing to warn about: blank cells beside an event
+    // that has no venue name and no description.
+    await previewAndApply(app, {
+      desiredState: {
+        events: [editorEvent({ id: stored(db)[0]!.id, description: "", venueName: null })],
+        families: [],
+      },
+    });
+    expect(
+      await warningsFor(
+        "Event Name,Start,Timezone,Location,Address,Description",
+        "Kitchen Tea,2026-11-20T16:00,Australia/Sydney,,124 Sample Avenue,",
+      ),
+    ).toEqual([]);
+  });
+
+  // A cire-api older than the venue name requires `location` on every editor
+  // event. What a preview stores is what apply decodes, so it keeps the key
+  // and a change previewed here still applies after a rollback.
+  it("keeps the editor's location: null in the change it stores", async () => {
+    const { app, r2 } = buildApp();
+    const res = await editorPreview(app, {
+      desiredState: { events: [editorEvent({ venueName: "The Glasshouse" })], families: [] },
+      scope: "events",
+    });
+    expect(res.status).toBe(200);
+    // The editor's JSON rides in the events slot; the guests slot is "".
+    const changes = [...r2._store.values()]
+      .filter((text) => text !== "")
+      .map((text) => JSON.parse(text) as { events: object[] });
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.events[0]).toHaveProperty("location", null);
   });
 });
 
@@ -786,6 +1006,61 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
     expect(res.status).toBe(400);
   });
 
+  it("rejects a household name over 10,000 characters, and takes one of 10,000", async () => {
+    const { app } = buildApp();
+    const named = (familyName: string) => ({
+      ...desiredState,
+      families: [{ ...desiredState.families[0]!, familyName }],
+    });
+    expect((await editorPreview(app, { desiredState: named("x".repeat(10_001)) })).status).toBe(
+      400,
+    );
+    expect((await editorPreview(app, { desiredState: named("x".repeat(10_000)) })).status).toBe(
+      200,
+    );
+  });
+
+  // Every value the editor door can store is held to the sheet's cell cap, so
+  // the two doors admit the same text. One event and one household keep the
+  // body far under the 1 MB caps, so the field check is what answers.
+  describe("an editor value over 10,000 characters", () => {
+    const over = "x".repeat(10_001);
+    const event = desiredState.events[0]!;
+    const family = desiredState.families[0]!;
+    const guest = family.guests[0]!;
+    const withEvent = (patch: object) => ({ events: [{ ...event, ...patch }], families: [] });
+    const withGuest = (patch: object) => ({
+      ...desiredState,
+      families: [{ ...family, guests: [{ ...guest, ...patch }] }],
+    });
+    it.each([
+      ["the event name", withEvent({ name: over })],
+      ["the start", withEvent({ startAt: over })],
+      ["the end", withEvent({ endAt: over })],
+      ["the timezone", withEvent({ timezone: over })],
+      ["the address", withEvent({ address: over })],
+      ["the dress code description", withEvent({ dressCodeDescription: over })],
+      ["a swatch name", withEvent({ dressCodePalette: [{ name: over, color: "#1f6f50" }] })],
+      [
+        "a swatch colour",
+        withEvent({
+          dressCodePalette: [{ name: "Emerald", color: `#1f6f50${" ".repeat(10_001)}` }],
+        }),
+      ],
+      ["the Pinterest link", withEvent({ pinterestUrl: `https://pinterest.test/${over}` })],
+      ["the maps link", withEvent({ mapsUrl: `https://maps.test/${over}` })],
+      ["the household code", { ...desiredState, families: [{ ...family, publicId: over }] }],
+      ["a first name", withGuest({ firstName: over })],
+      ["a last name", withGuest({ lastName: over })],
+      ["a nickname", withGuest({ nickname: over })],
+    ])("is refused in %s, and nothing is stored", async (_field, body) => {
+      const { app, db } = buildApp();
+      const res = await editorPreview(app, { desiredState: body });
+      expect(res.status).toBe(400);
+      expect(db.select().from(imports).all()).toHaveLength(0);
+    });
+  });
+
   it("saves a HOUSEHOLD NAME edit — id-matched rename writes through, code + guests survive", async () => {
     const { app, db } = buildApp();
 
@@ -1275,6 +1550,126 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
 });
 
 // ── One change writes a wedding at a time ─────────────────────────────────
+
+describe("a change's warnings are read for its preview only", () => {
+  // The RSVP warning's read and the seat count are the only statements that
+  // match these; applyImport deletes RSVPs and seats but never selects them.
+  const isWarningRead = (sql: string) =>
+    sql.includes("char(31)") || /^select .* from "rsvps" where "rsvps"\."guest_id" in/.test(sql);
+
+  it("warns of the RSVP and the seat a removal loses, and reads neither to apply or revert it", async () => {
+    const { app, db } = buildApp();
+    const seed = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const seedId = ((await seed.json()) as { changeId: string }).changeId;
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: seedId })).status).toBe(200);
+
+    // Bo has replied to the Reception and sits at its one table.
+    const bo = db.select().from(guests).where(eq(guests.firstName, "Bo")).get()!;
+    const reception = db.select().from(events).where(eq(events.name, "Reception")).get()!;
+    const now = new Date();
+    db.insert(rsvps)
+      .values({
+        id: "rsvp_bo",
+        guestId: bo.id,
+        eventId: reception.id,
+        status: "attending",
+        createdAt: now,
+      })
+      .run();
+    db.insert(seatingTables)
+      .values({
+        id: "stb_rec",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        eventId: reception.id,
+        name: "Table 1",
+        capacity: 8,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(seatingAssignments)
+      .values({ tableId: "stb_rec", eventId: reception.id, guestId: bo.id, createdAt: now })
+      .run();
+
+    const recorded = recordStatements(db);
+    const warningReads = () => recorded.map((r) => r.sql).filter(isWarningRead).length;
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV.split("\n").slice(0, 2).join("\n"),
+    });
+    expect(preview.status).toBe(200);
+    const body = (await preview.json()) as { changeId: string; warnings: string[] };
+    expect(body.warnings.filter((w) => /RSVP|seating chart/.test(w))).toEqual([
+      expect.stringMatching(/^Removing guest Bo would lose their RSVP: status=attending/),
+      "This change clears 1 seat from the seating chart. Reverting it does not bring them back.",
+    ]);
+    expect(warningReads()).toBe(2);
+
+    const applied = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: body.changeId });
+    expect(applied.status).toBe(200);
+    expect(db.select().from(guests).where(eq(guests.firstName, "Bo")).get()).toBeUndefined();
+    expect(warningReads()).toBe(2);
+    const reverted = await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: body.changeId });
+    expect(reverted.status).toBe(200);
+    expect(db.select().from(guests).where(eq(guests.firstName, "Bo")).get()).toBeTruthy();
+    expect(warningReads()).toBe(2);
+    // Warnings belong to the preview: neither summary carries a list that
+    // would read as complete without them.
+    for (const res of [applied, reverted]) {
+      const { summary } = (await res.json()) as { summary: Record<string, unknown> };
+      expect(summary.guestsRemoved).toBeTypeOf("number");
+      expect(summary).not.toHaveProperty("warnings");
+    }
+
+    // A change that removes nothing reads neither, and warns of neither.
+    const unchanged = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const quiet = (await unchanged.json()) as { warnings: string[] };
+    expect(quiet.warnings.filter((w) => /RSVP|seating chart/.test(w))).toEqual([]);
+    expect(warningReads()).toBe(2);
+  });
+
+  it("reads no warning to revert a change, by any of the revert's paths", async () => {
+    const { app, db } = buildApp();
+    const change = async (body: object) => {
+      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, body);
+      expect(preview.status).toBe(200);
+      const { changeId } = (await preview.json()) as { changeId: string };
+      expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
+      return changeId;
+    };
+    const revert = async (changeId: string) =>
+      expect((await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId })).status).toBe(200);
+    await change({ eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
+
+    const recorded = recordStatements(db);
+    const warningReads = () => recorded.map((r) => r.sql).filter(isWarningRead).length;
+    // Each change adds what its revert then removes: a guest, or an event.
+    const withCy = `${GUESTS_CSV}\n3,Charlie,Cy,Charlie,yes,yes`;
+    const withSangeet = `${EVENTS_CSV}\nSangeet,2026-09-19T18:00:00+10:00,2026-09-19T23:00:00+10:00,Australia/Sydney,Hall,,Festive,,,`;
+
+    await revert(await change({ eventsCsv: EVENTS_CSV, guestsCsv: withCy }));
+    await revert(await change({ guestsCsv: withCy }));
+    await revert(await change({ eventsCsv: withSangeet }));
+    // A change whose before-image has been pruned reverts by replaying the
+    // change before it.
+    const pruned = await change({ eventsCsv: EVENTS_CSV, guestsCsv: withCy });
+    db.update(imports)
+      .set({ beforeEventsR2Key: null, beforeGuestsR2Key: null })
+      .where(eq(imports.id, pruned))
+      .run();
+    await revert(pruned);
+
+    expect(db.select().from(guests).where(eq(guests.firstName, "Cy")).get()).toBeUndefined();
+    expect(db.select().from(events).where(eq(events.name, "Sangeet")).get()).toBeUndefined();
+    expect(warningReads()).toBe(0);
+  });
+});
 
 describe("POST /changes/apply + /revert — one change writes a wedding at a time", () => {
   /** Hold the wedding the way an apply still writing does. */

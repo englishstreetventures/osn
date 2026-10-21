@@ -287,6 +287,171 @@ describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
 // there, on both entry points, and that no query escapes to the raw binding.
 // That is the failure that would be invisible otherwise: everything keeps
 // working, replication is simply never used.
+describe("CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS", () => {
+  // Wedding ids in the shape `weddingsService` mints.
+  const LISTED = "wed_0123456789abcdef0123456789abcdef";
+  const OTHER = "wed_fedcba9876543210fedcba9876543210";
+  const SEED = [
+    `INSERT INTO weddings (id, slug, display_name, created_at, updated_at) VALUES ('${LISTED}', 'member-step', 'Member Step', 0, 0)`,
+    `INSERT INTO families (id, wedding_id, public_id, family_name, created_at, updated_at) VALUES ('fam_member_step', '${LISTED}', 'MEMBERS-TEP-0001', 'Step', 0, 0)`,
+    "INSERT INTO guests (id, family_id, first_name, created_at, updated_at) VALUES ('g_member_step_1', 'fam_member_step', 'Ann', 0, 0), ('g_member_step_2', 'fam_member_step', 'Ben', 0, 0)",
+  ];
+
+  beforeAll(async () => {
+    for (const statement of SEED) await DB.prepare(statement).run();
+  });
+
+  afterAll(async () => {
+    // The household's sessions and its two guests go with it.
+    await DB.prepare(`DELETE FROM weddings WHERE id = '${LISTED}'`).run();
+  });
+
+  /**
+   * The claim payload and the log lines of a Worker built for `extra`, on a
+   * binding it has not seen (the app is cached per D1 binding).
+   */
+  async function claimThroughWorker(
+    extra: Record<string, unknown>,
+  ): Promise<{ body: unknown; logs: string }> {
+    const freshBinding = {
+      prepare: (query: string) => DB.prepare(query),
+      batch: (statements: D1PreparedStatement[]) => DB.batch(statements),
+      withSession: (constraint: string) => DB.withSession(constraint),
+    };
+    const env = { ...BASE_ENV, ...extra, DB: freshBinding } as unknown as Parameters<
+      NonNullable<typeof handler.fetch>
+    >[1];
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await handler.fetch!(
+        new Request("https://api.example.com/api/claim", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: BASE_ENV.WEB_ORIGIN,
+            "cf-connecting-ip": "203.0.113.62",
+          },
+          body: JSON.stringify({ publicId: "MEMBERS-TEP-0001" }),
+        }) as unknown as Parameters<NonNullable<typeof handler.fetch>>[0],
+        env,
+        ctx,
+      );
+    });
+    expect(res?.status).toBe(200);
+    return { body: await jsonBody(res!), logs };
+  }
+
+  it("keeps the member step off for a listed wedding, and logs the list as counts only", async () => {
+    const { body, logs } = await claimThroughWorker({
+      CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS: ` ${OTHER} , ,${LISTED},`,
+    });
+    expect(body).not.toHaveProperty("member");
+    expect(logs).toContain("member step exclusion loaded");
+    expect(logs).toMatch(/"listed":2\b/);
+    expect(logs).toMatch(/"malformed":0\b/);
+    expect(logs).not.toContain(LISTED);
+    expect(logs).not.toContain(OTHER);
+  });
+
+  it("gives every other wedding the step, and warns of an entry no wedding id looks like", async () => {
+    const { body, logs } = await claimThroughWorker({
+      // A name, and two ids with a character too many at either end.
+      CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS: `${OTHER}, not-a-wedding, x${LISTED}, ${LISTED}0`,
+    });
+    expect(body).toHaveProperty("member", null);
+    expect(logs).toContain("member step exclusion has malformed entries");
+    expect(logs).toMatch(/"listed":4\b/);
+    expect(logs).toMatch(/"malformed":3\b/);
+    expect(logs).not.toContain("not-a-wedding");
+  });
+
+  it("reads a value that is not text as no wedding, and still serves", async () => {
+    const { body, logs } = await claimThroughWorker({ CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS: 42 });
+    expect(body).toHaveProperty("member", null);
+    expect(logs).toMatch(/"malformed":1\b/);
+  });
+
+  it("gives every wedding the step, and logs nothing about it, while unset or empty", async () => {
+    for (const extra of [{}, { CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS: " , " }]) {
+      const { body, logs } = await claimThroughWorker(extra);
+      expect(body).toHaveProperty("member", null);
+      expect(logs).not.toContain("member step exclusion");
+    }
+  });
+});
+
+describe("organiser sign-in config on the Worker", () => {
+  const OIDC = {
+    CIRE_API_ORIGIN: "https://api.example.com",
+    CIRE_OIDC_CLIENT_ID: "cid_cire",
+    CIRE_OIDC_CLIENT_SECRET: "not-a-real-secret",
+  };
+
+  /**
+   * The OIDC start leg's answer and the log lines of a Worker built for
+   * `extra`, on a binding it has not seen (the app is cached per D1 binding).
+   */
+  async function startSignIn(
+    extra: Record<string, unknown>,
+    returnTo: string,
+  ): Promise<{ res: Response; logs: string }> {
+    const freshBinding = {
+      prepare: (query: string) => DB.prepare(query),
+      batch: (statements: D1PreparedStatement[]) => DB.batch(statements),
+      withSession: (constraint: string) => DB.withSession(constraint),
+    };
+    const env = { ...BASE_ENV, ...extra, DB: freshBinding } as unknown as Parameters<
+      NonNullable<typeof handler.fetch>
+    >[1];
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await handler.fetch!(
+        new Request(
+          `https://api.example.com/api/auth/oidc/start?return_to=${encodeURIComponent(returnTo)}`,
+          { headers: { "cf-connecting-ip": "203.0.113.63" } },
+        ) as unknown as Parameters<NonNullable<typeof handler.fetch>>[0],
+        env,
+        ctx,
+      );
+    });
+    return { res: res!, logs };
+  }
+
+  it("refuses to start a sign-in, and says why, while a deployed tier lacks a sign-in value", async () => {
+    // The issuer and its JWKS URL are required by the boot guard above every
+    // route; the three sign-in values are not, and each one missing leaves the
+    // rest of the Worker serving.
+    for (const missing of Object.keys(OIDC)) {
+      const { res, logs } = await startSignIn(
+        { ...OIDC, [missing]: undefined },
+        "https://app.example.com/",
+      );
+      expect(res.status).toBe(302);
+      const location = new URL(res.headers.get("location") ?? "");
+      expect(location.pathname).toBe("/login");
+      expect(location.searchParams.get("auth_error")).toBe("sign_in_unavailable");
+      expect(logs).toContain("OIDC client config incomplete");
+      expect(logs).toContain("OSN_JWKS_URL");
+    }
+  });
+
+  it("sends the organiser to the issuer with the tier's own callback, and only back to its own origins", async () => {
+    const { res, logs } = await startSignIn(OIDC, "https://app.example.com/");
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.get("location") ?? "");
+    expect(`${location.origin}${location.pathname}`).toBe("https://id.example.com/authorize");
+    expect(location.searchParams.get("client_id")).toBe("cid_cire");
+    expect(location.searchParams.get("redirect_uri")).toBe(
+      "https://api.example.com/api/auth/oidc/callback",
+    );
+    expect(logs).not.toContain("OIDC client config incomplete");
+
+    const elsewhere = await startSignIn(OIDC, "https://attacker.example/");
+    expect(elsewhere.res.status).toBe(400);
+    expect(await jsonBody(elsewhere.res)).toEqual({ error: "invalid_return_to" });
+  });
+});
+
 describe("D1 session routing at the entry points", () => {
   /**
    * A D1 binding that records what it was asked for, delegating to the real

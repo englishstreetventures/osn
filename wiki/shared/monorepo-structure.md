@@ -138,7 +138,7 @@ shared/
   realtime/            # @shared/realtime — invalidation signals over WebSocket: the per-topic Durable Object hub, publish/subscribe helpers, the browser client and useTopic
   redis/               # @shared/redis — Redis client wrapper, rate-limiter Lua, JTI / rotated-session stores
   rp-auth/             # @shared/rp-auth — browser half of an OSN relying party: the redirect sign-in flow and its cookie contract
-  sortable/            # @shared/sortable — drag-to-reorder for SolidJS: pointer sensor, closestCenter, multi-container, and the whole keyboard / screen-reader path
+  sortable/            # @shared/sortable — drag for SolidJS: re-order lists (pointer sensor, closestCenter, the whole keyboard / screen-reader path) and drop zones for moving an item between containers
   toast/               # @shared/toast — SolidJS toasts themed through --toast-* custom properties
   turnstile/           # @shared/turnstile — key-optional, fail-closed Turnstile verifier
   typescript-config/   # @shared/typescript-config — base.json, node.json, solid.json
@@ -189,7 +189,7 @@ Platform priority is iOS, then web, then Android (deferred). The iOS apps are Sw
 
 ## Tech Stack
 
-Bun, TypeScript, Elysia, Effect v4 (backend only), Drizzle, SQLite locally and Cloudflare D1 in the deployed tiers (a Supabase Postgres migration is deferred — an open decision issue in `englishstventures/osn`), Eden+REST, WebSockets, Signal Protocol (planned), SolidJS, Astro, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest.
+Bun, TypeScript, Elysia, Effect v4 (backend only), Drizzle, SQLite locally and Cloudflare D1 in the deployed tiers (a Supabase Postgres migration is deferred — an open decision issue in `englishstreetventures/osn`), Eden+REST, WebSockets, Signal Protocol (planned), SolidJS, Astro, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest.
 
 ## Source Files
 

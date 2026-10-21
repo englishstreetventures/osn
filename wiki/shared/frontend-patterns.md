@@ -23,7 +23,7 @@ packages:
   - "@cire/host"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # Frontend Patterns
@@ -140,6 +140,16 @@ view just never leaves its loading state. Build the value first and pass the
 variable — `const store = createStore(); return <Inbox store={store} />;` — as
 `VendorApp` does with its enquiry inbox holder (`cire/vendor`).
 
+### A `<select>` over a list that can refresh marks each option `selected`
+
+Solid sets a `<select>`'s `value` prop when the value changes, not when its
+options do. A `<For>` over rows that can be replaced (the cached event list,
+refreshed by another view) rebuilds every `<option>`, and the browser then
+shows the first one while the signal still holds another: the picker says
+Reception over the Ceremony's chart. Put `selected={row.id === chosen()}` on
+each option instead of `value` on the select, as `SeatingView`'s event picker
+does (`cire/host`). A fixed list of options is unaffected.
+
 ### `createMemo` runs eagerly, so declare memos below their dependencies
 
 Unlike a plain accessor, a memo's computation runs at creation. A memo declared
@@ -219,8 +229,17 @@ with a negative margin" trick inverts on a sticky element: a negative bottom mar
 
 A full-bleed sticky action bar must instead have the scroll container drop its own
 bottom padding and let the bar own the edge, plus its `env(safe-area-inset-bottom)`
-— the `flushBottom` prop on `AnimatedModal`, which cire's `EventSheet` sets while
-its RSVP form (`RsvpPanel`) is the panel on screen.
+— the `flushBottom` prop on `AnimatedModal`. A sticky box keeps inside its
+scrollport's padding, so the padding has to be gone whenever the bar is drawn,
+not only while its panel is the one on screen: cire's `EventSheet` sets
+`flushBottom` for both of its panels, because a swipe draws the RSVP form
+(`RsvpPanel`) in beside the details, and the details carry their bottom padding
+on their own wrapper instead.
+
+In a sheet of fixed height a short form would leave the bar under its last field,
+since `sticky` only ever moves a box to keep it in view. The bar needs a column
+that fills the scrollport and `mt-auto` to reach its foot: the scrollport, the
+wrapper around the panel and the form are each a flex column that grows.
 
 For that to work the panel around the scrollport must not itself scroll, which is
 `Modal`'s `frame` — see [[wiki/shared/component-library]] §Overlays, which
@@ -296,7 +315,7 @@ tell you the cause came back.
 
 ### Chrome exposes a `title` as a description, and carries `text-transform` into the text
 
-Two facts decide how a short badge explains itself:
+Three facts decide how a short badge explains itself:
 
 - A `title` shows on mouse hover only; keyboard and touch users never see it.
   A table cell's accessible name comes from the text inside the cell, so a
@@ -304,9 +323,15 @@ Two facts decide how a short badge explains itself:
   exposes the `title` as the badge's description instead. A `title` that
   repeats text inside the element hands a screen reader the same words twice,
   once as text and once as the description. So put the explanation in `sr-only`
-  text inside the badge and drop the `title`. Sighted users, mouse users
-  included, then see only the badge's word; an explanation they need has to be
-  visible text.
+  text beside the badge's word and drop the `title`.
+- `aria-describedby` does the same. Kobalte's tooltip trigger points it at the
+  open panel, and Chrome exposes a node referenced that way as a description
+  even when the node is `aria-hidden`. So a panel that repeats the hidden text
+  must be `aria-hidden` *and* unreferenced. `@shared/ui`'s `Tooltip` is both,
+  and builds the hidden text and the panel from one string
+  ([[component-library]] §`Tooltip`). It shows the panel on mouse hover only:
+  sighted keyboard and touch users still see only the badge's word, so an
+  explanation they need has to be visible text.
 - Chrome carries `text-transform` into the text it exposes, so `sr-only` text
   inside an `uppercase` badge reaches a screen reader in capitals. Some screen
   readers can be set to announce capitals, or read a word in capitals letter by
@@ -325,8 +350,9 @@ find the explanation in the cell's accessible name
 (`cire/host/tests/components/RsvpView.test.tsx`). Only the browser tier sees the
 description Chrome builds and the case it exposes.
 
-The RSVP table's badges in `cire/host/src/components/RsvpView.tsx` follow both.
-How to check what Chrome exposes, and the measurement behind these two facts,
+The RSVP table's badges in `cire/host/src/components/RsvpView.tsx` follow all
+three, through `Tooltip`.
+How to check what Chrome exposes, and the measurement behind these facts,
 is in [[browser-tests#Chrome's accessibility tree]].
 
 ### `overflow: hidden` is still a scroll container; `overflow: clip` is not
@@ -373,16 +399,17 @@ Reading an animation's timing back from `getComputedStyle` — to run a Web
 Animations API tween in step with a CSS animation — gives a comma-separated
 list, one entry per animation. Split on `,`, the value
 `cubic-bezier(0.22, 1, 0.36, 1)` becomes `cubic-bezier(0.22`, and
-`element.animate()` throws on it. Take the first entry at top level only
-(`firstOfCssList` in cire's `components/EventSheet.tsx`).
+`element.animate()` throws on it. Take the first entry at top level only. A
+duration list has no parentheses, so a plain split is exact there.
 
-Read the duration back the same way rather than writing it twice. The
-reduced-motion clamp in a stylesheet does not reach a WAAPI animation, but a
-duration read from the clamped CSS animation carries the clamp's 0.01ms with it.
+Read the duration back rather than writing it twice. The reduced-motion clamp
+in a stylesheet does not reach a WAAPI animation or a script's timer, but a
+duration read from the clamped CSS carries the clamp's 0.01ms with it: cire's
+`EventSheet` reads its swipe-settle transition's duration (`cssTimeMs`) for the
+fallback timer that ends a settle which fires no `transitionend`.
 
 The fast tier cannot see either: jsdom computes no animation, so the value is
-empty and no tween runs. `EventSheet.browser.test.tsx` caught the split, where
-the throw also left the arriving panel taking no pointer input.
+empty and no tween runs.
 
 ## Server-rendered islands
 

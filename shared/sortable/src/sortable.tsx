@@ -56,10 +56,14 @@ export function createSortable(id: Id): Sortable {
   // every slot crossed, where the selector wakes only the row whose answer flips.
   const isActiveDraggable = () => state.isDragged(id);
 
-  onCleanup(() => registry.unregister(id));
+  let node: HTMLElement | undefined;
+  onCleanup(() => registry.unregister(id, node));
 
   return {
-    ref: (el: HTMLElement) => registry.register(id, el, group),
+    ref: (el: HTMLElement) => {
+      node = el;
+      registry.register(id, el, group);
+    },
     transform: createMemo(
       (): Transform | null => {
         // The dragged row tracks the pointer.
@@ -88,7 +92,8 @@ export function createSortable(id: Id): Sortable {
   };
 }
 
-function sameTransform(a: Transform | null, b: Transform | null): boolean {
+/** Two offsets that paint the same. Shared with `createDraggable`. */
+export function sameTransform(a: Transform | null, b: Transform | null): boolean {
   return a === b || (a !== null && b !== null && a.x === b.x && a.y === b.y);
 }
 

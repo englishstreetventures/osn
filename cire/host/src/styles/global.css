@@ -255,6 +255,10 @@
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  /* Something landing with a little give: an overshoot of about 8% and one
+     settle. A one-overshoot curve here, for the engines on the floor that have
+     no `linear()`; the real spring is the `@supports` block below. */
+  --ease-spring: cubic-bezier(0.34, 1.32, 0.64, 1);
 
   /* The blur behind a modal scrim. Deliberately small: enough that the page
      below reads as out of reach, not so much that an organiser loses the row
@@ -682,5 +686,226 @@
       0 0 0 3px color-mix(in oklch, var(--gold) 34%, transparent),
       0 0 18px 2px color-mix(in oklch, var(--gold) 20%, transparent);
     animation: attention-glow calc(2.6s * var(--motion-scale)) var(--ease-in-out) 3;
+  }
+}
+
+/* ── Spring easing ──────────────────────────────────────────────────────────
+ * A damped spring (damping ratio 0.62) sampled into `linear()`: it overshoots
+ * by 8% at about 40% of the run and settles. Chrome 113, Firefox 112 and
+ * Safari 17.2 have `linear()`; the browser floor (Chrome 111, Safari 16.4)
+ * does not, and an easing it cannot parse would void the whole `animation`
+ * declaration — so the token holds a cubic-bezier until this block replaces
+ * it. Unlayered, so it beats the theme layer that declared the fallback.
+ */
+@supports (animation-timing-function: linear(0, 1)) {
+  :root {
+    --ease-spring: linear(
+      0,
+      0.055,
+      0.186,
+      0.354,
+      0.527,
+      0.687,
+      0.821,
+      0.926,
+      1,
+      1.048,
+      1.074,
+      1.083,
+      1.081,
+      1.071,
+      1.057,
+      1.043,
+      1.029,
+      1.017,
+      1.008,
+      1.001,
+      0.997,
+      0.994,
+      0.993,
+      0.993,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      1
+    );
+  }
+}
+
+/* ── The assign popover: a droplet ──────────────────────────────────────────
+ * The popover that puts people on a checklist task grows out of the + that
+ * opened it: a small round drop at the trigger, springing out to the panel and
+ * squaring its corners as it lands, with what is inside fading in once it has
+ * room. `transform-origin` is the point Kobalte works out for the side the
+ * panel opened on, so the drop leaves from the trigger whether the panel
+ * opened below it or flipped above.
+ *
+ * A true "goo" — an SVG filter melting the panel out of the trigger — is not
+ * done: the panel portals to `<body>`, away from the trigger, and the filter
+ * would blur the panel's own border and shadow.
+ *
+ * Two animations on the panel, because each wants its own easing: the scale
+ * springs; the corners only ease. The contents fade by keyframe percentage,
+ * not by `animation-delay`: the reduced-motion block zeroes durations and
+ * leaves delays alone, and a delayed fade would hold the list back for a
+ * reader who asked for no motion at all. With it, the popover simply appears.
+ *
+ * Kobalte keeps a closing popover mounted until its *animation* ends, so the
+ * exit is keyframes too.
+ */
+@keyframes droplet-grow {
+  from {
+    opacity: 0;
+    transform: scale(0.12);
+  }
+  30% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes droplet-round {
+  from {
+    border-radius: 999px;
+  }
+  to {
+    border-radius: var(--radius-md);
+  }
+}
+
+@keyframes droplet-content {
+  from,
+  45% {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes droplet-out {
+  to {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+@utility assign-popover {
+  transform-origin: var(--kb-popover-content-transform-origin);
+
+  &[data-expanded] {
+    animation:
+      droplet-grow var(--dur-slow) var(--ease-spring),
+      droplet-round var(--dur-slow) var(--ease-out);
+  }
+  &[data-closed] {
+    animation: droplet-out var(--dur-fast) var(--ease-in-out);
+  }
+}
+
+@utility assign-popover-body {
+  animation: droplet-content var(--dur-slow) var(--ease-out);
+}
+
+/* The tick landing in a person's circle as they go on a task. */
+@keyframes tick-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@utility tick-pop {
+  animation: tick-pop var(--dur-base) var(--ease-spring);
+}
+
+/* ── The empty avatar ───────────────────────────────────────────────────────
+ * A person with no photo, or one that will not load: their outline in the
+ * page's own colour, cut out of a disc of faint ink. The same two tokens in
+ * both ramps read as a light figure on a mid disc in light and a dark figure
+ * on a mid disc in dark — nobody's photo either way, and never a pair of
+ * initials (see `PersonAvatar.tsx`).
+ */
+@utility blank-avatar {
+  /* `--text-faint` is translucent, and a face on a stack overlaps the one
+     before it: laid over the page's own colour, the disc is opaque. */
+  background:
+    linear-gradient(var(--text-faint), var(--text-faint)),
+    var(--bg);
+  color: var(--bg);
+}
+
+/* ── Print sheet ────────────────────────────────────────────────────────────
+ * A view that has a paper form renders it into a `[data-print-sheet]` child of
+ * <body> (a portal) and marks <html> with the same attribute, both from
+ * `beforeprint` to `afterprint`. Printing the page then prints the sheet alone:
+ * every other child of <body> — the shell, the rail, the module chrome — is
+ * hidden. The sheet stays hidden on screen for the moment it exists there.
+ * Keyed on <html> rather than `body:has(...)`, which the Firefox floor in
+ * `.browserslistrc` does not support. The seating chart is the one user.
+ *
+ * Paper is light whatever the screen theme is: black ink on white, in the
+ * portal's working face, with each table kept whole on a page where it fits.
+ */
+/* The sheet, never <html>, which carries the same attribute as its switch. */
+body > [data-print-sheet] {
+  display: none;
+}
+
+@media print {
+  :root[data-print-sheet] body > :not([data-print-sheet]) {
+    display: none !important;
+  }
+
+  :root[data-print-sheet] body {
+    background: #fff;
+  }
+
+  body > [data-print-sheet] {
+    display: block;
+    color: #000;
+    font-family: var(--font-ui), sans-serif;
+  }
+
+  .seating-print-sheet h1 {
+    margin: 0;
+    font-size: 18pt;
+    font-weight: 600;
+  }
+
+  .seating-print-sheet h1 + p {
+    margin: 0 0 1rem;
+    font-size: 10pt;
+  }
+
+  .seating-print-sheet section {
+    break-inside: avoid;
+    margin: 0 0 0.9rem;
+  }
+
+  .seating-print-sheet h2 {
+    margin: 0 0 0.25rem;
+    font-size: 12pt;
+    font-weight: 600;
+  }
+
+  .seating-print-sheet h2 span {
+    font-weight: 400;
+  }
+
+  .seating-print-sheet ol {
+    margin: 0;
+    padding-left: 1.4rem;
+    list-style: decimal;
+    font-size: 11pt;
+    line-height: 1.4;
   }
 }

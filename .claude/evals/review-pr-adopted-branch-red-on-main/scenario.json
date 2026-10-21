@@ -3,7 +3,7 @@
   "fixtures": {
     "repo": {
       "type": "commit",
-      "repoUrl": "https://github.com/englishstventures/osn.git",
+      "repoUrl": "https://github.com/englishstreetventures/osn.git",
       "ref": "435c28f658cbc94811afe22053d0f75237c38244",
       "installPath": "."
     }

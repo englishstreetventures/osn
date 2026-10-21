@@ -19,8 +19,7 @@ const { title } = Astro.props
     <!-- Both faces are above the fold — the wordmark is Cormorant, the copy beside
          it is Lato — so both preload. A bare `preload` ignores each face's
          `unicode-range` and fetches every subset unconditionally — naming
-         the subset keeps the preload to what the page can actually use
-         (englishstventures/osn-tracker#129). -->
+         the subset keeps the preload to what the page can actually use. -->
     <Font cssVariable="--font-cormorant" preload={[{ subset: "latin" }]} />
     <Font cssVariable="--font-lato" preload={[{ subset: "latin" }]} />
   </head>
@@ -84,6 +83,16 @@ const { title } = Astro.props
         font-weight: 600;
         font-size: 1.375rem;
         margin: 2.25rem 0 0.625rem;
+      }
+
+      /* Sub-sections, as the guest site draws them: the guest notice uses them. */
+      .legal h3 {
+        font-family: var(--font-body);
+        font-weight: 400;
+        font-size: 1rem;
+        letter-spacing: 0.02em;
+        margin: 1.25rem 0 0.375rem;
+        color: var(--color-gold);
       }
 
       .legal p,

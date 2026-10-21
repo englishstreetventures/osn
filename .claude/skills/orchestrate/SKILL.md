@@ -9,7 +9,7 @@ You are the orchestrator: you order the work and drive the loop, and you **do no
 
 ## What this run must produce
 
-Every task merged into `main` as its own squash-merged pull request, the worktree this run created for it removed, and a closing summary: each PR (number and one line), anything deferred as a tracked follow-up, any deploy-time or human action a subagent surfaced, any issue a merge did not close that the owner must close by hand, and any worktree left in place because another tool or session made it.
+Every task merged into `main` as its own squash-merged pull request, the worktree this run created for it removed, and a closing summary: each PR (number and one line), each follow-up pull request a task opened to fix what its review found, each issue left open and which of the three allowed it — out of scope for the feature, unrelated and found mid-task, or a larger piece of work (`wiki/conventions/review-findings.md` §Fix findings; do not file them), any deploy-time or human action a subagent surfaced, any issue a merge did not close that the owner must close by hand, and any worktree left in place because another tool or session made it.
 
 ## Precondition — the local bare-repo setup, run from `main/`
 
@@ -74,7 +74,7 @@ worktree. One block per task:
 
 ```markdown
 ## task 3 — vendor enquiry weddingName
-issue:       englishstventures/osn#812
+issue:       englishstreetventures/osn#812
 claimed:     osn#812 item 264995573
 agent:       implementer — new field on a route response plus its test; rating unconfirmed, chosen from the text
 premises:    checked on origin/main 435c28f65
@@ -302,7 +302,7 @@ Two rules for anything you dispatch into a worktree:
   worktree, as `prep-pr` Step 6 runs two: their tool grant has no `Edit` and
   their definition tells them never to change the checkout.
 
-Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. This skill's contract is stronger: **after the reviews, dispatch fix subagents to add the missing tests and fix every security and performance finding** — Critical, High and Medium at minimum, Low and Info when cheap — then re-verify. Choose each fix subagent with `pick-agent`, as Step 3 does: a missing test whose cases the review already spells out is `mechanic` work, and a fix that needs a design is `implementer` work. Record each on the task's `running:` line until it reports. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. A Medium deliberately deferred is carried into the PR body as a tracked follow-up. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the PR body with the `write-pr` skill, push, and open the PR. Once it is open, move the issue's card to In Review (`next-batch` §Claim, step 4).
+Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. `prep-pr` Steps 4 and 6 write the missing tests and fix every finding in the task's scope themselves; read the finding tally in its report rather than dispatching fixes again. A small fix outside the task's scope becomes a new task in this run's list: cut its worktree with Step 2 and dispatch it with Step 3 — one per task, batching every such fix the task found, one commit each — and it merges with the rest. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. An issue is left open only for work out of the feature's scope, something unrelated found mid-task, or a larger piece of work. When a task leaves more than two open that no pull request will close, check each against those three yourself from the tally, and send the subagent back once, naming the issue that fits none; one that fits stays open. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the PR body with the `write-pr` skill, push, and open the PR. Once it is open, move the issue's card to In Review (`next-batch` §Claim, step 4).
 
 ### Step 5 — Retro, then watch, merge, tear down
 

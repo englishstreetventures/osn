@@ -173,8 +173,9 @@ describe("AnimatedModal", () => {
     // dietary pills carry `relative` so their `sr-only` inputs resolve inside
     // the pill, which puts sixteen positioned boxes later in the tree than this
     // chip — and tree order alone then hands them the hit test. Measured in
-    // `DietaryPresets.browser.test.tsx`; this is the cheap half.
-    expect(close.className.split(/\s+/)).toContain("z-10");
+    // `DietaryPresets.browser.test.tsx`; this is the cheap half. The rank is
+    // on the row the button sits in, which is what is positioned.
+    expect(close.parentElement!.className.split(/\s+/)).toContain("z-10");
 
     // Still the first thing in the tab order, as before the restructure.
     expect(panel.querySelector("button")).toBe(close);
@@ -186,6 +187,40 @@ describe("AnimatedModal", () => {
     // exactly where the close chip sits — reserve its 52px footprint so no
     // control is ever parked underneath it.
     expect(scroller.className).toContain("scroll-pt-14");
+  });
+
+  it("draws an action beside the close button, in the same row outside the scroller", () => {
+    const { getByRole } = render(() => (
+      <AnimatedModal
+        onClose={() => {}}
+        label="Event details"
+        toolbar
+        action={<button type="button">Give RSVP</button>}
+      >
+        <p>Body</p>
+      </AnimatedModal>
+    ));
+    const close = getByRole("button", { name: "Close" });
+    const action = getByRole("button", { name: "Give RSVP" });
+    const scroller = scrollerOf(close.closest("dialog")!);
+
+    expect(action.parentElement).toBe(close.parentElement);
+    // Before the cross, which keeps the corner the cross has always had.
+    expect(action.nextElementSibling).toBe(close);
+    expect(scroller.contains(action)).toBe(false);
+    // The content starts below the row rather than level with it.
+    expect(scroller.className).toContain("pt-16");
+    expect(scroller.className).not.toContain("pt-8");
+  });
+
+  it("keeps the plain top padding without a toolbar", () => {
+    const { getByRole } = render(() => (
+      <AnimatedModal onClose={() => {}} label="Event details">
+        <p>Body</p>
+      </AnimatedModal>
+    ));
+    const scroller = scrollerOf(getByRole("button", { name: "Close" }).closest("dialog")!);
+    expect(scroller.className).toContain("pt-8");
   });
 
   it("hands the scroll container to scrollRef", () => {

@@ -158,9 +158,9 @@ component was previously reading a container it did not live in.
   would clip it, so `LockedRow` puts it back in the tab order by hand: Tab on
   the open row enters the card, Shift+Tab from its first button returns to the
   row, and Tab from its last button moves on to the next row. That last step
-  needs a locked row never to be the nav's last, which holds while Guests,
-  Invite and Settings end `MODULE_NAV`. For an owner, the Budget, Checklist and
-  Registry cards add a **Download as CSV** button under the upgrade
+  needs a locked row never to be the nav's last, which holds while Invite and
+  Settings end `MODULE_NAV`. For an owner, the Budget, Checklist, Registry and
+  Seating cards add a **Download as CSV** button under the upgrade
   (`LockedExport.tsx`) when the wedding holds rows there, saying how many ("Your
   12 budget lines are still here."). The card's content mounts only while it is
   open, so the row count is asked for on the first open and kept per wedding
@@ -276,22 +276,30 @@ component was previously reading a container it did not live in.
      bare `setCachedXxx`, because only `ensureXxxLoaded` carries the
      generation guard and the failure branch that blanks the rows on a
      refused refetch. That is exactly what `BudgetView`, `ChecklistView`,
-     `RegistryView` and `VendorsView`'s `reload()` do. The store-level fix,
-     **P-W2**, is shipped — PR #860 (write through the signal instead of
-     deleting the entry) and PR #864 (stale-while-revalidate); tracked in
-     `englishstventures/osn-tracker`.
+     `RegistryView` and `VendorsView`'s `reload()` do. The store-level fix
+     is shipped — PR #860 (write through the signal instead of
+     deleting the entry) and PR #864 (stale-while-revalidate).
 - **Event cards** (`EventTable`) — cards flow in an `auto-grid`; each card is its
   own `@container/card` and its details grid switches at `@md/card`.
 
 ## Organiser client caches: stale-while-revalidate
 
-Eight `weddingId`-keyed SolidJS signal caches share this contract:
+Nine `weddingId`-keyed SolidJS signal caches share this contract:
 `budget-store.ts`, `enquiries-store.ts`, `events-store.ts`, `guests-store.ts`,
-`households-store.ts`, `registry-store.ts`, `tasks-store.ts`,
+`hosts-store.ts`, `households-store.ts`, `registry-store.ts`, `tasks-store.ts`,
 `vendors-store.ts` (all `cire/host/src/lib/`). One page for the mechanism
-they all share, rather than eight copies that drift — a module's own page
+they all share, rather than nine copies that drift — a module's own page
 (e.g. [[cire-checklist-tasks]]) documents only what is genuinely that
-module's.
+module's. `hosts-store.ts` holds the wedding's seats for the checklist, which
+names and pictures who holds each task and offers every seat in its assign
+popover. It has no `setCached`/`peekCached`: besides its own loads, only
+`setFreshHosts` writes seats into it. The co-host panel (`HostsPanel.tsx`) calls
+that with the list it reads on opening, photos included, so a checklist opened
+after the panel reads none of its own, and marks the seats stale after each
+add, role change and removal. `tasks-store.ts` also keeps the reader's own seat
+from each `GET /tasks` answer (`readTaskList`), which the checklist puts first
+among a task's holders. A helper's run-sheet scope is not in the cache, so
+changing one marks nothing stale.
 
 A cached wedding is in one of four states:
 
@@ -370,7 +378,7 @@ check).
 
 The caches hold guest names, vendor emails and phone numbers, budget figures
 and the gift log. A wedding keeps them only while its dashboard is mounted.
-This covers the eight caches above and the upgrade catalogue
+This covers the nine caches above, the seats among them, and the upgrade catalogue
 (`upgrade-store.ts`), which keeps prices and has no stale mark.
 
 - **Open.** `WeddingCacheScope` in `OrganiserApp.tsx` wraps the module shell.

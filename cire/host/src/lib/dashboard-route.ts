@@ -10,7 +10,7 @@
  *   #/w/<weddingId>/<module>/<sub>          → that wedding + a module + a sub-view
  *   #/security                              → the account-security view
  *
- * `<module>` is one of overview | guests | events | invite | settings, and each
+ * `<module>` is one of `MODULES` below, and each
  * module carries an optional `<sub>` (e.g. `guests/rsvps`, `invite/codes`,
  * `settings/hosts`). Deeper sub-state (open modals, a selected row) is
  * intentionally NOT deep-linked yet — see the wiki.
@@ -22,8 +22,9 @@
  */
 
 /** The module a wedding dashboard can be showing. Order = sidebar order:
- *  land on Overview, then the day (Events) → the people (Guests) → the invite
- *  → housekeeping (Settings). */
+ *  land on Overview, then the day (Events) and the planning modules → the
+ *  people (Guests) and where they sit (Seating) → the invite → housekeeping
+ *  (Settings). */
 export const MODULES = [
   "overview",
   "events",
@@ -32,6 +33,7 @@ export const MODULES = [
   "vendors",
   "registry",
   "guests",
+  "seating",
   "invite",
   "settings",
 ] as const;
@@ -68,6 +70,7 @@ export const MODULE_SUBS = {
   // `edit` is the interactive guest editor (E5), an editor-only sub the shell
   // hides from read-only viewers (the parser can't see the role).
   guests: ["list", "edit", "rsvps"],
+  seating: ["index"],
   invite: ["design", "codes"],
   settings: ["wedding", "hosts"],
 } satisfies Record<Module, readonly string[]>;

@@ -1,5 +1,13 @@
 # @osn/client
 
+## 2.18.6
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
 ## 2.18.5
 
 ### Patch Changes
@@ -299,11 +307,11 @@ session: Session }` — rather than a bare `Session`. `adoptSession` and
 
 ### Patch Changes
 
-- b2b6b70: Clean up the `house/no-tracker-ref-in-comment` mechanical majority (xchromo/osn#924).
+- b2b6b70: Clean up the `house/no-tracker-ref-in-comment` mechanical majority (englishstreetventures/osn#924).
 
   Every finding-tag, phase-code, and narrative-phrase reference flagged by the rule in a short comment block is now gone from these packages: a bare parenthetical tag deleted, a leading label stripped and the remainder capitalized into its own sentence, or a "used to be" narration rewritten forward to state the current, still-true fact. No behavior changes anywhere — every edit is comment text.
 
-  A handful of leftover `osn-tracker#N` citations that predated both this batch and the separate tracker-number-refs cleanup (xchromo/osn#930) are also gone from `@osn/api` and `@pulse/api`, using the same treatment established there.
+  A handful of leftover `osn-tracker#N` citations that predated both this batch and the separate tracker-number-refs cleanup (englishstreetventures/osn#930) are also gone from `@osn/api` and `@pulse/api`, using the same treatment established there.
 
 ## 2.14.2
 

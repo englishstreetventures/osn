@@ -1,5 +1,39 @@
 # @osn/pulse
 
+## 0.24.22
+
+### Patch Changes
+
+- 5ab88f0: Build with vite 8.3.3 (range `^8.3.3`), which clears the advisory on vite 8.2.0
+  through 8.2.3.
+- Updated dependencies [5ab88f0]
+  - @shared/ui@0.5.1
+  - @shared/rp-auth@0.2.11
+  - @shared/toast@0.3.6
+
+## 0.24.21
+
+### Patch Changes
+
+- Updated dependencies [745c4ea]
+  - @shared/ui@0.5.0
+
+## 0.24.20
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
+- Updated dependencies [fa0f54a]
+  - @pulse/api@0.27.25
+  - @shared/design-tokens@0.3.6
+  - @shared/legal@0.0.7
+  - @shared/rp-auth@0.2.10
+  - @shared/toast@0.3.5
+  - @shared/ui@0.4.4
+
 ## 0.24.19
 
 ### Patch Changes
@@ -855,11 +889,11 @@ expandedParent).toBeTruthy()`, where `expandedParent` matches while the popover
 
 ### Patch Changes
 
-- b2b6b70: Clean up the `house/no-tracker-ref-in-comment` mechanical majority (xchromo/osn#924).
+- b2b6b70: Clean up the `house/no-tracker-ref-in-comment` mechanical majority (englishstreetventures/osn#924).
 
   Every finding-tag, phase-code, and narrative-phrase reference flagged by the rule in a short comment block is now gone from these packages: a bare parenthetical tag deleted, a leading label stripped and the remainder capitalized into its own sentence, or a "used to be" narration rewritten forward to state the current, still-true fact. No behavior changes anywhere — every edit is comment text.
 
-  A handful of leftover `osn-tracker#N` citations that predated both this batch and the separate tracker-number-refs cleanup (xchromo/osn#930) are also gone from `@osn/api` and `@pulse/api`, using the same treatment established there.
+  A handful of leftover `osn-tracker#N` citations that predated both this batch and the separate tracker-number-refs cleanup (englishstreetventures/osn#930) are also gone from `@osn/api` and `@pulse/api`, using the same treatment established there.
 
 - Updated dependencies [b2b6b70]
   - @osn/ui@1.10.9
@@ -1424,8 +1458,8 @@ expandedParent).toBeTruthy()`, where `expandedParent` matches while the popover
 ### Patch Changes
 
 - d50c68e: Comments only: repoint every "tracked in wiki/TODO.md" reference at GitHub
-  Issues. Findings keep their IDs and now name the private `xchromo/osn-tracker`;
-  planned work points at open issues in `xchromo/osn`. No behaviour change.
+  Issues. Findings keep their IDs and now name the private `englishstreetventures/osn-tracker`;
+  planned work points at open issues in `englishstreetventures/osn`. No behaviour change.
 - Updated dependencies [d50c68e]
   - @pulse/api@0.26.4
 

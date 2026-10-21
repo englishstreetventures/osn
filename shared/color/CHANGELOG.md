@@ -1,5 +1,13 @@
 # @shared/color
 
+## 0.3.4
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
 ## 0.3.3
 
 ### Patch Changes
@@ -39,7 +47,7 @@
 
   Moved wholesale from `cire/theme/src/color.ts`, which had no imports of its
   own, so the lift is mechanical. It moved because `@shared/design-tokens`
-  (xchromo/osn#1043) needs the same `contrastOklch`/`parseColor`/`WCAG_*`
+  (englishstreetventures/osn#1043) needs the same `contrastOklch`/`parseColor`/`WCAG_*`
   surface to assert that an app's token mapping clears its contrast floors, and
   a `@shared/*` package cannot depend on a product package. The maths moved
   down rather than the harness moving up.
@@ -59,7 +67,7 @@
 
   Moved wholesale from `cire/theme/src/color.ts`, which had no imports of its
   own, so the lift is mechanical. It moved because `@shared/design-tokens`
-  (xchromo/osn#1043) needs the same `contrastOklch`/`parseColor`/`WCAG_*`
+  (englishstreetventures/osn#1043) needs the same `contrastOklch`/`parseColor`/`WCAG_*`
   surface to assert that an app's token mapping clears its contrast floors, and
   a `@shared/*` package cannot depend on a product package. The maths moved
   down rather than the harness moving up.

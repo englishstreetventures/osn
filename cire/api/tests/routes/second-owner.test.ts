@@ -228,6 +228,7 @@ const OWNER_ROUTES: readonly OwnerRoute[] = [
       "/gifts.csv",
       "/budget.csv",
       "/tasks.csv",
+      "/seating.csv",
       "/module-rows",
       "/export/events.csv",
       "/export/guests.csv",

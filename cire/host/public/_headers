@@ -78,7 +78,7 @@
 #                               policy blocks and reports; `ProfileMenu` shows
 #                               the initial instead. OSN hosts no avatars yet, so
 #                               nothing populates it. Listing the avatar host is
-#                               englishstventures/osn#1207.
+#                               englishstreetventures/osn#1207.
 #   connect-src                 cire-api only: `https:` for fetches and `wss:`
 #                               for the realtime socket (`src/lib/realtime.ts`).
 #                               An `https:` source does not admit a `wss:` URL,

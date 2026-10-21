@@ -6,7 +6,7 @@
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/englishstventures/osn.git"
+    "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "packageManager": "bun@1.4.2",
   "workspaces": [
@@ -93,7 +93,7 @@
     "smol-toml": "^1.7.1",
     "source-map-js": "^1.2.2",
     "undici": "^8.10.2",
-    "vite": "^8.2.2",
+    "vite": "8.3.3",
     "ws": "^8.21.0",
     "yaml": "^2.9.0"
   },

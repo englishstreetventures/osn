@@ -7,6 +7,7 @@ import {
   index,
   uniqueIndex,
   check,
+  foreignKey,
   type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 
@@ -41,8 +42,8 @@ export const weddings = sqliteTable(
     //
     // Deliberately NO location columns here: a wedding is not a place — its
     // EVENTS are (a Sydney reception + Jaipur ceremonies is one wedding in two
-    // countries), and each event's place is its free-text `address` (the sole
-    // location source; see the events table). Money stays wedding-scoped: one
+    // countries), and each event's place is its venue name and free-text
+    // `address` (see the events table). Money stays wedding-scoped: one
     // MAIN currency the organiser thinks in, whatever countries the events land in.
     //
     // `wedding_date` is a date-only ISO string (`YYYY-MM-DD`, no time/zone —
@@ -205,6 +206,9 @@ export const weddingHosts = sqliteTable(
     index("wedding_hosts_profile_idx").on(t.osnProfileId),
     // List all hosts of a wedding (the management panel) in one b-tree scan.
     index("wedding_hosts_wedding_idx").on(t.weddingId),
+    // The parent key `task_assignees` references, so an assignment can only
+    // name a seat together with that seat's own wedding (migration 0091).
+    uniqueIndex("wedding_hosts_id_wedding_unique").on(t.id, t.weddingId),
   ],
 );
 
@@ -349,8 +353,9 @@ export const guests = sqliteTable(
 );
 
 // `id` is a UUID v4 string. The canonical timing is `startAt` / `endAt` /
-// `timezone`; the canonical venue is the free-form `address`. (The legacy
-// `date` + `location` columns these superseded were dropped in migration 0025.)
+// `timezone`; the venue is its name (`venueName`) and its free-form `address`.
+// (The legacy `date` + `location` columns these superseded were dropped in
+// migration 0025.)
 export const events = sqliteTable(
   "events",
   {
@@ -371,6 +376,10 @@ export const events = sqliteTable(
     // and fall back to startAt where an instant is required.
     endAt: text("end_at").notNull(),
     timezone: text("timezone").notNull(),
+    // The venue's name ("The Grounds of Alexandria"), shown above the address
+    // on the invite and put before it in calendar entries. NULL ⇒ no name;
+    // the address (if any) stands alone. Migration 0090; no back-fill.
+    venueName: text("venue_name"),
     address: text("address"),
     dressCodeDescription: text("dress_code_description"),
     // JSON-encoded `Array<{name: string, color: string}>` — decoded by the
@@ -401,8 +410,8 @@ export const events = sqliteTable(
     // the event-image endpoints bump it on image/crop writes.
     createdAt: integer("created_at", { mode: "timestamp" }),
     updatedAt: integer("updated_at", { mode: "timestamp" }),
-    // No location config: the free-text `address` above is the SOLE location
-    // source (the only thing the guest map embed renders). The stored
+    // No location config: the free text above — `address`, else `venueName` —
+    // is the only thing the guest map embed and maps link query. The stored
     // coordinates + pricing_region a wedding could carry (migration 0030) were
     // dropped by 0036 — they only fed unbuilt Phase 3 planning features
     // (vendor-radius search, per-region pricing), never the invite. If Phase 3
@@ -417,6 +426,12 @@ export const events = sqliteTable(
     // Tenant-scoped slug uniqueness (migration 0051): the import mints slugs
     // from event names, deduped only within the wedding.
     uniqueIndex("events_wedding_slug_unique").on(t.weddingId, t.slug),
+    // The parent key of `seating_tables (event_id, wedding_id)` (migration
+    // 0089), which ties a seating table's wedding to its event's. Unique
+    // already, since `id` is; SQLite needs it spelt out to accept the foreign
+    // key. A rebuild of `events` that drops it makes every seating-table write
+    // and every event delete fail with "foreign key mismatch".
+    uniqueIndex("events_id_wedding_uniq").on(t.id, t.weddingId),
   ],
 );
 
@@ -436,8 +451,108 @@ export const tasks = sqliteTable(
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     completedAt: integer("completed_at", { mode: "timestamp" }),
+    // ── Template provenance (migration 0086) ────────────────────────────────
+    // A task seeded from a checklist template names the template and the
+    // item's stable key inside it; a task the couple typed has both NULL.
+    templateId: text("template_id"),
+    templateItem: text("template_item"),
+    // Days from the wedding date the item was seeded with (negative = before
+    // the day). NULL on a task the couple typed.
+    dueOffsetDays: integer("due_offset_days"),
+    // Where `due_at` comes from. `template`: it is `wedding_date` moved by
+    // `due_offset_days`, so it follows the wedding date while the task is open.
+    // `manual`: the couple set it, or it was never derived, and nothing moves it.
+    dueSource: text("due_source", { enum: ["manual", "template"] })
+      .notNull()
+      .default("manual"),
+    // ── Not declared: `assigned_host_id` ────────────────────────────────────
+    // The database still holds `assigned_host_id` (migration 0087: a nullable
+    // seat id, REFERENCES wedding_hosts(id) ON DELETE SET NULL) and its partial
+    // index `tasks_assigned_host_idx`. This Worker never reads or writes it,
+    // only the Worker before 0091 does, if it serves again: a task's holders
+    // are `task_assignees`. It is left out of this table on purpose,
+    // because Drizzle names every declared column in each insert, select and
+    // returning, and a column no statement names can be dropped without
+    // breaking the Worker that is serving. Dropped by
+    // englishstreetventures/osn#1636; until then
+    // cire/api/tests/db/ddl-lockstep.test.ts excuses it, and the test DDL in
+    // cire/api/src/db/setup.ts keeps it.
   },
-  (t) => [index("tasks_wedding_bucket_sort_idx").on(t.weddingId, t.timeframeBucket, t.sortOrder)],
+  (t) => [
+    index("tasks_wedding_bucket_sort_idx").on(t.weddingId, t.timeframeBucket, t.sortOrder),
+    // The parent key `task_assignees` references, so an assignment can only
+    // name a task together with that task's own wedding (migration 0091).
+    uniqueIndex("tasks_id_wedding_unique").on(t.id, t.weddingId),
+    // One task per template item per wedding, so applying a template twice —
+    // or two applies racing — adds nothing the second time. Partial: a task
+    // the couple typed has no template and needs no entry.
+    uniqueIndex("tasks_wedding_template_item_unique")
+      .on(t.weddingId, t.templateId, t.templateItem)
+      .where(sql`template_id IS NOT NULL`),
+  ],
+);
+
+// Who holds a checklist task (migration 0091): one row per (task, seat), so a
+// task can be held by several seats of its wedding, or by none. A seat
+// (`wedding_hosts.id`), not a profile: the run sheet filters a helper's view on
+// it.
+//
+// `wedding_id` rides in BOTH foreign keys, so the database itself refuses an
+// assignment that pairs a task with a seat of another wedding. Each key
+// cascades: a task deleted takes its assignments, and a seat removed — or a
+// co-host leaving — takes theirs and leaves the task, with its other holders.
+// A wedding purge reaches these rows through both.
+//
+// `assigned_at` is in seconds; the service orders a task's holders by it, then
+// by rowid, so two seats added in the same second keep the order they were
+// added in.
+export const taskAssignees = sqliteTable(
+  "task_assignees",
+  {
+    taskId: text("task_id").notNull(),
+    hostId: text("host_id").notNull(),
+    weddingId: text("wedding_id").notNull(),
+    assignedAt: integer("assigned_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.taskId, t.hostId] }),
+    foreignKey({
+      columns: [t.taskId, t.weddingId],
+      foreignColumns: [tasks.id, tasks.weddingId],
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.hostId, t.weddingId],
+      foreignColumns: [weddingHosts.id, weddingHosts.weddingId],
+    }).onDelete("cascade"),
+    // Each index leads with exactly the equalities of the reads it serves, so
+    // the planner picks it with no statistics, which D1 has none of; with only
+    // `wedding_id` in front it would walk every assignment of the wedding to
+    // find one task's or one seat's.
+    //
+    // A seat's assignments: the seat cascade's probe, (host_id, wedding_id).
+    index("task_assignees_host_wedding_idx").on(t.hostId, t.weddingId),
+    // A task's assignments, in the order they were made: the holder read of
+    // every holder write and edit, and the task cascade's probe, (task_id,
+    // wedding_id). The checklist read takes the whole wedding through it, task
+    // by task, with no sort.
+    index("task_assignees_wedding_task_idx").on(t.weddingId, t.taskId, t.assignedAt),
+  ],
+);
+
+// A template task the couple deleted. Applying the template again leaves the
+// item out unless the couple picks it again, so a deleted task does not come
+// back on its own. Gone with the wedding.
+export const taskTemplateDismissals = sqliteTable(
+  "task_template_dismissals",
+  {
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    templateId: text("template_id").notNull(),
+    templateItem: text("template_item").notNull(),
+    dismissedAt: integer("dismissed_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.weddingId, t.templateId, t.templateItem] })],
 );
 
 export const budgetItems = sqliteTable(
@@ -668,7 +783,7 @@ export const vendorClaims = sqliteTable(
 // `premium_templates` — the one-off purchase a wedding below Crimson can hold
 // (Crimson includes it). The other keys are what 0073 read to lift each
 // wedding to its tier; they stay in the enum, and their rows stay in the
-// table, until englishstventures/osn#1315 removes them.
+// table, until englishstreetventures/osn#1315 removes them.
 // `source` distinguishes a provider purchase from a comp/manual grant, and
 // `provider_ref` carries the external provider reference on purchases (NULL on
 // comp).
@@ -779,9 +894,10 @@ export const registryItems = sqliteTable(
     weddingId: text("wedding_id")
       .notNull()
       .references(() => weddings.id, { onDelete: "cascade" }),
-    // v1 writes only `product`. `cash_fund` is the named-fund seam (honeymoon,
-    // house deposit, charity) — declared now so adding funds is UI work, not a
-    // migration.
+    // `product` is a thing a household reserves; `cash_fund` is a named purpose
+    // guests give money to (honeymoon, house deposit, charity). A fund is never
+    // claimed, and reaches guests only while the couple take money. Set at
+    // create and never changed.
     kind: text("kind", { enum: ["product", "cash_fund"] })
       .notNull()
       .default("product"),
@@ -794,8 +910,7 @@ export const registryItems = sqliteTable(
     imageKey: text("image_key"),
     imageCrop: text("image_crop"),
     // Where to buy it. Validated `https:` on write AND re-checked on render —
-    // an unvalidated URL in an `href` is a `javascript:` sink (precedent
-    // CON-S-L2).
+    // an unvalidated URL in an `href` is a `javascript:` sink.
     externalUrl: text("external_url"),
     // Minor units of the WEDDING's currency (`weddings.currency`). No per-item
     // currency column — see the module comment above.
@@ -803,7 +918,8 @@ export const registryItems = sqliteTable(
     quantityWanted: integer("quantity_wanted").notNull().default(1),
     // Group-gifting seam (many guests part-fund one item). Off in v1.
     allowPartial: integer("allow_partial", { mode: "boolean" }).notNull().default(false),
-    // Cash-fund goal, minor units of the wedding's currency. Unused in v1.
+    // A cash fund's goal, minor units of the wedding's currency, or NULL. The
+    // couple's planning number, never sent to a guest. Always NULL on a product.
     targetMinor: integer("target_minor"),
     category: text("category"),
     sortOrder: integer("sort_order").notNull().default(0),
@@ -814,7 +930,7 @@ export const registryItems = sqliteTable(
     // Every list read is `WHERE wedding_id = ? ORDER BY sort_order` — one
     // composite serves filter + order in a single b-tree walk. The trailing `id`
     // is the tie-break the ORDER BY actually uses, so the read is covered and
-    // never falls back to a sort (P-I3).
+    // never falls back to a sort.
     index("registry_items_wedding_sort_idx").on(t.weddingId, t.sortOrder, t.id),
     // "Does an item of this wedding name this image?" The public gift-image
     // route asks it on every request that reaches the Worker, so a deleted
@@ -824,11 +940,10 @@ export const registryItems = sqliteTable(
     index("registry_items_wedding_image_idx").on(t.weddingId, t.imageKey),
     // Zero (or negative) wanted makes the remaining-quantity arithmetic in
     // registryService.claim nonsense — every claim is instantly "full". The
-    // service refuses it first; this is the floor under a future writer (S-M1).
+    // service refuses it first; this is the floor under a future writer.
     check("registry_items_quantity_wanted_ck", sql`quantity_wanted >= 1`),
     // `kind` is a drizzle enum, which is a TYPE-level claim only: nothing stops a
-    // raw statement writing 'gift_card'. The CHECK makes it a storage-level one
-    // (S-M4).
+    // raw statement writing 'gift_card'. The CHECK makes it a storage-level one.
     check("registry_items_kind_ck", sql`kind in ('product','cash_fund')`),
   ],
 );
@@ -885,10 +1000,10 @@ export const registryClaims = sqliteTable(
     // The remaining-quantity subquery reads
     // `WHERE item_id = ? AND status <> 'released' AND family_id <> ?` and sums
     // `quantity`. Carrying all four columns makes it a covering index — the
-    // hottest read on the write path never touches the table (P-W5).
+    // hottest read on the write path never touches the table.
     index("registry_claims_item_status_idx").on(t.itemId, t.status, t.familyId, t.quantity),
     // `claimedByItem` reads `WHERE wedding_id = ? AND status <> 'released'`
-    // GROUP BY item_id, summing quantity — covered end to end (P-W6).
+    // GROUP BY item_id, summing quantity — covered end to end.
     index("registry_claims_wedding_item_status_idx").on(
       t.weddingId,
       t.itemId,
@@ -897,9 +1012,9 @@ export const registryClaims = sqliteTable(
     ),
     // A claim of 0 would occupy the (item, household) unique pair while claiming
     // nothing; the upper bound is what stops one household reserving a whole
-    // registry by typing a big number (S-M1). Range mirrored in the service.
+    // registry by typing a big number. Range mirrored in the service.
     check("registry_claims_quantity_ck", sql`quantity >= 1 and quantity <= 99`),
-    // Storage-level guarantee behind the drizzle enum (S-M4). `released` is load
+    // Storage-level guarantee behind the drizzle enum. `released` is load
     // bearing — the quantity arithmetic subtracts on exactly that string.
     check("registry_claims_status_ck", sql`status in ('reserved','purchased','released')`),
   ],
@@ -913,8 +1028,14 @@ export const registryContributions = sqliteTable(
     weddingId: text("wedding_id")
       .notNull()
       .references(() => weddings.id, { onDelete: "cascade" }),
-    // NULL for a general cash gift that isn't against a listed item.
+    // The cash fund this gift was given to; NULL for a gift to no fund.
     itemId: text("item_id").references(() => registryItems.id, { onDelete: "set null" }),
+    // The fund's name as the guest saw it, written with the row. `item_id` is
+    // SET NULL when the couple delete the fund, and a fund can be renamed, so
+    // the gift log reads the name from here: the couple's record says what the
+    // guest gave to, whatever happens to the listing afterwards. NULL for a
+    // gift to no fund. The couple's own words, never the guest's.
+    itemTitle: text("item_title"),
     familyId: text("family_id")
       .notNull()
       .references(() => families.id, { onDelete: "cascade" }),
@@ -1046,7 +1167,7 @@ export const rsvps = sqliteTable(
     // safe half of this pair.
     dietaryPresets: text("dietary_presets").notNull().default(""),
     // Explicit Art. 9(2)(a) consent record for the special-category `dietary`
-    // free-text (see [[wiki/compliance/dpia/cire-guest-data]] → C-H2). Captured
+    // free-text (see [[wiki/compliance/dpia/cire-guest-data]] §4). Captured
     // here, 1:1 with the RSVP, because consent authorises exactly this row's
     // dietary data and the `(guest_id, event_id)` upsert already keys it — a
     // separate table would duplicate that key and add a join for no gain. Both
@@ -1057,7 +1178,7 @@ export const rsvps = sqliteTable(
     dietaryConsentVersion: text("dietary_consent_version"),
     // WHO recorded this reply AND on whose consent authority the dietary
     // free-text is held (migration 0037; see [[wiki/compliance/dpia/cire-guest-data]]
-    // → C-H2 organiser-attested variant). `'guest'` — the guest RSVP'd
+    // §4, the organiser-attested variant). `'guest'` — the guest RSVP'd
     // themselves and gave their own Art. 9(2)(a) consent. `'organiser_attested'`
     // — an organiser recorded a phone/paper RSVP on the guest's behalf and
     // *attests* the guest consented to storing dietary requirements.
@@ -1546,7 +1667,7 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   // The guest IMAGE cache version (migration 0029) — bumped ONLY by image
   // upload/remove/crop and a hero-blur change, never by copy/theme-colour
-  // saves, so those stay image-cache-neutral (WT-P-I1). NULL (a row that has
+  // saves, so those stay image-cache-neutral. NULL (a row that has
   // only ever seen copy saves) coalesces to `updated_at` at read time.
   imagesUpdatedAt: integer("images_updated_at", { mode: "timestamp" }),
 });
@@ -1582,7 +1703,7 @@ export const weddingFaqs = sqliteTable(
 
 // Tracks every spreadsheet upload through the organiser portal so we can
 // preview, apply, and (later) revert a batch import. The surrounding flow is
-// tracked as an open issue in `englishstventures/osn` (`label:product:cire`).
+// tracked as an open issue in `englishstreetventures/osn` (`label:product:cire`).
 export const imports = sqliteTable(
   "imports",
   {
@@ -1620,7 +1741,7 @@ export const imports = sqliteTable(
     beforeGuestsR2Key: text("before_guests_r2_key"),
   },
   (t) => [
-    // P-W1: import-list pagination is `WHERE wedding_id = ? [AND uploaded_at <
+    // Import-list pagination is `WHERE wedding_id = ? [AND uploaded_at <
     // cursor] ORDER BY uploaded_at DESC`. This composite covers the scope +
     // cursor/order in one b-tree (and also serves revert.ts's
     // `wedding_id = ? AND status = 'applied' ORDER BY uploaded_at DESC` with
@@ -1834,5 +1955,72 @@ export const unlockCodeRedemptions = sqliteTable(
     uniqueIndex("unlock_code_redemptions_code_wedding_uniq").on(t.codeId, t.weddingId),
     // The purge's cascade from `weddings` finds a wedding's rows by this.
     index("unlock_code_redemptions_wedding_idx").on(t.weddingId),
+  ],
+);
+
+// ── Seating (migration 0089, [[wiki/cire/cire-seating]]) ────────────────────
+// A table at one event. `wedding_id` is the event's wedding, held by the
+// composite foreign key to `events (id, wedding_id)`, so a table can never be
+// filed under one wedding while sitting at another's event. A wedding's tables
+// go with its events: `weddings` cascades to `events`, `events` to here. A
+// rebuild of `events` (a copy-and-swap's DROP TABLE) cascades into this table
+// and its seats, so one needs the `__keep_*` idiom for both.
+//
+// No index leads with `wedding_id`: every statement reaches a table by its
+// `id` or by `event_id`, and scopes to a wedding through `events`.
+export const seatingTables = sqliteTable(
+  "seating_tables",
+  {
+    id: text("id").primaryKey(), // stb_<uuid>
+    weddingId: text("wedding_id").notNull(),
+    eventId: text("event_id").notNull(),
+    name: text("name").notNull(),
+    // How many guests the table seats. The API refuses a seat past it and a
+    // capacity below the guests already seated.
+    capacity: integer("capacity").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.eventId, t.weddingId],
+      foreignColumns: [events.id, events.weddingId],
+    }).onDelete("cascade"),
+    // Unique already, since `id` is. It is the parent key of the seats'
+    // `(table_id, event_id)` foreign key, the probe an event delete cascades
+    // through, and the index an event's tables are listed by.
+    uniqueIndex("seating_tables_event_id_uniq").on(t.eventId, t.id),
+  ],
+);
+
+// One guest's seat at one event. `event_id` repeats the table's event so that
+// "one seat per guest per event" is a plain unique index the database enforces;
+// the `(table_id, event_id)` foreign key makes it impossible for the copy to
+// disagree with the table. The `(guest_id, event_id)` foreign key admits only
+// a guest invited to that event, and takes the seat away when the invitation
+// goes — an editor save, an import, a guest or event delete, the retention
+// sweep.
+export const seatingAssignments = sqliteTable(
+  "seating_assignments",
+  {
+    tableId: text("table_id").notNull(),
+    eventId: text("event_id").notNull(),
+    guestId: text("guest_id").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tableId, t.guestId] }),
+    foreignKey({
+      columns: [t.tableId, t.eventId],
+      foreignColumns: [seatingTables.id, seatingTables.eventId],
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.guestId, t.eventId],
+      foreignColumns: [guestEvents.guestId, guestEvents.eventId],
+    }).onDelete("cascade"),
+    // A guest sits at no more than one table per event. Also the probe the
+    // invitation's cascade reads, and how a guest's seat at an event is found.
+    uniqueIndex("seating_assignments_event_guest_uniq").on(t.eventId, t.guestId),
   ],
 );

@@ -4,7 +4,7 @@ import {
   type ConsentCategory,
   isConsentCategory,
   isRequiredCategory,
-} from "./categories";
+} from "@cire/ui/consent-categories";
 
 /**
  * Storage-shape version. Bump ONLY when the record's structure changes in a way
@@ -76,7 +76,7 @@ export function defaultGrants(): ConsentGrants {
 
 /**
  * What applies to a guest who has been shown the prompt but has not decided:
- * each category's `defaultGranted` (see `categories.ts`). Today that is the
+ * each category's `defaultGranted` (see `@cire/ui/consent-categories`). Today that is the
  * floor — no switch is on before the guest's yes — but it is read from the
  * categories rather than assumed, and it must never be substituted for the
  * pre-hydration state, where we do not yet know whether a refusal is on file.

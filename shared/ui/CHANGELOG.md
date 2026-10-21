@@ -1,5 +1,31 @@
 # @shared/ui
 
+## 0.5.1
+
+### Patch Changes
+
+- 5ab88f0: Build with vite 8.3.3 (range `^8.3.3`), which clears the advisory on vite 8.2.0
+  through 8.2.3.
+
+## 0.5.0
+
+### Minor Changes
+
+- 745c4ea: `@shared/ui` gains `Tooltip` (`@shared/ui/ui/tooltip`): a short label that
+  explains itself on hover. One `text` string feeds both copies — hidden text
+  inside the trigger, which a screen reader reads once, and a panel a mouse user
+  sees on hover, which is `aria-hidden` and which the trigger does not point at.
+  The trigger is a plain inline-block `<span>`, so it adds no tab stop. The lab
+  shows it under shared/ui/overlays.
+
+## 0.4.4
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
 ## 0.4.3
 
 ### Patch Changes

@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-10-20
 ---
 
 # Component Lab
@@ -44,7 +44,7 @@ carry the variants and states, and all seven stories live together in
 | `shared/ui/forms` | `forms.story.tsx` | Input, Label, Textarea, Select, Field, Fieldset, Checkbox, RadioGroup, UsernameInput, OtpInput |
 | `shared/ui/feedback` | `feedback.story.tsx` | Notice, Chip, EmptyState, Stat |
 | `shared/ui/data` | `data.story.tsx` | Table, Meter |
-| `shared/ui/overlays` | `overlays.story.tsx` | Dialog, Modal, DropdownMenu, Popover, Tabs |
+| `shared/ui/overlays` | `overlays.story.tsx` | Dialog, Modal, DropdownMenu, Popover, InfoPopover, Tooltip, Tabs |
 
 A second group, `design-system/*`, is the token contract ([[design-tokens]]) as
 something to look at. Five files in `tools/lab/src/stories/design-system/`, plus
@@ -259,9 +259,9 @@ worked out in `src/lab/three.tsx`:
 > `skills-lock.json` pins the upstream commit it came from and a hash of the
 > folder, which `scripts/check-skills-lock.ts` recomputes on every pull
 > request. Fixing something in place fails that check, and the next install
-> throws the fix away. A fix goes upstream and comes back as a new pin. oxlint,
-> oxfmt and the skill-quality loop leave the tree alone for that reason — see
-> [[agent-tooling#Third-party skills]].
+> throws the fix away. A fix goes upstream and comes back as a new pin. oxlint and
+> oxfmt leave the tree alone for that reason, and `scripts/skill-evals.ts` never
+> lists a symlinked skill — see [[agent-tooling#Third-party skills]].
 
 ## Gates
 

@@ -439,12 +439,14 @@
   --color-surface-raised: oklch(27.7% 0.0275 152.78);
   --color-border: oklch(94.62% 0.0111 89.72 / 0.12);
   --color-text: oklch(94.62% 0.0111 89.72);
-  /* The control boundary. Written out at every form control as `border-text/55`
-     before it had a name — `LoginSection`'s claim-code box, the three
-     gift-registry fields — which is a token by any other measure, and one the
-     contract needs by name (`--ui-hairline-strong`) to hold it to its 3:1
-     floor. */
-  --color-border-strong: oklch(94.62% 0.0111 89.72 / 0.55);
+  /* The control boundary, held to 3:1 against all three surfaces, and the ring
+     round a dress-code swatch. The contract needs it by name
+     (`--ui-hairline-strong`). Derived per scheme like the prose tokens
+     (`derivePalette`): the ink 55% of the way over the card, walked until it
+     clears. Solid, not translucent: contrast checks ignore alpha, so a
+     translucent value would go unmeasured. This is `derivePalette(evergreen)`'s
+     value, pinned by the lockstep test. */
+  --color-border-strong: oklch(62.26% 0.0185 118.1);
   /* Solid, not `ink / 0.5`. The alpha form drifted from what `derivePalette`
      actually emits for this preset, and the drift is invisible where it matters
      most: the legal pages (`/privacy`, `/terms`) never receive a derived palette
@@ -462,6 +464,12 @@
      On this scheme the metal already clears 4.5 on every surface, so the two
      are the same colour; on a paler one they part company. */
   --color-gold-ink: oklch(74.99% 0.0854 82.08);
+  /* The label on a gold fill: every gold button and the open RSVP button.
+     Derived to clear 4.5:1 on the gold — the page colour when that reads, as
+     it does here, else the ink, else one of them walked toward black or white.
+     A mid-tone gold (chapel, garden) gets a near-black or near-white label
+     while its metal stays exactly as chosen. */
+  --color-on-gold: oklch(19.96% 0.0331 147.34);
   /* The festive counter-colour — timeline dots, ornament, ambient accents. */
   --color-bloom: oklch(70.5% 0.1123 24.5);
   --color-bloom-dim: oklch(70.5% 0.1123 24.5 / 0.3);
@@ -523,12 +531,11 @@
   /* An event sheet's panel arriving (`components/EventSheet`): it fades in
      while sliding the last 1.5rem from the side it lives on — the details from
      the start, the RSVP form from the end, the order of their buttons on the
-     card. Same curve as the sheet's own entry. `EventSheet` reads the computed
-     duration and curve back to resize the sheet in step, so these two values
-     are the only place the timing is written.
+     card. Same curve as the sheet's own entry, and the swipe's settle
+     (`transition-panel-settle`) takes the same 280ms and curve.
 
      Reduced motion needs no special case: the global clamp plays it out in
-     0.01ms, and the resize reads that clamped duration too. */
+     0.01ms. */
   --animate-panel-from-start: panel-from-start 280ms cubic-bezier(0.22, 1, 0.36, 1);
   --animate-panel-from-end: panel-from-end 280ms cubic-bezier(0.22, 1, 0.36, 1);
 
@@ -602,6 +609,14 @@
     opacity: 1;
     transform: none;
   }
+}
+
+/* The event sheet's panels finishing a swipe: from wherever the finger let go
+   to their resting places, on the panel slide's own duration and curve so a
+   swipe and a button press take the same time. EventSheet reads the duration
+   back, so the reduced-motion clamp below reaches it too. */
+@utility transition-panel-settle {
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /*
@@ -798,13 +813,14 @@
   --ui-ink-secondary: var(--color-text-muted);
   --ui-ink-tertiary: var(--color-text-muted);
 
-  /* Gold is the accent, as it is in both portals. `on-accent` is the page
-     ground: a gold fill carries dark ink, never a near-white. */
+  /* Gold is the accent, as it is in both portals. `on-accent` is the derived
+     on-gold label ink, held to 4.5:1 on the gold for every scheme: the page
+     colour on evergreen, a near-black or near-white on a mid-tone gold. */
   --ui-accent: var(--color-gold);
   --ui-accent-strong: var(--color-gold);
   --ui-accent-soft: var(--color-gold-dim);
   --ui-accent-ink: var(--color-gold-ink);
-  --ui-on-accent: var(--color-bg);
+  --ui-on-accent: var(--color-on-gold);
 
   /* No warn colour of its own — an invite has nothing to warn about. The read
      gold stands in so a shared component that asks for one is legible rather

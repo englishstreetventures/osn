@@ -50,9 +50,6 @@
  *                       api.cloudflare.com, to read the Worker's deployments
  *                       and to roll it back. Without both, a check that fails
  *                       says so and rolls nothing back.
- *   SMOKE_FORCE_FAIL    "true" adds a probe of FORCED_FAILURE_PATH, which every
- *                       Worker answers 404, so the job rolls back and goes red:
- *                       the dry run of the rollback path. Dev only.
  *   CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET
  *                       a Cloudflare Access service token, sent only to a
  *                       target behind Access (the guest site's dev host).
@@ -206,9 +203,6 @@ export function smokeTarget(surface: WorkerSurface, tier: Tier): SmokeTarget | u
     SMOKE_TARGETS[surface];
   return tiers[tier];
 }
-
-/** A path no Worker serves: the dry run's probe. */
-export const FORCED_FAILURE_PATH = "/smoke-check-forced-failure";
 
 // ── judging one answer ──────────────────────────────────────────────────────
 
@@ -666,15 +660,6 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   const target = smokeTarget(surface, tier);
   if (target === undefined) return usage(`${surface} has no ${tier} Worker`);
 
-  const force = env.SMOKE_FORCE_FAIL ?? "";
-  if (force !== "" && force !== "true" && force !== "false") {
-    return usage(`SMOKE_FORCE_FAIL must be true or false, not '${force}'`);
-  }
-  const forced = force === "true";
-  if (forced && tier === "production") {
-    return usage("SMOKE_FORCE_FAIL is for dev; the dry run never rolls production back");
-  }
-
   const label = `${surface} (${tier})`;
   const headers: Record<string, string> = {};
   if (target.access) {
@@ -683,7 +668,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
     if (id !== "" && secret !== "") {
       headers["cf-access-client-id"] = id;
       headers["cf-access-client-secret"] = secret;
-    } else if (!forced) {
+    } else {
       out(
         annotation(
           "warning",
@@ -715,15 +700,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
     }
   }
 
-  const probes: readonly Probe[] = forced
-    ? [
-        ...target.probes,
-        {
-          url: new URL(FORCED_FAILURE_PATH, target.probes[0]?.url).href,
-          expects: { kind: "json", fields: { status: "ok" } },
-        },
-      ]
-    : target.probes;
+  const probes: readonly Probe[] = target.probes;
   const ask = (): Promise<Round> =>
     Promise.all(
       probes.map((probe) =>
@@ -817,10 +794,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   }
 
   await input.sleep(TIMING.intervalMs);
-  const after = await ask();
-  // The dry run's probe fails on every version; leave it out of the verdict.
-  const restored = after.slice(0, target.probes.length);
-  if (passed(restored)) {
+  if (passed(await ask())) {
     out(
       annotation(
         "notice",

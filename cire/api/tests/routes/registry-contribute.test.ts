@@ -13,7 +13,9 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
+import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import { hostCodeService } from "../../src/services/host-code";
 import {
   StripeError,
   type CreateCheckoutSessionInput,
@@ -166,11 +168,17 @@ function buildApp({
 type App = ReturnType<typeof buildApp>["app"];
 type Db = ReturnType<typeof buildApp>["db"];
 
-/** A gift line on the given wedding. */
-function insertItem(db: Db, id: string, weddingId: string) {
+/** A gift line on the given wedding: a product to reserve, or a cash fund. */
+function insertItem(
+  db: Db,
+  id: string,
+  weddingId: string,
+  kind: "product" | "cash_fund" = "product",
+  title = kind === "cash_fund" ? "Honeymoon in Kyoto" : "Copper pan",
+) {
   const now = new Date();
   db.insert(registryItems)
-    .values({ id, weddingId, title: "Copper pan", createdAt: now, updatedAt: now })
+    .values({ id, weddingId, kind, title, createdAt: now, updatedAt: now })
     .run();
 }
 
@@ -226,6 +234,16 @@ describe("who may give", () => {
     expect((await contribute(app, null, { amountMinor: 5000 })).status).toBe(401);
   });
 
+  it("refuses a cookie that names no live session, before any row or Stripe call", async () => {
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    const res = await contribute(app, "cire_session=no-such-session", { amountMinor: 5000 });
+    expect(res.status).toBe(401);
+    expect(await jsonBody(res)).toEqual({ error: "Unauthorized" });
+    expect(db.select().from(registryContributions).all()).toEqual([]);
+    expect(stripe.sessions).toHaveLength(0);
+  });
+
   it("refuses a household of another wedding, as the same 404 everything else gives", async () => {
     const stripe = stripeStub();
     const { app } = buildApp({ stripe: stripe.client });
@@ -236,6 +254,26 @@ describe("who may give", () => {
     // Turned away before their card was — the cross-tenant case is the one
     // this claim matters most for.
     expect(stripe.sessions).toHaveLength(0);
+  });
+
+  it("refuses the host preview household before Stripe is asked anything", async () => {
+    // The organiser's "Preview invite" session reads the list; it never gives.
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    const { publicId } = await Effect.runPromise(
+      hostCodeService
+        .ensureForWedding(BOOTSTRAP_WEDDING_ID, SLUG)
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    const preview = await guestCookie(app, publicId);
+
+    const res = await contribute(app, preview, { amountMinor: 5000 });
+
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "preview_read_only" });
+    expect(db.select().from(registryContributions).all()).toEqual([]);
+    expect(stripe.sessions).toHaveLength(0);
+    expect(stripe.retrieved).toHaveLength(0);
   });
 
   it("does not exist at all when Stripe is not configured", async () => {
@@ -361,13 +399,15 @@ describe("what reaches Stripe, and what does not", () => {
    * needs to take a payment. It also means nothing a connected account can type
    * into its own session's metadata can settle a gift here.
    */
-  it("sends Stripe one opaque id and nothing about the guest", async () => {
+  it("sends Stripe one opaque id and nothing about the guest or the fund", async () => {
     const stripe = stripeStub();
-    const { app } = buildApp({ stripe: stripe.client });
+    const { app, db } = buildApp({ stripe: stripe.client });
+    insertItem(db, "reg_fund", BOOTSTRAP_WEDDING_ID, "cash_fund", "Honeymoon in Kyoto");
     const cookie = await guestCookie(app);
 
     await contribute(app, cookie, {
       amountMinor: 12_500,
+      itemId: "reg_fund",
       message: "For the honeymoon",
       displayName: "The Ashworths",
     });
@@ -383,6 +423,11 @@ describe("what reaches Stripe, and what does not", () => {
     expect(serialised).not.toContain("For the honeymoon");
     expect(serialised).not.toContain("The Ashworths");
     expect(serialised).not.toContain(BOOTSTRAP_WEDDING_ID);
+    // What the couple are saving for is theirs: the guest's statement says
+    // "Wedding gift", whichever fund it went to.
+    expect(serialised).not.toContain("Kyoto");
+    expect(serialised).not.toContain("reg_fund");
+    expect(stripe.sessions[0]?.productName).toBe("Wedding gift");
   });
 
   it("writes the gift as pending BEFORE Stripe is asked for a page", async () => {
@@ -427,42 +472,71 @@ describe("what reaches Stripe, and what does not", () => {
     expect(rows[0]?.stripePaymentIntentId).toBeNull();
   });
 
-  it("drops an item id that is not this wedding's rather than refusing the gift", async () => {
+  it("gives to a cash fund of this wedding, and keeps the fund's name with the gift", async () => {
     const stripe = stripeStub();
     const { app, db } = buildApp({ stripe: stripe.client });
+    insertItem(db, "reg_fund", BOOTSTRAP_WEDDING_ID, "cash_fund", "Honeymoon in Kyoto");
     const cookie = await guestCookie(app);
 
-    await contribute(app, cookie, { amountMinor: 5000, itemId: "reg_other_pan" });
-
-    const rows = await db.select().from(registryContributions).all();
-    expect(rows[0]?.itemId).toBeNull();
-    expect(rows[0]?.amountMinor).toBe(5000);
-  });
-
-  it("keeps an item id that is this wedding's", async () => {
-    const stripe = stripeStub();
-    const { app, db } = buildApp({ stripe: stripe.client });
-    insertItem(db, "reg_pan", BOOTSTRAP_WEDDING_ID);
-    const cookie = await guestCookie(app);
-
-    await contribute(app, cookie, { amountMinor: 5000, itemId: "reg_pan" });
-
-    const rows = await db.select().from(registryContributions).all();
-    expect(rows[0]?.itemId).toBe("reg_pan");
-  });
-
-  it("drops an item that exists but belongs to another wedding", async () => {
-    // The item row is real, so only the wedding check can drop it.
-    const stripe = stripeStub();
-    const { app, db } = buildApp({ stripe: stripe.client });
-    insertItem(db, "reg_other_pan", "wed_other");
-    const cookie = await guestCookie(app);
-
-    const res = await contribute(app, cookie, { amountMinor: 5000, itemId: "reg_other_pan" });
+    const res = await contribute(app, cookie, { amountMinor: 5000, itemId: "reg_fund" });
 
     expect(res.status).toBe(200);
     const rows = await db.select().from(registryContributions).all();
-    expect(rows[0]?.itemId).toBeNull();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.itemId).toBe("reg_fund");
+    // Written with the row, so the couple's log names the fund even after
+    // they rename or delete it.
+    expect(rows[0]?.itemTitle).toBe("Honeymoon in Kyoto");
+  });
+
+  /**
+   * A guest who chose a fund chose where the money goes. Giving it to the
+   * couple in general instead, without saying so, would be a different gift
+   * from the one they made. Each id here names no fund of this wedding, and
+   * all get the same answer, so the refusal tells nobody which ids exist.
+   */
+  const notAFund: Array<[string, (db: Db) => void, string]> = [
+    ["a gift to reserve", (db) => insertItem(db, "reg_pan", BOOTSTRAP_WEDDING_ID), "reg_pan"],
+    [
+      "another wedding's fund",
+      (db) => insertItem(db, "reg_other_fund", "wed_other", "cash_fund"),
+      "reg_other_fund",
+    ],
+    ["no item at all", () => {}, "reg_no_such_item"],
+  ];
+
+  for (const [label, seed, itemId] of notAFund) {
+    it(`refuses ${label} before any row or Stripe call`, async () => {
+      const stripe = stripeStub();
+      const { app, db } = buildApp({ stripe: stripe.client });
+      seed(db);
+      const cookie = await guestCookie(app);
+
+      const res = await contribute(app, cookie, { amountMinor: 5000, itemId });
+
+      expect(res.status).toBe(409);
+      expect(await jsonBody(res)).toEqual({ error: "fund_unavailable" });
+      expect(db.select().from(registryContributions).all()).toEqual([]);
+      expect(stripe.sessions).toHaveLength(0);
+      expect(stripe.retrieved).toHaveLength(0);
+    });
+  }
+
+  it("answers that money is off before it says anything about the fund", async () => {
+    // A page left open after the couple stopped taking money: the fund is
+    // still theirs, but no gift can be given. The answer a guest can act on
+    // is that one, not "that fund has closed".
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ cashGiftsEnabled: false, stripe: stripe.client });
+    insertItem(db, "reg_fund", BOOTSTRAP_WEDDING_ID, "cash_fund");
+    const cookie = await guestCookie(app);
+
+    for (const itemId of ["reg_fund", "reg_no_such_item"]) {
+      const res = await contribute(app, cookie, { amountMinor: 5000, itemId });
+      expect(res.status).toBe(409);
+      expect(await jsonBody(res)).toEqual({ error: "cash_gifts_unavailable" });
+    }
+    expect(stripe.sessions).toHaveLength(0);
   });
 
   it("treats an empty item id as no item at all", async () => {
@@ -475,16 +549,17 @@ describe("what reaches Stripe, and what does not", () => {
     expect(res.status).toBe(200);
     const rows = await db.select().from(registryContributions).all();
     expect(rows[0]?.itemId).toBeNull();
+    expect(rows[0]?.itemTitle).toBeNull();
   });
 
-  it("checks the household and the item inside the registry gate's one statement", async () => {
+  it("checks the household and the fund inside the registry gate's one statement", async () => {
     const stripe = stripeStub();
     const { app, db } = buildApp({ stripe: stripe.client });
-    insertItem(db, "reg_pan", BOOTSTRAP_WEDDING_ID);
+    insertItem(db, "reg_fund", BOOTSTRAP_WEDDING_ID, "cash_fund");
     const cookie = await guestCookie(app);
     const statements = recordStatements(db);
 
-    expect((await contribute(app, cookie, { amountMinor: 5000, itemId: "reg_pan" })).status).toBe(
+    expect((await contribute(app, cookie, { amountMinor: 5000, itemId: "reg_fund" })).status).toBe(
       200,
     );
 
@@ -572,6 +647,39 @@ describe("what reaches Stripe, and what does not", () => {
     const rows = await db.select().from(registryContributions).all();
     expect(rows).toHaveLength(1);
     expect(rows[0]?.stripeCheckoutSessionId).toBe("cs_1");
+  });
+
+  /**
+   * Two presses that differ only in where the money goes are two gifts. A
+   * guest who opened a general gift and then chose a fund at the same amount
+   * must not be handed the general page, or the fund gift is paid with no fund
+   * on it — and the same the other way round.
+   */
+  it("never hands a fund gift the page of a general one, or the reverse", async () => {
+    for (const order of [
+      [null, "reg_fund"],
+      ["reg_fund", null],
+    ] as const) {
+      const stripe = stripeStub();
+      const { app, db } = buildApp({ stripe: stripe.client });
+      insertItem(db, "reg_fund", BOOTSTRAP_WEDDING_ID, "cash_fund", "Honeymoon in Kyoto");
+      const cookie = await guestCookie(app);
+
+      for (const itemId of order) {
+        const res = await contribute(app, cookie, { amountMinor: 5000, message: "aaa", itemId });
+        expect(res.status).toBe(200);
+      }
+
+      expect(stripe.sessions).toHaveLength(2);
+      expect(stripe.retrieved).toEqual([]);
+      const rows = db.select().from(registryContributions).all();
+      expect(rows.map((r) => [r.itemId, r.itemTitle]).toSorted()).toEqual(
+        [
+          [null, null],
+          ["reg_fund", "Honeymoon in Kyoto"],
+        ].toSorted(),
+      );
+    }
   });
 
   it("never hands back a page priced in a currency the gate no longer approves", async () => {

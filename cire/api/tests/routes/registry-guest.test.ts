@@ -8,12 +8,13 @@ import {
   registrySettings,
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect, Exit } from "effect";
 
 import { createApp } from "../../src/app";
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import { hostCodeService } from "../../src/services/host-code";
 import { createAssetsStub } from "../../src/services/invite-assets";
 import type {
   ImagesBindingLike,
@@ -22,6 +23,7 @@ import type {
 } from "../../src/services/invite-image-transform";
 import { registryGuestService } from "../../src/services/registry";
 import type { HouseholdRegistryDto, PublicRegistryDto } from "../../src/services/registry";
+import { StripeError, type StripeClient } from "../../src/services/stripe";
 import type { Tier } from "../../src/services/tiers";
 import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
@@ -40,6 +42,33 @@ const PAN = "reg_pan";
 const BOWL = "reg_bowl";
 const OTHER_ITEM = "reg_other_pan";
 const PAN_IMAGE = "registry-pan";
+
+/** A cash fund on the bootstrap wedding, and what it must never tell a guest. */
+const FUND = "reg_fund";
+const FUND_TITLE = "Honeymoon in Kyoto";
+const FUND_IMAGE = "registry-fund";
+/** The couple's target: a planning number for them, never sent to a guest. */
+const FUND_TARGET = 987_654;
+
+/**
+ * A Stripe client that is configured and never called. Its presence is what a
+ * deployment with a Stripe key looks like to `createApp`: the contribute route
+ * is mounted, so the guest list may offer money.
+ */
+const configuredStripe: StripeClient = {
+  createAccount: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  createAccountLink: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  retrieveAccount: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  createCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  retrieveCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  createPlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  retrievePlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  expirePlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  retrievePrice: () => Effect.fail(new StripeError({ reason: "not used here" })),
+};
+
+/** Settings under which the couple are taking money, as far as they and Stripe go. */
+const TAKING_MONEY = { cashGiftsEnabled: true, stripeChargesEnabled: true } as const;
 
 /** The claim another household already holds — the identity that must never leak. */
 const FOREIGN_NOTE = "Bought it in the Boxing Day sale";
@@ -129,6 +158,11 @@ function buildApp(
     /** The currency Stripe settles the account in; the wedding prices in AUD. */
     stripeDefaultCurrency?: string | null;
     images?: ImagesBindingLike;
+    /**
+     * The deployment's Stripe client. `null` is a deployment with no Stripe
+     * key, where the contribute route is not mounted at all.
+     */
+    stripe?: StripeClient | null;
   } = {},
 ) {
   const {
@@ -141,6 +175,7 @@ function buildApp(
     stripeChargesEnabled = false,
     stripeDefaultCurrency = "AUD",
     images,
+    stripe = configuredStripe,
   } = opts;
   const db = createDb(":memory:");
   seedDb(db);
@@ -234,6 +269,18 @@ function buildApp(
         createdAt: now,
         updatedAt: now,
       },
+      {
+        id: FUND,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        kind: "cash_fund",
+        title: FUND_TITLE,
+        description: "Trains, temples and a very good dinner.",
+        imageKey: `assets/${BOOTSTRAP_WEDDING_ID}/${FUND_IMAGE}`,
+        targetMinor: FUND_TARGET,
+        sortOrder: 2,
+        createdAt: now,
+        updatedAt: now,
+      },
     ])
     .run();
 
@@ -263,6 +310,7 @@ function buildApp(
   const app = createApp(db, {
     assets,
     images,
+    stripe,
     // Fresh limiters per app: the module-level defaults are process-wide, so
     // without these the 21st guest write in this file would 429 whichever test
     // happened to run last (and `/api/claim`'s budget is only 5/min).
@@ -409,10 +457,36 @@ describe("the guest registry is one 404, whatever the reason", () => {
       body: JSON.stringify({ quantity: 1 }),
     });
     expect(res.status).toBe(401);
+    expect(
+      (await appRequest(app, `${guestBase()}/items/${PAN}/claim`, { method: "DELETE" })).status,
+    ).toBe(401);
+  });
+
+  it("401s both writes for a cookie that names no live session, and writes nothing", async () => {
+    const { app, db } = buildApp();
+    const dead = "cire_session=no-such-session";
+    const before = db.select().from(registryClaims).all();
+    const reserve = await claim(app, dead, { quantity: 1 });
+    expect(reserve.status).toBe(401);
+    expect(await jsonBody(reserve)).toEqual({ error: "Unauthorized" });
+    const free = await release(app, dead);
+    expect(free.status).toBe(401);
+    expect(await jsonBody(free)).toEqual({ error: "Unauthorized" });
+    expect(db.select().from(registryClaims).all()).toEqual(before);
   });
 });
 
 describe("GET /api/invite/:slug/registry (sessionAuth)", () => {
+  it("answers a failed read with a plain 500, never a partial list", async () => {
+    const { app, db } = buildApp(TAKING_MONEY);
+    const cookie = await guestCookie(app);
+    // The items read fails after the gate passes: a defect, not a refusal.
+    db.run(sql`DROP TABLE registry_claims`);
+    const res = await appRequest(app, guestBase(), { headers: { Cookie: cookie } });
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+  });
+
   it("opens on Crimson as on Gold: a tier above Gold includes the registry", async () => {
     // The guest gate ranks the tier rather than matching one value, so the
     // top tier's couples publish a list their guests can read and claim from.
@@ -497,8 +571,110 @@ describe("GET /api/invite/:slug/registry (sessionAuth)", () => {
     }
     const body = JSON.parse(raw) as Record<string, unknown>;
     expect(Object.keys(body).toSorted()).toEqual(
-      ["cashGiftsEnabled", "currency", "headline", "items", "message"].toSorted(),
+      ["cashGiftsEnabled", "currency", "funds", "headline", "items", "message"].toSorted(),
     );
+  });
+});
+
+describe("cash funds, as a guest sees them", () => {
+  it("lists a fund apart from the gifts, with its name, picture and words and nothing else", async () => {
+    const { app } = buildApp(TAKING_MONEY);
+    const res = await appRequest(app, guestBase(), {
+      headers: { Cookie: await guestCookie(app) },
+    });
+    const raw = await res.text();
+    const body = JSON.parse(raw) as PublicRegistryDto;
+
+    // A fund is not something to reserve, so it is not on the shelves.
+    expect(body.items.map((i) => i.id)).toEqual([BOWL, PAN]);
+    expect(body.funds).toHaveLength(1);
+    const [fund] = body.funds;
+    // Exhaustive key set: the couple's target, a price, a count or a total
+    // added to the DTO later fails here before it reaches a guest.
+    expect(Object.keys(fund ?? {}).toSorted()).toEqual(
+      ["description", "id", "imageCrop", "imageName", "sortOrder", "title"].toSorted(),
+    );
+    expect(fund?.id).toBe(FUND);
+    expect(fund?.title).toBe(FUND_TITLE);
+    expect(fund?.imageName).toBe(FUND_IMAGE);
+    // The target is the couple's planning number, in no field and no form.
+    expect(raw).not.toContain(String(FUND_TARGET));
+  });
+
+  // Each row is a reason the couple cannot take money today. A fund offered
+  // then is a choice whose every press ends in a refusal.
+  const notTakingMoney = [
+    ["the couple never turned money gifts on", { stripeChargesEnabled: true }],
+    ["Stripe cannot take a charge", { cashGiftsEnabled: true }],
+    ["the account settles in another currency", { ...TAKING_MONEY, stripeDefaultCurrency: "USD" }],
+    ["the deployment has no Stripe key", { ...TAKING_MONEY, stripe: null }],
+  ] as const;
+
+  for (const [label, opts] of notTakingMoney) {
+    it(`offers no fund when ${label}`, async () => {
+      const { app } = buildApp(opts);
+      const res = await appRequest(app, guestBase(), {
+        headers: { Cookie: await guestCookie(app) },
+      });
+      const raw = await res.text();
+      const body = JSON.parse(raw) as PublicRegistryDto;
+      expect(body.cashGiftsEnabled).toBe(false);
+      expect(body.funds).toEqual([]);
+      expect(raw).not.toContain(FUND_TITLE);
+      // The gifts are still there: only money is off.
+      expect(body.items.map((i) => i.id)).toEqual([BOWL, PAN]);
+    });
+  }
+
+  it("cannot be reserved: a fund answers as no gift at all, and nothing is written", async () => {
+    const { app, db } = buildApp(TAKING_MONEY);
+    const cookie = await guestCookie(app);
+    const before = db.select().from(registryClaims).all();
+
+    const res = await claim(app, cookie, { quantity: 1 }, SLUG, FUND);
+
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "registry_item_not_found" });
+    expect(db.select().from(registryClaims).all()).toEqual(before);
+  });
+
+  it("serves a fund's picture only while the fund is offered", async () => {
+    const store = (assets: ReturnType<typeof buildApp>["assets"]) =>
+      assets._store.set(`assets/${BOOTSTRAP_WEDDING_ID}/${FUND_IMAGE}`, {
+        bytes: PNG.buffer.slice(0) as ArrayBuffer,
+        contentType: "image/png",
+      });
+    const path = `${guestBase()}/image/${FUND_IMAGE}`;
+
+    const open = buildApp(TAKING_MONEY);
+    store(open.assets);
+    expect((await appRequest(open.app, path)).status).toBe(200);
+
+    // Turning money off withdraws the fund, and its picture with it, as
+    // deleting it would.
+    for (const opts of [{ stripeChargesEnabled: true }, { ...TAKING_MONEY, stripe: null }]) {
+      const closed = buildApp(opts);
+      store(closed.assets);
+      const res = await appRequest(closed.app, path);
+      expect(res.status).toBe(404);
+      expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
+    }
+  });
+
+  it("keeps serving a gift's picture that a hidden fund shares", async () => {
+    // A product and a fund can name one R2 object (the couple reused a
+    // picture). The gift is still on the list, so its picture must still load.
+    const { app, assets, db } = buildApp();
+    db.update(registryItems)
+      .set({ imageKey: `assets/${BOOTSTRAP_WEDDING_ID}/${PAN_IMAGE}` })
+      .where(eq(registryItems.id, FUND))
+      .run();
+    assets._store.set(`assets/${BOOTSTRAP_WEDDING_ID}/${PAN_IMAGE}`, {
+      bytes: PNG.buffer.slice(0) as ArrayBuffer,
+      contentType: "image/png",
+    });
+
+    expect((await appRequest(app, `${guestBase()}/image/${PAN_IMAGE}`)).status).toBe(200);
   });
 });
 
@@ -843,6 +1019,115 @@ describe("a cookie for one wedding buys nothing on another", () => {
     const res = await claim(app, local, { quantity: 1 }, OTHER_SLUG, OTHER_ITEM);
     expect(res.status).toBe(404);
     expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
+  });
+});
+
+/**
+ * The organiser's "Preview invite" claims the wedding's host household, whose
+ * session reaches every guest route. It may read the list — that is what a
+ * preview is for — and may change nothing on it: a reservation it held would
+ * read as taken to every real guest.
+ */
+describe("a host preview session reads the gift list and writes nothing", () => {
+  type TestDb = ReturnType<typeof buildApp>["db"];
+
+  /** Provision the host household and claim its code, as Preview invite does. */
+  async function previewCookie(app: App, db: TestDb) {
+    const { publicId } = await Effect.runPromise(
+      hostCodeService
+        .ensureForWedding(BOOTSTRAP_WEDDING_ID, SLUG)
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    const [host] = db
+      .select({ id: families.id })
+      .from(families)
+      .where(eq(families.publicId, publicId))
+      .all();
+    return { cookie: await guestCookie(app, publicId), hostId: (host as { id: string }).id };
+  }
+
+  function hostClaims(db: TestDb, hostId: string) {
+    return db
+      .select({ status: registryClaims.status, quantity: registryClaims.quantity })
+      .from(registryClaims)
+      .where(eq(registryClaims.familyId, hostId))
+      .all();
+  }
+
+  /**
+   * A reservation the host household holds on the bowl: the row a Worker
+   * without the refusal could leave behind. A write on it must be refused by
+   * the statement itself, not merely by there being no row to act on.
+   */
+  function holdAsHost(db: TestDb, hostId: string) {
+    const now = new Date();
+    db.insert(registryClaims)
+      .values({
+        id: "rcl_host",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: BOWL,
+        familyId: hostId,
+        quantity: 1,
+        status: "reserved",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  it("reads the list and its own household, which says it is a preview", async () => {
+    const { app, db } = buildApp();
+    const { cookie } = await previewCookie(app, db);
+    const list = await listView(app, cookie);
+    expect(list.items.map((i) => i.id)).toEqual([BOWL, PAN]);
+    expect(await mine(app, cookie)).toEqual({ claims: [], preview: true });
+    // A guest household's read carries no such key.
+    expect("preview" in (await mine(app, await guestCookie(app)))).toBe(false);
+  });
+
+  it("cannot reserve a gift", async () => {
+    const { app, db } = buildApp();
+    const { cookie, hostId } = await previewCookie(app, db);
+    const res = await claim(app, cookie, { quantity: 1 });
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "preview_read_only" });
+    expect(hostClaims(db, hostId)).toEqual([]);
+  });
+
+  it("cannot mark a gift purchased", async () => {
+    const { app, db } = buildApp();
+    const { cookie, hostId } = await previewCookie(app, db);
+    const res = await claim(app, cookie, { quantity: 1, status: "purchased" });
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "preview_read_only" });
+    expect(hostClaims(db, hostId)).toEqual([]);
+  });
+
+  it("cannot change a reservation its household already holds", async () => {
+    const { app, db } = buildApp();
+    const { cookie, hostId } = await previewCookie(app, db);
+    holdAsHost(db, hostId);
+    // The claim statement's update arm: an existing row, a new quantity and status.
+    const res = await claim(app, cookie, { quantity: 2, status: "purchased" }, SLUG, BOWL);
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "preview_read_only" });
+    expect(hostClaims(db, hostId)).toEqual([{ status: "reserved", quantity: 1 }]);
+  });
+
+  it("cannot release a gift, even one its household already holds", async () => {
+    const { app, db } = buildApp();
+    const { cookie, hostId } = await previewCookie(app, db);
+    holdAsHost(db, hostId);
+    const res = await release(app, cookie, SLUG, BOWL);
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "preview_read_only" });
+    expect(hostClaims(db, hostId)).toEqual([{ status: "reserved", quantity: 1 }]);
+
+    // A guest household releasing a gift it holds nothing on still hears the
+    // item-shaped answer, not the preview's.
+    const guest = await release(app, await guestCookie(app), SLUG, BOWL);
+    expect(guest.status).toBe(404);
+    expect(await jsonBody(guest)).toEqual({ error: "registry_item_not_found" });
   });
 });
 

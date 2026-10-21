@@ -10,7 +10,7 @@
  * moodboard and the Google venue map. They are separate switches, so a guest
  * can allow one without the other.
  *
- * Vendors declare which category they belong to (see `vendors.ts`), so adding
+ * Vendors declare which category they belong to (see `consent-vendors.ts`), so adding
  * a third party is a registry entry and a switch — never a new gate, a new
  * storage key and a new prompt of its own.
  *

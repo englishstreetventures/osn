@@ -10,7 +10,8 @@
  * against a record the application would actually have written — not a
  * hand-rolled approximation of one that might no longer parse.
  */
-import type { ConsentCategory } from "../../src/lib/consent/categories";
+import type { ConsentCategory } from "@cire/ui/consent-categories";
+
 import { CONSENT_COOKIE_NAME, PREFIXED_CONSENT_COOKIE_NAME } from "../../src/lib/consent/cookie";
 import {
   type ConsentGrants,

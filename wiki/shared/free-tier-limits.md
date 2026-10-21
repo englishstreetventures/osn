@@ -203,13 +203,13 @@ Durable Objects run on Workers Free since 2025-04-07, **SQLite storage backend o
 
 The client's `ping` is an application text frame, not a protocol ping. The page says only this about it: "Application level auto-response messages handled by state.setWebSocketAutoResponse() will not incur additional wall-clock time, and so they will not be charged". It does not say whether that sentence covers the request count. The 20:1 ratio for incoming messages is stated "for compute requests billing-only", and the page does not say whether it applies on Free.
 
-So a visible tab's pings cost somewhere between nothing and one request each. At the client's 25 s interval, a visible tab open for 8 hours sends 1,152 pings. That is 0 requests, 58 at 20:1, or 1,152 at 1:1. A hidden tab sends at most two before the client closes its socket, two ping intervals after the tab was hidden; showing the tab again costs a new subscribe, one request. Which of the three holds is measured on the dev tier before a production hub relies on it: englishstventures/osn#1585.
+So a visible tab's pings cost somewhere between nothing and one request each. At the client's 25 s interval, a visible tab open for 8 hours sends 1,152 pings. That is 0 requests, 58 at 20:1, or 1,152 at 1:1. A hidden tab sends at most two before the client closes its socket, two ping intervals after the tab was hidden; showing the tab again costs a new subscribe, one request. Which of the three holds is measured on the dev tier before a production hub relies on it: englishstreetventures/osn#1585.
 
 **What keeps an object awake.** A pending `setTimeout`/`setInterval`, pending I/O or a request in flight stops hibernation. An idle object that meets the hibernation conditions hibernates after 10 s and is not billed for duration, even in those 10 s. One that does not meet them stays in memory, billed, until it is evicted 70–140 s after its last request. `TopicHub` holds no timer, alarm or storage write, so it is billed only while a handler runs.
 
 **What happens at the cap.** "Further operations of that type will fail with an error" until the reset at **00:00 UTC**. A subscribe then answers 503 and the client falls back. A publish logs and counts an error, and the write that called it succeeds. The docs do not say which error a WebSocket upgrade sees.
 
-**How to detect:** CF dashboard → Workers & Pages → Durable Objects → the namespace's requests and duration against the daily lines. The allowance is account-wide, so a dev tier's hubs spend it as much as production's. Adding Durable Objects to `scripts/check-free-tier-ceilings.ts` is englishstventures/osn#1256. A spent allowance shows in the product's logs as `realtime subscribe failed` at step `hub` and `realtime publish failed`; the realtime counters record nothing on workerd until englishstventures/osn#501 lands.
+**How to detect:** CF dashboard → Workers & Pages → Durable Objects → the namespace's requests and duration against the daily lines. The allowance is account-wide, so a dev tier's hubs spend it as much as production's. Adding Durable Objects to `scripts/check-free-tier-ceilings.ts` is englishstreetventures/osn#1256. A spent allowance shows in the product's logs as `realtime subscribe failed` at step `hub` and `realtime publish failed`; the realtime counters record nothing on workerd until englishstreetventures/osn#501 lands.
 
 **Upgrade path:** Workers Paid ($5/mo) lifts these to paid allowances with no code change.
 
@@ -264,7 +264,7 @@ data at all. Of the 200 heaviest queries on `cire-db-dev` in the week to
 
 *Measured 2026-09-10 — `bunx wrangler d1 insights cire-db-dev --time-period=7d --sort-by=writes`, and the same with `--sort-by=reads`.*
 
-Fixed in englishstventures/osn#979 and #980: the per-merge dev deploy now applies
+Fixed in englishstreetventures/osn#979 and #980: the per-merge dev deploy now applies
 migrations forward like production, the full rebuild runs nightly in
 `.github/workflows/cire-dev-db-rebuild.yml`, and the dev job supersedes queued
 runs. Budget after: one rebuild a day, 8% of the write ceiling.
@@ -454,7 +454,7 @@ account, shared by every Worker's logs and traces, and log retention rises to 7
 days. At the limit Cloudflare stops ingesting until 00:00 UTC: Workers keep
 serving, but no Worker writes a log line for the rest of that day. Lower
 `observability.traces.head_sampling_rate` first. Nothing watches this
-allowance yet — englishstventures/osn#1505.
+allowance yet — englishstreetventures/osn#1505.
 
 *Figures from Cloudflare's [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/),
 [Workers traces](https://developers.cloudflare.com/workers/observability/traces/) and
@@ -526,8 +526,8 @@ guard, auth middleware).
    confirm it wasn't disabled).
 
 > When these are done, tick them off here and note the date. Until then they are
-> open hardening items — file them in `englishstventures/osn-tracker` under
-> `label:security` if they should be visible there.
+> open hardening items — file them in `englishstreetventures/osn-tracker` under
+> `area:security` if they should be visible there.
 
 ## Related
 

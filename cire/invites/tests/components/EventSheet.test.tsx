@@ -12,12 +12,7 @@ import { render, cleanup, fireEvent, waitFor, within } from "@solidjs/testing-li
 import { createSignal } from "solid-js";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
-import {
-  cssTimeMs,
-  EventSheet,
-  firstOfCssList,
-  type EventPanel,
-} from "../../src/components/EventSheet";
+import { cssTimeMs, EventSheet, type EventPanel } from "../../src/components/EventSheet";
 import type { EventSummary, FamilyMember } from "../../src/components/types";
 
 vi.mock("motion", () => ({
@@ -82,17 +77,7 @@ function fieldsetFor(name: string): HTMLElement {
   throw new Error(`fieldset for ${name} not found`);
 }
 
-describe("the slide's timing, read back from the computed style", () => {
-  it("keeps a cubic-bezier whole — its own commas are not list separators", () => {
-    // The sheet's resize takes its curve from here. Split naively, this
-    // handed `animate()` "cubic-bezier(0.22", which it refuses with a throw.
-    expect(firstOfCssList("cubic-bezier(0.22, 1, 0.36, 1)")).toBe("cubic-bezier(0.22, 1, 0.36, 1)");
-    expect(firstOfCssList("cubic-bezier(0.22, 1, 0.36, 1), ease")).toBe(
-      "cubic-bezier(0.22, 1, 0.36, 1)",
-    );
-    expect(firstOfCssList("ease-out, linear")).toBe("ease-out");
-  });
-
+describe("the settle's timing, read back from the computed style", () => {
   it("reads a duration in seconds or milliseconds, and the clamped one too", () => {
     expect(cssTimeMs("0.28s")).toBe(280);
     expect(cssTimeMs("280ms")).toBe(280);
@@ -108,6 +93,35 @@ describe("EventSheet", () => {
   afterEach(() => {
     cleanup();
     document.body.style.overflow = "";
+  });
+
+  it("hands the details its site origin, for the calendar invite's link", () => {
+    // `siteUrl` is one of the sheet's own props, split off before the rest go
+    // to the form. Lost in that split, the calendar entry would say
+    // "Invite: undefined".
+    const { getByRole, getByText } = open("details");
+    fireEvent.click(getByRole("button", { name: /add to calendar/i }));
+    const google = getByText("Google Calendar") as HTMLAnchorElement;
+    expect(new URL(google.href).searchParams.get("details")).toContain(
+      "Invite: https://invite.example.com/abc",
+    );
+  });
+
+  it("hands the details the household, for who is invited", () => {
+    // `members` is the form's prop, passed through the split untouched; the
+    // details read it too, to name who is invited when it is not everyone.
+    const { getByText } = render(() => (
+      <EventSheet
+        event={event}
+        panel="details"
+        siteUrl="https://invite.example.com/abc"
+        members={[priya, { ...priya, guestId: "guest-ravi", firstName: "Ravi", eventIds: [] }]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+    expect(getByText("Who's invited")).toBeTruthy();
+    expect(getByText(/^Priya$/)).toBeTruthy();
   });
 
   it("opens on the details when asked, and mounts nothing of the RSVP form", () => {
@@ -132,7 +146,7 @@ describe("EventSheet", () => {
     const { getByRole } = open("details");
     expect(getByRole("dialog", { name: "Details, Mehndi" })).toBeTruthy();
 
-    fireEvent.click(getByRole("button", { name: "RSVP for this event" }));
+    fireEvent.click(getByRole("button", { name: "Give RSVP" }));
     expect(getByRole("dialog", { name: "Respond, Mehndi" })).toBeTruthy();
   });
 
@@ -140,7 +154,7 @@ describe("EventSheet", () => {
     const { getByRole } = open("details");
     const dialog = document.querySelector("dialog");
 
-    fireEvent.click(getByRole("button", { name: "RSVP for this event" }));
+    fireEvent.click(getByRole("button", { name: "Give RSVP" }));
 
     expect(document.querySelector("dialog")).toBe(dialog);
     expect(panelOf("rsvp")!.hidden).toBe(false);
@@ -153,7 +167,7 @@ describe("EventSheet", () => {
   it("moves back to the details, with focus on their heading", () => {
     const { getByRole } = open("rsvp");
 
-    fireEvent.click(getByRole("button", { name: "View event details" }));
+    fireEvent.click(getByRole("button", { name: "See details" }));
 
     expect(panelOf("details")!.hidden).toBe(false);
     expect(panelOf("rsvp")!.hidden).toBe(true);
@@ -167,8 +181,8 @@ describe("EventSheet", () => {
     fireEvent.click(attending);
     expect(attending.getAttribute("aria-pressed")).toBe("true");
 
-    fireEvent.click(getByRole("button", { name: "View event details" }));
-    fireEvent.click(getByRole("button", { name: "RSVP for this event" }));
+    fireEvent.click(getByRole("button", { name: "See details" }));
+    fireEvent.click(getByRole("button", { name: "Give RSVP" }));
 
     // The same form, not a fresh one built from the stored rows: a remount
     // would have thrown the unsaved answer away.
@@ -184,44 +198,169 @@ describe("EventSheet", () => {
     const { getByRole } = open("details");
     expect(panelOf("details")!.className).not.toContain("animate-panel-from");
 
-    fireEvent.click(getByRole("button", { name: "RSVP for this event" }));
+    fireEvent.click(getByRole("button", { name: "Give RSVP" }));
     expect(panelOf("rsvp")!.className).toContain("animate-panel-from-end");
 
     // Each panel arrives from its own side — the details from the start, the
     // form from the end — and the class stays, so every later show replays it.
-    fireEvent.click(getByRole("button", { name: "View event details" }));
+    fireEvent.click(getByRole("button", { name: "See details" }));
     expect(panelOf("details")!.className).toContain("animate-panel-from-start");
-  });
-
-  it("drops the sheet's bottom padding only while the RSVP form, with its sticky bar, shows", () => {
-    const { getByRole } = open("details");
-    expect(scroller().className).toContain("pb-[max(2.5rem,env(safe-area-inset-bottom))]");
-
-    fireEvent.click(getByRole("button", { name: "RSVP for this event" }));
-    expect(scroller().className).toContain("pb-0");
-    expect(scroller().className).not.toContain("pb-[max(2.5rem");
   });
 
   it("closes the whole sheet from either panel", async () => {
     const onClose = vi.fn();
     const { getByRole } = open("details", { onClose });
 
-    fireEvent.click(getByRole("button", { name: "RSVP for this event" }));
+    fireEvent.click(getByRole("button", { name: "Give RSVP" }));
     fireEvent.click(getByRole("button", { name: "Cancel" }));
     expect(onClose).toHaveBeenCalledTimes(1);
 
     // Escape and a backdrop tap arrive as the dialog's `close` event.
-    fireEvent.click(getByRole("button", { name: "View event details" }));
+    fireEvent.click(getByRole("button", { name: "See details" }));
     document.querySelector("dialog")!.dispatchEvent(new Event("close"));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(2));
+  });
+
+  describe("the badge beside the close button", () => {
+    it("sits in the sheet's chrome, outside both panels and the form", () => {
+      // Not in the form: it is not part of the reply, and it must not send one.
+      // Not in a panel: it stays put while the panel scrolls under it.
+      const { getByRole } = open("rsvp");
+      const badge = getByRole("button", { name: "See details" });
+      expect(badge.closest("form")).toBeNull();
+      expect(badge.closest("[data-panel]")).toBeNull();
+      expect(badge.parentElement).toBe(getByRole("button", { name: "Close" }).parentElement);
+    });
+
+    it("clears the content of the row it sits in", () => {
+      open("details");
+      expect(scroller().className).toContain("pt-16");
+    });
+
+    it("stays on the form once RSVPs have closed — the details still are", () => {
+      const { getByRole } = open("rsvp", { closed: true });
+      expect((getByRole("button", { name: "See details" }) as HTMLButtonElement).disabled).toBe(
+        false,
+      );
+    });
+
+    it("is withdrawn from the form while a save is in flight and once it has saved", async () => {
+      let resolve!: (r: Response) => void;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => new Promise<Response>((r) => (resolve = r))),
+      );
+      const { getByRole } = open("rsvp");
+      const badge = () => getByRole("button", { name: "See details" }) as HTMLButtonElement;
+      expect(badge().disabled).toBe(false);
+
+      fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+      fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
+      await waitFor(() => expect(badge().disabled).toBe(true));
+
+      resolve(
+        new Response(JSON.stringify({ rsvps: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      await waitFor(() => expect(getByRole("button", { name: "Saved" })).toBeTruthy());
+      expect(badge().disabled).toBe(true);
+      vi.unstubAllGlobals();
+    });
+
+    it("keeps focus on the badge when the deadline relabels it for a household that replied", () => {
+      const [closed, setClosed] = createSignal(false);
+      const { getByRole } = render(() => (
+        <EventSheet
+          event={event}
+          panel="details"
+          siteUrl="https://invite.example.com/abc"
+          members={[priya]}
+          apiUrl="https://api.test"
+          closed={closed()}
+          replied
+          onClose={() => {}}
+        />
+      ));
+      const badge = getByRole("button", { name: "Give RSVP" });
+      badge.focus();
+
+      setClosed(true);
+
+      // The same control, renamed: focus stays where the guest left it.
+      expect(badge.textContent).toContain("View your RSVP");
+      expect(document.activeElement).toBe(badge);
+    });
+
+    it("leaves focus where the guest put it when the deadline takes a badge they were not on", () => {
+      const [closed, setClosed] = createSignal(false);
+      const { getByRole } = render(() => (
+        <EventSheet
+          event={event}
+          panel="details"
+          siteUrl="https://invite.example.com/abc"
+          members={[priya]}
+          apiUrl="https://api.test"
+          closed={closed()}
+          onClose={() => {}}
+        />
+      ));
+      const calendar = getByRole("button", { name: /add to calendar/i });
+      calendar.focus();
+
+      setClosed(true);
+
+      expect(document.activeElement).toBe(calendar);
+    });
   });
 
   describe("past the RSVP deadline", () => {
     it("offers no way into the RSVP form, and says the replies have closed", () => {
       const { queryByRole, getByRole } = open("details", { closed: true });
 
-      expect(queryByRole("button", { name: "RSVP for this event" })).toBeNull();
-      expect(getByRole("status").textContent).toBe("RSVPs closed on Sunday 1 September 2999.");
+      expect(queryByRole("button", { name: "Give RSVP" })).toBeNull();
+      expect(getByRole("status").textContent).toBe(
+        "RSVPs closed on Sunday 1 September 2999. To reply now, please contact the couple directly.",
+      );
+    });
+
+    it("takes a household that replied from the details to its reply, read-only", () => {
+      const { getByRole } = render(() => (
+        <EventSheet
+          event={event}
+          panel="details"
+          siteUrl="https://invite.example.com/abc"
+          members={[priya]}
+          existingRsvps={[
+            {
+              guestId: "guest-priya",
+              eventId: "event-1",
+              status: "declined",
+              dietary: "",
+              dietaryPresets: [],
+              dietaryConsentCurrent: false,
+            },
+          ]}
+          apiUrl="https://api.test"
+          closed
+          replied
+          closedOn="Sunday 1 September 2999"
+          onClose={() => {}}
+        />
+      ));
+
+      // The sheet tells the details the household has a reply on file, so the
+      // notice gives the next step that fits it (F24).
+      expect(getByRole("status").textContent).toBe(
+        "RSVPs closed on Sunday 1 September 2999. To change your household's reply, please contact the couple directly.",
+      );
+
+      fireEvent.click(getByRole("button", { name: "View your RSVP" }));
+      expect(getByRole("heading", { name: "Your RSVP, Mehndi" })).toBeTruthy();
+
+      expect(within(fieldsetFor("Priya")).getByText("Not attending")).toBeTruthy();
+      expect(document.querySelector("button[type='submit']")).toBeNull();
     });
 
     it("says nothing in that line while the replies are open", () => {
@@ -244,7 +383,7 @@ describe("EventSheet", () => {
           onClose={() => {}}
         />
       ));
-      getByRole("button", { name: "RSVP for this event" }).focus();
+      getByRole("button", { name: "Give RSVP" }).focus();
 
       setClosed(true);
 
@@ -266,8 +405,8 @@ describe("EventSheet", () => {
           onClose={() => {}}
         />
       ));
-      fireEvent.click(getByRole("button", { name: "View event details" }));
-      getByRole("button", { name: "RSVP for this event" }).focus();
+      fireEvent.click(getByRole("button", { name: "See details" }));
+      getByRole("button", { name: "Give RSVP" }).focus();
 
       setClosed(true);
 
@@ -290,7 +429,7 @@ describe("EventSheet", () => {
           onClose={() => {}}
         />
       ));
-      fireEvent.click(getByRole("button", { name: "RSVP for this event" }));
+      fireEvent.click(getByRole("button", { name: "Give RSVP" }));
       (document.querySelector("button[type='submit']") as HTMLButtonElement).focus();
 
       setClosed(true);

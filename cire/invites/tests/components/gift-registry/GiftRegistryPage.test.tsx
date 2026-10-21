@@ -8,7 +8,11 @@ import {
   GiftRegistryPage,
   type GiftRegistryPageProps,
 } from "../../../src/components/gift-registry/GiftRegistryPage";
-import type { GiftRegistry, GiftRegistryItem } from "../../../src/lib/gift-registry";
+import type {
+  GiftRegistry,
+  GiftRegistryFund,
+  GiftRegistryItem,
+} from "../../../src/lib/gift-registry";
 
 /**
  * The gift list's own page.
@@ -58,6 +62,15 @@ function registry(overrides: Partial<GiftRegistry> = {}): GiftRegistry {
   };
 }
 
+const HONEYMOON: GiftRegistryFund = {
+  id: "fund-honeymoon",
+  title: "Honeymoon in Kyoto",
+  description: "Trains, temples and a very good dinner.",
+  imageName: "registry-honeymoon",
+  imageCrop: null,
+  sortOrder: 1,
+};
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -78,12 +91,16 @@ function routedFetch(routes: {
   mine?: Response[];
   claim?: Response[];
   release?: Response[];
+  contribute?: Response[];
 }) {
   const queues = {
     list: [...(routes.list ?? [json(registry())])],
     mine: [...(routes.mine ?? [json({ claims: [] })])],
     claim: [...(routes.claim ?? [json({ ok: true })])],
     release: [...(routes.release ?? [json({ ok: true })])],
+    contribute: [
+      ...(routes.contribute ?? [json({ url: "https://checkout.stripe.com/c/pay/cs_1" })]),
+    ],
   };
   const calls: { url: string; method: string; credentials?: RequestCredentials }[] = [];
 
@@ -98,6 +115,7 @@ function routedFetch(routes: {
     const method = init?.method ?? "GET";
     calls.push({ url, method, credentials: init?.credentials });
     if (url.endsWith("/claim")) return take(method === "DELETE" ? "release" : "claim");
+    if (url.endsWith("/contribute")) return take("contribute");
     if (url.endsWith("/registry/mine")) return take("mine");
     return take("list");
   });
@@ -306,6 +324,67 @@ describe("the money panel", () => {
   });
 });
 
+describe("the couple's cash funds", () => {
+  it("offers them in the money panel, never on the shelves", async () => {
+    routedFetch({ list: [json(registry({ cashGiftsEnabled: true, funds: [HONEYMOON] }))] });
+    const { container } = renderPage();
+    await whenListed();
+    const panel = await waitFor(() => {
+      const found = container.querySelector("[data-gift-money]");
+      expect(found).toBeTruthy();
+      return found as HTMLElement;
+    });
+    expect(panel.textContent).toContain("Honeymoon in Kyoto");
+    // Its picture comes from the gift-image route, like any gift's.
+    expect(panel.querySelector("img")?.getAttribute("src")).toContain(
+      `${API}/api/invite/${SLUG}/registry/image/registry-honeymoon`,
+    );
+    for (const shelf of container.querySelectorAll("[data-gift-shelf]")) {
+      expect(shelf.textContent).not.toContain("Honeymoon in Kyoto");
+    }
+  });
+
+  it("does not call a list of funds and no gifts empty", async () => {
+    routedFetch({
+      list: [json(registry({ cashGiftsEnabled: true, items: [], funds: [HONEYMOON] }))],
+    });
+    const { container } = renderPage();
+    await waitFor(() =>
+      expect(container.querySelector("[data-gift-money]")?.textContent).toContain(
+        "Honeymoon in Kyoto",
+      ),
+    );
+    expect(container.textContent).not.toContain("haven’t added any gifts");
+  });
+
+  it("reads the list again when the fund a guest chose has closed", async () => {
+    const { calls } = routedFetch({
+      list: [
+        json(registry({ cashGiftsEnabled: true, funds: [HONEYMOON] })),
+        json(registry({ cashGiftsEnabled: true, funds: [] })),
+      ],
+      contribute: [json({ error: "fund_unavailable" }, 409)],
+    });
+    const { container } = renderPage();
+    await whenListed();
+    const choice = await screen.findByRole("radio", { name: /Honeymoon in Kyoto/ });
+    fireEvent.click(choice);
+    fireEvent.submit(container.querySelector("[data-gift-money] form") as HTMLFormElement);
+
+    // The fresh list has no such fund, and the panel says why it went.
+    await waitFor(() =>
+      expect(container.querySelector("[data-gift-money]")?.textContent).not.toContain(
+        "Honeymoon in Kyoto",
+      ),
+    );
+    expect(container.querySelector("[data-gift-money-status]")?.textContent).toMatch(/fund/i);
+    const listReads = calls.filter(
+      (c) => c.method === "GET" && c.url === `${API}/api/invite/${SLUG}/registry`,
+    );
+    expect(listReads).toHaveLength(2);
+  });
+});
+
 describe("coming back from Stripe", () => {
   it("thanks a guest without asserting that money moved", async () => {
     // The parameter is one anybody can type and the row is the webhook's to
@@ -432,6 +511,39 @@ describe("the privacy property", () => {
     // this page is a shareable link: the wasted call would scale with page
     // views rather than with guests.
     expect(calls.some((c) => c.url.endsWith("/registry/mine"))).toBe(false);
+  });
+});
+
+describe("the organiser's preview", () => {
+  it("shows the list as guests see it, says it is a preview, and offers nothing that writes", async () => {
+    const { calls } = routedFetch({
+      list: [json(registry({ cashGiftsEnabled: true }))],
+      mine: [json({ claims: [], preview: true })],
+    });
+    const { container } = renderPage();
+
+    await whenListed();
+    await waitFor(() =>
+      expect(container.querySelector("[data-gift-preview]")?.textContent).toMatch(
+        /^Preview mode\./,
+      ),
+    );
+    // A preview is signed in: no session-ended note.
+    expect(container.querySelector("[data-gift-signed-out]")).toBeNull();
+    const reserve = screen.getByRole("button", { name: "Reserve" }) as HTMLButtonElement;
+    expect(reserve.disabled).toBe(true);
+    const give = (await screen.findByRole("button", {
+      name: "Continue to payment",
+    })) as HTMLButtonElement;
+    expect(give.disabled).toBe(true);
+    fireEvent.click(reserve);
+    expect(calls.filter((c) => c.method !== "GET")).toEqual([]);
+  });
+
+  it("names the preview when a write from a stale page is refused", () => {
+    expect(giftRegistryWriteMessage({ kind: "preview" }, "claim", "Copper pan")).toMatch(
+      /^Preview mode\./,
+    );
   });
 });
 
