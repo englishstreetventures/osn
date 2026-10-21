@@ -1795,7 +1795,7 @@ function transcriptFiles(
     for (const [pattern, isSubagent] of patterns) {
       const matches = [
         ...new Bun.Glob(pattern).scanSync({ cwd: root, absolute: true, followSymlinks: true }),
-      ].sort();
+      ].toSorted();
 
       for (const file of matches) {
         files.push({ file, isSubagent, ownedByRepo: ownedByRepo(root, file, prefixes) });
@@ -2184,8 +2184,8 @@ function resolveIdentity(branch: string): ResolvedIdentity {
 
   if (candidates.length === 0) return { ...miss, prNumber: pull.number };
   if (issue === null) {
-    console.error(
-      `⚠️  pr-metrics: pull request #${pull.number} links ${candidates.map((n) => `#${n}`).join(", ")}. The card cannot tell which one the branch was cut for, so it records no rating. Pass --issue to choose.`,
+    process.stderr.write(
+      `⚠️  pr-metrics: pull request #${pull.number} links ${candidates.map((n) => `#${n}`).join(", ")}. The card cannot tell which one the branch was cut for, so it records no rating. Pass --issue to choose.\n`,
     );
 
     return { ...miss, prNumber: pull.number, method: "lookup-failed" };
