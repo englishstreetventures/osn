@@ -322,7 +322,10 @@ every chunk it imports statically). The threshold moved to measured + ~11.7 KB,
 `feat/cire-run-sheet-view` and on a checkout of `origin/main` da80019c; the
 eager figures from the same build with `RunSheetView`'s two `lazy()` imports
 replaced by static ones. Chunk sizes `gzip -nc <chunk> | wc -c`; the first load
-sums that over `OrganiserApp`'s chunk and every chunk it imports statically.*
+sums that over `OrganiserApp`'s chunk and every chunk it imports statically.
+fonts.google.com was refused in that session, so every build, `main`'s
+included, carried no font files; the guard reads only `dist/_astro/*.js` and
+`*.css`.*
 
 ### `cire/invites` went up for the household member step
 
