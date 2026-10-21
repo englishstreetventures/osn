@@ -278,6 +278,14 @@ export const OrganiserGuestRow = Schema.Struct({
   // mutes the row + offers a Reactivate toggle. Family-level, so per-guest rows
   // in the same family carry the same value; the UI dedupes by family.
   deactivatedAt: Schema.NullOr(Schema.Number),
+  // The guest's address, in its stored form, or `null` for none, and who gave
+  // it: the guest on the invite, or an organiser under their attestation. The
+  // editor shows a guest's own address read-only, with Remove.
+  email: Schema.NullOr(Schema.String),
+  emailSource: Schema.NullOr(Schema.Literals(["guest", "organiser_attested"])),
+  // True when the wedding's suppression list holds this address: a guest
+  // withdrew it, so guest comms will not mail it whoever added it back.
+  emailOptedOut: Schema.Boolean,
 });
 export type OrganiserGuestRow = Schema.Schema.Type<typeof OrganiserGuestRow>;
 

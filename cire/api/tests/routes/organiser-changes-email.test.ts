@@ -1,0 +1,610 @@
+import { describe, it, expect, beforeAll } from "bun:test";
+
+import {
+  BOOTSTRAP_WEDDING_ID,
+  emailSuppressions,
+  events,
+  families,
+  guests,
+  imports,
+} from "@cire/db";
+import { GUEST_EMAIL_CONSENT, ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
+import { eq } from "drizzle-orm";
+import { Effect } from "effect";
+
+import { createApp } from "../../src/app";
+import { DbService } from "../../src/db";
+import { createDb, seedBootstrapWedding } from "../../src/db/setup";
+import type { TestDb } from "../../src/db/setup";
+import { hashGuestEmail } from "../../src/services/email-suppression";
+import { applyImport, diffAgainstDb } from "../../src/services/import";
+import { createR2Stub } from "../../src/services/r2-imports";
+import { appRequest, jsonBody } from "../test-helpers";
+import { makeOsnTestAuth } from "../test-helpers/osn-token";
+import type { OsnTestAuth } from "../test-helpers/osn-token";
+
+// Guest email addresses through the change pipeline: a spreadsheet's
+// `Guest Email` column, the guest editor's draft, apply's attestation gate,
+// the before-image and revert. Each test is one way the pipeline could store
+// an address nobody consented to, lose or forge the consent record, or touch
+// an address a guest gave themselves.
+
+const OWNER = "usr_dev_bootstrap_owner";
+const BASE = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}`;
+const CHANGES = `${BASE}/changes`;
+const ATTESTED = { emailAttestation: ORGANISER_EMAIL_ATTESTATION.version };
+
+let auth: OsnTestAuth;
+let bearer: string;
+
+beforeAll(async () => {
+  auth = await makeOsnTestAuth();
+  bearer = await auth.sign(OWNER);
+});
+
+const EVENTS_CSV = [
+  "Event Name,Start,End,Timezone",
+  "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney",
+  "Reception,2026-09-20T16:00:00+10:00,2026-09-20T18:00:00+10:00,Australia/Sydney",
+].join("\n");
+
+/** The guests sheet with a `Guest Email` column; "" is a blank cell. */
+function guestsCsv(ada: string, bo: string): string {
+  return [
+    "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Email,Mehndi,Reception",
+    `1,Testfamily,Ada,Testfamily,${ada},yes,yes`,
+    `2,Sampleton,Bo,Sampleton,${bo},no,yes`,
+  ].join("\n");
+}
+
+/** The same guests with no `Guest Email` column at all. */
+const GUESTS_CSV_NO_EMAIL = [
+  "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Reception",
+  "1,Testfamily,Ada,Testfamily,yes,yes",
+  "2,Sampleton,Bo,Sampleton,no,yes",
+].join("\n");
+
+function buildApp() {
+  const db = createDb(":memory:");
+  seedBootstrapWedding(db);
+  const r2 = createR2Stub();
+  const app = createApp(db, { r2, osnTestKey: auth.key });
+  return { db, r2, app };
+}
+
+type App = ReturnType<typeof buildApp>["app"];
+
+function post(app: App, path: string, body: object) {
+  return appRequest(app, path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${bearer}` },
+    body: JSON.stringify(body),
+  });
+}
+
+function get(app: App, path: string) {
+  return appRequest(app, path, { method: "GET", headers: { Authorization: `Bearer ${bearer}` } });
+}
+
+interface Preview {
+  changeId: string;
+  emailAttestations: number;
+  warnings: string[];
+}
+
+async function preview(app: App, body: object): Promise<Preview> {
+  const res = await post(app, `${CHANGES}/preview`, body);
+  expect(res.status).toBe(200);
+  return (await res.json()) as Preview;
+}
+
+function apply(app: App, changeId: string, extra: object = {}) {
+  return post(app, `${CHANGES}/apply`, { changeId, ...extra });
+}
+
+/** Preview and apply, attested, expecting both to succeed. */
+async function change(app: App, body: object): Promise<string> {
+  const p = await preview(app, body);
+  const res = await apply(app, p.changeId, ATTESTED);
+  expect(res.status).toBe(200);
+  return p.changeId;
+}
+
+async function revert(app: App, changeId: string) {
+  const res = await post(app, `${CHANGES}/revert`, { changeId });
+  expect(res.status).toBe(200);
+}
+
+/** The two seeded households, Ada's address `ada`. */
+async function seeded(app: App, ada = "ada@example.test", bo = ""): Promise<string> {
+  return change(app, { eventsCsv: EVENTS_CSV, guestsCsv: guestsCsv(ada, bo) });
+}
+
+function guestId(db: TestDb, firstName: string): string {
+  const row = db
+    .select({ id: guests.id })
+    .from(guests)
+    .where(eq(guests.firstName, firstName))
+    .get();
+  if (!row) throw new Error(`no guest named ${firstName}`);
+  return row.id;
+}
+
+function record(db: TestDb, firstName: string) {
+  return db
+    .select({
+      email: guests.email,
+      source: guests.emailSource,
+      consentAt: guests.emailConsentAt,
+      version: guests.emailConsentVersion,
+      attestedBy: guests.emailAttestedByOsnProfileId,
+    })
+    .from(guests)
+    .where(eq(guests.firstName, firstName))
+    .get();
+}
+
+/** Give `firstName` an address as a guest would have on the invite. */
+function guestGave(db: TestDb, firstName: string, email: string) {
+  db.update(guests)
+    .set({
+      email,
+      emailSource: "guest",
+      emailConsentAt: new Date(1_700_000_000_000),
+      emailConsentVersion: GUEST_EMAIL_CONSENT.version,
+      emailAttestedByOsnProfileId: null,
+    })
+    .where(eq(guests.firstName, firstName))
+    .run();
+}
+
+/** An editor draft of the two households, built from the stored rows. */
+function draft(
+  db: TestDb,
+  edits: Record<string, Record<string, unknown>> = {},
+): Record<string, unknown> {
+  const rows = db
+    .select({
+      familyId: families.id,
+      publicId: families.publicId,
+      familyName: families.familyName,
+      guestId: guests.id,
+      firstName: guests.firstName,
+      lastName: guests.lastName,
+      nickname: guests.nickname,
+    })
+    .from(guests)
+    .innerJoin(families, eq(families.id, guests.familyId))
+    .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+    .all();
+  return {
+    scope: "guests",
+    removeManual: true,
+    desiredState: {
+      events: [],
+      families: rows.map((r) => ({
+        id: r.familyId,
+        publicId: r.publicId,
+        familyName: r.familyName,
+        guests: [
+          {
+            id: r.guestId,
+            firstName: r.firstName,
+            lastName: r.lastName,
+            nickname: r.nickname,
+            eventNames: r.firstName === "Ada" ? ["Mehndi", "Reception"] : ["Reception"],
+            ...edits[r.firstName],
+          },
+        ],
+      })),
+    },
+  };
+}
+
+async function editorChange(app: App, db: TestDb, edits: Record<string, Record<string, unknown>>) {
+  const head = ((await (await get(app, `${CHANGES}/head`)).json()) as { revision: string })
+    .revision;
+  return preview(app, { ...draft(db, edits), baseRevision: head });
+}
+
+describe("apply's attestation gate", () => {
+  it("refuses an address with no attestation, and writes and checkpoints nothing", async () => {
+    const { db, app } = buildApp();
+    const p = await preview(app, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: guestsCsv("ada@example.test", ""),
+    });
+    expect(p.emailAttestations).toBe(1);
+
+    const res = await apply(app, p.changeId);
+    expect(res.status).toBe(422);
+    expect(await jsonBody(res)).toMatchObject({ reason: "email_attestation_required" });
+    expect(db.select().from(guests).all()).toHaveLength(0);
+    const [row] = db.select().from(imports).where(eq(imports.id, p.changeId)).all();
+    expect(row?.status).toBe("preview");
+    expect(row?.beforeGuestsR2Key).toBeNull();
+  });
+
+  it("refuses an attestation naming words the portal did not show", async () => {
+    const { db, app } = buildApp();
+    const p = await preview(app, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: guestsCsv("ada@example.test", ""),
+    });
+    for (const emailAttestation of ["organiser-email-2020-01-01", GUEST_EMAIL_CONSENT.version]) {
+      const res = await apply(app, p.changeId, { emailAttestation });
+      expect(res.status).toBe(422);
+    }
+    expect(db.select().from(guests).all()).toHaveLength(0);
+  });
+
+  it("stamps each address it sets as the applying organiser's attestation", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "  Ada@Example.TEST ");
+    const ada = record(db, "Ada")!;
+    expect(ada).toMatchObject({
+      email: "ada@example.test",
+      source: "organiser_attested",
+      version: ORGANISER_EMAIL_ATTESTATION.version,
+      attestedBy: OWNER,
+    });
+    expect(ada.consentAt).toBeInstanceOf(Date);
+    expect(record(db, "Bo")?.email).toBeNull();
+  });
+
+  // Re-uploading a sheet whose addresses are already stored sets nothing, so
+  // the organiser attests nothing.
+  it("asks for no attestation when no address changes", async () => {
+    const { app } = buildApp();
+    await seeded(app);
+    const p = await preview(app, { guestsCsv: guestsCsv("ada@example.test", "") });
+    expect(p.emailAttestations).toBe(0);
+    expect((await apply(app, p.changeId)).status).toBe(200);
+  });
+
+  // The record a revert carries belongs to the before-image only. An editor
+  // body that sends one must not be believed.
+  it("ignores a consent record an editor body carries, and still asks for the attestation", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    const p = await editorChange(app, db, {
+      Bo: {
+        email: "bo@example.test",
+        emailRecord: { source: "guest", consentAt: 0, version: "x", attestedBy: null },
+      },
+    });
+    expect(p.emailAttestations).toBe(1);
+    expect((await apply(app, p.changeId)).status).toBe(422);
+    expect((await apply(app, p.changeId, ATTESTED)).status).toBe(200);
+    expect(record(db, "Bo")).toMatchObject({ source: "organiser_attested", attestedBy: OWNER });
+  });
+});
+
+describe("addresses a guest gave themselves", () => {
+  it("are never overwritten or cleared by a spreadsheet, which says so", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    guestGave(db, "Ada", "ada.own@example.test");
+    const before = record(db, "Ada");
+
+    const changed = await preview(app, { guestsCsv: guestsCsv("other@example.test", "") });
+    expect(changed.warnings.join(" ")).toContain("gave themselves");
+    expect((await apply(app, changed.changeId, ATTESTED)).status).toBe(200);
+    expect(record(db, "Ada")).toEqual(before);
+
+    const blanked = await preview(app, { guestsCsv: guestsCsv("", "") });
+    expect((await apply(app, blanked.changeId, ATTESTED)).status).toBe(200);
+    expect(record(db, "Ada")).toEqual(before);
+  });
+
+  it("can be removed from the editor, and not replaced there", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    guestGave(db, "Ada", "ada.own@example.test");
+
+    const replaced = await editorChange(app, db, {
+      Ada: { email: "other@example.test", emailExpected: "ada.own@example.test" },
+    });
+    expect(replaced.emailAttestations).toBe(0);
+    expect((await apply(app, replaced.changeId)).status).toBe(200);
+    expect(record(db, "Ada")?.email).toBe("ada.own@example.test");
+
+    const removed = await editorChange(app, db, {
+      Ada: { email: null, emailExpected: "ada.own@example.test" },
+    });
+    expect((await apply(app, removed.changeId)).status).toBe(200);
+    expect(record(db, "Ada")).toEqual({
+      email: null,
+      source: null,
+      consentAt: null,
+      version: null,
+      attestedBy: null,
+    });
+  });
+});
+
+describe("what a change leaves alone", () => {
+  it("leaves every address as it is when the sheet has no Guest Email column", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    const before = record(db, "Ada");
+    const p = await preview(app, { guestsCsv: GUESTS_CSV_NO_EMAIL });
+    expect((await apply(app, p.changeId)).status).toBe(200);
+    expect(record(db, "Ada")).toEqual(before);
+  });
+
+  // The editor sends the address it loaded. When the stored one has moved
+  // since — a guest saved their own on the invite — the editor's write is stale.
+  it("skips an editor's address change when the stored address moved since the editor loaded", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    db.update(guests).set({ email: "moved@example.test" }).where(eq(guests.firstName, "Ada")).run();
+    const p = await editorChange(app, db, {
+      Ada: { email: "new@example.test", emailExpected: "ada@example.test" },
+    });
+    expect(p.warnings.join(" ")).toContain("since you opened the editor");
+    expect((await apply(app, p.changeId, ATTESTED)).status).toBe(200);
+    expect(record(db, "Ada")?.email).toBe("moved@example.test");
+  });
+
+  // The diff decides against the rows it read; a guest's save can land
+  // between that read and the commit. The write must not overwrite it.
+  it("does not overwrite an address that changed between the diff and the commit", async () => {
+    const { db } = buildApp();
+    const run = <A, E>(effect: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(effect.pipe(Effect.provideService(DbService, db)));
+    // Two households, Ada without an address, straight into the database.
+    db.insert(families)
+      .values({
+        id: "fam_ada",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "ADA-CODE-1",
+        familyName: "Testfamily",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
+    db.insert(guests)
+      .values({
+        id: "gst_ada",
+        familyId: "fam_ada",
+        firstName: "Ada",
+        lastName: "Testfamily",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
+    const plan = await run(
+      diffAgainstDb(
+        [],
+        [
+          {
+            id: "fam_ada",
+            familyName: "Testfamily",
+            guests: [
+              {
+                id: "gst_ada",
+                firstName: "Ada",
+                lastName: "Testfamily",
+                nickname: null,
+                eventNames: [],
+                email: "organiser@example.test",
+              },
+            ],
+          },
+        ],
+        BOOTSTRAP_WEDDING_ID,
+        { scope: "guests", matchByName: false, removeManual: true, emails: "editor" },
+      ),
+    );
+    guestGave(db, "Ada", "guest.own@example.test");
+    await run(
+      applyImport("imp_race", plan, BOOTSTRAP_WEDDING_ID, [], {
+        osnProfileId: OWNER,
+        version: ORGANISER_EMAIL_ATTESTATION.version,
+      }),
+    );
+    expect(record(db, "Ada")?.email).toBe("guest.own@example.test");
+  });
+
+  it("refuses a sheet whose Guest Email cell is not an address, without echoing it", async () => {
+    const { db, app } = buildApp();
+    const res = await post(app, `${CHANGES}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: guestsCsv("not-an-address-xq7@nowhere", ""),
+    });
+    expect(res.status).toBe(422);
+    const text = await res.text();
+    expect(text).toContain("Guest Email");
+    expect(text).not.toContain("xq7");
+    expect(db.select().from(guests).all()).toHaveLength(0);
+  });
+});
+
+describe("revert", () => {
+  it("removes the addresses the reverted change added", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    const added = await change(app, { guestsCsv: guestsCsv("ada@example.test", "") });
+    await revert(app, added);
+    expect(record(db, "Ada")?.email).toBeNull();
+  });
+
+  it("restores an address the reverted change cleared, with its original record", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    const original = record(db, "Ada");
+    const cleared = await change(app, { guestsCsv: guestsCsv("", "") });
+    expect(record(db, "Ada")?.email).toBeNull();
+    await revert(app, cleared);
+    expect(record(db, "Ada")).toEqual(original);
+  });
+
+  it("never changes an address the guest gave since the checkpoint", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    const added = await change(app, { guestsCsv: guestsCsv("ada@example.test", "") });
+    guestGave(db, "Ada", "ada.own@example.test");
+    const before = record(db, "Ada");
+    await revert(app, added);
+    expect(record(db, "Ada")).toEqual(before);
+  });
+
+  // A guest who removed their address withdrew it; a revert to a time before
+  // that must not put it back under a consent record that no longer stands.
+  it("never restores an address the guest withdrew", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    const unrelated = await change(app, {
+      guestsCsv: guestsCsv("ada@example.test", "bo@example.test"),
+    });
+    const ada = guestId(db, "Ada");
+    db.update(guests)
+      .set({
+        email: null,
+        emailSource: null,
+        emailConsentAt: null,
+        emailConsentVersion: null,
+        emailAttestedByOsnProfileId: null,
+      })
+      .where(eq(guests.id, ada))
+      .run();
+    db.insert(emailSuppressions)
+      .values({
+        id: "sup_ada",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, "ada@example.test"),
+        guestId: ada,
+        reason: "guest_removed",
+        createdAt: new Date(),
+      })
+      .run();
+    await revert(app, unrelated);
+    expect(record(db, "Ada")?.email).toBeNull();
+    expect(record(db, "Bo")?.email).toBeNull();
+  });
+
+  // Before-images written before addresses existed have no Guest Email
+  // column. Silence about addresses is not "nobody has one".
+  it("leaves addresses alone when the before-image has no Guest Email column", async () => {
+    const { db, r2, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    const later = await change(app, {
+      guestsCsv: guestsCsv("ada@example.test", "bo@example.test"),
+    });
+    const [row] = db.select().from(imports).where(eq(imports.id, later)).all();
+    const key = row!.beforeGuestsR2Key!;
+    const csv = await (await r2.get(key))!.text();
+    const lines = csv.split("\n").filter((l) => l.length > 0);
+    const header = lines[0]!.split(",");
+    const drop = new Set(
+      header.flatMap((h, i) => (h.replaceAll('"', "").startsWith("Guest Email") ? [i] : [])),
+    );
+    expect(drop.size).toBeGreaterThan(0);
+    const stripped = lines
+      .map((l) =>
+        l
+          .split(",")
+          .filter((_, i) => !drop.has(i))
+          .join(","),
+      )
+      .join("\n");
+    await r2.put(key, stripped);
+    await revert(app, later);
+    expect(record(db, "Ada")?.email).toBe("ada@example.test");
+    expect(record(db, "Bo")?.email).toBe("bo@example.test");
+  });
+
+  // An events revert that brings an event back reads the guests before-image
+  // only to re-invite. A damaged consent record there must not stop it.
+  it("restores a deleted event even when the before-image's consent record is unreadable", async () => {
+    const { db, r2, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    const reception = db.select().from(events).where(eq(events.name, "Reception")).all()[0]!;
+    const head = ((await (await get(app, `${CHANGES}/head`)).json()) as { revision: string })
+      .revision;
+    const p = await preview(app, {
+      scope: "events",
+      removeManual: true,
+      baseRevision: head,
+      desiredState: {
+        families: [],
+        events: [
+          {
+            id: reception.id,
+            name: reception.name,
+            startAt: reception.startAt,
+            endAt: reception.endAt,
+            timezone: reception.timezone,
+            location: null,
+            address: null,
+            dressCodeDescription: null,
+            dressCodePalette: [],
+            pinterestUrl: null,
+            mapsUrl: null,
+            sortOrder: 0,
+          },
+        ],
+      },
+    });
+    expect((await apply(app, p.changeId)).status).toBe(200);
+    expect(db.select().from(events).where(eq(events.name, "Mehndi")).all()).toHaveLength(0);
+
+    const [row] = db.select().from(imports).where(eq(imports.id, p.changeId)).all();
+    const key = row!.beforeGuestsR2Key!;
+    const csv = await (await r2.get(key))!.text();
+    expect(csv).toContain("organiser_attested");
+    const tampered = csv.replace(/"\{[^\n]*\}"/, '"{not json"');
+    expect(tampered).not.toBe(csv);
+    await r2.put(key, tampered);
+    await revert(app, p.changeId);
+    expect(db.select().from(events).where(eq(events.name, "Mehndi")).all()).toHaveLength(1);
+    expect(record(db, "Ada")?.email).toBe("ada@example.test");
+  });
+
+  // The legacy replay re-applies an earlier upload's sheet. It carries no
+  // attestation, so it must not set, replace or clear any address.
+  it("touches no address when it replays an earlier upload", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "first@example.test");
+    const later = await change(app, { guestsCsv: guestsCsv("second@example.test", "") });
+    db.update(imports)
+      .set({ beforeEventsR2Key: null, beforeGuestsR2Key: null })
+      .where(eq(imports.id, later))
+      .run();
+    await revert(app, later);
+    expect(record(db, "Ada")?.email).toBe("second@example.test");
+  });
+});
+
+describe("GET /guests", () => {
+  it("marks an address its wedding has suppressed as opted out", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "ada@example.test", "bo@example.test");
+    db.insert(emailSuppressions)
+      .values({
+        id: "sup_bo",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, "bo@example.test"),
+        guestId: null,
+        reason: "guest_removed",
+        createdAt: new Date(),
+      })
+      .run();
+    const res = await get(app, `${BASE}/guests`);
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as {
+      firstName: string;
+      email: string | null;
+      emailSource: string | null;
+      emailOptedOut: boolean;
+    }[];
+    const byName = new Map(rows.map((r) => [r.firstName, r]));
+    expect(byName.get("Ada")).toMatchObject({
+      email: "ada@example.test",
+      emailSource: "organiser_attested",
+      emailOptedOut: false,
+    });
+    expect(byName.get("Bo")).toMatchObject({ email: "bo@example.test", emailOptedOut: true });
+  });
+});

@@ -130,9 +130,12 @@ function reconcileToSnapshot(
     // that: if it ever fires it is a bug in the diff, not a revert the caller
     // could handle.
     // A revert reads no preview warning: nothing here reads `plan.warnings`.
+    // The replay carries no attestation, so it sets, replaces and clears no
+    // address: they stay as they are.
     const plan = yield* diffAgainstDb(desiredEvents, desiredFamilies, weddingId, {
       scope,
       warnings: false,
+      emails: "ignore",
     }).pipe(Effect.orDie);
     return yield* applyImport(targetImportId, plan, weddingId, finalize);
   });
@@ -405,6 +408,7 @@ function restoreBeforeImage(
         existingEvents: liveEvents,
         removeManual: RESTORE_MANAGES_MANUAL,
         warnings: false,
+        emails: "restore",
       }).pipe(Effect.orDie);
       plan = {
         ...diffed,
@@ -441,6 +445,7 @@ function restoreBeforeImage(
         scope,
         removeManual: RESTORE_MANAGES_MANUAL,
         warnings: false,
+        emails: "restore",
       }).pipe(Effect.orDie);
     }
     return yield* applyImport(changeId, plan, weddingId, finalize);
