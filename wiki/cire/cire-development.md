@@ -457,7 +457,9 @@ override still applies). It percent-encodes the id, so an id holding `/`, `?` or
 `#` stays inside its own segment. Encoding leaves `.` and `..` alone and the URL
 parser resolves them as dot segments, so where a wedding id is read from a URL —
 the dashboard hash (`dashboard-route.ts`) and the upgrade return query
-(`upgrade-return.ts`) — `isDotSegment` refuses it. Ids further along the path
+(`upgrade-return.ts`) — `isDotSegment` refuses it. `parseRoute` drops the RSVP page's event id, also
+read from the hash, the same way, though that id only ever selects among the
+events the API returned and never reaches a request path. Ids further along the path
 (an item, a task, a payment) are encoded at the call site with
 `encodeURIComponent`. `tests/lib/wedding-path.contract.test.ts` fails on any
 hand-built `/api/organiser/weddings/${…}` outside `api.ts`.

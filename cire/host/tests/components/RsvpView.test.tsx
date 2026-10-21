@@ -4,15 +4,19 @@ import {
   ORGANISER_PLUS_ONE_DIETARY_ATTESTATION,
 } from "@cire/dietary";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * RsvpView is the in-dashboard RSVP summary: per event, a status tally and every
- * invited guest — replies (status + dietary + provenance badge) and the silent
- * ones as "No reply" rows — under one search box and one set of status chips.
- * Editors also get a record/edit affordance. The OSN auth + api helpers are
- * stubbed; this asserts the grouped render, the counts, the empty state,
- * provenance badging, the filtering, and the organiser-record flow.
+ * RsvpView is the in-dashboard RSVP summary, one event at a time: a tab per
+ * event, and in the chosen event's panel its status tally, a search box and
+ * status chips that act on it, and every invited guest — replies (status +
+ * dietary + provenance badge) and the silent ones as "No reply" rows. Editors
+ * also get a record/edit affordance. The OSN auth + api helpers are stubbed;
+ * this asserts the render per event, the counts, the empty state, provenance
+ * badging, the filtering, and the organiser-record flow. The tab list's
+ * keyboard, the sort heads and the sticky table are measured in real Chromium
+ * (`RsvpView.events.browser.test.tsx`).
  */
 
 vi.mock("@shared/rp-auth/solid", async () => {
@@ -174,9 +178,18 @@ function tally(section: HTMLElement, label: string) {
   return dt.parentElement?.querySelector("dd")?.textContent;
 }
 
-const chips = () => screen.getByRole("group", { name: "Filter by reply" });
+const chips = () => screen.getByRole("group", { name: /^Filter .+ by reply$/ });
 const chip = (name: RegExp) => within(chips()).getByRole("button", { name });
-const searchBox = () => screen.getByLabelText("Search guests");
+const searchBox = () => screen.getByLabelText(/^Search .+ guests$/);
+/** An event's tab; its name starts with the event's. */
+const tab = (name: string) => screen.getByRole("tab", { name: new RegExp(`^${name}`) });
+/** The panel of the event on screen. */
+const panel = () => screen.getByRole("tabpanel");
+/** Show an event, and hand back its panel. */
+function show(name: string) {
+  fireEvent.click(tab(name));
+  return panel();
+}
 
 describe("RsvpView", () => {
   afterEach(() => {
@@ -205,16 +218,26 @@ describe("RsvpView", () => {
     expect(screen.getAllByText("linked musubi")).toHaveLength(1);
   });
 
-  it("renders RSVPs grouped by event with correct counts", async () => {
+  it("shows one event at a time, the first to begin with, with correct counts", async () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" />);
 
-    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
-    // Both events render.
-    expect(screen.getByText("Reception")).toBeTruthy();
+    await waitFor(() => expect(tab("Ceremony")).toBeTruthy());
+    // Every event has a tab; the first is chosen, and only its panel shows.
+    expect(screen.getAllByRole("tab").map((t) => t.getAttribute("aria-selected"))).toEqual([
+      "true",
+      "false",
+      "false",
+    ]);
+    expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+    expect(panel().getAttribute("aria-labelledby")).toBe(tab("Ceremony").id);
+    // Each tab counts the guests on its list.
+    expect(tab("Ceremony").getAttribute("aria-label")).toBe("Ceremony, 4 guests");
+    expect(tab("Reception").getAttribute("aria-label")).toBe("Reception, 2 guests");
+    expect(tab("Welcome drinks").getAttribute("aria-label")).toBe("Welcome drinks, 0 guests");
 
-    // The Ceremony section shows its responded guests + their status + dietary.
-    const ceremony = screen.getByText("Ceremony").closest("section")!;
+    // The Ceremony panel shows its responded guests + their status + dietary.
+    const ceremony = panel();
     expect(within(ceremony).getByText("Ada Sharma")).toBeTruthy();
     // Ada picked from the list and typed nothing. Before the dashboard rendered
     // presets this cell was blank while the CSV showed the requirement in full.
@@ -232,19 +255,92 @@ describe("RsvpView", () => {
     expect(tally(ceremony, "Maybe")).toBe("1");
     expect(tally(ceremony, "No reply")).toBe("1");
     expect(tally(ceremony, "Invited")).toBe("4");
+
+    // Another tab swaps the panel's contents for that event's.
+    const reception = show("Reception");
+    expect(tab("Reception").getAttribute("aria-selected")).toBe("true");
+    expect(within(reception).queryByText("Bo Jones")).toBeNull();
+    expect(within(reception).getByText("Ada Sharma")).toBeTruthy();
+    expect(tally(reception, "Invited")).toBe("2");
+  });
+
+  it("opens on the event its address names, and reports the one a host picks", async () => {
+    authFetchMock.mockResolvedValueOnce(json(VIEW));
+    const onEvent = vi.fn();
+    render(() => <RsvpView weddingId="wed_a" event="evt_2" onEvent={onEvent} />);
+    await waitFor(() => expect(tab("Reception").getAttribute("aria-selected")).toBe("true"));
+    expect(onEvent).not.toHaveBeenCalled();
+
+    fireEvent.click(tab("Ceremony"));
+    expect(onEvent).toHaveBeenCalledWith("evt_1");
+    expect(within(panel()).getByText("Bo Jones")).toBeTruthy();
+  });
+
+  it("follows the address when it names another event while the page is open", async () => {
+    // Back, Forward, or an address pasted over the open page.
+    authFetchMock.mockResolvedValueOnce(json(VIEW));
+    const onEvent = vi.fn();
+    const [event, setEvent] = createSignal<string | undefined>("evt_1");
+    render(() => <RsvpView weddingId="wed_a" event={event()} onEvent={onEvent} />);
+    await waitFor(() => expect(tab("Ceremony").getAttribute("aria-selected")).toBe("true"));
+
+    setEvent("evt_2");
+    expect(tab("Reception").getAttribute("aria-selected")).toBe("true");
+    expect(within(panel()).queryByText("Bo Jones")).toBeNull();
+    expect(within(panel()).getByText("Ada Sharma")).toBeTruthy();
+    // The view followed the address; it reported nothing back.
+    expect(onEvent).not.toHaveBeenCalled();
+  });
+
+  it("names a one-guest event's tab in the singular, and each table by its event", async () => {
+    const view = structuredClone(VIEW);
+    view.events[1]!.unresponded = [ADA];
+    view.events[1]!.invited = 1;
+    view.events[1]!.noResponse = 1;
+    authFetchMock.mockResolvedValueOnce(json(view));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(tab("Reception")).toBeTruthy());
+    expect(tab("Reception").getAttribute("aria-label")).toBe("Reception, 1 guest");
+    expect(screen.getByRole("region", { name: "Replies for Ceremony" })).toBeTruthy();
+    show("Reception");
+    expect(screen.getByRole("region", { name: "Replies for Reception" })).toBeTruthy();
+  });
+
+  it("saves to the event on screen, never to an id the address named", async () => {
+    // The address is the host's to edit. Its event id only picks among the
+    // events the API returned; a save goes to the shown event's own id.
+    authFetchMock
+      .mockResolvedValueOnce(json(VIEW))
+      .mockResolvedValueOnce(json(saved("g3", "attending", "organiser_attested")));
+    render(() => <RsvpView weddingId="wed_a" canEdit event="evt_x/../../x" />);
+    await waitFor(() => expect(tab("Ceremony").getAttribute("aria-selected")).toBe("true"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Record reply for Cleo Jones" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Save reply/i }));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    expect(authFetchMock.mock.calls[1]![0]).toBe(
+      "https://api.test/api/organiser/weddings/wed_a/guests/g3/rsvps/evt_1",
+    );
+  });
+
+  it("opens on the first event when its address names none it knows", async () => {
+    authFetchMock.mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" event="evt_gone" />);
+    await waitFor(() => expect(tab("Ceremony").getAttribute("aria-selected")).toBe("true"));
+    expect(within(panel()).getByText("Bo Jones")).toBeTruthy();
   });
 
   it("shows a per-event empty note when the event has no guests at all", async () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" />);
 
-    await waitFor(() => expect(screen.getByText("Welcome drinks")).toBeTruthy());
+    await waitFor(() => expect(tab("Welcome drinks")).toBeTruthy());
     // Nobody is invited to this one — distinct from an event whose guests are
     // all silent, which lists them as "No reply" rows.
-    const drinks = screen.getByText("Welcome drinks").closest("section")!;
+    const drinks = show("Welcome drinks");
     expect(within(drinks).getByText(/No guests to show/i)).toBeTruthy();
 
-    const reception = screen.getByText("Reception").closest("section")!;
+    const reception = show("Reception");
     expect(within(reception).queryByText(/No guests to show/i)).toBeNull();
     expect(within(reception).getAllByText("No reply", { selector: "span" })).toHaveLength(2);
     expect(tally(reception, "No reply")).toBe("2");
@@ -289,10 +385,11 @@ describe("RsvpView", () => {
 
     fireEvent.input(searchBox(), { target: { value: "jones" } });
     // The printed count is immediate; the announcement waits for the typing to
-    // stop, so it never reads a number the host has already typed past.
-    expect(screen.getByText(/Showing 2 of 6 guest rows/i)).toBeTruthy();
+    // stop, so it never reads a number the host has already typed past. Both
+    // name the event, since the search acts on it alone.
+    expect(screen.getByText("Showing 2 of 4 guests for Ceremony.")).toBeTruthy();
     expect(live.textContent).toBe("");
-    await waitFor(() => expect(live.textContent).toMatch(/Showing 2 of 6 guest rows/i));
+    await waitFor(() => expect(live.textContent).toBe("Showing 2 of 4 guests for Ceremony."));
 
     fireEvent.input(searchBox(), { target: { value: "" } });
     await waitFor(() => expect(live.textContent).toBe(""));
@@ -341,21 +438,25 @@ describe("RsvpView", () => {
     render(() => <RsvpView weddingId="wed_a" canEdit />);
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
 
-    // A screen reader lands on six identical "Edit"/"Record" buttons otherwise.
+    // A screen reader lands on identical "Edit"/"Record" buttons otherwise.
     expect(screen.getByRole("button", { name: "Edit reply for Ada Sharma" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Record reply for Cleo Jones" })).toBeTruthy();
-    // Ada is invited to two events and silent on one: two rows, two names.
+    // Ada is invited to two events and silent on one: her row there names her
+    // as one still to answer.
+    show("Reception");
     expect(screen.getByRole("button", { name: "Record reply for Ada Sharma" })).toBeTruthy();
   });
 
-  it("filters every event by a status chip", async () => {
+  it("filters the event on screen by a status chip", async () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
 
-    // The chip carries its count: three rows owe a reply across the events.
+    // The chips act on the event on screen, and say so.
+    expect(chips().getAttribute("aria-label")).toBe("Filter Ceremony by reply");
+    // The chip carries its count: one Ceremony row owes a reply.
     const noReply = chip(/^No reply/i);
-    expect(noReply.textContent).toContain("3");
+    expect(noReply.textContent).toContain("1");
     // "All" is the pressed one until a host picks another.
     expect(chip(/^All/i).getAttribute("aria-pressed")).toBe("true");
 
@@ -368,27 +469,27 @@ describe("RsvpView", () => {
         .filter((b) => b.getAttribute("aria-pressed") === "true"),
     ).toHaveLength(1);
 
-    const ceremony = screen.getByText("Ceremony").closest("section")!;
-    expect(within(ceremony).getByText("Cleo Jones")).toBeTruthy();
-    expect(within(ceremony).queryByText("Ada Sharma")).toBeNull();
-    expect(screen.getByText(/Showing 3 of 6 guest rows/i)).toBeTruthy();
+    expect(within(panel()).getByText("Cleo Jones")).toBeTruthy();
+    expect(within(panel()).queryByText("Ada Sharma")).toBeNull();
+    expect(screen.getByText("Showing 1 of 4 guests for Ceremony.")).toBeTruthy();
+    // Each tab counts what the chip would leave of its own list.
+    expect(tab("Reception").getAttribute("aria-label")).toBe("Reception, 2 matching");
+    expect(tab("Welcome drinks").getAttribute("aria-label")).toBe("Welcome drinks, 0 matching");
 
-    // The event sections stay put, with their tallies, and say why they're bare.
-    expect(screen.getByText("Reception")).toBeTruthy();
+    // The chip stays chosen on another event, and the tallies stay the API's.
     fireEvent.click(chip(/^Attending/i));
-    expect(within(ceremony).getByText("Ada Sharma")).toBeTruthy();
-    expect(within(ceremony).queryByText("Cleo Jones")).toBeNull();
-    const reception = screen.getByText("Reception").closest("section")!;
+    const reception = show("Reception");
+    expect(chip(/^Attending/i).getAttribute("aria-pressed")).toBe("true");
     expect(within(reception).getByText(/No guests match this filter/i)).toBeTruthy();
     expect(tally(reception, "No reply")).toBe("2");
 
     // Back to All restores every row.
     fireEvent.click(chip(/^All/i));
-    expect(within(ceremony).getByText("Cleo Jones")).toBeTruthy();
+    expect(within(panel()).getByText("Ada Sharma")).toBeTruthy();
     expect(screen.queryByText(/Showing \d+ of/i)).toBeNull();
   });
 
-  it("counts on the chips describe the whole wedding, not the search", async () => {
+  it("counts on the chips describe the event on screen, not the search", async () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
@@ -396,9 +497,14 @@ describe("RsvpView", () => {
     fireEvent.input(searchBox(), { target: { value: "jones" } });
     // Narrowing to the Joneses must not renumber the chips — they are the map
     // out of the current search, not a description of it.
-    expect(chip(/^All/i).textContent).toContain("6");
+    expect(chip(/^All/i).textContent).toContain("4");
     expect(chip(/^Attending/i).textContent).toContain("1");
-    expect(chip(/^No reply/i).textContent).toContain("3");
+    expect(chip(/^No reply/i).textContent).toContain("1");
+
+    // Another event, its own counts.
+    show("Reception");
+    expect(chip(/^All/i).textContent).toContain("2");
+    expect(chip(/^No reply/i).textContent).toContain("2");
   });
 
   it("searches across name, household and dietary text", async () => {
@@ -406,21 +512,29 @@ describe("RsvpView", () => {
     render(() => <RsvpView weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
 
+    // The box names the event it searches.
+    expect(searchBox().getAttribute("placeholder")).toMatch(/^Search Ceremony by name/);
     fireEvent.input(searchBox(), { target: { value: "jones" } });
     expect(screen.getByText("Bo Jones")).toBeTruthy();
     expect(screen.getByText("Cleo Jones")).toBeTruthy();
     expect(screen.queryAllByText("Ada Sharma")).toHaveLength(0);
 
     // Dietary text is searchable — the caterer's question. Ada is invited to
-    // two events; only the row that carries the note matches.
+    // two events; only the row that carries the note matches, and the other
+    // event's tab says it holds no match.
     fireEvent.input(searchBox(), { target: { value: "gluten" } });
     expect(screen.getByText("Ada Sharma")).toBeTruthy();
     expect(screen.queryByText("Bo Jones")).toBeNull();
+    expect(tab("Reception").getAttribute("aria-label")).toBe("Reception, 0 matching");
+
+    // The search stays when the event changes.
+    show("Reception");
+    expect((searchBox() as HTMLInputElement).value).toBe("gluten");
+    expect(within(panel()).getByText(/No guests match this filter/i)).toBeTruthy();
 
     // Clearing the box puts every row back and drops the status line.
     fireEvent.input(searchBox(), { target: { value: "" } });
-    expect(screen.getAllByText("Ada Sharma")).toHaveLength(2);
-    expect(screen.getByText("Bo Jones")).toBeTruthy();
+    expect(within(panel()).getByText("Ada Sharma")).toBeTruthy();
     expect(screen.queryByText(/Showing \d+ of/i)).toBeNull();
   });
 
@@ -453,7 +567,7 @@ describe("RsvpView", () => {
     fireEvent.click(chip(/^No reply/i));
     expect(screen.getByText("Cleo Jones")).toBeTruthy();
     expect(screen.queryByText("Bo Jones")).toBeNull();
-    expect(screen.getByText(/Showing 1 of 6 guest rows/i)).toBeTruthy();
+    expect(screen.getByText("Showing 1 of 4 guests for Ceremony.")).toBeTruthy();
   });
 
   it("says so when a filter matches nobody", async () => {
@@ -462,9 +576,8 @@ describe("RsvpView", () => {
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
 
     fireEvent.input(searchBox(), { target: { value: "nobody" } });
-    const ceremony = screen.getByText("Ceremony").closest("section")!;
-    expect(within(ceremony).getByText(/No guests match this filter/i)).toBeTruthy();
-    expect(screen.getByText(/Showing 0 of 6 guest rows/i)).toBeTruthy();
+    expect(within(panel()).getByText(/No guests match this filter/i)).toBeTruthy();
+    expect(screen.getByText("Showing 0 of 4 guests for Ceremony.")).toBeTruthy();
   });
 
   it("editor records a phone RSVP: PUTs a consent-attested body", async () => {
@@ -787,12 +900,9 @@ describe("RsvpView", () => {
       ); // PUT
     render(() => <RsvpView weddingId="wed_a" canEdit />);
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
-
-    // Reception never changes across this save — Ada's silent row there is the
-    // control. A whole-list rebuild would swap this node out even though nothing
-    // about Reception moved.
-    const reception = screen.getByText("Reception").closest("section")!;
-    const untouchedRow = within(reception).getByText("Ada Sharma").closest("tr")!;
+    // Reception's tab, by node: the save names Ceremony, so only Ceremony's
+    // rows are merged again, and every other event keeps its tab.
+    const receptionTab = tab("Reception");
 
     fireEvent.click(screen.getByRole("button", { name: "Record reply for Cleo Jones" }));
     const dietary = await screen.findByLabelText(/Anything else/i);
@@ -804,7 +914,7 @@ describe("RsvpView", () => {
     // Requery the whole way down on each tick: a captured <section> would go
     // stale the moment a rebuild swapped it out.
     await waitFor(() => {
-      const ceremony = screen.getByText("Ceremony").closest("section")!;
+      const ceremony = panel();
       const cleoRow = within(ceremony).getByText("Cleo Jones").closest("tr")!;
       expect(within(cleoRow).getByText("Attending")).toBeTruthy();
       expect(within(cleoRow).getByText("Host-entered")).toBeTruthy();
@@ -815,10 +925,13 @@ describe("RsvpView", () => {
     // The PUT was the only request after the load.
     expect(authFetchMock).toHaveBeenCalledTimes(2);
 
-    const receptionAfter = screen.getByText("Reception").closest("section")!;
-    const rowAfter = within(receptionAfter).getByText("Ada Sharma").closest("tr")!;
-    expect(rowAfter).toBe(untouchedRow);
-    expect(document.body.contains(untouchedRow)).toBe(true);
+    // Reception is the control: the save named Ceremony, so Reception's list
+    // and count are as they were, on the same tab.
+    expect(tab("Reception")).toBe(receptionTab);
+    expect(tab("Reception").getAttribute("aria-label")).toBe("Reception, 2 guests");
+    const reception = show("Reception");
+    const adaThere = within(reception).getByText("Ada Sharma").closest("tr")!;
+    expect(within(adaThere).getByText("No reply")).toBeTruthy();
   });
 
   it("moves a changed status between the header counts and badges a host's update", async () => {
@@ -834,7 +947,7 @@ describe("RsvpView", () => {
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
 
     await waitFor(() => {
-      const ceremony = screen.getByText("Ceremony").closest("section")!;
+      const ceremony = panel();
       expect(tally(ceremony, "Attending")).toBe("0");
       expect(tally(ceremony, "Declined")).toBe("2");
       const adaRow = within(ceremony).getByText("Ada Sharma").closest("tr")!;
@@ -935,6 +1048,27 @@ describe("RsvpView", () => {
 
     await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
     expect(authFetchMock.mock.calls[2]![0]).toContain("/rsvps");
+  });
+
+  it("keeps an open editor, and what was typed in it, with its event across a switch", async () => {
+    authFetchMock.mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Record reply for Cleo Jones" }));
+    fireEvent.input(await screen.findByLabelText(/Anything else/i), {
+      target: { value: "Shellfish" },
+    });
+
+    // Another event: the form belongs to Ceremony, so it is not drawn here.
+    show("Reception");
+    expect(screen.queryByLabelText(/Anything else/i)).toBeNull();
+
+    // Back again, the half-typed answer is still there.
+    show("Ceremony");
+    expect((screen.getByLabelText(/Anything else/i) as HTMLTextAreaElement).value).toBe(
+      "Shellfish",
+    );
   });
 
   it("closes the open editor when a filter hides the row it belongs to", async () => {
@@ -1125,11 +1259,11 @@ describe("RsvpView — plus-ones", () => {
     await waitFor(() => expect(findRow("Sam Lee")).toBeTruthy());
 
     fireEvent.input(searchBox(), { target: { value: "bo" } });
-    expect(screen.getByText(/Showing 2 of 5 guest rows/i)).toBeTruthy();
+    expect(screen.getByText("Showing 2 of 5 guests for Ceremony.")).toBeTruthy();
     expect(findRow("Sam Lee")).toBeTruthy();
 
     fireEvent.input(searchBox(), { target: { value: "plus-one" } });
-    expect(screen.getByText(/Showing 3 of 5 guest rows/i)).toBeTruthy();
+    expect(screen.getByText("Showing 3 of 5 guests for Ceremony.")).toBeTruthy();
     expect(findRow("Bo Jones")).toBeUndefined();
   });
 

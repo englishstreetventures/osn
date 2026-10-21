@@ -25,7 +25,14 @@ import { MAX_EVENTS, MAX_ROWS } from "../../src/schemas/import";
 import { ChangeConflict } from "../../src/services/changes";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { createR2Stub } from "../../src/services/r2-imports";
-import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
+import {
+  appRequest,
+  beforeStatement,
+  failStatements,
+  jsonBody,
+  recordStatements,
+  setTier,
+} from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -2607,7 +2614,95 @@ describe("POST /changes/revert — restores only the half the change saved", () 
       .all();
     expect(row!.status).toBe("applied");
   });
+
+  it("answers 500, not 402, when a revert's write fails for another reason", async () => {
+    const { app, db } = buildApp();
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const changeId = ((await preview.clone().json()) as { changeId: string }).changeId;
+    await applyChange(app, preview);
+    failStatements(db, (q) => q.startsWith('delete from "families"'));
+
+    const res = await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId });
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Revert failed" });
+  });
+
+  it("answers 402 when the guests a revert re-creates find the cap reached while it writes", async () => {
+    const { app, db } = buildApp();
+    const guestRows = (n: number) =>
+      Array.from({ length: n }, (_, i) => `1,Bigfamily,Guest${i},Bigfamily,no,no`);
+    const header = "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Reception";
+    await applyChange(
+      app,
+      await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        eventsCsv: EVENTS_CSV,
+        guestsCsv: [header, ...guestRows(100)].join("\n"),
+      }),
+    );
+    const trim = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      guestsCsv: [header, ...guestRows(99)].join("\n"),
+    });
+    const trimId = ((await trim.clone().json()) as { changeId: string }).changeId;
+    await applyChange(app, trim);
+    // 99 + the one guest the revert puts back = 100 passes the check before the
+    // write. A household names a plus-one between that check and the write.
+    const [household] = db
+      .select({ id: families.id })
+      .from(families)
+      .where(eq(families.familyName, "Bigfamily"))
+      .all();
+    beforeStatement(db, /^insert into "guests"/, () => addPlusOne(db, household!.id));
+    const headBefore = await headOf(app);
+
+    const res = await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: trimId });
+    expect(res.status).toBe(402);
+    expect(await jsonBody(res)).toEqual({
+      error: "payment_required",
+      entitlement: "capacity",
+      tier: "gold",
+      limit: 100,
+      current: 100,
+    });
+    // Refused while writing, so the head moves: a refusal before the write
+    // would leave it where it was.
+    expect(await headOf(app)).toBe(String(Number(headBefore) + 1));
+    expect(db.select().from(guests).all()).toHaveLength(100);
+    const [row] = db
+      .select({ status: imports.status })
+      .from(imports)
+      .where(eq(imports.id, trimId))
+      .all();
+    expect(row!.status).toBe("applied");
+  });
 });
+
+/**
+ * A plus-one for the first guest of `familyId`, written straight to the table:
+ * a household naming one while a change is being written.
+ */
+function addPlusOne(db: ReturnType<typeof buildApp>["db"], familyId: string): void {
+  const [inviter] = db
+    .select({ id: guests.id })
+    .from(guests)
+    .where(eq(guests.familyId, familyId))
+    .limit(1)
+    .all();
+  const now = new Date();
+  db.insert(guests)
+    .values({
+      id: crypto.randomUUID(),
+      familyId,
+      firstName: "Plus",
+      source: "manual",
+      plusOneOfGuestId: inviter!.id,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
 
 // ── Provenance default at the route (CSV toggle) ────────────────────────────
 
@@ -2793,6 +2888,77 @@ describe("authz — /changes gate", () => {
     });
     expect(res.status).toBe(403);
     expect(await jsonBody(res)).toEqual({ error: "read_only_role" });
+  });
+
+  describe("who may apply", () => {
+    /** A change the owner previewed, and a check that applying it was refused. */
+    async function previewedChange(
+      app: ReturnType<typeof buildApp>["app"],
+      db: ReturnType<typeof buildApp>["db"],
+    ) {
+      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        eventsCsv: EVENTS_CSV,
+        guestsCsv: GUESTS_CSV,
+      });
+      const changeId = ((await preview.json()) as { changeId: string }).changeId;
+      const stillPreview = () => {
+        const [row] = db
+          .select({ status: imports.status })
+          .from(imports)
+          .where(eq(imports.id, changeId))
+          .all();
+        expect(row!.status).toBe("preview");
+        expect(db.select().from(guests).all()).toHaveLength(0);
+      };
+      return { changeId, stillPreview };
+    }
+
+    it("401s a request with no credential", async () => {
+      const { app, db } = buildApp();
+      const { changeId, stillPreview } = await previewedChange(app, db);
+      const res = await appRequest(app, `${CHANGES_BASE}/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ changeId }),
+      });
+      expect(res.status).toBe(401);
+      stillPreview();
+    });
+
+    it("401s a cookie that names no session", async () => {
+      const { app, db } = buildApp();
+      const { changeId, stillPreview } = await previewedChange(app, db);
+      await seedOrganiserSession(db, "usr_dev_bootstrap_owner");
+      const res = await cookiePost(app, `${CHANGES_BASE}/apply`, "nosuchtoken", { changeId });
+      expect(res.status).toBe(401);
+      stillPreview();
+    });
+
+    it("403s a viewer co-host", async () => {
+      const { app, db } = buildApp();
+      const { changeId, stillPreview } = await previewedChange(app, db);
+      db.insert(weddingHosts)
+        .values({
+          id: "whost_apply_viewer",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_apply_viewer",
+          addedByOsnProfileId: "usr_dev_bootstrap_owner",
+          role: "viewer",
+          createdAt: new Date(),
+        })
+        .run();
+      const res = await appRequest(app, `${CHANGES_BASE}/apply`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${await auth.sign("usr_apply_viewer")}`,
+        },
+        body: JSON.stringify({ changeId }),
+      });
+      expect(res.status).toBe(403);
+      expect(await jsonBody(res)).toEqual({ error: "read_only_role" });
+      stillPreview();
+    });
   });
 
   it("lets an editor co-host preview + apply", async () => {
@@ -3056,6 +3222,80 @@ describe("POST /changes/apply — 402 on capacity breach", () => {
     setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
     expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
     expect(db.select().from(guests).all()).toHaveLength(101);
+  });
+
+  it("answers 500, not 402, when the write fails for another reason", async () => {
+    const { app, db } = buildApp();
+    const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const { changeId } = (await previewRes.json()) as { changeId: string };
+    failStatements(db, (q) => q.startsWith('insert into "families"'));
+
+    const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Apply failed" });
+  });
+
+  it("answers 402 and moves the head when the cap is reached while the change writes", async () => {
+    const { app, db } = buildApp();
+    // 99 guests a sheet import leaves alone: added by hand, so not the sheet's.
+    const now = new Date();
+    db.insert(families)
+      .values({
+        id: "fam_by_hand",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "BYHAND-0001",
+        familyName: "Byhand",
+        source: "manual",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    for (let i = 0; i < 99; i++) {
+      db.insert(guests)
+        .values({
+          id: `g_by_hand_${i}`,
+          familyId: "fam_by_hand",
+          firstName: `Hand${i}`,
+          source: "manual",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
+    const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: [
+        "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Reception",
+        "1,Newfamily,Cy,Newfamily,no,no",
+      ].join("\n"),
+    });
+    const { changeId } = (await previewRes.json()) as { changeId: string };
+    // 99 + 1 = 100 passes the check before the write. A household names a
+    // plus-one between that check and the write.
+    beforeStatement(db, /^insert into "guests"/, () => addPlusOne(db, "fam_by_hand"));
+
+    const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(res.status).toBe(402);
+    expect(await jsonBody(res)).toEqual({
+      error: "payment_required",
+      entitlement: "capacity",
+      tier: "gold",
+      limit: 100,
+      current: 100,
+      // The change may have written part of its data, so its preview is spent.
+      reason: "head_moved",
+    });
+    expect(await headOf(app)).toBe("1");
+    expect(db.select().from(guests).all()).toHaveLength(100);
+    const [row] = db
+      .select({ status: imports.status })
+      .from(imports)
+      .where(eq(imports.id, changeId))
+      .all();
+    expect(row!.status).toBe("preview");
   });
 
   it("applying a change within cap succeeds; a Gold wedding admits up to 500", async () => {

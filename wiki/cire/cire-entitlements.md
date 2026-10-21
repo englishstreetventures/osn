@@ -198,7 +198,7 @@ gate added to that group fails them.
 | `crimson` | 1,000 |
 
 The cap counts real guests: the synthetic host-preview family is excluded, and
-a named plus-one counts ([[cire-plus-ones]]). It is enforced in four places,
+a named plus-one counts ([[cire-plus-ones]]). It is enforced in five places,
 each reading the tier rather than a stored number:
 
 - **`tierService.assertGuestCapacity(weddingId, incoming, precomputedCap?)`**
@@ -215,13 +215,26 @@ each reading the tier rather than a stored number:
   `BASE_GUEST_CAP` — no tier could make that import breach — and otherwise
   carries it on the plan as `derivedCap`, which `applyImport` hands to
   `assertGuestCapacity` in the same request. A missing `derivedCap` is never
-  treated as "no cap". `applyImport` checks the net delta
-  (`creates − removes`) before writing anything, so a refused import writes
-  nothing.
+  treated as "no cap". Before writing anything, `applyImport` checks the net
+  delta (`creates − removes`) of every plan that adds a guest, so a refusal
+  there writes nothing. Removals land before new guests, so a swap at the cap
+  passes, and a wedding already over its cap passes only an import that ends
+  within it.
+- **The import's guest inserts** check the cap as they write. The last guest
+  insert in each D1 batch (`MAX_STATEMENTS_PER_BATCH`, 50 statements) names its
+  household only while `roomForOneMoreGuest` holds, counting the batch's own
+  earlier guests; without room it writes NULL into the NOT NULL `family_id`,
+  and D1 rolls the batch back. So no batch commits past the cap, whatever
+  another writer committed after the check above. `applyImport` then fails
+  with an `ImportError` carrying `capacity`, a `CapacityExceeded` that names
+  the tier above the current one (`tierService.capacityRefusal`). Batches
+  before the refused one stay committed, as with any failed apply, so the
+  change head moves.
 - **Naming a plus-one** checks the cap inside its `INSERT … SELECT`:
   `roomForOneMoreGuest` compares the real-guest count with a scalar subquery
   that reads the wedding's tier as a `CASE`. D1 runs batches one at a time, so
-  two namings racing for the last place cannot both win.
+  two namings, or a naming and an import, racing for the last place cannot
+  both win.
 - **The plus-one context read** (`readGuestContext` in `services/plus-one.ts`)
   selects the tier in its one statement and derives the cap with `capForTier`.
 
@@ -236,6 +249,14 @@ imports and editor saves):
 to Gold") and says plainly when it is `null`. `entitlement: "capacity"` stays
 for a portal build that reads it, until englishstreetventures/osn#1315. Naming a
 plus-one past the cap answers `409 guest_capacity` instead.
+
+A 402 from the check before the write leaves the change head where it was, so
+the same preview applies after an upgrade. When the guest inserts refused it
+instead, the apply's body adds `"reason": "head_moved"`: the change may have
+written part of its data and its preview is spent, as with a 409 `head_moved`.
+The portal handles that reason once englishstreetventures/osn#1592 lands; until
+then a retry answers the 409. A revert's 402 never carries a reason, because a
+revert has no preview and reads the head afresh on every request.
 
 ---
 

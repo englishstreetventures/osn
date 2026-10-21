@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, families } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, families, guests } from "@cire/db";
 import { Effect, Exit } from "effect";
 
 import { DbService } from "../../src/db";
@@ -102,10 +102,11 @@ describe("diffAgainstDb's capacity pre-check", () => {
 });
 
 describe("applyImport reuses diffAgainstDb's derivedCap", () => {
-  it("enforces against the plan's derivedCap rather than reading the tier again", async () => {
+  it("checks the plan's derivedCap before writing, and the live tier inside the write", async () => {
     // Previewed on Gold, so the plan carries a cap of 500. The wedding is then
-    // put back on Ivory before the apply: an apply that read the tier again
-    // would refuse 101 guests, one that uses the plan's cap admits them.
+    // put back on Ivory before the apply. The check before the write uses the
+    // plan's cap and admits 101 guests; the write reads the tier itself and
+    // refuses the guest that would pass Ivory's 100.
     const raw = createDb(":memory:");
     seedBootstrapWedding(raw);
     setTier(raw, BOOTSTRAP_WEDDING_ID, "gold");
@@ -117,25 +118,30 @@ describe("applyImport reuses diffAgainstDb's derivedCap", () => {
     expect(plan.derivedCap).toBe(500);
     setTier(raw, BOOTSTRAP_WEDDING_ID, "ivory");
 
-    const exit = await Effect.runPromiseExit(
-      applyImport("imp_derived_cap", plan, BOOTSTRAP_WEDDING_ID).pipe(
+    const refusedInWrite = await Effect.runPromise(
+      Effect.flip(applyImport("imp_derived_cap", plan, BOOTSTRAP_WEDDING_ID)).pipe(
         Effect.provideService(DbService, raw),
       ),
     );
-    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(refusedInWrite._tag).toBe("ImportError");
+    expect(
+      refusedInWrite._tag === "ImportError" ? refusedInWrite.capacity : undefined,
+    ).toMatchObject({ limit: 100, requiredTier: "gold" });
 
-    // The same plan without its cap, on an identical Ivory wedding, is refused:
-    // the difference above is the threaded value, not the tier.
+    // The same plan without its cap, on an identical Ivory wedding, is refused
+    // by the check before the write: the difference above is the threaded
+    // value, not the tier.
     const rawBaseline = createDb(":memory:");
     seedBootstrapWedding(rawBaseline);
     const { derivedCap: _derivedCap, ...planWithoutCap } = plan;
     void _derivedCap;
-    const exitBaseline = await Effect.runPromiseExit(
-      applyImport("imp_no_derived_cap", planWithoutCap as ImportPlan, BOOTSTRAP_WEDDING_ID).pipe(
-        Effect.provideService(DbService, rawBaseline),
-      ),
+    const refusedBefore = await Effect.runPromise(
+      Effect.flip(
+        applyImport("imp_no_derived_cap", planWithoutCap as ImportPlan, BOOTSTRAP_WEDDING_ID),
+      ).pipe(Effect.provideService(DbService, rawBaseline)),
     );
-    expect(Exit.isFailure(exitBaseline)).toBe(true);
+    expect(refusedBefore._tag).toBe("CapacityExceeded");
+    expect(rawBaseline.select().from(guests).all()).toHaveLength(0);
   });
 
   it("costs the same statements with or without derivedCap: the fallback tier read rides the count", async () => {

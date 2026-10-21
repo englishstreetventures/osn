@@ -127,6 +127,8 @@ vi.mock("../../src/components/ModuleShell", async () => {
       tier: string;
       onModule: (m: string, sub?: string) => void;
       onSub: (s: string) => void;
+      rsvpEvent?: string;
+      onRsvpEvent?: (eventId: string) => void;
       onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
       onWeddingDeleted?: (restoreUntil: string) => void;
       onTierRaised?: (tier: "gold" | "crimson") => void;
@@ -145,10 +147,12 @@ vi.mock("../../src/components/ModuleShell", async () => {
           data-sub={props.sub}
           data-tier={props.tier}
           data-mount={String(mount)}
+          data-rsvp-event={props.rsvpEvent ?? ""}
         >
           {props.weddingId}
           <button onClick={() => props.onModule("guests")}>go-guests</button>
           <button onClick={() => props.onSub("rsvps")}>go-rsvps</button>
+          <button onClick={() => props.onRsvpEvent?.("evt_2")}>pick-event</button>
           <button onClick={() => props.onModule("invite", "codes")}>go-invite-codes</button>
           <button onClick={() => props.onModule("guests", "codes")}>go-guests-codes</button>
           <button
@@ -573,6 +577,71 @@ describe("OrganiserApp Dashboard", () => {
     expect(screen.queryByTestId("wedding-list")).toBeNull();
     expect(screen.getByTestId("module-shell").getAttribute("data-module")).toBe("guests");
     expect(screen.getByTestId("module-shell").getAttribute("data-sub")).toBe("rsvps");
+  });
+
+  it("opens the RSVP page on the event its address names, and keeps the address", async () => {
+    history.replaceState(null, "", "#/w/wed_a/guests/rsvps/evt_2");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+
+    await waitFor(() => expect(screen.getByTestId("module-shell")).toBeTruthy());
+    expect(screen.getByTestId("module-shell").getAttribute("data-rsvp-event")).toBe("evt_2");
+    // The mount-time rewrite to the canonical form leaves the event in place.
+    expect(window.location.hash).toBe("#/w/wed_a/guests/rsvps/evt_2");
+  });
+
+  it("hands the shell an event named by an address the host changes", async () => {
+    history.replaceState(null, "", "#/w/wed_a/guests/rsvps/evt_2");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("module-shell")).toBeTruthy());
+
+    history.replaceState(null, "", "#/w/wed_a/guests/rsvps/evt_3");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    expect(screen.getByTestId("module-shell").getAttribute("data-rsvp-event")).toBe("evt_3");
+  });
+
+  it("writes nothing for an event reported off the RSVP page", async () => {
+    // A view on its way out can report late; it must not put an event on
+    // another page's address.
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    fireEvent.click(screen.getByText("select-first"));
+    fireEvent.click(screen.getByText("go-guests"));
+
+    fireEvent.click(screen.getByText("pick-event"));
+    expect(window.location.hash).toBe("#/w/wed_a/guests");
+    expect(screen.getByTestId("module-shell").getAttribute("data-rsvp-event")).toBe("");
+  });
+
+  it("writes a chosen RSVP event into the address without a new history entry", async () => {
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    fireEvent.click(screen.getByText("select-first"));
+    fireEvent.click(screen.getByText("go-guests"));
+    fireEvent.click(screen.getByText("go-rsvps"));
+
+    const pushState = vi.spyOn(history, "pushState");
+    fireEvent.click(screen.getByText("pick-event"));
+    expect(window.location.hash).toBe("#/w/wed_a/guests/rsvps/evt_2");
+    expect(screen.getByTestId("module-shell").getAttribute("data-rsvp-event")).toBe("evt_2");
+    expect(pushState).not.toHaveBeenCalled();
+    pushState.mockRestore();
+
+    // Another view of the module carries no event.
+    fireEvent.click(screen.getByText("go-guests"));
+    expect(window.location.hash).toBe("#/w/wed_a/guests");
+    expect(screen.getByTestId("module-shell").getAttribute("data-rsvp-event")).toBe("");
   });
 
   it("aliases a pre-IA bookmark (#/weddings/:id/:tab) forward to the new module route", async () => {

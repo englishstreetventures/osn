@@ -9,6 +9,7 @@
  */
 
 import { render } from "@solidjs/testing-library";
+import { For } from "solid-js";
 import { describe, expect, it } from "vitest";
 
 import { Meter, meterPct } from "../src/ui/meter";
@@ -118,6 +119,131 @@ describe("Table", () => {
     const cell = getByRole("cell");
     expect(getComputedStyle(cell).textAlign).toBe("right");
     expect(getComputedStyle(cell).fontVariantNumeric).toContain("tabular-nums");
+  });
+});
+
+/**
+ * Pinned cells: a head row held at the top of the table's box, and a first
+ * column held at its start edge, for a table whose box scrolls both ways.
+ */
+describe("Table — pinned cells", () => {
+  function renderPinned() {
+    const columns = ["Guest", "Household", "Status", "Dietary", "Notes"];
+    return render(() => (
+      // The box scrolls down as well as sideways, as a call site makes it.
+      <div style={{ width: "320px" }}>
+        <Table label="Pinned" class="relative isolate max-h-50 overflow-y-auto [&>table]:w-[900px]">
+          <thead>
+            <tr>
+              <For each={columns}>
+                {(name, i) => <Th pin={i() === 0 ? "top-start" : "top"}>{name}</Th>}
+              </For>
+            </tr>
+          </thead>
+          <tbody>
+            <For each={Array.from({ length: 40 }, (_, row) => row)}>
+              {(row) => (
+                <tr>
+                  <Td pin="start">Guest {row}</Td>
+                  <Td>Household {row}</Td>
+                  <Td>Status {row}</Td>
+                  <Td>Dietary {row}</Td>
+                  <Td>Notes {row}</Td>
+                </tr>
+              )}
+            </For>
+          </tbody>
+        </Table>
+      </div>
+    ));
+  }
+
+  /** Paint `layers` bottom-up on a 1px canvas and read back plain `rgb`. */
+  const composite = (layers: readonly string[]) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const ctx = canvas.getContext("2d")!;
+    for (const layer of layers) {
+      ctx.fillStyle = layer;
+      ctx.fillRect(0, 0, 1, 1);
+    }
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+    return `rgb(${r}, ${g}, ${b})`;
+  };
+
+  /** The element painted at a box's centre is that box or inside it. */
+  const paintsOver = (el: Element) => {
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return hit !== null && el.contains(hit);
+  };
+
+  it("holds the head row at the top and the first column at the start", () => {
+    const { getByRole, getAllByRole } = renderPinned();
+    const box = getByRole("region", { name: "Pinned" }) as HTMLElement;
+    box.scrollTop = 300;
+    box.scrollLeft = 200;
+    const top = box.getBoundingClientRect().top + box.clientTop;
+    const start = box.getBoundingClientRect().left + box.clientLeft;
+    const heads = getAllByRole("columnheader");
+    for (const th of heads) expect(th.getBoundingClientRect().top).toBeCloseTo(top, 0);
+    const firstCells = [...box.querySelectorAll("tbody td:first-child")];
+    const shown = firstCells.find((td) => {
+      const r = td.getBoundingClientRect();
+      return (
+        r.top > heads[0]!.getBoundingClientRect().bottom + 1 &&
+        r.bottom < box.getBoundingClientRect().bottom
+      );
+    })!;
+    expect(shown.getBoundingClientRect().left).toBeCloseTo(start, 0);
+    expect(heads[0]!.getBoundingClientRect().left).toBeCloseTo(start, 0);
+  });
+
+  it("paints the pinned cells over the ones passing beneath them", () => {
+    const { getByRole, getAllByRole } = renderPinned();
+    const box = getByRole("region", { name: "Pinned" }) as HTMLElement;
+    box.scrollTop = 300;
+    box.scrollLeft = 200;
+    // Status is the head now in view beside the corner; Household has slid
+    // beneath the corner.
+    const [corner, , status] = getAllByRole("columnheader");
+    expect(paintsOver(corner!)).toBe(true);
+    expect(paintsOver(status!)).toBe(true);
+    const row = [...box.querySelectorAll("tbody tr")].find((tr) => {
+      const r = tr.getBoundingClientRect();
+      return (
+        r.top > corner!.getBoundingClientRect().bottom + 1 &&
+        r.bottom < box.getBoundingClientRect().bottom
+      );
+    })!;
+    const [guest, household] = row.querySelectorAll("td");
+    // Household has slid under Guest, which is the one painted.
+    expect(household!.getBoundingClientRect().left).toBeLessThan(
+      guest!.getBoundingClientRect().right,
+    );
+    expect(paintsOver(guest!)).toBe(true);
+  });
+
+  it("is opaque, on the ground, with a full hairline at its end edge", () => {
+    const { getAllByRole } = renderPinned();
+    const [corner, household] = getAllByRole("columnheader");
+    const pinned = getAllByRole("cell")[0]!;
+    const plain = getAllByRole("cell")[1]!;
+    // Opaque: the same paint over white and over black. A translucent ground
+    // would let the rows passing beneath show through.
+    for (const cell of [corner!, household!, pinned]) {
+      const ground = getComputedStyle(cell).backgroundColor;
+      expect(composite(["white", ground])).toBe(composite(["black", ground]));
+    }
+    // A plain cell keeps its own transparent ground, and stays in flow.
+    expect(getComputedStyle(plain).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(plain).position).toBe("static");
+    // The start column's edge is the full hairline, not the row rule's 40%.
+    expect(getComputedStyle(pinned).borderRightWidth).toBe("1px");
+    expect(getComputedStyle(pinned).borderRightColor).not.toBe(
+      getComputedStyle(pinned).borderBottomColor,
+    );
+    expect(getComputedStyle(corner!).borderRightWidth).toBe("1px");
   });
 });
 

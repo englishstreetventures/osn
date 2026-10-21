@@ -23,7 +23,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Cire
@@ -164,7 +164,7 @@ one on 2026-08-21, so every cire page is now a wikilink away instead of a backti
 path that resolves nowhere:
 
 - Architecture — [[cire-platform-plan]], [[cire-invite-builder]], [[cire-guest-event-editor]], [[cire-consent]], [[cire-host-portal-layout]], [[drag-and-drop]]
-- Systems — [[cire-organiser]], [[cire-budget]], [[cire-checklist-tasks]], [[cire-entitlements]] (the Ivory, Gold and Crimson plan tiers), [[cire-upgrades]], [[cire-invite-designs]], [[cire-registry]], [[cire-seating]], [[cire-rsvp-deadline]], [[cire-rsvp-changes]], [[cire-vendors]], [[feature-flags]]
+- Systems — [[cire-organiser]], [[cire-budget]], [[cire-checklist-tasks]], [[cire-entitlements]] (the Ivory, Gold and Crimson plan tiers), [[cire-upgrades]], [[cire-invite-designs]], [[cire-registry]], [[cire-seating]], [[cire-rsvp-deadline]], [[cire-rsvp-changes]], [[cire-rsvp-table]], [[cire-vendors]], [[feature-flags]]
 - Observability — [[cire-workerd]] · Conventions — [[browser-tests]]
 
 Cire's build conventions — the backend patterns, the two test tiers, and the

@@ -178,6 +178,10 @@ interface ModuleShellProps {
   onModule: (module: Module, sub?: string) => void;
   /** Report a sub-view switch up so the parent updates the hash. */
   onSub: (sub: string) => void;
+  /** The event the RSVP page shows, from the hash. Absent: its first event. */
+  rsvpEvent?: string;
+  /** Report the RSVP page's event switch up so the parent updates the hash. */
+  onRsvpEvent?: (eventId: string) => void;
   onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
   /** An owner deleted the wedding from Settings (restorable until the ISO date). */
   onWeddingDeleted?: (restoreUntil: string) => void;
@@ -666,7 +670,12 @@ export default function ModuleShell(props: ModuleShellProps) {
                   />
                 </Show>
                 <Show when={active() === "rsvps"}>
-                  <RsvpView weddingId={props.weddingId} canEdit={props.canEdit} />
+                  <RsvpView
+                    weddingId={props.weddingId}
+                    canEdit={props.canEdit}
+                    event={props.rsvpEvent}
+                    onEvent={props.onRsvpEvent}
+                  />
                 </Show>
               </Show>
 
