@@ -15,7 +15,7 @@ import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { CHECKLIST_TEMPLATES } from "../../src/lib/checklist-templates";
 import { CIRE_METRICS } from "../../src/metrics";
-import { appRequest, jsonBody, setTier } from "../test-helpers";
+import { refusal, appRequest, jsonBody, setTier } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
@@ -217,12 +217,14 @@ describe("applying the starter checklist", () => {
     db.insert(tasks)
       .values({ ...row, id: "tsk_a" })
       .run();
-    expect(() =>
-      db
-        .insert(tasks)
-        .values({ ...row, id: "tsk_b" })
-        .run(),
-    ).toThrow(/UNIQUE/);
+    expect(
+      refusal(() =>
+        db
+          .insert(tasks)
+          .values({ ...row, id: "tsk_b" })
+          .run(),
+      ),
+    ).toMatch(/UNIQUE/);
   });
 
   it("adds only the items picked, and reports the rest as still to add", async () => {

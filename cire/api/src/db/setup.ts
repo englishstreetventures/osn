@@ -637,7 +637,7 @@ export function createDb(path: string = ":memory:") {
   // One transaction: on a file every autocommitted statement writes and syncs
   // its own journal, about a hundred of them; in memory it costs nothing.
   sqlite.transaction(() => sqlite.exec(DDL))();
-  return drizzle(sqlite, { schema });
+  return drizzle({ client: sqlite });
 }
 
 // The precise sync-only shape createDb() returns — narrower than the

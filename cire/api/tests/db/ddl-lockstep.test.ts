@@ -6,7 +6,7 @@ import { join } from "node:path";
 import * as cireSchema from "@cire/db";
 import { is } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
-import { getTableConfig, SQLiteSyncDialect, SQLiteTable } from "drizzle-orm/sqlite-core";
+import { getTableConfig, SQLiteDialect, SQLiteTable } from "drizzle-orm/sqlite-core";
 
 import { DDL } from "../../src/db/setup";
 
@@ -255,7 +255,7 @@ function applyMirrorDdl(): Database {
 
 // ── Drizzle schema (cire/db/src/schema.ts) → TableShape ─────────────────────
 
-const dialect = new SQLiteSyncDialect();
+const dialect = new SQLiteDialect();
 
 const sqlLiteral = (value: unknown): string => {
   if (typeof value === "string") return `'${value.replaceAll("'", "''")}'`;

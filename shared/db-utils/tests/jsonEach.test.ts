@@ -16,7 +16,7 @@ import { Database } from "bun:sqlite";
 
 import { getTableColumns, inArray, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { blob, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, it } from "vitest";
 
 import { insertManyViaJsonEach, jsonEachIn } from "../src/jsonEach";
@@ -38,12 +38,19 @@ const guardTable = sqliteTable("guard_rows", {
   count: integer("count"),
 });
 
+/** A buffer blob cannot ride inside the JSON payload, so its table gets its
+ *  own fixture rather than a column on `guardTable`. */
+const blobTable = sqliteTable("blob_rows", {
+  id: text("id").primaryKey(),
+  payload: blob("payload", { mode: "buffer" }),
+});
+
 function makeDb() {
   const sqlite = new Database(":memory:");
   sqlite.run(
     "CREATE TABLE widgets (id TEXT PRIMARY KEY, label TEXT NOT NULL, owner_id TEXT, created_at INTEGER NOT NULL)",
   );
-  return drizzle(sqlite, { schema: { widgets } });
+  return drizzle({ client: sqlite });
 }
 
 describe("jsonEachIn", () => {
@@ -226,6 +233,12 @@ describe("insertManyViaJsonEach guards", () => {
         { id: "a", label: "one", count: Number.MAX_SAFE_INTEGER + 2 },
       ] as never),
     ).toThrow(/outside ±2\^53/);
+  });
+
+  it("throws on a buffer blob column, which the JSON payload cannot carry", () => {
+    expect(() =>
+      insertManyViaJsonEach(blobTable, [{ id: "a", payload: Buffer.from([1, 2]) }]),
+    ).toThrow(/is a blob column/);
   });
 
   it("accepts an integer at the edge of the safe range", () => {

@@ -98,7 +98,7 @@
     "yaml": "^2.9.0"
   },
   "patchedDependencies": {
-    "drizzle-orm@0.45.2": "patches/drizzle-orm@0.45.2.patch",
-    "@stryker-mutator/vitest-runner@10.0.0": "patches/@stryker-mutator%2Fvitest-runner@10.0.0.patch"
+    "@stryker-mutator/vitest-runner@10.0.0": "patches/@stryker-mutator%2Fvitest-runner@10.0.0.patch",
+    "drizzle-orm@1.0.0-rc.4": "patches/drizzle-orm@1.0.0-rc.4.patch"
   }
 }

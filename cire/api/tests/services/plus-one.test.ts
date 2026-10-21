@@ -410,7 +410,7 @@ describe("plusOneService.save — a household rename", () => {
     // before the writes.
     const client = db.$client;
     const prepare = client.prepare.bind(client);
-    Object.defineProperty(client, "prepare", {
+    Object.defineProperty(client, "query", {
       configurable: true,
       value: (sql: string) => {
         if (sql.startsWith('update "rsvps"')) prepare("delete from guests where id = ?").run(samId);
@@ -433,7 +433,7 @@ describe("plusOneService.save — a household rename", () => {
     const client = db.$client;
     const prepare = client.prepare.bind(client);
     let raced = false;
-    Object.defineProperty(client, "prepare", {
+    Object.defineProperty(client, "query", {
       configurable: true,
       value: (sql: string) => {
         if (!raced && (sql.startsWith('update "rsvps"') || sql.startsWith('update "guests"'))) {
@@ -574,7 +574,7 @@ describe("plusOneService.save — the rules change after the lookup, before the 
     const client = db.$client;
     const prepare = client.prepare.bind(client);
     let staged = false;
-    Object.defineProperty(client, "prepare", {
+    Object.defineProperty(client, "query", {
       configurable: true,
       value: (sql: string) => {
         if (!staged && sql.startsWith('insert into "guests"')) {
@@ -1005,7 +1005,7 @@ describe("plusOneService — a plus-one named after the lookup, before the write
     const client = db.$client;
     const prepare = client.prepare.bind(client);
     let staged = false;
-    Object.defineProperty(client, "prepare", {
+    Object.defineProperty(client, "query", {
       configurable: true,
       value: (sql: string) => {
         if (!staged && sql.startsWith('update "guests" set "plus_one_allowed"')) {
@@ -1537,7 +1537,7 @@ describe("plusOneService — the RSVP change log", () => {
     const client = db.$client;
     const prepare = client.prepare.bind(client);
     let raced = false;
-    Object.defineProperty(client, "prepare", {
+    Object.defineProperty(client, "query", {
       configurable: true,
       value: (sql: string) => {
         if (!raced && sql.startsWith('insert into "rsvp_changes"')) {
@@ -1559,7 +1559,7 @@ describe("plusOneService — the RSVP change log", () => {
     const client = db.$client;
     const prepare = client.prepare.bind(client);
     let raced = false;
-    Object.defineProperty(client, "prepare", {
+    Object.defineProperty(client, "query", {
       configurable: true,
       value: (sql: string) => {
         if (!raced && sql.startsWith('insert into "rsvp_changes"')) {

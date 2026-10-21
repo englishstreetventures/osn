@@ -19,7 +19,7 @@ import {
   OrgAlreadyHasListing,
 } from "../../src/services/directory";
 import { VendorNotInWedding } from "../../src/services/vendors";
-import { recordStatements } from "../test-helpers";
+import { refusal, recordStatements } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
 
 const OTHER_WEDDING = "wed_other";
@@ -185,7 +185,7 @@ describe("directoryService.upsertListingForOrg", () => {
     // Another org takes the listing after this save has found it by owner.
     const client = db.$client;
     const prepare = client.prepare.bind(client);
-    Object.defineProperty(client, "prepare", {
+    Object.defineProperty(client, "query", {
       configurable: true,
       value: (sql: string) => {
         if (/^update "directory_vendors"/i.test(sql)) {
@@ -659,7 +659,7 @@ function interceptBeforeBind(db: ReturnType<typeof createDb>, effect: () => unkn
   const client = db.$client;
   const prepare = client.prepare.bind(client);
   let fired = false;
-  Object.defineProperty(client, "prepare", {
+  Object.defineProperty(client, "query", {
     configurable: true,
     value: (sql: string) => {
       if (!fired && /^update "directory_vendors"/i.test(sql)) {
@@ -916,7 +916,7 @@ describe("directoryService.consumeClaim", () => {
     // call's burn runs, and the burn's `consumed_at IS NULL` refuses it.
     const client = db.$client;
     const prepare = client.prepare.bind(client);
-    Object.defineProperty(client, "prepare", {
+    Object.defineProperty(client, "query", {
       configurable: true,
       value: (sql: string) => {
         if (/^update "vendor_claims"/i.test(sql)) {
@@ -1122,7 +1122,7 @@ describe("directoryService.consumeClaim", () => {
       const { db, claimToken } = await seeded();
       const client = db.$client;
       const prepare = client.prepare.bind(client);
-      Object.defineProperty(client, "prepare", {
+      Object.defineProperty(client, "query", {
         configurable: true,
         value: (sql: string) => {
           if (/^select "vendor_claims"\."consumed_at"/i.test(sql)) {
@@ -1233,9 +1233,9 @@ describe("directoryService.consumeClaim", () => {
       .values([row("dv_n1", null), row("dv_n2", null)])
       .run();
     db.insert(directoryVendors).values(row("dv_o1", "org_one")).run();
-    expect(() => db.insert(directoryVendors).values(row("dv_o2", "org_one")).run()).toThrow(
-      /UNIQUE constraint failed/,
-    );
+    expect(
+      refusal(() => db.insert(directoryVendors).values(row("dv_o2", "org_one")).run()),
+    ).toMatch(/UNIQUE constraint failed/);
   });
 
   it("a listing already pending fails ClaimInvalid and does not burn the token", async () => {
@@ -1277,7 +1277,7 @@ describe("directoryService.consumeClaim", () => {
       updatedAt: new Date(),
     });
     db.insert(directoryVendors).values(row("dv_p1")).run();
-    expect(() => db.insert(directoryVendors).values(row("dv_p2")).run()).toThrow(
+    expect(refusal(() => db.insert(directoryVendors).values(row("dv_p2")).run())).toMatch(
       /UNIQUE constraint failed/,
     );
   });

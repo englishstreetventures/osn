@@ -16,6 +16,7 @@ import {
   setSampleRsvpDeadline,
   type TestDb,
 } from "../../src/db/setup";
+import { refusal } from "../test-helpers";
 
 describe("multi-tenant schema", () => {
   it("seeds a bootstrap wedding and scopes families/events to it", () => {
@@ -47,19 +48,21 @@ describe("multi-tenant schema", () => {
   it("rejects a family pointing at a missing wedding", () => {
     const db = createDb();
     seedDb(db);
-    expect(() =>
-      db
-        .insert(schema.families)
-        .values({
-          id: "fam_orphan",
-          weddingId: "wed_does_not_exist",
-          publicId: "ORPHAN-1",
-          familyName: "Orphan",
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .run(),
-    ).toThrow(/FOREIGN KEY/i);
+    expect(
+      refusal(() =>
+        db
+          .insert(schema.families)
+          .values({
+            id: "fam_orphan",
+            weddingId: "wed_does_not_exist",
+            publicId: "ORPHAN-1",
+            familyName: "Orphan",
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .run(),
+      ),
+    ).toMatch(/FOREIGN KEY/i);
   });
 
   it("cascades wedding delete to families", () => {

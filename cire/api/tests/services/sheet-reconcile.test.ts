@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { imports } from "@cire/db";
 import { sql } from "drizzle-orm";
-import { getTableConfig, SQLiteSyncDialect } from "drizzle-orm/sqlite-core";
+import { getTableConfig, SQLiteDialect } from "drizzle-orm/sqlite-core";
 import { Effect, Exit } from "effect";
 
 import { DbService } from "../../src/db";
@@ -187,7 +187,7 @@ describe("sheet reconciliation settings", () => {
     expect(written.every((key) => key.startsWith(SHEETS_PREFIX))).toBe(true);
     const longest = written.toSorted((a, b) => b.length - a.length)[0]!;
     const keys = Array.from({ length: SHEET_LIST_LIMITS.maxObjects + 1 }, () => longest);
-    const { params } = new SQLiteSyncDialect().sqlToQuery(namedSheetKeysQuery(keys));
+    const { params } = new SQLiteDialect().sqlToQuery(namedSheetKeysQuery(keys));
     expect(params).toHaveLength(1);
     expect(new TextEncoder().encode(params[0] as string).length).toBeLessThan(100_000);
   });
@@ -216,7 +216,7 @@ describe("sheet reconciliation settings", () => {
 
   it("counts and matches imports in one scan, never per row", () => {
     const db = createDb(":memory:");
-    const { sql: text, params } = new SQLiteSyncDialect().sqlToQuery(
+    const { sql: text, params } = new SQLiteDialect().sqlToQuery(
       namedSheetKeysQuery(["imports/a/events.csv", "imports/b/guests.csv"]),
     );
     const plan = db.$client
@@ -234,7 +234,7 @@ describe("sheet reconciliation settings", () => {
       .columns.map((c) => c.name)
       .filter((name) => name.endsWith("r2_key"))
       .toSorted();
-    const { sql: text } = new SQLiteSyncDialect().sqlToQuery(namedSheetKeysQuery([]));
+    const { sql: text } = new SQLiteDialect().sqlToQuery(namedSheetKeysQuery([]));
     const matched = [...text.matchAll(/"imports"\."(\w+)" IN listed/g)].map((m) => m[1]).toSorted();
     const array = /json_array\(([^)]*)\)/.exec(text)?.[1] ?? "";
     const selected = [...array.matchAll(/"imports"\."(\w+)"/g)].map((m) => m[1]).toSorted();

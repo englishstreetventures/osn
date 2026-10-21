@@ -2,7 +2,6 @@ import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
 import { join } from "node:path";
 
-import * as schema from "@cire/db";
 import { hashRecoveryCode } from "@shared/crypto/recovery";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Effect } from "effect";
@@ -120,7 +119,7 @@ describe("unlockCodeToSql", () => {
       created_at: Math.floor(NOW.getTime() / 1000),
     });
 
-    const db = drizzle(sqlite, { schema });
+    const db = drizzle({ client: sqlite });
     const outcome = await Effect.runPromise(
       unlockCodeService
         .redeem({

@@ -20,7 +20,7 @@ import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { Context, Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { createDrizzleClient, makeDbLive, type Db } from "../src/index";
+import { createDrizzleClient, driverErrorText, makeDbLive, type Db } from "../src/index";
 
 const parents = sqliteTable("parents", {
   id: text("id").primaryKey(),
@@ -32,8 +32,6 @@ const children = sqliteTable("children", {
     .notNull()
     .references(() => parents.id),
 });
-
-const schema = { parents, children };
 
 const DDL = [
   "CREATE TABLE parents (id TEXT PRIMARY KEY)",
@@ -57,7 +55,7 @@ afterEach(() => {
 
 describe("createDrizzleClient", () => {
   it("turns foreign-key enforcement on", async () => {
-    const db = await createDrizzleClient(dbPath, schema);
+    const db = await createDrizzleClient(dbPath);
 
     const pragma = await db.all<{ foreign_keys: number }>(sql`PRAGMA foreign_keys`);
 
@@ -65,25 +63,30 @@ describe("createDrizzleClient", () => {
   });
 
   it("rejects a write that orphans a row", async () => {
-    const db = await createDrizzleClient(dbPath, schema);
+    const db = await createDrizzleClient(dbPath);
 
-    expect(() => db.insert(children).values({ id: "c1", parentId: "missing" }).run()).toThrow(
-      /FOREIGN KEY constraint failed/,
-    );
+    let thrown: unknown;
+    try {
+      db.insert(children).values({ id: "c1", parentId: "missing" }).run();
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(driverErrorText(thrown)).toMatch(/FOREIGN KEY constraint failed/);
   });
 
   it("creates the database file when none exists at the path", async () => {
     const freshPath = join(dir, "fresh.db");
     expect(existsSync(freshPath)).toBe(false);
 
-    const db = await createDrizzleClient(freshPath, schema);
+    const db = await createDrizzleClient(freshPath);
     await db.run(sql`CREATE TABLE parents (id TEXT PRIMARY KEY)`);
 
     expect(existsSync(freshPath)).toBe(true);
   });
 
   it("writes to the file at the path it was given", async () => {
-    const db = await createDrizzleClient(dbPath, schema);
+    const db = await createDrizzleClient(dbPath);
     await db.insert(parents).values({ id: "p1" }).run();
 
     const reader = new Database(dbPath, { readonly: true });
@@ -95,9 +98,7 @@ describe("createDrizzleClient", () => {
 });
 
 describe("makeDbLive", () => {
-  class TestDb extends Context.Service<TestDb, { readonly db: Db<typeof schema> }>()(
-    "db-utils/tests/TestDb",
-  ) {}
+  class TestDb extends Context.Service<TestDb, { readonly db: Db }>()("db-utils/tests/TestDb") {}
 
   it("builds a layer whose handle enforces foreign keys", async () => {
     const program = Effect.gen(function* () {
@@ -108,7 +109,7 @@ describe("makeDbLive", () => {
     });
 
     const pragma = await Effect.runPromise(
-      program.pipe(Effect.provide(makeDbLive(TestDb, () => dbPath, schema))),
+      program.pipe(Effect.provide(makeDbLive(TestDb, () => dbPath))),
     );
 
     expect(pragma).toEqual([{ foreign_keys: 1 }]);

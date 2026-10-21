@@ -30,13 +30,13 @@
     "db:reset:dev": "bash ../../scripts/cire-db-reset.sh --dev"
   },
   "dependencies": {
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "1.0.0-rc.4",
     "effect": "4.0.3"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",
     "better-sqlite3": "^13.0.3",
-    "drizzle-kit": "^0.31.10"
+    "drizzle-kit": "1.0.0-rc.4"
   }
 }

@@ -1,23 +1,9 @@
 import type { D1Database } from "@cloudflare/workers-types";
-import type { Relations } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
-import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
+import type { SQLiteBunDatabase } from "drizzle-orm/bun-sqlite";
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
-import type { BaseSQLiteDatabase, SQLiteTable, SQLiteView } from "drizzle-orm/sqlite-core";
+import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core";
 import { Effect, Layer, type Context } from "effect";
-
-/**
- * A Drizzle schema — the `import * as schema from "./schema"` namespace each DB
- * package (`@osn/db`, `@pulse/db`, `@zap/db`) hands to the constructors below.
- * Its runtime exports are tables, views and relations blocks; the
- * `$inferSelect` / `$inferInsert` aliases sitting beside them are types and
- * disappear at runtime, so they never reach this map.
- *
- * Drizzle's own constraint on the schema generic is `Record<string, unknown>`,
- * which promises a caller nothing. Naming the three things a schema can hold
- * keeps the constraint assignable to Drizzle's while still saying what belongs.
- */
-export type DrizzleSchema = Record<string, SQLiteTable | SQLiteView | Relations>;
 
 /**
  * The Drizzle handle threaded through every service, broadened over both SQLite
@@ -32,12 +18,16 @@ export type DrizzleSchema = Record<string, SQLiteTable | SQLiteView | Relations>
  * via `Effect.tryPromise` / `dbQuery`). Awaiting a synchronous bun:sqlite result
  * is a harmless no-op; D1 returns a real Promise. `unknown` for the run-result
  * type covers bun's `void` and D1's `D1Result`.
+ *
+ * It carries no schema: queries name their tables directly, and drizzle's
+ * relational query API (`db.query.*`) is unused here, so a schema type
+ * parameter would promise a check nothing performs.
  */
-export type Db<S extends DrizzleSchema> = BaseSQLiteDatabase<"sync" | "async", unknown, S>;
+export type Db = SQLiteAsyncDatabase<"sync" | "async", unknown>;
 
 /**
  * Construct a bun:sqlite-backed Drizzle client. Used by the `local` environment
- * only (dev servers and seeds, through `makeDbLive`). The concrete {@link BunSQLiteDatabase} is
+ * only (dev servers and seeds, through `makeDbLive`). The concrete {@link SQLiteBunDatabase} is
  * assignable to the broadened {@link Db}, so call sites stay portable to D1.
  *
  * `drizzle-orm/bun-sqlite` is imported **dynamically** so neither it nor the
@@ -55,10 +45,7 @@ export type Db<S extends DrizzleSchema> = BaseSQLiteDatabase<"sync" | "async", u
  * another), so drizzle opens the database from the path itself. The `drizzle-orm/bun-sqlite` type import at the top is
  * safe there only because `skipLibCheck` skips that package's `.d.ts`.
  */
-export async function createDrizzleClient<S extends DrizzleSchema>(
-  dbPath: string,
-  schema: S,
-): Promise<BunSQLiteDatabase<S>> {
+export async function createDrizzleClient(dbPath: string): Promise<SQLiteBunDatabase> {
   // An indirect (non-literal) specifier so esbuild/wrangler cannot statically
   // resolve it and leaves it as a runtime import instead of pulling
   // `bun:sqlite` (Bun-only, unresolvable in workerd) into the Worker bundle.
@@ -66,10 +53,7 @@ export async function createDrizzleClient<S extends DrizzleSchema>(
   // Workers, so the runtime import never fires there.
   const bunSqliteDriver = "drizzle-orm/bun-sqlite";
   const { drizzle } = (await import(bunSqliteDriver)) as typeof import("drizzle-orm/bun-sqlite");
-  // `<S>` pins the client type to drizzle's default. Under Worker types the
-  // `bun:sqlite` declaration is absent, and without it the client type would
-  // be inferred from the path argument as `string`.
-  const db = drizzle<S>(dbPath, { schema });
+  const db = drizzle(dbPath);
   // SQLite defaults `foreign_keys` to OFF, so every reference declared in the
   // schema is unenforced on Bun while D1 enforces them. That makes the cheap,
   // fast environment the permissive one: a statement that orphans a row, or
@@ -81,7 +65,7 @@ export async function createDrizzleClient<S extends DrizzleSchema>(
   return db;
 }
 
-export function makeDbLive<S extends DrizzleSchema, A extends { readonly db: Db<S> }>(
+export function makeDbLive<A extends { readonly db: Db }>(
   tag: Context.Key<any, A>,
   // Accepts a thunk so a caller whose path derivation is Bun-only (e.g.
   // `fileURLToPath(import.meta.url)`, which throws on workerd where
@@ -89,14 +73,13 @@ export function makeDbLive<S extends DrizzleSchema, A extends { readonly db: Db<
   // Workers runtime `DbLive` is imported as a value but its layer is never
   // built (the entry uses `makeD1DbLive`), so the thunk never runs there.
   dbPath: string | (() => string),
-  schema: S,
 ) {
   return Layer.effect(
     tag,
     Effect.promise(
       async () =>
         ({
-          db: await createDrizzleClient(typeof dbPath === "function" ? dbPath() : dbPath, schema),
+          db: await createDrizzleClient(typeof dbPath === "function" ? dbPath() : dbPath),
         }) as A,
     ),
   );
@@ -108,8 +91,8 @@ export function makeDbLive<S extends DrizzleSchema, A extends { readonly db: Db<
  * only exists on `env` inside `fetch`. Drives the `dev` / `staging` / `prod`
  * environments.
  */
-export function createD1Db<S extends DrizzleSchema>(d1: D1Database, schema: S): Db<S> {
-  return drizzleD1(d1, { schema });
+export function createD1Db(d1: D1Database): Db {
+  return drizzleD1(d1);
 }
 
 /**
@@ -117,12 +100,8 @@ export function createD1Db<S extends DrizzleSchema>(d1: D1Database, schema: S): 
  * of {@link makeDbLive} so Workers entry points can swap drivers with a one-line
  * change (`makeDbLive(...)` → `makeD1DbLive(...)`).
  */
-export function makeD1DbLive<S extends DrizzleSchema>(
-  tag: Context.Key<any, { readonly db: Db<S> }>,
-  d1: D1Database,
-  schema: S,
-) {
-  return Layer.succeed(tag, { db: createD1Db(d1, schema) });
+export function makeD1DbLive(tag: Context.Key<any, { readonly db: Db }>, d1: D1Database) {
+  return Layer.succeed(tag, { db: createD1Db(d1) });
 }
 
 /**
@@ -167,14 +146,11 @@ type Batchable = {
  * no such method), so the check is a real property probe rather than a claim
  * about the type.
  */
-function supportsBatch<S extends DrizzleSchema>(db: Db<S>): db is Db<S> & Batchable {
+function supportsBatch(db: Db): db is Db & Batchable {
   return "batch" in db && typeof db.batch === "function";
 }
 
-export async function commitBatch<S extends DrizzleSchema>(
-  db: Db<S>,
-  statements: BatchItem<"sqlite">[],
-): Promise<void> {
+export async function commitBatch(db: Db, statements: BatchItem<"sqlite">[]): Promise<void> {
   if (statements.length === 0) return;
   if (supportsBatch(db)) {
     // Non-empty by the guard above; TS can't narrow an array's length.
@@ -188,6 +164,32 @@ export async function commitBatch<S extends DrizzleSchema>(
     (chain, stmt) => chain.then(() => stmt),
     Promise.resolve<unknown>(undefined),
   );
+}
+
+/**
+ * The text of a failed query as the database gave it: the error's message and
+ * the message of every `cause` beneath it, one per line. For code that tells
+ * one constraint failure from another by its wording.
+ *
+ * The database's reason is not always on the outer error. A failed D1
+ * `batch()` throws it directly; a failed single statement, on D1 or on
+ * bun:sqlite, reaches the caller as drizzle's `DrizzleQueryError`, whose
+ * message names only the statement (`Failed query: …`) and whose `cause`
+ * carries `UNIQUE constraint failed: …`. Reading `error.message` alone misses
+ * that case. The repository's drizzle-orm patch keeps bound values out of every
+ * message here, so the text is safe to log.
+ */
+export function driverErrorText(error: unknown): string {
+  const lines: string[] = [];
+  let current: unknown = error;
+  // Read by shape, not `instanceof Error`: an error built in another realm
+  // (Miniflare's workerd) is still an error. Bounded, so a cause chain that
+  // loops back on itself still ends.
+  for (let depth = 0; depth < 8 && typeof current === "object" && current !== null; depth++) {
+    if ("message" in current && typeof current.message === "string") lines.push(current.message);
+    current = "cause" in current ? current.cause : undefined;
+  }
+  return lines.join("\n");
 }
 
 /**

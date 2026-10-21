@@ -12,7 +12,7 @@ function createTestDb() {
   // uniqueness tests below must fail when a `.unique()` is dropped from
   // src/schema, which a local CREATE TABLE string can never detect.
   applySchema(sqlite);
-  return drizzle(sqlite, { schema });
+  return drizzle({ client: sqlite });
 }
 
 describe("accounts schema", () => {
@@ -36,7 +36,9 @@ describe("accounts schema", () => {
         createdAt: now,
         updatedAt: now,
       }),
-    ).rejects.toThrow(/UNIQUE constraint failed/);
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringMatching(/UNIQUE constraint failed/) },
+    });
   });
 });
 
@@ -77,7 +79,9 @@ describe("users schema", () => {
         createdAt: now,
         updatedAt: now,
       }),
-    ).rejects.toThrow(/UNIQUE constraint failed/);
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringMatching(/UNIQUE constraint failed/) },
+    });
   });
 });
 
@@ -110,7 +114,9 @@ describe("passkeys schema", () => {
         counter: 0,
         createdAt: now,
       }),
-    ).rejects.toThrow(/UNIQUE constraint failed/);
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringMatching(/UNIQUE constraint failed/) },
+    });
   });
 });
 
@@ -126,7 +132,9 @@ describe("service_accounts schema", () => {
     await db.insert(schema.serviceAccounts).values({ serviceId: "svc-a", ...base });
     await expect(
       db.insert(schema.serviceAccounts).values({ serviceId: "svc-a", ...base }),
-    ).rejects.toThrow(/UNIQUE constraint failed/);
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringMatching(/UNIQUE constraint failed/) },
+    });
   });
 });
 
@@ -153,6 +161,8 @@ describe("service_account_keys schema", () => {
     await db.insert(schema.serviceAccountKeys).values({ keyId: "dup-key", ...base });
     await expect(
       db.insert(schema.serviceAccountKeys).values({ keyId: "dup-key", ...base }),
-    ).rejects.toThrow(/UNIQUE constraint failed/);
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringMatching(/UNIQUE constraint failed/) },
+    });
   });
 });
