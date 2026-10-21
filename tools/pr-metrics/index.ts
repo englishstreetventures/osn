@@ -686,11 +686,9 @@ export interface RequestSummary {
   context_p90: number;
 }
 
-/** Nearest-rank percentile of an unsorted list; 0 for an empty one. */
-function nearestRank(values: number[], p: number): number {
-  if (values.length === 0) return 0;
-
-  const sorted = values.toSorted((a, b) => a - b);
+/** Nearest-rank percentile of an ascending list; 0 for an empty one. */
+function nearestRank(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
 
   return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)];
 }
@@ -726,17 +724,29 @@ export function aggregateRequests(records: SessionRecord[]): RequestSummary {
     });
   }
 
-  const all = [...calls.values()];
-  const contexts = all.map((call) => call.context);
-
-  return {
-    main: all.filter((call) => !call.sidechain).length,
-    subagent: all.filter((call) => call.sidechain).length,
-    with_tools: all.filter((call) => call.tools > 0).length,
-    with_one_tool: all.filter((call) => call.tools === 1).length,
-    context_median: nearestRank(contexts, 0.5),
-    context_p90: nearestRank(contexts, 0.9),
+  const summary: RequestSummary = {
+    main: 0,
+    subagent: 0,
+    with_tools: 0,
+    with_one_tool: 0,
+    context_median: 0,
+    context_p90: 0,
   };
+  const contexts: number[] = [];
+
+  for (const call of calls.values()) {
+    if (call.sidechain) summary.subagent += 1;
+    else summary.main += 1;
+    if (call.tools > 0) summary.with_tools += 1;
+    if (call.tools === 1) summary.with_one_tool += 1;
+    contexts.push(call.context);
+  }
+
+  const sorted = contexts.toSorted((a, b) => a - b);
+  summary.context_median = nearestRank(sorted, 0.5);
+  summary.context_p90 = nearestRank(sorted, 0.9);
+
+  return summary;
 }
 
 /**
@@ -2234,15 +2244,19 @@ export function summariseReviews(
 ): ReviewSummary | null {
   const fs = require("node:fs") as typeof import("node:fs");
 
-  const forkPoint = gitStatus(root, ["merge-base", base, "HEAD"]);
-  if (!forkPoint.ok) return null;
+  const reports: { text: string; written: number }[] = [];
+  for (const file of files) {
+    try {
+      const text = fs.readFileSync(file, "utf8");
+      reports.push({ text, written: Math.floor(fs.statSync(file).mtimeMs / 1000) });
+    } catch {
+      // Absent: that review did not run, or its worktree has gone.
+    }
+  }
+  // No report, no git: the common case on a branch nobody has reviewed yet.
+  if (reports.length === 0) return null;
 
-  const commits = gitStatus(root, [
-    "log",
-    "--first-parent",
-    "--format=%H %at %ct",
-    `${forkPoint.out.trim()}..HEAD`,
-  ])
+  const commits = gitStatus(root, ["log", "--first-parent", "--format=%H %at %ct", `${base}..HEAD`])
     .out.split("\n")
     .filter(Boolean)
     .map((line) => {
@@ -2250,39 +2264,6 @@ export function summariseReviews(
 
       return { sha, at: Number.parseInt(at, 10), ct: Number.parseInt(ct, 10) };
     });
-
-  const lengths = new Map<string, number | null>();
-  const fileLength = (sha: string, path: string): number | null => {
-    const key = `${sha}:${path}`;
-    if (!lengths.has(key)) {
-      const shown = gitStatus(root, ["show", `${sha}:${path}`]);
-      lengths.set(
-        key,
-        shown.ok ? shown.out.split("\n").length - (shown.out.endsWith("\n") ? 1 : 0) : null,
-      );
-    }
-
-    return lengths.get(key) ?? null;
-  };
-
-  const diffs = new Map<string, [number, number][]>();
-  const rangesFor = (sha: string, path: string): [number, number][] => {
-    const key = `${sha}:${path}`;
-    if (!diffs.has(key)) {
-      const diff = gitStatus(root, [
-        "diff",
-        "-U0",
-        "--no-renames",
-        sha,
-        "HEAD",
-        "--",
-        `:(top)${path}`,
-      ]);
-      diffs.set(key, changedRanges(diff.out));
-    }
-
-    return diffs.get(key) ?? [];
-  };
 
   const summary: ReviewSummary = {
     reports: 0,
@@ -2294,16 +2275,7 @@ export function summariseReviews(
     control_changed: 0,
   };
 
-  for (const file of files) {
-    let text: string;
-    let written: number;
-    try {
-      text = fs.readFileSync(file, "utf8");
-      written = Math.floor(fs.statSync(file).mtimeMs / 1000);
-    } catch {
-      continue;
-    }
-
+  for (const { text, written } of reports) {
     const baseline = commits.find((commit) => commit.at <= written);
     if (baseline === undefined) continue;
     // The newest commit, written before the review but committed after it:
@@ -2314,32 +2286,115 @@ export function summariseReviews(
 
     summary.reports += 1;
 
-    for (const issue of parseFindings(text)) {
-      summary.findings += 1;
-      if (issue === null) continue;
+    const issues = parseFindings(text);
+    const candidates = issues.map((issue) => (issue === null ? [] : locationsIn(issue, root)));
+    const lengths = lineCounts(
+      root,
+      baseline.sha,
+      candidates.flat().map(({ path }) => path),
+    );
 
-      const location = locationsIn(issue, root).find(({ path, line }) => {
-        const length = fileLength(baseline.sha, path);
+    const located = candidates.map((options) =>
+      options.find(({ path, line }) => {
+        const length = lengths.get(path);
 
-        return length !== null && line >= 1 && line <= length;
-      });
+        return length !== undefined && line >= 1 && line <= length;
+      }),
+    );
+    const ranges = changedRangesByPath(
+      root,
+      baseline.sha,
+      located.flatMap((location) => (location ? [location.path] : [])),
+    );
+
+    summary.findings += issues.length;
+
+    for (const location of located) {
       if (location === undefined) continue;
 
       summary.located += 1;
-      const ranges = rangesFor(baseline.sha, location.path);
-      const acted = windowTouched(ranges, location.line);
+      const changed = ranges.get(location.path) ?? [];
+      const acted = windowTouched(changed, location.line);
       if (acted) summary.acted_on += 1;
 
-      const control = controlLine(location.line, fileLength(baseline.sha, location.path) ?? 0);
+      const control = controlLine(location.line, lengths.get(location.path) ?? 0);
       if (control === null) continue;
 
       summary.paired += 1;
       if (acted) summary.acted_on_paired += 1;
-      if (windowTouched(ranges, control)) summary.control_changed += 1;
+      if (windowTouched(changed, control)) summary.control_changed += 1;
     }
   }
 
   return summary.reports > 0 ? summary : null;
+}
+
+/** Each path's line count at `sha`, from one `cat-file --batch`; a path absent
+ * there has no entry. */
+function lineCounts(root: string, sha: string, paths: string[]): Map<string, number> {
+  const unique = [...new Set(paths)];
+  const counts = new Map<string, number>();
+  if (unique.length === 0) return counts;
+
+  const result = Bun.spawnSync(["git", "-C", root, "cat-file", "--batch"], {
+    stdin: Buffer.from(unique.map((path) => `${sha}:${path}\n`).join("")),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (!result.success) return counts;
+
+  // Each answer is `<oid> <type> <size>\n<size bytes>\n`, or `<input> missing\n`.
+  const out = result.stdout;
+  let at = 0;
+  for (const path of unique) {
+    const end = out.indexOf(10, at);
+    if (end < 0) break;
+
+    const header = out.subarray(at, end).toString().split(" ");
+    at = end + 1;
+    if (header.length !== 3 || header[1] !== "blob") continue;
+
+    const size = Number.parseInt(header[2], 10);
+    const body = out.subarray(at, at + size);
+    at += size + 1;
+
+    let lines = 0;
+    for (const byte of body) if (byte === 10) lines += 1;
+    if (size > 0 && body[size - 1] !== 10) lines += 1;
+    counts.set(path, lines);
+  }
+
+  return counts;
+}
+
+/** Old-side changed ranges per path between `sha` and HEAD, from one diff. */
+function changedRangesByPath(
+  root: string,
+  sha: string,
+  paths: string[],
+): Map<string, [number, number][]> {
+  const unique = [...new Set(paths)];
+  const ranges = new Map<string, [number, number][]>();
+  if (unique.length === 0) return ranges;
+
+  const diff = gitStatus(root, [
+    "diff",
+    "-U0",
+    "--no-renames",
+    sha,
+    "HEAD",
+    "--",
+    ...unique.map((path) => `:(top)${path}`),
+  ]);
+
+  // Every path here existed at `sha`, so each file's section names it on its
+  // `--- a/` line, deleted files included.
+  for (const section of diff.out.split(/^diff --git /m)) {
+    const old = /^--- a\/(.+)$/m.exec(section);
+    if (old) ranges.set(old[1], changedRanges(section));
+  }
+
+  return ranges;
 }
 
 /** One `gh` invocation's stdout, or `null` where `gh` is missing, unauthenticated
@@ -2664,13 +2719,22 @@ if (import.meta.main) {
   // first run that reads them is the record: a later refresh finds none, or a
   // report rewritten since, and must not replace that record. Only a run that
   // names its reports explicitly does.
+  //
+  // The `--if-absent` fallback never reads them. It fires when a session ends,
+  // which can fall between the reviews and the commits that fix what they
+  // found; counted then, every finding reads as not acted on, and the rule
+  // above would keep that figure. `retro` runs after the fixes.
   const namedReports = flag("review-reports");
   const root = repoRoot();
   const reportFiles = (namedReports?.split(",").filter(Boolean) ?? DEFAULT_REVIEW_REPORTS).map(
     (file) => (file.startsWith("/") ? file : `${root}/${file}`),
   );
-  const freshReview = summariseReviews(root, base, reportFiles);
-  const review = namedReports !== null ? freshReview : (existing?.review ?? freshReview);
+  const review =
+    namedReports === null && existing?.review != null
+      ? existing.review
+      : Bun.argv.includes("--if-absent")
+        ? null
+        : summariseReviews(root, base, reportFiles);
 
   const card = buildCard(records, diff, {
     branch,

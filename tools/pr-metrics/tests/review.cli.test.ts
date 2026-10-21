@@ -528,6 +528,21 @@ test(
   }),
 );
 
+// The fallback fires when a session ends, which can fall between the reviews
+// and the fixes; a figure recorded then would be kept by every later run.
+test(
+  "the --if-absent fallback records no review, so the later run counts the fixes",
+  withFixture(async (f) => {
+    await f.report(REPORT, REPORT_WRITTEN);
+
+    const early = await f.card({ extra: ["--if-absent"] });
+    expect(early.card.review).toBeNull();
+
+    await editLine(f, 10, FIXED);
+    expect((await f.card()).card.review?.acted_on).toBe(1);
+  }),
+);
+
 test(
   "a later run keeps the recorded counts over a rewritten report unless told to read it",
   withFixture(async (f) => {

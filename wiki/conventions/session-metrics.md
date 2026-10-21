@@ -468,7 +468,9 @@ What the figure cannot say:
 
 - **It is a snapshot.** The reports are gitignored scratch and go with the
   worktree, so the first run that reads them is the record. A later run keeps
-  it unless it passes `--review-reports`, and `backfill` copies it.
+  it unless it passes `--review-reports`, and `backfill` copies it. The
+  `SessionEnd` fallback (`--if-absent`) never reads them: it can fire between
+  the reviews and the fixes, and a figure taken then would be kept.
 - **It measures what changed, not how good a finding was.** `prep-pr` fixes
   every in-scope finding, so a weak finding is changed as surely as a strong
   one. A finding moved to a follow-up pull request reads as not acted on.
