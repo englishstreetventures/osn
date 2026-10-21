@@ -27,8 +27,9 @@ import {
   RUN_SHEET_SCOPES,
   type RunSheetScope,
 } from "../lib/run-sheet-scope";
+import { markRunSheetStale } from "../lib/run-sheet-store";
 import { invalidateTasks, peekCachedTasks } from "../lib/tasks-store";
-import { type PaidTier, TIER_LABEL } from "../lib/tiers";
+import { type PaidTier, type Tier, TIER_LABEL, tierAtLeast } from "../lib/tiers";
 import {
   type AssignableRole,
   assignableRolesFor,
@@ -201,6 +202,10 @@ interface HostsPanelProps {
    *  seat — an owner stepping down. The parent patches the wedding's role, and
    *  every view re-derives what it offers from it, this panel included. */
   onOwnRoleChanged?: (role: WeddingRole) => void;
+  /** The wedding's plan tier. A helper sees only the run sheet, which comes
+   *  with Gold, so below it the role is still offered but says so. Absent
+   *  says nothing. */
+  tier?: Tier;
 }
 
 /**
@@ -220,6 +225,14 @@ export default function HostsPanel(props: HostsPanelProps) {
   const canManage = () => surfaces().canManage;
   /** The roles this caller may put on a seat — the dropdown and the explainers. */
   const grantable = () => assignableRolesFor(props.callerRole);
+  /** A helper's one surface, the run sheet, is a Gold module: below Gold the
+   *  role is still offered — the seat keeps until the wedding is upgraded —
+   *  but its name says what it waits for. */
+  const helperNeedsGold = () => props.tier !== undefined && !tierAtLeast(props.tier, "gold");
+  const roleLabel = (role: AssignableRole) =>
+    role === "helper" && helperNeedsGold()
+      ? `${ROLE_COPY.helper.label} (needs Gold)`
+      : ROLE_COPY[role].label;
   const isMe = (host: HostRow) => host.osnProfileId === activeProfileId();
   const [hosts, setHosts] = createSignal<HostRow[]>([]);
   const [loading, setLoading] = createSignal(true);
@@ -702,6 +715,8 @@ export default function HostsPanel(props: HostsPanelProps) {
       ) {
         invalidateTasks(props.weddingId);
       }
+      // The run sheet names the people holding its tasks.
+      markRunSheetStale(props.weddingId);
       invalidateHosts(props.weddingId);
       haptic("commit");
       toast.success(`Removed ${label}.`);
@@ -976,9 +991,12 @@ export default function HostsPanel(props: HostsPanelProps) {
               <For each={grantable()}>
                 {(option) => (
                   <div class="border-border bg-bg flex flex-1 flex-col gap-1 rounded-sm border p-3">
-                    <dt class="font-body text-text text-ui-base">{ROLE_COPY[option].label}</dt>
+                    <dt class="font-body text-text text-ui-base">{roleLabel(option)}</dt>
                     <dd class="font-body text-text-muted text-ui-sm leading-snug">
                       {ROLE_COPY[option].summary}
+                      {option === "helper" && helperNeedsGold()
+                        ? " The run sheet comes with Gold."
+                        : ""}
                     </dd>
                   </div>
                 )}
@@ -1191,7 +1209,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                         onChange={(e) => selectRole(host, e.currentTarget.value as AssignableRole)}
                       >
                         <For each={grantable()}>
-                          {(option) => <option value={option}>{ROLE_COPY[option].label}</option>}
+                          {(option) => <option value={option}>{roleLabel(option)}</option>}
                         </For>
                       </Select>
                       {/* No remove on your own row: stepping down is the select

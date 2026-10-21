@@ -463,6 +463,39 @@ describe("HostsPanel", () => {
     expect(options.map((o) => o.textContent)).toEqual(["Owner", "Editor", "Viewer", "Helper"]);
   });
 
+  it("names the helper role as needing Gold below Gold, and keeps offering it", async () => {
+    const hosts = [{ osnProfileId: "usr_bob", handle: "bob", role: "viewer", createdAt: 1 }];
+    authFetchMock.mockResolvedValueOnce(json({ hosts }));
+    render(() => <HostsPanel weddingId="wed_a" callerRole="owner" tier="ivory" />);
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+    const options = within(roleSelect("@bob")).getAllByRole("option") as HTMLOptionElement[];
+    expect(options.map((o) => o.textContent)).toEqual([
+      "Owner",
+      "Editor",
+      "Viewer",
+      "Helper (needs Gold)",
+    ]);
+    expect(options.at(-1)?.value).toBe("helper");
+    // The explainer says why, beside the role.
+    const explainers = screen.getByRole("group", { name: /What a co-host can do/i });
+    expect(within(explainers).getByText("Helper (needs Gold)")).toBeTruthy();
+    expect(explainers.textContent).toContain("The run sheet comes with Gold.");
+  });
+
+  it.each(["gold", "crimson", undefined] as const)(
+    "names the helper role plainly on %s",
+    async (tier) => {
+      const hosts = [{ osnProfileId: "usr_bob", handle: "bob", role: "viewer", createdAt: 1 }];
+      authFetchMock.mockResolvedValueOnce(json({ hosts }));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" tier={tier} />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+      const options = within(roleSelect("@bob")).getAllByRole("option");
+      expect(options.at(-1)?.textContent).toBe("Helper");
+      expect(document.body.textContent).not.toContain("needs Gold");
+    },
+  );
+
   it("shows a role it does not recognise as the narrowest seat", async () => {
     // Including the API's legacy `host`, which no response should carry. The
     // row reads as the least a seat can be rather than being guessed upward.

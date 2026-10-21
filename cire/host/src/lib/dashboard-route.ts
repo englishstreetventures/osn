@@ -26,13 +26,14 @@
  */
 
 /** The module a wedding dashboard can be showing. Order = sidebar order:
- *  land on Overview, then the day (Events) and the planning modules → the
- *  people (Guests) and where they sit (Seating) → the invite → housekeeping
- *  (Settings). */
+ *  land on Overview, then the day (Events), the planning modules and the day's
+ *  run sheet → the people (Guests) and where they sit (Seating) → the invite →
+ *  housekeeping (Settings). */
 export const MODULES = [
   "overview",
   "events",
   "checklist",
+  "run-sheet",
   "budget",
   "vendors",
   "registry",
@@ -65,6 +66,8 @@ export const MODULE_SUBS = {
   // read-only `list` view. `edit` is editor-only.
   events: ["list", "edit"],
   checklist: ["index"],
+  // The day, read-only for every role: one view.
+  "run-sheet": ["index"],
   budget: ["index"],
   vendors: ["index", "browse", "enquiries"],
   // The gift list the couple authors, then the log of what guests actually

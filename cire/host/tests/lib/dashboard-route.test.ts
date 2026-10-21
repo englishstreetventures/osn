@@ -323,6 +323,22 @@ describe("checklist module route", () => {
   });
 });
 
+describe("run-sheet module route", () => {
+  it("is a known module with one view, after the checklist", () => {
+    expect(isModule("run-sheet")).toBe(true);
+    expect(MODULES.indexOf("run-sheet")).toBe(MODULES.indexOf("checklist") + 1);
+    expect(MODULE_SUBS["run-sheet"]).toEqual(["index"]);
+  });
+
+  it("parses #/w/<id>/run-sheet and serializes it back", () => {
+    const r = parseRoute("#/w/wed_1/run-sheet");
+    expect(r).toMatchObject({ view: "weddings", weddingId: "wed_1", module: "run-sheet" });
+    expect(
+      serializeRoute({ view: "weddings", weddingId: "wed_1", module: "run-sheet", sub: "index" }),
+    ).toBe("#/w/wed_1/run-sheet");
+  });
+});
+
 describe("vendors module Browse sub-tab", () => {
   it("vendors module exposes index + browse + enquiries subs", () => {
     expect(MODULE_SUBS.vendors).toEqual(["index", "browse", "enquiries"]);

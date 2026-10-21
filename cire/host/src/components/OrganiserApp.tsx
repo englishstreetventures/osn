@@ -38,6 +38,7 @@ import { invalidateHosts } from "../lib/hosts-store";
 import { MembersChangedContext } from "../lib/members-changed";
 import { CIRE_API_URL } from "../lib/osn";
 import { reportRealtimeFallback, weddingTopicUrl } from "../lib/realtime";
+import { markRunSheetStale } from "../lib/run-sheet-store";
 import { TasksChangedContext } from "../lib/tasks-changed";
 import { markTasksStale } from "../lib/tasks-store";
 import { initTheme } from "../lib/theme";
@@ -54,11 +55,12 @@ import {
 import { invalidateCatalogue } from "../lib/upgrade-store";
 import { dropWeddingCaches, openWeddingCaches } from "../lib/wedding-caches";
 import { deletedWeddingsOf, restoreUntilLabel } from "../lib/wedding-lifecycle";
-import { normaliseWeddingRole, ROLE_COPY, surfacesFor } from "../lib/wedding-roles";
+import { normaliseWeddingRole, surfacesFor } from "../lib/wedding-roles";
 import type { WeddingRole } from "../lib/wedding-roles";
 import type { DeletedWeddingSummary, WeddingSummary } from "./CreateWeddingForm";
 import LeaveWedding from "./LeaveWedding";
 import ModuleShell from "./ModuleShell";
+import RunSheetView from "./RunSheetView";
 import SecurityPanel from "./SecurityPanel";
 import TopBar from "./TopBar";
 import WeddingList from "./WeddingList";
@@ -191,7 +193,9 @@ function WeddingDashboard(props: {
   return (
     <Show
       when={surfaces().canOpenDashboard}
-      fallback={<RunSheetSeat weddingId={props.weddingId} onLeft={props.onLeft} />}
+      fallback={
+        <RunSheetSeat weddingId={props.weddingId} wedding={props.wedding} onLeft={props.onLeft} />
+      }
     >
       <WeddingCacheScope weddingId={props.weddingId}>
         <ModuleShell
@@ -243,25 +247,28 @@ function WeddingCacheScope(props: ParentProps<{ weddingId: string }>) {
   return <>{props.children}</>;
 }
 
-/** What a seat with no dashboard surface opens onto.
+/** What a seat with no dashboard surface opens onto: the day's run sheet.
  *
  *  A helper is handed a job on the day, not the wedding: the guest list, the
- *  budget, the registry and the replies are all refused for them upstream. The
- *  wedding is still listed for them — that is how they reach it at all — so
- *  this says what the seat covers rather than leaving them on a dashboard whose
- *  every panel errors. */
-function RunSheetSeat(props: { weddingId: string; onLeft: () => void }) {
+ *  budget, the registry and the replies are all refused for them upstream, and
+ *  the run sheet — narrowed by the API to what their scope allows — is the one
+ *  thing they read. It holds rows, so it opens the wedding's cache scope as the
+ *  dashboard does, and they are released when the seat closes. Below Gold the
+ *  run sheet says it is not available, without asking the API. */
+function RunSheetSeat(props: { weddingId: string; wedding: WeddingSummary; onLeft: () => void }) {
   return (
-    <div class="flex flex-col gap-6">
-      <div class="border-border bg-surface/30 flex flex-col gap-2 rounded-sm border border-dashed p-8 text-center">
-        <p class="font-display text-text text-ui-md font-light">{ROLE_COPY.helper.label} access</p>
-        <p class="font-body text-text-muted text-ui-sm mx-auto max-w-prose leading-relaxed">
-          {ROLE_COPY.helper.summary} Ask whoever runs this wedding if you need more.
-        </p>
+    <WeddingCacheScope weddingId={props.weddingId}>
+      <div class="flex flex-col gap-6" data-testid="run-sheet-seat">
+        <RunSheetView
+          weddingId={props.weddingId}
+          tier={tierOf(props.wedding)}
+          callerRole={props.wedding.role}
+          canEdit={false}
+        />
+        {/* A helper never reaches the co-host panel, so their way out lives here. */}
+        <LeaveWedding weddingId={props.weddingId} onLeft={props.onLeft} />
       </div>
-      {/* A helper never reaches the co-host panel, so their way out lives here. */}
-      <LeaveWedding weddingId={props.weddingId} onLeft={props.onLeft} />
-    </div>
+    </WeddingCacheScope>
   );
 }
 
@@ -607,13 +614,17 @@ function Dashboard() {
   // and the stop that follows is the last prompt it gets.
   const [membersChanged, setMembersChanged] = createSignal(0);
   const [tasksChanged, setTasksChanged] = createSignal(0);
+  // Every seat that listens has a run sheet, a helper's included, and the run
+  // sheet names its tasks' holders: both kinds mark it stale.
   const seatsChanged = (wedding: WeddingSummary | null) => {
     void recheckWeddings(Date.now());
     if (wedding && surfacesFor(wedding.role).canOpenDashboard) invalidateHosts(wedding.id);
+    if (wedding && surfacesFor(wedding.role).canListen) markRunSheetStale(wedding.id);
     setMembersChanged((count) => count + 1);
   };
   const checklistChanged = (wedding: WeddingSummary | null) => {
     if (wedding && surfacesFor(wedding.role).canOpenDashboard) markTasksStale(wedding.id);
+    if (wedding && surfacesFor(wedding.role).canListen) markRunSheetStale(wedding.id);
     setTasksChanged((count) => count + 1);
   };
   const onWeddingSignal = (event: SignalEvent) => {

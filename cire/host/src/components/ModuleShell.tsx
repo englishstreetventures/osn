@@ -33,6 +33,7 @@ import Overview from "./Overview";
 import PanelLoading from "./PanelLoading";
 import RemintPanel from "./RemintPanel";
 import RsvpView from "./RsvpView";
+import RunSheetView from "./RunSheetView";
 import SettingsPanel from "./SettingsPanel";
 
 /**
@@ -569,6 +570,17 @@ export default function ModuleShell(props: ModuleShellProps) {
                 />
               </Show>
 
+              {/* ── Run sheet: the day, read-only for every role ─────────────── */}
+              <Show when={module() === "run-sheet"}>
+                <RunSheetView
+                  weddingId={props.weddingId}
+                  tier={props.tier}
+                  callerRole={props.callerRole}
+                  canEdit={props.canEdit}
+                  onOpenChecklist={props.canEdit ? () => props.onModule("checklist") : undefined}
+                />
+              </Show>
+
               {/* ── Budget: per-category items + payments ────────────────────── */}
               <Show when={module() === "budget"}>
                 <BudgetView
@@ -748,6 +760,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                   <HostsPanel
                     weddingId={props.weddingId}
                     callerRole={props.callerRole}
+                    tier={props.tier}
                     canLeave
                     onLeft={props.onLeftWedding}
                     onOwnRoleChanged={props.onOwnRoleChanged}

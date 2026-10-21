@@ -1,0 +1,247 @@
+// @vitest-environment happy-dom
+import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../test-support/mocks");
+  return rpAuthSolidMock();
+});
+vi.mock("../../src/lib/api", async () => {
+  const { organiserApiMock } = await import("../test-support/mocks");
+  return organiserApiMock();
+});
+
+import RunTimeEditor, { type RunTimeEditorProps } from "../../src/components/RunTimeEditor";
+import type { EventRow } from "../../src/lib/events-store";
+import { __resetTasksCache, setCachedTasks, type TaskRow } from "../../src/lib/tasks-store";
+import { __resetWeddingScope } from "../../src/lib/wedding-scope";
+import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
+
+/**
+ * The run-time popover on a checklist row, as the designer builds it
+ * (`cire/host/src/components/RunTimeEditor.tsx`; the UI brief is in the
+ * branch plan). SKIPPED until the designed editor replaces the placeholder:
+ * set `DESIGNED` and every case here must pass. It saves through
+ * `saveTaskRunTime` (`lib/run-time-write.ts`), whose own tests cover the
+ * write; these cover what the organiser sees and sends.
+ *
+ *  1. The trigger names the task's time, or offers to set one.
+ *  2. Linked, at a clock time: `clock`, and no zone field.
+ *  3. Linked, minutes before the start: `offset`, negative.
+ *  4. Unlinked: `fixed`, the zone defaulting to the one every event shares.
+ *  5. Unlinked on a wedding whose events span zones: the browser's zone.
+ *  6. Clear: `null`.
+ *  7. An API that ignored the field: says it was not saved.
+ *  8. The two 422s, each in words.
+ *  9. Focus back on the trigger after a save.
+ * 10. A 401: sign in again.
+ */
+
+const task = (over: Partial<TaskRow> = {}): TaskRow => ({
+  id: "tsk_1",
+  weddingId: "wed_1",
+  title: "Bring the rings",
+  notes: null,
+  timeframeBucket: "day_of",
+  dueAt: null,
+  status: "open",
+  sortOrder: 0,
+  createdAt: 1,
+  completedAt: null,
+  assigneeHostIds: [],
+  runAt: null,
+  runTimezone: null,
+  eventId: null,
+  runOffsetMinutes: null,
+  anchored: false,
+  eventRemoved: false,
+  ...over,
+});
+
+const event = (over: Partial<EventRow> & { id: string; name: string }): EventRow =>
+  ({
+    startAt: "2099-06-20T15:00:00+10:00",
+    endAt: "",
+    timezone: "Australia/Sydney",
+    ...over,
+  }) as EventRow;
+
+const SYDNEY_EVENTS = [
+  event({ id: "evt_ceremony", name: "Ceremony" }),
+  event({ id: "evt_reception", name: "Reception", startAt: "2099-06-20T18:00:00+10:00" }),
+];
+
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
+const saved = (over: Partial<TaskRow>) => json({ task: { ...task(), ...over } });
+
+function editor(props: Partial<RunTimeEditorProps> = {}) {
+  setCachedTasks("wed_1", [props.task ?? task()]);
+  render(() => <RunTimeEditor weddingId="wed_1" task={task()} events={SYDNEY_EVENTS} {...props} />);
+}
+
+/** The one PATCH the editor sent, as its body. */
+function sentRunTime(): unknown {
+  const patch = authFetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+  expect(patch).toBeTruthy();
+  return (JSON.parse(String((patch![1] as RequestInit).body)) as { runTime: unknown }).runTime;
+}
+
+const trigger = () => screen.getByRole("button", { name: /time for Bring the rings/i });
+
+beforeEach(() => {
+  __resetWeddingScope();
+  __resetTasksCache();
+});
+
+afterEach(() => {
+  cleanup();
+  resetOrganiserMocks();
+});
+
+/** `true` once the designed editor replaces the placeholder: then every case
+ *  below runs, and must pass. */
+const DESIGNED = false;
+
+describe.skipIf(!DESIGNED)("RunTimeEditor", () => {
+  it("names the task's time on its trigger, or offers to set one", () => {
+    editor();
+    expect(trigger().textContent).toMatch(/Set a time/i);
+    cleanup();
+    editor({
+      task: task({
+        runAt: "2099-06-20T14:30:00+10:00",
+        runTimezone: "Australia/Sydney",
+        eventId: "evt_ceremony",
+        runOffsetMinutes: -30,
+        anchored: true,
+      }),
+    });
+    expect(trigger().textContent).toMatch(/2:30\s?pm/i);
+  });
+
+  it("links to an event at a clock time on the event's clock, with no zone to pick", async () => {
+    authFetchMock.mockResolvedValue(saved({ eventId: "evt_ceremony", anchored: true }));
+    editor();
+    fireEvent.click(trigger());
+    fireEvent.change(await screen.findByLabelText("Event"), { target: { value: "evt_ceremony" } });
+    expect(screen.queryByLabelText("Time zone")).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "At a clock time" }));
+    fireEvent.input(screen.getByLabelText("Date"), { target: { value: "2099-06-20" } });
+    fireEvent.input(screen.getByLabelText("Time"), { target: { value: "14:30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(sentRunTime()).toEqual({
+        kind: "clock",
+        eventId: "evt_ceremony",
+        at: "2099-06-20T14:30",
+      }),
+    );
+  });
+
+  it("links to an event some minutes before its start", async () => {
+    authFetchMock.mockResolvedValue(saved({ eventId: "evt_ceremony", anchored: true }));
+    editor();
+    fireEvent.click(trigger());
+    fireEvent.change(await screen.findByLabelText("Event"), { target: { value: "evt_ceremony" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Before or after the start" }));
+    fireEvent.input(screen.getByLabelText("Minutes"), { target: { value: "30" } });
+    fireEvent.change(screen.getByLabelText("Before or after"), { target: { value: "before" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(sentRunTime()).toEqual({
+        kind: "offset",
+        eventId: "evt_ceremony",
+        offsetMinutes: -30,
+      }),
+    );
+  });
+
+  it("sets a fixed time in the zone every event shares, when no event is picked", async () => {
+    authFetchMock.mockResolvedValue(saved({ runAt: "2099-06-20T12:00:00+10:00", anchored: false }));
+    editor();
+    fireEvent.click(trigger());
+    expect(((await screen.findByLabelText("Time zone")) as HTMLSelectElement).value).toBe(
+      "Australia/Sydney",
+    );
+    fireEvent.input(screen.getByLabelText("Date"), { target: { value: "2099-06-20" } });
+    fireEvent.input(screen.getByLabelText("Time"), { target: { value: "12:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(sentRunTime()).toEqual({
+        kind: "fixed",
+        at: "2099-06-20T12:00",
+        timezone: "Australia/Sydney",
+      }),
+    );
+  });
+
+  it("defaults a fixed time to the browser's zone when the events span more than one", async () => {
+    editor({
+      events: [
+        event({ id: "a", name: "Mehndi", timezone: "Asia/Kolkata" }),
+        event({ id: "b", name: "Reception", timezone: "Australia/Sydney" }),
+      ],
+    });
+    fireEvent.click(trigger());
+    expect(((await screen.findByLabelText("Time zone")) as HTMLSelectElement).value).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
+  });
+
+  it("clears the time", async () => {
+    authFetchMock.mockResolvedValue(saved({}));
+    editor({
+      task: task({ runAt: "2099-06-20T12:00:00+10:00", runTimezone: "Australia/Sydney" }),
+    });
+    fireEvent.click(trigger());
+    fireEvent.click(await screen.findByRole("button", { name: "Clear time" }));
+    await waitFor(() => expect(sentRunTime()).toBeNull());
+  });
+
+  it("says the time was not saved when the API answers without one", async () => {
+    // An API older than run times answers 200 having ignored the field.
+    authFetchMock.mockResolvedValue(json({ task: { id: "tsk_1", title: "Bring the rings" } }));
+    editor();
+    fireEvent.click(trigger());
+    fireEvent.input(await screen.findByLabelText("Date"), { target: { value: "2099-06-20" } });
+    fireEvent.input(screen.getByLabelText("Time"), { target: { value: "12:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(screen.getByText("This time wasn't saved — reload and try again.")).toBeTruthy(),
+    );
+  });
+
+  it.each([
+    ["event_not_in_wedding", "That event is gone — pick another."],
+    ["run_time_out_of_range", "Pick a time within a day of the event."],
+  ])("says what a 422 %s means", async (error, words) => {
+    authFetchMock.mockResolvedValue(json({ error }, 422));
+    editor();
+    fireEvent.click(trigger());
+    fireEvent.change(await screen.findByLabelText("Event"), { target: { value: "evt_ceremony" } });
+    fireEvent.click(screen.getByRole("radio", { name: "At a clock time" }));
+    fireEvent.input(screen.getByLabelText("Date"), { target: { value: "2099-06-22" } });
+    fireEvent.input(screen.getByLabelText("Time"), { target: { value: "14:30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByText(words)).toBeTruthy());
+  });
+
+  it("puts focus back on the trigger once the time is saved", async () => {
+    authFetchMock.mockResolvedValue(saved({ runAt: "2099-06-20T12:00:00+10:00" }));
+    editor();
+    fireEvent.click(trigger());
+    fireEvent.input(await screen.findByLabelText("Date"), { target: { value: "2099-06-20" } });
+    fireEvent.input(screen.getByLabelText("Time"), { target: { value: "12:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(document.activeElement).toBe(trigger()));
+  });
+
+  it("sends the organiser to sign in when the session has expired", async () => {
+    authFetchMock.mockResolvedValue(json({}, 401));
+    editor();
+    fireEvent.click(trigger());
+    fireEvent.click(await screen.findByRole("button", { name: "Clear time" }));
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+  });
+});

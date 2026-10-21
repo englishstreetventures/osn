@@ -10,15 +10,17 @@ import {
   Show,
 } from "solid-js";
 
-import { type HostSeat, seatName } from "../lib/hosts-store";
+import { type HostSeat, type SeatFace, seatName } from "../lib/hosts-store";
 import { ROLE_COPY } from "../lib/wedding-roles";
 import PersonAvatar from "./PersonAvatar";
 
 /** One holder of a task, in stack order. `seat` is absent while the wedding's
- *  seats have not loaded, and there is no name or photo to give yet. */
+ *  seats have not loaded, and there is no name or photo to give yet. A face
+ *  and a name are all a holder needs, so the run sheet's people, who carry no
+ *  role, are holders too. */
 export interface Holder {
   hostId: string;
-  seat?: HostSeat;
+  seat?: SeatFace;
 }
 
 /** Faces on a stack before the rest are counted in a "+N" bubble. */

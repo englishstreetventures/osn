@@ -156,7 +156,7 @@ async function openRemovableWedding(
   // The dashboard for a co-host, the run-sheet seat for a helper.
   await waitFor(() =>
     expect(
-      screen.queryByTestId("module-shell") ?? screen.queryByText(/Helper access/i),
+      screen.queryByTestId("module-shell") ?? screen.queryByTestId("run-sheet-seat"),
     ).toBeTruthy(),
   );
   if (startAs !== "helper") setCachedVendors("wed_a", [vendorRow("wed_a")]);
@@ -183,7 +183,7 @@ describe("OrganiserApp — push, in a real browser", () => {
     wedding.narrow();
     await commands.pushRealtime(SIGNAL);
 
-    await waitFor(() => expect(screen.getByText(/Helper access/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("run-sheet-seat")).toBeTruthy());
     expect(screen.queryByTestId("module-shell")).toBeNull();
     expect(peekCachedVendors("wed_a")).toBeNull();
     // A helper reads the run sheet, so the same socket stays open for them.

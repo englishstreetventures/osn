@@ -58,6 +58,18 @@ const NO_TASKS: TaskRow[] = [];
 const sameRows = <T,>(a: readonly T[], b: readonly T[]): boolean =>
   a.length === b.length && a.every((row, k) => row === b[k]);
 
+/** The fields a row reads live rather than from its memo, so a change to them
+ *  alone keeps the row's node: who holds the task, and its time on the day. */
+const LIVE_FIELDS: readonly (keyof TaskRow & string)[] = [
+  "assigneeHostIds",
+  "runAt",
+  "runTimezone",
+  "eventId",
+  "runOffsetMinutes",
+  "anchored",
+  "eventRemoved",
+];
+
 interface ChecklistViewProps {
   weddingId: string;
   /** Owner/editor may add, edit, complete, reorder; a viewer sees a read-only list. */
@@ -508,12 +520,13 @@ export default function ChecklistView(props: ChecklistViewProps) {
                           {(id, i) => {
                             // By id, so a move moves this row's node rather than rebuilding
                             // it; `sameButOrder` keeps the old object when only the stored
-                            // order or the holders changed, and the keyed `Show` rebuilds
-                            // the row when anything else did, as an edit always has. The
-                            // holders are read live below, so a change of who holds the
-                            // task keeps the row — and its popover open.
+                            // order, the holders or the time on the day changed, and the
+                            // keyed `Show` rebuilds the row when anything else did, as an
+                            // edit always has. The holders and the time are read live
+                            // (`live()`), so a change of who holds the task, or of when it
+                            // runs, keeps the row — and its popover open, and its focus.
                             const row = createMemo(() => taskById().get(id), undefined, {
-                              equals: (a, b) => sameButOrder(a, b, ["assigneeHostIds"]),
+                              equals: (a, b) => sameButOrder(a, b, LIVE_FIELDS),
                             });
                             const live = () => taskById().get(id);
                             return (
