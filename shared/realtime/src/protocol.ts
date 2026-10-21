@@ -8,8 +8,16 @@
 export const REALTIME_PRODUCTS = ["cire"] as const;
 export type RealtimeProduct = (typeof REALTIME_PRODUCTS)[number];
 
-/** What a signal can say. Closed: a new kind is a new member here. */
-export const SIGNAL_KINDS = ["members-changed"] as const;
+/**
+ * What a signal can say. Closed: a new kind is a new member here. A client
+ * built before a kind existed drops a frame carrying it (`isSignal`), so a new
+ * kind reaches an older tab as nothing rather than as another kind.
+ *
+ * - `members-changed` — who holds a place on the topic's entity, or what that
+ *   place lets them see, changed.
+ * - `tasks-changed` — the entity's tasks, or who holds them, changed.
+ */
+export const SIGNAL_KINDS = ["members-changed", "tasks-changed"] as const;
 export type SignalKind = (typeof SIGNAL_KINDS)[number];
 
 /** "Something about `topic` changed" — never the data itself. */
@@ -96,3 +104,24 @@ export const CLOSE_CODES = {
   /** The hub needed room and this socket had not pinged lately: reconnect if still wanted. */
   stale: 4002,
 } as const;
+
+/**
+ * Why a browser subscription gave up, leaving the product's own refetch
+ * triggers as the only ones:
+ *
+ * - `refused` — the hub closed the socket with 1008 (`CLOSE_CODES.policy`):
+ *   the topic is full, the member's newer socket took this one's place at
+ *   their own cap, the product revoked the member's access, or the client sent
+ *   a frame the protocol does not allow.
+ * - `exhausted` — `maxAttempts` consecutive attempts failed. This covers every
+ *   subscribe the API refused (401, 403, 429, 503), which the browser sees
+ *   only as a failed connection, a socket blocked by the page's
+ *   Content-Security-Policy, and a network that is down.
+ */
+export const FALLBACK_OUTCOMES = ["refused", "exhausted"] as const;
+export type FallbackOutcome = (typeof FALLBACK_OUTCOMES)[number];
+
+/** True when `value` is exactly one of the fallback outcomes. */
+export function isFallbackOutcome(value: unknown): value is FallbackOutcome {
+  return typeof value === "string" && (FALLBACK_OUTCOMES as readonly string[]).includes(value);
+}

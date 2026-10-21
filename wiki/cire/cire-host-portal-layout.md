@@ -447,6 +447,17 @@ applies the answer. A wedding missing from the answer sends the route back to
 the list. A `helper` role swaps in its seat. Either way the scope unmounts and
 drops the rows. The re-read runs on:
 
+- **a push signal for the open wedding.** `Dashboard` listens on
+  `cire:wedding:<id>` with `useTopic` (`@shared/realtime/solid`) while a
+  wedding is open, for every role — a helper's seat included
+  (`surfacesFor().canListen`). A `members-changed` signal, a dropped socket, a
+  reconnect and a stop each re-read the list at once, outside the
+  once-a-minute limit; a `tasks-changed` signal does not, since no task
+  changes who may open the wedding. A member removed or who left, and every
+  member of a deleted wedding, gets the signal and then a 1008 close, so their
+  tab re-reads and stops listening. A member narrowed to `helper` keeps the
+  socket: the re-read swaps in the helper's seat, which goes on listening. See
+  [[realtime]].
 - **a 403 from a wedding route.** `Dashboard` provides its own `AuthContext`
   whose `authFetch` is wrapped by `watchForbidden` (`lib/forbidden-watch.ts`).
   Every request below it is watched.
@@ -457,15 +468,66 @@ drops the rows. The re-read runs on:
   module to module and never be refused. A 401 on the re-read signs the tab
   out, and that full page load discards the heap.
 
-Concurrent triggers share one request. The exception is a 403 on a request
-sent after the shared request started: the answer may predate the change the
-403 reports, so a new request goes out. A request unanswered after 30 s is
+Concurrent triggers share one request. The exceptions are a 403 on a request
+sent after the shared request started, and a push signal, reconnect or stop
+that arrives after it started: the answer may predate the change they report,
+so a new request goes out. A dropped socket reports no change of its own, so
+it joins a request in flight. A request unanswered after 30 s is
 abandoned, and only the newest request's answer is applied. A failed answer,
 or one without a list, changes nothing. The list is also written locally: a
 created wedding, a rename, or the upgrade return's own refresh. An answer
 that arrives after one of those local writes is thrown away and the list is
-asked for once more. Nothing pushes a change to a tab left untouched. It
-waits for the tab's next request, move or return to view.
+asked for once more.
+
+Push stops in a tab when no hub is bound on the tier, when the socket is
+blocked, after six failed attempts, or when the hub closes the socket with
+1008 (access revoked, the topic or the member's socket cap, or a frame other
+than `ping`). It stays stopped in that tab
+until the open wedding changes or the page reloads. Until then, a tab left
+untouched waits for its next request, move or return to view. Each time push
+stops, the tab reports it to `POST /api/realtime/fallback`
+([realtime.ts](../../cire/host/src/lib/realtime.ts)).
+
+The views below read from the same socket, never one of their own.
+`Dashboard` sorts each signal by its kind and counts it in one of two
+contexts:
+
+| Event | Caches marked stale | Context bumped | Read by |
+|---|---|---|---|
+| `members-changed` | the seats (`hosts-store`) | `MembersChangedContext` ([members-changed.ts](../../cire/host/src/lib/members-changed.ts)) | the co-host panel; the checklist, for its holder faces |
+| `tasks-changed` | the tasks (`tasks-store`) | `TasksChangedContext` ([tasks-changed.ts](../../cire/host/src/lib/tasks-changed.ts)) | the checklist; Overview's checklist card |
+| a reconnect | both | both | all of the above |
+
+Marking a cache stale sends nothing and leaves a read in flight alone: a view
+that is not on screen reads again when it next mounts. A view that is on
+screen reads again at once, or as soon as its read in flight and its own
+writes are over.
+
+- **The co-host panel** (`HostsPanel`) reads `GET /hosts` again, so it shows an
+  added, re-roled or removed member, and a helper's new scope, within seconds.
+  A failed re-read keeps the list on screen, and only the newest read's answer
+  is applied. While one of the panel's own writes is out (an add, a removal, a
+  role change or a scope change), a signal's re-read waits, and a read that
+  lands, or was sent before a write ended, is dropped, since it may predate the
+  write; once the last write ends, one read goes. A seat the re-read shows as
+  the panel already does keeps its row object, so `<For>` keeps the row and the
+  focus of an owner on its role or scope select. A scope write in flight is
+  kept by the seat's profile id, so its select shows the scope being set and
+  stays `aria-busy` until the write ends.
+- **The checklist** (`ChecklistView`) reads `GET /tasks` again on
+  `tasks-changed`, and `GET /hosts` on `members-changed` once it has needed the
+  seats. Its own create, tick, delete, move and holder writes are marked out
+  in `tasks-store` (`beginTaskWrite`): a signal's re-read waits while one is
+  out, a read that lands while one is out, or was sent before one ended, is
+  dropped, and one read goes once the last write ends. So a re-read never
+  undoes what the organiser just did on screen, and the read after the write
+  goes whichever reaches the tab first, the write's answer or its signal.
+  See [[cire-checklist-tasks#Live refresh]].
+- **Overview** reads the tasks again on `tasks-changed`, unless the checklist
+  is locked below Gold.
+- Both task views re-read through `rereadTasks`: signals that land while a
+  read is out cost one more read between them, so a burst of writes costs a
+  tab at most two reads.
 
 ## Testing
 

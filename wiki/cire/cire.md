@@ -20,6 +20,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[turnstile]]"
+  - "[[realtime]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
@@ -119,7 +120,8 @@ wedding, because a profile holds one seat per wedding. They are two copies of
 one rule — SQL in a shell string in
 [`scripts/cire-db-seed.sh`](../../scripts/cire-db-seed.sh), Drizzle in
 `setup.ts` — so a change to one belongs in the other. Both paths are dev-only:
-neither runs in the deployed Worker (entry `src/index.ts`).
+neither runs in the deployed Worker (entry `src/entry.ts`, which
+re-exports the handler in `src/index.ts` and the realtime hub class).
 
 `cire/db` drizzle.config points `db:studio` at the local D1 sqlite (override via
 `CIRE_DATABASE_URL`; the content-hashed path changes on `db:reset`).
@@ -151,11 +153,45 @@ approval, it applies the remote cire D1 migrations and deploys the **cire-api Wo
 the **cire-invites guest Worker** and the **organiser, vendor and landing Pages**
 projects in each daily or hand-run release; the dev tier deploys from `deploy.yml` on
 every merge. The Cloudflare API tokens sit on the `production`
-and `dev` GitHub Environments. Prod wrangler config redeclares the D1 + R2 bindings under
+and `dev` GitHub Environments. Prod wrangler config redeclares the D1, R2, rate-limit and Durable Object bindings under
 `[env.production]` (named envs don't inherit top-level bindings); cire-api no
 longer needs a bootstrap owner (#156). The full secret/var checklist, the
 one-time Turnstile widget step, and post-deploy smoke checks live in the
 [[production-deploy]] runbook.
+
+### Realtime push
+
+cire-api binds the `@shared/realtime` hub as `REALTIME_HUB` in every tier of
+[wrangler.toml](../../cire/api/wrangler.toml) and answers `GET /realtime/:topic`
+before the Elysia app, for every seat that reads the run sheet — a helper's
+included. On `cire:wedding:<id>` it publishes `members-changed` after a seat is
+added, re-roled, removed or left, after a helper's run-sheet scope moves, and
+after the wedding is deleted, and `tasks-changed` after every checklist write
+that changed something. An open organiser tab re-reads its wedding list and its
+co-host panel on the first, and its checklist and Overview on the second. A
+member who lost their seat is revoked: their sockets close and their tab stops
+listening. See [[realtime]], [[cire-auth]], [[cire-checklist-tasks]] and
+[[cire-host-portal-layout]].
+Seed runs (the nightly dev rebuild) and data migrations change `wedding_hosts`
+and `tasks` with no signal. Open tabs catch up on their next refetch. A helper's
+tab listens today but has no rows to re-read; the run-sheet view
+(englishstreetventures/osn#1396) must re-read on both kinds.
+
+### Turning realtime push off
+
+After the first deploy, reverting the change that added push is not enough on
+its own. A revert removes the `TopicHub` export from `src/entry.ts` and the
+`v1` migration. Wrangler then refuses the upload, because existing Durable
+Objects depend on the class. So the dev deploy (`deploy-cire-api-dev` in
+`.github/workflows/deploy.yml`) fails, and a production release
+(`deploy-cire-api` in `.github/workflows/production-release.yml`) fails the same
+way. To turn push off, delete the three `REALTIME_HUB` binding blocks from
+`cire/api/wrangler.toml` and deploy. `/realtime/*` then answers 503, publishes
+do nothing, tabs fall back, and the class export and migration stay. Each
+deployed isolate then logs `REALTIME_HUB binding missing in a deployed tier`
+once, as an error, which is expected while push is off. Removing the class
+itself needs a new migration with `deleted_classes = ["TopicHub"]`, deployed
+first.
 
 ## Cire-internal docs
 

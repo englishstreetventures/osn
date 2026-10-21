@@ -1,3 +1,6 @@
+import type { SignalKind } from "@shared/realtime";
+import type { SignalEvent } from "@shared/realtime/client";
+import { useTopic } from "@shared/realtime/solid";
 import { AuthContext, AuthProvider, useAuth } from "@shared/rp-auth/solid";
 import { toast, Toaster } from "@shared/toast";
 import { Notice } from "@shared/ui/ui/notice";
@@ -31,7 +34,12 @@ import {
   serializeRoute,
 } from "../lib/dashboard-route";
 import { watchForbidden } from "../lib/forbidden-watch";
+import { invalidateHosts } from "../lib/hosts-store";
+import { MembersChangedContext } from "../lib/members-changed";
 import { CIRE_API_URL } from "../lib/osn";
+import { reportRealtimeFallback, weddingTopicUrl } from "../lib/realtime";
+import { TasksChangedContext } from "../lib/tasks-changed";
+import { markTasksStale } from "../lib/tasks-store";
 import { initTheme } from "../lib/theme";
 import { TIER_LABEL, tierOf } from "../lib/tiers";
 import type { PaidTier } from "../lib/tiers";
@@ -299,23 +307,25 @@ function Dashboard() {
    * drops its rows. A role that keeps the dashboard only changes what the
    * dashboard offers; its rows are still the organiser's to read.
    *
-   * Runs on any 403 from a wedding route, and — at most once a minute — when
-   * the tab comes back into view or the organiser moves within the
-   * dashboard. Concurrent triggers share one request, except a refusal of a
-   * request sent after that one started: its answer may predate the change
-   * the refusal reports, so a new request is sent. An answer is thrown away
-   * if the list was written locally while it was in flight (a created
-   * wedding, a rename), and then asked for once more; an answer overtaken by
-   * a newer request is thrown away too.
+   * Runs on any 403 from a wedding route, on a push signal for the open
+   * wedding, and — at most once a minute — when the tab comes back into view
+   * or the organiser moves within the dashboard. Concurrent triggers share one
+   * request, except one that reports a change after that request started: its
+   * answer may predate the change, so a new request is sent. An answer is
+   * thrown away if the list was written locally while it was in flight (a
+   * created wedding, a rename), and then asked for once more; an answer
+   * overtaken by a newer request is thrown away too.
    *
-   * `refusedAt` is when the refused request was sent, for a 403 trigger.
+   * `changedAt` is when the change is known to have happened by: for a 403,
+   * when the refused request was sent; for a push signal, a reconnect or a
+   * stop, when it arrived. A dropped socket passes none.
    */
-  function recheckWeddings(refusedAt?: number, retry = true): Promise<void> {
+  function recheckWeddings(changedAt?: number, retry = true): Promise<void> {
     if (untrack(weddings) === null) return Promise.resolve();
     if (
       recheck &&
       Date.now() - recheck.startedAt < RECHECK_ABANDONED_AFTER_MS &&
-      !(refusedAt !== undefined && refusedAt > recheck.startedAt)
+      !(changedAt !== undefined && changedAt > recheck.startedAt)
     ) {
       return recheck.done;
     }
@@ -572,6 +582,73 @@ function Dashboard() {
     return weddings()?.find((w) => w.id === r.weddingId) ?? null;
   };
 
+  // While a wedding is open, its topic tells this tab the moment the wedding's
+  // seats or tasks change, so the re-reads below run at once instead of on the
+  // next refusal or return to the tab. A signal only says "ask again"; the
+  // answer is what drops or replaces the rows. A socket that cannot be held
+  // changes nothing: the other triggers still run. When the socket gives up,
+  // the tab also tells cire-api why. Every seat listens, a helper's included:
+  // what a helper sees moves with the tasks, the seats and their own scope.
+  //
+  // `members-changed` — a seat added, re-roled, removed or left, a helper's
+  // scope moved, the wedding deleted — re-reads the wedding list, so a role
+  // that lost the dashboard drops its rows and one that gained it opens it.
+  // It also marks the seat cache stale and tells the views that show seats
+  // (`MembersChangedContext`). `tasks-changed` marks the task cache stale,
+  // leaving a read in flight to land so signals coalesce, and tells the views
+  // that show tasks (`TasksChangedContext`); it leaves the wedding list alone,
+  // since no task changes who may open the wedding.
+  //
+  // A message, a reconnect and a stop each pass the time they arrived, so one
+  // that lands after a re-read started sends a fresh one. A dropped socket
+  // passes none and joins a re-read in flight: it reports no change of its
+  // own. A reconnect may have missed a change of either kind, so it does what
+  // both do. A removed member's socket is closed for good after the signal,
+  // and the stop that follows is the last prompt it gets.
+  const [membersChanged, setMembersChanged] = createSignal(0);
+  const [tasksChanged, setTasksChanged] = createSignal(0);
+  const seatsChanged = (wedding: WeddingSummary | null) => {
+    void recheckWeddings(Date.now());
+    if (wedding && surfacesFor(wedding.role).canOpenDashboard) invalidateHosts(wedding.id);
+    setMembersChanged((count) => count + 1);
+  };
+  const checklistChanged = (wedding: WeddingSummary | null) => {
+    if (wedding && surfacesFor(wedding.role).canOpenDashboard) markTasksStale(wedding.id);
+    setTasksChanged((count) => count + 1);
+  };
+  const onWeddingSignal = (event: SignalEvent) => {
+    const wedding = untrack(selected);
+    switch (event.reason) {
+      case "message":
+        return signalled(event.signal.kind, wedding);
+      case "reconnected":
+        seatsChanged(wedding);
+        return checklistChanged(wedding);
+      case "dropped":
+        return void recheckWeddings(undefined);
+      case "stopped":
+        return void recheckWeddings(Date.now());
+    }
+  };
+  const signalled = (kind: SignalKind, wedding: WeddingSummary | null) => {
+    switch (kind) {
+      case "members-changed":
+        return seatsChanged(wedding);
+      case "tasks-changed":
+        return checklistChanged(wedding);
+    }
+    const _exhaustive: never = kind;
+    return _exhaustive;
+  };
+  useTopic(
+    () => {
+      const wedding = selected();
+      return wedding && surfacesFor(wedding.role).canListen ? weddingTopicUrl(wedding.id) : null;
+    },
+    onWeddingSignal,
+    { onFallback: reportRealtimeFallback },
+  );
+
   // Graceful fallback: once the list is loaded, if the route names a wedding
   // that isn't in it, drop back to the list (replace — a dead link shouldn't
   // leave a Back-able entry).
@@ -788,115 +865,119 @@ function Dashboard() {
 
   return (
     <AuthContext.Provider value={watchedAuth}>
-      <TopBar
-        session={session()}
-        wedding={selected()}
-        weddings={weddings() ?? []}
-        sectionLabel={sectionLabel()}
-        onWedding={selectWedding}
-        onAll={backToList}
-        onSecurity={() => selectView("security")}
-        onSignOut={() => void signOut()}
-        onOpenPalette={() => setPalette(true)}
-      />
-
-      {/* No Suspense fallback on purpose: the palette is an overlay, and a
-          spinner where an overlay is about to be is worse than the overlay
-          arriving a frame later. */}
-      <Show when={paletteSummoned()}>
-        <Suspense>
-          <CommandPalette
-            open={paletteOpen()}
-            onOpenChange={setPalette}
+      <MembersChangedContext.Provider value={membersChanged}>
+        <TasksChangedContext.Provider value={tasksChanged}>
+          <TopBar
+            session={session()}
             wedding={selected()}
             weddings={weddings() ?? []}
-            onModule={selectModule}
+            sectionLabel={sectionLabel()}
             onWedding={selectWedding}
             onAll={backToList}
             onSecurity={() => selectView("security")}
             onSignOut={() => void signOut()}
+            onOpenPalette={() => setPalette(true)}
           />
-        </Suspense>
-      </Show>
 
-      {/* `@container/page` is the outermost query context for the views that sit
+          {/* No Suspense fallback on purpose: the palette is an overlay, and a
+          spinner where an overlay is about to be is worse than the overlay
+          arriving a frame later. */}
+          <Show when={paletteSummoned()}>
+            <Suspense>
+              <CommandPalette
+                open={paletteOpen()}
+                onOpenChange={setPalette}
+                wedding={selected()}
+                weddings={weddings() ?? []}
+                onModule={selectModule}
+                onWedding={selectWedding}
+                onAll={backToList}
+                onSecurity={() => selectView("security")}
+                onSignOut={() => void signOut()}
+              />
+            </Suspense>
+          </Show>
+
+          {/* `@container/page` is the outermost query context for the views that sit
           outside the module shell (the wedding list, the create form). The main
           element carries the page measure: the bar above is full-bleed so its
           hairline runs edge to edge, while its contents share this gutter. */}
-      <main class="page-frame @container/page flex flex-col gap-8 py-8 @2xl/frame:py-10">
-        <Show when={view() === "security"}>
-          <SecurityPanel />
-        </Show>
-
-        <Show when={view() === "weddings"}>
-          <Show when={loaded()} fallback={<Loading label="Loading weddings…" />}>
-            <Show when={loadError()}>
-              {(message) => <Notice tone="danger">{message()}</Notice>}
+          <main class="page-frame @container/page flex flex-col gap-8 py-8 @2xl/frame:py-10">
+            <Show when={view() === "security"}>
+              <SecurityPanel />
             </Show>
 
-            <Show when={!loadError() && weddings()}>
-              {(list) => (
-                <Show
-                  when={selected()}
-                  fallback={
-                    <WeddingList
-                      weddings={list()}
-                      deleted={deletedWeddings()}
-                      onSelect={(w) => selectWedding(w)}
-                      onCreated={handleCreated}
-                      onRestored={(id) => void handleWeddingRestored(id)}
-                      onRestoreExpired={handleRestoreExpired}
-                    />
-                  }
-                >
-                  {(wedding) => (
-                    // Keyed on the id: another wedding is another dashboard,
-                    // mounted fresh, with its own cache scope. The key is the
-                    // function's argument on purpose — Show only calls a
-                    // children function that takes one, and an unused `()`
-                    // would make `keyed` do nothing.
-                    <Show when={wedding().id} keyed>
-                      {(weddingId) => {
-                        const summary = summaryFor(weddingId);
-                        return (
-                          <WeddingDashboard
-                            weddingId={weddingId}
-                            wedding={summary()}
-                            module={() => {
-                              const r = route();
-                              return r.view === "weddings" ? r.module : DEFAULT_MODULE;
-                            }}
-                            sub={() => {
-                              const r = route();
-                              return r.view === "weddings" ? r.sub : defaultSub(DEFAULT_MODULE);
-                            }}
-                            rsvpEvent={() => {
-                              const r = route();
-                              return r.view === "weddings" && r.weddingId !== null
-                                ? r.rsvpEvent
-                                : undefined;
-                            }}
-                            onModule={selectModule}
-                            onSub={selectSub}
-                            onRsvpEvent={selectRsvpEvent}
-                            onWeddingUpdated={(patch) => handleWeddingUpdated(weddingId, patch)}
-                            onWeddingDeleted={(restoreUntil) =>
-                              handleWeddingDeleted(weddingId, restoreUntil)
-                            }
-                            onTierRaised={(tier) => void handleTierRaised(weddingId, tier)}
-                            onLeft={() => handleLeftWedding(weddingId)}
-                            onOwnRoleChanged={(role) => handleOwnRoleChanged(weddingId, role)}
-                          />
-                        );
-                      }}
+            <Show when={view() === "weddings"}>
+              <Show when={loaded()} fallback={<Loading label="Loading weddings…" />}>
+                <Show when={loadError()}>
+                  {(message) => <Notice tone="danger">{message()}</Notice>}
+                </Show>
+
+                <Show when={!loadError() && weddings()}>
+                  {(list) => (
+                    <Show
+                      when={selected()}
+                      fallback={
+                        <WeddingList
+                          weddings={list()}
+                          deleted={deletedWeddings()}
+                          onSelect={(w) => selectWedding(w)}
+                          onCreated={handleCreated}
+                          onRestored={(id) => void handleWeddingRestored(id)}
+                          onRestoreExpired={handleRestoreExpired}
+                        />
+                      }
+                    >
+                      {(wedding) => (
+                        // Keyed on the id: another wedding is another dashboard,
+                        // mounted fresh, with its own cache scope. The key is the
+                        // function's argument on purpose — Show only calls a
+                        // children function that takes one, and an unused `()`
+                        // would make `keyed` do nothing.
+                        <Show when={wedding().id} keyed>
+                          {(weddingId) => {
+                            const summary = summaryFor(weddingId);
+                            return (
+                              <WeddingDashboard
+                                weddingId={weddingId}
+                                wedding={summary()}
+                                module={() => {
+                                  const r = route();
+                                  return r.view === "weddings" ? r.module : DEFAULT_MODULE;
+                                }}
+                                sub={() => {
+                                  const r = route();
+                                  return r.view === "weddings" ? r.sub : defaultSub(DEFAULT_MODULE);
+                                }}
+                                rsvpEvent={() => {
+                                  const r = route();
+                                  return r.view === "weddings" && r.weddingId !== null
+                                    ? r.rsvpEvent
+                                    : undefined;
+                                }}
+                                onModule={selectModule}
+                                onSub={selectSub}
+                                onRsvpEvent={selectRsvpEvent}
+                                onWeddingUpdated={(patch) => handleWeddingUpdated(weddingId, patch)}
+                                onWeddingDeleted={(restoreUntil) =>
+                                  handleWeddingDeleted(weddingId, restoreUntil)
+                                }
+                                onTierRaised={(tier) => void handleTierRaised(weddingId, tier)}
+                                onLeft={() => handleLeftWedding(weddingId)}
+                                onOwnRoleChanged={(role) => handleOwnRoleChanged(weddingId, role)}
+                              />
+                            );
+                          }}
+                        </Show>
+                      )}
                     </Show>
                   )}
                 </Show>
-              )}
+              </Show>
             </Show>
-          </Show>
-        </Show>
-      </main>
+          </main>
+        </TasksChangedContext.Provider>
+      </MembersChangedContext.Provider>
     </AuthContext.Provider>
   );
 }

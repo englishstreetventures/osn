@@ -32,6 +32,7 @@ import {
   vendors,
   weddingFaqs,
   platformSales,
+  realtimeSubscribeBudget,
   weddingEntitlements,
   weddingHosts,
   weddingInviteCustomisations,
@@ -85,6 +86,7 @@ import { maintenanceSweeps } from "../../src/services/maintenance-sweeps";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { plusOneService } from "../../src/services/plus-one";
 import { RECONCILE_GRACE_MS } from "../../src/services/r2-reconcile";
+import { spendRealtimeSubscribe } from "../../src/services/realtime";
 import {
   CurrencyMismatch,
   registryGuestService,
@@ -1132,13 +1134,12 @@ describe("cire/api over real D1 (Miniflare)", () => {
       );
       expect(picked.added).toBe(1);
 
-      await run(
-        weddingSettingsService.update(
-          BOOTSTRAP_WEDDING_ID,
-          { weddingDate: "2027-09-04" },
-          "usr_d1",
-        ),
+      // The batch's re-dating answers each task it moved, which is what tells
+      // open checklists to read again.
+      const saved = await run(
+        weddingSettingsService.save(BOOTSTRAP_WEDDING_ID, { weddingDate: "2027-09-04" }, "usr_d1"),
       );
+      expect(saved.tasksRedated).toBeGreaterThan(0);
       const moved = await db
         .select({ item: tasks.templateItem, dueAt: tasks.dueAt })
         .from(tasks)
@@ -1194,16 +1195,19 @@ describe("cire/api over real D1 (Miniflare)", () => {
 
       const add = (weddingId: string, taskId: string, hostId: string) =>
         run(tasksService.addAssignee(weddingId, taskId, hostId));
-      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).assigneeHostIds).toEqual(
-        ["whost_d1_helper"],
-      );
-      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer")).assigneeHostIds).toEqual(
-        ["whost_d1_helper", "whost_d1_viewer"],
-      );
-      // Already there: unchanged, still one row.
-      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).assigneeHostIds).toEqual(
-        ["whost_d1_helper", "whost_d1_viewer"],
-      );
+      expect(await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).toMatchObject({
+        task: { assigneeHostIds: ["whost_d1_helper"] },
+        changed: true,
+      });
+      expect(await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer")).toMatchObject({
+        task: { assigneeHostIds: ["whost_d1_helper", "whost_d1_viewer"] },
+        changed: true,
+      });
+      // Already there: unchanged, still one row, and said so.
+      expect(await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).toMatchObject({
+        task: { assigneeHostIds: ["whost_d1_helper", "whost_d1_viewer"] },
+        changed: false,
+      });
       await add(BOOTSTRAP_WEDDING_ID, doomed.id, "whost_d1_viewer");
 
       const refusal = async (eff: Effect.Effect<unknown, unknown, DbService>) => {
@@ -1251,8 +1255,11 @@ describe("cire/api over real D1 (Miniflare)", () => {
       const removed = await run(
         tasksService.removeAssignee(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer"),
       );
-      expect(removed.assigneeHostIds).toEqual([]);
+      expect(removed).toMatchObject({ task: { assigneeHostIds: [] }, changed: true });
       expect(await stored(task.id)).toEqual([]);
+      expect(
+        await run(tasksService.removeAssignee(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer")),
+      ).toMatchObject({ task: { assigneeHostIds: [] }, changed: false });
 
       await run(tasksService.remove(BOOTSTRAP_WEDDING_ID, doomed.id));
       expect(await stored(doomed.id)).toEqual([]);
@@ -1282,7 +1289,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       }
 
       const reversed = created.toReversed();
-      await run(tasksService.reorder(BOOTSTRAP_WEDDING_ID, "12m", reversed));
+      const moved = await run(tasksService.reorder(BOOTSTRAP_WEDDING_ID, "12m", reversed));
 
       const rows = await db
         .select({ id: tasks.id })
@@ -1290,6 +1297,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .where(eq(tasks.weddingId, BOOTSTRAP_WEDDING_ID))
         .orderBy(asc(tasks.sortOrder));
       expect(rows.map((r) => r.id)).toEqual(reversed);
+      // D1 reports each UPDATE's change count, so the route can tell a move
+      // from an order the checklist already had.
+      expect(moved).toBeGreaterThan(0);
+      expect(await run(tasksService.reorder(BOOTSTRAP_WEDDING_ID, "12m", reversed))).toBe(0);
     },
     MF_TIMEOUT_MS,
   );
@@ -1730,6 +1741,39 @@ describe("cire/api over real D1 (Miniflare)", () => {
         ["claim", "rclaim_log", 1, null],
       ]);
       expect(second.entries[1]!.createdAt).toBe(at(0).getTime());
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "realtime subscribe budget: one admission per unit, none past the ceiling, a fresh count each UTC day",
+    async () => {
+      // The refusal rests on the upsert's `DO UPDATE ... WHERE` returning no
+      // row, and the race on D1's batch running as one transaction, so both
+      // are pinned on D1 as well as on bun:sqlite.
+      const morning = new Date("2026-10-20T01:00:00Z");
+      const spend = (at: Date) => run(spendRealtimeSubscribe("usr_rt_budget", 2, at));
+      const budgetRows = () =>
+        db
+          .select()
+          .from(realtimeSubscribeBudget)
+          .where(eq(realtimeSubscribeBudget.osnProfileId, "usr_rt_budget"));
+
+      expect(await spend(morning)).toBe(true);
+      // Two at once with one unit left: exactly one is admitted.
+      expect((await Promise.all([spend(morning), spend(morning)])).toSorted()).toEqual([
+        false,
+        true,
+      ]);
+      expect(await spend(morning)).toBe(false);
+      expect(await budgetRows()).toEqual([
+        { osnProfileId: "usr_rt_budget", day: "2026-10-20", subscribes: 2 },
+      ]);
+
+      expect(await spend(new Date("2026-10-21T00:00:01Z"))).toBe(true);
+      expect(await budgetRows()).toEqual([
+        { osnProfileId: "usr_rt_budget", day: "2026-10-21", subscribes: 1 },
+      ]);
     },
     MF_TIMEOUT_MS,
   );
@@ -4163,8 +4207,14 @@ describe("cire/api over real D1 (Miniflare)", () => {
           scope: "full",
         }),
       );
-      expect(widened).toMatchObject({ role: "helper", runSheetScope: "full" });
+      expect(widened).toMatchObject({ role: "helper", runSheetScope: "full", changed: true });
       expect(await storedScope("usr_helper")).toBe("full");
+      // The same scope again matches no row in the UPDATE, and the read that
+      // follows answers it as unchanged, not as a refusal.
+      expect(await scopeExit("usr_helper")).toMatchObject({
+        _tag: "Success",
+        value: { role: "helper", runSheetScope: "full", changed: false },
+      });
 
       // helper → helper keeps it; any move away resets it, so coming back is own.
       expect((await setRole("helper")).runSheetScope).toBe("full");

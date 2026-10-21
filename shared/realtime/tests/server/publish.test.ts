@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Logger } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fakeHub } from "../support/fake-hub";
@@ -9,7 +9,7 @@ vi.mock("../../src/server/metrics", async (importOriginal) => ({
   metricSignalPublished,
 }));
 
-import { publish } from "../../src/server/publish";
+import { publish, REVOKE_RETRY_DELAYS_MS } from "../../src/server/publish";
 
 const TOPIC = "cire:wedding:wed_1";
 
@@ -68,6 +68,102 @@ describe("publish", () => {
     await Effect.runPromise(publish(hub, TOPIC, "members-changed", { timeoutMs: 30 }));
     expect(Date.now() - started).toBeLessThan(1_000);
     expect(metricSignalPublished).toHaveBeenCalledWith("cire", "members-changed", "error");
+  });
+
+  describe("a publish that revokes", () => {
+    const logged = () => {
+      const messages: string[] = [];
+      const logger = Logger.make(({ message }) => {
+        messages.push(...(Array.isArray(message) ? message : [message]).map(String));
+      });
+      return { messages, layer: Logger.layer([logger]) };
+    };
+
+    it("tries the hub again when a call fails, and counts the one that lands", async () => {
+      let calls = 0;
+      const { hub, publishes } = fakeHub({
+        publish: () => (++calls === 1 ? Promise.reject(new Error("hub down")) : Promise.resolve(1)),
+      });
+      const log = logged();
+
+      await Effect.runPromise(
+        publish(hub, TOPIC, "members-changed", {
+          revokeSubjects: ["usr_eve"],
+          revokeRetryDelaysMs: [1, 1],
+        }).pipe(Effect.provide(log.layer)),
+      );
+
+      expect(publishes).toHaveLength(2);
+      expect(publishes.map((call) => call.targets.revoke)).toEqual([["usr_eve"], ["usr_eve"]]);
+      expect(metricSignalPublished).toHaveBeenCalledTimes(1);
+      expect(metricSignalPublished).toHaveBeenCalledWith("cire", "members-changed", "ok");
+      expect(log.messages).toEqual([]);
+    });
+
+    it("gives up after three calls, and says the revoke failed", async () => {
+      const { hub, publishes } = fakeHub({ publish: () => Promise.reject(new Error("hub down")) });
+      const log = logged();
+
+      await expect(
+        Effect.runPromise(
+          publish(hub, TOPIC, "members-changed", {
+            revokeSubjects: ["usr_eve", "usr_dee"],
+            revokeRetryDelaysMs: [1, 1],
+          }).pipe(Effect.provide(log.layer)),
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(publishes).toHaveLength(3);
+      expect(log.messages).toEqual(["realtime revoke failed"]);
+      expect(metricSignalPublished).toHaveBeenCalledTimes(1);
+      expect(metricSignalPublished).toHaveBeenCalledWith("cire", "members-changed", "error");
+    });
+
+    it("waits before each retry, and only as long as it is told", async () => {
+      const { hub, publishes } = fakeHub({ publish: () => Promise.reject(new Error("hub down")) });
+      const started = Date.now();
+      await Effect.runPromise(
+        publish(hub, TOPIC, "members-changed", {
+          revokeSubjects: ["usr_eve"],
+          revokeRetryDelaysMs: [40],
+        }),
+      );
+      expect(publishes).toHaveLength(2);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(35);
+    });
+
+    it("retries on its own pauses when told none", async () => {
+      let calls = 0;
+      const { hub, publishes } = fakeHub({
+        publish: () => (++calls === 1 ? Promise.reject(new Error("hub down")) : Promise.resolve(1)),
+      });
+      const started = Date.now();
+      await Effect.runPromise(
+        publish(hub, TOPIC, "members-changed", { revokeSubjects: ["usr_eve"] }),
+      );
+      expect(publishes).toHaveLength(2);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(REVOKE_RETRY_DELAYS_MS[0] - 5);
+      expect(metricSignalPublished).toHaveBeenCalledWith("cire", "members-changed", "ok");
+    });
+
+    it("tries a publish that revokes nobody once", async () => {
+      const { hub, publishes } = fakeHub({ publish: () => Promise.reject(new Error("hub down")) });
+      const log = logged();
+      await Effect.runPromise(
+        publish(hub, TOPIC, "tasks-changed", { revokeRetryDelaysMs: [1, 1] }).pipe(
+          Effect.provide(log.layer),
+        ),
+      );
+      await Effect.runPromise(
+        publish(hub, TOPIC, "members-changed", {
+          revokeSubjects: [],
+          evictSubjects: ["usr_bob"],
+          revokeRetryDelaysMs: [1, 1],
+        }).pipe(Effect.provide(log.layer)),
+      );
+      expect(publishes).toHaveLength(2);
+      expect(log.messages).toEqual(["realtime publish failed", "realtime publish failed"]);
+    });
   });
 
   it("refuses a malformed topic without touching the hub", async () => {

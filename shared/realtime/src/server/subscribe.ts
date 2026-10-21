@@ -79,6 +79,12 @@ const decodeTopic = (raw: string): string | null => {
  * runtime, never through a framework that rebuilds responses — a rebuilt 101
  * loses its socket. Run it on the product's runtime, so its logs pass through
  * the redacting logger.
+ *
+ * Because the route runs before the framework, the framework's per-IP limiter
+ * never sees it, and `allow` and `allowDaily` are keyed on the subject that
+ * `authenticate` returns: nothing here bounds unauthenticated requests. Put the
+ * path behind the product's own per-IP limit (or a Cloudflare rate-limiting
+ * rule) before calling this.
  */
 export const subscribe = (
   request: Request,

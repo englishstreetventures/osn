@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import type { SignalKind } from "@shared/realtime";
+import type { SignalEvent, SubscriptionOptions } from "@shared/realtime/client";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -117,6 +119,8 @@ vi.mock("../../src/components/WeddingList", () => ({
 let shellMounts = 0;
 vi.mock("../../src/components/ModuleShell", async () => {
   const { useAuth } = await import("@shared/rp-auth/solid");
+  const { useMembersChanged } = await import("../../src/lib/members-changed");
+  const { useTasksChanged } = await import("../../src/lib/tasks-changed");
   return {
     default: (props: {
       weddingId: string;
@@ -136,6 +140,8 @@ vi.mock("../../src/components/ModuleShell", async () => {
       onOwnRoleChanged?: (role: "owner" | "editor" | "viewer" | "helper") => void;
     }) => {
       const { authFetch } = useAuth();
+      const membersChanged = useMembersChanged();
+      const tasksChanged = useTasksChanged();
       shellMounts += 1;
       const mount = shellMounts;
       return (
@@ -147,6 +153,8 @@ vi.mock("../../src/components/ModuleShell", async () => {
           data-sub={props.sub}
           data-tier={props.tier}
           data-mount={String(mount)}
+          data-members-changed={String(membersChanged())}
+          data-tasks-changed={String(tasksChanged())}
           data-rsvp-event={props.rsvpEvent ?? ""}
         >
           {props.weddingId}
@@ -185,8 +193,29 @@ vi.mock("../../src/components/PreviewInviteButton", () => ({
 vi.mock("../../src/components/SecurityPanel", () => ({
   default: () => <div data-testid="security-panel">passkeys</div>,
 }));
+// The Dashboard's subscription, captured rather than opened: a unit test drives
+// the signal by hand. The browser tier (`OrganiserApp.realtime.browser.test.tsx`)
+// runs the real socket.
+const topic = vi.hoisted(() => ({
+  url: null as null | (() => string | null | undefined),
+  onSignal: null as null | ((event: SignalEvent) => void),
+  options: null as null | SubscriptionOptions,
+}));
+vi.mock("@shared/realtime/solid", () => ({
+  useTopic: (
+    url: () => string | null | undefined,
+    onSignal: (event: SignalEvent) => void,
+    options?: SubscriptionOptions,
+  ) => {
+    topic.url = url;
+    topic.onSignal = onSignal;
+    topic.options = options ?? null;
+  },
+}));
 
 import OrganiserApp from "../../src/components/OrganiserApp";
+import { __resetHostsCache, hasCachedHosts, setFreshHosts } from "../../src/lib/hosts-store";
+import { __resetTasksCache, hasCachedTasks, setCachedTasks } from "../../src/lib/tasks-store";
 // The unsaved-changes guard is real (unmocked) — the veto tests below register
 // a guard directly, standing in for any mounted dirty form (the invite builder).
 import { registerUnsavedGuard } from "../../src/lib/unsaved-guard";
@@ -199,6 +228,12 @@ import {
 } from "../../src/lib/vendors-store";
 import { __resetWeddingScope } from "../../src/lib/wedding-scope";
 import { redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
+
+/** A signal on the open wedding's topic, as the subscription hands it over. */
+const message = (kind: SignalKind): SignalEvent => ({
+  reason: "message",
+  signal: { topic: "cire:wedding:wed_a", kind, at: Date.now() },
+});
 
 /** A `GET /api/organiser/weddings` answer. `deleted`, when given, is the
  *  owner's restorable weddings; left out, the body carries no `deleted` key. */
@@ -249,6 +284,8 @@ describe("OrganiserApp Dashboard", () => {
     toastInfo.mockReset();
     __resetWeddingScope();
     __resetVendorsCache();
+    __resetTasksCache();
+    __resetHostsCache();
   });
 
   afterEach(async () => {
@@ -261,6 +298,9 @@ describe("OrganiserApp Dashboard", () => {
     await new Promise((resolve) => requestAnimationFrame(resolve));
     resetOrganiserMocks();
     vi.unstubAllGlobals();
+    topic.url = null;
+    topic.onSignal = null;
+    topic.options = null;
     // The dashboard mirrors its state into the URL hash — reset it so one test's
     // deep link doesn't seed the next.
     history.replaceState(null, "", window.location.pathname + window.location.search);
@@ -825,6 +865,168 @@ describe("OrganiserApp Dashboard", () => {
   const LIST_URL = "https://api.test/api/organiser/weddings";
   const listCalls = () => authFetchMock.mock.calls.filter(([url]) => url === LIST_URL).length;
   const shell = () => screen.getByTestId("module-shell");
+
+  it("listens on the open wedding's topic, and on nothing from the list", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    expect(topic.url?.()).toMatch(/\/realtime\/cire%3Awedding%3Awed_a$/);
+
+    fireEvent.click(screen.getByRole("button", { name: /All weddings/i }));
+    expect(topic.url?.()).toBeNull();
+  });
+
+  it("listens for a helper, whose run sheet follows the wedding's changes", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", role: "helper" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByText(/Helper access/i)).toBeTruthy());
+    expect(topic.url?.()).toMatch(/\/realtime\/cire%3Awedding%3Awed_a$/);
+  });
+
+  it("opens the dashboard for a helper promoted on a signal, with no click", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    let role = "helper";
+    authFetchMock.mockImplementation(async () =>
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", role }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByText(/Helper access/i)).toBeTruthy());
+
+    role = "viewer";
+    topic.onSignal?.(message("members-changed"));
+
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    expect(listCalls()).toBe(2);
+  });
+
+  it("marks the open wedding's seats stale on members-changed, for the next view that shows them", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setFreshHosts("wed_a", []);
+    expect(hasCachedHosts("wed_a")).toBe(true);
+
+    topic.onSignal?.(message("members-changed"));
+
+    await waitFor(() => expect(hasCachedHosts("wed_a")).toBe(false));
+  });
+
+  it("tells the open wedding's task views on tasks-changed, without reading the list", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setCachedTasks("wed_a", []);
+    expect(hasCachedTasks("wed_a")).toBe(true);
+
+    topic.onSignal?.(message("tasks-changed"));
+
+    await waitFor(() => expect(shell().dataset.tasksChanged).toBe("1"));
+    // The cached rows are marked stale for the next view that reads them, and
+    // nothing is fetched here: no list, no tasks.
+    expect(hasCachedTasks("wed_a")).toBe(false);
+    expect(shell().dataset.membersChanged).toBe("0");
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells both kinds of view on a reconnect, which may have missed either", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setCachedTasks("wed_a", []);
+
+    topic.onSignal?.({ reason: "reconnected" });
+
+    await waitFor(() => expect(shell().dataset.tasksChanged).toBe("1"));
+    expect(shell().dataset.membersChanged).toBe("1");
+    expect(hasCachedTasks("wed_a")).toBe(false);
+  });
+
+  it("re-reads the list on a signal and drops a wedding the organiser was removed from", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    let removed = false;
+    authFetchMock.mockImplementation(async () =>
+      listResponse(removed ? [] : [{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setCachedVendors("wed_a", [vendorRow("wed_a")]);
+    expect(listCalls()).toBe(1);
+
+    removed = true;
+    topic.onSignal?.(message("members-changed"));
+
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    expect(listCalls()).toBe(2);
+    expect(peekCachedVendors("wed_a")).toBeNull();
+  });
+
+  it("tells the open wedding's views its seats may have changed on a signal or a reconnect", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    expect(shell().dataset.membersChanged).toBe("0");
+
+    topic.onSignal?.(message("members-changed"));
+    await waitFor(() => expect(shell().dataset.membersChanged).toBe("1"));
+    // A drop and a stop report no change to the seats of their own.
+    topic.onSignal?.({ reason: "dropped" });
+    topic.onSignal?.({ reason: "stopped" });
+    await Promise.resolve();
+    expect(shell().dataset.membersChanged).toBe("1");
+    topic.onSignal?.({ reason: "reconnected" });
+    await waitFor(() => expect(shell().dataset.membersChanged).toBe("2"));
+  });
+
+  it("re-reads at once on a signal, inside the once-a-minute window", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    topic.onSignal?.({ reason: "reconnected" });
+    await waitFor(() => expect(listCalls()).toBe(2));
+  });
+
+  it("tells cire-api why when the socket gives up", async () => {
+    // The portal's own reads go through `authFetch`, so the global `fetch`
+    // sees the beacon alone.
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    topic.options?.onFallback?.("exhausted");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.test/api/realtime/fallback",
+      expect.objectContaining({ method: "POST", body: "exhausted" }),
+    );
+  });
 
   it("drops the rows of a wedding the organiser leaves, from a deep link onward", async () => {
     history.replaceState(null, "", "#/w/wed_a");
@@ -1539,5 +1741,102 @@ describe("OrganiserApp Dashboard", () => {
     } finally {
       clock.mockRestore();
     }
+  });
+
+  describe("a push event while a list re-read is in flight", () => {
+    // A signal, a reconnect or a stop means the hosts may have changed by the
+    // moment it arrived, so one that lands after a re-read started sends a
+    // fresh read: the read in flight may have been answered before the change.
+    // A dropped socket reports no change of its own (an eviction's drop follows
+    // the signal that already started a read), so it joins the read in flight.
+    const start = 1_900_000_000_000;
+    const wedA = [{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }];
+
+    it.each([
+      ["members-changed", message("members-changed")],
+      ["reconnected", { reason: "reconnected" } as const],
+      ["stopped", { reason: "stopped" } as const],
+    ] satisfies [string, SignalEvent][])(
+      "sends a fresh read for a %s event that arrives after the read started",
+      async (_label, event) => {
+        const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+        try {
+          history.replaceState(null, "", "#/w/wed_a");
+          const early = heldList();
+          let listReads = 0;
+          authFetchMock.mockImplementation((url: string) => {
+            if (url !== LIST_URL) return Promise.resolve(listResponse(wedA));
+            listReads += 1;
+            if (listReads === 2) return early.promise;
+            return Promise.resolve(listResponse(listReads === 3 ? [] : wedA));
+          });
+          render(() => <OrganiserApp />);
+          await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+          setCachedVendors("wed_a", [vendorRow("wed_a")]);
+
+          // The first signal's read is held with the wedding still in it.
+          topic.onSignal?.(message("members-changed"));
+          await waitFor(() => expect(listReads).toBe(2));
+
+          // The organiser is removed after that read started.
+          clock.mockReturnValue(start + 1);
+          topic.onSignal?.(event);
+
+          await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+          expect(listReads).toBe(3);
+          expect(peekCachedVendors("wed_a")).toBeNull();
+
+          // The older read, answering late, must not bring the wedding back.
+          early.answer(listResponse(wedA));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          expect(screen.queryByTestId("module-shell")).toBeNull();
+          expect(peekCachedVendors("wed_a")).toBeNull();
+        } finally {
+          clock.mockRestore();
+        }
+      },
+    );
+
+    it("lets a dropped socket join the read in flight rather than send another", async () => {
+      const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+      try {
+        history.replaceState(null, "", "#/w/wed_a");
+        const held = heldList();
+        let listReads = 0;
+        authFetchMock.mockImplementation((url: string) => {
+          if (url !== LIST_URL) return Promise.resolve(listResponse(wedA));
+          listReads += 1;
+          return listReads === 2 ? held.promise : Promise.resolve(listResponse(wedA));
+        });
+        render(() => <OrganiserApp />);
+        await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+
+        // The signal, then the eviction's drop a millisecond later.
+        topic.onSignal?.(message("members-changed"));
+        await waitFor(() => expect(listReads).toBe(2));
+        clock.mockReturnValue(start + 1);
+        topic.onSignal?.({ reason: "dropped" });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(listReads).toBe(2);
+
+        held.answer(listResponse(wedA));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(listReads).toBe(2);
+        expect(shell().textContent).toContain("wed_a");
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it("reads on a dropped socket when no read is in flight", async () => {
+      history.replaceState(null, "", "#/w/wed_a");
+      authFetchMock.mockResolvedValue(listResponse(wedA));
+      render(() => <OrganiserApp />);
+      await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+      expect(listCalls()).toBe(1);
+
+      topic.onSignal?.({ reason: "dropped" });
+      await waitFor(() => expect(listCalls()).toBe(2));
+    });
   });
 });

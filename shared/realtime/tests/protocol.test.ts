@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatTopic, isSignal, parseTopic } from "../src/protocol";
+import { formatTopic, isFallbackOutcome, isSignal, parseTopic } from "../src/protocol";
 
 describe("parseTopic", () => {
   it("splits a well-formed topic of a known product", () => {
@@ -47,8 +47,8 @@ describe("formatTopic", () => {
 describe("isSignal", () => {
   const good = { topic: "cire:wedding:wed_1", kind: "members-changed", at: 1_700_000_000_000 };
 
-  it("accepts a well-formed signal", () => {
-    expect(isSignal(good)).toBe(true);
+  it.each(["members-changed", "tasks-changed"])("accepts a well-formed %s signal", (kind) => {
+    expect(isSignal({ ...good, kind })).toBe(true);
   });
 
   it.each([
@@ -57,7 +57,27 @@ describe("isSignal", () => {
     ["a malformed topic", { ...good, topic: "nope" }],
     ["a missing at", { topic: good.topic, kind: good.kind }],
     ["a non-finite at", { ...good, at: Number.NaN }],
+    // A client older than a kind drops it rather than reading it as another.
+    ["a kind this build does not know", { ...good, kind: "rows-changed" }],
   ])("refuses %s", (_label, value) => {
     expect(isSignal(value)).toBe(false);
+  });
+});
+
+describe("isFallbackOutcome", () => {
+  it.each(["refused", "exhausted"])("accepts %s", (value) => {
+    expect(isFallbackOutcome(value)).toBe(true);
+  });
+
+  it.each([
+    ["the client's stopped signal", "stopped"],
+    ["a capitalised outcome", "Refused"],
+    ["an outcome with surrounding whitespace", " refused"],
+    ["an empty string", ""],
+    ["null", null],
+    ["a number", 1008],
+    ["an object", { outcome: "refused" }],
+  ])("refuses %s", (_label, value) => {
+    expect(isFallbackOutcome(value)).toBe(false);
   });
 });

@@ -19,6 +19,7 @@ import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
+import { decideCapability, LISTEN_CAPABILITY } from "../middleware/wedding-role";
 import { weddingSeat } from "../middleware/wedding-seat";
 import { runCire } from "../observability";
 import { AddHostBody, UpdateHostRoleBody, UpdateRunSheetScopeBody } from "../schemas/host";
@@ -32,6 +33,7 @@ import type {
   WeddingRole,
 } from "../services/hosts";
 import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../services/osn-bridge";
+import { createWeddingSignals, type WeddingSignals } from "../services/realtime";
 
 const PREFIX = "/api/organiser";
 
@@ -227,6 +229,13 @@ export const createOrganiserHostsReadRoutes = (
  * demote or remove another owner, or step down or leave themselves; what no one
  * may do is leave the wedding with no owner (409 `last_owner`, enforced in the
  * writing statement itself).
+ *
+ * Each write that changed a seat — its role, or a helper's run-sheet scope —
+ * then tells the wedding's open tabs (`signals.membersChanged`). A removal and
+ * a leave also revoke that member's sockets: they close with 1008 and the tab
+ * stops listening. So would a role change to one that may not listen
+ * (`LISTEN_CAPABILITY`), which no role is today; any other change leaves their
+ * sockets open, since a check could only admit them again.
  */
 export const createOrganiserHostsWriteRoutes = (
   db: Db,
@@ -234,6 +243,7 @@ export const createOrganiserHostsWriteRoutes = (
   limiter: RateLimiterBackend,
   resolveOsnProfileByHandle?: OsnHandleResolver,
   ownerNotices?: OwnerNotices,
+  signals: WeddingSignals = createWeddingSignals(undefined),
 ) =>
   new Elysia({ prefix: PREFIX })
     .use(osnAuth(osnAuthOptions))
@@ -300,6 +310,7 @@ export const createOrganiserHostsWriteRoutes = (
                   );
 
                 yield* Effect.sync(() => metricHostAdded("ok", host.role));
+                yield* signals.membersChanged(scopedWeddingId, request);
                 // A new owner holds every owner power; the other owners hear of it.
                 if (host.role === "owner") {
                   yield* notifyOwnerChange(db, request, ownerNotices, {
@@ -404,6 +415,20 @@ export const createOrganiserHostsWriteRoutes = (
                     ),
                   );
                 yield* Effect.sync(() => metricHostRoleChanged("ok", host.role));
+                // Every open tab hears of a real change. The member's own
+                // sockets close for good only if the new role may not listen;
+                // every role reads the run sheet today, so a move to helper
+                // keeps their tab listening while its re-read drops the
+                // dashboard.
+                if (host.previousRole !== host.role) {
+                  yield* signals.membersChanged(
+                    weddingId,
+                    request,
+                    decideCapability(host.role, LISTEN_CAPABILITY).allowed
+                      ? []
+                      : [host.osnProfileId],
+                  );
+                }
                 // An owner moved below owner, the caller's own step-down
                 // included, or a seat moved up to owner: every owner hears of
                 // it, and a demoted owner does too.
@@ -516,7 +541,16 @@ export const createOrganiserHostsWriteRoutes = (
                     ),
                   );
                 yield* Effect.sync(() => metricHostRunSheetScopeChanged("ok", host.runSheetScope));
-                return { host };
+                // The helper's open tab, and every co-host panel, re-read. Nobody
+                // is closed: narrowed or widened, the helper still listens.
+                if (host.changed) yield* signals.membersChanged(weddingId, request);
+                return {
+                  host: {
+                    osnProfileId: host.osnProfileId,
+                    role: host.role,
+                    runSheetScope: host.runSheetScope,
+                  },
+                };
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTags({
@@ -569,6 +603,13 @@ export const createOrganiserHostsWriteRoutes = (
               .pipe(
                 Effect.provideService(DbService, db),
                 Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "owner"))),
+                // Only when a seat went: removing a profile that holds none
+                // changes nobody's access.
+                Effect.tap(({ removed }) =>
+                  removed
+                    ? signals.membersChanged(weddingId, request, [params.osnProfileId])
+                    : Effect.void,
+                ),
                 Effect.tap(({ removed }) =>
                   removed?.role === "owner"
                     ? notifyOwnerChange(db, request, ownerNotices, {
@@ -631,6 +672,9 @@ export const createOrganiserHostsWriteRoutes = (
             hostsService.remove({ weddingId, osnProfileId }).pipe(
               Effect.provideService(DbService, db),
               Effect.tap(() => Effect.sync(() => metricHostRemoved("ok", "self"))),
+              Effect.tap(({ removed }) =>
+                removed ? signals.membersChanged(weddingId, request, [osnProfileId]) : Effect.void,
+              ),
               Effect.tap(({ removed }) =>
                 removed?.role === "owner"
                   ? notifyOwnerChange(db, request, ownerNotices, {
