@@ -69,7 +69,7 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
     // PUBLIC invite that every visitor scrolls past: first-timers, link
     // previews, every share of the couple's link. Without this guard the wasted
     // request scales with page views rather than with guests, against an
-    // account-wide Workers Free budget of 100k/day (P-W1).
+    // account-wide Workers Free budget of 100k/day.
     //
     // Safe against the one case that matters: `noteClaimed()` sets the hint
     // BEFORE it dispatches `CLAIM_SESSION_EVENT`, so a guest entering their

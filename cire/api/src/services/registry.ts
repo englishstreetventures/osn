@@ -104,7 +104,7 @@ export class RegistryItemFieldsInvalid extends Data.TaggedError("RegistryItemFie
 /** The wedding is at its item ceiling. 409-class. */
 export class RegistryItemLimitReached extends Data.TaggedError("RegistryItemLimitReached") {}
 /**
- * A quantity outside the range the CHECK constraints allow (S-M1). The service
+ * A quantity outside the range the CHECK constraints allow. The service
  * refuses it so the caller gets a tagged error rather than a raw D1 constraint
  * throw, which surfaces as a 500 and says nothing useful.
  */
@@ -130,7 +130,7 @@ const GIFT_LOG_PAGE = 50;
  */
 const MAX_GIFT_LOG_OFFSET = 500;
 /**
- * Ceiling on items per wedding (S-L4). `reorderItems` already caps its id list at
+ * Ceiling on items per wedding. `reorderItems` already caps its id list at
  * 500; without a matching cap on creation the two disagree, and a list past the
  * reorder cap becomes unorderable.
  */
@@ -765,10 +765,9 @@ interface CurrencyTotal {
 /**
  * Succeeded contributions totalled PER CURRENCY, computed IN SQL.
  *
- * It used to be a JS loop over the gift log, which quietly made the total a
- * function of how many rows the log happened to return — so paginating the log
- * would have started under-reporting the money. One query, whatever the page
- * size.
+ * In SQL, not summed from the gift log: a total taken from the log would be
+ * a function of how many rows one page returns, and would under-report the
+ * money once the log ran past a page. One query, whatever the page size.
  *
  * A same-currency row has no primary snapshot (the FX columns are NULL) and so
  * contributes its as-given amount; that is the `coalesce` pair.
@@ -1000,7 +999,7 @@ function contributionOnAccount(
 }
 
 /**
- * Does this R2 key name a REGISTRY object under this wedding? (S-H1, S-M1)
+ * Does this R2 key name a REGISTRY object under this wedding?
  *
  * `ImageKey` in the HTTP schema pins the SHAPE — `assets/<wedding>/registry-…` —
  * but shape alone lets an editor of wedding A point an item at wedding B's
@@ -1040,7 +1039,7 @@ export const registryService = {
   get(weddingId: string): Effect.Effect<RegistrySnapshot, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      // Five independent reads (P-W1). Each is a separate D1 round trip and none
+      // Five independent reads. Each is a separate D1 round trip and none
       // depends on another's result, so issuing them together overlaps the
       // latency instead of stacking it — the same shape claimService.get uses.
       // On bun:sqlite the concurrency is a no-op; on D1 it is most of the
@@ -2387,10 +2386,10 @@ export const registryService = {
       if (!inQuantityRange(input.quantityWanted, 1, Number.MAX_SAFE_INTEGER)) {
         return yield* Effect.fail(new InvalidQuantity());
       }
-      // One aggregate, not a full column scan (P-W3), and it answers both
-      // questions the insert has: is the wedding at its ceiling, and what is the
-      // next sort_order. Reading every row's sort_order to take a max was the
-      // whole list on every create (S-L4 added the ceiling that made it worse).
+      // One aggregate, not a full column scan, and it answers both questions
+      // the insert has: is the wedding at its ceiling, and what is the next
+      // sort_order. Reading every row's sort_order to take a max would read the
+      // whole list on every create.
       const [agg] = yield* dbQuery(() =>
         db
           .select({
@@ -2503,7 +2502,9 @@ export const registryService = {
           exists ? new RegistryItemFieldsInvalid() : new RegistryItemNotInWedding(),
         );
       }
-      // The claimed sum for the ONE item that changed (P-W4). The wedding-wide
+      // A cash fund is never claimed, so it has nothing to count.
+      if ((updated as ItemRow).kind === "cash_fund") return toItemDto(updated as ItemRow, 0);
+      // The claimed sum for the ONE item that changed. The wedding-wide
       // GROUP BY this used to call built a map of every item's claims to read a
       // single key out of it.
       const [claimedRow] = yield* dbQuery(() =>
@@ -2531,8 +2532,8 @@ export const registryService = {
    * The ROUTE reaps the object (best-effort, outside this Effect's requirements)
    * — this service stays DB-only, exactly as `eventImageService` keeps its R2
    * work in the module that owns the bucket. But whether the object may be
-   * reaped is a DB question, so it is answered here, right after the delete
-   * (S-M1): nothing stops two items naming the same key — duplicate an item,
+   * reaped is a DB question, so it is answered here, right after the delete:
+   * nothing stops two items naming the same key — duplicate an item,
    * or paste the same shop link twice and save it once — and reaping on the
    * first delete would blank the survivor's picture. Counting AFTER the delete
    * and in the same step is what makes the answer true at reap time.
@@ -2622,7 +2623,7 @@ export const registryService = {
    * claims — which is what makes the same statement serve both the first claim
    * and a later change, via the ON CONFLICT arm.
    *
-   * The same WHERE also proves the household belongs to this wedding (S-H2). A
+   * The same WHERE also proves the household belongs to this wedding. A
    * guest session names a `family_id`; without the EXISTS, a leaked id from
    * another wedding would write a claim row carrying THIS wedding's `wedding_id`
    * and a foreign family's — a cross-tenant row that then shows up in the
@@ -2723,7 +2724,7 @@ export const registryService = {
         },
         { concurrency: "unbounded" },
       );
-      // FAMILY FIRST, and the order is the security property (S-M1). A cookie
+      // FAMILY FIRST, and the order is the security property. A cookie
       // names a household, not a wedding, so a holder of ANY valid session can
       // point it at any slug. Answering `RegistryItemNotInWedding` first told
       // them whether the item id they guessed exists on a wedding they cannot
@@ -2763,7 +2764,7 @@ export const registryService = {
       const db = yield* DbService;
       // The WHERE matches an EXISTING claim row, which `claim` already refused
       // to write unless the household belonged to the wedding — so a foreign
-      // family id simply matches nothing. What that leaves is the S-M1 problem:
+      // family id simply matches nothing. What that leaves is a probe:
       // "matched nothing" would answer `registry_item_not_found` to a foreign
       // cookie on a visible registry and `registry_not_found` on an invisible
       // one, which is a probe for which weddings have a list. The failure path
@@ -2897,7 +2898,7 @@ export const registryService = {
   hasRows(weddingId: string): Effect.Effect<boolean, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      // Both probes always (P-I5): the short-circuit saved a round trip only for
+      // Both probes always: the short-circuit saved a round trip only for
       // weddings that HAVE items, and cost a serial second one for every wedding
       // that does not — which is every wedding, since the feature ships locked.
       const [itemRows, contributionRows] = yield* Effect.all(
@@ -3051,7 +3052,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * Has the couple's shipping-address embargo lifted?
  *
  * A NULL date means no embargo, and so does an unparseable one — the write
- * schema validates the shape (S-M2), so a value that got past it is corruption,
+ * schema validates the shape, so a value that got past it is corruption,
  * and failing open here matches what `schemas/registry.ts` documents. Comparing
  * `YYYY-MM-DD` strings lexicographically IS a date comparison for that shape, and
  * avoids inventing a timezone the couple never chose.
@@ -3164,13 +3165,16 @@ function resolveVisibleRegistry(
           currency: weddings.currency,
           tier: weddings.tier,
           // The kind of an item of this wedding naming the image, or NULL when
-          // none does. Two items can share one picture; a `product` sorts
-          // first, because a gift on the list keeps its picture whatever a
-          // fund beside it does. A check the caller did not ask for is the
-          // constant 'product', so the row keeps one shape.
+          // none does. Two items can share one picture, and a gift on the list
+          // keeps its picture whatever a fund beside it does: `max` gives
+          // 'product' whenever one names it, because the kind CHECK allows only
+          // 'product' and 'cash_fund' and 'product' sorts after. An aggregate
+          // rather than ORDER BY … LIMIT 1, so the read needs no sort. A check
+          // the caller did not ask for is the constant 'product', so the row
+          // keeps one shape.
           imageKind: (imageName === undefined
             ? sql<RegistryItemKind | null>`'product'`
-            : sql<RegistryItemKind | null>`(SELECT ${registryItems.kind} FROM ${registryItems} WHERE ${registryItems.weddingId} = ${outerColumn(weddings.id)} AND ${registryItems.imageKey} = 'assets/' || ${outerColumn(weddings.id)} || '/' || ${imageName} ORDER BY ${registryItems.kind} = 'cash_fund' LIMIT 1)`
+            : sql<RegistryItemKind | null>`(SELECT max(${registryItems.kind}) FROM ${registryItems} WHERE ${registryItems.weddingId} = ${outerColumn(weddings.id)} AND ${registryItems.imageKey} = 'assets/' || ${outerColumn(weddings.id)} || '/' || ${imageName})`
           ).as("image_kind"),
           // The household's kind, or NULL when it is not this wedding's. Not
           // asked, it is the constant 'guest': the check passes and nothing
@@ -3294,7 +3298,7 @@ export const registryGuestService = {
    * The write routes resolve the wedding from the SLUG and hand the id to
    * `registryService.claim` / `releaseClaim`, so a `cire_session` cookie minted
    * for wedding A carries no authority on wedding B's slug: the claim statement
-   * proves the household belongs to the wedding it names (S-H2) and fails
+   * proves the household belongs to the wedding it names and fails
    * `FamilyNotInWedding` when it does not.
    */
   visibleWeddingId(slug: string): Effect.Effect<string, RegistryNotVisible, DbService> {

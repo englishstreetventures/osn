@@ -90,9 +90,8 @@ const MAX_QUANTITY = 99;
  * `https:` only, matching the API schema that accepts the field and the message
  * the form shows on a 400 — the shared `isHttpUrl` also passes `http:` and
  * treats blank as valid, which is right for the guest-detail forms it was
- * written for and wrong at a render site (S-L2). A stored row can predate the
- * schema or come from a fixture, so the check belongs here as well as at write
- * time (precedent CON-S-L2).
+ * written for and wrong at a render site. A stored row can predate the schema
+ * or come from a fixture, so the check belongs here as well as at write time.
  */
 function isHttpsUrl(value: string): boolean {
   try {
@@ -165,7 +164,7 @@ const SUMMARY_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
  *
  * Guest-authored text (`note`, `displayName`, and the household's `familyName`)
  * is rendered through Solid's `{expr}` interpolation ONLY, which builds a text
- * node (S-L3). No `innerHTML`, no markdown pass: a guest writes the note and the
+ * node. No `innerHTML`, no markdown pass: a guest writes the note and the
  * couple reads it in an authenticated portal, so any HTML path here is stored
  * XSS against the account that owns the wedding.
  */
@@ -260,7 +259,7 @@ export default function RegistryView(props: RegistryViewProps) {
   // The gift log, already ordered by the server. A memo rather than two
   // `snapshot()?.gifts ?? []` reads, so the empty-state `<Show>` and the `<For>`
   // resolve one array and `<For>` keeps its identity when the snapshot object is
-  // replaced by an unrelated write (REG-P-I2).
+  // replaced by an unrelated write.
   const gifts = createMemo(() => snapshot()?.gifts ?? []);
 
   /** The list's ids in display order — what the sortable list and a drop resolve against. */
@@ -271,12 +270,15 @@ export default function RegistryView(props: RegistryViewProps) {
   /** Its own memo so a row's move controls re-run when the length changes, not
    *  on every write to the list. */
   const itemCount = createMemo(() => items().length);
-  /** The couple have cash funds, and guests cannot see them: money is off. */
-  const fundsHidden = createMemo(() => {
+  /** Guests can give money, so they see the couple's funds. */
+  const takingMoney = createMemo(() => {
     const settings = snapshot()?.settings;
-    const takingMoney = settings?.cashGiftsEnabled === true && settings.stripeChargesEnabled;
-    return !takingMoney && items().some((it) => it.kind === "cash_fund");
+    return settings?.cashGiftsEnabled === true && settings.stripeChargesEnabled;
   });
+  /** Its own memo, so a write that leaves the items alone does not walk them. */
+  const hasFund = createMemo(() => items().some((it) => it.kind === "cash_fund"));
+  /** The couple have cash funds, and guests cannot see them: money is off. */
+  const fundsHidden = () => !takingMoney() && hasFund();
 
   /**
    * What a refused item write means, from the code the API sent. Read by its
@@ -1072,15 +1074,14 @@ export default function RegistryView(props: RegistryViewProps) {
                                   </Show>
                                 </Show>
                                 {/* Scheme-checked at the render site, not merely at write
-                        time (precedent CON-S-L2: `vendor.privacyUrl` reached an
-                        `href` with no check). The API schema already refuses
+                        time. The API schema already refuses
                         anything but `https:`, but a row can also arrive from a
                         migration or a fixture, and a `javascript:` href here
                         runs in the organiser's own origin.
 
                         The `aria-label` names the item, because a screen-reader
                         user listing the page's links otherwise hears "Link,
-                        link, link" with nothing to tell them apart (C-L2). */}
+                        link, link" with nothing to tell them apart. */}
                                 <Show when={item.externalUrl && isHttpsUrl(item.externalUrl)}>
                                   <a
                                     href={item.externalUrl!}
@@ -1415,13 +1416,13 @@ export default function RegistryView(props: RegistryViewProps) {
               {(gift) => {
                 // One formatting pass per row: `formatMinorPair` was called
                 // three times in the markup below, and it is the only
-                // non-trivial work a gift row does (REG-P-I1).
+                // non-trivial work a gift row does.
                 const money = giftMoney(gift);
                 const status = giftStatus(gift);
                 return (
                   <li class="border-border bg-surface/10 flex flex-col gap-1 rounded-sm border px-3 py-2">
                     <div class="flex flex-wrap items-center gap-3">
-                      {/* Guest-authored — a text node, never markup (S-L3). */}
+                      {/* Guest-authored — a text node, never markup. */}
                       <span class="text-text text-ui-base min-w-40 flex-1 font-medium">
                         {giftFrom(gift)}
                       </span>
@@ -1485,7 +1486,7 @@ export default function RegistryView(props: RegistryViewProps) {
                       fallback={
                         <Show when={gift.note}>
                           <div class="flex flex-wrap items-baseline gap-x-3">
-                            {/* Guest-authored — a text node, never markup (S-L3). */}
+                            {/* Guest-authored — a text node, never markup. */}
                             <p class="text-text-muted text-ui-sm min-w-0 flex-1 italic">
                               {gift.note}
                             </p>

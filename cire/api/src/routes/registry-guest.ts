@@ -325,7 +325,7 @@ function giftIdempotencyKey(input: {
 export interface RegistryContributeDeps {
   /** Absent ⇒ the route is not mounted; a guest is never offered a dead button. */
   readonly stripe: StripeClient;
-  /** Its OWN limiter, tighter than the claim one — see the route header. */
+  /** Its OWN limiter, apart from the claim one — see the route header. */
   readonly limiter: RateLimiterBackend;
   /** Guest-site origin, for the two URLs Stripe returns the guest to. */
   readonly guestOrigin: string;
@@ -340,9 +340,9 @@ export interface RegistryContributeDeps {
  * charge is DIRECT on the couple's connected account: the money is theirs from
  * the moment it is taken, and cire never holds it.
  *
- * **Its own limiter, and a tight one.** Every call here is an outbound Stripe
- * request — the same "amplifier" shape the link-preview route is limited for,
- * and the one guest route that can cost money to be wrong about. It answers
+ * **Its own limiter**, at the claim route's rate. Every call here is an outbound
+ * Stripe request — the same "amplifier" shape the link-preview route is limited
+ * for, and the one guest route that can cost money to be wrong about. It answers
  * before `sessionAuth`, so a refused request costs no session lookup, and a
  * caller with no claimed session spends the same per-IP budget as a guest.
  *
@@ -353,9 +353,9 @@ export interface RegistryContributeDeps {
  * this wedding's cash funds. A guest is turned away before their card is, or
  * not at all.
  *
- * **Nothing is recorded here.** A session is an intention, not a gift. The row
- * in `registry_contributions` is written by the webhook when Stripe says the
- * money moved — which is the only party that knows.
+ * **The gift is written first, as `pending`**, before Stripe is asked for a
+ * page, and Stripe is told one opaque id. The webhook settles that row when
+ * Stripe says the money moved — the only party that knows.
  */
 export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeDeps) =>
   new Elysia({ prefix: "/api/invite" })
@@ -409,8 +409,8 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
             // the ONLY thing about this gift that reaches Stripe.
             const contributionId = `rct_${crypto.randomUUID()}`;
 
-            // THE ROW COMES FIRST, before Stripe is told anything (osn-tracker
-            // #528). Written the other way round there is a window — small, but
+            // THE ROW COMES FIRST, before Stripe is told anything. Written the
+            // other way round there is a window — small, but
             // it is the window in which the guest's money moves — where a
             // session exists at Stripe and no row exists here: evict the Worker
             // between the call and the insert and the settle webhook names a

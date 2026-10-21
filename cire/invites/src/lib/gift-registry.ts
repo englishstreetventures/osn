@@ -484,9 +484,8 @@ export function giftRegistryImageBase(apiUrl: string, slug: string, imageName: s
  *
  * The API already parses and normalises this on write. This is the second half
  * of the same gate, at the render site, because a row can also arrive from a
- * migration, a fixture or a restored backup — the CON-S-L2 precedent, where
- * `vendor.privacyUrl` reached an `href` with no scheme check and `javascript:`
- * was therefore a same-origin script sink.
+ * migration, a fixture or a restored backup, and a `javascript:` value in an
+ * `href` is a same-origin script sink.
  *
  * `https:` only. Embedded credentials are rejected for the same reason the write
  * path rejects them: `https://evil.com@retailer.example/` reads as the retailer

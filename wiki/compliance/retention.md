@@ -7,7 +7,7 @@ related:
   - "[[data-map]]"
   - "[[dsar]]"
   - "[[cire]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Retention

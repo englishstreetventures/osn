@@ -7,7 +7,7 @@ import {
   GiftMoneyPanel,
   giftMoneyMessage,
 } from "../../../src/components/gift-registry/GiftMoneyPanel";
-import type { GiftRegistryFund } from "../../../src/lib/gift-registry";
+import { formatGiftPrice, type GiftRegistryFund } from "../../../src/lib/gift-registry";
 
 /**
  * The "give money" panel.
@@ -85,6 +85,18 @@ describe("the hand-off", () => {
       expect(assign).toHaveBeenCalledWith("https://checkout.stripe.com/c/pay/cs_1"),
     );
     expect(calls[0]?.url).toBe(`${API}/api/invite/${SLUG}/registry/contribute`);
+  });
+
+  it("marks the chosen amount with a tick as well as a colour", () => {
+    const { container } = renderPanel();
+    const marked = () =>
+      [...container.querySelectorAll("[data-gift-choice-mark]")].map(
+        (mark) => mark.closest("label")?.textContent ?? "",
+      );
+    expect(marked()).toHaveLength(1);
+    expect(marked()[0]).toContain(formatGiftPrice(5000, "AUD"));
+    fireEvent.click(screen.getByText("Another amount"));
+    expect(marked()).toEqual([expect.stringContaining("Another amount")]);
   });
 
   it("gives the first preset unless the guest picks another", async () => {
@@ -312,27 +324,32 @@ describe("giving to a fund", () => {
     // The radios are visually hidden, so the border is all a sighted guest
     // sees of their choice.
     const card = (radio: HTMLInputElement) => radio.closest("label") as HTMLLabelElement;
-    /** Chosen: the gold border and no plain one; not chosen: the reverse. */
+    /**
+     * Chosen: the gold border, no plain one, and a mark that is not a colour
+     * (a guest who cannot tell gold from grey still sees which is chosen).
+     * Not chosen: the reverse.
+     */
     const chosen = (radio: HTMLInputElement) => [
       card(radio).classList.contains("border-gold"),
       card(radio).classList.contains("border-border"),
+      card(radio).querySelector("[data-gift-choice-mark]") !== null,
     ];
 
     // Before any choice the money goes to the couple, and only that row says so.
     expect(general.checked).toBe(true);
     expect(honeymoon.checked).toBe(false);
-    expect(chosen(general)).toEqual([true, false]);
-    expect(chosen(honeymoon)).toEqual([false, true]);
+    expect(chosen(general)).toEqual([true, false, true]);
+    expect(chosen(honeymoon)).toEqual([false, true, false]);
 
     fireEvent.click(honeymoon);
     expect(honeymoon.checked).toBe(true);
-    expect(chosen(honeymoon)).toEqual([true, false]);
-    expect(chosen(general)).toEqual([false, true]);
+    expect(chosen(honeymoon)).toEqual([true, false, true]);
+    expect(chosen(general)).toEqual([false, true, false]);
 
     fireEvent.click(general);
     expect(general.checked).toBe(true);
-    expect(chosen(general)).toEqual([true, false]);
-    expect(chosen(honeymoon)).toEqual([false, true]);
+    expect(chosen(general)).toEqual([true, false, true]);
+    expect(chosen(honeymoon)).toEqual([false, true, false]);
 
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
     await waitFor(() => expect(calls).toHaveLength(1));

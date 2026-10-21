@@ -944,6 +944,31 @@ describe("gift log", () => {
     expect(gifts[0]!.amountMinor).toBe(4_000);
   });
 
+  it("edits a cash fund in one statement: a fund has no claims to count", async () => {
+    const db = db0();
+    const fund = await ok(
+      db,
+      registryService.createItem({
+        ...newItem({ title: "Honeymoon" }),
+        kind: "cash_fund",
+        priceMinor: null,
+      }),
+    );
+    const statements = recordStatements(db);
+    const edited = await ok(
+      db,
+      registryService.updateItem({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: fund.id,
+        patch: { targetMinor: 300_000 },
+      }),
+    );
+    expect(edited.targetMinor).toBe(300_000);
+    expect(edited.quantityClaimed).toBe(0);
+    expect(statements).toHaveLength(1);
+    expect(statements[0]!.sql).not.toContain("registry_claims");
+  });
+
   it("names the fund a gift was given to, as given, after a rename and after a delete", async () => {
     const db = db0();
     const [famA] = twoFamilies(db);

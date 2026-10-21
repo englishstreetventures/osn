@@ -847,8 +847,7 @@ export const registryItems = sqliteTable(
     imageKey: text("image_key"),
     imageCrop: text("image_crop"),
     // Where to buy it. Validated `https:` on write AND re-checked on render —
-    // an unvalidated URL in an `href` is a `javascript:` sink (precedent
-    // CON-S-L2).
+    // an unvalidated URL in an `href` is a `javascript:` sink.
     externalUrl: text("external_url"),
     // Minor units of the WEDDING's currency (`weddings.currency`). No per-item
     // currency column — see the module comment above.
@@ -868,7 +867,7 @@ export const registryItems = sqliteTable(
     // Every list read is `WHERE wedding_id = ? ORDER BY sort_order` — one
     // composite serves filter + order in a single b-tree walk. The trailing `id`
     // is the tie-break the ORDER BY actually uses, so the read is covered and
-    // never falls back to a sort (P-I3).
+    // never falls back to a sort.
     index("registry_items_wedding_sort_idx").on(t.weddingId, t.sortOrder, t.id),
     // "Does an item of this wedding name this image?" The public gift-image
     // route asks it on every request that reaches the Worker, so a deleted
@@ -878,11 +877,10 @@ export const registryItems = sqliteTable(
     index("registry_items_wedding_image_idx").on(t.weddingId, t.imageKey),
     // Zero (or negative) wanted makes the remaining-quantity arithmetic in
     // registryService.claim nonsense — every claim is instantly "full". The
-    // service refuses it first; this is the floor under a future writer (S-M1).
+    // service refuses it first; this is the floor under a future writer.
     check("registry_items_quantity_wanted_ck", sql`quantity_wanted >= 1`),
     // `kind` is a drizzle enum, which is a TYPE-level claim only: nothing stops a
-    // raw statement writing 'gift_card'. The CHECK makes it a storage-level one
-    // (S-M4).
+    // raw statement writing 'gift_card'. The CHECK makes it a storage-level one.
     check("registry_items_kind_ck", sql`kind in ('product','cash_fund')`),
   ],
 );
@@ -939,10 +937,10 @@ export const registryClaims = sqliteTable(
     // The remaining-quantity subquery reads
     // `WHERE item_id = ? AND status <> 'released' AND family_id <> ?` and sums
     // `quantity`. Carrying all four columns makes it a covering index — the
-    // hottest read on the write path never touches the table (P-W5).
+    // hottest read on the write path never touches the table.
     index("registry_claims_item_status_idx").on(t.itemId, t.status, t.familyId, t.quantity),
     // `claimedByItem` reads `WHERE wedding_id = ? AND status <> 'released'`
-    // GROUP BY item_id, summing quantity — covered end to end (P-W6).
+    // GROUP BY item_id, summing quantity — covered end to end.
     index("registry_claims_wedding_item_status_idx").on(
       t.weddingId,
       t.itemId,
@@ -951,9 +949,9 @@ export const registryClaims = sqliteTable(
     ),
     // A claim of 0 would occupy the (item, household) unique pair while claiming
     // nothing; the upper bound is what stops one household reserving a whole
-    // registry by typing a big number (S-M1). Range mirrored in the service.
+    // registry by typing a big number. Range mirrored in the service.
     check("registry_claims_quantity_ck", sql`quantity >= 1 and quantity <= 99`),
-    // Storage-level guarantee behind the drizzle enum (S-M4). `released` is load
+    // Storage-level guarantee behind the drizzle enum. `released` is load
     // bearing — the quantity arithmetic subtracts on exactly that string.
     check("registry_claims_status_ck", sql`status in ('reserved','purchased','released')`),
   ],

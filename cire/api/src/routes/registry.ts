@@ -383,7 +383,7 @@ export const createRegistryWriteRoutes = (
               //
               // `imageKeyOrphaned` is the service's verdict, taken with the
               // delete: two items may name the same key, and reaping on the
-              // first delete would blank the survivor's picture (S-M1).
+              // first delete would blank the survivor's picture.
               Effect.tap(({ imageKey, imageKeyOrphaned }) =>
                 reapAfterResponse(request, assets, imageKeyOrphaned ? imageKey : null),
               ),

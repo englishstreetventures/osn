@@ -13,7 +13,7 @@ related:
   - "[[rate-limiting]]"
   - "[[cire-auth]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Gift registry
@@ -195,7 +195,7 @@ A couple can list named cash funds — a honeymoon, a house deposit — beside t
 
 **Deleting a fund keeps every gift given to it**, as deleting any listing does (`item_id` is SET NULL), and each gift keeps the fund's name in `item_title`. A gift still `pending` at the time settles as normal. There is no "retire" state: a couple who want a fund off the list delete it.
 
-**The guest's choice.** In `GiftMoneyPanel`, "What it's for" sits above the amounts: "Wherever they choose" first and chosen, then each fund by its picture, name and words, as radios. The choice sends the fund's id as `itemId`. A `409 fund_unavailable` says the fund is no longer on the couple's list, the page re-reads the list, and the choice goes back to "Wherever they choose" once the fund is gone from it. The invite's teaser band takes fund pictures into its peek row too.
+**The guest's choice.** In `GiftMoneyPanel`, "What it's for" sits above the amounts: "Wherever they choose" first and chosen, then each fund by its picture, name and words, as radios. The radios are visually hidden so the whole row is the control, so the chosen row shows a filled ring and the chosen amount a tick as well as the gold border: colour alone would not tell every guest which fund their money goes to. The choice sends the fund's id as `itemId`. A `409 fund_unavailable` says the fund is no longer on the couple's list, the page re-reads the list, and the choice goes back to "Wherever they choose" once the fund is gone from it. The invite's teaser band takes fund pictures into its peek row too.
 
 ### What the couple keeps (built)
 
@@ -268,6 +268,7 @@ INSERT INTO registry_claims (…)
 SELECT …, ri.wedding_id, ri.id, …
 FROM registry_items ri
 WHERE ri.id = ? AND ri.wedding_id = ?
+  AND ri.kind = 'product'             -- a cash fund is given to, never reserved
   AND EXISTS (SELECT 1 FROM families f
               WHERE f.id = ? AND f.wedding_id = ? AND f.kind = 'guest')
   AND ? + coalesce((
@@ -284,7 +285,7 @@ Two details are load-bearing:
 - **`rc.family_id <> ?` excludes the caller's own row**, so a household raising its own quantity is measured against _other_ households' claims. That is what lets one statement serve both the first claim and a later change, via the `ON CONFLICT` arm.
 - **Success is decided by `RETURNING`**, never by re-reading the `(item_id, family_id)` pair. A household that had _released_ this item still has a row there, so the re-read would report success for a claim the guard refused. There is a test named for exactly this.
 
-Zero rows returned means one of four things; only that failure path pays for a second pair of reads, run together, to tell them apart, in this order: a household of another wedding (`FamilyNotInWedding`, 404), the wedding's host preview household (`RegistryPreviewSession`, 403), an item of another wedding (`RegistryItemNotInWedding`, 404), and a gift already taken (`ItemFullyClaimed`, 409).
+Zero rows returned means one of five things; only that failure path pays for a second pair of reads, run together, to tell them apart, in this order: a household of another wedding (`FamilyNotInWedding`, 404), the wedding's host preview household (`RegistryPreviewSession`, 403), an item of another wedding or a cash fund (`RegistryItemNotInWedding`, 404), and a gift already taken (`ItemFullyClaimed`, 409).
 
 **Timestamps.** This statement writes `created_at` / `updated_at` directly rather than through a Date-valued insert, so it must match drizzle's `integer({ mode: "timestamp" })` unit — **epoch seconds, not milliseconds**. Getting it wrong still writes the row, just dated to the year 58000, so `toEpochSeconds` is pinned by a test against what a normal drizzle insert produces.
 
@@ -681,13 +682,13 @@ The hint is wired with `aria-describedby`, conditional on there being a hint —
 
 **A failed re-read leaves what is on screen.** Only an answer replaces what is rendered: `ok` swaps the list, `401` locks it, `404` closes it, and a transport failure changes nothing. Blanking on a blip would blank the page under someone reading it.
 
-**States that look alike and are not.** An unpublished registry, or one on a wedding below Gold, 404s: the page says the couple have closed their list and the band renders nothing at all on the invite. A visitor with no claim gets a 401, which is a different page again — a way in, not a refusal. A published empty list renders its masthead and "The couple haven't added any gifts yet." The shipping address renders only when the household read actually returned one — the field is optional on the wire and carries no reason, so absent covers both "the couple set none" and "you may not see it", and there is nothing honest to print in its place.
+**States that look alike and are not.** An unpublished registry, or one on a wedding below Gold, 404s: the page says the couple have closed their list and the band renders nothing at all on the invite. A visitor with no claim gets a 401, which is a different page again — a way in, not a refusal. A published empty list renders its masthead and "The couple haven't added any gifts yet."; a list of cash funds and no gifts to reserve does not, since its funds are in the money panel. The shipping address renders only when the household read actually returned one — the field is optional on the wire and carries no reason, so absent covers both "the couple set none" and "you may not see it", and there is nothing honest to print in its place.
 
-**What a visitor without a claim receives.** The page's server render carries the invite's public payload and nothing from the list: the couple's colours, hero photo and the section copy below. Gift titles, prices, counts and image names, the couple's `headline` and `message`, and the shipping address arrive only in the two credentialed reads, which answer 401 without a `cire_session`. A stale `cire_claimed` hint changes nothing, because the server decides: both reads still answer 401 and the page shows the way in. Two end-to-end flows hold the gate on the real stack ([[testing-patterns#The end-to-end suite]]), and a third holds the preview's refusal. The first two look for the gift titles, the `headline` and the `message` as text; the rest of the list is held by the two reads' status codes:
+**What a visitor without a claim receives.** The page's server render carries the invite's public payload and nothing from the list: the couple's colours, hero photo and the section copy below. Gift titles, prices, counts and image names, the couple's cash funds, their `headline` and `message`, and the shipping address arrive only in the two credentialed reads, which answer 401 without a `cire_session`. A stale `cire_claimed` hint changes nothing, because the server decides: both reads still answer 401 and the page shows the way in. Two end-to-end flows hold the gate on the real stack ([[testing-patterns#The end-to-end suite]]), and a third holds the preview's refusal. The first two look for the gift titles, the cash fund's name and words, the `headline` and the `message` as text; the rest of the list is held by the two reads' status codes:
 
 | Flow | What it proves |
 | --- | --- |
-| `cire-registry-locked` | With no code, on both page addresses, and with a stale hint beside a session the browser sends and the API never issued: the list read answers 401, the page shows the locked panel, and none of the gifts, the headline or the message is in the page. The same strings are absent from the API's list answer, from the public invite payload and from the invitation, which shows no band |
+| `cire-registry-locked` | With no code, on both page addresses, and with a stale hint beside a session the browser sends and the API never issued: the list read answers 401, the page shows the locked panel, and none of the gifts, the cash fund's name and words, the headline or the message is in the page. The same strings are absent from the API's list answer, from the public invite payload and from the invitation, which shows no band |
 | `cire-registry-claimed` | The locked page sends the visitor to the invitation; the household's code opens the band and then the list, with every gift, the headline and the message. The couple's cash fund and their Stripe-ready settings are read from the database, and still the list answer offers no money and no fund and the page shows neither, because the stack's cire-api has no Stripe key. Signing out on the invitation locks the list again and deletes the household's session |
 | `cire-registry-preview` | The invitation opened at the host preview code, as **Preview invite** opens it, claims on load. The gift page reads the list and `/mine` (with `preview: true`), shows the "Preview mode" note and every Reserve disabled. A reservation sent from the page anyway answers `403 preview_read_only`, and no claim row exists for the host household |
 

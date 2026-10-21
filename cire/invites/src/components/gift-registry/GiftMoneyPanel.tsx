@@ -95,6 +95,29 @@ export function giftMoneyMessage(result: GiftContributionResult): string {
   }
 }
 
+/**
+ * The visible mark of a chosen row: a ring, filled with a dot when chosen.
+ *
+ * The radios themselves are visually hidden so the whole row can be the
+ * control, which leaves the border's colour as the only sign of the choice. A
+ * guest who cannot tell gold from grey still has to see which fund the money
+ * goes to, so the shape carries it too. Decoration to assistive technology:
+ * the hidden radio already says checked.
+ */
+function ChoiceMark(props: { chosen: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      class="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border"
+      classList={{ "border-gold": props.chosen, "border-text/55": !props.chosen }}
+    >
+      <Show when={props.chosen}>
+        <span data-gift-choice-mark class="bg-gold block h-2 w-2 rounded-full" />
+      </Show>
+    </span>
+  );
+}
+
 export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
   // `null` is the "Other" row: a preset is a number, and typing is its absence.
   const [preset, setPreset] = createSignal<number | null>(GIFT_AMOUNT_PRESETS_MINOR[0]);
@@ -183,6 +206,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
                   checked={fundId() === null}
                   onChange={() => setFundId(null)}
                 />
+                <ChoiceMark chosen={fundId() === null} />
                 <span class="text-text text-ui-base">Wherever they choose</span>
               </label>
               <For each={funds()}>
@@ -202,6 +226,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
                       checked={fundId() === fund.id}
                       onChange={() => setFundId(fund.id)}
                     />
+                    <ChoiceMark chosen={fundId() === fund.id} />
                     <Show when={props.fundImageBase?.(fund)}>
                       {(base) => (
                         <img
@@ -254,6 +279,12 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
                     checked={preset() === minor}
                     onChange={() => setPreset(minor)}
                   />
+                  {/* The tick is the chosen amount's sign that is not a colour. */}
+                  <Show when={preset() === minor}>
+                    <span data-gift-choice-mark aria-hidden="true" class="mr-1.5">
+                      ✓
+                    </span>
+                  </Show>
                   {priceLabel(minor)}
                 </label>
               )}
@@ -272,6 +303,11 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
                 checked={preset() === null}
                 onChange={() => setPreset(null)}
               />
+              <Show when={preset() === null}>
+                <span data-gift-choice-mark aria-hidden="true" class="mr-1.5">
+                  ✓
+                </span>
+              </Show>
               Another amount
             </label>
           </div>
@@ -330,14 +366,13 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
           guests.
         </p>
 
-        <p
+        <output
           data-gift-money-status
-          role="status"
           aria-live="polite"
-          class="font-body text-text text-ui-sm leading-ui-normal mt-3 min-h-5"
+          class="font-body text-text text-ui-sm leading-ui-normal mt-3 block min-h-5"
         >
           {status()}
-        </p>
+        </output>
 
         <Show when={status() !== "" && props.inviteHref}>
           <Show when={status().includes("invite code")}>

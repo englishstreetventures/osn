@@ -20,7 +20,7 @@ const MAX_MINOR = 9_000_000_000_000;
 /**
  * Parse an absolute `https:` URL, or `null` if the string is not one.
  *
- * Embedded credentials are rejected outright (S-M5). `https://host.example@evil.example/`
+ * Embedded credentials are rejected outright. `https://host.example@evil.example/`
  * is a valid URL whose authority is `evil.example`, and every UI that shows an
  * item's link shows a truncated form of it — so the one part a guest reads is
  * exactly the part the syntax lets an attacker choose. Nothing legitimate puts a
@@ -43,12 +43,11 @@ function parseHttpsUrl(value: string): URL | null {
  *
  * Scheme-checked, not merely shape-checked. `external_url` is rendered into an
  * `<a href>` on the guest site, and an unvalidated URL there is a same-origin
- * script sink — precedent CON-S-L2, where `vendor.privacyUrl` reached an `href`
- * with no scheme check and a `javascript:` value added later would have executed.
+ * script sink: a `javascript:` value there runs when a guest clicks it.
  * The guest renderer re-checks rather than trusting this, because a row can also
  * arrive from a migration or a fixture.
  *
- * The transform stores `URL.href` rather than the raw input (S-M5), so what the
+ * The transform stores `URL.href` rather than the raw input, so what the
  * column holds is what the parser saw — one normal form per link, and no gap
  * between the string that passed validation and the string that gets rendered.
  */
@@ -82,7 +81,7 @@ const ShippingAddress = Schema.String.check(Schema.isMaxLength(MAX_ADDRESS_CHARS
 /**
  * A calendar date (`YYYY-MM-DD` from a date input), stored as text.
  *
- * Checked as a real date, not merely a bounded string (S-M2). This column gates
+ * Checked as a real date, not merely a bounded string. This column gates
  * when the couple's HOME ADDRESS becomes visible to guests, and the comparison
  * that reads it treats an unparseable value as "no embargo" — so a garbage date
  * publishes the address immediately. Mirrors `CalendarDate` in `schemas/settings.ts`:
@@ -102,7 +101,7 @@ const IsoDate = Schema.String.check(
 /**
  * R2 object key for an image already uploaded through the assets pipeline.
  *
- * Shape-checked here and OWNERSHIP-checked in the service (S-H1). Every other
+ * Shape-checked here and OWNERSHIP-checked in the service. Every other
  * cire image key is minted server-side — `services/invite-assets.ts` builds
  * `assets/<weddingId>/<slot>-<uuid>` and the client never names one — so this is
  * the first key a client gets to choose. A free-form string would let an editor
@@ -111,7 +110,7 @@ const IsoDate = Schema.String.check(
  * `..`, no slashes past the two segments); `registryService` additionally
  * requires the middle segment to be the caller's own `weddingId`.
  *
- * The slot half matters as much as the wedding half (S-M1). Without it, an
+ * The slot half matters as much as the wedding half. Without it, an
  * editor could name their own wedding's invite hero here and have deleting the
  * item reap the hero's object — same wedding, so the ownership check passes.
  * {@link REGISTRY_IMAGE_KEY} is the one definition of that shape, exported from

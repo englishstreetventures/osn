@@ -997,8 +997,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createRegistryGuestMineRoutes(db))
       .use(createRegistryGuestClaimRoutes(db, { limiter: registryGuestLimiter }))
       // Giving money. Mounted only with Stripe configured — a guest must never
-      // be offered a button that cannot lead anywhere. Its own limiter, tighter
-      // than the claim one: every call is an outbound Stripe request.
+      // be offered a button that cannot lead anywhere. Its own limiter, apart
+      // from the claim one: every call is an outbound Stripe request.
       .use(
         stripe
           ? createRegistryContributeRoutes(db, {

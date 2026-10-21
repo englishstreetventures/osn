@@ -128,19 +128,18 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
   const settings = (): RegistrySettings | null => snapshot()?.settings ?? null;
   /**
-   * What a published list would show a guest. A cash fund counts only while
-   * money gifts are on and Stripe can take a charge, as saved: guests see a
-   * fund only then, so a list of funds alone with money off would publish an
-   * empty page.
+   * Whether a published list would show a guest anything. A cash fund counts
+   * only while money gifts are on and Stripe can take a charge, as saved:
+   * guests see a fund only then, so a list of funds alone with money off would
+   * publish an empty page. Publishing an empty list is blocked — see the notice
+   * this drives.
    */
-  const guestVisibleCount = () => {
+  const canPublish = createMemo(() => {
     const s = settings();
     const fundsShow = s?.cashGiftsEnabled === true && s.stripeChargesEnabled;
-    return (snapshot()?.items ?? []).filter((it) => it.kind !== "cash_fund" || fundsShow).length;
-  };
+    return (snapshot()?.items ?? []).some((it) => it.kind !== "cash_fund" || fundsShow);
+  });
   const hasFunds = () => (snapshot()?.items ?? []).some((it) => it.kind === "cash_fund");
-  /** Publishing an empty list is blocked — see the notice this drives. */
-  const canPublish = () => guestVisibleCount() > 0;
 
   const stripeState = createMemo<StripeState>(() => {
     const s = settings();
