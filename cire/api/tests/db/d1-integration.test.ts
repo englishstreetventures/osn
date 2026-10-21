@@ -1128,7 +1128,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       }
 
       const reversed = created.toReversed();
-      await run(tasksService.reorder(BOOTSTRAP_WEDDING_ID, "12m", reversed));
+      const moved = await run(tasksService.reorder(BOOTSTRAP_WEDDING_ID, "12m", reversed));
 
       const rows = await db
         .select({ id: tasks.id })
@@ -1136,6 +1136,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .where(eq(tasks.weddingId, BOOTSTRAP_WEDDING_ID))
         .orderBy(asc(tasks.sortOrder));
       expect(rows.map((r) => r.id)).toEqual(reversed);
+      // D1 reports each UPDATE's change count, so the route can tell a move
+      // from an order the checklist already had.
+      expect(moved).toBeGreaterThan(0);
+      expect(await run(tasksService.reorder(BOOTSTRAP_WEDDING_ID, "12m", reversed))).toBe(0);
     },
     MF_TIMEOUT_MS,
   );
