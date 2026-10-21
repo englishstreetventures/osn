@@ -873,8 +873,10 @@ describe("a task's run time", () => {
     expect((await counted("clock", "event_not_in_wedding")) - beforeClock).toBe(4);
   });
 
-  it("404s a missing task before it judges the event", async () => {
+  it("404s a missing task before it judges the event, and counts it as one", async () => {
     const { app } = build();
+    const offsetBefore = await counted("offset", "task_not_found");
+    const clockBefore = await counted("clock", "task_not_found");
     for (const runTime of [
       { kind: "offset", eventId: THEIRS, offsetMinutes: 0 },
       { kind: "clock", eventId: THEIRS, at: "2099-06-20T14:30" },
@@ -885,6 +887,8 @@ describe("a task's run time", () => {
       expect(res.status, JSON.stringify(runTime)).toBe(404);
       expect(await jsonBody(res)).toEqual({ error: "task_not_found" });
     }
+    expect((await counted("offset", "task_not_found")) - offsetBefore).toBe(2);
+    expect((await counted("clock", "task_not_found")) - clockBefore).toBe(2);
   });
 
   it("422s a clock time more than a day from the event's start, and writes nothing", async () => {

@@ -4082,9 +4082,9 @@ describe("claimRefused", () => {
 describe("a schedule change and the checklist tasks linked to its events", () => {
   type Published = { name: string; kind: unknown };
 
-  /** The bootstrap wedding with the two-event schedule applied, a recording
-   *  hub, and two tasks linked to the Reception (16:00 Sydney, +10:00). */
-  async function linkedWedding() {
+  /** The bootstrap wedding, with nothing applied yet, and a hub that records
+   *  what is published. */
+  function recordingWedding() {
     const db = createDb(":memory:");
     seedBootstrapWedding(db);
     const r2 = createR2Stub();
@@ -4101,6 +4101,13 @@ describe("a schedule change and the checklist tasks linked to its events", () =>
       }),
     };
     const app = createApp(db, { r2, osnTestKey: auth.key, realtimeHub: hub });
+    return { db, app, publishes, failHub: () => (rejectNext = true) };
+  }
+
+  /** The bootstrap wedding with the two-event schedule applied, a recording
+   *  hub, and two tasks linked to the Reception (16:00 Sydney, +10:00). */
+  async function linkedWedding() {
+    const { db, app, publishes, failHub } = recordingWedding();
     await seedSheets(app);
     const reception = db.select().from(events).where(eq(events.name, "Reception")).get()!;
     const now = new Date();
@@ -4127,7 +4134,7 @@ describe("a schedule change and the checklist tasks linked to its events", () =>
       ])
       .run();
     publishes.length = 0;
-    return { db, app, publishes, reception, failHub: () => (rejectNext = true) };
+    return { db, app, publishes, reception, failHub };
   }
 
   /** The schedule without the Reception: an events-only sheet. */
@@ -4294,6 +4301,60 @@ describe("a schedule change and the checklist tasks linked to its events", () =>
       { name: topic, kind: "tasks-changed" },
       { name: topic, kind: "tasks-changed" },
     ]);
+  });
+
+  it("tells nobody when it refuses a change that touches the schedule before writing it", async () => {
+    const { app, publishes } = await linkedWedding();
+    // Past the guest cap: refused, with nothing written.
+    const guestsCsv = [
+      GUESTS_CSV.split("\n")[0],
+      ...Array.from({ length: 102 }, (_, i) => `1,Bigfamily,Guest${i},Bigfamily,no,no`),
+    ].join("\n");
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv,
+    });
+    const { changeId } = (await preview.json()) as { changeId: string };
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(402);
+    expect(publishes).toEqual([]);
+  });
+
+  it("tells the tabs after a revert that failed part way, and nobody about a revert it refuses", async () => {
+    const { db, app, publishes } = await linkedWedding();
+    const preview = await previewDropping(app);
+    expect(
+      (await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: preview.changeId })).status,
+    ).toBe(200);
+    publishes.length = 0;
+
+    // The revert brings the Reception back; its insert fails.
+    const failure = failStatements(db, (text) => text.startsWith('insert into "events"'));
+    const failed = await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: preview.changeId });
+    failure.restore();
+    expect(failed.status).toBe(500);
+    expect(publishes.map((p) => p.kind)).toEqual(["tasks-changed"]);
+
+    expect(
+      (await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: preview.changeId })).status,
+    ).toBe(200);
+    expect(publishes).toHaveLength(2);
+    // A change already reverted is refused, and nobody hears of it.
+    expect(
+      (await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: preview.changeId })).status,
+    ).toBe(409);
+    expect(publishes).toHaveLength(2);
+  });
+
+  it("tells the tabs when a revert does nothing but remove events", async () => {
+    const { app, publishes } = recordingWedding();
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, { eventsCsv: EVENTS_CSV });
+    const { changeId } = (await preview.json()) as { changeId: string };
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
+    publishes.length = 0;
+    // The schedule was empty before the change, so the revert removes both
+    // events and updates none.
+    expect((await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId })).status).toBe(200);
+    expect(publishes.map((p) => p.kind)).toEqual(["tasks-changed"]);
   });
 
   it("tells nobody about a change to the guests alone", async () => {

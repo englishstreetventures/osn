@@ -419,7 +419,15 @@ describe("GET /run-sheet: names", () => {
     const asked: string[][] = [];
     const resolver: Resolver = async (ids) => {
       asked.push([...ids]);
-      return new Map(ids.map((id) => [id, display(id.replace("usr_", ""))]));
+      return new Map(
+        ids.map((id) => [
+          id,
+          {
+            ...display(id.replace("usr_", "")),
+            avatarUrl: id === GUS ? "https://photos.example/gus.png" : null,
+          },
+        ]),
+      );
     };
     const sheet = await sheetFor(HELPER, build(), resolver);
     expect(asked.map((ids) => ids.toSorted())).toEqual([[GUS, HELPER].toSorted()]);
@@ -428,6 +436,14 @@ describe("GET /run-sheet: names", () => {
       osnProfileId: GUS,
       handle: "rs_gus",
       displayName: "rs_gus name",
+      avatarUrl: "https://photos.example/gus.png",
+    });
+    // No photo, no key.
+    expect(sheet.people.find((p) => p.hostId === SEAT.helper)).toEqual({
+      hostId: SEAT.helper,
+      osnProfileId: HELPER,
+      handle: "rs_helper",
+      displayName: "rs_helper name",
     });
   });
 
@@ -493,6 +509,15 @@ describe("GET /run-sheet: gates", () => {
     // A refusal from the gates spends nothing.
     expect((await get(app, STRANGER)).status).toBe(403);
     expect((await get(app, STRANGER)).status).toBe(403);
+  });
+
+  it("holds every organiser to 120 reads a minute by default", async () => {
+    const app = createApp(build(), { osnTestKey: auth.key });
+    const headers = { Authorization: `Bearer ${await auth.sign(HELPER)}` };
+    for (let i = 0; i < 120; i += 1) {
+      expect((await appRequest(app, PATH, { headers })).status, `read ${i + 1}`).toBe(200);
+    }
+    expect((await appRequest(app, PATH, { headers })).status).toBe(429);
   });
 
   it("is never cached", async () => {

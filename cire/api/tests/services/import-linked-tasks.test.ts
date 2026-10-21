@@ -15,6 +15,7 @@ import { createDb, DEV_OWNER_SEAT_ID, seedBootstrapWedding, type TestDb } from "
 import type { ImportPlan } from "../../src/schemas/import";
 import { currentEventsAsParsed } from "../../src/services/changes";
 import { applyImport, diffAgainstDb } from "../../src/services/import";
+import { recordStatements } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
 
 /**
@@ -158,10 +159,61 @@ describe("a schedule change's preview lists the tasks linked to the events it re
     ]);
   });
 
-  it("lists none for a change that removes no event", async () => {
-    const plan = await planKeeping(build(), [GAP_MORNING, RECEPTION, BRUNCH]);
+  it("lists none for a change that removes no event, and reads no task to find out", async () => {
+    const db = build();
+    const recorded = recordStatements(db);
+    const plan = await planKeeping(db, [GAP_MORNING, RECEPTION, BRUNCH]);
     expect(plan.eventRemoves).toEqual([]);
     expect(plan.linkedTasks ?? []).toEqual([]);
+    expect(recorded.filter((r) => /from "tasks"/i.test(r.sql))).toEqual([]);
+  });
+
+  it("lists a task whose removed event has no start it can read with no time to keep", async () => {
+    const db = build();
+    db.insert(events)
+      .values({
+        id: "evt_tbc",
+        weddingId: W,
+        slug: "tbc",
+        name: "Afterparty",
+        startAt: "TBC",
+        endAt: "",
+        timezone: "Australia/Sydney",
+        sortOrder: 9,
+      })
+      .run();
+    db.insert(tasks)
+      .values({
+        id: "t_tbc",
+        weddingId: W,
+        title: "Book the taxi",
+        timeframeBucket: "day_of",
+        createdAt: new Date(),
+        eventId: "evt_tbc",
+        runOffsetMinutes: 15,
+      })
+      .run();
+    const plan = await planKeeping(db, [GAP_MORNING, RECEPTION, BRUNCH]);
+    expect(plan.linkedTasks).toEqual([
+      {
+        id: "t_tbc",
+        title: "Book the taxi",
+        eventId: "evt_tbc",
+        offsetMinutes: 15,
+        frozenRunAt: null,
+        frozenTimezone: null,
+      },
+    ]);
+
+    await apply(db, plan);
+    // Kept, unlinked and marked, with no time rather than a made-up one.
+    expect(row(db, "t_tbc")).toMatchObject({
+      eventId: null,
+      runOffsetMinutes: null,
+      runAt: null,
+      runTimezone: null,
+    });
+    expect(row(db, "t_tbc")?.eventRemovedAt).not.toBeNull();
   });
 });
 
@@ -284,6 +336,46 @@ describe("applying it", () => {
     });
   });
 
+  it("freezes each task at its own event's time and zone when two removed events share an offset", async () => {
+    const db = build();
+    // Six in the evening in Kolkata, with a task an hour before it: the same
+    // offset as the cake table's on the Reception, on another clock.
+    db.insert(events)
+      .values({
+        id: "evt_kolkata",
+        weddingId: W,
+        slug: "kolkata",
+        name: "Sangeet",
+        startAt: "2099-06-20T18:00:00+05:30",
+        endAt: "",
+        timezone: "Asia/Kolkata",
+        sortOrder: 9,
+      })
+      .run();
+    db.insert(tasks)
+      .values({
+        id: "t_kolkata",
+        weddingId: W,
+        title: "Light the lamps",
+        timeframeBucket: "day_of",
+        createdAt: new Date(),
+        eventId: "evt_kolkata",
+        runOffsetMinutes: -60,
+      })
+      .run();
+
+    await apply(db, await planKeeping(db, [BRUNCH]));
+
+    expect(row(db, "t_cake")).toMatchObject({
+      runAt: "2099-06-20T17:00:00+10:00",
+      runTimezone: "Australia/Sydney",
+    });
+    expect(row(db, "t_kolkata")).toMatchObject({
+      runAt: "2099-06-20T17:00:00+05:30",
+      runTimezone: "Asia/Kolkata",
+    });
+  });
+
   it("commits each removed event's tasks and the event itself in one batch", async () => {
     const db = build();
     // Twelve more events with a linked task each, so the write set runs past
@@ -345,7 +437,6 @@ describe("applying it", () => {
     // Thirteen removed events of four or more statements each, packed whole,
     // leave the first batch short of 50; the guests after them then straddle
     // a batch edge that is not at a multiple of 50.
-    const now = new Date();
     for (let i = 0; i < 11; i += 1) {
       db.insert(events)
         .values({

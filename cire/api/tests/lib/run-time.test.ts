@@ -195,6 +195,18 @@ describe("deriveRunTime", () => {
     });
   });
 
+  it("reads a link with no offset, which no writer leaves, as untimed and unlinked", () => {
+    const halfSet = { ...none, eventId: "evt_ceremony" };
+    expect(deriveRunTime(halfSet, events)).toEqual({
+      runAt: null,
+      runTimezone: null,
+      eventId: null,
+      runOffsetMinutes: null,
+      anchored: false,
+      eventRemoved: false,
+    });
+  });
+
   it("keeps a linked task linked but untimed when its event's start cannot be read", () => {
     const linked = { ...none, eventId: "evt_ceremony", runOffsetMinutes: 10 };
     const broken = new Map([["evt_ceremony", { startAt: "TBC", timezone: SYDNEY }]]);
