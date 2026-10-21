@@ -9,6 +9,7 @@ import { createDb, seedDb, type TestDb } from "../../src/db/setup";
 import type { ParsedFamily } from "../../src/schemas/import";
 import { currentEventsAsParsed } from "../../src/services/changes";
 import { applyImport, diffAgainstDb } from "../../src/services/import";
+import { seatingLoss } from "../../src/services/seating";
 import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
 
 // What a spreadsheet import or an editor save does to the seating chart. Both
@@ -110,6 +111,18 @@ describe("import and editor saves — the seating chart", () => {
     expect(seatingWarnings(plan.warnings)).toEqual([
       "This change clears 1 seat from the seating chart. Reverting it does not bring them back.",
     ]);
+  });
+
+  it("counts the seat a withdrawn invitation clears when it is all a change removes", async () => {
+    const db = seatedDb();
+    const loss = await Effect.runPromise(
+      seatingLoss(BOOTSTRAP_WEDDING_ID, {
+        guestIds: [],
+        eventIds: [],
+        links: [{ guestId: guestId(db, "Ada"), eventId: RECEPTION }],
+      }).pipe(Effect.provide(Layer.succeed(DbService, db))),
+    );
+    expect(loss).toEqual({ seats: 1, tables: 0 });
   });
 
   it("says nothing about seating when no seat or table goes", async () => {
