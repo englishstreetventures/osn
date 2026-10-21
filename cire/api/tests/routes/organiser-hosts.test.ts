@@ -2049,14 +2049,19 @@ describe("seat writes publish members-changed", () => {
     expect(publishes).toStrictEqual([]);
   });
 
-  it("after a removal, revoking the removed member", async () => {
-    const { hub, publishes } = recordingHub();
-    const { db, app } = buildApp({ realtimeHub: hub });
-    seedHostSeat(db, COHOST, "editor");
-    const res = await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER);
-    expect(res.status).toBe(200);
-    expect(publishes).toStrictEqual([revoking(COHOST)]);
-  });
+  // Whatever the role: every role may listen, so a removal of any seat must
+  // close its sockets. An owner's seat goes only while another owner stays.
+  it.each(["owner", "editor", "viewer", "helper"] as const)(
+    "after a removal of a %s, revoking the removed member",
+    async (role) => {
+      const { hub, publishes } = recordingHub();
+      const { db, app } = buildApp({ realtimeHub: hub });
+      seedHostSeat(db, COHOST, role);
+      const res = await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER);
+      expect(res.status).toBe(200);
+      expect(publishes).toStrictEqual([revoking(COHOST)]);
+    },
+  );
 
   it("after a leave, revoking the member who left", async () => {
     const { hub, publishes } = recordingHub();

@@ -8,7 +8,7 @@ import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { CHECKLIST_TEMPLATES } from "../../src/lib/checklist-templates";
-import { appRequest, setTier } from "../test-helpers";
+import { appRequest, failStatements, setTier } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -673,7 +673,20 @@ describe("a date move tells open checklists", () => {
       }),
     };
     const app = createApp(db, { osnTestKey: auth.key, realtimeHub: hub });
-    return { app, publishes };
+    return { app, db, publishes };
+  }
+
+  /** Put one seeded task on the checklist, so a date move re-dates it. */
+  async function seedStarterTask(app: App) {
+    const key = CHECKLIST_TEMPLATES.starter[0]!.key;
+    const applied = await req(
+      app,
+      "POST",
+      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/tasks/templates/starter`,
+      OWNER,
+      { items: [key] },
+    );
+    expect(applied.status).toBe(200);
   }
 
   const redated = { name: `cire:wedding:${BOOTSTRAP_WEDDING_ID}`, kind: "tasks-changed" };
@@ -685,15 +698,7 @@ describe("a date move tells open checklists", () => {
     expect((await save(app, { weddingDate: "2099-06-20" })).status).toBe(200);
     expect(publishes).toStrictEqual([]);
 
-    const key = CHECKLIST_TEMPLATES.starter[0]!.key;
-    const applied = await req(
-      app,
-      "POST",
-      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/tasks/templates/starter`,
-      OWNER,
-      { items: [key] },
-    );
-    expect(applied.status).toBe(200);
+    await seedStarterTask(app);
     publishes.length = 0;
 
     expect((await save(app, { weddingDate: "2099-07-20" })).status).toBe(200);
@@ -701,6 +706,30 @@ describe("a date move tells open checklists", () => {
     // The same date again, and a save that carries no date, re-date nothing.
     expect((await save(app, { weddingDate: "2099-07-20" })).status).toBe(200);
     expect((await save(app, { displayName: "Renamed" })).status).toBe(200);
+    expect(publishes).toStrictEqual([redated]);
+  });
+
+  it("publishes nothing for a save carrying a date that is refused", async () => {
+    const { app, db, publishes } = buildWithHub();
+    await seedStarterTask(app);
+    expect((await save(app, { weddingDate: "2099-07-20" })).status).toBe(200);
+    publishes.length = 0;
+
+    // A co-host may not move the date.
+    const editor = await req(app, "PUT", SETTINGS_PATH, CO_HOST, { weddingDate: "2099-08-20" });
+    expect(editor.status).toBe(403);
+    expect(((await editor.json()) as { error: string }).error).toBe("owner_only_fields");
+    // A date that is not one.
+    expect((await save(app, { weddingDate: "not a date" })).status).toBe(400);
+    // A save the database fails.
+    const failure = failStatements(db, (text) => text.startsWith('update "weddings"'));
+    expect((await save(app, { weddingDate: "2099-09-20" })).status).toBe(500);
+    expect(failure.failed()).toBeGreaterThan(0);
+    failure.restore();
+    expect(publishes).toStrictEqual([]);
+
+    // The owner's next move goes through and is told once.
+    expect((await save(app, { weddingDate: "2099-10-20" })).status).toBe(200);
     expect(publishes).toStrictEqual([redated]);
   });
 });
