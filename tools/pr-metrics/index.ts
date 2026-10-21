@@ -43,7 +43,7 @@
  * Readers key off this.
  */
 
-import { closeSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
 
 import { compactTokens, humanDuration } from "./format.ts";
 
@@ -1759,8 +1759,12 @@ export function defaultSessionsRoots(
   const configured = env.CLAUDE_CONFIG_DIR?.replace(/\/+$/, "");
   if (configured) roots.push(`${configured}/projects`);
 
-  const home = `${env.HOME}/.claude/projects`;
-  if (!roots.includes(home)) roots.push(home);
+  // With no HOME there is no home directory to read. Without this guard the
+  // root would be the literal string "undefined/.claude/projects".
+  if (env.HOME) {
+    const home = `${env.HOME}/.claude/projects`;
+    if (!roots.includes(home)) roots.push(home);
+  }
 
   return roots;
 }
@@ -1774,20 +1778,26 @@ function transcriptFiles(
   const files: { file: string; isSubagent: boolean; ownedByRepo: boolean }[] = [];
 
   for (const root of [sessionsDir].flat()) {
+    // A root that does not exist holds no transcripts. Scanning it would throw.
+    if (!existsSync(root)) continue;
+
     const patterns: [string, boolean][] = [
-      [`${root}/*/*.jsonl`, false],
-      [`${root}/*/*/subagents/*.jsonl`, true],
+      ["*/*.jsonl", false],
+      ["*/*/subagents/*.jsonl", true],
       // Agents a Workflow run starts write one level deeper, under
       // `subagents/workflows/<run-id>/`. They are subagent spend all the same.
-      [`${root}/*/*/subagents/workflows/*/*.jsonl`, true],
+      ["*/*/subagents/workflows/*/*.jsonl", true],
     ];
 
+    // Globbed in-process rather than through `sh -c`: the root comes from an
+    // environment variable, and a path with a space or a metacharacter in it
+    // would otherwise split the pattern and drop transcripts without a word.
     for (const [pattern, isSubagent] of patterns) {
-      const found = Bun.spawnSync(["sh", "-c", `ls -1 ${pattern} 2>/dev/null || true`], {
-        stdout: "pipe",
-      });
+      const matches = [
+        ...new Bun.Glob(pattern).scanSync({ cwd: root, absolute: true, followSymlinks: true }),
+      ].sort();
 
-      for (const file of found.stdout.toString().split("\n").filter(Boolean)) {
+      for (const file of matches) {
         files.push({ file, isSubagent, ownedByRepo: ownedByRepo(root, file, prefixes) });
       }
     }
@@ -2158,15 +2168,19 @@ function resolveIdentity(branch: string): ResolvedIdentity {
 
   // Only this repository's issues are candidates. A private tracker issue
   // never reaches a public card, so it is not even a candidate.
-  const sameRepoLinks = pull.closingIssuesReferences
+  const sameRepoClosing = pull.closingIssuesReferences
     .filter(
       (ref) => repo !== null && `${ref.repository.owner.login}/${ref.repository.name}` === repo,
     )
     .map((ref) => ref.number);
-  const { issue, candidates } = chooseLinkedIssue([
-    ...sameRepoLinks,
-    ...bodyIssueLinks(pull.body ?? ""),
-  ]);
+  const links = bodyIssueLinks(pull.body ?? "");
+
+  // A closing link decides the rating. `Part of` is consulted only when the
+  // pull request closes nothing, so a child issue that closes one issue and
+  // advances its epic still rates the one it closes.
+  const closing = chooseLinkedIssue([...sameRepoClosing, ...links.closes]);
+  const { issue, candidates } =
+    closing.candidates.length > 0 ? closing : chooseLinkedIssue(links.partOf);
 
   if (candidates.length === 0) return { ...miss, prNumber: pull.number };
   if (issue === null) {
@@ -2210,7 +2224,9 @@ function resolveIdentity(branch: string): ResolvedIdentity {
  */
 export function parentBranch(branch: string): string | null {
   const parent = git(["config", "--get", `branch.${branch}.gh-merge-base`]);
-  if (!parent) return null;
+  // A branch name cannot start with `-`. Passed to `git diff`, such a value
+  // would be read as an option, so it is refused rather than used.
+  if (!parent || parent.startsWith("-")) return null;
 
   return git(["rev-parse", "--verify", "--quiet", `origin/${parent}`])
     ? `origin/${parent}`
@@ -2223,12 +2239,29 @@ export function parentBranch(branch: string): string | null {
  * as one that names another repository's owner and name belongs to that
  * repository.
  */
-export function bodyIssueLinks(body: string): number[] {
-  const linked = [
-    ...body.matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|part\s+of)\s*:?\s+#(\d+)\b/gi),
-  ].map((match) => Number(match[1]));
+export interface BodyIssueLinks {
+  /** Issues the pull request closes on merge. */
+  closes: number[];
+  /** Issues it only advances: a `Part of` line, for partial work. */
+  partOf: number[];
+}
 
-  return [...new Set(linked)];
+export function bodyIssueLinks(body: string): BodyIssueLinks {
+  // The alternatives have no overlapping quantifiers, so a long run of spaces
+  // after a keyword cannot backtrack quadratically on a crafted pull-request body.
+  const matches = body.matchAll(
+    /\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?|part\s+of)(?::\s*|\s+)#(\d+)\b/gi,
+  );
+  const closes = new Set<number>();
+  const partOf = new Set<number>();
+
+  for (const [, keyword = "", digits = ""] of matches) {
+    const number = Number(digits);
+    if (/^part/i.test(keyword)) partOf.add(number);
+    else closes.add(number);
+  }
+
+  return { closes: [...closes], partOf: [...partOf] };
 }
 
 /**

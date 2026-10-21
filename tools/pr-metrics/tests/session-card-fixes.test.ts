@@ -55,16 +55,48 @@ describe("parseNumstat packages", () => {
 });
 
 describe("bodyIssueLinks", () => {
-  test("reads closing and Part of keywords, in body order", () => {
-    expect(bodyIssueLinks("Closes #12\nPart of #7\nFixes #12")).toEqual([12, 7]);
+  test("separates closing links from Part of links, without repeats", () => {
+    expect(bodyIssueLinks("Closes #12\nPart of #7\nFixes #12")).toEqual({
+      closes: [12],
+      partOf: [7],
+    });
   });
 
   test("leaves out another repository's issue", () => {
-    expect(bodyIssueLinks("Closes englishstreetventures/osn-tracker#593")).toEqual([]);
+    expect(bodyIssueLinks("Closes englishstreetventures/osn-tracker#593")).toEqual({
+      closes: [],
+      partOf: [],
+    });
   });
 
   test("ignores a number that is not a closing reference", () => {
-    expect(bodyIssueLinks("See #40 for the history.")).toEqual([]);
+    expect(bodyIssueLinks("See #40 for the history.")).toEqual({ closes: [], partOf: [] });
+  });
+
+  test("reads a colon after the keyword", () => {
+    expect(bodyIssueLinks("Closes: #9")).toEqual({ closes: [9], partOf: [] });
+  });
+
+  test("a run of spaces after a keyword resolves quickly", () => {
+    const started = performance.now();
+    bodyIssueLinks(`Closes${" ".repeat(20_000)}x`);
+
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+});
+
+describe("the issue a card rates", () => {
+  test("a child that closes one issue and is Part of an epic rates the one it closes", () => {
+    const links = bodyIssueLinks("Closes #1041\n\nPart of #1000");
+    const closing = chooseLinkedIssue(links.closes);
+
+    expect(closing.issue).toBe(1041);
+  });
+});
+
+describe("isBareContinuation alternatives", () => {
+  test.each(["keep going", "carry on", "proceed", "Proceed!", "GO ON."])("matches %s", (phrase) => {
+    expect(isBareContinuation(phrase)).toBe(true);
   });
 });
 
@@ -162,6 +194,39 @@ describe("unattributedSubagentFiles", () => {
       expect(unattributedSubagentFiles(root)).toBe(1);
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("reads every root it is given, and ignores a root that does not exist", async () => {
+    const first = await mkdtemp(join(tmpdir(), "pr-metrics-root-a-"));
+    const second = await mkdtemp(join(tmpdir(), "pr-metrics-root-b-"));
+
+    try {
+      for (const root of [first, second]) {
+        const agents = join(root, "-proj", "session-1", "subagents");
+        await mkdir(agents, { recursive: true });
+        await writeFile(join(agents, "agent-x.jsonl"), '{"type":"user","gitBranch":"main"}\n');
+      }
+
+      expect(unattributedSubagentFiles([first, second, join(first, "absent")])).toBe(2);
+    } finally {
+      await rm(first, { recursive: true, force: true });
+      await rm(second, { recursive: true, force: true });
+    }
+  });
+
+  test("a root path with a space is still read", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "pr-metrics-space-"));
+    const root = join(parent, "config dir", "projects");
+
+    try {
+      const agents = join(root, "-proj", "session-1", "subagents");
+      await mkdir(agents, { recursive: true });
+      await writeFile(join(agents, "agent-x.jsonl"), '{"type":"user","gitBranch":"main"}\n');
+
+      expect(unattributedSubagentFiles(root)).toBe(1);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
     }
   });
 });

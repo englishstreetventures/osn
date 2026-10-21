@@ -669,7 +669,8 @@ esac
       issue: { number: number | null; labels: string[] };
       complexity: { declared: number | null; method: string };
     };
-    expect(card.issue.number).toBe(619);
+    // The tracker issue's number is private, so it is not recorded at all.
+    expect(card.issue.number).toBeNull();
     expect(card.issue.labels).toEqual([]);
     expect(card.complexity.declared).toBeNull();
     expect(card.complexity.method).toBe("not-fetched");

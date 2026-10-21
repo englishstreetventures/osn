@@ -454,8 +454,10 @@ if (import.meta.main) {
     const changed = files.get(pull.number) ?? [];
 
     const linkedRef = pull.closingIssuesReferences[0] ?? null;
-    const issueNumber = linkedRef?.number ?? null;
     const localRef = localIssueRefs.get(pull.number) ?? null;
+    // Only this repository's issue is recorded. A private tracker number on a
+    // public card would reveal that the finding exists.
+    const issueNumber = localRef?.number ?? null;
 
     let labels: string[] = [];
     let complexity: RatingOutcome;
