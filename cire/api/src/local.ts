@@ -67,9 +67,10 @@ const assets = createAssetsStub();
 
 // Stripe, key-optional exactly as the Worker is (see index.ts): no
 // `STRIPE_SECRET_KEY` and the organiser Connect routes are not mounted, no
-// `STRIPE_WEBHOOK_SECRET` and `/api/stripe/webhook` does not exist. Both come
-// from the shell, never from a committed file — the webhook secret in
-// particular is whatever `stripe listen` prints for THIS session:
+// `STRIPE_WEBHOOK_SECRET` and `/api/stripe/webhook` does not exist — and guests
+// are offered no money gift, which needs both (the key alone logs a warning at
+// boot). Both come from the shell, never from a committed file — the webhook
+// secret in particular is whatever `stripe listen` prints for THIS session:
 //
 //   stripe listen --forward-connect-to localhost:8787/api/stripe/webhook \
 //                 --forward-to         localhost:8787/api/stripe/platform-webhook

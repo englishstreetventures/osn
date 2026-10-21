@@ -42,6 +42,15 @@ import SectionIntro from "./SectionIntro";
  * to store the first without the second (`stripe_not_ready`), so the switch is
  * disabled until onboarding is genuinely finished — and the panel says which of
  * the two is missing rather than making the couple guess.
+ *
+ * THE SITE IS A THIRD CONDITION. Guests are offered money only where the API
+ * holds a Stripe key AND the webhook secret that records each gift
+ * (`takesPayments` on the snapshot). Where it does not, the panel says so, the
+ * switch cannot be turned on, and a fund does not count towards publishing.
+ * Connecting the account still works, since a site can hold the key before
+ * the webhook. A switch already saved on can still be turned off: the
+ * wedding's currency stays locked while it is on, and the Settings tab sends
+ * the couple here to turn it off.
  */
 
 interface RegistrySettingsViewProps {
@@ -127,18 +136,29 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     apiUrl(weddingPath(props.weddingId, `/registry/stripe/${leaf}`));
 
   const settings = (): RegistrySettings | null => snapshot()?.settings ?? null;
+  /** Whether this site can take a money gift at all, whatever the settings say. */
+  const siteTakesPayments = () => snapshot()?.takesPayments === true;
   /**
    * Whether a published list would show a guest anything. A cash fund counts
-   * only while money gifts are on and Stripe can take a charge, as saved:
-   * guests see a fund only then, so a list of funds alone with money off would
-   * publish an empty page. Publishing an empty list is blocked — see the notice
-   * this drives.
+   * only while this site takes money gifts, they are on and Stripe can take a
+   * charge, as saved: guests see a fund only then, so a list of funds alone
+   * with money off would publish an empty page. Publishing an empty list is
+   * blocked — see the notice this drives.
    */
   const canPublish = createMemo(() => {
     const s = settings();
-    const fundsShow = s?.cashGiftsEnabled === true && s.stripeChargesEnabled;
+    const fundsShow = siteTakesPayments() && s?.cashGiftsEnabled === true && s.stripeChargesEnabled;
     return (snapshot()?.items ?? []).some((it) => it.kind !== "cash_fund" || fundsShow);
   });
+  /**
+   * The money switch can be turned on only where this site takes money gifts
+   * and Stripe can charge. Where the site cannot, a switch saved on stays
+   * usable so the couple can turn it off.
+   */
+  const cashGiftsLocked = () =>
+    !props.canEdit ||
+    stripeState() !== "ready" ||
+    (!siteTakesPayments() && settings()?.cashGiftsEnabled !== true);
   const hasFunds = () => (snapshot()?.items ?? []).some((it) => it.kind === "cash_fund");
 
   const stripeState = createMemo<StripeState>(() => {
@@ -510,7 +530,11 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                 Add a gift before publishing. Guests reach the list — and the money-gift option with
                 it — only once it is published, so an empty published list is a page with nothing on
                 it.
-                <Show when={hasFunds()}> Cash funds count once money gifts are on.</Show>
+                <Show when={hasFunds()}>
+                  {siteTakesPayments()
+                    ? " Cash funds count once money gifts are on."
+                    : " Cash funds don’t count: money gifts aren’t available on this site yet."}
+                </Show>
               </Notice>
             </Show>
 
@@ -613,6 +637,16 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               Money gifts
             </legend>
 
+            {/* The site, not the couple or Stripe: the API cannot record a gift
+                here, so guests are offered none whatever is set below. A
+                standing note, so `info` and no alert. */}
+            <Show when={!siteTakesPayments()}>
+              <Notice tone="info" data-testid="money-gifts-unavailable">
+                Money gifts aren’t available on this site yet, so guests won’t be offered them
+                whatever is set here.
+              </Notice>
+            </Show>
+
             <p class={hintClass} data-testid="stripe-status">
               {stripeState() === "ready"
                 ? "Stripe is connected and can take payments. Gifts go straight to your account — we never hold the money."
@@ -672,7 +706,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                 data-testid="cash-gifts"
                 class="mt-1"
                 checked={cashGifts()}
-                disabled={!props.canEdit || stripeState() !== "ready"}
+                disabled={cashGiftsLocked()}
                 onChange={(event) => setCashGifts(event.currentTarget.checked)}
               />
               <span>

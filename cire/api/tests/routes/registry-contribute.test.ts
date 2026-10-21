@@ -104,6 +104,7 @@ function buildApp({
   settlementCurrency = "AUD" as string | null,
   published = true,
   stripe,
+  webhookSecret = "whsec_test_connect" as string | null,
 }: {
   cashGiftsEnabled?: boolean;
   chargesEnabled?: boolean;
@@ -112,6 +113,8 @@ function buildApp({
   settlementCurrency?: string | null;
   published?: boolean;
   stripe?: StripeClient | null;
+  /** The Connect webhook's signing secret: what records a gift once it is paid. */
+  webhookSecret?: string | null;
 } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
@@ -159,6 +162,7 @@ function buildApp({
     webOrigin: "https://invite.test",
     allowedOrigins: [TEST_ORIGIN, "https://invite.test"],
     stripe: stripe === undefined ? stripeStub().client : stripe,
+    stripeWebhookSecret: webhookSecret,
     // Fresh limiters: the module-level defaults are process-wide.
     claimLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
     registryContributeLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
@@ -282,6 +286,27 @@ describe("who may give", () => {
     // A guest must never be offered a button that cannot lead anywhere.
     expect((await contribute(app, cookie, { amountMinor: 5000 })).status).toBe(404);
   });
+
+  // A key with no Connect webhook secret could open a payment page, but nothing
+  // would ever record the gift: the guest pays and the couple's log shows it
+  // pending for good. So the route does not exist, and Stripe is never asked.
+  // A secret of nothing but spaces is no secret: no signature could match it.
+  for (const [label, webhookSecret] of [
+    ["has no Connect webhook secret", null],
+    ["has a blank Connect webhook secret", "  "],
+  ] as const) {
+    it(`does not exist when the deployment holds a Stripe key but ${label}`, async () => {
+      const stripe = stripeStub();
+      const { app, db } = buildApp({ stripe: stripe.client, webhookSecret });
+      const cookie = await guestCookie(app);
+
+      const res = await contribute(app, cookie, { amountMinor: 5000 });
+
+      expect(res.status).toBe(404);
+      expect(stripe.sessions).toHaveLength(0);
+      expect(db.select().from(registryContributions).all()).toEqual([]);
+    });
+  }
 });
 
 describe("the couple must be taking money", () => {

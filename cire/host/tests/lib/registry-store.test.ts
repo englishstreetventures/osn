@@ -76,6 +76,7 @@ const snapshot = (over: Partial<RegistrySnapshot> = {}): RegistrySnapshot => ({
   currency: "AUD",
   contributionsPrimaryMinor: 0,
   contributionsOtherCurrencyCount: 0,
+  takesPayments: true,
   ...over,
 });
 
