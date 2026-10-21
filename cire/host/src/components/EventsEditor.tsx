@@ -60,9 +60,15 @@ import {
 } from "../lib/guest-event-draft";
 import { invalidateGuests } from "../lib/guests-store";
 import { haptic } from "../lib/haptics";
+import { scheduleChanged } from "../lib/schedule-changed";
 import { describeTimeZone, timeZoneGroups, zoneOffset } from "../lib/timezones";
 import { registerUnsavedGuard } from "../lib/unsaved-guard";
-import ChangePreview, { type ChangePlan, type ClearedHalves } from "./ChangePreview";
+import ChangePreview, {
+  type ApplyChangeBody,
+  type ChangeChoice,
+  type ChangePlan,
+  type ClearedHalves,
+} from "./ChangePreview";
 import ColorPicker from "./ColorPicker";
 import DatePicker from "./DatePicker";
 import SectionIntro from "./SectionIntro";
@@ -308,20 +314,22 @@ export default function EventsEditor(props: { weddingId: string }) {
     }
   }
 
-  async function handleApply() {
+  async function handleApply(choice: ChangeChoice) {
     const p = preview();
     if (!p) return;
     setSaveError(null);
     setBusy(true);
+    // Removing every event is applied only with the count the preview showed
+    // echoed back. Checklist tasks linked to a removed event are kept unless
+    // the organiser chose to remove them.
+    const applyBody: ApplyChangeBody = { changeId: p.changeId };
+    if (p.clears) applyBody.confirmClears = p.clears;
+    if (choice.removeLinkedTasks.length > 0) applyBody.removeLinkedTasks = choice.removeLinkedTasks;
     try {
       const res = await authFetch(changesUrl("apply"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Removing every event is applied only with the count the preview
-        // showed echoed back.
-        body: JSON.stringify(
-          p.clears ? { changeId: p.changeId, confirmClears: p.clears } : { changeId: p.changeId },
-        ),
+        body: JSON.stringify(applyBody),
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
@@ -346,6 +354,9 @@ export default function EventsEditor(props: { weddingId: string }) {
       }
       const applied: unknown = await res.json().catch(() => null);
       invalidateEvents(props.weddingId);
+      // The times of tasks linked to the events moved, or the tasks were kept
+      // or removed with them: the checklist and the run sheet read again.
+      scheduleChanged(props.weddingId);
       // Guests too, but NOT households: a `scope: "events"` save can remove an
       // event, and that cascades the per-guest attendance rows for it. No path
       // through this editor can touch a household, so invalidating that cache
@@ -508,7 +519,7 @@ export default function EventsEditor(props: { weddingId: string }) {
               clears={p().clears}
               busy={busy()}
               confirmLabel="Confirm & save"
-              onConfirm={() => void handleApply()}
+              onConfirm={(choice) => void handleApply(choice)}
               onCancel={() => setPreview(null)}
             />
           )}

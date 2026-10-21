@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import ChangePreview, { type ChangePlan } from "../../src/components/ChangePreview";
@@ -153,5 +153,77 @@ describe("ChangePreview", () => {
       <ChangePreview plan={plan()} warnings={[]} busy onConfirm={vi.fn()} onCancel={vi.fn()} />
     ));
     expect(screen.getByRole("button", { name: /Applying…/i })).toHaveProperty("disabled", true);
+  });
+});
+
+describe("ChangePreview — checklist tasks linked to a removed event", () => {
+  afterEach(() => cleanup());
+
+  const linked = plan({
+    eventRemoves: [{ id: "evt_rec", name: "Reception" }],
+    linkedTasks: [
+      {
+        id: "tsk_cake",
+        title: "Set up the cake table",
+        eventId: "evt_rec",
+        frozenRunAt: "2099-06-20T17:00:00+10:00",
+        frozenTimezone: "Australia/Sydney",
+      },
+      {
+        id: "tsk_toast",
+        title: "Cue the toast",
+        eventId: "evt_rec",
+        frozenRunAt: null,
+        frozenTimezone: null,
+      },
+    ],
+  });
+
+  it("names each task and its event, and keeps them unless the organiser ticks the box", () => {
+    const onConfirm = vi.fn();
+    render(() => (
+      <ChangePreview plan={linked} warnings={[]} onConfirm={onConfirm} onCancel={vi.fn()} />
+    ));
+    expect(screen.getByText("Set up the cake table")).toBeTruthy();
+    expect(screen.getByText("Cue the toast")).toBeTruthy();
+    expect(screen.getAllByText(/Reception/).length).toBeGreaterThan(0);
+    const box = screen.getByRole("checkbox", {
+      name: "Also remove these 2 tasks from the checklist",
+    }) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+    expect(onConfirm).toHaveBeenLastCalledWith({ removeLinkedTasks: [] });
+
+    fireEvent.click(box);
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+    expect(onConfirm).toHaveBeenLastCalledWith({ removeLinkedTasks: ["tsk_cake", "tsk_toast"] });
+  });
+
+  it("tells a screen reader on the apply button that linked tasks are involved", () => {
+    render(() => (
+      <ChangePreview plan={linked} warnings={[]} onConfirm={vi.fn()} onCancel={vi.fn()} />
+    ));
+    const apply = screen.getByRole("button", { name: "Apply changes" });
+    const described = (apply.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(described).toContain("Set up the cake table");
+  });
+
+  it("asks nothing when the change removes no linked task", () => {
+    const onConfirm = vi.fn();
+    render(() => (
+      <ChangePreview
+        plan={plan({ eventRemoves: [{ id: "evt_x", name: "Brunch" }] })}
+        warnings={[]}
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+      />
+    ));
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+    expect(onConfirm).toHaveBeenLastCalledWith({ removeLinkedTasks: [] });
   });
 });

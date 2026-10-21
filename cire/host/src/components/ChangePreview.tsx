@@ -1,7 +1,7 @@
 import Button from "@cire/ui/button";
 import { Notice } from "@shared/ui/ui/notice";
 import { Table, Td, Th } from "@shared/ui/ui/table";
-import { createUniqueId, For, Show } from "solid-js";
+import { createSignal, createUniqueId, For, Show } from "solid-js";
 // The SHARED change-preview renderer (guest+event editor §8): "extract
 // ImportPanel's plan-rendering into a shared component so both ImportPanel and
 // the editor save-flow render the same preview". Both front doors of the
@@ -29,6 +29,35 @@ export interface ChangePlan {
   eventLinkCreates: unknown[];
   eventLinkRemoves: unknown[];
   warnings: string[];
+  /** The checklist tasks linked to the events this change removes. Absent when
+   *  there are none, and from an API older than run times. */
+  linkedTasks?: LinkedTaskPreview[];
+}
+
+/** A checklist task linked to an event the change removes, and the time it
+ *  would keep (on the removed event's clock) if it stays. */
+export interface LinkedTaskPreview {
+  id: string;
+  title: string;
+  eventId: string;
+  frozenRunAt: string | null;
+  frozenTimezone: string | null;
+}
+
+/** What the organiser chose to remove with the change, for its apply body. */
+export interface ChangeChoice {
+  /** The linked tasks to remove with their events; empty keeps them all. */
+  removeLinkedTasks: string[];
+}
+
+/** `POST …/changes/apply`'s body (`ApplyBody` in cire-api's
+ *  `schemas/import.ts`). */
+export interface ApplyChangeBody {
+  changeId: string;
+  /** The counts the preview showed, for a save that empties a half. */
+  confirmClears?: ClearedHalves;
+  /** The linked tasks to remove with their events; absent keeps them all. */
+  removeLinkedTasks?: string[];
 }
 
 /** How many rows an editor save removes from each list it leaves EMPTY
@@ -47,8 +76,8 @@ interface ChangePreviewProps {
   /** Impact warnings (RSVP loss on delete/un-invite, claim-code loss on
    *  household delete). Confirm-gated — surfaced but non-blocking. */
   warnings: string[];
-  /** Apply the previewed change. */
-  onConfirm: () => void;
+  /** Apply the previewed change, with what the organiser chose. */
+  onConfirm: (choice: ChangeChoice) => void;
   /** Dismiss without applying. */
   onCancel: () => void;
   /** Apply in flight — disables the buttons + relabels Confirm. */
@@ -124,6 +153,75 @@ export function PlanCounts(props: { plan: ChangePlan }) {
   );
 }
 
+/** The name of a removed event, from the plan's `eventRemoves`. */
+function removedEventName(plan: ChangePlan, eventId: string): string {
+  for (const removed of plan.eventRemoves) {
+    if (
+      typeof removed === "object" &&
+      removed !== null &&
+      (removed as { id?: unknown }).id === eventId
+    ) {
+      const name = (removed as { name?: unknown }).name;
+      if (typeof name === "string") return name;
+    }
+  }
+  return "a removed event";
+}
+
+/**
+ * The checklist tasks linked to the events a change removes, and the one
+ * choice it asks: remove them with their events, or keep them. Kept tasks stay
+ * on the checklist at the time they had, marked "event removed"; nothing a
+ * revert does brings a removed one back or links a kept one again, which is
+ * why it is asked here. Unticked — keep — by default. Controlled, so both the
+ * shared preview and the spreadsheet import's own can hold the answer.
+ */
+export function LinkedTasksChoice(props: {
+  plan: ChangePlan;
+  tasks: LinkedTaskPreview[];
+  remove: boolean;
+  onChange: (remove: boolean) => void;
+  /** The id of the block, for the apply button's description. */
+  id?: string;
+}) {
+  const count = () => props.tasks.length;
+  const noun = () => (count() === 1 ? "task" : "tasks");
+  return (
+    <Notice tone="warn" id={props.id}>
+      <div class="flex flex-col gap-2">
+        <p>
+          {count() === 1
+            ? "This checklist task is linked to an event this change removes:"
+            : `These ${count()} checklist tasks are linked to an event this change removes:`}
+        </p>
+        <ul class="list-disc space-y-0.5 pl-5">
+          <For each={props.tasks}>
+            {(task) => (
+              <li>
+                <span>{task.title}</span>
+                <span class="text-text-muted"> · {removedEventName(props.plan, task.eventId)}</span>
+              </li>
+            )}
+          </For>
+        </ul>
+        <label class="text-text text-ui-sm flex items-start gap-2">
+          <input
+            type="checkbox"
+            class="mt-0.5"
+            checked={props.remove}
+            onChange={(e) => props.onChange(e.currentTarget.checked)}
+          />
+          <span>{`Also remove ${count() === 1 ? "this task" : `these ${count()} ${noun()}`} from the checklist`}</span>
+        </label>
+        <p class="text-text-muted text-ui-xs">
+          Left unticked, they stay on the checklist at the time they had, marked "event removed".
+          Reverting this change does not link them again or bring back any you remove.
+        </p>
+      </div>
+    </Notice>
+  );
+}
+
 /**
  * The shared preview block: the diff-counts table, the confirm-gated impact
  * warnings, and Confirm / Cancel actions. Both ImportPanel and the guests editor
@@ -134,6 +232,13 @@ export default function ChangePreview(props: ChangePreviewProps) {
   // it is never read to a screen-reader user before one keypress applies the
   // loss. Tying it to the button as its description is what reaches them.
   const clearsId = createUniqueId();
+  const linkedId = createUniqueId();
+  const linked = () => props.plan.linkedTasks ?? [];
+  const [removeLinked, setRemoveLinked] = createSignal(false);
+  const describedBy = () =>
+    [props.clears ? clearsId : null, linked().length > 0 ? linkedId : null]
+      .filter((id) => id !== null)
+      .join(" ") || undefined;
   return (
     <div class="border-border bg-bg/40 flex flex-col gap-4 rounded-sm border p-4">
       <h3 class="font-display text-gold-dim text-ui-md">Diff preview</h3>
@@ -154,6 +259,16 @@ export default function ChangePreview(props: ChangePreviewProps) {
       </Show>
       <PlanCounts plan={props.plan} />
 
+      <Show when={linked().length > 0}>
+        <LinkedTasksChoice
+          id={linkedId}
+          plan={props.plan}
+          tasks={linked()}
+          remove={removeLinked()}
+          onChange={setRemoveLinked}
+        />
+      </Show>
+
       <Show when={props.warnings.length > 0}>
         <div class="border-gold/30 bg-gold/[0.06] flex flex-col gap-1.5 rounded-sm border p-3">
           <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
@@ -173,9 +288,13 @@ export default function ChangePreview(props: ChangePreviewProps) {
         <Button
           variant="primary"
           type="button"
-          onClick={() => props.onConfirm()}
+          onClick={() =>
+            props.onConfirm({
+              removeLinkedTasks: removeLinked() ? linked().map((task) => task.id) : [],
+            })
+          }
           disabled={props.busy}
-          aria-describedby={props.clears ? clearsId : undefined}
+          aria-describedby={describedBy()}
         >
           {props.busy ? "Applying…" : (props.confirmLabel ?? "Apply changes")}
         </Button>
