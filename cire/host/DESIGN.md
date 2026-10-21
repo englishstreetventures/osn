@@ -228,9 +228,10 @@ Two hooks carry the design law of §1, both in `src/lib/`:
 The sheet variant of the module nav deliberately gets no pill. A pill measures a
 strip the eye can see all of at once, and a sheet is a list.
 
-**The droplet.** The checklist's assign popover grows out of the + that opened
-it: a small round drop at the trigger springs out to the panel
-(`droplet-grow`, `--ease-spring`) while its corners square off
+**The droplet.** A checklist row's popovers — the assign popover and the
+time editor — grow out of the control that opened them (`droplet-popover`,
+`droplet-popover-body`): a small round drop at the trigger springs out to the
+panel (`droplet-grow`, `--ease-spring`) while its corners square off
 (`droplet-round`, `--ease-out`), and the contents fade in once there is room.
 `transform-origin` is Kobalte's `--kb-popover-content-transform-origin`, the
 panel's corner at the trigger whichever side it opened on. The fade is timed by
@@ -256,7 +257,7 @@ The portal has two jobs to do with width, and they want different tools.
 
 **Container queries** decide *shape* — rail or sheet, one column or two, agenda
 above the stats or beside them. Named containers: `@container/frame`, `/page`,
-`/shell`, `/panel`, `/builder`, `/card`, `/enquiries`. There are **no viewport
+`/shell`, `/panel`, `/builder`, `/card`, `/enquiries`, `/run-sheet`. There are **no viewport
 media queries in the shell**. Each surface measures the box it was actually
 given, so a 600px-wide panel behaves like a phone even on a 2560px monitor.
 
@@ -454,6 +455,92 @@ describing its time, focus after Add and Remove, an item's error under it, and
 the selects stacking on a phone. `EventTable.browser.test.tsx` keeps a long link
 inside its card.
 
+### The run sheet: the day on one thread
+
+`RunSheetView.tsx` is the Run sheet module and the whole of a helper's seat.
+It is read-only for every role. The decisions it settles:
+
+- **Every time is on its own clock.** An event reads in its own zone, a task
+  in `runTimezone` (its event's, when linked); the browser's zone never enters,
+  so a helper abroad reads the times the day runs on. Rows are grouped under
+  the local date each falls on there, in the API's order (by instant), with
+  untimed tasks last under "Any time on the day". A day in one zone says so
+  once beside its heading ("Times in AEST"); a day that mixes zones says "Each
+  time on its own clock" and puts the zone under every time.
+- **Day headings** are `h3`s in `--gold-ink`, body face, sentence case. Not
+  Cormorant (rationed, §3), and not the checklist's tracked capitals: a date
+  is several words, and Chrome hands a screen reader the transform.
+- **The thread.** A day hangs on one vertical hairline of `--gold-dim` — metal,
+  a rule, no contrast floor — down the middle of the gap between the time
+  column and the words. Every row is a grid on three lengths (`--rs-pad`,
+  `--rs-time`, `--rs-gap`, in `global.css`'s `run-sheet-*` utilities), so its
+  marker sits on the thread whatever the row holds, level with the title's
+  first line. Items align on their first baselines, so a `text-ui-sm` time
+  reads on the line of a `text-ui-base` title. The time column is end-aligned:
+  4.5rem, 5.5rem once the view is 36rem wide.
+- **Events are bands, tasks are rows.** An event is a raised band
+  (`--surface`, the hairline, the lip) marked by a gold diamond; it paints over
+  the thread. A task is a transparent row marked by a bead: a hollow
+  `--border-strong` ring when open, filled `--text-faint` when done, filled
+  gold while coming up. An event's name carries a hidden "Event:".
+- **Flags are a word and a shape.** Sentence-case pills, never colour alone:
+  "You" on a `--brand` fill, "Coming up" on a gold fill (`--on-gold` ink),
+  "Done" in a `--border-strong` outline with a tick, "Event removed" in a
+  `--warn` outline with a broken link, explained on hover by `Tooltip`. The
+  two that are about the reader and about now are filled; the two that are
+  states are outlined — "Coming up" and "Event removed" are both warm in the
+  dark ramp, and the fill is what tells them apart at a glance.
+- **The reader's rows** also carry a 3px `--brand-ink` bar at the row's
+  inline start (3:1 or more on the row in both ramps), and `data-own`.
+- **A coming-up row** sits on a `bg-gold/8` wash. **A done row** stays in its
+  slot, its title struck through in `--text-muted`, its time muted.
+- **Who holds a task** is the read-only avatar stack (above), in a third
+  column once the view is 36rem wide and on a line under the words before.
+  The view measures its own box (`@container/run-sheet`): in a helper's seat
+  there is no panel to measure.
+- **States.** Below Gold, and on a 402, an `info` `Notice` — "The run sheet
+  isn't available for this wedding." — that names no plan: a helper cannot buy
+  one. Any other refusal is a `warn` `Notice` with "Try again". Empty is an
+  `EmptyState` worded by scope, with "Set times on the checklist" for an owner
+  or editor. Loading is `PanelLoading`. A loaded sheet offers owners and
+  editors "Change times on the checklist" (`quiet`, small) above the days.
+- **A helper's seat** wears the panel header the module shell gives every
+  module — the module's label, its hint, the gilt rule — so it reads as the
+  same page an owner opens.
+- **The clock never moves the focus.** "Coming up" is re-read on a timer set
+  for the next flag change and when the tab becomes visible; nothing else
+  changes on screen when it fires.
+
+### A task's time on its row
+
+`RunTimeEditor.tsx`, on each checklist row for an owner or editor, beside the
+holders' stack:
+
+- **The trigger is one node** whatever it shows, so a save keeps the focus on
+  it. Untimed, it is an empty slot: a 28px dotted circle holding a clock,
+  `--border-strong`, gold on hover and while open — the same mark as the
+  holders' +, an empty place to fill. Timed, it is a pill holding a clock and
+  the time on the task's own clock, with the zone after it in muted ink when
+  that is not the reader's. A task whose event was removed shows its pill in
+  `--warn` with a broken link. Its name says the time and the task: "1:30 pm,
+  time for Greet the celebrant".
+- **Anyone else** sees the same pill as text (`RunTimeChip`), and nothing on an
+  untimed task.
+- **The popover is a form**, so unlike the assign popover it is `modal`: Tab
+  moves between its fields and stays inside, Escape closes it, and the focus
+  goes back to the trigger. It does not lock the page's scroll. It grows as
+  the droplet (§4), `w-80`, on `--surface-raised`.
+- **Its fields**: Event (`No event — a fixed time`, then the events by start,
+  each with its day and time); linked, a choice of "Before or after the start"
+  (minutes, and before or after, with where that lands on the event's clock
+  beneath) or "At a clock time" (date and time, with the event's zone named
+  beneath and no zone field); unlinked, date, time and a time zone defaulting
+  to the zone every event shares, else the browser's. "Clear time" shows only
+  when there is a time to clear.
+- **Saving** is never `disabled`: a disabled button drops the focus it holds.
+  Save reads "Saving…" and is `aria-disabled` while the write is out. A refusal
+  is a `danger` `Notice` in the popover, worded by cause.
+
 ### Two rules that apply to all of them
 
 **Anything spread onto an element takes `SafeProps`.** Solid's `HTMLAttributes`
@@ -467,6 +554,12 @@ closest pair in the palette, and about one host in twelve cannot tell them apart
 Every state that reports an outcome pairs its hue with a shape and a word.
 
 ### Testing them
+
+`RunSheetView.browser.test.tsx` and `RunTimeEditor.browser.test.tsx` measure
+the two screens above at 390 and 1280px in both ramps — every marker on the
+thread, the holders' column, every word at 4.5:1 on what it is painted over,
+the popover inside the screen, Tab inside the popover — and leave screenshots
+in `__screenshots__/`.
 
 `shared/ui/tests/` asserts what a call site can rely on — that the variants differ
 from each other, that props reach the DOM, that the accessibility wiring is
