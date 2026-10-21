@@ -8,15 +8,16 @@
  * reload reads all of it back; a second save changes some of it and a revert
  * of that save puts it back; and a download of the events sheet re-uploaded
  * through the spreadsheet door changes nothing and warns of nothing. The
- * Events list then shows the run of show, the policy and the notes.
+ * Events list then shows the run of show as guests read it, the policy and
+ * the notes.
  *
  * The guest side: the claim response carries all of it, and the public invite
  * read none of it. The event's details show the facts with the guest policy
  * last among them, then the run of show in time order, then About, then
  * Getting there. The preview's household (the organiser's own, which may bring
- * no plus-one) is not told plus-ones are welcome; Eli's household, once the
- * organiser allows Eli one, is. The calendar file carries the venue name and
- * the description.
+ * no plus-one) is neither sent nor told that plus-ones are welcome; Eli's
+ * household, once the organiser allows Eli one, is both. The calendar file
+ * carries the venue name and the description.
  *
  * The organiser signs in with osn-api's dev sign-in (the dev principal owns
  * the sample wedding) and then cire's own OIDC sign-in, where osn-api, with a
@@ -489,8 +490,8 @@ test("cire-event-details", async ({ page, context, flow }) => {
     };
   });
   flow.check(
-    "the events list shows the run of show in the organiser's order",
-    "4:00 pm  Tea is poured\n5:15 pm  Speeches\n4:45 pm  Garden games",
+    "the events list shows the run of show in the order guests read it",
+    "4:00 pm  Tea is poured\n4:45 pm  Garden games\n5:15 pm  Speeches",
     listed.runOfShow,
   );
   flow.check(
@@ -571,9 +572,11 @@ test("cire-event-details", async ({ page, context, flow }) => {
     CIRE_EVENT_EDIT.gettingThere,
     claimed.event?.gettingThere ?? "missing",
   );
+  // The preview household may bring no plus-one, so "welcome" is not sent to
+  // it; the children preset and the note are.
   flow.check(
-    "claim response carries the guest policy as stored",
-    STORED_POLICY,
+    "claim response carries the guest policy, without welcome for a household that may bring no one",
+    `adults_only / null / ${CIRE_EVENT_EDIT.policyNote}`,
     `${claimed.event?.childrenPolicy} / ${claimed.event?.plusOnePolicy} / ${claimed.event?.guestPolicyNote}`,
   );
 
@@ -733,15 +736,24 @@ test("cire-event-details", async ({ page, context, flow }) => {
     await page.goto(
       `${ORIGINS.cireInvites}/cire/invite?slug=${CIRE_EVENT_EDIT.slug}&code=${CIRE_EVENT_EDIT.allowedGuest.code}`,
     );
-    const status = (await claim).status();
+    const response = await claim;
+    const status = response.status();
+    const body = (await response.json()) as { events: ClaimedEvent[] };
+    const plusOnePolicy =
+      body.events.find((e) => e.name === CIRE_EVENT_EDIT.event)?.plusOnePolicy ?? "missing";
     await openKitchenTea();
     const policy = details.locator("dl > div:last-child dd p").first();
     await expect(policy).toContainText("Plus-ones welcome");
     await policy.scrollIntoViewIfNeeded();
     await shot(page, "sheet-allowed-household");
-    return { status, policy: (await policy.textContent()) ?? "" };
+    return { status, plusOnePolicy, policy: (await policy.textContent()) ?? "" };
   });
   flow.check("claim with Eli's code", 200, eliSheet.status);
+  flow.check(
+    "the claim sends welcome to a household that may bring a plus-one",
+    "welcome",
+    eliSheet.plusOnePolicy,
+  );
   flow.check(
     "a household that may bring a plus-one is told they are welcome",
     true,

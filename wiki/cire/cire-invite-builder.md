@@ -436,7 +436,8 @@ set (`REQUIRED_EVENT_COLUMNS` in `cire/api/src/services/spreadsheet.ts`,
 - **Description** fills `events.description`, the event's About text.
 - **Run of Show** holds the event's timed list, one item per line in the cell,
   each a 24-hour time and a name (`16:00 Tea is poured`); the lines' order is
-  the stored order. A line without a time, or a time with no name after it, is
+  the stored order. A line without a time, a time with no name after it, or a
+  12-hour time (`4:00 pm`, which would otherwise be read twelve hours early) is
   refused with the row named. It fills `run_of_show_items`, a table of its own,
   not a column on `events`.
 - **Getting There** fills `events.getting_there`; **Children** and

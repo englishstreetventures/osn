@@ -12,7 +12,14 @@ import {
   runOfShowLines,
   timezoneName,
 } from "./event-details";
-import { hasDressCode, hasPinterest, hasText, hasVenue } from "./invite-emptiness";
+import {
+  hasDressCode,
+  hasGuestPolicy,
+  hasPinterest,
+  hasRunOfShow,
+  hasText,
+  hasVenue,
+} from "./invite-emptiness";
 import { MapPreview } from "./MapPreview";
 import { PinterestBoard } from "./PinterestBoard";
 import type { EventSummary, FamilyMember } from "./types";
@@ -166,10 +173,22 @@ export function DetailsPanel(props: DetailsPanelProps) {
     hasText(props.event.dressCodeDescription) ? props.event.dressCodeDescription : null;
   const moodboard = () =>
     hasPinterest(props.event.pinterestUrl) ? props.event.pinterestUrl : null;
-  const runOfShow = createMemo(() => runOfShowLines(props.event));
-  // Needs the household: "Plus-ones welcome" is said only to one that can
-  // bring someone.
-  const policy = createMemo(() => guestPolicyLines(props.event, props.members));
+  // Each block shows when `invite-emptiness` says it has content, the rule
+  // the organiser's Events list mirrors.
+  const runOfShow = createMemo(() =>
+    hasRunOfShow(props.event.runOfShow) ? runOfShowLines(props.event) : [],
+  );
+  // Also needs the household: "Plus-ones welcome" is said only to one that
+  // can bring someone, so a policy of only that shows nothing to the rest.
+  const policy = createMemo(() =>
+    hasGuestPolicy(
+      props.event.childrenPolicy,
+      props.event.plusOnePolicy,
+      props.event.guestPolicyNote,
+    )
+      ? guestPolicyLines(props.event, props.members)
+      : null,
+  );
   const gettingThere = () => (hasText(props.event.gettingThere) ? props.event.gettingThere : null);
 
   // The guest's own clock is read in the browser, once mounted, so the first
