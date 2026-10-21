@@ -338,6 +338,9 @@ export default function SeatingView(props: SeatingViewProps) {
   const [printing, setPrinting] = createSignal(false);
   onMount(() => {
     const before = () => {
+      // With no chart on screen (loading, failed, no events) the page prints
+      // as it looks.
+      if (!chart()) return;
       document.documentElement.setAttribute("data-print-sheet", "");
       setPrinting(true);
     };
@@ -760,16 +763,6 @@ function GuestRow(props: {
   const item = createDraggable(props.guest.id);
   const name = () => guestName(props.guest);
   const badge = () => rsvpBadge(props.guest);
-  const choices = () => (props.guest.withdrawn ? [] : props.tables);
-  const action = () => (props.guest.tableId === null ? "Seat" : "Move");
-  // The row holds a plain button that looks like the menu's trigger until the
-  // menu is first used, so a chart of a thousand guests builds no menu state
-  // nobody opens. The event that opens it is replayed on the real trigger, so
-  // Kobalte opens it exactly as it would have: on a mouse press, on a touch's
-  // click, and on the keys of a menu button, focusing the first item for those.
-  const [opener, setOpener] = createSignal<MenuOpener | null>(null);
-  let pointerType = "";
-  const replay = (handOver: MenuOpener) => setOpener(() => handOver);
   return (
     <li
       ref={item.ref}
@@ -803,103 +796,138 @@ function GuestRow(props: {
         )}
       </Show>
       <Show when={props.canEdit}>
-        <Show
-          when={opener()}
-          fallback={
-            <button
-              type="button"
-              aria-haspopup="menu"
-              aria-expanded="false"
-              aria-label={`${action()} ${name()}`}
+        <GuestMenu
+          guest={props.guest}
+          tables={props.tables}
+          seatedCount={props.seatedCount}
+          onSeat={props.onSeat}
+        />
+      </Show>
+    </li>
+  );
+}
+
+/**
+ * A guest's seat menu. Until it is first used it is a plain button that looks
+ * like the menu's trigger, so a chart of a thousand guests builds no menu state
+ * nobody opens. The event that opens it is replayed on Kobalte's own trigger,
+ * so the menu opens as Kobalte's would: on a mouse press; on a tap's click, and
+ * on a click no press came before (a screen reader's or voice control's); and
+ * on the keys of a menu button, where Enter, Space and ArrowDown focus the
+ * first item and ArrowUp the last. The state is the menu's own, so a menu
+ * mounted again (an editor's role restored) starts closed.
+ */
+function GuestMenu(props: {
+  guest: SeatingGuest;
+  tables: SeatingTable[];
+  seatedCount: (tableId: string) => number;
+  onSeat: (guest: SeatingGuest, tableId: string | null) => Promise<void>;
+}) {
+  const action = () => (props.guest.tableId === null ? "Seat" : "Move");
+  const label = () => `${action()} ${guestName(props.guest)}`;
+  const choices = () => (props.guest.withdrawn ? [] : props.tables);
+  const [opener, setOpener] = createSignal<MenuOpener | null>(null);
+  let pointerType = "";
+  const replay = (handOver: MenuOpener) => setOpener(() => handOver);
+  // What a tap and a press-less click hand over: Kobalte opens on the click of
+  // a press it was told was a touch.
+  const tap: MenuOpener = (trigger) => {
+    trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }));
+    trigger.click();
+  };
+  return (
+    <Show
+      when={opener()}
+      fallback={
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded="false"
+          aria-label={label()}
+          class={menuTriggerClass}
+          onPointerDown={(e) => {
+            pointerType = e.pointerType;
+            if (e.pointerType === "touch" || e.button !== 0) return;
+            // Kobalte opens on a press of anything but a touch.
+            replay((trigger) =>
+              trigger.dispatchEvent(
+                new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "mouse" }),
+              ),
+            );
+          }}
+          onClick={(e) => {
+            if (pointerType === "touch" || e.detail === 0) replay(tap);
+          }}
+          onKeyDown={(e) => {
+            if (!MENU_OPEN_KEYS.has(e.key)) return;
+            e.preventDefault();
+            const key = e.key;
+            replay((trigger) => {
+              // Focus moves from this button to the trigger in the same task,
+              // so assistive tech hears one move, not one to the page between.
+              trigger.focus({ preventScroll: true });
+              trigger.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+            });
+          }}
+        >
+          {action()}
+        </button>
+      }
+    >
+      {(open) => {
+        let trigger!: HTMLButtonElement;
+        onMount(() => open()(trigger));
+        return (
+          <DropdownMenu placement="bottom-end" gutter={4}>
+            <DropdownMenu.Trigger
+              ref={trigger}
+              aria-label={label()}
               class={menuTriggerClass}
-              onPointerDown={(e) => {
-                pointerType = e.pointerType;
-                if (e.pointerType === "touch" || e.button !== 0) return;
-                // Kobalte opens on a press of anything but a touch.
-                replay((trigger) =>
-                  trigger.dispatchEvent(
-                    new PointerEvent("pointerdown", {
-                      bubbles: true,
-                      button: 0,
-                      pointerType: "mouse",
-                    }),
-                  ),
-                );
-              }}
-              onClick={() => {
-                if (pointerType !== "touch") return;
-                replay((trigger) => {
-                  trigger.dispatchEvent(
-                    new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }),
-                  );
-                  trigger.click();
-                });
-              }}
-              onKeyDown={(e) => {
-                if (!MENU_OPEN_KEYS.has(e.key)) return;
-                e.preventDefault();
-                const key = e.key;
-                replay((trigger) =>
-                  trigger.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })),
-                );
+              onClick={(e: MouseEvent & { currentTarget: HTMLButtonElement }) => {
+                // A click no press came before opens the menu, as a tap's does.
+                if (e.detail === 0) e.currentTarget.dataset.pointerType = "touch";
               }}
             >
               {action()}
-            </button>
-          }
-        >
-          {(open) => {
-            let trigger!: HTMLButtonElement;
-            onMount(() => open()(trigger));
-            return (
-              <DropdownMenu placement="bottom-end" gutter={4}>
-                <DropdownMenu.Trigger
-                  ref={trigger}
-                  aria-label={`${action()} ${name()}`}
-                  class={menuTriggerClass}
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content class="border-border bg-surface z-50 max-h-80 min-w-56 overflow-y-auto rounded-sm border p-1.5 shadow-lg outline-none">
+                <DropdownMenu.RadioGroup
+                  value={props.guest.tableId ?? NOT_SEATED}
+                  onChange={(value) =>
+                    void props.onSeat(props.guest, value === NOT_SEATED ? null : value)
+                  }
                 >
-                  {action()}
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content class="border-border bg-surface z-50 max-h-80 min-w-56 overflow-y-auto rounded-sm border p-1.5 shadow-lg outline-none">
-                    <DropdownMenu.RadioGroup
-                      value={props.guest.tableId ?? NOT_SEATED}
-                      onChange={(value) =>
-                        void props.onSeat(props.guest, value === NOT_SEATED ? null : value)
-                      }
-                    >
-                      <DropdownMenu.RadioItem value={NOT_SEATED} class={menuItemClass}>
-                        Not seated
-                      </DropdownMenu.RadioItem>
-                      <For each={choices()}>
-                        {(table) => {
-                          const seated = () => props.seatedCount(table.id);
-                          const full = () =>
-                            seated() >= table.capacity && props.guest.tableId !== table.id;
-                          return (
-                            <DropdownMenu.RadioItem
-                              value={table.id}
-                              disabled={full()}
-                              class={menuItemClass}
-                            >
-                              <span>{table.name}</span>
-                              <span class="sr-only">, </span>
-                              <span class="text-text-faint" data-numeric>
-                                {`${seated()} of ${table.capacity}`}
-                              </span>
-                            </DropdownMenu.RadioItem>
-                          );
-                        }}
-                      </For>
-                    </DropdownMenu.RadioGroup>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu>
-            );
-          }}
-        </Show>
-      </Show>
-    </li>
+                  <DropdownMenu.RadioItem value={NOT_SEATED} class={menuItemClass}>
+                    Not seated
+                  </DropdownMenu.RadioItem>
+                  <For each={choices()}>
+                    {(table) => {
+                      const seated = () => props.seatedCount(table.id);
+                      const full = () =>
+                        seated() >= table.capacity && props.guest.tableId !== table.id;
+                      return (
+                        <DropdownMenu.RadioItem
+                          value={table.id}
+                          disabled={full()}
+                          class={menuItemClass}
+                        >
+                          <span>{table.name}</span>
+                          <span class="sr-only">, </span>
+                          <span class="text-text-faint" data-numeric>
+                            {`${seated()} of ${table.capacity}`}
+                          </span>
+                        </DropdownMenu.RadioItem>
+                      );
+                    }}
+                  </For>
+                </DropdownMenu.RadioGroup>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu>
+        );
+      }}
+    </Show>
   );
 }
 

@@ -140,6 +140,15 @@ async function mouse(
   });
 }
 
+async function touch(type: "touchStart" | "touchMove" | "touchEnd", at?: { x: number; y: number }) {
+  await cdp().send("Input.dispatchTouchEvent", {
+    type,
+    touchPoints: at ? [{ x: at.x, y: at.y }] : [],
+  });
+}
+
+const aFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+
 describe("SeatingView in Chromium", () => {
   it("seats a guest dragged onto a table, painting the row above the cards it crosses", async () => {
     await page.viewport(1280, 900);
@@ -242,6 +251,8 @@ describe("SeatingView in Chromium", () => {
     trigger.focus();
     await userEvent.keyboard("{Enter}");
     await screen.findByRole("menuitemradio", { name: /^Table 2/ });
+    // A menu button's Enter lands on the first item.
+    await waitFor(() => expect(document.activeElement?.textContent).toBe("Not seated"));
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Seat Ada Alpha");
@@ -265,6 +276,52 @@ describe("SeatingView in Chromium", () => {
         body: { tableId: "t2" },
       },
     ]);
+  });
+
+  it("opens a guest's menu on the up arrow at its last item", async () => {
+    await page.viewport(1280, 900);
+    await renderChart();
+    screen.getByRole("button", { name: "Seat Cy Charlie" }).focus();
+    await userEvent.keyboard("{ArrowUp}");
+    await screen.findByRole("menu");
+    await waitFor(() => expect(document.activeElement?.textContent).toMatch(/^Table 2/));
+  });
+
+  it("opens a guest's menu on a real press and on a tap, and not on a touch that scrolls", async () => {
+    await page.viewport(1280, 900);
+    await renderChart();
+    // A real press and release, where the press swaps the button for the menu's trigger.
+    const ada = centre(screen.getByRole("button", { name: "Seat Ada Alpha" }));
+    await mouse("mouseMoved", ada);
+    await mouse("mousePressed", ada);
+    await mouse("mouseReleased", ada);
+    await screen.findByRole("menu");
+    await aFrame();
+    await aFrame();
+    expect(screen.queryByRole("menu")).not.toBeNull();
+    await page.screenshot({ path: `${ARTIFACTS}/menu-open.png` });
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+
+    // A tap.
+    const cy = centre(await waitFor(() => screen.getByRole("button", { name: "Seat Cy Charlie" })));
+    await touch("touchStart", cy);
+    await touch("touchEnd");
+    await screen.findByRole("menu");
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+
+    // A touch that moves 40px is a scroll, not a tap.
+    // The closed menu's outside-hiding clears a frame later.
+    const dot = await waitFor(() => screen.getByRole("button", { name: "Move Dot Delta" }));
+    const from = centre(dot);
+    await touch("touchStart", from);
+    await touch("touchMove", { x: from.x, y: from.y + 20 });
+    await touch("touchMove", { x: from.x, y: from.y + 40 });
+    await touch("touchEnd");
+    await aFrame();
+    await aFrame();
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("prints the chart and nothing of the page around it", async () => {

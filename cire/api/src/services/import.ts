@@ -1273,7 +1273,6 @@ export function applyImport(
       guestsCreated: plan.guestCreates.length,
       guestsUpdated: plan.guestUpdates.length,
       guestsRemoved: plan.guestRemoves.length,
-      warnings: plan.warnings,
     };
   }).pipe(
     Effect.tap((summary) =>

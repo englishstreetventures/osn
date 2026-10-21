@@ -168,7 +168,9 @@ One event at a time, chosen from the wedding's events.
   table is refused in the view, as the menu refuses it, without a request.
   Each row holds a plain button that looks like the menu's trigger until the
   menu is first used; the event that opened it is then replayed on Kobalte's
-  trigger, so a chart of 1,000 guests builds no menu state nobody opens.
+  trigger, so a chart of 1,000 guests builds no menu state nobody opens. A
+  click no press came before (a screen reader's, voice control's) opens the
+  menu as a tap's click does, before and after its first use.
 - **A status line** says and shows every seat, move, refusal and table change.
   It is the live region.
 - **Badges** in words: Declined, Maybe, No reply, Invite withdrawn.

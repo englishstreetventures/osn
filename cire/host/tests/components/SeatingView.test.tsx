@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SeatingView from "../../src/components/SeatingView";
@@ -366,6 +367,45 @@ describe("SeatingView — guest menus", () => {
     expect(screen.queryByRole("menu")).toBeNull();
     fireEvent.click(trigger);
     expect(await screen.findByRole("menu")).toBeTruthy();
+  });
+
+  it("keeps focus on the menu's trigger as a key opens it", async () => {
+    fakeApi();
+    await renderView();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Seat Ada Alpha" }), { key: "Enter" });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Seat Ada Alpha");
+    expect(document.activeElement?.hasAttribute("data-expanded")).toBe(true);
+  });
+
+  it("opens on a click no press came before, as a screen reader sends, before and after first use", async () => {
+    fakeApi();
+    await renderView();
+    fireEvent.click(screen.getByRole("button", { name: "Seat Ada Alpha" }));
+    expect(await screen.findByRole("menu")).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    const trigger = document.querySelector<HTMLButtonElement>("button[data-closed]")!;
+    expect(trigger.getAttribute("aria-label")).toBe("Seat Ada Alpha");
+    fireEvent.click(trigger);
+    expect(await screen.findByRole("menu")).toBeTruthy();
+  });
+
+  it("opens nothing unasked when an editor's role comes back", async () => {
+    fakeApi();
+    const [canEdit, setCanEdit] = createSignal(true);
+    render(() => (
+      <SeatingView weddingId={W} weddingSlug="ada-and-bo" canEdit={canEdit()} canManage={false} />
+    ));
+    await screen.findByRole("region", { name: "Table 1" });
+    await choose("Seat Ada Alpha", "Not seated");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    setCanEdit(false);
+    setCanEdit(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByRole("button", { name: "Seat Ada Alpha" }).hasAttribute("data-closed")).toBe(
+      false,
+    );
   });
 
   it("opens no menu for any other key", async () => {
@@ -834,6 +874,31 @@ describe("SeatingView — drag", () => {
 });
 
 describe("SeatingView — print", () => {
+  it("prints the page as it looks while no chart is on screen", async () => {
+    let release!: () => void;
+    fakeApi({
+      hold: { url: /\/seating\/events\/e_rec$/, until: new Promise<void>((r) => (release = r)) },
+    });
+    render(() => <SeatingView weddingId={W} weddingSlug="ada-and-bo" canEdit canManage={false} />);
+    await screen.findByText("Loading…");
+    window.dispatchEvent(new Event("beforeprint"));
+    expect(document.documentElement.hasAttribute("data-print-sheet")).toBe(false);
+    expect(document.body.querySelector("[data-print-sheet]")).toBeNull();
+    window.dispatchEvent(new Event("afterprint"));
+    release();
+    await screen.findByRole("region", { name: "Table 1" });
+  });
+
+  it("takes both print listeners away with the view", async () => {
+    fakeApi();
+    const view = await renderView();
+    const removed = vi.spyOn(window, "removeEventListener");
+    view.unmount();
+    const events = removed.mock.calls.map(([type]) => type);
+    expect(events).toContain("beforeprint");
+    expect(events).toContain("afterprint");
+  });
+
   it("builds the print sheet only while the page prints, and marks the page then", async () => {
     fakeApi();
     const view = await renderView();

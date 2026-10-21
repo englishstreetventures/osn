@@ -1336,16 +1336,21 @@ describe("a change's warnings are read for its preview only", () => {
     ]);
     expect(warningReads()).toBe(2);
 
-    expect(
-      (await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: body.changeId })).status,
-    ).toBe(200);
+    const applied = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: body.changeId });
+    expect(applied.status).toBe(200);
     expect(db.select().from(guests).where(eq(guests.firstName, "Bo")).get()).toBeUndefined();
     expect(warningReads()).toBe(2);
-    expect(
-      (await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: body.changeId })).status,
-    ).toBe(200);
+    const reverted = await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: body.changeId });
+    expect(reverted.status).toBe(200);
     expect(db.select().from(guests).where(eq(guests.firstName, "Bo")).get()).toBeTruthy();
     expect(warningReads()).toBe(2);
+    // Warnings belong to the preview: neither summary carries a list that
+    // would read as complete without them.
+    for (const res of [applied, reverted]) {
+      const { summary } = (await res.json()) as { summary: Record<string, unknown> };
+      expect(summary.guestsRemoved).toBeTypeOf("number");
+      expect(summary).not.toHaveProperty("warnings");
+    }
 
     // A change that removes nothing reads neither, and warns of neither.
     const unchanged = await ownerPost(app, `${CHANGES_BASE}/preview`, {
