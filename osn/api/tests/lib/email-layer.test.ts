@@ -59,7 +59,7 @@ describe("selectEmailLayer", () => {
         yield* email.send({
           template: "otp-step-up",
           to: "alice@example.com",
-          data: { code: "111111", ttlMinutes: 10 },
+          data: { code: "111111", ttlMinutes: 10, instanceName: "Musubi" },
         });
       }).pipe(Effect.provide(layer)),
     );
@@ -121,7 +121,7 @@ describe("selectEmailLayer", () => {
           yield* email.send({
             template: "otp-step-up",
             to: "alice@example.com",
-            data: { code: "222222", ttlMinutes: 10 },
+            data: { code: "222222", ttlMinutes: 10, instanceName: "Musubi" },
           });
         }).pipe(Effect.provide(layer)),
       );
@@ -185,7 +185,7 @@ describe("selectEmailLayer", () => {
           yield* email.send({
             template: "otp-step-up",
             to: "alice@example.com",
-            data: { code: "222222", ttlMinutes: 10 },
+            data: { code: "222222", ttlMinutes: 10, instanceName: "Musubi" },
           });
         }).pipe(Effect.provide(layer)),
       );

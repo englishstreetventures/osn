@@ -119,6 +119,33 @@ describe("AddToCalendar", () => {
     expect(menu.className).not.toContain("z-90");
   });
 
+  it("opens on its first item when a key opens it", async () => {
+    // jsdom's `fireEvent.click` carries `detail: 0`, which is what a key press
+    // on a focused button sends: the menu-button pattern puts focus on the
+    // first item.
+    const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
+    fireEvent.click(getByRole("button", { name: /add to calendar/i }));
+    await Promise.resolve();
+    expect(document.activeElement).toBe(screen.getByText("Google Calendar"));
+  });
+
+  it("opens on the menu itself, quietly, when a pointer opens it", async () => {
+    // A tap or a click counts its presses in `detail` (Firefox and Safari send
+    // a MouseEvent). Focus lands on the menu, marked quiet, so no item is
+    // filled gold as if it were already chosen and no ring is drawn; the
+    // arrows still reach every item from there.
+    const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
+    fireEvent.click(getByRole("button", { name: /add to calendar/i }), { detail: 1 });
+    await Promise.resolve();
+    const menu = screen.getByRole("menu");
+    expect(document.activeElement).toBe(menu);
+    expect(menu.hasAttribute("data-quiet-focus")).toBe(true);
+
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByText("Google Calendar"));
+    expect(menu.hasAttribute("data-quiet-focus")).toBe(false);
+  });
+
   it("closes when Escape is pressed", () => {
     const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
     const button = getByRole("button", { name: /add to calendar/i });
@@ -163,7 +190,7 @@ describe("AddToCalendar", () => {
 
   it("draws a text action, never a filled or outlined button, at a 44px target", () => {
     // It sits on the date row of the details, where a box would compete with
-    // the sheet's badge to the RSVP form.
+    // the sheet's switch, the one control there drawn as one.
     // The 44px, and the underline a phone needs at rest, are measured in
     // `DetailsPanel.browser.test.tsx`.
     const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);

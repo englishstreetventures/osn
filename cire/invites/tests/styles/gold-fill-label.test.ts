@@ -25,12 +25,17 @@ const SRC = join(import.meta.dirname, "..", "..", "src");
 const GOLD_FILL = /^((?:[\w-]+:)*)bg-gold$/;
 
 /**
- * The one class list allowed a gold fill with no on-gold label beside it: the
- * event card's answer button, whose label ink lives in its `classList` and
- * flips with the fill under it — the on-gold ink on gold, the page colour on
- * the bloom fill once every member has answered (`EventCard.tsx`).
+ * The files allowed a gold fill with no on-gold label in the same class list,
+ * each because its label is drawn by another element:
+ *
+ * - the event card's answer button, whose label ink lives in its `classList`
+ *   and flips with the fill under it — the on-gold ink on gold, the page
+ *   colour on the bloom fill once every member has answered (`EventCard.tsx`);
+ * - the event sheet's switch, whose gold pill carries no words: its labels are
+ *   the overlay above it, in the on-gold ink and clipped to the pill. The file
+ *   holds that control and nothing else, so the exemption reaches no further.
  */
-const LABEL_ELSEWHERE = new Set(["components/EventCard.tsx"]);
+const LABEL_ELSEWHERE = new Set(["components/EventCard.tsx", "components/PanelSwitch.tsx"]);
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -100,10 +105,13 @@ describe("labels on a gold fill", () => {
     // Vacuity guard: a changed file layout or class spelling that matched
     // nothing would let both tests above pass while checking nothing. The
     // fills today: the consent "Save choices" button, the answer button, the
-    // hover and focus states of the Add to Calendar items (one class list for
-    // both), the RSVP sheet's submit and both gift-registry links.
+    // sheet switch's pill, the hover, keyboard-focus and pressed states of a
+    // link menu's items (one class list for all three), the RSVP sheet's
+    // submit and both gift-registry links.
     const fills = goldFills();
-    expect(fills.length).toBeGreaterThanOrEqual(7);
-    expect(new Set(fills.map((f) => f.variant))).toEqual(new Set(["", "hover:", "focus:"]));
+    expect(fills.length).toBeGreaterThanOrEqual(9);
+    expect(new Set(fills.map((f) => f.variant))).toEqual(
+      new Set(["", "hover:", "focus-visible:", "active:"]),
+    );
   });
 });

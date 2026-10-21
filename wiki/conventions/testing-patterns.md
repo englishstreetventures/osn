@@ -100,7 +100,7 @@ Requests are kept only for osn-api, pulse-api and cire-api. Query strings are dr
 2. Import `test` and `expect` from `../support/fixtures`, and take the `flow` fixture.
 3. Wrap each user-visible action in `flow.step("…", …)`. Record every outcome a reviewer should see with `flow.check(name, expected, actual)`, which also asserts. Check the database row, not only the UI: `queryOne(DB_FILES.<db>, sql, …)` reads a stack database read-only. Join on seeded or fixed values, never on a generated id.
 4. For a second user, create a context with `browser.newContext()` and open pages with `flow.newPage(context)`, so they get the suite clock and their requests are recorded. Point `flow.finalPage` at the page whose end state the screenshot should show.
-5. To create an OSN account, register through the UI when registration is what the flow tests (`otpFor(email)` reads the one-time code). Otherwise call `registerThroughApi(flow, context.request, person)`. A flow on the cire organiser portal signs in with `signInToCireHost(flow, page)` instead, as the dev profile that owns the seeded organiser weddings. Fixed people and values go in `tools/e2e/src/config.ts`.
+5. To create an OSN account, register through the UI when registration is what the flow tests (`otpFor(email)` reads the one-time code, and `mailFor(email, until)` waits until a message matching `until` has reached the address, then returns every message sent to it so far, to check a subject or body). Otherwise call `registerThroughApi(flow, context.request, person)`. A flow on the cire organiser portal signs in with `signInToCireHost(flow, page)` instead, as the dev profile that owns the seeded organiser weddings. Fixed people and values go in `tools/e2e/src/config.ts`.
 6. Wait on state only: `expect(locator)`, `expect(page).toHaveURL`, `page.waitForResponse`. `tools/e2e/tests/flows.test.ts` fails on `waitForTimeout`, `setTimeout`, `networkidle` or `.only` in a flow. Arm a `waitForResponse` before the action that fires the request, and match the whole URL: `…/registry` is a prefix of `…/registry/mine`, and both fire on one mount. A field in a server-rendered island exists before the island hydrates, and text filled into it then never reaches the form, so its submit button stays disabled. A flow that waited for the consent prompt on that page has already waited long enough; otherwise fill inside `expect(async () => …).toPass({ timeout })` until the button enables, as `cire-registry-claimed.flow.ts` does.
 7. A step that ends on a server-rendered element leaves the page's islands still hydrating, and they keep running into the next step: `page.goto` replaces the page only when the next document answers. An island that reads a cookie or storage on mount, as the guest site's session restore reads `cire_claimed`, then sees whatever the next step set and sends requests the record keeps in one run and not the next, which the next step's `waitForResponse` can also take for its own. Before a step changes cookies or storage, leave the page with `page.goto("about:blank")`, as `cire-registry-locked.flow.ts` does before its return visit.
 8. Run `bun run test:e2e:repro` and confirm the two runs match.
@@ -512,7 +512,16 @@ cire/dietary/src/index.ts:224:7
    that is overwritten on every path, a log message's wording). Leave it, and
    say why in the pull request; do not write a test that asserts a string only
    to kill a mutant.
-3. **`NoCoverage` is worse than a survivor.** No test even ran the line.
+3. **Or name the browser test that kills it.** The `@cire/host` and
+   `@cire/invites` runs leave the browser tier out (below), so a mutant a
+   `*.browser.test.tsx` already kills still reports as a survivor. Run that
+   test against the mutant once, then name it in the pull request beside the
+   survivor. Do not copy the browser test into jsdom to raise the score: that is
+   a unit test written after the code, and every later change to the component
+   then edits both. A jsdom test is the answer only where no browser test
+   reaches the behaviour: a path the browser tier's Chromium never takes, such
+   as a browser without the popover API.
+4. **`NoCoverage` is worse than a survivor.** No test even ran the line.
    In a vitest package, a run that stops with `No tests were executed` is the
    same verdict for a whole file: Stryker runs only the tests that import the
    mutated file, and none does (`cire/landing/src/lib/site.ts`, used only by
@@ -628,7 +637,7 @@ applySchema(sqlite);
 
 Adding a column is then a one-file change in `src/schema/`. The emitter carries column-level `.unique()` (via `col.isUnique`), partial-index `WHERE` clauses, and foreign-key `ON DELETE`/`ON UPDATE` actions — all three were silently dropped before 2026-08, so tests ran on a shape production D1 rejects. The emitted array is memoised and frozen: the schema is a static module import, so reflecting it per test database was pure recomputation.
 
-`osn/db/tests/ddl-lockstep.test.ts` diffs a normalised structural snapshot of the emitted schema against the full `osn/db/drizzle/*.sql` migration chain. It compares columns, types, defaults, nullability, indexes (**including column order within an index** — SQLite serves only a leading prefix), partial predicates, foreign keys and their referential actions, and pins CHECK/trigger/view sets as empty. It fails when a migration lands without a schema change, when a schema change lands without a migration, or when the emitter loses a constraint. `zap/db` has the same test; `cire/api/tests/db/ddl-lockstep.test.ts` covers cire's three-way mirror.
+`osn/db/tests/ddl-lockstep.test.ts` diffs a normalised structural snapshot of the emitted schema against the full `osn/db/drizzle/*.sql` migration chain. It compares columns, types, defaults, nullability, indexes (**including column order within an index** — SQLite serves only a leading prefix), partial predicates, foreign keys and their referential actions, and pins CHECK/trigger/view sets as empty. It fails when a migration lands without a schema change, when a schema change lands without a migration, when the emitter loses a constraint, or when the migrations directory holds anything wrangler would not apply (a folder, a `meta/` journal) — the chain is replayed through `scripts/migration-files.ts`, in wrangler's order. `zap/db` has the same test; `cire/api/tests/db/ddl-lockstep.test.ts` covers cire's three-way mirror.
 
 **If you extend one emitter, extend all three** — they are copies, and all three (`osn/db`, `pulse/db`, `zap/db`) now carry the lockstep test.
 

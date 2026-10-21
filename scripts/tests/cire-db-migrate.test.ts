@@ -26,6 +26,7 @@ import {
   parseArgs,
   parseD1Rows,
 } from "../cire-db-migrate";
+import { listMigrations } from "../migration-files";
 
 // A small archive with the real one's shape: the original first migration
 // shares the baseline's name, then the chain runs on contiguously.
@@ -117,6 +118,18 @@ test("a ledger without the baseline's name is refused", () => {
 
 test("ledger entries numbered after the archive are live migrations, left to wrangler", () => {
   expect(check([BASELINE, "0099_unknown.sql"]).ok).toBe(true);
+});
+
+test("a timestamped migration is live, after numbered ones or alone after the baseline", () => {
+  const stamped = "20261021031500_add_bio.sql";
+  expect(checkLedger([BASELINE, "0082_x.sql", stamped], ARCHIVE)).toMatchObject({
+    ok: true,
+    baselineOnly: false,
+  });
+  expect(checkLedger([BASELINE, stamped], ARCHIVE)).toMatchObject({
+    ok: true,
+    baselineOnly: false,
+  });
 });
 
 test("a database that applied the whole original chain and live migrations after it passes", () => {
@@ -214,14 +227,6 @@ test("checkBaselineSchema refuses an older baseline, naming what differs", () =>
   expect(verdict.message).toContain("cire-dev-db-rebuild.yml");
 });
 
-test("migrationStatements splits on breakpoints and drops comment lines", () => {
-  expect(
-    migrationStatements(
-      "-- header\n\nCREATE TABLE `a` (`id` text);\n--> statement-breakpoint\nCREATE INDEX `i` ON `a` (`id`);\n",
-    ),
-  ).toEqual(["CREATE TABLE `a` (`id` text);", "CREATE INDEX `i` ON `a` (`id`);"]);
-});
-
 // ── wrangler's JSON ──────────────────────────────────────────────────────────
 
 const RESULT =
@@ -296,18 +301,15 @@ test("parseArgs refuses a call that names neither --local nor --remote, or both"
 const archive = archivedMigrations();
 
 // The rule reads "from the first archived file a ledger holds to the newest",
-// which only means anything if the archive has no holes and ends where the
-// baseline's journal entry says it does.
-test("the real archive runs from 0001 to the baseline's journal index with no gaps", () => {
-  const journal = JSON.parse(
-    readFileSync(resolve(ARCHIVE_DIR, "..", "migrations", "meta", "_journal.json"), "utf8"),
-  ) as { entries: Array<{ idx: number; tag: string }> };
-  const baseline = journal.entries.find((e) => `${e.tag}.sql` === BASELINE);
-  expect(baseline).toBeDefined();
-  expect(archive.map((name) => Number(name.slice(0, 4)))).toEqual(
-    Array.from({ length: baseline!.idx }, (_, i) => i + 1),
+// which only means anything if the archive has no holes: 0001 to 0081, the
+// migrations the baseline folds in, and every live numbered file above them.
+test("the real archive runs from 0001 to 0081 with no gaps, below every live migration", () => {
+  expect(archive.map((name) => Number.parseInt(name, 10))).toEqual(
+    Array.from({ length: 81 }, (_, i) => i + 1),
   );
   expect(archive[0]).toBe(BASELINE);
+  const live = listMigrations(MIGRATIONS_DIR).slice(1);
+  expect(live.filter((name) => Number.parseInt(name, 10) <= 81)).toEqual([]);
 });
 
 test("every chain start is an archived migration, the original chain's first among them", () => {

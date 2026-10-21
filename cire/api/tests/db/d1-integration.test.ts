@@ -45,6 +45,7 @@ import { asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { Miniflare } from "miniflare";
 
+import { listMigrations, migrationStatements } from "../../../../scripts/migration-files";
 import {
   createSessionRoutedClient,
   D1_SESSION_CONSTRAINT,
@@ -158,17 +159,8 @@ const MIGRATION_0091 = "0091_task_assignees.sql";
  * of each archived file named above, holds one statement, and D1's `prepare`
  * takes exactly one. Archived files before 0058 do not all keep to that.
  */
-function migrationStatements(file: string, dir: string = ARCHIVE_DIR): string[] {
-  return readFileSync(join(dir, file), "utf8")
-    .split("--> statement-breakpoint")
-    .map((chunk) =>
-      chunk
-        .split("\n")
-        .filter((line) => !line.trimStart().startsWith("--"))
-        .join("\n")
-        .trim(),
-    )
-    .filter(Boolean);
+function fileStatements(file: string, dir: string = ARCHIVE_DIR): readonly string[] {
+  return migrationStatements(readFileSync(join(dir, file), "utf8"));
 }
 
 /**
@@ -3356,7 +3348,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "runs migration 0065 on D1's own SQLite: every section on, the FAQ switch kept",
     async () => {
-      const statements = migrationStatements(MIGRATION_0065);
+      const statements = fileStatements(MIGRATION_0065);
       expect(statements).toHaveLength(1);
 
       await db.delete(weddingInviteCustomisations);
@@ -3541,12 +3533,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
       try {
         const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
-        const files = readdirSync(MIGRATIONS_DIR)
-          .filter((f) => f.endsWith(".sql"))
-          .toSorted();
+        const files = listMigrations(MIGRATIONS_DIR);
         expect(files[0]).toBe("0001_initial.sql");
         for (const file of files) {
-          for (const stmt of migrationStatements(file, MIGRATIONS_DIR)) {
+          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
             await chainD1.prepare(stmt).run();
           }
         }
@@ -3636,7 +3626,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           await chainD1.prepare(stmt).run();
         }
 
-        const statements = migrationStatements(MIGRATION_0076);
+        const statements = fileStatements(MIGRATION_0076);
         expect(statements).toHaveLength(3);
         for (const stmt of statements) await chainD1.prepare(stmt).run();
 
@@ -3699,13 +3689,11 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
       try {
         const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
-        const files = readdirSync(MIGRATIONS_DIR)
-          .filter((f) => f.endsWith(".sql"))
-          .toSorted();
+        const files = listMigrations(MIGRATIONS_DIR);
         const cut = files.indexOf(MIGRATION_0091);
         expect(cut).toBeGreaterThan(0);
         for (const file of files.slice(0, cut)) {
-          for (const stmt of migrationStatements(file, MIGRATIONS_DIR)) {
+          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
             await chainD1.prepare(stmt).run();
           }
         }
@@ -3720,7 +3708,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         const tasksBefore = await chainD1.prepare("SELECT * FROM tasks ORDER BY id").all();
 
         const before = Math.floor(Date.now() / 1000);
-        const statements = migrationStatements(MIGRATION_0091, MIGRATIONS_DIR);
+        const statements = fileStatements(MIGRATION_0091, MIGRATIONS_DIR);
         expect(statements).toHaveLength(6);
         for (const stmt of statements) await chainD1.prepare(stmt).run();
 
@@ -4253,9 +4241,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       // and the narrowed index, so only the migration's UPDATEs are replayed:
       // what is proven is that D1 accepts them (`unixepoch()` included) and
       // that they lift each wedding to the tier its legacy rows paid for.
-      const updates = migrationStatements(MIGRATION_0073).filter((stmt) =>
-        stmt.startsWith("UPDATE"),
-      );
+      const updates = fileStatements(MIGRATION_0073).filter((stmt) => stmt.startsWith("UPDATE"));
       expect(updates).toHaveLength(3);
 
       const stamp = new Date(1_790_000_000_000);

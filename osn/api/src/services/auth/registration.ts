@@ -6,7 +6,7 @@
 import { accounts, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
-import { commitBatch } from "@shared/db-utils";
+import { commitBatch, driverErrorText } from "@shared/db-utils";
 import { type EmailError, EmailService } from "@shared/email";
 import { eq, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/sqlite-core";
@@ -40,7 +40,7 @@ export function createRegistrationModule(
   _profiles: ProfilesModule,
   tokens: TokensModule,
 ) {
-  const { stores, otpTtl } = ctx;
+  const { config, stores, otpTtl } = ctx;
   const { issueTokens } = tokens;
 
   /**
@@ -270,7 +270,7 @@ export function createRegistrationModule(
         .send({
           template: "otp-registration",
           to: normalisedEmail,
-          data: { code, ttlMinutes: otpTtl / 60 },
+          data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
         })
         .pipe(
           Effect.mapError(
@@ -386,7 +386,7 @@ export function createRegistrationModule(
             ]);
             return { ok: true as const };
           } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
+            const msg = driverErrorText(e);
             if (UNIQUE_CONSTRAINT_ERROR.test(msg)) {
               return { ok: false as const, reason: "conflict" };
             }

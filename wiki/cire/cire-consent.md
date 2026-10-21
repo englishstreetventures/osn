@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-invite-designs]]"
   - "[[cire-landing]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 # Cire site-wide consent framework
 
@@ -77,7 +77,8 @@ ePrivacy posture for EU and UK visitors, applied to every guest. The prompt
 holds the invite's pages until it is answered, so in practice the guest
 decides on the first visit. Before then, and after a refusal, the map's place
 is taken by a compact card drawn in the invite's own colours, with the
-address above it and "Open in maps" below — a link out the guest follows —
+address above it and "Open in maps" below — links out to the guest's own
+map app, which the guest follows —
 and the moodboard's by one block that says the board is on Pinterest, links
 out with "Open on Pinterest", and, for a board that can be shown in the page,
 offers "Show it here". Nothing from either company loads until the guest

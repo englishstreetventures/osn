@@ -169,6 +169,53 @@ describe("GET /account/export — gating", () => {
   });
 });
 
+describe("GET /account/export — download name", () => {
+  /** One export served by an instance called `instanceName`; its Content-Disposition. */
+  async function dispositionUnder(instanceName: string): Promise<string | null> {
+    const layer = createTestLayer();
+    const { auth, profile, accessToken } = await seed(layer);
+    const app = createAccountExportRoutes(
+      { ...config, instanceName },
+      layer,
+      Layer.empty,
+      undefined,
+      undefined,
+      { trustedProxyCount: 1 },
+      undefined,
+      [],
+    );
+    const res = await app.handle(
+      new Request("http://localhost/account/export", {
+        headers: {
+          ...IP_HEADERS,
+          Authorization: `Bearer ${accessToken}`,
+          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    return res.headers.get("content-disposition");
+  }
+
+  it("names the file after the identity instance serving it", async () => {
+    expect(await dispositionUnder("Acme Social")).toBe(
+      'attachment; filename="acme-social-account-export.ndjson"',
+    );
+  });
+
+  it("keeps an accented letter as its plain form rather than splitting the word", async () => {
+    expect(await dispositionUnder("Müller")).toBe(
+      'attachment; filename="muller-account-export.ndjson"',
+    );
+  });
+
+  // A header value outside Latin-1 is refused when the response is built, so a
+  // name with no ASCII letter or digit must fall back rather than fail the export.
+  it("falls back to a bare name when the instance name has no ASCII letter or digit", async () => {
+    expect(await dispositionUnder("結び")).toBe('attachment; filename="account-export.ndjson"');
+  });
+});
+
 describe("GET /account/export — bundle", () => {
   it("streams a well-formed NDJSON envelope and never leaks the accountId", async () => {
     const layer = createTestLayer();

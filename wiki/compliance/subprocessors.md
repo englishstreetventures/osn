@@ -11,7 +11,7 @@ related:
   - "[[access-control]]"
   - "[[cire]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Subprocessor Register
@@ -117,6 +117,7 @@ the merge.
 User-initiated outbound links that send no OSN-held personal data on our behalf — no DPA required; listed here to answer the audit question in advance:
 
 - **Google Maps** — Pulse venue page "Open in Maps" builds a `google.com/maps/search` URL from the venue address; nothing loads until the user deliberately clicks, so no ePrivacy consent trigger. See [[venues]].
+- **Google Maps, Apple Maps, Waze, and the organiser's own map link** — the cire guest site's "Open in maps" menu on an event's details. It offers a Google Maps search (`www.google.com/maps/search`), Apple Maps (`maps.apple.com`) and Waze (`waze.com`), and the organiser's own maps link when the event has one, which may point at any http(s) site. Each URL carries the venue's address, or its name when there is no address, in its query; a private home's address is personal data. Nothing loads until the guest clicks an entry, and every entry opens in a new tab with `rel="noopener noreferrer"`, so neither the invite's slug- and code-bearing path nor the invite window reaches the other site. No ePrivacy consent trigger. The Google Maps *embed* beside it is a processor (the row above), behind the `maps` consent switch. See [[cire-consent]] and [[cire-invite-designs]].
 
 ## Sub-subprocessors
 

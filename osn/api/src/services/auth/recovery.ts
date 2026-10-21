@@ -44,7 +44,7 @@ export function createRecoveryModule(
   profiles: ProfilesModule,
   tokens: TokensModule,
 ) {
-  const { recoveryLockoutStore, hashIp } = ctx;
+  const { config, recoveryLockoutStore, hashIp } = ctx;
   const { resolveIdentifier } = profiles;
   const { issueTokens } = tokens;
 
@@ -164,7 +164,7 @@ export function createRecoveryModule(
       const email = yield* EmailService;
       const start = Date.now();
       yield* email
-        .send({ template, to: recipientEmail, data: {} })
+        .send({ template, to: recipientEmail, data: { instanceName: config.instanceName } })
         // S-L2: bounded error class name in the log annotation; the email
         // provider's response body (which may echo the recipient) is never
         // embedded in the logged message.

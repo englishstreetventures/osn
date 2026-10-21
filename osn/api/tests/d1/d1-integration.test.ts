@@ -17,7 +17,6 @@ import {
   totpCredentials,
   users,
 } from "@osn/db/schema";
-import * as schema from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { createSchemaSql } from "@osn/db/testing";
 import {
@@ -66,7 +65,7 @@ setDefaultTimeout(MF_TIMEOUT_MS);
 let mf: Miniflare;
 let d1: DrizzleD1;
 let layer: Layer.Layer<Db>;
-let rawDb: ReturnType<typeof createD1Db<typeof schema>>;
+let rawDb: ReturnType<typeof createD1Db>;
 
 const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
   Effect.runPromise(eff.pipe(Effect.provide(layer)));
@@ -261,7 +260,7 @@ beforeAll(async () => {
   for (const stmt of createSchemaSql()) {
     await d1.prepare(stmt).run();
   }
-  rawDb = createD1Db(d1, schema);
+  rawDb = createD1Db(d1);
   layer = Layer.succeed(Db, { db: rawDb });
 });
 
@@ -662,7 +661,7 @@ describe("osn/api recommendations co-member fan-out over real D1 (Miniflare)", (
     expect(seeded!.members).toBe(MEMBER_COUNT + 1);
 
     const { d1: trackedD1, total } = trackRowsRead(d1, "organisation_members");
-    const trackedLayer = Layer.succeed(Db, { db: createD1Db(trackedD1, schema) });
+    const trackedLayer = Layer.succeed(Db, { db: createD1Db(trackedD1) });
     const recs = createRecommendationService();
 
     const suggestions = await Effect.runPromise(
@@ -941,7 +940,7 @@ describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
         });
       },
     );
-    const racedLayer = Layer.succeed(Db, { db: createD1Db(racedD1, schema) });
+    const racedLayer = Layer.succeed(Db, { db: createD1Db(racedD1) });
 
     const recs = createRecommendationService();
     const suggestions = await Effect.runPromise(

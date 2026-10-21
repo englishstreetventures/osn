@@ -65,6 +65,21 @@ function panelOf(name: EventPanel): HTMLElement | null {
   return document.querySelector<HTMLElement>(`[data-panel="${name}"]`);
 }
 
+/**
+ * A segment of the switch in the sheet's chrome, by its words. Scoped to the
+ * dialog: the page around a sheet has its own "Respond" on the event card.
+ */
+function segment(name: string): HTMLButtonElement {
+  return within(document.querySelector("dialog")!).getByRole("button", {
+    name,
+  }) as HTMLButtonElement;
+}
+
+/** The switch itself, or null when the sheet shows none. */
+function panelSwitch(): HTMLElement | null {
+  return within(document.querySelector("dialog")!).queryByRole("group", { name: "Event sheet" });
+}
+
 /** The scroll container `AnimatedModal` lays the panels out in. */
 function scroller(): HTMLElement {
   return document.querySelector("dialog")!.lastElementChild as HTMLElement;
@@ -92,7 +107,8 @@ describe("the settle's timing, read back from the computed style", () => {
 describe("EventSheet", () => {
   afterEach(() => {
     cleanup();
-    document.body.style.overflow = "";
+    document.documentElement.style.overflow = "";
+    document.documentElement.style.scrollbarGutter = "";
   });
 
   it("hands the details its site origin, for the calendar invite's link", () => {
@@ -146,7 +162,7 @@ describe("EventSheet", () => {
     const { getByRole } = open("details");
     expect(getByRole("dialog", { name: "Details, Mehndi" })).toBeTruthy();
 
-    fireEvent.click(getByRole("button", { name: "Give RSVP" }));
+    fireEvent.click(segment("Respond"));
     expect(getByRole("dialog", { name: "Respond, Mehndi" })).toBeTruthy();
   });
 
@@ -154,7 +170,7 @@ describe("EventSheet", () => {
     const { getByRole } = open("details");
     const dialog = document.querySelector("dialog");
 
-    fireEvent.click(getByRole("button", { name: "Give RSVP" }));
+    fireEvent.click(segment("Respond"));
 
     expect(document.querySelector("dialog")).toBe(dialog);
     expect(panelOf("rsvp")!.hidden).toBe(false);
@@ -167,7 +183,7 @@ describe("EventSheet", () => {
   it("moves back to the details, with focus on their heading", () => {
     const { getByRole } = open("rsvp");
 
-    fireEvent.click(getByRole("button", { name: "See details" }));
+    fireEvent.click(segment("Details"));
 
     expect(panelOf("details")!.hidden).toBe(false);
     expect(panelOf("rsvp")!.hidden).toBe(true);
@@ -175,14 +191,14 @@ describe("EventSheet", () => {
   });
 
   it("keeps the reply given so far across a visit to the details", () => {
-    const { getByRole } = open("rsvp");
+    open("rsvp");
     const form = document.querySelector("form");
     const attending = within(fieldsetFor("Priya")).getByText("Attending");
     fireEvent.click(attending);
     expect(attending.getAttribute("aria-pressed")).toBe("true");
 
-    fireEvent.click(getByRole("button", { name: "See details" }));
-    fireEvent.click(getByRole("button", { name: "Give RSVP" }));
+    fireEvent.click(segment("Details"));
+    fireEvent.click(segment("Respond"));
 
     // The same form, not a fresh one built from the stored rows: a remount
     // would have thrown the unsaved answer away.
@@ -195,15 +211,15 @@ describe("EventSheet", () => {
   it("slides in only a panel the guest switched to, not the one the sheet opened on", () => {
     // The panel the sheet opens on rides the sheet's own entry; animating it as
     // well would play two entries on top of each other.
-    const { getByRole } = open("details");
+    open("details");
     expect(panelOf("details")!.className).not.toContain("animate-panel-from");
 
-    fireEvent.click(getByRole("button", { name: "Give RSVP" }));
+    fireEvent.click(segment("Respond"));
     expect(panelOf("rsvp")!.className).toContain("animate-panel-from-end");
 
     // Each panel arrives from its own side — the details from the start, the
     // form from the end — and the class stays, so every later show replays it.
-    fireEvent.click(getByRole("button", { name: "See details" }));
+    fireEvent.click(segment("Details"));
     expect(panelOf("details")!.className).toContain("animate-panel-from-start");
   });
 
@@ -211,52 +227,92 @@ describe("EventSheet", () => {
     const onClose = vi.fn();
     const { getByRole } = open("details", { onClose });
 
-    fireEvent.click(getByRole("button", { name: "Give RSVP" }));
+    fireEvent.click(segment("Respond"));
     fireEvent.click(getByRole("button", { name: "Cancel" }));
     expect(onClose).toHaveBeenCalledTimes(1);
 
     // Escape and a backdrop tap arrive as the dialog's `close` event.
-    fireEvent.click(getByRole("button", { name: "See details" }));
+    fireEvent.click(segment("Details"));
     document.querySelector("dialog")!.dispatchEvent(new Event("close"));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(2));
   });
 
-  describe("the badge beside the close button", () => {
+  describe("the switch beside the close button", () => {
     it("sits in the sheet's chrome, outside both panels and the form", () => {
       // Not in the form: it is not part of the reply, and it must not send one.
       // Not in a panel: it stays put while the panel scrolls under it.
       const { getByRole } = open("rsvp");
-      const badge = getByRole("button", { name: "See details" });
-      expect(badge.closest("form")).toBeNull();
-      expect(badge.closest("[data-panel]")).toBeNull();
-      expect(badge.parentElement).toBe(getByRole("button", { name: "Close" }).parentElement);
+      const group = segment("Details").closest('[role="group"]') as HTMLElement;
+      expect(group).toBe(panelSwitch());
+      expect(group.closest("form")).toBeNull();
+      expect(group.closest("[data-panel]")).toBeNull();
+      expect(group.parentElement).toBe(getByRole("button", { name: "Close" }).parentElement);
     });
+
+    it("shows both panels, and marks the one on screen", () => {
+      // Both segments, always: the row never stands empty, and the guest can
+      // see where else there is to go.
+      open("details");
+      expect(segment("Details").getAttribute("aria-pressed")).toBe("true");
+      expect(segment("Respond").getAttribute("aria-pressed")).toBe("false");
+
+      fireEvent.click(segment("Respond"));
+      expect(segment("Details").getAttribute("aria-pressed")).toBe("false");
+      expect(segment("Respond").getAttribute("aria-pressed")).toBe("true");
+    });
+
+    it("does nothing when the segment on screen is pressed", () => {
+      const { getByRole } = open("details");
+      const heading = getByRole("heading", { name: "Details, Mehndi" });
+      fireEvent.click(segment("Details"));
+      expect(panelOf("rsvp")).toBeNull();
+      expect(panelOf("details")!.hidden).toBe(false);
+      expect(document.activeElement).not.toBe(heading);
+    });
+
+    // jsdom plays no slide, so the panel's arrival lasts until the next
+    // microtask: a second press dispatched straight after the first lands
+    // inside it, as a double tap's second tap lands inside a real slide.
+    it.each([
+      ["ignores a tap", 1, "rsvp"],
+      ["takes a key press", 0, "details"],
+    ] as const)(
+      "%s on the other segment while the panel just chosen arrives",
+      (_, detail, onScreen) => {
+        open("details");
+        fireEvent.click(segment("Respond"), { detail });
+        fireEvent.click(segment("Details"), { detail });
+        expect({ details: !panelOf("details")!.hidden, rsvp: !panelOf("rsvp")!.hidden }).toEqual({
+          details: onScreen === "details",
+          rsvp: onScreen === "rsvp",
+        });
+      },
+    );
 
     it("clears the content of the row it sits in", () => {
       open("details");
       expect(scroller().className).toContain("pt-16");
     });
 
-    it("stays on the form once RSVPs have closed — the details still are", () => {
-      const { getByRole } = open("rsvp", { closed: true });
-      expect((getByRole("button", { name: "See details" }) as HTMLButtonElement).disabled).toBe(
-        false,
-      );
+    it("keeps Details pressable on the form once RSVPs have closed — the details still are", () => {
+      open("rsvp", { closed: true });
+      expect(segment("Details").disabled).toBe(false);
+      expect(segment("Your RSVP").getAttribute("aria-pressed")).toBe("true");
     });
 
-    it("is withdrawn from the form while a save is in flight and once it has saved", async () => {
+    it("disables Details on the form while a save is in flight and once it has saved", async () => {
       let resolve!: (r: Response) => void;
       vi.stubGlobal(
         "fetch",
         vi.fn(() => new Promise<Response>((r) => (resolve = r))),
       );
       const { getByRole } = open("rsvp");
-      const badge = () => getByRole("button", { name: "See details" }) as HTMLButtonElement;
-      expect(badge().disabled).toBe(false);
+      const details = () => segment("Details");
+      expect(details().disabled).toBe(false);
 
       fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
       fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
-      await waitFor(() => expect(badge().disabled).toBe(true));
+      await waitFor(() => expect(details().disabled).toBe(true));
 
       resolve(
         new Response(JSON.stringify({ rsvps: [] }), {
@@ -265,13 +321,13 @@ describe("EventSheet", () => {
         }),
       );
       await waitFor(() => expect(getByRole("button", { name: "Saved" })).toBeTruthy());
-      expect(badge().disabled).toBe(true);
+      expect(details().disabled).toBe(true);
       vi.unstubAllGlobals();
     });
 
-    it("keeps focus on the badge when the deadline relabels it for a household that replied", () => {
+    it("keeps focus on the form's segment when the deadline relabels it for a household that replied", () => {
       const [closed, setClosed] = createSignal(false);
-      const { getByRole } = render(() => (
+      render(() => (
         <EventSheet
           event={event}
           panel="details"
@@ -283,17 +339,17 @@ describe("EventSheet", () => {
           onClose={() => {}}
         />
       ));
-      const badge = getByRole("button", { name: "Give RSVP" });
-      badge.focus();
+      const respond = segment("Respond");
+      respond.focus();
 
       setClosed(true);
 
       // The same control, renamed: focus stays where the guest left it.
-      expect(badge.textContent).toContain("View your RSVP");
-      expect(document.activeElement).toBe(badge);
+      expect(respond.textContent).toBe("Your RSVP");
+      expect(document.activeElement).toBe(respond);
     });
 
-    it("leaves focus where the guest put it when the deadline takes a badge they were not on", () => {
+    it("leaves focus where the guest put it when the deadline takes a switch they were not on", () => {
       const [closed, setClosed] = createSignal(false);
       const { getByRole } = render(() => (
         <EventSheet
@@ -317,9 +373,9 @@ describe("EventSheet", () => {
 
   describe("past the RSVP deadline", () => {
     it("offers no way into the RSVP form, and says the replies have closed", () => {
-      const { queryByRole, getByRole } = open("details", { closed: true });
+      const { getByRole } = open("details", { closed: true });
 
-      expect(queryByRole("button", { name: "Give RSVP" })).toBeNull();
+      expect(panelSwitch()).toBeNull();
       expect(getByRole("status").textContent).toBe(
         "RSVPs closed on Sunday 1 September 2999. To reply now, please contact the couple directly.",
       );
@@ -356,7 +412,7 @@ describe("EventSheet", () => {
         "RSVPs closed on Sunday 1 September 2999. To change your household's reply, please contact the couple directly.",
       );
 
-      fireEvent.click(getByRole("button", { name: "View your RSVP" }));
+      fireEvent.click(segment("Your RSVP"));
       expect(getByRole("heading", { name: "Your RSVP, Mehndi" })).toBeTruthy();
 
       expect(within(fieldsetFor("Priya")).getByText("Not attending")).toBeTruthy();
@@ -383,7 +439,7 @@ describe("EventSheet", () => {
           onClose={() => {}}
         />
       ));
-      getByRole("button", { name: "Give RSVP" }).focus();
+      segment("Respond").focus();
 
       setClosed(true);
 
@@ -405,8 +461,8 @@ describe("EventSheet", () => {
           onClose={() => {}}
         />
       ));
-      fireEvent.click(getByRole("button", { name: "See details" }));
-      getByRole("button", { name: "Give RSVP" }).focus();
+      fireEvent.click(segment("Details"));
+      segment("Respond").focus();
 
       setClosed(true);
 
@@ -418,7 +474,7 @@ describe("EventSheet", () => {
       // first; told they are hidden, they leave focus for the form's own
       // rescue to put on its Close button.
       const [closed, setClosed] = createSignal(false);
-      const { getByRole } = render(() => (
+      render(() => (
         <EventSheet
           event={event}
           panel="details"
@@ -429,7 +485,7 @@ describe("EventSheet", () => {
           onClose={() => {}}
         />
       ));
-      fireEvent.click(getByRole("button", { name: "Give RSVP" }));
+      fireEvent.click(segment("Respond"));
       (document.querySelector("button[type='submit']") as HTMLButtonElement).focus();
 
       setClosed(true);

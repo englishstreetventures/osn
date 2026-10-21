@@ -733,8 +733,8 @@ whole mechanism, and it is enough for paint.
 > of anything, so a toast raised over a modal is seen and nothing more, and has
 > to be a confirmation the dialog itself also states.
 
-Both of these are live in `cire/invites`: `AddToCalendar` renders in place as a
-popover, and `@shared/toast`'s `Toaster` takes a `topLayer` flag that shows the
+Both of these are live in `cire/invites`: `LinkMenu` (Add to calendar, Open in
+maps) renders in place as a popover, and `@shared/toast`'s `Toaster` takes a `topLayer` flag that shows the
 container as a popover while it has something to show ([[toast]] §`topLayer`).
 `cire/invites/src/lib/z-index.ts` documents what is left for numbers to decide,
 which is everything that is not a dialog.
@@ -805,7 +805,7 @@ grouped by the job rather than by the look:
 | Destructive    | `danger`, `quietDanger`, `bareDanger` | Red at rest for the button that commits it; muted at rest and red on hover for the control that merely offers it, boxed (`quietDanger`) or as a glyph (`bareDanger`). A column of red-outlined buttons down a table reads as an error state   |
 | Text           | `link`, `subtle`, `touchLink`         | Accent ink, muted ink, and muted ink carrying its underline at rest. The last is for a link whose underline must show without hover: on `@cire/invites`, read on a phone where there is no hover to reveal one, and for a link set inside a sentence, where colour alone does not mark it (WCAG 1.4.1) |
 | Glyph          | `bare`                                | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline                                                                                                                                                    |
-| Chrome         | `chip`                                | A control in a sheet's own chrome rather than its content — the guest event sheet's "Give RSVP →" and "← See details" beside its round close button. A pill on the surface fill, so content can scroll under it, in accent ink because it leads somewhere |
+| Field          | `field`                               | A control shaped like the field it stands in for — the dietary picker's collapsed trigger, in a column of text inputs: sentence case, an input's padding, transparent like the inputs around it |
 | State and fill | `choice`, `tile`                      | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same; and the control that _is_ a block — a card, a row — where a hairline stops describing the target             |
 
 Five sizes, and they are not one scale:
@@ -816,11 +816,12 @@ Five sizes, and they are not one scale:
 | `swatch`         | one hairline of padding, no type at all           | A control whose content is the thing itself — a colour swatch, a product thumbnail. The picture is what sizes it |
 | `icon`           | square, sized to the glyph rather than to a label | A single glyph                                                                                                   |
 
-Three sizing tables, picked by the variant. The borderless ones take the type
+Four sizing tables, picked by the variant. The borderless ones take the type
 step and none of the box padding, because `px-4 py-2` around a text link is a
 word floating in a gap. `tile` takes square block padding, because its interior
 is a small layout — a numbered marker beside two lines of text — rather than a
-word. Everything else takes the ordinary one.
+word. `field` takes an input's padding and sentence case. Everything else takes
+the ordinary one.
 
 `cire/ui/src/button.tsx` carries the reason for each in its own doc comment, and
 that is the bar for adding one: a variant is a design concept somebody can name,

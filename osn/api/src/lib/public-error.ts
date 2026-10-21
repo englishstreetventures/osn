@@ -89,7 +89,7 @@ export function publicError(
     case "AgeRestrictionError":
       return {
         status: 422,
-        body: { error: "age_restricted", message: "OSN is for users 13 and older" },
+        body: { error: "age_restricted", message: "You must be 13 or older to create an account" },
       };
     case "ValidationError":
       return { status: 400, body: { error: "invalid_request" } };

@@ -64,6 +64,25 @@ export interface RecoveryCodesViewProps {
   passkeyOnly?: boolean;
   /** Fires once the user has acknowledged saving the codes. */
   onSaved?: () => void;
+  /** Product name the downloaded file is named after — e.g. "Musubi". */
+  productName: string;
+}
+
+/**
+ * The name the codes download under, led by the product so a user who keeps
+ * codes for several services can tell the files apart: "Musubi" →
+ * `musubi-recovery-codes.txt`. Accents fold to their plain letter; anything
+ * else that is not an ASCII letter or digit becomes a hyphen, and a name left
+ * with nothing falls back to the bare filename.
+ */
+export function recoveryCodesFileName(productName: string): string {
+  const slug = productName
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug ? `${slug}-recovery-codes.txt` : "recovery-codes.txt";
 }
 
 function formatDate(unixSeconds: number): string {
@@ -224,7 +243,7 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "osn-recovery-codes.txt";
+    a.download = recoveryCodesFileName(props.productName);
     a.click();
     URL.revokeObjectURL(url);
   }

@@ -81,9 +81,19 @@ interface AnimatedModalProps {
  * paints outside the themed section wrapper it belongs to, and are filtered
  * through the allow-list so the prop cannot become a style sink.
  *
- * The **body scroll lock**. A modal dialog makes the page behind it inert — it
+ * The **page scroll lock**. A modal dialog makes the page behind it inert — it
  * cannot be clicked or tabbed into — but inert is not unscrollable, and a sheet
- * that slides while the invite scrolls behind it reads as broken.
+ * that slides while the invite scrolls behind it reads as broken. The lock is
+ * on the root element, not `<body>`: the invite gives `<html>` an
+ * `overflow-x: clip` (`global.css`), and a root whose overflow is not
+ * `visible` keeps the body's value from reaching the viewport, so a body lock
+ * styles the body box and leaves the page free to scroll under a wheel or a
+ * touch on the sheet's chrome or backdrop. Locking takes a classic scrollbar
+ * away, so a page showing one — a window wider than its root — gets
+ * `scrollbar-gutter: stable` for as long as the lock holds, and keeps its
+ * width; a page showing none (a short invite, a phone's overlay scrollbar)
+ * gets no gutter, which would only narrow it. Both are put back as the sheet
+ * closes.
  *
  * The **frame/scrollport split**. The close button is a sibling of the scroller
  * rather than a child, so it cannot leave the viewport on a sheet tall enough
@@ -93,7 +103,7 @@ interface AnimatedModalProps {
  * close button. Left alone, `showModal()` focuses the first focusable thing,
  * which is the button — a sibling of the scrollport, so the keyboard is left
  * with nothing to scroll: its nearest scrollable ancestor is the frame, then a
- * `<body>` this component has deliberately locked. Measured with focus on the
+ * page this component has deliberately locked. Measured with focus on the
  * button, Arrow and PageDown moved a scrollable sheet 0px; with focus on the
  * scrollport, ArrowDown 0→40px and PageDown 40→594px. `autofocus` on the
  * scrollport is how that is said to the platform — the dialog's own focusing
@@ -118,10 +128,22 @@ export function AnimatedModal(props: AnimatedModalProps) {
   const [open, setOpen] = createSignal(true);
 
   onMount(() => {
-    const previousBodyOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const root = document.documentElement;
+    const previousOverflow = root.style.overflow;
+    const previousGutter = root.style.scrollbarGutter;
+    // Read before the lock, which takes the scrollbar away: a window wider
+    // than its root is one showing a classic (non-overlay) scrollbar.
+    const showsScrollbar = window.innerWidth > root.clientWidth;
+    root.style.overflow = "hidden";
+    // `hidden` takes that scrollbar away; a gutter of the same width keeps the
+    // invite behind the sheet from shifting sideways as it opens and closes.
+    // Only for a page that shows one, and only while locked: on a page with no
+    // scrollbar to give back (a short invite, an overlay scrollbar), the
+    // gutter would itself narrow the page as the sheet opens.
+    if (showsScrollbar) root.style.scrollbarGutter = "stable";
     onCleanup(() => {
-      document.body.style.overflow = previousBodyOverflow;
+      root.style.overflow = previousOverflow;
+      root.style.scrollbarGutter = previousGutter;
     });
   });
 

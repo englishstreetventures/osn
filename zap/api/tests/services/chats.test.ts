@@ -1,7 +1,6 @@
 import { Database } from "bun:sqlite";
 
 import { it } from "@effect/vitest";
-import * as schema from "@zap/db/schema";
 import { chats as chatsTable, chatMembers } from "@zap/db/schema";
 import { Db } from "@zap/db/service";
 import { applySchema } from "@zap/db/testing";
@@ -998,7 +997,7 @@ describe("chats service", () => {
     it("matches a genuine bun:sqlite error from a real duplicate insert", async () => {
       const sqlite = new Database(":memory:");
       applySchema(sqlite);
-      const db = drizzle(sqlite, { schema });
+      const db = drizzle({ client: sqlite });
       const chatId = "chat_unique_test";
       const now = new Date();
       await db.insert(chatsTable).values({

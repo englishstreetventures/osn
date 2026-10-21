@@ -515,7 +515,7 @@ export default function InvitePage(props: InvitePageProps) {
               preview={claimResult()!.preview}
               // Past the deadline the RSVP panel is a read-only view of the reply
               // already on file. A household with a reply reaches it from the
-              // card's "RSVP given" or the details' "View your RSVP"; one with
+              // card's "RSVP given" or the sheet's "Your RSVP" segment; one with
               // none has no way in, unless the deadline passes with the sheet
               // already open.
               closed={rsvpClosed()}

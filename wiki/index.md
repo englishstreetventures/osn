@@ -83,7 +83,7 @@ Our identity and social app, its consent screen and marketing site.
 - [[social]] — identity & social-graph management UI (`@musubi/social`)
 - [[social-mobile-ux]] — mobile UX audit + phased responsive-shell plan for `@musubi/social`
 - [[authorize-ui]] — the OIDC consent screen (`/authorize` in `@musubi/social`)
-- [[osn-landing]] — marketing site for OSN (`@musubi/landing`) — dark/dotted, connections-led
+- [[osn-landing]] — marketing site for Musubi (`@musubi/landing`) — dark/dotted, connections-led
 - [[musubi-identity-migration]] — moving osn-api to `id.musubi.social` and making musubi.social the OSN identity home (blockers, credential bridge, config inventory, cutover order)
 
 ## Pulse
