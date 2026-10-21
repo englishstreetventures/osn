@@ -7,5 +7,5 @@ CREATE TABLE `realtime_subscribe_budget` (
 	`osn_profile_id` text NOT NULL,
 	`day` text NOT NULL,
 	`subscribes` integer DEFAULT 0 NOT NULL,
-	PRIMARY KEY(`day`, `osn_profile_id`)
+	CONSTRAINT `realtime_subscribe_budget_pk` PRIMARY KEY(`day`, `osn_profile_id`)
 );

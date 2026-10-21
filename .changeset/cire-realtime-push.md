@@ -20,7 +20,8 @@ deleted wedding, is revoked: their sockets close with 1008 and their tab stops
 listening; a member narrowed to helper keeps listening. The subscribe route
 limits each client address (from the portal's origin) and each organiser per
 minute, and each organiser to 300 subscribes a UTC day, counted in the new
-`realtime_subscribe_budget` table (migration 0092), which the daily cron also
+`realtime_subscribe_budget` table (migration
+`20261021141814_realtime_subscribe_budget.sql`), which the daily cron also
 clears of earlier days. The host portal listens on the open wedding for every
 role: `members-changed` re-reads the wedding list, so a removed or narrowed
 member's idle tab drops the wedding's rows within seconds, and has an open
