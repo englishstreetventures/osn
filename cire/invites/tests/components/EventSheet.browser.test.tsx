@@ -580,10 +580,14 @@ describe("EventSheet — the badge", () => {
   });
 });
 
-/** A name too long for the bar on any phone, so its title has to give way. */
+/**
+ * A name too long for one line of the bar on any phone, with a word longer
+ * than the title's whole line beside the badge at 320px, which has to break
+ * inside itself to show.
+ */
 const longName: EventSummary = {
   ...event,
-  name: "Sangeet and Reception at the Glasshouse",
+  name: "Sangeet and Reception, Thiruvananthapuram",
 };
 
 describe("EventSheet — the bar", () => {

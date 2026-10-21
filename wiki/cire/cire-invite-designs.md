@@ -367,9 +367,12 @@ event and the panel to open on.
     light italic), whole: it wraps onto as many lines as it needs in the room
     the badge and the cross leave it, with `wrap-anywhere` breaking a word too
     long for its line, and is never cut short or clamped. The bar grows with
-    it. On a 320px phone "Sangeet and Reception at the Glasshouse" takes four
-    lines beside "Give RSVP →", and "Mehndi" one beside "View your RSVP →";
-    the badge and the cross never shrink.
+    it. On a 320px phone "Sangeet and Reception, Thiruvananthapuram" takes
+    four lines beside "Give RSVP →" or "← See details", "Thiruvananthapuram"
+    breaking inside itself, and seven beside "View your RSVP →", the
+    narrowest room the title gets, where even "Reception," parts from its
+    comma; "Mehndi" takes one beside any of them. The badge and the cross
+    never shrink.
 
     *Measured 2026-10-21 — `EventSheet.browser.test.tsx` "shows the whole of …" screenshots at 320×568 and 390×844, Chromium 1194*
   - **Nothing hides under it.** The bar takes its own height in flow, so the
@@ -538,7 +541,7 @@ the whole event name, unclipped, beside each of the badge's three labels at
 390×844 and 320×568 for a short name and a long one, with the badge and the
 cross inside the bar and the scroll padding at the bar's height; a long name
 wrapping at 320px; Shift+Tab up a form under a four-line bar never parking a
-control under it; the sheet's height read on every frame of a journey by
+control under it at any step; the sheet's height read on every frame of a journey by
 badge and by swipe, for a sparse event and a full one; a full event's panels
 scrolled to their ends; the badge's words mid-drag at the finger's share,
 back on a cancel, landed on a commit, eased on a press and still on open,
