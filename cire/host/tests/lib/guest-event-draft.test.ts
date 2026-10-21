@@ -1486,3 +1486,85 @@ describe("replayDraft — edge branches", () => {
     ]);
   });
 });
+
+describe("guest addresses in the draft", () => {
+  // A save posts the whole draft, but an address only for a guest the
+  // organiser changed: an address the draft merely carries — a guest's own,
+  // saved on the invite while the editor was open — must never ride along, or
+  // an unrelated save would put the loaded value back over the guest's.
+  const WITH_EMAILS: OrganiserGuestRow[] = [
+    { ...GUESTS[0]!, email: "ada@example.test", emailSource: "guest", emailOptedOut: false },
+    { ...GUESTS[1]!, email: null, emailSource: null, emailOptedOut: false },
+  ];
+
+  function wireGuest(store: ReturnType<typeof createGuestEventDraft>, firstName: string) {
+    for (const family of toDesiredState(store.draft).families) {
+      const guest = family.guests.find((g) => g.firstName === firstName);
+      if (guest) return guest;
+    }
+    throw new Error(`no guest ${firstName}`);
+  }
+
+  function guestKey(store: ReturnType<typeof createGuestEventDraft>, firstName: string) {
+    for (const family of store.draft.families) {
+      const guest = family.guests.find((g) => g.firstName === firstName);
+      if (guest) return guest.key;
+    }
+    throw new Error(`no guest ${firstName}`);
+  }
+
+  it("sends no address for a guest whose address the organiser left alone", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load(EVENTS, WITH_EMAILS, [], REVISION);
+      store.updateGuest(guestKey(store, "Ben"), { nickname: "B" });
+      expect(wireGuest(store, "Ada")).not.toHaveProperty("email");
+      expect(wireGuest(store, "Ben")).not.toHaveProperty("email");
+      // The same address retyped in another case is no change either.
+      store.updateGuest(guestKey(store, "Ada"), { email: " ADA@example.test " });
+      expect(wireGuest(store, "Ada")).not.toHaveProperty("email");
+      dispose();
+    });
+  });
+
+  it("sends a changed or removed address with the address it loaded", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load(EVENTS, WITH_EMAILS, [], REVISION);
+      store.updateGuest(guestKey(store, "Ben"), { email: "ben@example.test" });
+      expect(wireGuest(store, "Ben")).toMatchObject({
+        email: "ben@example.test",
+        emailExpected: null,
+      });
+      store.updateGuest(guestKey(store, "Ada"), { email: "" });
+      expect(wireGuest(store, "Ada")).toMatchObject({
+        email: null,
+        emailExpected: "ada@example.test",
+      });
+      dispose();
+    });
+  });
+
+  // An API older than the column serves no `email`: the draft then knows
+  // nothing about addresses, and must not send one that would clear them.
+  it("sends no address at all when the rows carried none", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      store.updateGuest(guestKey(store, "Ada"), { nickname: "A" });
+      expect(wireGuest(store, "Ada")).not.toHaveProperty("email");
+      dispose();
+    });
+  });
+
+  it("refuses to save a cell that is not one address", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load(EVENTS, WITH_EMAILS, [], REVISION);
+      store.updateGuest(guestKey(store, "Ben"), { email: "Ben <ben@example.test>" });
+      expect(validateDraft(store.draft).map((e) => e.message)).toContain(
+        "Enter one email address, like name@example.com.",
+      );
+      dispose();
+    });
+  });
+});

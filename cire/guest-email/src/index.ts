@@ -87,8 +87,8 @@ export const GUEST_EMAIL_CONSENT = {
  * guest agreed, given on behalf of the wedding's owners, who decide what is
  * collected ([[dpia/cire-guest-data]]). The address was not obtained from the
  * guest, so the words also commit the organiser to passing on the guest
- * privacy notice (GDPR Art. 14). The portal renders `text` beside the box and
- * sends `version` with the apply; the API refuses an apply that sets an
+ * privacy notice (GDPR Art. 14); the portal links the notice under the box.
+ * The portal renders `text` beside the box and sends `version` with the apply; the API refuses an apply that sets an
  * address unless the version is this one, and stamps it onto each address it
  * sets.
  *
@@ -97,5 +97,5 @@ export const GUEST_EMAIL_CONSENT = {
 export const ORGANISER_EMAIL_ATTESTATION = {
   /** Prefixed, so the stored value alone says whose words it names. */
   version: "organiser-email-2026-10-21",
-  text: "I confirm each guest whose email address I’m adding or changing agreed to get emails about this wedding, and I’ll share Cire’s guest privacy notice (cireweddings.com/privacy/guests) with them.",
+  text: "I confirm each guest whose email address I’m adding or changing agreed to get emails about this wedding, and I’ll share Cire’s guest privacy notice with them.",
 } as const;

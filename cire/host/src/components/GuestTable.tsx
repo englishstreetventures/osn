@@ -64,6 +64,9 @@ interface FamilyMember {
   events: string[];
   plusOneAllowed?: boolean;
   plusOneOf: string | null;
+  email: string | null;
+  emailSource: "guest" | "organiser_attested" | null;
+  emailOptedOut: boolean;
 }
 
 interface FamilyGroup {
@@ -107,10 +110,40 @@ function groupIntoFamilies(rows: readonly OrganiserGuestRow[]): FamilyGroup[] {
       events: guest.events,
       plusOneAllowed: guest.plusOneAllowed,
       plusOneOf: guest.plusOneOf ?? null,
+      email: guest.email ?? null,
+      emailSource: guest.emailSource ?? null,
+      emailOptedOut: guest.emailOptedOut === true,
     });
   }
   for (const family of map.values()) family.members = placePlusOnesAfterInviters(family.members);
   return Array.from(map.values());
+}
+
+/**
+ * The guest's address under their name, saying who gave it, and — when a
+ * guest withdrew it — that guest comms will not mail it. In words, not colour
+ * alone.
+ */
+function GuestEmailLine(props: { member: FamilyMember }) {
+  return (
+    <Show when={props.member.email}>
+      {(email) => (
+        <span class="text-text-muted text-ui-sm mt-0.5 block break-all">
+          {email()}
+          <span class="whitespace-nowrap">
+            {" · "}
+            {props.member.emailSource === "guest" ? "added by the guest" : "added by you"}
+          </span>
+          <Show when={props.member.emailOptedOut}>
+            <span class="text-warn whitespace-nowrap">
+              {" · "}
+              opted out: no wedding email goes here
+            </span>
+          </Show>
+        </span>
+      )}
+    </Show>
+  );
 }
 
 const fullName = (person: { firstName: string; lastName: string }) =>
@@ -942,6 +975,7 @@ export default function GuestTable(props: GuestTableProps) {
                                   Plus-one of {inviterName(member) || "another guest"}
                                 </span>
                               </Show>
+                              <GuestEmailLine member={member} />
                             </Td>
                             <Td valign="middle">
                               <div class="flex flex-wrap gap-1.5">
