@@ -10,18 +10,24 @@ vi.mock("../../src/lib/api", async () => {
   const { organiserApiMock } = await import("../test-support/mocks");
   return organiserApiMock();
 });
+// The real clock reader, counted: how often the rows read an event's start.
+vi.mock("../../src/lib/run-sheet-display", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/lib/run-sheet-display")>();
+  return { ...actual, zonedTime: vi.fn(actual.zonedTime) };
+});
+
+import { For } from "solid-js";
 
 import RunTimeEditor, { type RunTimeEditorProps } from "../../src/components/RunTimeEditor";
 import type { EventRow } from "../../src/lib/events-store";
+import { zonedTime } from "../../src/lib/run-sheet-display";
 import { __resetTasksCache, setCachedTasks, type TaskRow } from "../../src/lib/tasks-store";
 import { __resetWeddingScope } from "../../src/lib/wedding-scope";
 import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 
 /**
- * The run-time popover on a checklist row, as the designer builds it
- * (`cire/host/src/components/RunTimeEditor.tsx`; the UI brief is in the
- * branch plan). SKIPPED until the designed editor replaces the placeholder:
- * set `DESIGNED` and every case here must pass. It saves through
+ * The run-time popover on a checklist row
+ * (`cire/host/src/components/RunTimeEditor.tsx`). It saves through
  * `saveTaskRunTime` (`lib/run-time-write.ts`), whose own tests cover the
  * write; these cover what the organiser sees and sends.
  *
@@ -52,6 +58,8 @@ import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support
  * 19. With the events still loading, or failed, it says so, and names the
  *     task's event as best it can.
  * 20. A fixed time in a zone picked from the list.
+ * 21. A checklist of many rows reads no event's start until a popover opens,
+ *     and then each start once for every row.
  */
 
 const task = (over: Partial<TaskRow> = {}): TaskRow => ({
@@ -116,11 +124,36 @@ afterEach(() => {
   resetOrganiserMocks();
 });
 
-/** `true` once the designed editor replaces the placeholder: then every case
- *  below runs, and must pass. */
-const DESIGNED = true;
+describe("RunTimeEditor", () => {
+  it("reads the events' starts only when a popover opens, and once for every row", async () => {
+    const rows = ["Bring the rings", "Book the cars", "Pay the band"].map((title, i) =>
+      task({ id: `tsk_${i}`, title }),
+    );
+    setCachedTasks("wed_1", rows);
+    // A list of its own, so no earlier case's reading of it counts.
+    const events = [...SYDNEY_EVENTS];
+    const starts = () =>
+      vi.mocked(zonedTime).mock.calls.filter(([at]) => events.some((e) => e.startAt === at)).length;
+    vi.mocked(zonedTime).mockClear();
+    render(() => (
+      <For each={rows}>
+        {(row) => <RunTimeEditor weddingId="wed_1" task={row} events={events} />}
+      </For>
+    ));
+    expect(starts()).toBe(0);
 
-describe.skipIf(!DESIGNED)("RunTimeEditor", () => {
+    const cars = screen.getByRole("button", { name: /time for Book the cars/i });
+    fireEvent.click(cars);
+    await screen.findByLabelText("Event");
+    expect(starts()).toBe(events.length);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(cars.getAttribute("aria-expanded")).toBe("false"));
+    const band = screen.getByRole("button", { name: /time for Pay the band/i });
+    fireEvent.click(band);
+    await waitFor(() => expect(band.getAttribute("aria-expanded")).toBe("true"));
+    expect(starts()).toBe(events.length);
+  });
+
   it("names the task's time on its trigger, or offers to set one", () => {
     editor();
     expect(trigger().textContent).toMatch(/Set a time/i);

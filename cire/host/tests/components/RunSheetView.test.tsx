@@ -27,11 +27,9 @@ import { __resetWeddingScope } from "../../src/lib/wedding-scope";
 import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 
 /**
- * The run sheet, as the designer builds it (`cire/host/src/components/
- * RunSheetView.tsx`; the UI brief is in the branch plan). SKIPPED until the
- * designed view replaces the placeholder: set `DESIGNED` and every case here
- * must pass. The labels, texts and data attributes named here are the
- * contract the E2E flow also relies on.
+ * The run sheet (`cire/host/src/components/RunSheetView.tsx`). The labels,
+ * texts and data attributes named here are the contract the E2E flow also
+ * relies on.
  *
  * The unit runner's zone is Australia/Sydney, so a time shown in Sydney time
  * proves nothing on its own: the Kolkata row is the one that shows the view
@@ -72,6 +70,9 @@ import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support
  * 22. Inside its event's band: not a run-sheet row, nothing to press or type
  *     in, never "Coming up".
  * 23. An event with no run of show shows no list.
+ * 24. A holder OSN gave no name: a face, counted, never named.
+ * 25. A first flag weeks away: one timer of the longest wait a browser keeps,
+ *     never a loop of timers that fire at once.
  */
 
 const ARRIVAL = Date.parse("2099-06-20T14:30:00+10:00");
@@ -182,11 +183,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** `true` once the designed view replaces the placeholder: then every case
- *  below runs, and must pass. */
-const DESIGNED = true;
-
-describe.skipIf(!DESIGNED)("RunSheetView", () => {
+describe("RunSheetView", () => {
   it("says the run sheet is not available below Gold, offers nothing to buy, and asks for nothing", () => {
     view({ tier: "ivory", callerRole: "helper", canEdit: false, onOpenChecklist: undefined });
     expect(screen.getByText("The run sheet isn't available for this wedding.")).toBeTruthy();
@@ -276,6 +273,22 @@ describe.skipIf(!DESIGNED)("RunSheetView", () => {
     expect(within(rowOf("programmes")!).getByText("Coming up")).toBeTruthy();
 
     await vi.advanceTimersByTimeAsync(COMING_UP_MS);
+    expect(rowOf("programmes")!.hasAttribute("data-coming-up")).toBe(false);
+    expect(runSheetReads()).toBe(1);
+  });
+
+  it("waits at most 2^31 − 1 ms for a flag weeks away: one timer, never a loop", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    // Sixty days before the day: further off than a browser timer can wait,
+    // which it would read as no wait at all.
+    vi.setSystemTime(ARRIVAL - 60 * 24 * 60 * 60_000);
+    const timers = vi.spyOn(globalThis, "setTimeout");
+    authFetchMock.mockResolvedValue(json(DAY));
+    view();
+    await vi.waitFor(() => expect(rowOf("programmes")).toBeTruthy());
+    await vi.advanceTimersByTimeAsync(1_000);
+    const longWaits = timers.mock.calls.map(([, ms]) => ms ?? 0).filter((ms) => ms > 60_000);
+    expect(longWaits).toEqual([2 ** 31 - 1]);
     expect(rowOf("programmes")!.hasAttribute("data-coming-up")).toBe(false);
     expect(runSheetReads()).toBe(1);
   });

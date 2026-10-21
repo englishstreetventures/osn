@@ -49,6 +49,36 @@ const REFUSED = {
   failed: "Couldn't save the time.",
 } as const satisfies Record<Exclude<RunTimeRefusal, "signed_out">, string>;
 
+/** An event the editor offers, with its start read on its own clock. */
+interface OfferedEvent {
+  event: EventRow;
+  start: ZonedTime | null;
+}
+
+const NO_EVENTS: readonly OfferedEvent[] = [];
+
+/** Each events list the editor has offered, by start: worked out once per list,
+ *  however many checklist rows offer it. */
+const offered = new WeakMap<readonly EventRow[], readonly OfferedEvent[]>();
+
+/** The events by start, each with its start on its own clock. Read only when a
+ *  popover opens, and shared by every row given the same list. */
+function eventsByStart(events: readonly EventRow[] | null): readonly OfferedEvent[] {
+  if (!events) return NO_EVENTS;
+  let sorted = offered.get(events);
+  if (!sorted) {
+    sorted = events
+      .map((event) => ({ event, start: zonedTime(event.startAt, event.timezone) }))
+      .toSorted(
+        (a, b) =>
+          (Date.parse(a.event.startAt) || Infinity) - (Date.parse(b.event.startAt) || Infinity) ||
+          a.event.sortOrder - b.event.sortOrder,
+      );
+    offered.set(events, sorted);
+  }
+  return sorted;
+}
+
 /** A task's time as its row shows it, or null when it has none. */
 function shownTime(task: TaskRow): ZonedTime | null {
   return task.runAt ? zonedTime(task.runAt, task.runTimezone ?? null) : null;
@@ -145,16 +175,9 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
   const shown = () => shownTime(props.task);
   const hasTime = () => props.task.runAt !== null || (props.task.eventId ?? null) !== null;
 
-  /** The events by start, each with its start on its own clock. */
-  const events = createMemo(() =>
-    (props.events ?? [])
-      .map((event) => ({ event, start: zonedTime(event.startAt, event.timezone) }))
-      .toSorted(
-        (a, b) =>
-          (Date.parse(a.event.startAt) || Infinity) - (Date.parse(b.event.startAt) || Infinity) ||
-          a.event.sortOrder - b.event.sortOrder,
-      ),
-  );
+  /** The events by start, each with its start on its own clock: read when the
+   *  popover asks, never as the row mounts. */
+  const events = () => eventsByStart(props.events);
   const chosen = () => events().find((e) => e.event.id === eventId()) ?? null;
   /** The linked event's name, or how to speak of it while the events load or
    *  once it is gone. */
