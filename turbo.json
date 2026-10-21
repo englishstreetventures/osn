@@ -69,6 +69,19 @@
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
     },
+    // Tests that read files outside their own package, split from `test` so
+    // the rest stay cached when only those outside files change. A package
+    // with no `test:repo` script runs nothing; one that has it names the
+    // outside files in its own turbo.json and makes its `test` depend on it.
+    "test:repo": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md"
+      ]
+    },
     "test:d1": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", "!**/*.md"]

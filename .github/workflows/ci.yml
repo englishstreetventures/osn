@@ -58,8 +58,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Install dependencies
-        run: bun install
+      # @shared/infra's Alchemy tree is about 100 packages and over 1 GB
+      # unpacked, and only a job that builds, tests or type-checks that
+      # package loads it; every other job installs without it.
+      - name: Install dependencies except @shared/infra
+        run: bun install --filter '!@shared/infra'
 
       - name: Lint
         run: bun run lint
@@ -498,6 +501,11 @@ jobs:
       - name: Check release-age excludes are marked and bounded
         run: bun run check:release-age-excludes
 
+      # The guard's own tests run in "Test the scripts"; this runs it against
+      # the committed package scripts, workflows and stack files.
+      - name: Check Alchemy usage
+        run: bun run check:alchemy-usage
+
       # The pre-push hook's `audit-ignores` check, run against the committed
       # lefthook.yml: it fails once a `--ignore` in the `audit` command has
       # outlived its `# DROP AFTER <GHSA id> <YYYY-MM-DD>` marker, or when the
@@ -558,8 +566,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Install dependencies
-        run: bun install
+      - name: Install dependencies except @shared/infra
+        run: bun install --filter '!@shared/infra'
 
       - name: Regenerate OpenAPI documents
         run: |
@@ -605,8 +613,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Install dependencies except @shared/infra
+        run: bun install --frozen-lockfile --filter '!@shared/infra'
 
       # The same cache and the same two bounded halves as the browser tier in
       # `build-test`, for the same reasons (see the comments there). Run from
@@ -672,8 +680,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Install dependencies except @shared/infra
+        run: bun install --frozen-lockfile --filter '!@shared/infra'
 
       - name: db:generate across parallel branches
         timeout-minutes: 12

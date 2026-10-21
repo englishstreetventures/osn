@@ -51,6 +51,7 @@ packages:
   - "@shared/dev-urls"
   - "@shared/email"
   - "@shared/feature-flags"
+  - "@shared/infra"
   - "@shared/legal"
   - "@shared/observability"
   - "@shared/openapi-tools"
@@ -130,6 +131,7 @@ shared/
   dev-urls/            # @shared/dev-urls — the dev-env launcher: derives every sibling app's origin from this app's own PORTLESS_URL
   email/               # @shared/email — EmailService Tag: Resend / Cloudflare / Log / Noop transports
   feature-flags/       # @shared/feature-flags — key-optional, fail-safe GrowthBook flag client
+  infra/               # @shared/infra — pinned Alchemy, the Worker and storage builders, the secret inventory
   legal/               # @shared/legal — the operator identity every published legal page must state
   observability/       # @shared/observability — OTel logger / tracer / metric helpers, Elysia plugin, instrumentedFetch
   openapi-tools/       # @shared/openapi-tools — OpenAPI spec generation and normalisation (specs land in shared/openapi/)

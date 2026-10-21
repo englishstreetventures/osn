@@ -1,0 +1,10 @@
+{
+  "extends": "@shared/typescript-config/node.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src/**/*", "tests/**/*", "scripts/**/*"],
+  "exclude": ["node_modules"]
+}
