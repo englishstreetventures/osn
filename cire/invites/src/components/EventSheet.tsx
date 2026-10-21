@@ -256,7 +256,9 @@ export function EventSheet(props: EventSheetProps) {
     details: createUniqueId(),
     rsvp: createUniqueId(),
   } satisfies Record<EventPanel, string>;
-  const titles: Partial<Record<EventPanel, HTMLHeadingElement>> = {};
+  // Filled by the titles' refs as the sheet renders. Both titles are always
+  // mounted, whichever panels are, so both are set before anything reads them.
+  const titles = {} as Record<EventPanel, HTMLHeadingElement>;
   const wrappers: Partial<Record<EventPanel, HTMLDivElement>> = {};
   let scroller: HTMLDivElement | undefined;
   let rail: HTMLDivElement | undefined;
@@ -284,7 +286,7 @@ export function EventSheet(props: EventSheetProps) {
     wasReachable = reachable;
     if (!withdrawn || active() !== "details") return;
     const focused = document.activeElement;
-    if (!focused || focused === document.body) titles.details?.focus();
+    if (!focused || focused === document.body) titles.details.focus();
   });
 
   /** Lift the arriving panel's switch-time limits once its slide has ended. */

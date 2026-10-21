@@ -293,11 +293,12 @@ export function AnimatedModal(props: AnimatedModalProps) {
           {/* The bar: see the component doc. `sticky top-0` over the
               scrollport, which has no top padding to hold it off the edge;
               `-mx-6` cancels the scrollport's sides, and `pl-6` puts the title
-              on the content's own 24px edge while `pr-2` keeps the cross in
-              the corner it has always had. `h-15` is fixed, because the title
-              is one line whatever its length; `shrink-0`, or this column
-              would shrink it to its 46px of content once the panels overflow.
-              `mb-5` is the gap above the content at rest.
+              on the content's own 24px edge while `pr-2` keeps the cross 8px
+              in from the sheet's corner, where the chip sits without a bar.
+              `h-15` is fixed, because the title is one line whatever its
+              length; `shrink-0`, or this column would shrink it to its 46px
+              of content once the panels overflow. `mb-5` is the gap above the
+              content at rest.
 
               Frosted: 75% of the sheet's own surface over a blur of what
               passes under it, which holds the title at 4.5:1 over pure black

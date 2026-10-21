@@ -169,9 +169,11 @@ describe("EventSheet", () => {
     // One title per panel, so every switch moves focus to a different
     // element: focus sent to the element already holding it is no move at
     // all, and nothing would be announced.
-    const { getByRole } = open("details");
+    const { getByRole, queryByRole } = open("details");
     const bar = scroller().firstElementChild as HTMLElement;
     const details = getByRole("heading", { name: "Details, Mehndi" });
+    // One title on screen: the form's waits, hidden, for its panel.
+    expect(queryByRole("heading", { name: "Respond, Mehndi" })).toBeNull();
     expect(details.tagName).toBe("H2");
     expect(bar.contains(details)).toBe(true);
     // Focusable by script only: it is where a switch sends focus, and a

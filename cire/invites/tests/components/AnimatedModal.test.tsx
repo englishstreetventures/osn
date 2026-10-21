@@ -121,10 +121,13 @@ describe("AnimatedModal", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
-  it("closes via the close button", async () => {
+  it.each([
+    ["in the corner", false],
+    ["in a toolbar's bar", true],
+  ])("closes via the close button %s", async (_, toolbar) => {
     const onClose = vi.fn();
     const { getByLabelText } = render(() => (
-      <AnimatedModal onClose={onClose} label="Event details">
+      <AnimatedModal onClose={onClose} label="Event details" toolbar={toolbar}>
         <p>body</p>
       </AnimatedModal>
     ));

@@ -783,6 +783,30 @@ describe("EventSheet — the bar", () => {
     });
   }
 
+  it("starts the details' facts 1.5rem under the closed notice past the deadline", async () => {
+    // While RSVPs are open the notice's live region is empty and takes no
+    // room ("keeps one height" measures the facts one gap under the bar).
+    await page.viewport(...PHONE);
+    render(() => (
+      <EventSheet
+        event={event}
+        panel="details"
+        siteUrl="https://invite.test/w"
+        members={[priya]}
+        apiUrl="https://api.test"
+        closed
+        replied
+        onClose={() => {}}
+      />
+    ));
+    await settle();
+    const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+    const notice = within(dialog()).getByRole("status").getBoundingClientRect();
+    const facts = wrapperOf("details").querySelector("dl")!.getBoundingClientRect();
+    expect(notice.top).toBeGreaterThanOrEqual(bar().getBoundingClientRect().bottom);
+    expect(facts.top - notice.bottom).toBeCloseTo(1.5 * rem, 1);
+  });
+
   it("names neither panel inside it: the switch and the bar's title say which is on screen", async () => {
     await openOn("details");
     await userEvent.click(segment("Respond"));
