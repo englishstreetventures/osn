@@ -1,12 +1,14 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, events, registrySettings, weddingHosts, weddings } from "@cire/db";
+import type { HubNamespace } from "@shared/realtime/server";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
-import { appRequest } from "../test-helpers";
+import { CHECKLIST_TEMPLATES } from "../../src/lib/checklist-templates";
+import { appRequest, setTier } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -653,3 +655,52 @@ function getWedding(db: TestDb) {
   if (!row) throw new Error("bootstrap wedding missing");
   return row;
 }
+
+describe("a date move tells open checklists", () => {
+  type Published = { name: string; kind: unknown };
+
+  function buildWithHub() {
+    const { db } = buildApp();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
+    const publishes: Published[] = [];
+    const hub: HubNamespace = {
+      getByName: (name) => ({
+        publish: async (signal) => {
+          publishes.push({ name, kind: signal.kind });
+          return 1;
+        },
+        fetch: async () => new Response(null, { status: 426 }),
+      }),
+    };
+    const app = createApp(db, { osnTestKey: auth.key, realtimeHub: hub });
+    return { app, publishes };
+  }
+
+  const redated = { name: `cire:wedding:${BOOTSTRAP_WEDDING_ID}`, kind: "tasks-changed" };
+  const save = (app: App, body: unknown) => req(app, "PUT", SETTINGS_PATH, OWNER, body);
+
+  it("publishes tasks-changed when the save re-dates a seeded task, and only then", async () => {
+    const { app, publishes } = buildWithHub();
+    // No seeded task yet: a date move re-dates nothing, so nobody is told.
+    expect((await save(app, { weddingDate: "2099-06-20" })).status).toBe(200);
+    expect(publishes).toStrictEqual([]);
+
+    const key = CHECKLIST_TEMPLATES.starter[0]!.key;
+    const applied = await req(
+      app,
+      "POST",
+      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/tasks/templates/starter`,
+      OWNER,
+      { items: [key] },
+    );
+    expect(applied.status).toBe(200);
+    publishes.length = 0;
+
+    expect((await save(app, { weddingDate: "2099-07-20" })).status).toBe(200);
+    expect(publishes).toStrictEqual([redated]);
+    // The same date again, and a save that carries no date, re-date nothing.
+    expect((await save(app, { weddingDate: "2099-07-20" })).status).toBe(200);
+    expect((await save(app, { displayName: "Renamed" })).status).toBe(200);
+    expect(publishes).toStrictEqual([redated]);
+  });
+});

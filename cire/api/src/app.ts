@@ -871,8 +871,9 @@ export function createApp(db: Db, options: AppOptions = {}) {
     memberStepExcludedWeddings: options.memberStepExcludedWeddings,
   };
 
-  // One publisher for the co-host writes. No hub bound ⇒ every signal is a
-  // counted no-op and the writes behave exactly as they did before push.
+  // One publisher for the co-host, checklist and settings writes. No hub
+  // bound ⇒ every signal is a counted no-op and the writes behave exactly as
+  // they did before push.
   const weddingSignals = createWeddingSignals(realtimeHub);
 
   // Capture the chain so we can conditionally mount the payment webhook below.
@@ -1097,7 +1098,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // Wedding-profile Settings (platform Phase 0). Reads admit owner OR
       // co-host; the profile save is owner-only. No event location config —
       // an event's place is its venue name and free-text `address`.
-      .use(createOrganiserSettingsRoutes(db, osnAuthOptions))
+      .use(createOrganiserSettingsRoutes(db, osnAuthOptions, weddingSignals))
       // Organiser-recorded RSVPs (platform Phase 0). Editor records a
       // phone/paper RSVP on a guest's behalf into the SAME `rsvps` table the
       // invite writes to (upsert, last-writer-wins); stamped
@@ -1119,7 +1120,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // gets 403 read_only_role). Split into sibling instances so the read gate
       // never cross-contaminates with the write gate.
       .use(createTaskReadRoutes(db, osnAuthOptions))
-      .use(createTaskWriteRoutes(db, osnAuthOptions))
+      .use(createTaskWriteRoutes(db, osnAuthOptions, weddingSignals))
       .use(createBudgetReadRoutes(db, osnAuthOptions))
       .use(createBudgetWriteRoutes(db, osnAuthOptions))
       // Gift registry. Same read/write gate split as the modules above, and the

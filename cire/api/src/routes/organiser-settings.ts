@@ -10,6 +10,7 @@ import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
 import { runCire } from "../observability";
 import { ownerOnlySettingsIn, UpdateSettingsBody } from "../schemas/settings";
+import { createWeddingSignals, type WeddingSignals } from "../services/realtime";
 import { weddingSettingsService } from "../services/wedding-settings";
 
 // Sentinel parse hook — same idiom as the other organiser POST/PUT routes: the
@@ -37,7 +38,11 @@ const manualParse = { parse: () => ({}) };
  * geocode endpoint that fed them) were removed by migration 0036 — they only
  * ever served unbuilt Phase 3 planning features.
  */
-export const createOrganiserSettingsRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) => {
+export const createOrganiserSettingsRoutes = (
+  db: Db,
+  osnAuthOptions: OsnAuthOptions,
+  signals: WeddingSignals = createWeddingSignals(undefined),
+) => {
   return new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
@@ -96,7 +101,14 @@ export const createOrganiserSettingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
                 set.status = 403;
                 return { error: "owner_only_fields", fields: ownerOnly };
               }
-              const wedding = yield* weddingSettingsService.update(weddingId, patch, osnProfileId);
+              const { wedding, tasksRedated } = yield* weddingSettingsService.save(
+                weddingId,
+                patch,
+                osnProfileId,
+              );
+              // A moved date re-dated the checklist's seeded tasks: open
+              // checklists read them again.
+              if (tasksRedated > 0) yield* signals.tasksChanged(weddingId, request);
               return { wedding };
             }).pipe(
               Effect.provideService(DbService, db),

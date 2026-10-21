@@ -1,5 +1,6 @@
 import { realtimeSubscribeBudget } from "@cire/db";
 import { rowsChanged } from "@shared/db-utils";
+import type { SignalKind } from "@shared/realtime";
 import { publish, type HubNamespace } from "@shared/realtime/server";
 import { lt, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -11,34 +12,54 @@ import { runCire } from "../observability";
 /** The topic every open tab showing one wedding listens on. */
 export const weddingTopic = (weddingId: string): string => `cire:wedding:${weddingId}`;
 
+/**
+ * What a wedding's open tabs are told. Call each after its write has
+ * committed, and only when the write changed something: every publish is a
+ * Durable Object request from the account-wide allowance. `request` is the
+ * write's own request: when the Worker registered an execution context for it,
+ * the publish runs after the response in `waitUntil`, so the write never waits
+ * on the hub. Neither ever fails.
+ */
 export interface WeddingSignals {
   /**
-   * The wedding's seats changed. Call after the write has committed.
-   * `revoked` names the members who lost the dashboard: the hub sends them the
-   * signal, then closes their sockets with 1008, so their tabs re-read once and
-   * stop listening instead of reconnecting to be refused. `request` is the
-   * write's own request: when the Worker registered an execution context for
-   * it, the publish runs after the response in `waitUntil`, so the write never
-   * waits on the hub. Never fails.
+   * The wedding's seats changed: one was added, re-roled, removed or left, a
+   * helper's run-sheet scope moved, or the wedding was deleted. `revoked` names
+   * the members who may no longer listen: the hub sends them the signal, then
+   * closes their sockets with 1008, so their tabs re-read once and stop
+   * listening instead of reconnecting to be refused.
    */
   membersChanged(
     weddingId: string,
     request: Request,
     revoked?: readonly string[],
   ): Effect.Effect<void>;
+  /**
+   * The wedding's checklist changed: a task was created, edited, ticked,
+   * unticked, deleted, reordered, seeded from a template or re-dated, or a
+   * seat was put on or taken off one. Closes nobody's socket.
+   */
+  tasksChanged(weddingId: string, request: Request): Effect.Effect<void>;
 }
 
-export const createWeddingSignals = (hub: HubNamespace | undefined): WeddingSignals => ({
-  membersChanged: (weddingId, request, revoked = []) => {
-    const work = publish(hub, weddingTopic(weddingId), "members-changed", {
-      revokeSubjects: revoked,
-    });
+export const createWeddingSignals = (hub: HubNamespace | undefined): WeddingSignals => {
+  const send = (
+    weddingId: string,
+    request: Request,
+    kind: SignalKind,
+    revoked: readonly string[] = [],
+  ) => {
+    const work = publish(hub, weddingTopic(weddingId), kind, { revokeSubjects: revoked });
     const waitUntil = getWaitUntil(request);
     // Inline with no execution context (unit tests, the local Bun server), and
     // with no hub, where the publish only counts and sends nothing.
     return waitUntil && hub ? Effect.sync(() => waitUntil(runCire(work))) : work;
-  },
-});
+  };
+  return {
+    membersChanged: (weddingId, request, revoked = []) =>
+      send(weddingId, request, "members-changed", revoked),
+    tasksChanged: (weddingId, request) => send(weddingId, request, "tasks-changed"),
+  };
+};
 
 /**
  * Subscribes one organiser may be admitted past the daily ceiling per UTC day.

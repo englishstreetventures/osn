@@ -973,13 +973,12 @@ describe("cire/api over real D1 (Miniflare)", () => {
       );
       expect(picked.added).toBe(1);
 
-      await run(
-        weddingSettingsService.update(
-          BOOTSTRAP_WEDDING_ID,
-          { weddingDate: "2027-09-04" },
-          "usr_d1",
-        ),
+      // The batch's re-dating answers each task it moved, which is what tells
+      // open checklists to read again.
+      const saved = await run(
+        weddingSettingsService.save(BOOTSTRAP_WEDDING_ID, { weddingDate: "2027-09-04" }, "usr_d1"),
       );
+      expect(saved.tasksRedated).toBeGreaterThan(0);
       const moved = await db
         .select({ item: tasks.templateItem, dueAt: tasks.dueAt })
         .from(tasks)
@@ -1035,16 +1034,19 @@ describe("cire/api over real D1 (Miniflare)", () => {
 
       const add = (weddingId: string, taskId: string, hostId: string) =>
         run(tasksService.addAssignee(weddingId, taskId, hostId));
-      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).assigneeHostIds).toEqual(
-        ["whost_d1_helper"],
-      );
-      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer")).assigneeHostIds).toEqual(
-        ["whost_d1_helper", "whost_d1_viewer"],
-      );
-      // Already there: unchanged, still one row.
-      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).assigneeHostIds).toEqual(
-        ["whost_d1_helper", "whost_d1_viewer"],
-      );
+      expect(await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).toMatchObject({
+        task: { assigneeHostIds: ["whost_d1_helper"] },
+        changed: true,
+      });
+      expect(await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer")).toMatchObject({
+        task: { assigneeHostIds: ["whost_d1_helper", "whost_d1_viewer"] },
+        changed: true,
+      });
+      // Already there: unchanged, still one row, and said so.
+      expect(await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).toMatchObject({
+        task: { assigneeHostIds: ["whost_d1_helper", "whost_d1_viewer"] },
+        changed: false,
+      });
       await add(BOOTSTRAP_WEDDING_ID, doomed.id, "whost_d1_viewer");
 
       const refusal = async (eff: Effect.Effect<unknown, unknown, DbService>) => {
@@ -1092,8 +1094,11 @@ describe("cire/api over real D1 (Miniflare)", () => {
       const removed = await run(
         tasksService.removeAssignee(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer"),
       );
-      expect(removed.assigneeHostIds).toEqual([]);
+      expect(removed).toMatchObject({ task: { assigneeHostIds: [] }, changed: true });
       expect(await stored(task.id)).toEqual([]);
+      expect(
+        await run(tasksService.removeAssignee(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer")),
+      ).toMatchObject({ task: { assigneeHostIds: [] }, changed: false });
 
       await run(tasksService.remove(BOOTSTRAP_WEDDING_ID, doomed.id));
       expect(await stored(doomed.id)).toEqual([]);
@@ -3958,8 +3963,14 @@ describe("cire/api over real D1 (Miniflare)", () => {
           scope: "full",
         }),
       );
-      expect(widened).toMatchObject({ role: "helper", runSheetScope: "full" });
+      expect(widened).toMatchObject({ role: "helper", runSheetScope: "full", changed: true });
       expect(await storedScope("usr_helper")).toBe("full");
+      // The same scope again matches no row in the UPDATE, and the read that
+      // follows answers it as unchanged, not as a refusal.
+      expect(await scopeExit("usr_helper")).toMatchObject({
+        _tag: "Success",
+        value: { role: "helper", runSheetScope: "full", changed: false },
+      });
 
       // helper → helper keeps it; any move away resets it, so coming back is own.
       expect((await setRole("helper")).runSheetScope).toBe("full");

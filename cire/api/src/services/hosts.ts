@@ -847,23 +847,25 @@ export const hostsService = {
    * Set how far into the run sheet a helper's seat may see: `own` — the tasks
    * assigned to them — or `full`, every task and who holds it. Scoped to
    * `(weddingId, osnProfileId)`; the route's `weddingOwner()` proved the caller
-   * owns this wedding. Setting the scope a seat already has succeeds.
+   * owns this wedding. Setting the scope a seat already has succeeds, writes
+   * nothing, and answers `changed: false`.
    *
    * The helper test rides in the UPDATE's own WHERE, so a role change racing
    * this write cannot leave a seat that is no helper's stored `full`: whichever
-   * lands second sees the other's result. The UPDATE goes alone, and its
-   * RETURNING is the answer. Only when it matched nothing does a read of the
-   * seat follow, to name why — no seat is {@link HostNotFound}, a seat that is
-   * not a helper's is {@link NotAHelper}. A seat removed or re-roled between
-   * the two changes which refusal is named, never what is written. A refused
-   * write writes nothing.
+   * lands second sees the other's result. So does "the scope moves", which is
+   * what `changed` reports. The UPDATE goes alone, and its RETURNING is the
+   * answer. Only when it matched nothing does a read of the seat follow, to
+   * name why — no seat is {@link HostNotFound}, a seat that is not a helper's
+   * is {@link NotAHelper}, and a helper's seat already on the scope is the
+   * unchanged answer. A seat removed or re-roled between the two changes which
+   * answer is named, never what is written. A refused write writes nothing.
    */
   setRunSheetScope(input: {
     weddingId: string;
     osnProfileId: string;
     scope: RunSheetScope;
   }): Effect.Effect<
-    { osnProfileId: string; role: WeddingRole; runSheetScope: RunSheetScope },
+    { osnProfileId: string; role: WeddingRole; runSheetScope: RunSheetScope; changed: boolean },
     HostNotFound | NotAHelper | HostWriteError,
     DbService
   > {
@@ -879,29 +881,48 @@ export const hostsService = {
             Effect.logError("host run-sheet scope update failed", { reason: err.reason }),
           ),
         );
+      // Written only when it moves the scope, so `changed` says whether anyone
+      // who reads the run sheet has something new to read.
       const [updated] = yield* step(() =>
         db
           .update(weddingHosts)
           .set({ runSheetScope: input.scope })
-          .where(and(seatOf(input.weddingId, input.osnProfileId), seatIsHelper))
+          .where(
+            and(
+              seatOf(input.weddingId, input.osnProfileId),
+              seatIsHelper,
+              ne(weddingHosts.runSheetScope, input.scope),
+            ),
+          )
           .returning({ role: weddingHosts.role, runSheetScope: weddingHosts.runSheetScope }),
       );
 
       if (!updated) {
         const [seat] = yield* step(() =>
           db
-            .select({ id: weddingHosts.id })
+            .select({ role: weddingHosts.role, runSheetScope: weddingHosts.runSheetScope })
             .from(weddingHosts)
             .where(seatOf(input.weddingId, input.osnProfileId)),
         );
         if (!seat) return yield* Effect.fail(new HostNotFound({ weddingId: input.weddingId }));
-        yield* logRefusal("host run-sheet scope refused", input.weddingId, "not_a_helper");
-        return yield* Effect.fail(new NotAHelper({ weddingId: input.weddingId }));
+        // The same test as `seatIsHelper`, over the same list.
+        if ((NON_HELPER_STORED_ROLES as readonly string[]).includes(seat.role)) {
+          yield* logRefusal("host run-sheet scope refused", input.weddingId, "not_a_helper");
+          return yield* Effect.fail(new NotAHelper({ weddingId: input.weddingId }));
+        }
+        // A helper's seat already on this scope: nothing to write.
+        return {
+          osnProfileId: input.osnProfileId,
+          role: normaliseHostRole(seat.role),
+          runSheetScope: normaliseRunSheetScope(seat.runSheetScope),
+          changed: false,
+        };
       }
       return {
         osnProfileId: input.osnProfileId,
         role: normaliseHostRole(updated.role),
         runSheetScope: normaliseRunSheetScope(updated.runSheetScope),
+        changed: true,
       };
     }).pipe(Effect.withSpan("cire.host.setRunSheetScope"));
   },

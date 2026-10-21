@@ -6,14 +6,17 @@ import { createRateLimiter } from "@shared/rate-limit";
 import type { HubNamespace } from "@shared/realtime/server";
 import { DrizzleQueryError, eq } from "drizzle-orm";
 import { Effect } from "effect";
+import { Elysia } from "elysia";
 
 import type { AppOptions } from "../../src/app";
 import { DbService } from "../../src/db";
 import type { Db } from "../../src/db";
 import { createDb } from "../../src/db/setup";
+import { weddingRunSheet } from "../../src/middleware/wedding-run-sheet";
 import { createRealtimeRoute, WEDDING_TOPIC_ID } from "../../src/routes/realtime";
 import type { AssignableHostRole } from "../../src/services/hosts";
 import { organiserSessionService } from "../../src/services/organiser-session";
+import { appRequest } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
@@ -69,7 +72,12 @@ function setup(overrides: Partial<AppOptions> = {}) {
   return { db, route, hub };
 }
 
-function seat(db: Db, osnProfileId: string, role: AssignableHostRole) {
+function seat(
+  db: Db,
+  osnProfileId: string,
+  role: AssignableHostRole,
+  runSheetScope: "own" | "full" = "own",
+) {
   db.insert(weddingHosts)
     .values({
       id: `whost_${osnProfileId}`,
@@ -77,6 +85,7 @@ function seat(db: Db, osnProfileId: string, role: AssignableHostRole) {
       osnProfileId,
       addedByOsnProfileId: OWNER,
       role,
+      runSheetScope,
       createdAt: new Date(),
     })
     .run();
@@ -150,6 +159,16 @@ describe("createRealtimeRoute — admitted", () => {
     expect(await upgrade(route, await bearer("usr_cohost"))).toBe(hub.response);
   });
 
+  // A helper reads the run sheet, so their tab listens for the changes that
+  // move it. The scope narrows what a re-read returns, never whether they may
+  // listen.
+  it.each(["own", "full"] as const)("admits a helper whose run sheet is %s", async (scope) => {
+    const { db, route, hub } = setup();
+    seat(db, "usr_helper", "helper", scope);
+    expect(await upgrade(route, await bearer("usr_helper"))).toBe(hub.response);
+    expect(hub.upgrades).toEqual([{ name: `cire:wedding:${WEDDING_ID}`, subject: "usr_helper" }]);
+  });
+
   it.each([
     // `mintWeddingId` in src/services/weddings.ts: `wed_` and a UUID's 32 hex.
     ["the shape cire mints", `wed_${crypto.randomUUID().replace(/-/g, "")}`],
@@ -164,13 +183,6 @@ describe("createRealtimeRoute — admitted", () => {
 });
 
 describe("createRealtimeRoute — refused", () => {
-  it("refuses a helper, whose seat carries no dashboard reads", async () => {
-    const { db, route, hub } = setup();
-    seat(db, "usr_helper", "helper");
-    expect((await upgrade(route, await bearer("usr_helper"))).status).toBe(403);
-    expect(hub.upgrades).toEqual([]);
-  });
-
   it("refuses a wedding its owner deleted, as an unknown one", async () => {
     const { db, route, hub } = setup();
     db.update(weddings)
@@ -330,6 +342,14 @@ describe("createRealtimeRoute — refused", () => {
     expect(db.select().from(realtimeSubscribeBudget).all()).toHaveLength(3);
   });
 
+  it("429s a helper past the daily ceiling, as any organiser", async () => {
+    const { db, route, hub } = setup({ realtimeSubscribesPerDay: 1 });
+    seat(db, "usr_helper", "helper");
+    expect((await upgrade(route, await bearer("usr_helper"))).status).toBe(101);
+    expect((await upgrade(route, await bearer("usr_helper"))).status).toBe(429);
+    expect(hub.upgrades.map((u) => u.subject)).toEqual(["usr_helper"]);
+  });
+
   it("503s when no hub is bound", async () => {
     const { route } = setup({ realtimeHub: undefined });
     expect((await upgrade(route, await bearer(OWNER))).status).toBe(503);
@@ -359,6 +379,37 @@ function failLikeD1(db: ReturnType<typeof createDb>, table: string) {
     });
   }) as typeof client.prepare;
 }
+
+describe("createRealtimeRoute — admits exactly whom the run-sheet gate admits", () => {
+  /** The run sheet's own gate, behind a stand-in for osnAuth(). */
+  const runSheetGate = (db: Db, profileId: string) =>
+    new Elysia({ aot: false })
+      .resolve(() => ({ osnProfileId: profileId }))
+      .group("/weddings/:weddingId", (group) =>
+        group.use(weddingRunSheet(db)).get("/probe", () => ({ ok: true })),
+      );
+
+  // Every value the column can hold, the legacy default and a corrupted one
+  // included, and no seat at all. A stored value outside the enum degrades to
+  // the lowest role, which both gates must then agree on.
+  it.each([
+    ["owner", "owner"],
+    ["editor", "editor"],
+    ["viewer", "viewer"],
+    ["helper", "helper"],
+    ["the legacy default `host`", "host"],
+    ["a value outside the enum", "superuser"],
+    ["no seat", null],
+  ] as const)("%s", async (_label, stored) => {
+    const { db, route, hub } = setup();
+    const who = "usr_probe";
+    if (stored) seat(db, who, stored as AssignableHostRole);
+    const gate = await appRequest(runSheetGate(db, who), `/weddings/${WEDDING_ID}/probe`);
+    const res = await upgrade(route, await bearer(who));
+    expect(res === hub.response).toBe(gate.status === 200);
+    expect(res === hub.response ? 101 : res.status).toBe(gate.status === 200 ? 101 : 403);
+  });
+});
 
 describe("createRealtimeRoute — a lookup that fails", () => {
   it("503s when the membership lookup fails, and logs no profile id", async () => {

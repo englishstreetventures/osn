@@ -1965,29 +1965,20 @@ describe("seat writes publish members-changed", () => {
     expect(publishes).toStrictEqual([nobody]);
   });
 
+  // Every role reads the run sheet, so every role may keep listening: a move to
+  // helper loses the dashboard, which the signal's re-read drops, but not the
+  // socket. A revoke would leave their tab deaf while a reload listens again.
   it.each([
     ["editor", "helper"],
     ["viewer", "helper"],
     ["owner", "helper"],
-  ] as const)(
-    "after a change from %s to %s, revoking the member, whose seat loses the dashboard",
-    async (from, to) => {
-      const { hub, publishes } = recordingHub();
-      const { db, app } = buildApp({ realtimeHub: hub });
-      seedHostSeat(db, COHOST, from);
-      const res = await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: to });
-      expect(res.status).toBe(200);
-      expect(publishes).toStrictEqual([revoking(COHOST)]);
-    },
-  );
-
-  it.each([
     ["editor", "viewer"],
     ["viewer", "editor"],
     ["helper", "editor"],
+    ["helper", "viewer"],
     ["owner", "editor"],
   ] as const)(
-    "after a change from %s to %s, closing nobody, since the new seat reads the dashboard",
+    "after a change from %s to %s, closing nobody, since the new seat still listens",
     async (from, to) => {
       const { hub, publishes } = recordingHub();
       const { db, app } = buildApp({ realtimeHub: hub });
@@ -2004,6 +1995,57 @@ describe("seat writes publish members-changed", () => {
     seedHostSeat(db, COHOST, "viewer");
     const res = await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: "viewer" });
     expect(res.status).toBe(200);
+    expect(publishes).toStrictEqual([]);
+  });
+
+  // The scope is a column of the seat, so a scope write is a seat change. It
+  // closes nobody: narrowed or widened, the helper still reads the run sheet,
+  // and their tab's re-read is what the scope filters.
+  it.each([
+    ["own", "full"],
+    ["full", "own"],
+  ] as const)("after a helper's scope moves from %s to %s, closing nobody", async (from, to) => {
+    const { hub, publishes } = recordingHub();
+    const { db, app } = buildApp({ realtimeHub: hub });
+    seedHostSeat(db, COHOST, "helper");
+    db.update(weddingHosts)
+      .set({ runSheetScope: from })
+      .where(eq(weddingHosts.osnProfileId, COHOST))
+      .run();
+    const res = await req(app, "PUT", `${hostsPath}/${COHOST}/run-sheet-scope`, OWNER, {
+      scope: to,
+    });
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({
+      host: { osnProfileId: COHOST, role: "helper", runSheetScope: to },
+    });
+    expect(publishes).toStrictEqual([nobody]);
+  });
+
+  it("not for a scope write that leaves the scope where it was", async () => {
+    const { hub, publishes } = recordingHub();
+    const { db, app } = buildApp({ realtimeHub: hub });
+    seedHostSeat(db, COHOST, "helper");
+    const res = await req(app, "PUT", `${hostsPath}/${COHOST}/run-sheet-scope`, OWNER, {
+      scope: "own",
+    });
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({
+      host: { osnProfileId: COHOST, role: "helper", runSheetScope: "own" },
+    });
+    expect(publishes).toStrictEqual([]);
+  });
+
+  it("not for a refused scope write", async () => {
+    const { hub, publishes } = recordingHub();
+    const { db, app } = buildApp({ realtimeHub: hub });
+    seedHostSeat(db, COHOST, "editor");
+    const scope = (who: string, profile: string, body: unknown) =>
+      req(app, "PUT", `${hostsPath}/${profile}/run-sheet-scope`, who, body);
+    expect((await scope(OWNER, COHOST, { scope: "full" })).status).toBe(409);
+    expect((await scope(OWNER, "usr_ghost", { scope: "full" })).status).toBe(404);
+    expect((await scope(OWNER, COHOST, { scope: "everything" })).status).toBe(400);
+    expect((await scope(COHOST, COHOST, { scope: "full" })).status).toBe(403);
     expect(publishes).toStrictEqual([]);
   });
 

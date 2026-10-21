@@ -217,7 +217,8 @@ export const anchoredDueAt = (weddingId: string, offset: SQL): SQL =>
  * against, and a date the couple set (`due_source = 'manual'`) is never
  * touched. A task already on the right date is not written, so a save that
  * does not move the date writes no task row. Returned unrun, so the settings
- * save can commit it in the same batch as the date it reads.
+ * save can commit it in the same batch as the date it reads; it answers the id
+ * of each task it re-dated.
  */
 export const reanchorTemplateDueDates = (db: Db, weddingId: string) => {
   const anchored = anchoredDueAt(weddingId, sql`${tasks.dueOffsetDays}`);
@@ -232,8 +233,16 @@ export const reanchorTemplateDueDates = (db: Db, weddingId: string) => {
         eq(tasks.status, "open"),
         sql`${tasks.dueAt} IS NOT ${anchored}`,
       ),
-    );
+    )
+    .returning({ id: tasks.id });
 };
+
+/** A holder write's answer: the task as it stands after it, and whether the
+ *  write put a seat on or took one off (false when it was already so). */
+export interface HolderWrite {
+  task: TaskDto;
+  changed: boolean;
+}
 
 export const tasksService = {
   list(weddingId: string): Effect.Effect<TaskDto[], never, DbService> {
@@ -366,7 +375,7 @@ export const tasksService = {
     weddingId: string,
     taskId: string,
     hostId: string,
-  ): Effect.Effect<TaskDto, TaskNotInWedding | HostNotInWedding, DbService> {
+  ): Effect.Effect<HolderWrite, TaskNotInWedding | HostNotInWedding, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const insert = db
@@ -411,7 +420,7 @@ export const tasksService = {
         return yield* Effect.fail(new HostNotInWedding());
       }
       yield* countAssignment("add", changed ? "ok" : "unchanged");
-      return toDto(task, holders);
+      return { task: toDto(task, holders), changed };
     }).pipe(onAssignmentDefect("add", weddingId), Effect.withSpan("cire.tasks.assign"));
   },
 
@@ -425,7 +434,7 @@ export const tasksService = {
     weddingId: string,
     taskId: string,
     hostId: string,
-  ): Effect.Effect<TaskDto, TaskNotInWedding, DbService> {
+  ): Effect.Effect<HolderWrite, TaskNotInWedding, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const del = db
@@ -444,7 +453,7 @@ export const tasksService = {
         return yield* Effect.fail(new TaskNotInWedding());
       }
       yield* countAssignment("remove", changed ? "ok" : "unchanged");
-      return toDto(task, holders);
+      return { task: toDto(task, holders), changed };
     }).pipe(onAssignmentDefect("remove", weddingId), Effect.withSpan("cire.tasks.unassign"));
   },
 

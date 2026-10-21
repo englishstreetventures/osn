@@ -1,10 +1,12 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, guests, taskAssignees, tasks, weddingHosts } from "@cire/db";
+import type { CloseTargets, HubNamespace } from "@shared/realtime/server";
 import { eq, sql } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, DEV_OWNER_SEAT_ID, seedDb } from "../../src/db/setup";
+import { CHECKLIST_TEMPLATES } from "../../src/lib/checklist-templates";
 import { CIRE_METRICS } from "../../src/metrics";
 import { appRequest, failStatements, jsonBody, setTier } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
@@ -675,5 +677,162 @@ describe("the people holding a task", () => {
       expect(res.status, caller).toBe(200);
       expect(((await res.json()) as ListBody).viewerHostId, caller).toBe(seat);
     }
+  });
+});
+
+describe("task writes publish tasks-changed", () => {
+  type Published = { name: string; signal: unknown; targets: CloseTargets };
+
+  function recordingHub(rejects = false) {
+    const publishes: Published[] = [];
+    const hub: HubNamespace = {
+      getByName: (name) => ({
+        publish: async (signal, targets) => {
+          publishes.push({ name, signal, targets });
+          if (rejects) throw new Error("hub down");
+          return 1;
+        },
+        fetch: async () => new Response(null, { status: 426 }),
+      }),
+    };
+    return { hub, publishes };
+  }
+
+  function buildWithHub(tier: "ivory" | "gold" = "gold", rejects = false) {
+    const db = buildDb(tier);
+    const { hub, publishes } = recordingHub(rejects);
+    const app = createApp(db, { osnTestKey: auth.key, realtimeHub: hub });
+    return { db, app, publishes };
+  }
+
+  const topic = `cire:wedding:${BOOTSTRAP_WEDDING_ID}`;
+  /** What one accepted task write sends the hub: the topic, the kind and a
+   *  time, nothing about the task, and nobody's socket closed. */
+  const changed = (): Published => ({
+    name: topic,
+    signal: { topic, kind: "tasks-changed", at: expect.any(Number) },
+    targets: { evict: [], revoke: [] },
+  });
+
+  async function newTask(app: App, title = "Book venue"): Promise<string> {
+    const res = await req(app, "POST", base, EDITOR, { ...CREATE, title });
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { task: { id: string } }).task.id;
+  }
+
+  const holderPath = (taskId: string, hostId: string) => `${base}/${taskId}/assignees/${hostId}`;
+
+  it("after a create", async () => {
+    const { app, publishes } = buildWithHub();
+    await newTask(app);
+    expect(publishes).toStrictEqual([changed()]);
+    // The signal names the change, never the task.
+    expect(JSON.stringify(publishes[0]!.signal)).not.toContain("Book venue");
+  });
+
+  it.each([
+    ["an edit", { title: "Book the hall" }],
+    ["a tick", { status: "done" }],
+    ["an untick", { status: "open" }],
+  ])("after %s", async (_label, patch) => {
+    const { app, publishes } = buildWithHub();
+    const id = await newTask(app);
+    const res = await req(app, "PATCH", `${base}/${id}`, EDITOR, patch);
+    expect(res.status).toBe(200);
+    expect(publishes).toStrictEqual([changed(), changed()]);
+  });
+
+  it("after a delete", async () => {
+    const { app, publishes } = buildWithHub();
+    const id = await newTask(app);
+    expect((await req(app, "DELETE", `${base}/${id}`, EDITOR)).status).toBe(200);
+    expect(publishes).toStrictEqual([changed(), changed()]);
+  });
+
+  it("after a reorder", async () => {
+    const { app, publishes } = buildWithHub();
+    const first = await newTask(app, "One");
+    const second = await newTask(app, "Two");
+    const res = await req(app, "PATCH", `${base}/reorder`, EDITOR, {
+      timeframeBucket: "12m",
+      orderedIds: [second, first],
+    });
+    expect(res.status).toBe(200);
+    expect(publishes).toStrictEqual([changed(), changed(), changed()]);
+  });
+
+  it("after the starter adds tasks, and not when it adds none", async () => {
+    const { app, publishes } = buildWithHub();
+    const key = CHECKLIST_TEMPLATES.starter[0]!.key;
+    const apply = () => req(app, "POST", `${base}/templates/starter`, EDITOR, { items: [key] });
+    expect((await apply()).status).toBe(200);
+    expect(publishes).toStrictEqual([changed()]);
+    // The item is on the checklist already, so the apply adds nothing.
+    expect((await apply()).status).toBe(200);
+    expect(publishes).toStrictEqual([changed()]);
+  });
+
+  it("after a holder is put on and taken off, and not when either changes nothing", async () => {
+    const { app, publishes } = buildWithHub();
+    const id = await newTask(app);
+    expect((await req(app, "PUT", holderPath(id, "whost_helper"), EDITOR)).status).toBe(200);
+    expect(publishes).toHaveLength(2);
+    // Already on: answered as it is, and nobody is told.
+    expect((await req(app, "PUT", holderPath(id, "whost_helper"), EDITOR)).status).toBe(200);
+    expect(publishes).toHaveLength(2);
+    expect((await req(app, "DELETE", holderPath(id, "whost_helper"), EDITOR)).status).toBe(200);
+    expect(publishes).toHaveLength(3);
+    // Not on: the same.
+    expect((await req(app, "DELETE", holderPath(id, "whost_helper"), EDITOR)).status).toBe(200);
+    expect(publishes).toStrictEqual([changed(), changed(), changed()]);
+  });
+
+  it("never for a refused write", async () => {
+    const { app, publishes } = buildWithHub();
+    const id = await newTask(app);
+    publishes.length = 0;
+    const refusals: [string, string, string | undefined, unknown, number][] = [
+      ["POST", base, EDITOR, { title: "" }, 400],
+      ["POST", base, VIEWER, CREATE, 403],
+      ["POST", base, HELPER, CREATE, 403],
+      ["POST", base, STRANGER, CREATE, 403],
+      ["PATCH", `${base}/tsk_nope`, EDITOR, { status: "done" }, 404],
+      ["PATCH", `${base}/${id}`, VIEWER, { status: "done" }, 403],
+      ["DELETE", `${base}/tsk_nope`, EDITOR, undefined, 404],
+      ["PATCH", `${base}/reorder`, EDITOR, { timeframeBucket: "nope", orderedIds: [id] }, 400],
+      ["POST", `${base}/templates/starter`, EDITOR, { items: ["no-such-item"] }, 400],
+      ["POST", `${base}/templates/nope`, EDITOR, { items: [] }, 404],
+      ["PUT", holderPath(id, OTHER_SEAT), EDITOR, undefined, 422],
+      ["PUT", holderPath("tsk_nope", "whost_helper"), EDITOR, undefined, 404],
+      ["DELETE", holderPath("tsk_nope", "whost_helper"), EDITOR, undefined, 404],
+    ];
+    for (const [method, path, who, body, status] of refusals) {
+      expect((await req(app, method, path, who, body)).status, `${method} ${path}`).toBe(status);
+    }
+    expect(publishes).toStrictEqual([]);
+  });
+
+  it("never on a wedding below Gold, which refuses every task write", async () => {
+    const { app, publishes } = buildWithHub("ivory");
+    expect((await req(app, "POST", base, EDITOR, CREATE)).status).toBe(402);
+    expect(publishes).toStrictEqual([]);
+  });
+
+  it("never for a write the database fails", async () => {
+    const { db, app, publishes } = buildWithHub();
+    const id = await newTask(app);
+    publishes.length = 0;
+    const failure = failStatements(db, (text) => text.startsWith('update "tasks"'));
+    expect((await req(app, "PATCH", `${base}/${id}`, EDITOR, { status: "done" })).status).toBe(500);
+    failure.restore();
+    expect(publishes).toStrictEqual([]);
+  });
+
+  it("does not fail the write when the hub rejects", async () => {
+    const { db, app } = buildWithHub("gold", true);
+    const before = db.select().from(tasks).all().length;
+    const res = await req(app, "POST", base, EDITOR, CREATE);
+    expect(res.status).toBe(200);
+    expect(db.select().from(tasks).all()).toHaveLength(before + 1);
   });
 });

@@ -19,7 +19,7 @@ import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
-import { decideCapability } from "../middleware/wedding-role";
+import { decideCapability, LISTEN_CAPABILITY } from "../middleware/wedding-role";
 import { weddingSeat } from "../middleware/wedding-seat";
 import { runCire } from "../observability";
 import { AddHostBody, UpdateHostRoleBody, UpdateRunSheetScopeBody } from "../schemas/host";
@@ -230,12 +230,12 @@ export const createOrganiserHostsReadRoutes = (
  * may do is leave the wedding with no owner (409 `last_owner`, enforced in the
  * writing statement itself).
  *
- * Each write that changed a seat then tells the wedding's open tabs
- * (`signals.membersChanged`). A removal, a leave, and a role change to one
- * without the dashboard (`member`) also revoke that member's sockets: they
- * close with 1008 and the tab stops listening. A role change that keeps the
- * dashboard leaves their sockets open, since a check could only admit them
- * again.
+ * Each write that changed a seat — its role, or a helper's run-sheet scope —
+ * then tells the wedding's open tabs (`signals.membersChanged`). A removal and
+ * a leave also revoke that member's sockets: they close with 1008 and the tab
+ * stops listening. So would a role change to one that may not listen
+ * (`LISTEN_CAPABILITY`), which no role is today; any other change leaves their
+ * sockets open, since a check could only admit them again.
  */
 export const createOrganiserHostsWriteRoutes = (
   db: Db,
@@ -415,13 +415,18 @@ export const createOrganiserHostsWriteRoutes = (
                     ),
                   );
                 yield* Effect.sync(() => metricHostRoleChanged("ok", host.role));
-                // Every open tab hears of a real change; the member's own
-                // sockets close for good when the new role loses the dashboard.
+                // Every open tab hears of a real change. The member's own
+                // sockets close for good only if the new role may not listen;
+                // every role reads the run sheet today, so a move to helper
+                // keeps their tab listening while its re-read drops the
+                // dashboard.
                 if (host.previousRole !== host.role) {
                   yield* signals.membersChanged(
                     weddingId,
                     request,
-                    decideCapability(host.role, "member").allowed ? [] : [host.osnProfileId],
+                    decideCapability(host.role, LISTEN_CAPABILITY).allowed
+                      ? []
+                      : [host.osnProfileId],
                   );
                 }
                 // An owner moved below owner, the caller's own step-down
@@ -536,7 +541,16 @@ export const createOrganiserHostsWriteRoutes = (
                     ),
                   );
                 yield* Effect.sync(() => metricHostRunSheetScopeChanged("ok", host.runSheetScope));
-                return { host };
+                // The helper's open tab, and every co-host panel, re-read. Nobody
+                // is closed: narrowed or widened, the helper still listens.
+                if (host.changed) yield* signals.membersChanged(weddingId, request);
+                return {
+                  host: {
+                    osnProfileId: host.osnProfileId,
+                    role: host.role,
+                    runSheetScope: host.runSheetScope,
+                  },
+                };
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTags({

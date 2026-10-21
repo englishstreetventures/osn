@@ -7,7 +7,7 @@ import { DbService } from "../db";
 import type { Db } from "../db";
 import { getClientIp, isUnresolvedIp } from "../lib/client-ip";
 import { resolveOsnProfileId } from "../middleware/osn-auth";
-import { decideCapability } from "../middleware/wedding-role";
+import { decideCapability, LISTEN_CAPABILITY } from "../middleware/wedding-role";
 import { runCire } from "../observability";
 import { hostsService } from "../services/hosts";
 import { REALTIME_SUBSCRIBES_PER_DAY, spendRealtimeSubscribe } from "../services/realtime";
@@ -37,16 +37,17 @@ const defaultRealtimeLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60
 export type RealtimeRoute = (request: Request) => Promise<Response> | undefined;
 
 /**
- * May `osnProfileId` read `weddingId`'s dashboard? The rule `weddingMember()`
- * applies to every dashboard read, from the same call: owner, editor and
- * viewer yes; a helper, a stranger or an unknown wedding no.
+ * May `osnProfileId` listen on `weddingId`'s topic? The rule `weddingRunSheet()`
+ * applies to the run sheet, from the same call: owner, editor, viewer and
+ * helper yes, at either run-sheet scope; a stranger, an unknown wedding or a
+ * deleted one no.
  */
-const canReadWedding = (weddingId: string, osnProfileId: string) =>
+const canListen = (weddingId: string, osnProfileId: string) =>
   hostsService
     .authorize(weddingId, osnProfileId)
     .pipe(
       Effect.map((result) =>
-        result?.role ? decideCapability(result.role, "member").allowed : false,
+        result?.role ? decideCapability(result.role, LISTEN_CAPABILITY).allowed : false,
       ),
     );
 
@@ -85,7 +86,7 @@ const ipRateLimited = () =>
  * up a visitor's limit: `subscribe()` refuses any other origin before it looks
  * anything up. `subscribe()` then admits an organiser signed in the same way as
  * every organiser route, within the per-organiser limit and the daily ceiling,
- * who may read the wedding's dashboard.
+ * whose seat reads the wedding's run sheet — every seat, a helper's included.
  */
 export function createRealtimeRoute(db: Db, options: AppOptions = {}): RealtimeRoute {
   const auth = organiserAuthOptions(db, options);
@@ -120,7 +121,7 @@ export function createRealtimeRoute(db: Db, options: AppOptions = {}): RealtimeR
           ),
         authorize: (subject, topic) =>
           withFixedError("wedding membership lookup failed", () =>
-            runCire(canReadWedding(topic.id, subject).pipe(Effect.provideService(DbService, db))),
+            runCire(canListen(topic.id, subject).pipe(Effect.provideService(DbService, db))),
           ),
       }),
     );
