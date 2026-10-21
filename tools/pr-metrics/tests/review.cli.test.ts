@@ -29,8 +29,8 @@ const TARGET = "osn/api/src/target.ts";
 const TARGET_LINES = Array.from({ length: 80 }, (_, i) => `export const v${i + 1} = ${i + 1};`);
 
 /** Two counted findings (one located, one not), one tracker-kind finding that
- * must never be counted, and a trailing section whose `path:line` must not be
- * read as part of the last finding. */
+ * must never be counted, and a trailing section whose `path:line` is on no
+ * `**Issue:**` line and so is no finding's location. */
 const REPORT = [
   "## Test findings",
   "",
@@ -136,11 +136,12 @@ async function fixture(sessions: string[] = []): Promise<Fixture> {
 }
 
 /** Replace line `n` (1-based) of the target and commit it at `date`. */
-async function editLine(f: Fixture, n: number, date: string): Promise<void> {
-  const lines = [...TARGET_LINES];
-  lines[n - 1] = `export const v${n} = ${n} * 2;`;
-  await writeFile(join(f.dir, TARGET), `${lines.join("\n")}\n`);
-  await f.git(["commit", "-qam", `fix line ${n}`], date);
+async function editLine(f: Fixture, n: number | number[], date: string): Promise<void> {
+  const path = join(f.dir, TARGET);
+  const lines = (await Bun.file(path).text()).split("\n");
+  for (const line of [n].flat()) lines[line - 1] = `export const v${line} = ${line} * 2;`;
+  await writeFile(path, lines.join("\n"));
+  await f.git(["commit", "-qam", `edit ${[n].flat().join(",")}`], date);
 }
 
 const withFixture =
@@ -315,6 +316,9 @@ const assistant = (fields: {
   model?: string;
   tools?: number;
   cacheRead?: number;
+  input?: number;
+  cacheWrite?: number;
+  sidechain?: boolean;
   at: string;
 }) =>
   JSON.stringify({
@@ -322,6 +326,7 @@ const assistant = (fields: {
     gitBranch: BRANCH,
     sessionId: "sess-1",
     requestId: fields.requestId,
+    isSidechain: fields.sidechain ?? false,
     timestamp: fields.at,
     message: {
       role: "assistant",
@@ -331,7 +336,12 @@ const assistant = (fields: {
         name: "Read",
         input: {},
       })),
-      usage: { input_tokens: 0, output_tokens: 1, cache_read_input_tokens: fields.cacheRead ?? 0 },
+      usage: {
+        input_tokens: fields.input ?? 0,
+        output_tokens: 1,
+        cache_read_input_tokens: fields.cacheRead ?? 0,
+        cache_creation_input_tokens: fields.cacheWrite ?? 0,
+      },
     },
   });
 
@@ -366,4 +376,193 @@ test(
       assistant({ model: "<synthetic>", at: "2026-09-01T10:59:40Z" }),
     ],
   ),
+);
+
+test(
+  "a subagent call, a call with no requestId and every context component are counted",
+  withFixture(
+    async (f) => {
+      const { card } = await f.card();
+
+      expect(card.interaction.requests).toEqual({
+        main: 3,
+        subagent: 1,
+        with_tools: 1,
+        with_one_tool: 1,
+        context_median: 100,
+        context_p90: 3_000,
+      });
+    },
+    [
+      // Input, cache read and cache write all count: 500 + 1,000 + 500.
+      assistant({
+        requestId: "r1",
+        tools: 1,
+        input: 500,
+        cacheRead: 1_000,
+        cacheWrite: 500,
+        at: "2026-09-01T10:59:10Z",
+      }),
+      assistant({ requestId: "r2", sidechain: true, cacheRead: 3_000, at: "2026-09-01T10:59:20Z" }),
+      // No requestId: each record is its own call.
+      assistant({ cacheRead: 100, at: "2026-09-01T10:59:30Z" }),
+      assistant({ cacheRead: 100, at: "2026-09-01T10:59:40Z" }),
+    ],
+  ),
+);
+
+test(
+  "the rendered block carries the call and review rows, as counts",
+  withFixture(
+    async (f) => {
+      await f.report(REPORT, REPORT_WRITTEN);
+      await editLine(f, 10, FIXED);
+
+      const { stdout } = await f.card({ extra: ["--format", "markdown"] });
+
+      expect(stdout).toContain("| Model calls | 2 · 50% of those using tools used one ·");
+      expect(stdout).toContain(
+        "| Review (tests and docs lenses) | 1 of 1 paired findings changed · control 0 of 1 |",
+      );
+    },
+    [
+      assistant({ requestId: "r1", tools: 1, at: "2026-09-01T10:59:10Z" }),
+      assistant({ requestId: "r2", tools: 2, at: "2026-09-01T10:59:20Z" }),
+    ],
+  ),
+);
+
+test(
+  "with no call using a tool, the render shows no share rather than 0%",
+  withFixture(
+    async (f) => {
+      const { stdout } = await f.card({ extra: ["--format", "markdown"] });
+
+      expect(stdout).toContain("| Model calls | 1 · — of those using tools used one ·");
+    },
+    [assistant({ requestId: "r1", at: "2026-09-01T10:59:10Z" })],
+  ),
+);
+
+test(
+  "a fix amended into the reviewed commit leaves the report unread, not a zero",
+  withFixture(async (f) => {
+    await f.report(REPORT, REPORT_WRITTEN);
+    const lines = TARGET_LINES.map((l, i) => (i === 9 ? "export const v10 = 20;" : l));
+    await writeFile(join(f.dir, TARGET), `${lines.join("\n")}\n`);
+    // Amend keeps the author time from before the review; only the committer
+    // time moves past it.
+    const proc = Bun.spawn(["git", "commit", "-q", "--amend", "-a", "--no-edit"], {
+      cwd: f.dir,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, GIT_COMMITTER_DATE: FIXED },
+    });
+    await proc.exited;
+
+    const { card } = await f.card();
+
+    expect(card.review).toBeNull();
+  }),
+);
+
+test(
+  "the baseline is the newest commit before the review, not the oldest",
+  withFixture(async (f) => {
+    // Changed before the review, so the review read it as it now stands.
+    await editLine(f, 50, "2026-09-01T11:15:00Z");
+    await f.report(`**T-U1** — x\n**Issue:** \`${TARGET}:50\` has no test.\n`, REPORT_WRITTEN);
+    await editLine(f, 70, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.located).toBe(1);
+    expect(card.review?.acted_on).toBe(0);
+  }),
+);
+
+test(
+  "a control line that changed is counted against the finding",
+  withFixture(async (f) => {
+    await f.report(REPORT, REPORT_WRITTEN);
+    // Line 45 is the control for line 10.
+    await editLine(f, [10, 45], FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on_paired).toBe(1);
+    expect(card.review?.control_changed).toBe(1);
+  }),
+);
+
+test(
+  "near the end of a file the control is the line 35 before",
+  withFixture(async (f) => {
+    await f.report(`**T-U1** — x\n**Issue:** \`${TARGET}:70\` has no test.\n`, REPORT_WRITTEN);
+    await editLine(f, 35, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.paired).toBe(1);
+    expect(card.review?.acted_on).toBe(0);
+    expect(card.review?.control_changed).toBe(1);
+  }),
+);
+
+test(
+  "a change 3 lines from the cited line counts",
+  withFixture(async (f) => {
+    await f.report(REPORT, REPORT_WRITTEN);
+    await editLine(f, 13, FIXED);
+    expect((await f.card()).card.review?.acted_on).toBe(1);
+  }),
+);
+
+test(
+  "a change 4 lines from the cited line does not count",
+  withFixture(async (f) => {
+    await f.report(REPORT, REPORT_WRITTEN);
+    await editLine(f, 14, FIXED);
+    expect((await f.card()).card.review?.acted_on).toBe(0);
+  }),
+);
+
+test(
+  "a later run keeps the recorded counts over a rewritten report unless told to read it",
+  withFixture(async (f) => {
+    await f.report(REPORT, REPORT_WRITTEN);
+    await editLine(f, 10, FIXED);
+    expect((await f.card()).card.review?.acted_on).toBe(1);
+
+    await f.report(`**T-U1** — x\n**Issue:** \`${TARGET}:60\` has no test.\n`, REPORT_WRITTEN);
+    expect((await f.card()).card.review?.acted_on).toBe(1);
+
+    const named = await f.card({ extra: ["--review-reports", "TEST-REVIEW.md"] });
+    expect(named.card.review?.acted_on).toBe(0);
+  }),
+);
+
+test(
+  "an absolute path is matched after a URL, and a line past the end is not located",
+  withFixture(async (f) => {
+    const root = await f.git(["rev-parse", "--show-toplevel"]);
+    await f.report(
+      [
+        "**T-U1** — x",
+        `**Issue:** see https://id.musubi.localhost:443 then \`${root}/${TARGET}:10\`.`,
+        "",
+        "**T-U2** — y",
+        `**Issue:** \`${TARGET}:500\` is past the end.`,
+        "",
+      ].join("\n"),
+      REPORT_WRITTEN,
+    );
+    await editLine(f, 10, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.findings).toBe(2);
+    expect(card.review?.located).toBe(1);
+    expect(card.review?.acted_on).toBe(1);
+  }),
 );

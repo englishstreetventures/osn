@@ -1329,7 +1329,7 @@ export function renderDetails(card: Card, file = `${branchSlug(card.pr.branch)}.
     const calls = interaction.requests;
     rows.push([
       "Model calls",
-      `${calls.main + calls.subagent} · ${share(calls.with_one_tool, calls.with_tools)} of those using tools used one · median context ${compactTokens(calls.context_median)}`,
+      `${calls.main + calls.subagent} · ${calls.with_tools > 0 ? share(calls.with_one_tool, calls.with_tools) : "—"} of those using tools used one · median context ${compactTokens(calls.context_median)}`,
     ]);
   }
 
@@ -2244,15 +2244,15 @@ export function summariseReviews(
   const commits = gitStatus(root, [
     "log",
     "--first-parent",
-    "--format=%H %at",
+    "--format=%H %at %ct",
     `${forkPoint.out.trim()}..HEAD`,
   ])
     .out.split("\n")
     .filter(Boolean)
     .map((line) => {
-      const [sha, at] = line.split(" ");
+      const [sha, at, ct] = line.split(" ");
 
-      return { sha, at: Number.parseInt(at, 10) };
+      return { sha, at: Number.parseInt(at, 10), ct: Number.parseInt(ct, 10) };
     });
 
   const lengths = new Map<string, number | null>();
@@ -2310,6 +2310,11 @@ export function summariseReviews(
 
     const baseline = commits.find((commit) => commit.at <= written);
     if (baseline === undefined) continue;
+    // The newest commit, written before the review but committed after it:
+    // the reviewed commit was amended or squashed, and any fix went into it.
+    // Nothing after it is left to diff, so the report cannot be read — a zero
+    // here would claim the fixes did not happen.
+    if (baseline === commits[0] && baseline.ct > written) continue;
 
     summary.reports += 1;
 

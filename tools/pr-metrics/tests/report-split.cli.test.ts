@@ -15,8 +15,8 @@ import type { Card } from "../index";
 
 interface Shape {
   number: number;
-  first: string;
-  last: string;
+  first: string | null;
+  last: string | null;
   merged?: string | null;
   requests?: boolean;
   review?: boolean;
@@ -39,8 +39,8 @@ function card(shape: Shape): Card {
       branch: `feat/x-${shape.number}`,
       base_sha: null,
       head_sha: null,
-      generated_at: shape.last,
-      merged_at: shape.merged === undefined ? shape.last : shape.merged,
+      generated_at: shape.last ?? "2026-09-01T00:00:00Z",
+      merged_at: shape.merged === undefined ? (shape.last ?? "2026-09-01T00:00:00Z") : shape.merged,
       phase: "at-open",
     },
     issue: { number: null, type: null, labels: [] },
@@ -142,7 +142,19 @@ async function withRepo(
     await git(["config", "commit.gpgsign", "false"]);
     await writeFile(join(repo, "skill.md"), "v1\n");
     await git(["add", "."]);
-    await git(["commit", "-qm", "the change under test"], SPLIT_AT);
+    // Authored long before it landed: the split must go by when it reached the
+    // branch (committer time), or every card here would read as "after".
+    const landed = Bun.spawn(["git", "commit", "-qm", "the change under test"], {
+      cwd: repo,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_DATE: "2026-08-01T00:00:00Z",
+        GIT_COMMITTER_DATE: SPLIT_AT,
+      },
+    });
+    await landed.exited;
     const sha = await git(["rev-parse", "HEAD"]);
 
     await Bun.write(join(dir, ".keep"), "");
@@ -202,7 +214,8 @@ test("the requests and review tables read old and new cards together", async () 
 
     const tables = (JSON.parse(stdout) as { tables: Tables }).tables;
 
-    expect(tables.requests?.rows.map((r) => r[1])).toEqual(["2"]);
+    // 50 calls, 30 of 40 tool calls single, median context 50,000.
+    expect(tables.requests?.rows).toEqual([["2026-09", "2", "50", "75%", "50.0K"]]);
     expect(tables.requests?.note).toContain("1 card(s) excluded");
     expect(tables.review?.rows[0]).toEqual(["2", "6", "4", "100%", "0%"]);
     expect(tables.review?.note).toContain("1 card(s) excluded");
@@ -232,6 +245,8 @@ test("--split-at groups cards by when their sessions ran against the commit's ti
     }),
     // Sessions on both sides of the commit: cannot be placed.
     card({ number: 4, first: "2026-09-10T10:00:00Z", last: "2026-09-10T14:00:00Z" }),
+    // No session times recorded: cannot be placed either.
+    card({ number: 5, first: null, last: null }),
   ];
 
   await withRepo(cards, async (repo, dir, sha) => {
@@ -247,11 +262,13 @@ test("--split-at groups cards by when their sessions ran against the commit's ti
 
     const split = (JSON.parse(stdout) as { tables: Tables }).tables["split-at"];
 
-    expect(split?.rows.map((r) => [r[0], r[1]])).toEqual([
-      ["before", "2"],
-      ["after", "1"],
+    // Cost per point is the median of $10/2 and $20/2; cache-write tokens are
+    // 1,000 of 10,000.
+    expect(split?.rows).toEqual([
+      ["before", "2", "2", "$7.50", "50", "10%", "—", "—"],
+      ["after", "1", "1", "$15.00", "50", "10%", "—", "—"],
     ]);
-    expect(split?.note).toContain("1 card(s) excluded");
+    expect(split?.note).toContain("2 card(s) excluded");
   });
 });
 

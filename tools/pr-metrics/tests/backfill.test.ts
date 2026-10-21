@@ -765,6 +765,34 @@ test("a second backfill over unchanged inputs rewrites nothing", async () => {
   }
 });
 
+// The review counts come from report files that are gone by merge time, so a
+// backfill that rebuilt the card without them would erase the only record.
+test("a backfill keeps the review counts the card on disk already holds", async () => {
+  const f = await fixture({ withTranscript: true });
+  try {
+    expect((await runBackfill(f)).exitCode).toBe(0);
+
+    const cardPath = join(f.dir, "cards", `${SLUG}.json`);
+    const review = {
+      reports: 1,
+      findings: 3,
+      located: 2,
+      acted_on: 2,
+      paired: 1,
+      acted_on_paired: 1,
+      control_changed: 0,
+    };
+    const card = JSON.parse(await readFile(cardPath, "utf8"));
+    await writeFile(cardPath, JSON.stringify({ ...card, review }));
+
+    expect((await runBackfill(f)).exitCode).toBe(0);
+
+    expect(JSON.parse(await readFile(cardPath, "utf8")).review).toEqual(review);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
 // --- one branch name, several merged pull requests ---------------------------
 
 const LATER_PR = 5000;

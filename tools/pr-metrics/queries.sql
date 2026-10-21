@@ -13,8 +13,13 @@
 --
 -- Full schema and the reasoning behind it: wiki/conventions/session-metrics.md
 
+-- `map_inference_threshold` reads an object with more than 20 distinct keys
+-- across the cards as a MAP rather than a STRUCT. `tool_calls` is one: a card
+-- can name both `Bash` and `bash`, and struct fields are case-insensitive, so
+-- inferring a struct fails on a duplicate name.
 CREATE OR REPLACE VIEW cards AS
-  SELECT * FROM read_json_auto('.claude/metrics/*.json', union_by_name := true);
+  SELECT * FROM read_json_auto('.claude/metrics/*.json', union_by_name := true,
+                               map_inference_threshold := 20);
 
 -- Merged pull requests. Filtered on merge status, deliberately NOT on
 -- `phase = 'at-merge'`: a remote session's container is destroyed when it ends,
