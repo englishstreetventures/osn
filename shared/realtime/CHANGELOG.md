@@ -1,5 +1,28 @@
 # @shared/realtime
 
+## 0.2.0
+
+### Minor Changes
+
+- 40fd895: `onFallback` now receives why the subscription gave up: `refused` (the hub closed
+  the socket with 1008, which includes a revoked member) or `exhausted` (every
+  attempt failed); `FALLBACK_OUTCOMES` and `isFallbackOutcome` name them.
+  `sendFallbackBeacon` (`@shared/realtime/client`) posts that outcome to a
+  product's API. On the server, `readFallbackOutcome` reads a beacon body of at
+  most `MAX_FALLBACK_BEACON_BYTES`, and `recordClientFallback` counts the outcome
+  as `realtime.client.fallbacks` by product and outcome and logs a warning.
+  `subscribe()`'s doc now says the route must sit behind the product's per-IP
+  limit.
+- 40fd895: `publish()` tries the hub again when a call that revokes members fails: after
+  each pause in the new `REVOKE_RETRY_DELAYS_MS` (250 ms, then 750 ms), inside the
+  same effect, so inside the caller's `waitUntil`. When every try fails it logs
+  `realtime revoke failed` instead of `realtime publish failed`. A publish that
+  revokes nobody still tries once. `PublishOptions.revokeRetryDelaysMs` overrides
+  the pauses.
+- 40fd895: A second signal kind, `tasks-changed`, beside `members-changed`: an entity's
+  tasks, or who holds them, changed. A client built before it drops a frame
+  carrying it, as it drops any kind it does not know.
+
 ## 0.1.2
 
 ### Patch Changes
