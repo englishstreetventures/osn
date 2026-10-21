@@ -161,30 +161,94 @@ nothing ([[realtime]]).
 
 ## In the portal
 
+`RunSheetView.tsx` is the Run sheet module and the whole of a helper's seat;
+`RunTimeEditor.tsx` sets a task's time from its checklist row. How both look,
+and why, is `cire/host/DESIGN.md` §7; where they sit in the layout is
+[[cire-host-portal-layout#Layout switches worth knowing]].
+
+### Where it opens
+
 - **Module.** "Run sheet", after the Checklist, locked below Gold
   (`module-nav.ts`); `ModuleShell` mounts `RunSheetView`.
 - **A helper's seat.** `RunSheetSeat` in `OrganiserApp.tsx` mounts the same
-  view, inside the wedding's cache scope, so its rows go with the seat. Below
-  Gold it says the run sheet is not available and sends no request. Below Gold
-  the co-host panel offers the role as "Helper (needs Gold)".
-- **Cache.** `run-sheet-store.ts` is a reread cache (`reread-cache.ts`) on the
-  checklist's write tracker (`task-writes.ts`): a read across one of the tab's
-  own task writes is dropped and sent again, and a run sheet cached before one
-  reads again the next time it opens, push or no push. Every listening tab
-  marks it stale on `tasks-changed`, `members-changed` and a reconnect; a
-  mounted view reads again on both signals. A tab that applied or reverted a
-  schedule change drops the checklist and the run sheet (`scheduleChanged`).
-  See [[cire-host-portal-layout]].
-- **Coming up and you.** A task is "coming up" from 30 minutes before it starts
-  until it starts; done tasks never are. Decided in the browser against its own
-  clock (`isComingUp`, `nextComingUpChange` in `cire/host/src/lib/run-sheet.ts`),
-  again on a timer at the next change and on tab wake. The reader's own tasks
-  are marked "You" (`isOwnTask`).
-- **Setting a time.** On the checklist row, for owners and editors:
-  `RunTimeEditor`, saving through `saveTaskRunTime`
-  (`cire/host/src/lib/run-time-write.ts`) inside one of the portal's own task
-  writes. A 200 whose task carries no time is an API older than run times, and
-  reads as not saved.
+  view under the panel header the shell gives every module, inside the
+  wedding's cache scope, so its rows go with the seat. Below Gold the co-host
+  panel offers the role as "Helper (needs Gold)".
+
+### What the run sheet shows
+
+- **The day, on its own clocks.** Rows come in the API's order, by instant,
+  grouped under the local date each falls on in its own zone: an event's
+  `timezone`, a task's `runTimezone` (its event's, when linked). Times are
+  formatted there with `Intl` (`lib/run-sheet-display.ts`), never in the
+  browser's zone. A day in one zone names it once beside its heading ("Times in
+  AEST"); a day that mixes zones puts the zone under every time. Untimed tasks
+  come last, under "Any time on the day".
+- **Events** show their name, start and end ("to 12:30 am Sun" past
+  midnight), venue name and address.
+- **Tasks** show their time, title, notes and holders (the read-only avatar
+  stack, the reader first). A linked task says where it sits against its
+  event: "30 min before Ceremony", "At the start of Ceremony", "3 hr 30 min
+  after Reception".
+- **Flags**, each a word and a glyph: "You" on the reader's tasks
+  (`isOwnTask`; also `data-own` and a bar at the row's start), "Coming up"
+  (`data-coming-up`), "Done" (struck through, left in its slot) and "Event
+  removed".
+- **Coming up** runs from 30 minutes before a task until it starts; done tasks
+  never are. Decided in the browser against its own clock (`isComingUp`,
+  `nextComingUpChange` in `cire/host/src/lib/run-sheet.ts`): a timer is set for
+  the next change and re-armed when it fires, and the clock is read again when
+  the tab becomes visible. Neither sends a request.
+- **Owners and editors** get "Change times on the checklist", which opens the
+  Checklist. The run sheet itself is read-only for every role.
+- **An `own` helper** sees "Your tasks for the day" above their rows.
+
+| State | What it shows | Request |
+|---|---|---|
+| Below Gold | "The run sheet isn't available for this wedding." — no plan named | none |
+| 402 | the same line | the one refused |
+| 401 | sends the reader to sign in | — |
+| 403, 404, any failure | "Couldn't load the run sheet." with Try again | — |
+| Loading | `PanelLoading` | — |
+| Empty, `full` | "Nothing is timed for the day yet.", and for an owner or editor "Set times on the checklist" | — |
+| Empty, `own` | "Nothing on the run sheet is yours yet." | — |
+
+### Live refresh
+
+`run-sheet-store.ts` is a reread cache (`reread-cache.ts`) on the checklist's
+write tracker (`task-writes.ts`): a read across one of the tab's own task
+writes is dropped and sent again, and a run sheet cached before one reads
+again the next time it opens, push or no push. Every listening tab marks it
+stale on `tasks-changed`, `members-changed` and a reconnect; a mounted view
+reads again on both signals. A tab that applied or reverted a schedule change
+drops the checklist and the run sheet (`scheduleChanged`). See
+[[cire-host-portal-layout]].
+
+### Setting a time on the checklist
+
+Each checklist row shows its task's time, on the task's own clock, with the
+zone when that is not the reader's. For an owner or editor it is the
+`RunTimeEditor` trigger — an empty dotted slot with a clock when the task has
+no time — and opens a popover:
+
+- **Event**: "No event — a fixed time", or one of the wedding's events (read
+  the first time a popover opens on the page, through `ensureEventsLoaded`).
+- **Linked**: "Before or after the start" (minutes up to 1440, before or
+  after; sent as `offset`) or "At a clock time" (a date and time on the
+  event's clock; sent as `clock`, which the API turns into an offset). No zone
+  is asked for.
+- **Unlinked**: a date, a time and a zone (sent as `fixed`); the zone defaults
+  to the one every event shares, else the browser's.
+- **Clear time**, only when the task has one (sent as `null`).
+
+It saves through `saveTaskRunTime` (`cire/host/src/lib/run-time-write.ts`)
+inside one of the portal's own task writes, closes, and puts the focus back on
+the trigger; the row is kept (`ChecklistView`'s row memo reads the run-time
+fields live). A 200 whose task carries no time is an API older than run times,
+and reads "This time wasn't saved — reload and try again."; a 422 reads "That
+event is gone — pick another." or "Pick a time within a day of the event.";
+anything else "Couldn't save the time."; a 401 sends the organiser to sign in.
+Anyone else sees the time as text, and nothing on an untimed task.
 
 ## Observability
 
@@ -227,5 +291,11 @@ titles and notes are sensitive).
   `run-time-write.test.ts`; `tasks-store.test.ts`, unedited across the move
   into `reread-cache.ts`.
 - `cire/host/tests/components/RunSheetView.test.tsx` and
-  `RunTimeEditor.test.tsx` — the screens' contract, skipped until the designed
-  screens replace the placeholders.
+  `RunTimeEditor.test.tsx` — the screens' contract: the states and their copy,
+  grouping by each row's zone, the flags, the timer and tab wake, the re-reads,
+  and every kind of write the editor sends.
+- `cire/host/tests/components/RunSheetView.browser.test.tsx` and
+  `RunTimeEditor.browser.test.tsx` — painted in Chromium at 390 and 1280px in
+  both ramps: markers on the thread, the holders' column, every word at
+  4.5:1, the popover inside the screen, Tab kept inside it, the focus back on
+  the trigger after a keyboard save ([[browser-tests]]).

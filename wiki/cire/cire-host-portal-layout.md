@@ -134,6 +134,7 @@ That guard is the one CSS-layer risk here that *is* mechanically checkable.
 | `builder` | the invite-builder card | form-only vs form + preview pane |
 | `card` | an event card | the card's own details grid |
 | `enquiries` | the enquiries view | inbox-or-thread vs inbox-and-thread |
+| `run-sheet` | a loaded run sheet (`RunSheetView`) | the time column's width, the holders' column |
 
 A container cannot be queried by the element that declares it — the query always
 sits on a descendant. `card` and `enquiries` are new; both exist because a
@@ -304,6 +305,18 @@ component was previously reading a container it did not live in.
     scrolled frame for a column that cannot slide.
   - Switching event keeps the box and puts it back to its top-left; it is not
     remounted.
+- **Run sheet** (`RunSheetView`) — the view declares `@container/run-sheet`
+  itself, because in a helper's seat there is no `panel` to measure. Each day's
+  rows are grids on three lengths (`--rs-pad`, `--rs-time`, `--rs-gap`, in the
+  `run-sheet-*` utilities of `global.css`), so every row's marker sits on the
+  day's thread. At 36rem the time column widens from 4.5rem to 5.5rem and a
+  task's holders move from a line under its words to a third column. The look
+  is in `cire/host/DESIGN.md` §7, the behaviour in [[cire-run-sheet#In the portal]].
+- **Checklist row** (`ChecklistView`) — the task's time on the day sits between
+  the title and the holders' stack: an empty dotted slot or a pill for an owner
+  or editor (`RunTimeEditor`), the pill as text for anyone else. The title is
+  `min-w-0` and breaks long words, so the controls keep their room on a 22rem
+  bucket.
 
 ## Organiser client caches: stale-while-revalidate
 
@@ -570,4 +583,5 @@ What that leaves testable, and where it lives:
 | Master-detail behaviour: draft-per-enquiry, no cross-thread messages, placeholder, `aria-current` cardinality, post-reply refresh | `EnquiriesView.test.tsx`, `EnquiryInbox.test.tsx` |
 | Which preview layer mounts, and that its crossover matches `@4xl/builder` | `InviteBuilder.test.tsx` — a stub `ResizeObserver` reporting a fixed content-box width; a reasonable cheap choice in the unit tier, since happy-dom runs no layout, not a workaround for a missing harness |
 | The RSVP view's event tabs (ids beside the shell's, keys, a strip of twelve), sort heads, the pinned head row at 1280 and Guest column at 390 (in flow at 1280), focus kept clear of the pinned cells, and the box fitting under the top bar | `RsvpView.events.browser.test.tsx`, real Chromium, with the real `ModuleShell` around it; screenshots in light and dark land in its gitignored `__screenshots__/` |
+| The run sheet's thread, and its `run-sheet` switch from two grid tracks to three | `RunSheetView.browser.test.tsx`, at 390 and 1280px |
 | The container queries themselves | `bun run --cwd cire/host test:browser` — a real-Chromium tier documented in `wiki/conventions/browser-tests.md`. Worked example: `cire/host/tests/components/PreviewInviteButton.browser.test.tsx`, which asserts the "Preview invite" label is clipped to `sr-only` at phone width and swaps to the written label once the `frame` container passes 42rem. |
