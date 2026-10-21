@@ -474,6 +474,12 @@ What the figure cannot say:
 - **It measures what changed, not how good a finding was.** `prep-pr` fixes
   every in-scope finding, so a weak finding is changed as surely as a strong
   one. A finding moved to a follow-up pull request reads as not acted on.
+- **A tests finding is fixed somewhere else.** It cites the untested line, and
+  its fix is a new test under `tests/`, so the cited line rarely changes. On the
+  branch that added this field, every tests finding was fixed and the card read
+  5 of 12 acted on, against a control of 3 of 12. Read `acted_on` as a measure
+  of docs findings until englishstreetventures/osn#1689 decides how a tests finding
+  is matched to its fix.
 - **Most findings are unlocated.** `review-tests` names a file and an export,
   not a line, so `located` is mostly docs findings.
 
