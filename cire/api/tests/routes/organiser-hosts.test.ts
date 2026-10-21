@@ -1935,19 +1935,23 @@ describe("seat writes publish members-changed", () => {
   function failHostDeletes(db: ReturnType<typeof createDb>) {
     const client = db.$client;
     const prepare = client.prepare.bind(client);
-    client.prepare = ((sql: string) => {
-      const statement = prepare(sql);
-      if (!sql.startsWith('delete from "wedding_hosts"')) return statement;
-      const fail = () => {
-        throw new Error("D1_ERROR: delete failed");
-      };
-      return new Proxy(statement, {
-        get: (target, key) =>
-          key === "all" || key === "values" || key === "get" || key === "run"
-            ? fail
-            : Reflect.get(target, key),
-      });
-    }) as typeof client.prepare;
+    // Drizzle's bun:sqlite session gets every statement through `client.query`.
+    Object.defineProperty(client, "query", {
+      configurable: true,
+      value: (sql: string) => {
+        const statement = prepare(sql);
+        if (!sql.startsWith('delete from "wedding_hosts"')) return statement;
+        const fail = () => {
+          throw new Error("D1_ERROR: delete failed");
+        };
+        return new Proxy(statement, {
+          get: (target, key) =>
+            key === "all" || key === "values" || key === "get" || key === "run"
+              ? fail
+              : Reflect.get(target, key),
+        });
+      },
+    });
   }
 
   const topic = `cire:wedding:${WEDDING_ID}`;

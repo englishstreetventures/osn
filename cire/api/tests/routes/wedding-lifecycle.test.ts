@@ -267,12 +267,16 @@ describe("DELETE /api/organiser/weddings/:weddingId", () => {
     // seat read selects from `wedding_hosts` alone.
     const client = db.$client;
     const prepare = client.prepare.bind(client);
-    client.prepare = ((sql: string) => {
-      if (sql.startsWith('select "osn_profile_id" from "wedding_hosts"')) {
-        throw new Error("D1_ERROR: read failed");
-      }
-      return prepare(sql);
-    }) as typeof client.prepare;
+    // Drizzle's bun:sqlite session gets every statement through `client.query`.
+    Object.defineProperty(client, "query", {
+      configurable: true,
+      value: (sql: string) => {
+        if (sql.startsWith('select "osn_profile_id" from "wedding_hosts"')) {
+          throw new Error("D1_ERROR: read failed");
+        }
+        return prepare(sql);
+      },
+    });
     expect((await del(app, CREATOR)).status).toBe(200);
     expect(weddingRow(db)!.deletedAt).not.toBeNull();
     expect(publishes).toStrictEqual([{ evict: [], revoke: [] }]);
