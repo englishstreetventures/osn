@@ -220,6 +220,19 @@ And one that is not about the viewport at all but bites the same tests: **await
 faces are self-hosted, and a line count taken against the fallback metrics is a
 different number.
 
+**This Chromium never shows a classic scrollbar.** Playwright launches headless
+Chromium with `--hide-scrollbars`, so `innerWidth` equals
+`document.documentElement.clientWidth` at every width, even on a page that
+overflows or carries `overflow-y: scroll`. A test that compares widths with and
+without a scrollbar passes whatever the code does. `scrollbar-gutter: stable`
+still reserves its 15px, so the gutter itself is measurable. A test of code that
+branches on a visible scrollbar stubs the one reading the code makes
+(`vi.stubGlobal("innerWidth", clientWidth + 15)`) and measures everything else in
+the engine, as `AnimatedModal.browser.test.tsx` does. A sideways shift on a
+desktop with classic scrollbars stays a manual check.
+
+*Measured 2026-10-21 — `AnimatedModal.browser.test.tsx` probes at 414×896 and 1280×800, Chromium 1194: `innerWidth` = `clientWidth` with a 4000px page; a `scrollbar-gutter: stable` root narrows a full-width block 1024 → 1009px*
+
 ### Chrome's accessibility tree
 
 Testing Library and the `page` locators compute accessible names in JavaScript,
