@@ -14,7 +14,7 @@ related:
   - "[[cire-consent]]"
   - "[[cire-plus-ones]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Cire Landing
@@ -283,9 +283,9 @@ Remaining **manual** steps (Cloudflare dashboard + one deploy), sequenced in
 
 Cire's longer-term plan is to compete with all-in-one suites (withjoy.com): not
 just the invitation, but the whole wedding **management platform** run from the
-organiser dashboard. Tracked, not yet built:
+organiser dashboard. The gift registry, with money gifts and named cash funds,
+is built ([[cire-registry]]). Tracked, not yet built:
 
-- **Registry** — gift registry as a first-class surface (parity with withjoy).
 - **Wedding-management platform** — budget, vendors, seating, schedule/timeline,
   guest communications — built out from the organiser portal (`host.cireweddings.com`).
 - **Marketing depth** — pricing page, real testimonials (flip `SHOW_TESTIMONIALS`

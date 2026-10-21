@@ -8,7 +8,7 @@ import {
   registrySettings,
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect, Exit } from "effect";
 
 import { createApp } from "../../src/app";
@@ -23,6 +23,7 @@ import type {
 } from "../../src/services/invite-image-transform";
 import { registryGuestService } from "../../src/services/registry";
 import type { HouseholdRegistryDto, PublicRegistryDto } from "../../src/services/registry";
+import { StripeError, type StripeClient } from "../../src/services/stripe";
 import type { Tier } from "../../src/services/tiers";
 import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
@@ -41,6 +42,33 @@ const PAN = "reg_pan";
 const BOWL = "reg_bowl";
 const OTHER_ITEM = "reg_other_pan";
 const PAN_IMAGE = "registry-pan";
+
+/** A cash fund on the bootstrap wedding, and what it must never tell a guest. */
+const FUND = "reg_fund";
+const FUND_TITLE = "Honeymoon in Kyoto";
+const FUND_IMAGE = "registry-fund";
+/** The couple's target: a planning number for them, never sent to a guest. */
+const FUND_TARGET = 987_654;
+
+/**
+ * A Stripe client that is configured and never called. Its presence is what a
+ * deployment with a Stripe key looks like to `createApp`: the contribute route
+ * is mounted, so the guest list may offer money.
+ */
+const configuredStripe: StripeClient = {
+  createAccount: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  createAccountLink: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  retrieveAccount: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  createCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  retrieveCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  createPlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  retrievePlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  expirePlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  retrievePrice: () => Effect.fail(new StripeError({ reason: "not used here" })),
+};
+
+/** Settings under which the couple are taking money, as far as they and Stripe go. */
+const TAKING_MONEY = { cashGiftsEnabled: true, stripeChargesEnabled: true } as const;
 
 /** The claim another household already holds — the identity that must never leak. */
 const FOREIGN_NOTE = "Bought it in the Boxing Day sale";
@@ -130,6 +158,11 @@ function buildApp(
     /** The currency Stripe settles the account in; the wedding prices in AUD. */
     stripeDefaultCurrency?: string | null;
     images?: ImagesBindingLike;
+    /**
+     * The deployment's Stripe client. `null` is a deployment with no Stripe
+     * key, where the contribute route is not mounted at all.
+     */
+    stripe?: StripeClient | null;
   } = {},
 ) {
   const {
@@ -142,6 +175,7 @@ function buildApp(
     stripeChargesEnabled = false,
     stripeDefaultCurrency = "AUD",
     images,
+    stripe = configuredStripe,
   } = opts;
   const db = createDb(":memory:");
   seedDb(db);
@@ -235,6 +269,18 @@ function buildApp(
         createdAt: now,
         updatedAt: now,
       },
+      {
+        id: FUND,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        kind: "cash_fund",
+        title: FUND_TITLE,
+        description: "Trains, temples and a very good dinner.",
+        imageKey: `assets/${BOOTSTRAP_WEDDING_ID}/${FUND_IMAGE}`,
+        targetMinor: FUND_TARGET,
+        sortOrder: 2,
+        createdAt: now,
+        updatedAt: now,
+      },
     ])
     .run();
 
@@ -264,6 +310,7 @@ function buildApp(
   const app = createApp(db, {
     assets,
     images,
+    stripe,
     // Fresh limiters per app: the module-level defaults are process-wide, so
     // without these the 21st guest write in this file would 429 whichever test
     // happened to run last (and `/api/claim`'s budget is only 5/min).
@@ -430,6 +477,16 @@ describe("the guest registry is one 404, whatever the reason", () => {
 });
 
 describe("GET /api/invite/:slug/registry (sessionAuth)", () => {
+  it("answers a failed read with a plain 500, never a partial list", async () => {
+    const { app, db } = buildApp(TAKING_MONEY);
+    const cookie = await guestCookie(app);
+    // The items read fails after the gate passes: a defect, not a refusal.
+    db.run(sql`DROP TABLE registry_claims`);
+    const res = await appRequest(app, guestBase(), { headers: { Cookie: cookie } });
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+  });
+
   it("opens on Crimson as on Gold: a tier above Gold includes the registry", async () => {
     // The guest gate ranks the tier rather than matching one value, so the
     // top tier's couples publish a list their guests can read and claim from.
@@ -514,8 +571,110 @@ describe("GET /api/invite/:slug/registry (sessionAuth)", () => {
     }
     const body = JSON.parse(raw) as Record<string, unknown>;
     expect(Object.keys(body).toSorted()).toEqual(
-      ["cashGiftsEnabled", "currency", "headline", "items", "message"].toSorted(),
+      ["cashGiftsEnabled", "currency", "funds", "headline", "items", "message"].toSorted(),
     );
+  });
+});
+
+describe("cash funds, as a guest sees them", () => {
+  it("lists a fund apart from the gifts, with its name, picture and words and nothing else", async () => {
+    const { app } = buildApp(TAKING_MONEY);
+    const res = await appRequest(app, guestBase(), {
+      headers: { Cookie: await guestCookie(app) },
+    });
+    const raw = await res.text();
+    const body = JSON.parse(raw) as PublicRegistryDto;
+
+    // A fund is not something to reserve, so it is not on the shelves.
+    expect(body.items.map((i) => i.id)).toEqual([BOWL, PAN]);
+    expect(body.funds).toHaveLength(1);
+    const [fund] = body.funds;
+    // Exhaustive key set: the couple's target, a price, a count or a total
+    // added to the DTO later fails here before it reaches a guest.
+    expect(Object.keys(fund ?? {}).toSorted()).toEqual(
+      ["description", "id", "imageCrop", "imageName", "sortOrder", "title"].toSorted(),
+    );
+    expect(fund?.id).toBe(FUND);
+    expect(fund?.title).toBe(FUND_TITLE);
+    expect(fund?.imageName).toBe(FUND_IMAGE);
+    // The target is the couple's planning number, in no field and no form.
+    expect(raw).not.toContain(String(FUND_TARGET));
+  });
+
+  // Each row is a reason the couple cannot take money today. A fund offered
+  // then is a choice whose every press ends in a refusal.
+  const notTakingMoney = [
+    ["the couple never turned money gifts on", { stripeChargesEnabled: true }],
+    ["Stripe cannot take a charge", { cashGiftsEnabled: true }],
+    ["the account settles in another currency", { ...TAKING_MONEY, stripeDefaultCurrency: "USD" }],
+    ["the deployment has no Stripe key", { ...TAKING_MONEY, stripe: null }],
+  ] as const;
+
+  for (const [label, opts] of notTakingMoney) {
+    it(`offers no fund when ${label}`, async () => {
+      const { app } = buildApp(opts);
+      const res = await appRequest(app, guestBase(), {
+        headers: { Cookie: await guestCookie(app) },
+      });
+      const raw = await res.text();
+      const body = JSON.parse(raw) as PublicRegistryDto;
+      expect(body.cashGiftsEnabled).toBe(false);
+      expect(body.funds).toEqual([]);
+      expect(raw).not.toContain(FUND_TITLE);
+      // The gifts are still there: only money is off.
+      expect(body.items.map((i) => i.id)).toEqual([BOWL, PAN]);
+    });
+  }
+
+  it("cannot be reserved: a fund answers as no gift at all, and nothing is written", async () => {
+    const { app, db } = buildApp(TAKING_MONEY);
+    const cookie = await guestCookie(app);
+    const before = db.select().from(registryClaims).all();
+
+    const res = await claim(app, cookie, { quantity: 1 }, SLUG, FUND);
+
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "registry_item_not_found" });
+    expect(db.select().from(registryClaims).all()).toEqual(before);
+  });
+
+  it("serves a fund's picture only while the fund is offered", async () => {
+    const store = (assets: ReturnType<typeof buildApp>["assets"]) =>
+      assets._store.set(`assets/${BOOTSTRAP_WEDDING_ID}/${FUND_IMAGE}`, {
+        bytes: PNG.buffer.slice(0) as ArrayBuffer,
+        contentType: "image/png",
+      });
+    const path = `${guestBase()}/image/${FUND_IMAGE}`;
+
+    const open = buildApp(TAKING_MONEY);
+    store(open.assets);
+    expect((await appRequest(open.app, path)).status).toBe(200);
+
+    // Turning money off withdraws the fund, and its picture with it, as
+    // deleting it would.
+    for (const opts of [{ stripeChargesEnabled: true }, { ...TAKING_MONEY, stripe: null }]) {
+      const closed = buildApp(opts);
+      store(closed.assets);
+      const res = await appRequest(closed.app, path);
+      expect(res.status).toBe(404);
+      expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
+    }
+  });
+
+  it("keeps serving a gift's picture that a hidden fund shares", async () => {
+    // A product and a fund can name one R2 object (the couple reused a
+    // picture). The gift is still on the list, so its picture must still load.
+    const { app, assets, db } = buildApp();
+    db.update(registryItems)
+      .set({ imageKey: `assets/${BOOTSTRAP_WEDDING_ID}/${PAN_IMAGE}` })
+      .where(eq(registryItems.id, FUND))
+      .run();
+    assets._store.set(`assets/${BOOTSTRAP_WEDDING_ID}/${PAN_IMAGE}`, {
+      bytes: PNG.buffer.slice(0) as ArrayBuffer,
+      contentType: "image/png",
+    });
+
+    expect((await appRequest(app, `${guestBase()}/image/${PAN_IMAGE}`)).status).toBe(200);
   });
 });
 

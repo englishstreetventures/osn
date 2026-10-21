@@ -988,13 +988,17 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // 404 `registry_not_found`, not 402, because no caller — anonymous, or
       // holding a cookie for some other wedding — may learn which weddings
       // have bought which tier.
-      .use(createRegistryGuestImageRoutes(db, { assets, images }))
-      .use(createRegistryGuestListRoutes(db))
+      //
+      // `takesPayments` is the contribute route's own mount condition below:
+      // the list offers money and cash funds, and a fund's picture serves,
+      // only where a guest's press can reach a payment page.
+      .use(createRegistryGuestImageRoutes(db, { assets, images, takesPayments: stripe !== null }))
+      .use(createRegistryGuestListRoutes(db, { takesPayments: stripe !== null }))
       .use(createRegistryGuestMineRoutes(db))
       .use(createRegistryGuestClaimRoutes(db, { limiter: registryGuestLimiter }))
       // Giving money. Mounted only with Stripe configured — a guest must never
-      // be offered a button that cannot lead anywhere. Its own limiter, tighter
-      // than the claim one: every call is an outbound Stripe request.
+      // be offered a button that cannot lead anywhere. Its own limiter, apart
+      // from the claim one: every call is an outbound Stripe request.
       .use(
         stripe
           ? createRegistryContributeRoutes(db, {

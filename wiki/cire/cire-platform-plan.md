@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[monorepo-structure]]"
   - "[[cire-guest-event-editor]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 # Platform Plan — from digital invite to wedding management platform
 
@@ -41,7 +41,8 @@ Wedding (profile: date, location, guest estimate, currency, budget)
 ├── Checklist   — planning tasks by lead time + day-of         (consumer of profile + Schedule)
 ├── Seating     — tables + assignments per event               (consumer of Guests + RSVPs)
 ├── Comms       — save-the-dates, reminders, RSVP chasing      (consumer of Guests; needs email)
-└── Registry / wishing well / photos                            (later; see [[decisions/deferred-decisions]])
+├── Registry    — gift list, money gifts, named cash funds      (built; see [[cire-registry]])
+└── Photos                                                     (later; see [[decisions/deferred-decisions]])
 ```
 
 Modules consume each other through services, never by reaching into another module's tables from a route. Route factories stay one-per-module (existing convention), services stay `Effect.Effect<A, E>` with tagged errors, D1 via Drizzle only.
@@ -204,7 +205,8 @@ Context-aware estimates from the wedding profile: guest count, date (season + we
 
 - **Seating**: `seating_tables` (id, wedding_id, event_id FK, name, capacity, sort_order) + `seating_assignments` (table_id, guest_id, PK pair; guest unique per event). Reads Guests + live RSVP status (badge declined/no-response guests). Drag-drop SolidJS island; CSV/print export for the venue.
 - **Guest comms**: save-the-dates, "the invite is live", RSVP-chaser emails via `@shared/email` (Resend). Two prerequisites: **guest/household email columns don't exist** (new PII → consent at collection, data-map/retention/DPIA delta, §10) and **prod email is currently degraded** (`OSN_EMAIL_OPTIONAL=true`, root TODO "Re-enable email later"). Build behind the same key-optional/fail-soft pattern as Turnstile/Maps. Comms log table for auditability; unsubscribe/suppression from day one.
-- **Registry / wishing well / guest photos / Wallet passes**: remain in [[decisions/deferred-decisions]]; registry is the first candidate after Phase 2 (root TODO "withjoy parity"). Payments (wishing well) deliberately out of scope until the platform core is proven.
+- **Registry and money gifts**: built — the gift list, money gifts through Stripe Connect and named cash funds ([[cire-registry]]).
+- **Guest photos / Wallet passes**: remain in [[decisions/deferred-decisions]].
 
 ## 8. Cross-cutting
 

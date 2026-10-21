@@ -1114,6 +1114,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         id: "rcon_d1",
         weddingId: BOOTSTRAP_WEDDING_ID,
         itemId: "ritem_d1",
+        itemTitle: "Copper Pan",
         familyId: FAMILY_ID,
         status: "succeeded",
         displayName: "Uncle Jo",
@@ -1199,7 +1200,9 @@ describe("cire/api over real D1 (Miniflare)", () => {
         updatedAt: now,
       });
       expect(await run(registryGuestService.visibleWeddingId("w"))).toBe(BOOTSTRAP_WEDDING_ID);
-      const view = await run(registryGuestService.guestView({ slug: "w", familyId: FAMILY_ID }));
+      const view = await run(
+        registryGuestService.guestView({ slug: "w", familyId: FAMILY_ID, takesPayments: true }),
+      );
       expect(view.headline).toBe("Gifts");
       expect(view.cashGiftsEnabled).toBe(false);
 
@@ -1211,12 +1214,113 @@ describe("cire/api over real D1 (Miniflare)", () => {
         createdAt: now,
         updatedAt: now,
       });
-      expect(await run(registryGuestService.visibleImageKey("w", "registry-d1"))).toBe(
+      expect(await run(registryGuestService.visibleImageKey("w", "registry-d1", false))).toBe(
         `assets/${BOOTSTRAP_WEDDING_ID}/registry-d1`,
       );
       expect(
-        Exit.isFailure(await visible(registryGuestService.visibleImageKey("w", "registry-gone"))),
+        Exit.isFailure(
+          await visible(registryGuestService.visibleImageKey("w", "registry-gone", false)),
+        ),
       ).toBe(true);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "guest registry: a cash fund is offered, given to and never reserved, on D1",
+    async () => {
+      // The gate's fund-title and image-kind subqueries, and the claim's kind
+      // predicate, run through the D1 driver here, not only bun:sqlite.
+      const now = new Date();
+      const tag = async <A, E extends { _tag: string }>(
+        eff: Effect.Effect<A, E, DbService>,
+      ): Promise<string> => (await run(Effect.flip(eff)))._tag;
+      await db.update(weddings).set({ tier: "gold" }).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+      await db.insert(registrySettings).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        published: true,
+        cashGiftsEnabled: true,
+        stripeAccountId: "acct_d1",
+        stripeChargesEnabled: true,
+        stripeDefaultCurrency: "AUD",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(registryItems).values([
+        {
+          id: "ritem_d1_pan",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title: "Copper Pan",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "ritem_d1_fund",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          kind: "cash_fund",
+          title: "Honeymoon",
+          imageKey: `assets/${BOOTSTRAP_WEDDING_ID}/registry-d1-fund`,
+          targetMinor: 500_000,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      const view = await run(
+        registryGuestService.guestView({ slug: "w", familyId: FAMILY_ID, takesPayments: true }),
+      );
+      expect(view.items.map((i) => i.id)).toEqual(["ritem_d1_pan"]);
+      expect(view.funds.map((f) => f.id)).toEqual(["ritem_d1_fund"]);
+      expect(
+        (
+          await run(
+            registryGuestService.guestView({
+              slug: "w",
+              familyId: FAMILY_ID,
+              takesPayments: false,
+            }),
+          )
+        ).funds,
+      ).toEqual([]);
+
+      const context = await run(
+        registryService.contributionContext({
+          slug: "w",
+          familyId: FAMILY_ID,
+          itemId: "ritem_d1_fund",
+        }),
+      );
+      expect(context.itemTitle).toBe("Honeymoon");
+      expect(
+        await tag(
+          registryService.contributionContext({
+            slug: "w",
+            familyId: FAMILY_ID,
+            itemId: "ritem_d1_pan",
+          }),
+        ),
+      ).toBe("FundUnavailable");
+
+      expect(
+        await tag(
+          registryService.claim({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            itemId: "ritem_d1_fund",
+            familyId: FAMILY_ID,
+            quantity: 1,
+            status: "reserved",
+            note: null,
+            displayName: null,
+          }),
+        ),
+      ).toBe("RegistryItemNotInWedding");
+
+      expect(await run(registryGuestService.visibleImageKey("w", "registry-d1-fund", true))).toBe(
+        `assets/${BOOTSTRAP_WEDDING_ID}/registry-d1-fund`,
+      );
+      expect(await tag(registryGuestService.visibleImageKey("w", "registry-d1-fund", false))).toBe(
+        "RegistryNotVisible",
+      );
     },
     MF_TIMEOUT_MS,
   );
@@ -1304,7 +1408,11 @@ describe("cire/api over real D1 (Miniflare)", () => {
 
       // Reads stay open, and the household read says it is a preview.
       expect(
-        (await run(registryGuestService.guestView({ slug: "w", familyId: HOST }))).items,
+        (
+          await run(
+            registryGuestService.guestView({ slug: "w", familyId: HOST, takesPayments: true }),
+          )
+        ).items,
       ).toHaveLength(2);
       expect(await run(registryGuestService.householdView({ slug: "w", familyId: HOST }))).toEqual({
         claims: [
@@ -1346,7 +1454,13 @@ describe("cire/api over real D1 (Miniflare)", () => {
           (await run(registryGuestService.householdView({ slug: "w", familyId: FAMILY_ID }))),
       ).toBe(false);
       expect(
-        await failure(registryGuestService.guestView({ slug: "w", familyId: "fam_d1_foreign" })),
+        await failure(
+          registryGuestService.guestView({
+            slug: "w",
+            familyId: "fam_d1_foreign",
+            takesPayments: true,
+          }),
+        ),
       ).toBe("RegistryNotVisible");
     },
     MF_TIMEOUT_MS,
