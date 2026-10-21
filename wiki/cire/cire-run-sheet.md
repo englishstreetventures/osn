@@ -316,6 +316,14 @@ titles and notes are sensitive).
   grouping by each row's zone, the flags, the timer and tab wake, the re-reads,
   an event's run of show ordered across midnight on its own zone and kept
   inside its band, and every kind of write the editor sends.
+- `tools/e2e/tests/flows/cire-helper-scope.flow.ts` — end to end, after the
+  scope steps and on the same sign-in: an owner's day in order on Sydney's
+  clock with the browser in UTC, "Coming up" at a held 10:05, a run of show
+  across midnight inside its band; an event moved in the Events editor and
+  its task moving with it; an event removed keeping its task and one removed
+  with it; and a helper seeing their own tasks, whose `GET …/run-sheet` holds
+  only their task, its event and that event's run of show. Screenshots in
+  `e2e-artifacts/screenshots/cire-helper-scope--*.png`.
 - `cire/host/tests/components/RunSheetView.browser.test.tsx` and
   `RunTimeEditor.browser.test.tsx` — painted in Chromium at 390 and 1280px in
   both ramps: markers on the thread, the holders' column, a run of show inside
