@@ -402,6 +402,9 @@ describe("OrganiserApp Dashboard", () => {
     fireEvent.click(screen.getByText("select-first"));
     expect(screen.queryByTestId("module-shell")).toBeNull();
     expect(screen.getByTestId("run-sheet-seat")).toBeTruthy();
+    // Under the header the shell gives the module, so it reads as the same page.
+    expect(screen.getByRole("heading", { level: 2, name: "Run sheet" })).toBeTruthy();
+    expect(screen.getByText("The day, hour by hour, and who does what")).toBeTruthy();
     // The preview button mints a code through a member-gated route, so it is
     // not offered either.
     expect(screen.queryByTestId("preview-button")).toBeNull();

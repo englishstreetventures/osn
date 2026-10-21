@@ -420,3 +420,63 @@ describe("ChecklistView — the open wedding's signals", () => {
     await waitFor(() => expect(calls("/hosts")).toHaveLength(2));
   });
 });
+
+describe("ChecklistView — a task's time on its row", () => {
+  const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+
+  it("reads the events when a time is first opened, and says so when they cannot be read", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", timeframeBucket: "day_of" })]);
+    authFetch.mockResolvedValue(new Response("{}", { status: 500 }));
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+    // Nothing read until a time is opened.
+    expect(authFetch.mock.calls.some(([url]) => String(url).endsWith("/events"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Set a time for Book venue/ }));
+    expect(
+      await screen.findByText("Couldn't load the events: set a fixed time."),
+    ).toBeInTheDocument();
+    expect(authFetch.mock.calls.filter(([url]) => String(url).endsWith("/events"))).toHaveLength(1);
+  });
+
+  it("shows the time it saved on the row, the row and its trigger kept", async () => {
+    // As the API answers it: every run-time field present, untimed.
+    const untimed = {
+      runAt: null,
+      runTimezone: null,
+      eventId: null,
+      runOffsetMinutes: null,
+      anchored: false,
+      eventRemoved: false,
+    };
+    setCachedTasks("wed_1", [row({ id: "a", timeframeBucket: "day_of", ...untimed })]);
+    authFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith("/events")) return ok([]);
+      if (init?.method === "PATCH") {
+        return ok({
+          task: {
+            ...row({ id: "a", timeframeBucket: "day_of" }),
+            runAt: "2099-06-20T12:00:00+10:00",
+            runTimezone: "Australia/Sydney",
+            eventId: null,
+            runOffsetMinutes: null,
+            anchored: false,
+            eventRemoved: false,
+          },
+        });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+    const trigger = screen.getByRole("button", { name: /Set a time for Book venue/ });
+    fireEvent.click(trigger);
+    fireEvent.input(await screen.findByLabelText("Date"), { target: { value: "2099-06-20" } });
+    fireEvent.input(screen.getByLabelText("Time"), { target: { value: "12:00" } });
+    fireEvent.change(screen.getByLabelText("Time zone"), {
+      target: { value: "Australia/Sydney" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(trigger.textContent).toMatch(/12:00\s?pm/));
+    expect(trigger.isConnected).toBe(true);
+  });
+});

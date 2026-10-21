@@ -481,6 +481,11 @@ describe("HostsPanel", () => {
     const explainers = screen.getByRole("group", { name: /What a co-host can do/i });
     expect(within(explainers).getByText("Helper (needs Gold)")).toBeTruthy();
     expect(explainers.textContent).toContain("The run sheet comes with Gold.");
+    // Said once, of the helper alone.
+    expect(explainers.textContent?.split("The run sheet comes with Gold.")).toHaveLength(2);
+    expect(
+      within(explainers).getByText("Helper (needs Gold)").nextElementSibling?.textContent,
+    ).toMatch(/The run sheet comes with Gold\.$/);
   });
 
   it.each(["gold", "crimson", undefined] as const)(

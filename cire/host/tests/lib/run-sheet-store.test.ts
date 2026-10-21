@@ -288,6 +288,40 @@ describe("readRunSheet", () => {
     expect(read.people).toEqual([{ hostId: "whost_me", osnProfileId: "usr_me", handle: "me" }]);
   });
 
+  it("drops an event or a task missing what its row shows, and a person missing a seat or a profile", () => {
+    const event = { kind: "event", startAt: "2099-06-20T15:00:00+10:00", timezone: "UTC" };
+    const read = readRunSheet({
+      scope: "full",
+      viewerHostId: "whost_me",
+      items: [
+        { ...event, id: "evt_ok", name: "Ceremony" },
+        { ...event, id: "evt_no_name" },
+        { ...event, id: "evt_no_start", name: "N", startAt: undefined },
+        { ...event, id: "evt_no_zone", name: "N", timezone: 10 },
+        { kind: "task", id: "tsk_ok", title: "Rings", assigneeHostIds: ["whost_me", 3, null] },
+        { kind: "task", id: "tsk_no_title" },
+        // A kind the portal does not know, carrying everything a task has.
+        { kind: "vendor", id: "vnd_1", title: "Florist", status: "open" },
+      ],
+      people: [
+        null,
+        "whost_me",
+        { hostId: "whost_me", osnProfileId: "usr_me", avatarUrl: "https://photos.example/me.png" },
+        { hostId: "whost_no_profile" },
+        { osnProfileId: "usr_no_seat" },
+      ],
+    });
+    expect(read.scope).toBe("full");
+    expect(read.items.map((i) => i.id)).toEqual(["evt_ok", "tsk_ok"]);
+    // An event that states no end reads as one with none.
+    expect(read.items[0]).toMatchObject({ endAt: "" });
+    expect(read.items[1]).toMatchObject({ assigneeHostIds: ["whost_me"] });
+    // Only what the answer gave: no handle or name that was not sent.
+    expect(read.people).toEqual([
+      { hostId: "whost_me", osnProfileId: "usr_me", avatarUrl: "https://photos.example/me.png" },
+    ]);
+  });
+
   it("reads a body that is not a run sheet as an empty one, narrowest scope", () => {
     for (const body of [null, "no", 4, { items: "x", people: {} }]) {
       expect(readRunSheet(body)).toEqual({

@@ -271,5 +271,16 @@ describe("ChangeHistory", () => {
     confirmMock.mockClear();
     const plain = await confirmTextFor({ ...EDITOR_APPLIED, scope: "events" });
     expect(plain).not.toMatch(/checklist/);
+    expect(plain).toMatch(/discarded by the change are not restored\.$/);
+    cleanup();
+    confirmMock.mockClear();
+    const removed = await confirmTextFor({
+      ...EDITOR_APPLIED,
+      scope: "events",
+      summary: { linkedTasksKept: 0, linkedTasksRemoved: 2 },
+    });
+    expect(removed).toMatch(
+      /are not restored\. 2 checklist tasks removed with their events are not restored\.$/,
+    );
   });
 });

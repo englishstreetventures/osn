@@ -69,6 +69,11 @@ describe("nextComingUpChange", () => {
     );
   });
 
+  it("is the earliest change whatever order the rows come in", () => {
+    const items = [task({ id: "later", runAt: "2099-06-20T17:00:00+10:00" }), task()];
+    expect(nextComingUpChange(items, START - 2 * COMING_UP_MS)).toBe(START - COMING_UP_MS);
+  });
+
   it("is null when no flag will change again", () => {
     expect(
       nextComingUpChange([task({ status: "done" }), event, task({ runAt: null })], 0),

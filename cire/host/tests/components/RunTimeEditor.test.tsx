@@ -46,6 +46,12 @@ import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support
  *     event's day until a date is typed.
  * 15. The zone the events share, not the browser's.
  * 16. The trigger names a zone that is not the reader's, and a removed event.
+ * 17. Minutes before the start say where they land; "after" sends a positive
+ *     offset, also after a look at the clock-time mode.
+ * 18. Cancel closes and sends nothing; Save pressed twice sends once.
+ * 19. With the events still loading, or failed, it says so, and names the
+ *     task's event as best it can.
+ * 20. A fixed time in a zone picked from the list.
  */
 
 const task = (over: Partial<TaskRow> = {}): TaskRow => ({
@@ -158,6 +164,7 @@ describe.skipIf(!DESIGNED)("RunTimeEditor", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Before or after the start" }));
     fireEvent.input(screen.getByLabelText("Minutes"), { target: { value: "30" } });
     fireEvent.change(screen.getByLabelText("Before or after"), { target: { value: "before" } });
+    expect(screen.getByText(/^Sat 20 Jun, 2:30\s?pm, on Ceremony's clock$/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(sentRunTime()).toEqual({
@@ -326,6 +333,8 @@ describe.skipIf(!DESIGNED)("RunTimeEditor", () => {
     fireEvent.change(screen.getByLabelText("Event"), { target: { value: "evt_ceremony" } });
     for (const typed of ["", "1441", "2.5", "30x"]) {
       fireEvent.input(screen.getByLabelText("Minutes"), { target: { value: typed } });
+      // Nowhere to land: the line names the event instead.
+      expect(screen.getByText("Moves with Ceremony.")).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Save" }));
       expect(
         await screen.findByText("Minutes must be a whole number from 0 to 1440."),
@@ -404,6 +413,104 @@ describe.skipIf(!DESIGNED)("RunTimeEditor", () => {
     });
     expect(trigger().textContent).toMatch(
       /^3:00\s?pm, time for Bring the rings, its event removed$/,
+    );
+  });
+  it("links some minutes after the start when after is picked, also after a look at the clock", async () => {
+    authFetchMock.mockResolvedValue(saved({ eventId: "evt_ceremony", anchored: true }));
+    editor();
+    fireEvent.click(trigger());
+    fireEvent.change(await screen.findByLabelText("Event"), { target: { value: "evt_ceremony" } });
+    fireEvent.click(screen.getByRole("radio", { name: "At a clock time" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Before or after the start" }));
+    fireEvent.input(screen.getByLabelText("Minutes"), { target: { value: "20" } });
+    fireEvent.change(screen.getByLabelText("Before or after"), { target: { value: "after" } });
+    expect(screen.getByText(/^Sat 20 Jun, 3:20\s?pm, on Ceremony's clock$/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(sentRunTime()).toEqual({ kind: "offset", eventId: "evt_ceremony", offsetMinutes: 20 }),
+    );
+  });
+
+  it("closes on Cancel and sends nothing", async () => {
+    editor();
+    fireEvent.click(trigger());
+    fireEvent.input(await screen.findByLabelText("Time"), { target: { value: "12:00" } });
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(trigger().getAttribute("aria-expanded")).toBe("false"));
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends one write when Save is pressed twice", async () => {
+    let answer: (r: Response) => void = () => {};
+    authFetchMock.mockReturnValue(new Promise<Response>((resolve) => (answer = resolve)));
+    editor();
+    fireEvent.click(trigger());
+    fireEvent.input(await screen.findByLabelText("Date"), { target: { value: "2099-06-20" } });
+    fireEvent.input(screen.getByLabelText("Time"), { target: { value: "12:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Saving…" })).toBeTruthy());
+    fireEvent.submit(screen.getByRole("button", { name: "Saving…" }).closest("form")!);
+    answer(saved({ runAt: "2099-06-20T12:00:00+10:00" }));
+    await waitFor(() => expect(document.activeElement).toBe(trigger()));
+    expect(authFetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
+  });
+
+  it("says the events are loading, or that they failed, and names the task's event as best it can", async () => {
+    const linkedTask = task({
+      runAt: "2099-06-20T14:30:00+10:00",
+      runTimezone: "Australia/Sydney",
+      eventId: "evt_gone",
+      runOffsetMinutes: -30,
+      anchored: true,
+    });
+    editor({ task: linkedTask, events: null });
+    fireEvent.click(trigger());
+    const options = async () =>
+      [...((await screen.findByLabelText("Event")) as HTMLSelectElement).options].map(
+        (o) => o.textContent,
+      );
+    expect(await options()).toEqual([
+      "No event — a fixed time",
+      "Loading the events…",
+      "Its event",
+    ]);
+    expect(screen.queryByText("Couldn't load the events: set a fixed time.")).toBeNull();
+    cleanup();
+
+    editor({ task: linkedTask, events: null, eventsFailed: true });
+    fireEvent.click(trigger());
+    expect(await options()).toEqual(["No event — a fixed time", "Its event"]);
+    expect(screen.getByText("Couldn't load the events: set a fixed time.")).toBeTruthy();
+    cleanup();
+
+    // Loaded, without the task's event: it was taken off the schedule.
+    editor({ task: linkedTask });
+    fireEvent.click(trigger());
+    expect(await options()).toEqual([
+      "No event — a fixed time",
+      "An event no longer on the schedule",
+      expect.stringMatching(/^Ceremony · /),
+      expect.stringMatching(/^Reception · /),
+    ]);
+  });
+
+  it("sets a fixed time in a zone picked from the list", async () => {
+    authFetchMock.mockResolvedValue(saved({ runAt: "2099-06-20T12:00:00+05:30" }));
+    editor();
+    fireEvent.click(trigger());
+    fireEvent.change(await screen.findByLabelText("Time zone"), {
+      target: { value: "Asia/Kolkata" },
+    });
+    fireEvent.input(screen.getByLabelText("Date"), { target: { value: "2099-06-20" } });
+    fireEvent.input(screen.getByLabelText("Time"), { target: { value: "12:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(sentRunTime()).toEqual({
+        kind: "fixed",
+        at: "2099-06-20T12:00",
+        timezone: "Asia/Kolkata",
+      }),
     );
   });
 });

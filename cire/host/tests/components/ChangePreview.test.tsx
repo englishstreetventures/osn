@@ -187,6 +187,9 @@ describe("ChangePreview — checklist tasks linked to a removed event", () => {
     expect(screen.getByText("Set up the cake table")).toBeTruthy();
     expect(screen.getByText("Cue the toast")).toBeTruthy();
     expect(screen.getAllByText(/Reception/).length).toBeGreaterThan(0);
+    expect(
+      screen.getByText("These 2 checklist tasks are linked to an event this change removes:"),
+    ).toBeTruthy();
     const box = screen.getByRole("checkbox", {
       name: "Also remove these 2 tasks from the checklist",
     }) as HTMLInputElement;
@@ -210,6 +213,67 @@ describe("ChangePreview — checklist tasks linked to a removed event", () => {
       .map((id) => document.getElementById(id)?.textContent ?? "")
       .join(" ");
     expect(described).toContain("Set up the cake table");
+  });
+
+  it("names each task's own event, and speaks of one task as one", () => {
+    const onConfirm = vi.fn();
+    render(() => (
+      <ChangePreview
+        plan={plan({
+          eventRemoves: [
+            { id: "evt_rec", name: "Reception" },
+            { id: "evt_brunch", name: "Brunch" },
+          ],
+          linkedTasks: [
+            {
+              id: "tsk_hamper",
+              title: "Pack the hamper",
+              eventId: "evt_brunch",
+              frozenRunAt: null,
+              frozenTimezone: null,
+            },
+          ],
+        })}
+        warnings={[]}
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+      />
+    ));
+    expect(
+      screen.getByText("This checklist task is linked to an event this change removes:"),
+    ).toBeTruthy();
+    expect(screen.getByText("Pack the hamper").parentElement?.textContent).toBe(
+      "Pack the hamper · Brunch",
+    );
+    const box = screen.getByRole("checkbox", { name: "Also remove this task from the checklist" });
+    fireEvent.click(box);
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+    expect(onConfirm).toHaveBeenLastCalledWith({ removeLinkedTasks: ["tsk_hamper"] });
+  });
+
+  it("names an event the plan does not list as a removed one", () => {
+    render(() => (
+      <ChangePreview
+        plan={plan({
+          eventRemoves: [{ id: "evt_rec", name: "Reception" }, "evt_brunch"],
+          linkedTasks: [
+            {
+              id: "tsk_hamper",
+              title: "Pack the hamper",
+              eventId: "evt_brunch",
+              frozenRunAt: null,
+              frozenTimezone: null,
+            },
+          ],
+        })}
+        warnings={[]}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    ));
+    expect(screen.getByText("Pack the hamper").parentElement?.textContent).toBe(
+      "Pack the hamper · a removed event",
+    );
   });
 
   it("asks nothing when the change removes no linked task", () => {

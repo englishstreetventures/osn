@@ -82,12 +82,21 @@ describe("saveTaskRunTime", () => {
     expect(server.sent).toHaveLength(1);
     expect(server.sent[0]!.url).toMatch(/\/api\/organiser\/weddings\/wed_1\/tasks\/tsk_1$/);
     expect(server.sent[0]!.init?.method).toBe("PATCH");
+    // Sent as JSON: the API reads a body by its content type.
+    expect(new Headers(server.sent[0]!.init?.headers).get("Content-Type")).toBe("application/json");
     expect(JSON.parse(String(server.sent[0]!.init?.body))).toEqual({ runTime });
     expect(peekCachedTasks("wed_1")?.find((t) => t.id === "tsk_1")).toMatchObject({
       runAt: "2099-06-20T14:30:00+10:00",
       runOffsetMinutes: -30,
     });
     expect(peekCachedTasks("wed_1")?.map((t) => t.id)).toEqual(["tsk_1", "tsk_2"]);
+  });
+
+  it("saves with no checklist cached, and caches nothing", async () => {
+    const server = api(() => json({ task: linked }));
+    const result = await saveTaskRunTime(server.fetch, "wed_1", "tsk_1", null);
+    expect(result).toEqual({ ok: true, task: expect.objectContaining({ id: "tsk_1" }) });
+    expect(peekCachedTasks("wed_1")).toBeNull();
   });
 
   it("reports a 200 from an API that ignored the run time as not saved, and keeps the row", async () => {
