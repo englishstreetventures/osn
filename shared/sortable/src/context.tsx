@@ -10,7 +10,7 @@ import {
 } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 
-import { closestCenter } from "./collision";
+import { closestCenter, pointerWithin } from "./collision";
 import type { DragEvent, DragTarget, Id, MeasuredTarget, Transform } from "./types";
 
 /**
@@ -21,6 +21,12 @@ import type { DragEvent, DragTarget, Id, MeasuredTarget, Transform } from "./typ
  * events list's tests press without moving and assert the order is untouched.
  */
 export const ACTIVATION_DISTANCE = 4;
+
+/**
+ * The group every free item (`createDraggable`) registers under. A drag that
+ * starts on one measures the drop zones instead of a list: see `startDrag`.
+ */
+export const FREE_GROUP: unique symbol = Symbol("free-draggables");
 
 type Detector = (
   draggable: DragTarget,
@@ -43,13 +49,25 @@ export interface DragState {
   transform: Accessor<Transform | null>;
   /** How far a NON-dragged row has been pushed to open the gap. 0 for most rows. */
   displacement: (id: Id) => number;
+  /** Whether a free item is being dragged over the drop zone `id`. Notifies
+   *  only the zones whose answer flips. Never true during a list's re-order. */
+  isOver: (id: Id) => boolean;
 }
 
 export interface Registry {
   register: (id: Id, node: HTMLElement, group: symbol) => void;
-  unregister: (id: Id) => void;
+  /** Forgets `id` only while `node` is still the one registered for it. An
+   *  item that moves between containers mounts its new node before the old one
+   *  is cleaned up when the new container renders first; unregistering by id
+   *  alone would then drop the live node, and the item would stop dragging. */
+  unregister: (id: Id, node: HTMLElement | undefined) => void;
   registerGroup: (group: symbol, ids: Accessor<Id[]>) => void;
   unregisterGroup: (group: symbol) => void;
+  /** Drop zones live in a map of their own, so a zone and an item may share
+   *  an id — a table that is both a row of one list and a place to drop. */
+  registerZone: (id: Id, node: HTMLElement) => void;
+  /** As `unregister`: forgets the zone only while `node` is still its node. */
+  unregisterZone: (id: Id, node: HTMLElement | undefined) => void;
   startDrag: (id: Id, event: PointerEvent) => void;
 }
 
@@ -79,11 +97,19 @@ export interface DragDropProviderProps {
  * re-bucketing (a semantic change), not a re-order.
  *
  * That also means one `DragDropProvider` can wrap several lists.
+ *
+ * ## Drop zones
+ *
+ * Moving an item BETWEEN containers is the other gesture: a guest dragged onto
+ * a table. That item is a free item (`createDraggable`), the containers are
+ * zones (`createDroppable`), and its drag measures the zones instead of a list.
+ * Lists under the same provider are untouched by it, and it by them.
  */
 export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
   const items = new Map<Id, { node: HTMLElement; group: symbol }>();
   /** A group's declared order, from its `SortableProvider`'s `ids`. */
   const groups = new Map<symbol, Accessor<Id[]>>();
+  const zones = new Map<Id, HTMLElement>();
 
   const [active, setActive] = createSignal<{
     draggable: DragTarget | null;
@@ -93,14 +119,22 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
   const dragging = createMemo(() => draggedId() !== null);
   const isDragged = createSelector<Id | null, Id>(draggedId);
   const [transform, setTransform] = createSignal<Transform | null>(null);
+  const [overZone, setOverZone] = createSignal<Id | null>(null);
+  const isOver = createSelector<Id | null, Id>(overZone);
   // A store rather than a Map signal: reading `displaced[key]` tracks that one
   // key, so a slot change wakes only the rows whose shift changed, not every row.
   const [displaced, setDisplaced] = createStore<Record<string, number>>({});
 
   const register = (id: Id, node: HTMLElement, group: symbol) => items.set(id, { node, group });
-  const unregister = (id: Id) => items.delete(id);
+  const unregister = (id: Id, node: HTMLElement | undefined) => {
+    if (items.get(id)?.node === node) items.delete(id);
+  };
   const registerGroup = (group: symbol, ids: Accessor<Id[]>) => groups.set(group, ids);
   const unregisterGroup = (group: symbol) => groups.delete(group);
+  const registerZone = (id: Id, node: HTMLElement) => zones.set(id, node);
+  const unregisterZone = (id: Id, node: HTMLElement | undefined) => {
+    if (zones.get(id) === node) zones.delete(id);
+  };
 
   /**
    * Measure a group ONCE, in the order its `SortableProvider` declares.
@@ -117,6 +151,13 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
       const entry = items.get(id);
       if (entry) out.push({ id, node: entry.node, rect: entry.node.getBoundingClientRect() });
     }
+    return out;
+  }
+
+  /** Every drop zone, measured once, as `measure` does a list. */
+  function measureZones(): MeasuredTarget[] {
+    const out: MeasuredTarget[] = [];
+    for (const [id, node] of zones) out.push({ id, node, rect: node.getBoundingClientRect() });
     return out;
   }
 
@@ -179,7 +220,10 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
     if (!entry) return;
 
     const draggable: DragTarget = { id, node: entry.node };
-    const detect = props.collisionDetector ?? closestCenter;
+    // A free item is dropped INTO a zone rather than BETWEEN rows: it measures
+    // the zones, finds the one the pointer is inside, and shifts nothing aside.
+    const free = entry.group === FREE_GROUP;
+    const detect = free ? pointerWithin : (props.collisionDetector ?? closestCenter);
     const origin = { x: event.clientX, y: event.clientY };
     const pointerId = event.pointerId;
     let activated = false;
@@ -211,36 +255,46 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
      * It is also the difference between O(1) arithmetic and an
      * n-rect forced-layout sweep on every pointer event.
      */
-    const measured = measure(entry.group);
-    const stride = strideOf(measured);
+    const measured = free ? measureZones() : measure(entry.group);
+    const stride = free ? 0 : strideOf(measured);
+
+    /**
+     * How far the window has scrolled since the drag began — for a free item
+     * only. Zones are spread over a page, so reaching one can take a scroll
+     * mid-drag (a wheel, or the keyboard). The geometry stays the snapshot from
+     * the start, so the pointer is carried back into that snapshot's
+     * coordinates rather than the zones re-measured, and the item's own offset
+     * carries the scroll so it stays under the pointer. A scroller other than
+     * the window is not followed: a zone inside one is measured where it was.
+     */
+    const scrollOrigin = { x: window.scrollX, y: window.scrollY };
+    const scrolled = () =>
+      free
+        ? { x: window.scrollX - scrollOrigin.x, y: window.scrollY - scrollOrigin.y }
+        : { x: 0, y: 0 };
+    let pointer = origin;
 
     const reset = () => {
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
       document.removeEventListener("pointercancel", onCancel);
+      window.removeEventListener("scroll", onScroll);
       captureTarget.releasePointerCapture?.(pointerId);
       endGesture = null;
       setTransform(null);
       setDisplaced(reconcile({}));
+      setOverZone(null);
       setActive({ draggable: null, droppable: null });
     };
 
-    const onMove = (moveEvent: PointerEvent) => {
-      if (!isOurs(moveEvent)) return;
-      const dx = moveEvent.clientX - origin.x;
-      const dy = moveEvent.clientY - origin.y;
-
-      if (!activated) {
-        if (Math.hypot(dx, dy) < ACTIVATION_DISTANCE) return;
-        activated = true;
-        setActive({ draggable, droppable: null });
-        props.onDragStart?.({ draggable, droppable: null });
-      }
-
-      setTransform({ x: dx, y: dy });
+    /** Place the dragged item and find what it is over, for the pointer at
+     *  `pointer` and the window where it is now. */
+    const track = () => {
+      const scroll = scrolled();
+      setTransform({ x: pointer.x - origin.x + scroll.x, y: pointer.y - origin.y + scroll.y });
       const droppable = detect(draggable, measured, {
-        x: moveEvent.clientX,
-        y: moveEvent.clientY,
+        x: pointer.x + scroll.x,
+        y: pointer.y + scroll.y,
       });
       // Only a CHANGE of slot is worth reporting: the pointer emits a stream of
       // events inside one row, and a consumer ticking a haptic per event would
@@ -248,13 +302,35 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
       if (droppable?.id !== latest.droppable?.id) {
         latest = { draggable, droppable };
         setActive({ draggable, droppable });
-        setDisplaced(
-          reconcile(
-            Object.fromEntries(computeDisplacement(measured, stride, id, droppable?.id ?? null)),
-          ),
-        );
+        if (free) {
+          setOverZone(droppable?.id ?? null);
+        } else {
+          setDisplaced(
+            reconcile(
+              Object.fromEntries(computeDisplacement(measured, stride, id, droppable?.id ?? null)),
+            ),
+          );
+        }
         props.onDragOver?.(latest);
       }
+    };
+
+    const onMove = (moveEvent: PointerEvent) => {
+      if (!isOurs(moveEvent)) return;
+      pointer = { x: moveEvent.clientX, y: moveEvent.clientY };
+
+      if (!activated) {
+        if (Math.hypot(pointer.x - origin.x, pointer.y - origin.y) < ACTIVATION_DISTANCE) return;
+        activated = true;
+        setActive({ draggable, droppable: null });
+        props.onDragStart?.({ draggable, droppable: null });
+      }
+      track();
+    };
+
+    /** A scroll under a still pointer moves what is under it. */
+    const onScroll = () => {
+      if (activated) track();
     };
 
     const onUp = (upEvent: PointerEvent) => {
@@ -277,13 +353,22 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
     document.addEventListener("pointercancel", onCancel);
+    if (free) window.addEventListener("scroll", onScroll, { passive: true });
   }
 
   return (
     <DragDropContext.Provider
       value={[
-        { active, dragging, isDragged, transform, displacement },
-        { register, unregister, registerGroup, unregisterGroup, startDrag },
+        { active, dragging, isDragged, transform, displacement, isOver },
+        {
+          register,
+          unregister,
+          registerGroup,
+          unregisterGroup,
+          registerZone,
+          unregisterZone,
+          startDrag,
+        },
       ]}
     >
       {props.children}

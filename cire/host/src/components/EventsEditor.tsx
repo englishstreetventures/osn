@@ -238,7 +238,7 @@ export default function EventsEditor(props: { weddingId: string }) {
 
   function handleDelete(evt: DraftEvent) {
     const ok = window.confirm(
-      `Delete "${evt.name || "this event"}"? Any RSVPs for it are discarded and its uploaded image is removed. You'll confirm the full impact before it's applied.`,
+      `Delete "${evt.name || "this event"}"? Any RSVPs for it are discarded, its seating chart is deleted and its uploaded image is removed. You'll confirm the full impact before it's applied.`,
     );
     if (!ok) return;
     // The row is gone from the draft the moment this returns — the buzz confirms

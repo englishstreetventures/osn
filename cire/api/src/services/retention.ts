@@ -8,6 +8,7 @@ import {
   registryContributions,
   registrySettings,
   rsvps,
+  seatingAssignments,
   weddingHosts,
   weddings,
 } from "@cire/db";
@@ -387,14 +388,29 @@ export const retentionService = {
           ]);
           const familyIds = familyRows.map((r) => r.id);
 
+          // Where the guests delete lands in the batch, for the count below.
+          let guestsDeleteAt: number | null = null;
           const result = yield* Effect.tryPromise({
             try: () => {
               const stmts: BatchItem<"sqlite">[] = [];
               if (familyIds.length > 0) {
-                // rsvps + guest_events → guests (children) before families
-                // (parent). guest_events included for the same reason as
-                // rsvps: the sweep's stated contract is to not depend on FK
-                // cascade.
+                // seats + rsvps + guest_events → guests (children) before
+                // families (parent). guest_events and the seats included for
+                // the same reason as rsvps: the sweep's stated contract is to
+                // not depend on FK cascade. Every household of these weddings
+                // goes, so every seat at their events goes; reached through
+                // the events, whose ids lead the seats' unique index.
+                stmts.push(
+                  db.delete(seatingAssignments).where(
+                    inArray(
+                      seatingAssignments.eventId,
+                      db
+                        .select({ id: events.id })
+                        .from(events)
+                        .where(inArray(events.weddingId, jsonEachIn(ids))),
+                    ),
+                  ),
+                );
                 stmts.push(
                   db.delete(rsvps).where(
                     inArray(
@@ -417,6 +433,7 @@ export const retentionService = {
                     ),
                   ),
                 );
+                guestsDeleteAt = stmts.length;
                 stmts.push(
                   db.delete(guests).where(inArray(guests.familyId, jsonEachIn(familyIds))),
                 );
@@ -461,11 +478,13 @@ export const retentionService = {
             ),
           );
 
-          // The guests delete is the (familyIds>0 ? third : absent) statement
-          // (after the rsvps + guest_events child deletes); report the guest
-          // count as the subject.
+          // The guests delete sits where it was pushed (after the seat, rsvp
+          // and guest_events child deletes), and is absent with no families;
+          // report the guest count as the subject.
           const guestsDeleted =
-            familyIds.length > 0 && Array.isArray(result) ? rowsChanged(result[2]) : 0;
+            guestsDeleteAt !== null && Array.isArray(result)
+              ? rowsChanged(result[guestsDeleteAt])
+              : 0;
           return { guestsDeleted, sheetKeys, weddings: ids.length, stored: toStore, lost: 0 };
         });
 

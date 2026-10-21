@@ -576,6 +576,12 @@ What the configs depend on, and what breaks without it:
   boots workerd; the command runner would run it once per mutant, several at a
   time. Keep `tests/db/` out of it: a Miniflare test that times out is counted as
   a kill.
+- **A Solid component's `ref` is a named function or a variable, never an
+  arrow written in the JSX.** The instrumenter wraps every arrow in a condition
+  that picks the mutant or the original, and Solid compiles a component's `ref`
+  expression as written, so a wrapped one is never called. The dry run then
+  fails on whatever the `ref` set up, though the plain suite passes.
+  `SeatingView`'s print-sheet portal takes `ref={markPrintSheet}` for this.
 
 ## Kobalte overlays and the tests after them
 

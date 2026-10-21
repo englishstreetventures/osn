@@ -357,6 +357,18 @@ describe("EventsEditor", () => {
     await waitFor(() => expect(screen.getByText(/saved on apply/i)).toBeTruthy());
   });
 
+  it("asks before deleting an event that has no name yet, calling it this event", async () => {
+    primeLoad();
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Add event/i }));
+    await waitFor(() => expect(screen.getByText(/saved on apply/i)).toBeTruthy());
+    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/i }).at(-1)!);
+    expect(window.confirm).toHaveBeenLastCalledWith(
+      "Delete \"this event\"? Any RSVPs for it are discarded, its seating chart is deleted and its uploaded image is removed. You'll confirm the full impact before it's applied.",
+    );
+  });
+
   // ── Start/End date + timezone ────────────────────────────────────────────
   //
   // The drawer reads each date back out of the ISO string it just wrote, so a
@@ -878,6 +890,10 @@ describe("EventsEditor", () => {
     await waitFor(() => expect(screen.getByText("Reception")).toBeTruthy());
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/i })[1]!);
+    // The confirm names everything the delete takes with the event.
+    expect(window.confirm).toHaveBeenLastCalledWith(
+      "Delete \"Reception\"? Any RSVPs for it are discarded, its seating chart is deleted and its uploaded image is removed. You'll confirm the full impact before it's applied.",
+    );
     // Reception is gone from the list; the draft is dirty.
     await waitFor(() => expect(screen.queryByText("Reception")).toBeNull());
     expect(screen.getByRole("button", { name: /Save changes/i })).toBeTruthy();

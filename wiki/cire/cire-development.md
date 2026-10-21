@@ -152,9 +152,11 @@ row arrives. Workers Free allows 10 ms of CPU, and a ceiling applied to rows
 already read, sorted and built bounds the file but not the Worker. A display
 order that is not the stored key's text order goes into the `ORDER BY` with
 `displayRank` (`cire/api/src/lib/display-rank.ts`). `giftsCsv`
-(`services/gift-export.ts`) and `budgetCsv`/`tasksCsv`
-(`services/planning-export.ts`) are the patterns, and their tests read the
-statements back to pin the row count each read returns.
+(`services/gift-export.ts`), `budgetCsv`/`tasksCsv`
+(`services/planning-export.ts`) and `seatingCsv` (`services/seating-export.ts`)
+are the patterns, and their tests read the statements back to pin the row
+count each read returns. A file a locked module's card offers also needs its
+count in `GET …/module-rows` and an entry in the portal's `LOCKED_EXPORTS`.
 
 ## Tests
 

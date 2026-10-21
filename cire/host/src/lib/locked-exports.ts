@@ -1,11 +1,11 @@
 // The downloads a locked module still offers its owner.
 //
-// The budget, the checklist and the registry are Gold modules, reads included,
-// so a wedding below Gold cannot open them. It keeps the rows it entered
-// before, and the API hands them back as CSV whatever the tier (`GET
-// …/budget.csv`, `GET …/tasks.csv`, `GET …/gifts.csv`, owner only). The locked
-// nav row's card offers the file when `GET …/module-rows` says there is
-// something in it.
+// The budget, the checklist, the registry and the seating chart are Gold
+// modules, reads included, so a wedding below Gold cannot open them. It keeps
+// the rows it entered before, and the API hands them back as CSV whatever the
+// tier (`GET …/budget.csv`, `…/tasks.csv`, `…/gifts.csv`, `…/seating.csv`,
+// owner only). The locked nav row's card offers the file when
+// `GET …/module-rows` says there is something in it.
 //
 // `authFetch` is a PARAMETER, never an import, as in `upgrade-api.ts`: it lives
 // in the AuthProvider context so the session cookie rides along.
@@ -20,15 +20,16 @@ export interface ModuleRows {
   budgetLines: number;
   tasks: number;
   gifts: number;
+  seats: number;
 }
 
 /** One locked module's download. */
 export interface LockedExport {
   /** The file's path under the wedding, as `weddingPath` takes it. */
-  path: "/budget.csv" | "/tasks.csv" | "/gifts.csv";
+  path: "/budget.csv" | "/tasks.csv" | "/gifts.csv" | "/seating.csv";
   /** The saved file is `cire-<stem>-<wedding slug>.csv`, the name the API's
    *  Content-Disposition gives it. */
-  stem: "budget" | "tasks" | "gifts";
+  stem: "budget" | "tasks" | "gifts" | "seating";
   /** Which count says the file has rows. */
   count: keyof ModuleRows;
   /** What the file is, for the toast that says it saved. */
@@ -40,8 +41,9 @@ export interface LockedExport {
 }
 
 /** The modules whose card offers a download while locked. A wedding can hold
- *  gifts only once it has been on Gold, so the Registry card offers one only
- *  after an operator has moved a wedding back down. Vendors offers no export. */
+ *  gifts or seats only once it has been on Gold, so the Registry and Seating
+ *  cards offer one only after a wedding has moved back down. Vendors offers no
+ *  export. */
 export const LOCKED_EXPORTS = {
   budget: {
     path: "/budget.csv",
@@ -67,6 +69,14 @@ export const LOCKED_EXPORTS = {
     place: "your gift log",
     noun: { one: "gift", many: "gifts" },
   },
+  seating: {
+    path: "/seating.csv",
+    stem: "seating",
+    count: "seats",
+    label: "Seating chart",
+    place: "your seating chart",
+    noun: { one: "seated guest", many: "seated guests" },
+  },
 } as const satisfies Partial<Record<Module, LockedExport>>;
 
 /** The download a locked module's card offers, or `undefined` for a module
@@ -88,18 +98,24 @@ export class LockedExportError extends Error {
 const asCount = (value: unknown): number =>
   typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
 
-/** How many budget lines and tasks the wedding holds. Owner only. */
+/** How many rows each locked module's file would carry. Owner only. */
 export async function fetchModuleRows(
   authFetch: AuthFetch,
   weddingId: string,
 ): Promise<ModuleRows> {
   const res = await authFetch(apiUrl(weddingPath(weddingId, "/module-rows")));
   if (!res.ok) throw new LockedExportError(res.status);
-  const body = (await res.json()) as { budgetLines?: unknown; tasks?: unknown; gifts?: unknown };
+  const body = (await res.json()) as {
+    budgetLines?: unknown;
+    tasks?: unknown;
+    gifts?: unknown;
+    seats?: unknown;
+  };
   return {
     budgetLines: asCount(body.budgetLines),
     tasks: asCount(body.tasks),
     gifts: asCount(body.gifts),
+    seats: asCount(body.seats),
   };
 }
 

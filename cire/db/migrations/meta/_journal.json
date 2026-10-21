@@ -61,8 +61,15 @@
     {
       "idx": 89,
       "version": "6",
-      "when": 1792546867829,
-      "tag": "0089_event_venue_name",
+      "when": 1792546958759,
+      "tag": "0089_seating",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "6",
+      "when": 1792547727351,
+      "tag": "0090_event_venue_name",
       "breakpoints": true
     }
   ]

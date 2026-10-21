@@ -68,7 +68,6 @@ interface ApplyResponse {
     guestsCreated: number;
     guestsUpdated: number;
     guestsRemoved: number;
-    warnings: string[];
   };
 }
 

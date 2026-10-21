@@ -7,6 +7,7 @@ import {
   index,
   uniqueIndex,
   check,
+  foreignKey,
   type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 
@@ -374,7 +375,7 @@ export const events = sqliteTable(
     timezone: text("timezone").notNull(),
     // The venue's name ("The Grounds of Alexandria"), shown above the address
     // on the invite and put before it in calendar entries. NULL ⇒ no name;
-    // the address (if any) stands alone. Migration 0089; no back-fill.
+    // the address (if any) stands alone. Migration 0090; no back-fill.
     venueName: text("venue_name"),
     address: text("address"),
     dressCodeDescription: text("dress_code_description"),
@@ -422,6 +423,12 @@ export const events = sqliteTable(
     // Tenant-scoped slug uniqueness (migration 0051): the import mints slugs
     // from event names, deduped only within the wedding.
     uniqueIndex("events_wedding_slug_unique").on(t.weddingId, t.slug),
+    // The parent key of `seating_tables (event_id, wedding_id)` (migration
+    // 0089), which ties a seating table's wedding to its event's. Unique
+    // already, since `id` is; SQLite needs it spelt out to accept the foreign
+    // key. A rebuild of `events` that drops it makes every seating-table write
+    // and every event delete fail with "foreign key mismatch".
+    uniqueIndex("events_id_wedding_uniq").on(t.id, t.weddingId),
   ],
 );
 
@@ -1877,5 +1884,72 @@ export const unlockCodeRedemptions = sqliteTable(
     uniqueIndex("unlock_code_redemptions_code_wedding_uniq").on(t.codeId, t.weddingId),
     // The purge's cascade from `weddings` finds a wedding's rows by this.
     index("unlock_code_redemptions_wedding_idx").on(t.weddingId),
+  ],
+);
+
+// ── Seating (migration 0089, [[wiki/cire/cire-seating]]) ────────────────────
+// A table at one event. `wedding_id` is the event's wedding, held by the
+// composite foreign key to `events (id, wedding_id)`, so a table can never be
+// filed under one wedding while sitting at another's event. A wedding's tables
+// go with its events: `weddings` cascades to `events`, `events` to here. A
+// rebuild of `events` (a copy-and-swap's DROP TABLE) cascades into this table
+// and its seats, so one needs the `__keep_*` idiom for both.
+//
+// No index leads with `wedding_id`: every statement reaches a table by its
+// `id` or by `event_id`, and scopes to a wedding through `events`.
+export const seatingTables = sqliteTable(
+  "seating_tables",
+  {
+    id: text("id").primaryKey(), // stb_<uuid>
+    weddingId: text("wedding_id").notNull(),
+    eventId: text("event_id").notNull(),
+    name: text("name").notNull(),
+    // How many guests the table seats. The API refuses a seat past it and a
+    // capacity below the guests already seated.
+    capacity: integer("capacity").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.eventId, t.weddingId],
+      foreignColumns: [events.id, events.weddingId],
+    }).onDelete("cascade"),
+    // Unique already, since `id` is. It is the parent key of the seats'
+    // `(table_id, event_id)` foreign key, the probe an event delete cascades
+    // through, and the index an event's tables are listed by.
+    uniqueIndex("seating_tables_event_id_uniq").on(t.eventId, t.id),
+  ],
+);
+
+// One guest's seat at one event. `event_id` repeats the table's event so that
+// "one seat per guest per event" is a plain unique index the database enforces;
+// the `(table_id, event_id)` foreign key makes it impossible for the copy to
+// disagree with the table. The `(guest_id, event_id)` foreign key admits only
+// a guest invited to that event, and takes the seat away when the invitation
+// goes — an editor save, an import, a guest or event delete, the retention
+// sweep.
+export const seatingAssignments = sqliteTable(
+  "seating_assignments",
+  {
+    tableId: text("table_id").notNull(),
+    eventId: text("event_id").notNull(),
+    guestId: text("guest_id").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tableId, t.guestId] }),
+    foreignKey({
+      columns: [t.tableId, t.eventId],
+      foreignColumns: [seatingTables.id, seatingTables.eventId],
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.guestId, t.eventId],
+      foreignColumns: [guestEvents.guestId, guestEvents.eventId],
+    }).onDelete("cascade"),
+    // A guest sits at no more than one table per event. Also the probe the
+    // invitation's cascade reads, and how a guest's seat at an event is found.
+    uniqueIndex("seating_assignments_event_guest_uniq").on(t.eventId, t.guestId),
   ],
 );

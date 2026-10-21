@@ -17,6 +17,8 @@ export { registryClaims, registryItems, registrySettings } from "./registry";
 export type { SeedRegistryClaim, SeedRegistryItem, SeedRegistrySettings } from "./registry";
 export { DIETARY_CONSENT_VERSION, ORGANISER_DIETARY_CONSENT_VERSION, rsvps } from "./rsvps";
 export type { SeedRsvp } from "./rsvps";
+export { seatingTables, seats } from "./seating";
+export type { SeedSeat, SeedSeatingTable } from "./seating";
 export { tasks } from "./tasks";
 export type { SeedTask } from "./tasks";
 export { bootstrapWedding, DEV_OWNER_PROFILE_ID, DEV_OWNER_SEAT_ID } from "./wedding";

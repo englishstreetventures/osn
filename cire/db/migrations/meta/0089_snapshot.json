@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d287e458-ca9a-422f-803b-0aacf94de5c0",
+  "id": "ac41b45a-2aaf-4193-bfdb-403f865b6ec9",
   "prevId": "4957666a-510f-40b3-9c49-c623df7f7fe4",
   "tables": {
     "budget_items": {
@@ -411,13 +411,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "venue_name": {
-          "name": "venue_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "address": {
           "name": "address",
           "type": "text",
@@ -504,6 +497,14 @@
           "columns": [
             "wedding_id",
             "slug"
+          ],
+          "isUnique": true
+        },
+        "events_id_wedding_uniq": {
+          "name": "events_id_wedding_uniq",
+          "columns": [
+            "id",
+            "wedding_id"
           ],
           "isUnique": true
         }
@@ -2588,6 +2589,184 @@
             "id"
           ],
           "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "seating_assignments": {
+      "name": "seating_assignments",
+      "columns": {
+        "table_id": {
+          "name": "table_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "guest_id": {
+          "name": "guest_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "seating_assignments_event_guest_uniq": {
+          "name": "seating_assignments_event_guest_uniq",
+          "columns": [
+            "event_id",
+            "guest_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "seating_assignments_table_id_event_id_seating_tables_id_event_id_fk": {
+          "name": "seating_assignments_table_id_event_id_seating_tables_id_event_id_fk",
+          "tableFrom": "seating_assignments",
+          "tableTo": "seating_tables",
+          "columnsFrom": [
+            "table_id",
+            "event_id"
+          ],
+          "columnsTo": [
+            "id",
+            "event_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "seating_assignments_guest_id_event_id_guest_events_guest_id_event_id_fk": {
+          "name": "seating_assignments_guest_id_event_id_guest_events_guest_id_event_id_fk",
+          "tableFrom": "seating_assignments",
+          "tableTo": "guest_events",
+          "columnsFrom": [
+            "guest_id",
+            "event_id"
+          ],
+          "columnsTo": [
+            "guest_id",
+            "event_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "seating_assignments_table_id_guest_id_pk": {
+          "columns": [
+            "table_id",
+            "guest_id"
+          ],
+          "name": "seating_assignments_table_id_guest_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "seating_tables": {
+      "name": "seating_tables",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "wedding_id": {
+          "name": "wedding_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "capacity": {
+          "name": "capacity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "seating_tables_event_id_uniq": {
+          "name": "seating_tables_event_id_uniq",
+          "columns": [
+            "event_id",
+            "id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "seating_tables_event_id_wedding_id_events_id_wedding_id_fk": {
+          "name": "seating_tables_event_id_wedding_id_events_id_wedding_id_fk",
+          "tableFrom": "seating_tables",
+          "tableTo": "events",
+          "columnsFrom": [
+            "event_id",
+            "wedding_id"
+          ],
+          "columnsTo": [
+            "id",
+            "wedding_id"
+          ],
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
