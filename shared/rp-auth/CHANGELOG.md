@@ -1,5 +1,12 @@
 # @shared/rp-auth
 
+## 0.2.11
+
+### Patch Changes
+
+- 5ab88f0: Build with vite 8.3.3 (range `^8.3.3`), which clears the advisory on vite 8.2.0
+  through 8.2.3.
+
 ## 0.2.10
 
 ### Patch Changes
