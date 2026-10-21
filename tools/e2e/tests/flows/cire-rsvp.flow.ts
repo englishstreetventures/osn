@@ -103,6 +103,11 @@ test("cire-rsvp", async ({ page, context, flow }) => {
   const details = sheet.locator('[data-panel="details"]');
   const form = sheet.locator('[data-panel="rsvp"]');
   const attending = sheet.getByRole("button", { name: "Attending", exact: true }).first();
+  // The sheet's switch: exact names, since "Details" and "Respond" are also
+  // inside its headings' and the card's words.
+  const detailsSegment = sheet.getByRole("button", { name: "Details", exact: true });
+  const respondSegment = sheet.getByRole("button", { name: "Respond", exact: true });
+  const panelSwitch = sheet.getByRole("group", { name: "Event sheet" });
   /** A point on a panel's heading, clear of every control. */
   const onHeading = async (panel: "details" | "rsvp"): Promise<Point> => {
     const box = (await sheet.locator(`[data-panel="${panel}"] h3`).boundingBox())!;
@@ -117,8 +122,27 @@ test("cire-rsvp", async ({ page, context, flow }) => {
       .getByRole("button", { name: "Event Details" })
       .click();
     await expect(sheet.getByRole("heading", { name: /^Details.*Catholic Ceremony/ })).toBeVisible();
-    await expect(sheet.getByRole("button", { name: "Give RSVP" })).toBeVisible();
+    await expect(respondSegment).toBeVisible();
+    await expect(detailsSegment).toHaveAttribute("aria-pressed", "true");
   });
+
+  // The page behind the sheet is locked at the root: a drag that starts on
+  // the sheet's chrome (outside its scrollport) or on the backdrop has
+  // nothing to scroll, and must not reach the invite underneath.
+  const pageStill = await flow.step("drag on the sheet's chrome and on the backdrop", async () => {
+    const before = await page.evaluate(() => window.scrollY);
+    const chrome = (await panelSwitch.boundingBox())!;
+    const onChrome = { x: chrome.x + chrome.width / 2, y: chrome.y + chrome.height / 2 };
+    await swipe(page, onChrome, { x: onChrome.x, y: onChrome.y - 200 }, 400);
+    await swipe(page, { x: PHONE.width / 2, y: 160 }, { x: PHONE.width / 2, y: 20 }, 400);
+    await expect(sheet).toBeVisible();
+    return before === (await page.evaluate(() => window.scrollY));
+  });
+  flow.check(
+    "a drag on the sheet's chrome or backdrop leaves the page where it was",
+    true,
+    pageStill,
+  );
 
   await flow.step("scroll the details with a vertical drag", async () => {
     const at = await onHeading("details");
@@ -155,6 +179,32 @@ test("cire-rsvp", async ({ page, context, flow }) => {
   });
   flow.check("a short drag springs back to the details", true, await details.isVisible());
 
+  // The switch's pill follows the finger rather than jumping once the panels
+  // land: held part-way, it stands between its two segments.
+  const midSwipe = await flow.step(
+    "hold a swipe part-way, and see the switch follow it",
+    async () => {
+      const at = await onHeading("details");
+      const finger = await swipe(page, at, { x: at.x - 120, y: at.y }, 1000, false);
+      await expect(form).toBeVisible();
+      const progress = await panelSwitch.evaluate((group) =>
+        Number.parseFloat((group as HTMLElement).style.getPropertyValue("--seg-progress")),
+      );
+      await page.screenshot({
+        path: resolve(SCREENSHOT_DIR, "cire-rsvp--sheet-mid-swipe.png"),
+        animations: "disabled",
+      });
+      await finger.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+      await expect(form).toBeHidden();
+      return progress;
+    },
+  );
+  flow.check(
+    "mid-swipe the switch stands between its segments",
+    true,
+    midSwipe > 0 && midSwipe < 1,
+  );
+
   await flow.step("swipe left to the RSVP form", async () => {
     await page.screenshot({
       path: resolve(SCREENSHOT_DIR, "cire-rsvp--sheet-details.png"),
@@ -164,6 +214,7 @@ test("cire-rsvp", async ({ page, context, flow }) => {
     await swipe(page, at, { x: at.x - 200, y: at.y }, 150);
     await expect(sheet.getByRole("heading", { name: /^Respond.*Catholic Ceremony/ })).toBeFocused();
     await expect(details).toBeHidden();
+    await expect(detailsSegment).toHaveAttribute("aria-pressed", "false");
   });
   flow.check(
     "nothing chosen before the swipe round trip",
@@ -184,11 +235,11 @@ test("cire-rsvp", async ({ page, context, flow }) => {
     const at = await onHeading("rsvp");
     await swipe(page, at, { x: at.x + 200, y: at.y }, 150);
     await expect(sheet.getByRole("heading", { name: /^Details.*Catholic Ceremony/ })).toBeFocused();
-    await expect(sheet.getByRole("button", { name: "See details" })).toBeHidden();
+    await expect(detailsSegment).toHaveAttribute("aria-pressed", "true");
   });
 
-  await flow.step("return with the badge", async () => {
-    await sheet.getByRole("button", { name: "Give RSVP" }).click();
+  await flow.step("return with the switch", async () => {
+    await respondSegment.click();
     await expect(sheet.getByRole("heading", { name: /^Respond.*Catholic Ceremony/ })).toBeFocused();
   });
   flow.check(

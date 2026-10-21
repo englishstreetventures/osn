@@ -619,6 +619,21 @@
   transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* The event sheet's switch (`components/PanelSwitch`): its gold pill and the
+   on-gold labels clipped to it, easing to the segment chosen on the panels'
+   own duration and curve, so a press or a swipe's settle moves the pill and the
+   panels together. Under a finger (`data-dragging` on the switch) they follow
+   it with no easing. The reduced-motion clamp below reaches this too. */
+@utility transition-switch-settle {
+  transition:
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    clip-path 280ms cubic-bezier(0.22, 1, 0.36, 1);
+
+  [data-dragging] & {
+    transition: none;
+  }
+}
+
 /*
   Invite compositions that used to be hardcoded colour literals inside
   components (and hand-copied into the organiser's preview). They are derived

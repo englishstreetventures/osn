@@ -183,13 +183,13 @@ describe("AnimatedModal", () => {
         onClose={() => {}}
         label="Event details"
         toolbar
-        action={<button type="button">Give RSVP</button>}
+        action={<button type="button">Respond</button>}
       >
         <p>Body</p>
       </AnimatedModal>
     ));
     const close = getByRole("button", { name: "Close" });
-    const action = getByRole("button", { name: "Give RSVP" });
+    const action = getByRole("button", { name: "Respond" });
     const scroller = scrollerOf(close.closest("dialog")!);
 
     expect(action.parentElement).toBe(close.parentElement);

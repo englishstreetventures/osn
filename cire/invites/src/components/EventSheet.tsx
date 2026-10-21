@@ -1,4 +1,3 @@
-import Button from "@cire/ui/button";
 import {
   batch,
   createEffect,
@@ -11,6 +10,7 @@ import {
 
 import { AnimatedModal } from "./AnimatedModal";
 import { DetailsPanel } from "./DetailsPanel";
+import { PanelSwitch, type PanelSwitchControl } from "./PanelSwitch";
 import { moveFocus, pressedByPointer } from "./quiet-focus";
 import { RsvpPanel, type RsvpPanelProps } from "./RsvpPanel";
 import {
@@ -51,7 +51,7 @@ export interface EventSheetProps extends RsvpData {
   /**
    * Any invited member of the household has a reply on file for this event.
    * Past the deadline it keeps the details' way into the read-only form, the
-   * badge relabelled "View your RSVP"; with none, the form is out of reach.
+   * switch's segment relabelled "Your RSVP"; with none, the form is out of reach.
    */
   replied?: boolean;
   onClose: () => void;
@@ -97,10 +97,11 @@ interface Touch {
 /**
  * One dialog per event holding two panels side by side in the guest's mind:
  * the event's details on the start side, its RSVP form on the end side, in the
- * order of the event card's buttons. A badge in the sheet's chrome, beside the
- * close button, moves to the other panel without closing anything — "Give
- * RSVP →" on the details, "← See details" on the form, each arrow pointing the
- * way the guest can also swipe.
+ * order of the event card's buttons. A switch in the sheet's chrome, beside the
+ * close button, moves between them without closing anything: two segments,
+ * Details and Respond ("Your RSVP" past the deadline), in the order the guest
+ * can also swipe, the one on screen filled gold ({@link PanelSwitch}). Its pill
+ * follows a swipe's finger rather than jumping when the panels land.
  *
  * ## A panel mounts the first time it is asked for and stays mounted
  *
@@ -113,12 +114,12 @@ interface Touch {
  * ## When the guest may move
  *
  * From the details whenever RSVPs are open, and past the deadline only for a
- * household with a reply on file (the badge reads "View your RSVP"); with
- * none there is no badge and no swipe, and if focus was on the badge as it
+ * household with a reply on file (the form's segment reads "Your RSVP"); with
+ * none there is no switch and no swipe, and if focus was on the switch as it
  * went it moves to the details heading. From the form whenever it is not busy:
  * not while a save is in flight, nor while the sheet closes itself on a saved
- * reply. One rule, {@link EventSheet}'s `leavable`, gates the badge and the
- * swipe alike.
+ * reply, when the Details segment is disabled. One rule, {@link EventSheet}'s
+ * `leavable`, gates the switch and the swipe alike.
  *
  * ## One height
  *
@@ -157,9 +158,11 @@ interface Touch {
  *   it would play on top of the sheet's own entry.
  * - Until the slide settles the new panel takes no pointer input: it is still
  *   transparent, and a second tap of a double tap would otherwise land on
- *   whatever control sits under the button just pressed. The badge ignores
- *   such a tap too (`pressBadge`), since it sits in the same corner on both
- *   panels and would go straight back. And the panels' wrapper clips sideways overflow,
+ *   whatever control sits under the segment just pressed. The switch ignores
+ *   a tap on its other segment too (`pressSegment`), so a tap that lands on
+ *   it as the panels move cannot send the guest straight back; a tap on the
+ *   segment already chosen does nothing. And the panels' wrapper clips
+ *   sideways overflow,
  *   because the sliding RSVP panel carries its full-bleed action bar past the
  *   scrollport's edge and would flash a horizontal scrollbar. Only then:
  *   clipped all the time, the wrapper would also hide a real overflow inside a
@@ -182,7 +185,7 @@ interface Touch {
  *   it takes for a scroll arrives here as `pointercancel` and springs back.
  * - Not while the guest has pinch-zoomed in. A sideways drag then pans the
  *   zoomed view, which a guest who zoomed to read needs, so the wrapper goes
- *   back to `touch-action: auto` and the swipe stands down; the badge still
+ *   back to `touch-action: auto` and the swipe stands down; the switch still
  *   moves between the panels.
  * - A touch in a text field, or in a box that scrolls sideways of its own
  *   (the dietary chips, the moodboard), belongs to that, not to the sheet.
@@ -197,10 +200,13 @@ interface Touch {
  *   earlier swipe and the guest is now swiping it away.
  * - Both panels are `will-change: transform` while they move, so the drag
  *   moves two composited layers rather than repainting the sheet each frame.
+ * - The switch's pill moves with the finger, by the share of the panels' width
+ *   it has covered ({@link PanelSwitchControl}), and eases to rest with them.
  * - Released, both panels ease to their resting places on
  *   `transition-panel-settle`, the slide's own duration and curve, read back
  *   from the computed style so the reduced-motion clamp reaches it. A
- *   committed swipe then switches exactly as the badge does, less the slide.
+ *   committed swipe then switches exactly as a press of the switch does, less
+ *   the slide.
  */
 export function EventSheet(props: EventSheetProps) {
   const [own, rsvp] = splitProps(props, [
@@ -237,6 +243,7 @@ export function EventSheet(props: EventSheetProps) {
   const wrappers: Partial<Record<EventPanel, HTMLDivElement>> = {};
   let scroller: HTMLDivElement | undefined;
   let rail: HTMLDivElement | undefined;
+  let panelSwitch: PanelSwitchControl | undefined;
   // Which switch is current, so a slide that settles after a later switch
   // cannot clear that later one's state.
   let switchToken = 0;
@@ -247,8 +254,9 @@ export function EventSheet(props: EventSheetProps) {
   const leavable = () => (active() === "details" ? rsvpReachable() : !busy());
 
   // The deadline can pass while the details are open, and for a household with
-  // no reply the badge goes with it. (One with a reply keeps it under a new
-  // label, so its focus never moves.) If focus was ON the badge, the browser
+  // no reply the switch goes with it. (One with a reply keeps it, the form's
+  // segment under a new label, so its focus never moves.) If focus was ON the
+  // switch, the browser
   // drops it to `<body>` — outside a modal dialog, with no keyboard way back in
   // — so focus goes to the details heading instead. It acts only on that loss:
   // focus resting on any real element is left where the guest put it.
@@ -324,7 +332,10 @@ export function EventSheet(props: EventSheetProps) {
   /** Where the panel coming in sits, relative to the one on screen. */
   const incomingSide = (target: EventPanel) => (target === "rsvp" ? 1 : -1);
 
-  /** Draw both panels for a finger at `dx`. */
+  /** The switch's pill at rest under `panel`: 0 under Details, 1 under the form's segment. */
+  const restOf = (panel: EventPanel) => (panel === "details" ? 0 : 1);
+
+  /** Draw both panels, and the switch's pill, for a finger at `dx`. */
   function paint(dx: number, width: number) {
     const target = gesture()?.target;
     const current = wrappers[active()];
@@ -332,6 +343,8 @@ export function EventSheet(props: EventSheetProps) {
     if (!target || !current || !incoming) return;
     current.style.transform = `translateX(${dx}px)`;
     incoming.style.transform = `translateX(${dx + incomingSide(target) * width}px)`;
+    // Toward the form is toward the start (`dx < 0`), and the pill's 1.
+    panelSwitch?.setProgress(restOf(active()) - dx / width, true);
   }
 
   function beginDrag(state: Touch) {
@@ -431,6 +444,7 @@ export function EventSheet(props: EventSheetProps) {
     const side = incomingSide(target);
     current.style.transform = `translateX(${commit ? -side * width : 0}px)`;
     incoming.style.transform = `translateX(${commit ? 0 : side * width}px)`;
+    panelSwitch?.setProgress(restOf(commit ? target : active()), false);
 
     const onEnd = (e: TransitionEvent) => {
       if (e.target === incoming && e.propertyName === "transform") finish();
@@ -461,40 +475,31 @@ export function EventSheet(props: EventSheetProps) {
   }
 
   /**
-   * A press of the badge. A tap or click is ignored while a slide or a swipe
-   * is still running: the badge sits in the same corner on both panels, so the
-   * second tap of a double tap lands on its twin and would go straight back. A
-   * key press is deliberate and goes through, and leaves the heading's ring on.
+   * A press of a segment. A tap or click is ignored while a slide or a swipe
+   * is still running, so a second tap of a double tap, or a tap as the panels
+   * move, cannot send the guest straight back; the segment already chosen does
+   * nothing at all (`show`). A key press is deliberate and goes through, and
+   * leaves the heading's ring on.
    */
-  function pressBadge(e: MouseEvent, next: EventPanel) {
+  function pressSegment(next: EventPanel, e: MouseEvent) {
     const byPointer = pressedByPointer(e);
     if (byPointer && (entering() !== null || gesture() !== null)) return;
     show(next, false, byPointer);
   }
 
-  /** The badge: the way to the other panel, drawn in the sheet's chrome. */
-  const badge = (
-    <Show
-      when={active() === "details"}
-      fallback={
-        <Button
-          variant="chip"
-          size="sm"
-          class="min-h-11"
-          onClick={(e) => pressBadge(e, "details")}
-          disabled={busy()}
-        >
-          <span aria-hidden="true">←</span>
-          See details
-        </Button>
-      }
-    >
-      <Show when={rsvpReachable()}>
-        <Button variant="chip" size="sm" class="min-h-11" onClick={(e) => pressBadge(e, "rsvp")}>
-          {rsvp.closed ? "View your RSVP" : "Give RSVP"}
-          <span aria-hidden="true">→</span>
-        </Button>
-      </Show>
+  /**
+   * The switch, in the sheet's chrome. On the details only while the form can
+   * be reached; on the form always, its Details segment disabled while busy.
+   */
+  const panelSwitchRow = (
+    <Show when={active() === "rsvp" || rsvpReachable()}>
+      <PanelSwitch
+        ref={(control) => (panelSwitch = control)}
+        selected={active()}
+        rsvpLabel={rsvp.closed ? "Your RSVP" : "Respond"}
+        detailsDisabled={busy()}
+        onPress={pressSegment}
+      />
     </Show>
   );
 
@@ -512,7 +517,7 @@ export function EventSheet(props: EventSheetProps) {
       flushBottom
       scrollRef={(el) => (scroller = el)}
       toolbar
-      action={badge}
+      action={panelSwitchRow}
     >
       {/* `-mx-6 px-6` puts this box's edge on the scrollport's own padding
           edge, so the clip lands exactly where the full-bleed bar ends — and
