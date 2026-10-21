@@ -343,8 +343,15 @@ describe("tableExportService.eventsCsv", () => {
         expect(cell("Kitchen Tea", "Children")).toBe("Adults only");
         expect(cell("Kitchen Tea", "Plus-Ones")).toBe("Welcome");
         expect(cell("Kitchen Tea", "Guest Policy Note")).toBe("Hats encouraged.");
-        expect(cell("Catholic Ceremony", "Run of Show")).toBe("");
-        expect(cell("Catholic Ceremony", "Children")).toBe("");
+        for (const column of [
+          "Run of Show",
+          "Getting There",
+          "Children",
+          "Plus-Ones",
+          "Guest Policy Note",
+        ]) {
+          expect(cell("Catholic Ceremony", column)).toBe("");
+        }
       }),
     ),
   );

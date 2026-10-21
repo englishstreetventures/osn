@@ -8,6 +8,7 @@ import {
   guestEvents,
   guests,
   rsvps,
+  runOfShowItems,
   weddingFaqs,
   weddings,
 } from "@cire/db";
@@ -227,6 +228,106 @@ describe("claimService.lookup", () => {
         // Both rows still carry the data; only the "still current?" answer moves.
         expect(current?.dietaryPresets).toEqual(["halal"]);
         expect(stale?.dietaryPresets).toEqual(["halal"]);
+      }),
+    ),
+  );
+});
+
+// The household's details sheet and the organiser's events tab read an
+// event's run of show, getting-there notes and guest policy from these two
+// reads; an event that has none of them carries an empty list and nulls.
+describe("an event's run of show, notes and policy in the claim and the events read", () => {
+  const seedDetails = (db: Db) => {
+    db.update(eventsTable)
+      .set({
+        gettingThere: "Park on Sample Lane.",
+        childrenPolicy: "adults_only",
+        plusOnePolicy: "by_invitation",
+        guestPolicyNote: "Hats encouraged.",
+      })
+      .where(eq(eventsTable.id, CATHOLIC_ID))
+      .run();
+    // Written out of order: the reads return the organiser's order.
+    db.insert(runOfShowItems)
+      .values([
+        {
+          eventId: CATHOLIC_ID,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          sortOrder: 1,
+          time: "15:30",
+          label: "Vows",
+        },
+        {
+          eventId: CATHOLIC_ID,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          sortOrder: 0,
+          time: "15:00",
+          label: "Processional",
+        },
+      ])
+      .run();
+  };
+  const DETAILS = {
+    runOfShow: [
+      { time: "15:00", label: "Processional" },
+      { time: "15:30", label: "Vows" },
+    ],
+    gettingThere: "Park on Sample Lane.",
+    childrenPolicy: "adults_only",
+    plusOnePolicy: "by_invitation",
+    guestPolicyNote: "Hats encouraged.",
+  };
+  const NONE = {
+    runOfShow: [],
+    gettingThere: null,
+    childrenPolicy: null,
+    plusOnePolicy: null,
+    guestPolicyNote: null,
+  };
+
+  it(
+    "the claim carries them for each invited event",
+    withDb(
+      Effect.gen(function* () {
+        seedDetails(yield* DbService);
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
+        expect(result.events.find((e) => e.id === CATHOLIC_ID)).toMatchObject(DETAILS);
+        expect(result.events.find((e) => e.id === RECEPTION_ID)).toMatchObject(NONE);
+      }),
+    ),
+  );
+
+  it(
+    "the organiser's events read carries them for every event",
+    withDb(
+      Effect.gen(function* () {
+        seedDetails(yield* DbService);
+        const listed = yield* claimService.listEvents(BOOTSTRAP_WEDDING_ID, "cire-wedding");
+        expect(listed.find((e) => e.id === CATHOLIC_ID)).toMatchObject(DETAILS);
+        expect(listed.find((e) => e.id === KITCHEN_TEA_ID)).toMatchObject(NONE);
+      }),
+    ),
+  );
+
+  it(
+    "a household invited to no events claims with none",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        seedDetails(db);
+        const [ada] = yield* Effect.promise(() =>
+          Promise.resolve(
+            db
+              .select({ id: guests.id })
+              .from(guests)
+              .innerJoin(families, eq(families.id, guests.familyId))
+              .where(eq(families.publicId, "TESTONE-IVY-AA11"))
+              .all(),
+          ),
+        );
+        db.delete(guestEvents).where(eq(guestEvents.guestId, ada!.id)).run();
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
+        expect(result.events).toEqual([]);
       }),
     ),
   );

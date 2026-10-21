@@ -1205,14 +1205,14 @@ describe("parseEventsCsv — run of show, getting there and guest policy", () =>
   it("reads every column, normalising each time to HH:MM and skipping blank lines", async () => {
     const [event] = await parse(
       row(
-        '"4:00 Tea is poured\n\n  16:45   Garden games \n17:15 Speeches",Park on Sample Lane.,  adults ONLY ,by  invitation,Hats welcome.',
+        '"4:00 Tea is poured\n\n   \n  16:45   Garden games \n17:59 Speeches",Park on Sample Lane.,  adults ONLY ,by  invitation,Hats welcome.',
       ),
     );
     expect(event).toMatchObject({
       runOfShow: [
         { time: "04:00", label: "Tea is poured" },
         { time: "16:45", label: "Garden games" },
-        { time: "17:15", label: "Speeches" },
+        { time: "17:59", label: "Speeches" },
       ],
       gettingThere: "Park on Sample Lane.",
       childrenPolicy: "adults_only",
@@ -1223,16 +1223,22 @@ describe("parseEventsCsv — run of show, getting there and guest policy", () =>
     expect(other).toMatchObject({ childrenPolicy: "children_welcome", plusOnePolicy: "welcome" });
   });
 
-  // A column that is there but blank clears; "Not stated" is the same as blank.
-  it("reads blank cells, and Not stated, as clears", async () => {
-    const [event] = await parse(row(",,,not stated,"));
-    expect(event).toMatchObject({
+  // A column that is there but blank clears; "Not stated" is the same as blank,
+  // and so is a cell a short row leaves off.
+  it("reads blank cells, Not stated, and cells a short row leaves off, as clears", async () => {
+    const cleared = {
       runOfShow: [],
       gettingThere: null,
       childrenPolicy: null,
       plusOnePolicy: null,
       guestPolicyNote: null,
-    });
+    };
+    const [event] = await parse(row(",,,not stated,"));
+    expect(event).toMatchObject(cleared);
+    const [short] = await parse(
+      [HEADER, "Kitchen Tea,2026-11-20T16:00,Australia/Sydney"].join("\n"),
+    );
+    expect(short).toMatchObject(cleared);
   });
 
   // A column the sheet does not carry says nothing about its field.
@@ -1256,6 +1262,9 @@ describe("parseEventsCsv — run of show, getting there and guest policy", () =>
   it.each([
     ["a line with no time", '"16:00 Tea\nSpeeches at five"', NO_TIME],
     ["a time past the clock", '"25:00 Late"', NO_TIME],
+    ["a minute past the hour", '"16:60 Late"', NO_TIME],
+    ["text before the time", '"x16:00 Tea"', NO_TIME],
+    ["a third minute digit", '"16:000 Tea"', NO_TIME],
     ["a 12-hour time", '"4pm Tea"', NO_TIME],
     ["a time with no label", '"16:00   "', "Run of Show lines need a label after the time"],
     [

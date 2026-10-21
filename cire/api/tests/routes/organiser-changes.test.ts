@@ -580,6 +580,38 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
       { sortOrder: 0, time: "16:05", label: "Tea is poured" },
       { sortOrder: 1, time: "17:15", label: "Speeches" },
     ]);
+
+    // A list that differs only in one time, or only in one name, is changed,
+    // and so is written. The other two presets go through the editor door too.
+    const stored = () => items(db).map(({ time, label }) => `${time} ${label}`);
+    await previewAndApply(app, [
+      editorEvent({
+        ...DETAILS,
+        id,
+        childrenPolicy: "children_welcome",
+        plusOnePolicy: "by_invitation",
+        runOfShow: [
+          { time: "16:10", label: "Tea is poured" },
+          { time: "17:15", label: "Speeches" },
+        ],
+      }),
+    ]);
+    expect(stored()).toEqual(["16:10 Tea is poured", "17:15 Speeches"]);
+    expect(row(db)).toMatchObject({
+      childrenPolicy: "children_welcome",
+      plusOnePolicy: "by_invitation",
+    });
+    await previewAndApply(app, [
+      editorEvent({
+        ...DETAILS,
+        id,
+        runOfShow: [
+          { time: "16:10", label: "Tea is served" },
+          { time: "17:15", label: "Speeches" },
+        ],
+      }),
+    ]);
+    expect(stored()).toEqual(["16:10 Tea is served", "17:15 Speeches"]);
   });
 
   // An event the editor removes takes its run of show with it.
