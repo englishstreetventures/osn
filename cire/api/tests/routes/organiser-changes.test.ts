@@ -786,6 +786,11 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
     expect(cleared.warnings).toEqual([
       'Event "Kitchen Tea" would lose its run of show, getting-there notes, children policy, plus-one policy and guest policy note.',
     ]);
+    // An empty list stated for an event that has none loses nothing.
+    const { app: fresh, db: freshDb } = buildApp();
+    await previewAndApply(fresh, [editorEvent()]);
+    const { id: bare } = row(freshDb);
+    expect((await preview(fresh, [editorEvent({ id: bare, runOfShow: [] })])).warnings).toEqual([]);
 
     const sheetWarnings = async (header: string, cells: string) => {
       const res = await ownerPost(app, `${CHANGES_BASE}/preview`, {
