@@ -143,16 +143,23 @@ afterEach(() => {
   history.replaceState(null, "", window.location.pathname + window.location.search);
 });
 
-async function openRemovableWedding(): Promise<{ remove: () => void; narrow: () => void }> {
+async function openRemovableWedding(
+  startAs = "editor",
+): Promise<{ remove: () => void; narrow: () => void }> {
   history.replaceState(null, "", "#/w/wed_a");
   let removed = false;
-  let role = "editor";
+  let role = startAs;
   authFetchMock.mockImplementation(async () =>
     listResponse(removed ? [] : [{ id: "wed_a", role }]),
   );
   render(() => <OrganiserApp />);
-  await waitFor(() => expect(screen.getByTestId("module-shell").textContent).toContain("wed_a"));
-  setCachedVendors("wed_a", [vendorRow("wed_a")]);
+  // The dashboard for a co-host, the run-sheet seat for a helper.
+  await waitFor(() =>
+    expect(
+      screen.queryByTestId("module-shell") ?? screen.queryByText(/Helper access/i),
+    ).toBeTruthy(),
+  );
+  if (startAs !== "helper") setCachedVendors("wed_a", [vendorRow("wed_a")]);
   await expect.poll(() => commands.realtimeSocketCount()).toBe(1);
   return { remove: () => (removed = true), narrow: () => (role = "helper") };
 }
@@ -179,7 +186,18 @@ describe("OrganiserApp — push, in a real browser", () => {
     await waitFor(() => expect(screen.getByText(/Helper access/i)).toBeTruthy());
     expect(screen.queryByTestId("module-shell")).toBeNull();
     expect(peekCachedVendors("wed_a")).toBeNull();
-    // A helper's seat does not listen.
+    // A helper reads the run sheet, so the same socket stays open for them.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await commands.realtimeSocketCount()).toBe(1);
+  });
+
+  it("returns a removed helper's idle tab to the list, from their own socket", async () => {
+    const wedding = await openRemovableWedding("helper");
+
+    wedding.remove();
+    await commands.pushRealtime(SIGNAL);
+
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
     await expect.poll(() => commands.realtimeSocketCount()).toBe(0);
   });
 

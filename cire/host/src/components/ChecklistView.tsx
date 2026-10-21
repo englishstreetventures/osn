@@ -15,7 +15,7 @@ import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
-import { createEffect, createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
@@ -27,8 +27,11 @@ import {
   hostsAccessor,
   invalidateHosts,
 } from "../lib/hosts-store";
+import { useMembersChanged } from "../lib/members-changed";
 import { sameButOrder } from "../lib/sortable-rows";
+import { useTasksChanged } from "../lib/tasks-changed";
 import {
+  beginTaskWrite,
   ensureTasksLoaded,
   invalidateTasks,
   peekCachedTasks,
@@ -142,16 +145,22 @@ export default function ChecklistView(props: ChecklistViewProps) {
   };
 
   const holderWrites = createHolderWrites({
-    send: (taskId, hostId, on) =>
-      authFetch(
-        apiUrl(
-          weddingPath(
-            props.weddingId,
-            `/tasks/${encodeURIComponent(taskId)}/assignees/${encodeURIComponent(hostId)}`,
+    send: async (taskId, hostId, on) => {
+      const done = beginTaskWrite(props.weddingId);
+      try {
+        return await authFetch(
+          apiUrl(
+            weddingPath(
+              props.weddingId,
+              `/tasks/${encodeURIComponent(taskId)}/assignees/${encodeURIComponent(hostId)}`,
+            ),
           ),
-        ),
-        { method: on ? "PUT" : "DELETE" },
-      ),
+          { method: on ? "PUT" : "DELETE" },
+        );
+      } finally {
+        done();
+      }
+    },
     holdersOf: (taskId) =>
       peekCachedTasks(props.weddingId)?.find((t) => t.id === taskId)?.assigneeHostIds,
     setHolders: (taskId, assigneeHostIds) =>
@@ -191,7 +200,8 @@ export default function ChecklistView(props: ChecklistViewProps) {
     });
   };
 
-  // Refetch from the server and repopulate the cache (used after a write fails).
+  // Refetch from the server and repopulate the cache (used after a write
+  // fails, and when the wedding's socket says the tasks changed).
   const reload = async () => {
     invalidateTasks(props.weddingId);
     try {
@@ -201,6 +211,25 @@ export default function ChecklistView(props: ChecklistViewProps) {
       setError("Couldn't refresh your checklist.");
     }
   };
+
+  // The open wedding's socket: someone changed the tasks, or the socket came
+  // back and may have missed it. A re-read that lands while one of this view's
+  // own writes is out is dropped (`beginTaskWrite`), and the write's own signal
+  // asks again, so a re-read never undoes what the organiser just did.
+  createEffect(on(useTasksChanged(), () => void reload(), { defer: true }));
+  // Someone's seat changed. The holder stacks name seats, so a view that has
+  // read them reads them again; one that never needed them asks for nothing.
+  createEffect(
+    on(
+      useMembersChanged(),
+      () => {
+        if (!untrack(anyAssigned) && !seatsReadThisVisit) return;
+        invalidateHosts(props.weddingId);
+        void ensureSeats();
+      },
+      { defer: true },
+    ),
+  );
 
   // Each bucket's tasks in order. A map of fresh arrays holding the SAME task
   // objects, so a bucket untouched by a write compares equal (`sameRows`).
@@ -237,6 +266,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
     };
     setNewTitle("");
     setNewDue("");
+    const done = beginTaskWrite(props.weddingId);
     try {
       const res = await authFetch(listUrl(), {
         method: "POST",
@@ -246,13 +276,18 @@ export default function ChecklistView(props: ChecklistViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`create ${res.status}`);
       const task = readTaskRow(((await res.json()) as { task: TaskWire }).task);
+      const added = patchTasks((rows) => [...rows, task]);
+      done();
       // No list to add it to: load one, which will carry the new task.
-      if (!patchTasks((rows) => [...rows, task])) void reload();
+      if (!added) void reload();
       haptic("commit");
     } catch {
+      done();
       haptic("reject");
       setError("Couldn't add that task.");
       void reload();
+    } finally {
+      done();
     }
   };
 
@@ -261,6 +296,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
     // Optimistic flip. The haptic rides with it rather than with the response:
     // the tick is what the host is confirming, and a buzz arriving a network
     // round-trip after the box changed would read as a second, separate event.
+    const done = beginTaskWrite(props.weddingId);
     patchTasks((rows) => rows.map((t) => (t.id === task.id ? { ...t, status: nextStatus } : t)));
     haptic("commit");
     try {
@@ -278,13 +314,17 @@ export default function ChecklistView(props: ChecklistViewProps) {
       patchTasks((rows) => rows.map((t) => (t.id === updated.id ? updated : t)));
     } catch {
       // The optimistic tick is about to be taken back — say so.
+      done();
       haptic("reject");
       setError("Couldn't update that task.");
       void reload();
+    } finally {
+      done();
     }
   };
 
   const deleteTask = async (task: TaskRow) => {
+    const done = beginTaskWrite(props.weddingId);
     patchTasks((rows) => rows.filter((t) => t.id !== task.id));
     haptic("commit");
     try {
@@ -297,9 +337,12 @@ export default function ChecklistView(props: ChecklistViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`delete ${res.status}`);
     } catch {
+      done();
       haptic("reject");
       setError("Couldn't delete that task.");
       void reload();
+    } finally {
+      done();
     }
   };
 
@@ -318,13 +361,14 @@ export default function ChecklistView(props: ChecklistViewProps) {
     reordered.splice(to, 0, moved!);
     const orderedIds = reordered.map((t) => t.id);
     const bySort = new Map(orderedIds.map((id, i) => [id, i]));
+    const done = beginTaskWrite(props.weddingId);
     const moves = patchTasks((rows) =>
       rows.map((t) => {
         const next = t.timeframeBucket === bucket ? bySort.get(t.id) : undefined;
         return next === undefined || next === t.sortOrder ? t : { ...t, sortOrder: next };
       }),
     );
-    if (!moves) return;
+    if (!moves) return done();
     try {
       const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/tasks/reorder")), {
         method: "PATCH",
@@ -334,10 +378,13 @@ export default function ChecklistView(props: ChecklistViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`reorder ${res.status}`);
     } catch {
+      done();
       haptic("reject");
       setError("Couldn't save the new order.");
       onFailure();
       void reload();
+    } finally {
+      done();
     }
   };
 

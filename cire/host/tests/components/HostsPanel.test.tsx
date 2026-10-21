@@ -2104,6 +2104,77 @@ describe("HostsPanel — the open wedding's members-changed signal", () => {
     expect(screen.getByText("@carol")).toBeTruthy();
   });
 
+  describe("a helper's scope", () => {
+    const helper = {
+      hostId: "whost_dee",
+      osnProfileId: "usr_dee",
+      handle: "dee",
+      role: "helper",
+      createdAt: 3,
+      runSheetScope: "own",
+    };
+    const scopeSelect = () =>
+      screen.getByRole("combobox", {
+        name: /What @dee sees on the run sheet/i,
+      }) as HTMLSelectElement;
+
+    function renderAsOwner() {
+      const [changed, setChanged] = createSignal(0);
+      render(() => (
+        <MembersChangedContext.Provider value={changed}>
+          <HostsPanel weddingId="wed_a" callerRole="owner" />
+        </MembersChangedContext.Provider>
+      ));
+      return () => setChanged((n) => n + 1);
+    }
+
+    it("keeps its own narrowing when a re-read sent before it answers after it", async () => {
+      let releaseStale: (res: Response) => void = () => {};
+      const full = { ...helper, runSheetScope: "full" };
+      authFetchMock
+        .mockResolvedValueOnce(json({ hosts: [bob, full] }))
+        .mockReturnValueOnce(new Promise<Response>((resolve) => (releaseStale = resolve)))
+        .mockResolvedValueOnce(
+          json({ host: { osnProfileId: "usr_dee", role: "helper", runSheetScope: "own" } }),
+        );
+      const signal = renderAsOwner();
+      await waitFor(() => expect(scopeSelect().value).toBe("full"));
+
+      signal();
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+      // Narrowing goes straight through, with no question.
+      fireEvent.change(scopeSelect(), { target: { value: "own" } });
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+      await waitFor(() => expect(scopeSelect().getAttribute("aria-busy")).not.toBe("true"));
+      expect(scopeSelect().value).toBe("own");
+
+      // The read sent before the write answers with the old scope.
+      releaseStale(json({ hosts: [bob, full] }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(scopeSelect().value).toBe("own");
+    });
+
+    it("keeps the owner's focus on a row a re-read did not change", async () => {
+      authFetchMock
+        .mockResolvedValueOnce(json({ hosts: [bob, helper] }))
+        .mockResolvedValueOnce(json({ hosts: [bob, { ...helper }] }));
+      const signal = renderAsOwner();
+      await waitFor(() => expect(scopeSelect().value).toBe("own"));
+      const select = scopeSelect();
+      select.focus();
+      expect(document.activeElement).toBe(select);
+
+      // A signal from a change elsewhere: this list reads back the same.
+      signal();
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(scopeSelect()).toBe(select);
+      expect(select.isConnected).toBe(true);
+      expect(document.activeElement).toBe(select);
+    });
+  });
+
   it("reads once with no socket above it", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [bob] }));
     render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);

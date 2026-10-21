@@ -7,7 +7,7 @@ import { Field, Fieldset } from "@shared/ui/ui/field";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
-import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
@@ -507,7 +507,18 @@ export default function HostsPanel(props: HostsPanelProps) {
       };
       if (seq !== loadSeq) return;
       const rows = body.hosts.map(withKnownRole);
-      setHosts(ownersFirst(rows));
+      // A seat the read shows as this panel already does keeps its row object,
+      // so `<For>` keeps its row, its controls and the focus of an owner on
+      // one of them; only a changed seat is rebuilt.
+      const onScreen = new Map(untrack(hosts).map((h) => [h.osnProfileId, h]));
+      setHosts(
+        ownersFirst(
+          rows.map((row) => {
+            const shown = onScreen.get(row.osnProfileId);
+            return shown && showsAs(shown, row) ? shown : row;
+          }),
+        ),
+      );
       // The checklist names who holds each task from this same list, so it
       // takes this read rather than making its own.
       const seats = asSeats(rows);
@@ -668,6 +679,21 @@ export default function HostsPanel(props: HostsPanelProps) {
   const scopeOf = (host: HostRow): RunSheetScope =>
     scopesSet().get(host) ?? readRunSheetScope(host.runSheetScope, "own");
 
+  /** Does a freshly read seat show exactly as `shown` does now? Its scope is
+   *  compared with what the row shows — a write of this visit's in flight or
+   *  accepted included — not with what the API last sent for it. */
+  const showsAs = (shown: HostRow, read: HostRow): boolean =>
+    shown.hostId === read.hostId &&
+    shown.handle === read.handle &&
+    shown.displayName === read.displayName &&
+    shown.avatarUrl === read.avatarUrl &&
+    shown.role === read.role &&
+    shown.createdAt === read.createdAt &&
+    shown.addedByOsnProfileId === read.addedByOsnProfileId &&
+    shown.addedByHandle === read.addedByHandle &&
+    (untrack(scopeWrites).get(shown) ?? untrack(() => scopeOf(shown))) ===
+      readRunSheetScope(read.runSheetScope, "own");
+
   /** What an owner's scope select shows: the pick while the widening is being
    *  asked about, the scope a write in flight is setting, and the seat's own
    *  otherwise. The option picked changed the DOM at once, so a change to this
@@ -701,7 +727,9 @@ export default function HostsPanel(props: HostsPanelProps) {
   }
 
   /** Set a helper's run-sheet scope (owner-only; the API re-checks). The
-   *  checklist reads no scope, so its seat cache stays as it is. */
+   *  checklist reads no scope, so its seat cache stays as it is. The API tells
+   *  the helper's open tab, and every co-host panel, through the wedding's
+   *  socket. */
   async function changeScope(host: HostRow, next: RunSheetScope) {
     setScopeWrites((writes) => new Map(writes).set(host, next));
     try {
@@ -721,6 +749,10 @@ export default function HostsPanel(props: HostsPanelProps) {
         return;
       }
       haptic("commit");
+      // A read already in flight may predate the write, so its answer is
+      // dropped, as `setLocalHosts` drops one; the write's own signal asks
+      // again.
+      loadSeq += 1;
       setScopesSet((set) => new Map(set).set(host, next));
       toast.success(`${nameOf(host)} now sees ${RUN_SHEET_SCOPE_COPY[next].phrase}.`);
     } catch (err) {

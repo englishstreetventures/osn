@@ -1,9 +1,13 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
+import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ChecklistView from "../../src/components/ChecklistView";
+import { __resetHostsCache } from "../../src/lib/hosts-store";
+import { MembersChangedContext } from "../../src/lib/members-changed";
+import { TasksChangedContext } from "../../src/lib/tasks-changed";
 import { __resetTasksCache, setCachedTasks, type TaskRow } from "../../src/lib/tasks-store";
 
 // useAuth: a stub authFetch we drive per-test.
@@ -190,5 +194,100 @@ describe("ChecklistView", () => {
 
     await waitFor(() => expect(screen.queryByText("Book venue")).not.toBeInTheDocument());
     expect(screen.getByText("Send invites")).toBeInTheDocument();
+  });
+});
+
+describe("ChecklistView — the open wedding's signals", () => {
+  const json = (body: unknown) =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  const calls = (suffix: string) =>
+    authFetch.mock.calls.filter(([url, init]) => String(url).endsWith(suffix) && !init?.method);
+
+  /** The view under both providers, with a bump for each. */
+  function renderWithSignals() {
+    const [tasksChanged, setTasksChanged] = createSignal(0);
+    const [membersChanged, setMembersChanged] = createSignal(0);
+    render(() => (
+      <MembersChangedContext.Provider value={membersChanged}>
+        <TasksChangedContext.Provider value={tasksChanged}>
+          <ChecklistView weddingId="wed_1" canEdit={true} />
+        </TasksChangedContext.Provider>
+      </MembersChangedContext.Provider>
+    ));
+    return {
+      tasksChanged: () => setTasksChanged((n) => n + 1),
+      membersChanged: () => setMembersChanged((n) => n + 1),
+    };
+  }
+
+  beforeEach(() => {
+    __resetHostsCache();
+  });
+
+  it("reads the tasks again on tasks-changed and shows the answer", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    authFetch.mockImplementation(async () =>
+      json({ tasks: [row({ id: "a", title: "Book the hall" })] }),
+    );
+    const signals = renderWithSignals();
+    await screen.findByText("Book venue");
+
+    signals.tasksChanged();
+
+    expect(await screen.findByText("Book the hall")).toBeInTheDocument();
+    expect(calls("/tasks")).toHaveLength(1);
+  });
+
+  it("never lets a re-read undo the organiser's own tick", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", status: "open" })]);
+    let answerTick!: (res: Response) => void;
+    authFetch.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        return new Promise<Response>((resolve) => {
+          answerTick = resolve;
+        });
+      }
+      // Read before the tick committed: the task is still open.
+      return json({ tasks: [row({ id: "a", status: "open" })] });
+    });
+    const signals = renderWithSignals();
+    // Asked afresh each time: a row may be rebuilt when its task changes.
+    const ticked = () =>
+      (screen.getByRole("checkbox", { name: /book venue/i }) as HTMLInputElement).checked;
+    await screen.findByRole("checkbox", { name: /book venue/i });
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /book venue/i }));
+    await waitFor(() => expect(ticked()).toBe(true));
+    signals.tasksChanged();
+    await waitFor(() => expect(calls("/tasks")).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(ticked()).toBe(true);
+
+    answerTick(json({ task: row({ id: "a", status: "done", completedAt: 2 }) }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(ticked()).toBe(true);
+  });
+
+  it("reads the seats again on members-changed once it has read them, and not before", async () => {
+    setCachedTasks("wed_1", [row({ id: "a" })]);
+    authFetch.mockImplementation(async () => json({ hosts: [] }));
+    const quiet = renderWithSignals();
+    await screen.findByText("Book venue");
+    quiet.membersChanged();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Nobody holds a task, so no seats were wanted, and none are read.
+    expect(calls("/hosts")).toHaveLength(0);
+    cleanup();
+
+    __resetTasksCache();
+    __resetHostsCache();
+    setCachedTasks("wed_1", [row({ id: "a", assigneeHostIds: ["whost_sam"] })]);
+    const held = renderWithSignals();
+    await waitFor(() => expect(calls("/hosts")).toHaveLength(1));
+    held.membersChanged();
+    await waitFor(() => expect(calls("/hosts")).toHaveLength(2));
   });
 });

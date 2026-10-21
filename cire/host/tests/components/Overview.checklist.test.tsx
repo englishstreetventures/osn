@@ -1,12 +1,14 @@
 // @vitest-environment happy-dom
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
+import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import Overview from "../../src/components/Overview";
 import { __resetBudgetCache } from "../../src/lib/budget-store";
 import { setCachedEvents } from "../../src/lib/events-store";
 import { setCachedGuests } from "../../src/lib/guests-store";
+import { TasksChangedContext } from "../../src/lib/tasks-changed";
 import {
   __resetTasksCache,
   setCachedTasks,
@@ -142,5 +144,55 @@ describe("Overview checklist widget", () => {
       expect(checklistCard.textContent!.replace(/\s+/g, " ").trim()).toMatch(/1 of 2 done/i),
     );
     expect(checklistCard.textContent).not.toMatch(/Loading your tasks…/i);
+  });
+});
+
+describe("Overview checklist widget — the open wedding's signals", () => {
+  const tasksCalls = () => authFetch.mock.calls.filter(([url]) => url.endsWith("/tasks"));
+
+  function renderWithSignal(tier: "ivory" | "crimson") {
+    const [tasksChanged, setTasksChanged] = createSignal(0);
+    render(() => (
+      <TasksChangedContext.Provider value={tasksChanged}>
+        <Overview weddingId="wed_1" tier={tier} onNavigate={() => {}} />
+      </TasksChangedContext.Provider>
+    ));
+    return () => setTasksChanged((n) => n + 1);
+  }
+
+  it("reads the tasks again on tasks-changed, and shows the new count", async () => {
+    const answer = authFetch.getMockImplementation()!;
+    let done = 0;
+    authFetch.mockImplementation(async (url: string) =>
+      url.endsWith("/tasks")
+        ? json({
+            tasks: [
+              row({ id: "a", status: done > 0 ? "done" : "open" }),
+              row({ id: "b", status: "done" }),
+              row({ id: "c", status: "open" }),
+            ],
+          })
+        : answer(url),
+    );
+    try {
+      const tasksChanged = renderWithSignal("crimson");
+      expect(await screen.findByText(/1 of 3 done/i)).toBeInTheDocument();
+
+      done = 1;
+      tasksChanged();
+
+      expect(await screen.findByText(/2 of 3 done/i)).toBeInTheDocument();
+      expect(tasksCalls()).toHaveLength(2);
+    } finally {
+      authFetch.mockImplementation(answer);
+    }
+  });
+
+  it("reads no tasks on a signal while the checklist is locked below Gold", async () => {
+    const tasksChanged = renderWithSignal("ivory");
+    await waitFor(() => expect(authFetch).toHaveBeenCalled());
+    tasksChanged();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(tasksCalls()).toHaveLength(0);
   });
 });

@@ -3,6 +3,7 @@ import { describe, expect, it, beforeEach } from "vitest";
 
 import {
   __resetTasksCache,
+  beginTaskWrite,
   dropTasks,
   ensureTasksLoaded,
   hasCachedTasks,
@@ -324,6 +325,73 @@ describe("tasks-store", () => {
 
     expect(tasksAccessor("wed_1")()?.map((t) => t.id)).toEqual(["seed"]);
     expect(hasCachedTasks("wed_1")).toBe(false);
+  });
+
+  describe("the portal's own writes", () => {
+    /** A read held open until `release`, answering `rows`. */
+    function heldRead(rows: TaskRow[]) {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      return {
+        release,
+        fetcher: async () => {
+          await gate;
+          return rows;
+        },
+      };
+    }
+
+    // A signal can ask for a re-read while the organiser's own tick is out. The
+    // server answers it from before the tick commits, and taking that answer
+    // would flip the tick back under them.
+    it("drops a read that lands while a write is out, and leaves the wedding stale", async () => {
+      setCachedTasks("wed_1", [row({ id: "a", status: "open" })]);
+      const end = beginTaskWrite("wed_1");
+      setCachedTasks("wed_1", [row({ id: "a", status: "done" })]);
+
+      invalidateTasks("wed_1");
+      const read = heldRead([row({ id: "a", status: "open" })]);
+      const pending = ensureTasksLoaded("wed_1", read.fetcher);
+      read.release();
+
+      await expect(pending).resolves.toBe(false);
+      expect(peekCachedTasks("wed_1")?.[0]?.status).toBe("done");
+      expect(hasCachedTasks("wed_1")).toBe(false);
+      end();
+    });
+
+    it("drops a read sent while a write was out that answers after it ends", async () => {
+      setCachedTasks("wed_1", [row({ id: "a", status: "done" })]);
+      const end = beginTaskWrite("wed_1");
+      invalidateTasks("wed_1");
+      const read = heldRead([row({ id: "a", status: "open" })]);
+      const pending = ensureTasksLoaded("wed_1", read.fetcher);
+
+      end();
+      read.release();
+
+      await expect(pending).resolves.toBe(false);
+      expect(peekCachedTasks("wed_1")?.[0]?.status).toBe("done");
+    });
+
+    it("takes a read sent after every write has ended", async () => {
+      setCachedTasks("wed_1", [row({ id: "a", status: "done" })]);
+      const first = beginTaskWrite("wed_1");
+      const second = beginTaskWrite("wed_1");
+      first();
+      // Ending twice ends one write once: the other is still out.
+      first();
+      invalidateTasks("wed_1");
+      await expect(ensureTasksLoaded("wed_1", async () => [row({ id: "x" })])).resolves.toBe(false);
+      second();
+
+      invalidateTasks("wed_1");
+      await expect(ensureTasksLoaded("wed_1", async () => [row({ id: "b" })])).resolves.toBe(true);
+      expect(peekCachedTasks("wed_1")?.map((t) => t.id)).toEqual(["b"]);
+      expect(hasCachedTasks("wed_1")).toBe(true);
+    });
   });
 
   describe("the reader's own seat", () => {

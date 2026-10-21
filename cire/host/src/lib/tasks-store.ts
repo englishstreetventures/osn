@@ -145,9 +145,37 @@ export function invalidateTasks(weddingId: string): void {
   generation.set(weddingId, generationOf(weddingId) + 1);
 }
 
-/** Monotonic per-wedding load generation, bumped by every invalidation. */
+/** Monotonic per-wedding load generation, bumped by every invalidation and
+ *  at the start and end of every write the portal makes itself. */
 const generation = new Map<string, number>();
 const generationOf = (weddingId: string) => generation.get(weddingId) ?? 0;
+
+/** How many of the portal's own task writes are out, per wedding. */
+const writing = new Map<string, number>();
+
+/**
+ * Mark one of the portal's own task writes as out, and get back the function
+ * that marks it done (calling it again does nothing).
+ *
+ * While any write is out, a read that lands is dropped and the wedding stays
+ * stale, and a read sent before a write ends is dropped when it lands after:
+ * the server may have answered it from before the write committed, and its
+ * rows would undo what the organiser just did on screen. The write's own
+ * signal asks for the read that sees it.
+ */
+export function beginTaskWrite(weddingId: string): () => void {
+  writing.set(weddingId, (writing.get(weddingId) ?? 0) + 1);
+  generation.set(weddingId, generationOf(weddingId) + 1);
+  let ended = false;
+  return () => {
+    if (ended) return;
+    ended = true;
+    const left = (writing.get(weddingId) ?? 1) - 1;
+    if (left > 0) writing.set(weddingId, left);
+    else writing.delete(weddingId);
+    generation.set(weddingId, generationOf(weddingId) + 1);
+  };
+}
 
 /** Wedding ids whose cached rows are known out of date but still worth showing
  *  while the refetch is in flight. */
@@ -198,10 +226,11 @@ export function ensureTasksLoaded(
     const load = fetcher()
       .then(
         (rows) => {
-          // A newer invalidation landed while this was in flight — its rows
-          // describe state that has since been mutated, so drop them rather than
+          // A newer invalidation, or one of the portal's own writes, landed
+          // while this was in flight — or a write is out now — so its rows may
+          // describe state that has since been mutated: drop them rather than
           // cache them.
-          if (generationOf(weddingId) !== startedAt) return false;
+          if (generationOf(weddingId) !== startedAt || writing.has(weddingId)) return false;
           setCachedTasks(weddingId, rows);
           stale.delete(weddingId);
           return true;
@@ -243,6 +272,7 @@ export function dropTasks(weddingId: string): void {
   cache.delete(weddingId);
   inflight.delete(weddingId);
   stale.delete(weddingId);
+  writing.delete(weddingId);
   generation.set(weddingId, generationOf(weddingId) + 1);
 }
 
@@ -252,4 +282,5 @@ export function __resetTasksCache(): void {
   inflight.clear();
   generation.clear();
   stale.clear();
+  writing.clear();
 }

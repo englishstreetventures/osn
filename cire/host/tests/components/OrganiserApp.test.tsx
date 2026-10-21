@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import type { SubscriptionOptions } from "@shared/realtime/client";
+import type { SignalKind } from "@shared/realtime";
+import type { SignalEvent, SubscriptionOptions } from "@shared/realtime/client";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -119,6 +120,7 @@ let shellMounts = 0;
 vi.mock("../../src/components/ModuleShell", async () => {
   const { useAuth } = await import("@shared/rp-auth/solid");
   const { useMembersChanged } = await import("../../src/lib/members-changed");
+  const { useTasksChanged } = await import("../../src/lib/tasks-changed");
   return {
     default: (props: {
       weddingId: string;
@@ -137,6 +139,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
     }) => {
       const { authFetch } = useAuth();
       const membersChanged = useMembersChanged();
+      const tasksChanged = useTasksChanged();
       shellMounts += 1;
       const mount = shellMounts;
       return (
@@ -149,6 +152,7 @@ vi.mock("../../src/components/ModuleShell", async () => {
           data-tier={props.tier}
           data-mount={String(mount)}
           data-members-changed={String(membersChanged())}
+          data-tasks-changed={String(tasksChanged())}
         >
           {props.weddingId}
           <button onClick={() => props.onModule("guests")}>go-guests</button>
@@ -190,13 +194,13 @@ vi.mock("../../src/components/SecurityPanel", () => ({
 // runs the real socket.
 const topic = vi.hoisted(() => ({
   url: null as null | (() => string | null | undefined),
-  onSignal: null as null | ((event: { reason: string }) => void),
+  onSignal: null as null | ((event: SignalEvent) => void),
   options: null as null | SubscriptionOptions,
 }));
 vi.mock("@shared/realtime/solid", () => ({
   useTopic: (
     url: () => string | null | undefined,
-    onSignal: (event: { reason: string }) => void,
+    onSignal: (event: SignalEvent) => void,
     options?: SubscriptionOptions,
   ) => {
     topic.url = url;
@@ -206,6 +210,7 @@ vi.mock("@shared/realtime/solid", () => ({
 }));
 
 import OrganiserApp from "../../src/components/OrganiserApp";
+import { __resetTasksCache, hasCachedTasks, setCachedTasks } from "../../src/lib/tasks-store";
 // The unsaved-changes guard is real (unmocked) — the veto tests below register
 // a guard directly, standing in for any mounted dirty form (the invite builder).
 import { registerUnsavedGuard } from "../../src/lib/unsaved-guard";
@@ -218,6 +223,12 @@ import {
 } from "../../src/lib/vendors-store";
 import { __resetWeddingScope } from "../../src/lib/wedding-scope";
 import { redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
+
+/** A signal on the open wedding's topic, as the subscription hands it over. */
+const message = (kind: SignalKind): SignalEvent => ({
+  reason: "message",
+  signal: { topic: "cire:wedding:wed_a", kind, at: Date.now() },
+});
 
 /** A `GET /api/organiser/weddings` answer. `deleted`, when given, is the
  *  owner's restorable weddings; left out, the body carries no `deleted` key. */
@@ -268,6 +279,7 @@ describe("OrganiserApp Dashboard", () => {
     toastInfo.mockReset();
     __resetWeddingScope();
     __resetVendorsCache();
+    __resetTasksCache();
   });
 
   afterEach(async () => {
@@ -796,14 +808,66 @@ describe("OrganiserApp Dashboard", () => {
     expect(topic.url?.()).toBeNull();
   });
 
-  it("does not listen for a helper, whose seat holds no rows", async () => {
+  it("listens for a helper, whose run sheet follows the wedding's changes", async () => {
     history.replaceState(null, "", "#/w/wed_a");
     authFetchMock.mockResolvedValue(
       listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", role: "helper" }]),
     );
     render(() => <OrganiserApp />);
     await waitFor(() => expect(screen.getByText(/Helper access/i)).toBeTruthy());
-    expect(topic.url?.()).toBeNull();
+    expect(topic.url?.()).toMatch(/\/realtime\/cire%3Awedding%3Awed_a$/);
+  });
+
+  it("opens the dashboard for a helper promoted on a signal, with no click", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    let role = "helper";
+    authFetchMock.mockImplementation(async () =>
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", role }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByText(/Helper access/i)).toBeTruthy());
+
+    role = "viewer";
+    topic.onSignal?.(message("members-changed"));
+
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    expect(listCalls()).toBe(2);
+  });
+
+  it("tells the open wedding's task views on tasks-changed, without reading the list", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setCachedTasks("wed_a", []);
+    expect(hasCachedTasks("wed_a")).toBe(true);
+
+    topic.onSignal?.(message("tasks-changed"));
+
+    await waitFor(() => expect(shell().dataset.tasksChanged).toBe("1"));
+    // The cached rows are marked stale for the next view that reads them, and
+    // nothing is fetched here: no list, no tasks.
+    expect(hasCachedTasks("wed_a")).toBe(false);
+    expect(shell().dataset.membersChanged).toBe("0");
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells both kinds of view on a reconnect, which may have missed either", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setCachedTasks("wed_a", []);
+
+    topic.onSignal?.({ reason: "reconnected" });
+
+    await waitFor(() => expect(shell().dataset.tasksChanged).toBe("1"));
+    expect(shell().dataset.membersChanged).toBe("1");
+    expect(hasCachedTasks("wed_a")).toBe(false);
   });
 
   it("re-reads the list on a signal and drops a wedding the organiser was removed from", async () => {
@@ -818,7 +882,7 @@ describe("OrganiserApp Dashboard", () => {
     expect(listCalls()).toBe(1);
 
     removed = true;
-    topic.onSignal?.({ reason: "message" });
+    topic.onSignal?.(message("members-changed"));
 
     await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
     expect(listCalls()).toBe(2);
@@ -834,7 +898,7 @@ describe("OrganiserApp Dashboard", () => {
     await waitFor(() => expect(shell().textContent).toContain("wed_a"));
     expect(shell().dataset.membersChanged).toBe("0");
 
-    topic.onSignal?.({ reason: "message" });
+    topic.onSignal?.(message("members-changed"));
     await waitFor(() => expect(shell().dataset.membersChanged).toBe("1"));
     // A drop and a stop report no change to the seats of their own.
     topic.onSignal?.({ reason: "dropped" });
@@ -1602,9 +1666,13 @@ describe("OrganiserApp Dashboard", () => {
     const start = 1_900_000_000_000;
     const wedA = [{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }];
 
-    it.each(["message", "reconnected", "stopped"])(
+    it.each([
+      ["members-changed", message("members-changed")],
+      ["reconnected", { reason: "reconnected" } as const],
+      ["stopped", { reason: "stopped" } as const],
+    ] satisfies [string, SignalEvent][])(
       "sends a fresh read for a %s event that arrives after the read started",
-      async (reason) => {
+      async (_label, event) => {
         const clock = vi.spyOn(Date, "now").mockReturnValue(start);
         try {
           history.replaceState(null, "", "#/w/wed_a");
@@ -1621,12 +1689,12 @@ describe("OrganiserApp Dashboard", () => {
           setCachedVendors("wed_a", [vendorRow("wed_a")]);
 
           // The first signal's read is held with the wedding still in it.
-          topic.onSignal?.({ reason: "message" });
+          topic.onSignal?.(message("members-changed"));
           await waitFor(() => expect(listReads).toBe(2));
 
           // The organiser is removed after that read started.
           clock.mockReturnValue(start + 1);
-          topic.onSignal?.({ reason });
+          topic.onSignal?.(event);
 
           await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
           expect(listReads).toBe(3);
@@ -1658,7 +1726,7 @@ describe("OrganiserApp Dashboard", () => {
         await waitFor(() => expect(shell().textContent).toContain("wed_a"));
 
         // The signal, then the eviction's drop a millisecond later.
-        topic.onSignal?.({ reason: "message" });
+        topic.onSignal?.(message("members-changed"));
         await waitFor(() => expect(listReads).toBe(2));
         clock.mockReturnValue(start + 1);
         topic.onSignal?.({ reason: "dropped" });
