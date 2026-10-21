@@ -79,7 +79,7 @@ the plan holds the complete code — to `mechanic`, every other implementer prom
 to `implementer`, and its final whole-branch review to `reviewer`, none with a
 `model`. Its per-task reviews and re-reviews are the one exception: they keep
 the plugin's own `general-purpose` dispatch and model choice, because routing
-each of them to `reviewer` would run every small review at `xhigh`.
+each of them to `reviewer` would run every small review at `high`.
 
 ## A session older than the definition
 
