@@ -483,6 +483,16 @@ It is read-only for every role. The decisions it settles:
   the thread. A task is a transparent row marked by a bead: a hollow
   `--border-strong` ring when open, filled `--text-faint` when done, filled
   gold while coming up. An event's name carries a hidden "Event:".
+- **An event's run of show rides inside its band**, under its name and place,
+  so it moves with the event and is never mistaken for a task: no marker on
+  the thread, no flags, nobody holding it, nothing to press. It is a list
+  named "Run of show for <event>" on a `--border` hairline of its own, each
+  item a `text-ui-sm` label after its time in a fixed 3.5rem column of muted
+  `text-ui-xs`, end-aligned like the sheet's own times. The order and the
+  marking are the guest's (`guestOrder`, as the Events list reads it): from the
+  event's start on its own clock, an item earlier on the clock than the start
+  last and marked "(after midnight)" in muted ink. Each time is the item's own
+  `HH:MM` as the organiser wrote it, on the event's clock, never converted.
 - **Flags are a word and a shape.** Sentence-case pills, never colour alone:
   "You" on a `--brand` fill, "Coming up" on a gold fill (`--on-gold` ink),
   "Done" in a `--border-strong` outline with a tick, "Event removed" in a
@@ -561,7 +571,8 @@ Every state that reports an outcome pairs its hue with a shape and a word.
 
 `RunSheetView.browser.test.tsx` and `RunTimeEditor.browser.test.tsx` measure
 the two screens above at 390 and 1280px in both ramps — every marker on the
-thread, the holders' column, every word at 4.5:1 on what it is painted over,
+thread, the holders' column, an event's run of show inside its band and past
+the thread, every word at 4.5:1 on what it is painted over,
 the popover inside the screen, Tab inside the popover — and leave screenshots
 in `__screenshots__/`.
 

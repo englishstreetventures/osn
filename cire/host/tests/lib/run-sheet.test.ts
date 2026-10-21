@@ -37,6 +37,7 @@ const event: RunSheetItem = {
   timezone: "Australia/Sydney",
   venueName: null,
   address: null,
+  runOfShow: [],
 };
 
 describe("isComingUp", () => {

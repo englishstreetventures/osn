@@ -17,7 +17,9 @@ import "../../src/styles/global.css";
  * (gitignored), at 390 and 1280px in both ramps: the whole day as an owner,
  * an `own` helper's day, and the below-Gold message. The clock is pinned to
  * 1:10 pm Sydney on the day, so "Greet the celebrant" at 1:30 pm is coming
- * up. Photos come from `https://photos.example`, answered by `servePhotos`.
+ * up. The Ceremony and the Reception carry runs of show, the Reception's with
+ * a long item and one after midnight: they sit inside their bands, in the
+ * words' column, past the thread. Photos come from `https://photos.example`, answered by `servePhotos`.
  *
  * The factories below are written literally: the shared-factory idiom in
  * `test-support/mocks.ts` does not resolve in the browser project.
@@ -69,6 +71,7 @@ const event = (
   timezone: SYDNEY,
   venueName: null,
   address: null,
+  runOfShow: [],
   ...over,
 });
 const photo = (name: string) => `https://photos.example/${name}.png`;
@@ -97,6 +100,10 @@ const CEREMONY = event({
   endAt: "2099-06-20T14:45:00+10:00",
   venueName: "The Boathouse",
   address: "1 Ocean Street, Palm Beach NSW 2108",
+  runOfShow: [
+    { time: "14:25", label: "Signing of the register" },
+    { time: "14:05", label: "Processional" },
+  ],
 });
 const RECEPTION = event({
   id: "evt_reception",
@@ -105,6 +112,15 @@ const RECEPTION = event({
   endAt: "2099-06-21T00:30:00+10:00",
   venueName: "The Boathouse",
   address: "1 Ocean Street, Palm Beach NSW 2108",
+  runOfShow: [
+    { time: "17:30", label: "Guests seated" },
+    {
+      time: "18:15",
+      label: "Entrée, then the speeches from both families and a toast to the couple's parents",
+    },
+    { time: "00:15", label: "Last bus to the city" },
+    { time: "22:45", label: "Sparklers send-off" },
+  ],
 });
 const GREET = task({
   id: "greet",
@@ -350,6 +366,12 @@ function expectLaidOut(width: number) {
       // The time column ends before the thread; the words start after it.
       // An untimed row has no time, and reads as one that ends at the start.
       const timeEnd = li.querySelector("time")?.getBoundingClientRect().right ?? row.left;
+      // An event's run of show hangs in its words' column, inside its band.
+      for (const item of li.querySelectorAll<HTMLElement>("[data-run-of-show-item]")) {
+        const box = item.getBoundingClientRect();
+        expect(contains(row, box), `${what}: "${item.textContent}" inside its band`).toBe(true);
+        expect(box.left, `${what}: "${item.textContent}" past the thread`).toBeGreaterThan(threadX);
+      }
       expect(timeEnd, `${what}'s time before the thread`).toBeLessThan(threadX);
       expect(title.getBoundingClientRect().left).toBeGreaterThan(threadX);
       // Wide, the holders take a third column; narrow, a line under the words.
@@ -432,6 +454,20 @@ describe("the run sheet, painted", () => {
         expect(rowOf("rings").textContent).toContain("At the start of Ceremony");
         expect(rowOf("dance").textContent).toContain("3 hr 30 min after Reception");
         expect(rowOf("evt_reception").textContent).toMatch(/to 12:30\sam Sun/);
+        // The Reception's run of show, from its start, after midnight last.
+        const runOfShow = within(rowOf("evt_reception")).getByRole("list", {
+          name: "Run of show for Reception",
+        });
+        expect(
+          [...runOfShow.querySelectorAll("[data-run-of-show-item]")].map((li) =>
+            (li.textContent ?? "").replace(/\s+/g, " ").trim(),
+          ),
+        ).toEqual([
+          "5:30 pm Guests seated",
+          "6:15 pm Entrée, then the speeches from both families and a toast to the couple's parents",
+          "10:45 pm Sparklers send-off",
+          "12:15 am Last bus to the city (after midnight)",
+        ]);
         // The row's own grid: three tracks once the view is wide.
         const tracks = getComputedStyle(rowOf("dance")).gridTemplateColumns.split(" ").length;
         expect(tracks).toBe(viewport.width >= 1000 ? 3 : 2);

@@ -19,6 +19,7 @@ import {
 } from "solid-js";
 
 import { isAuthExpired, redirectToLogin } from "../lib/api";
+import { clockLabel, type GuestOrderLine, guestOrder } from "../lib/event-guest-details";
 import { readerFirst } from "../lib/holder-writes";
 import { useMembersChanged } from "../lib/members-changed";
 import { isComingUp, isOwnTask, nextComingUpChange } from "../lib/run-sheet";
@@ -390,10 +391,16 @@ function When(props: {
   );
 }
 
-/** An event on the run sheet: a raised band on the thread, marked by a diamond. */
+/** An event on the run sheet: a raised band on the thread, marked by a diamond,
+ *  holding its run of show. */
 function EventRow(props: { event: RunSheetEventItem; row: Row; showZone: boolean }) {
   const place = () =>
     [props.event.venueName, props.event.address].filter((part) => part !== null).join(" · ");
+  // The order the guest's sheet reads it in: from the event's start, on the
+  // event's clock, an item earlier than the start last and marked.
+  const runOfShow = createMemo(() =>
+    guestOrder(props.event.runOfShow, props.event.startAt, props.event.timezone),
+  );
   return (
     <li
       data-run-sheet-item={props.event.id}
@@ -416,8 +423,46 @@ function EventRow(props: { event: RunSheetEventItem; row: Row; showZone: boolean
         <Show when={place()}>
           <p class="font-body text-text-muted text-ui-sm wrap-break-word">{place()}</p>
         </Show>
+        <Show when={runOfShow().length > 0}>
+          <RunOfShow name={props.event.name} lines={runOfShow()} />
+        </Show>
       </div>
     </li>
+  );
+}
+
+/**
+ * An event's run of show inside its band: read-only, on the event's clock,
+ * each time as the organiser wrote it. Not rows of the run sheet — no marker
+ * on the thread, no flags, nobody holding them — so smaller type on a rule of
+ * its own under the event's words.
+ */
+function RunOfShow(props: { name: string; lines: readonly GuestOrderLine[] }) {
+  return (
+    <ol
+      aria-label={`Run of show for ${props.name}`}
+      class="border-border mt-1.5 flex flex-col gap-1 border-s ps-3"
+    >
+      <For each={props.lines}>
+        {(line) => (
+          <li
+            data-run-of-show-item
+            class="font-body text-ui-sm grid grid-cols-[3.5rem_minmax(0,1fr)] items-baseline gap-x-2 leading-snug"
+          >
+            <time datetime={line.time} class="text-text-muted text-ui-xs text-end tabular-nums">
+              {clockLabel(line.time)}
+            </time>{" "}
+            <span class="text-text wrap-break-word">
+              {line.label}
+              <Show when={line.afterMidnight}>
+                {" "}
+                <span class="text-text-muted text-ui-xs">(after midnight)</span>
+              </Show>
+            </span>
+          </li>
+        )}
+      </For>
+    </ol>
   );
 }
 

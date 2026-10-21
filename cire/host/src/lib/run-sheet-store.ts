@@ -9,7 +9,14 @@ import { apiUrl, weddingPath } from "./api";
 import { createRereadCache } from "./reread-cache";
 import { taskWrites } from "./task-writes";
 
-/** An event on the run sheet: its name, times, zone and place. */
+/** One item of an event's run of show: an `HH:MM` on the event's own clock,
+ *  and what happens then. */
+export interface RunOfShowLine {
+  time: string;
+  label: string;
+}
+
+/** An event on the run sheet: its name, times, zone, place and run of show. */
 export interface RunSheetEventItem {
   kind: "event";
   id: string;
@@ -20,6 +27,9 @@ export interface RunSheetEventItem {
   timezone: string;
   venueName: string | null;
   address: string | null;
+  /** In the organiser's order, as stored; `guestOrder` reads it from the
+   *  event's start. Empty when the event has none. */
+  runOfShow: RunOfShowLine[];
 }
 
 /** A task on the run sheet, with its time and who holds it. */
@@ -121,6 +131,7 @@ interface ItemWire {
   timezone?: unknown;
   venueName?: unknown;
   address?: unknown;
+  runOfShow?: unknown;
   title?: unknown;
   notes?: unknown;
   status?: unknown;
@@ -154,6 +165,17 @@ const text = (value: unknown): string | null => (typeof value === "string" ? val
 const strings = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 
+/** A run of show as it arrives: an item without a text time and label is left
+ *  out; an answer with none, or from an API older than it, is an empty one. */
+function runOfShowOf(value: unknown): RunOfShowLine[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item: unknown) => {
+    if (typeof item !== "object" || item === null) return [];
+    const { time, label } = item as { time?: unknown; label?: unknown };
+    return typeof time === "string" && typeof label === "string" ? [{ time, label }] : [];
+  });
+}
+
 function readItem(item: unknown): RunSheetItem | null {
   if (typeof item !== "object" || item === null) return null;
   const value = item as ItemWire;
@@ -172,6 +194,7 @@ function readItem(item: unknown): RunSheetItem | null {
       timezone,
       venueName: text(value.venueName),
       address: text(value.address),
+      runOfShow: runOfShowOf(value.runOfShow),
     };
   }
   if (value.kind === "task") {

@@ -299,6 +299,47 @@ describe("readRunSheet", () => {
     }
   });
 
+  it("reads an event's run of show, dropping what is not an item, and none from an older answer", () => {
+    const event = (id: string, runOfShow?: unknown) => ({
+      kind: "event",
+      id,
+      name: id,
+      startAt: "2099-06-20T15:00:00+10:00",
+      endAt: "",
+      timezone: "Australia/Sydney",
+      venueName: null,
+      address: null,
+      ...(runOfShow === undefined ? {} : { runOfShow }),
+    });
+    const read = readRunSheet({
+      scope: "full",
+      viewerHostId: "w",
+      items: [
+        event("evt_listed", [
+          { time: "15:20", label: "Vows" },
+          { time: "15:05", label: "Processional", extra: "dropped" },
+          { time: 1505, label: "A number" },
+          { time: "15:30" },
+          "15:40 Photos",
+          null,
+        ]),
+        event("evt_older"),
+        event("evt_garbled", "15:20 Vows"),
+      ],
+      people: [],
+    });
+    const runOfShow = (id: string) =>
+      read.items.find((i) => i.id === id && i.kind === "event")?.kind === "event"
+        ? (read.items.find((i) => i.id === id) as { runOfShow: unknown }).runOfShow
+        : undefined;
+    expect(runOfShow("evt_listed")).toEqual([
+      { time: "15:20", label: "Vows" },
+      { time: "15:05", label: "Processional" },
+    ]);
+    expect(runOfShow("evt_older")).toEqual([]);
+    expect(runOfShow("evt_garbled")).toEqual([]);
+  });
+
   it("fills a task's time fields an older answer leaves out as untimed", () => {
     const read = readRunSheet({
       scope: "full",

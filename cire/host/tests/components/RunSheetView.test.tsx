@@ -64,6 +64,14 @@ import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support
  *     the reader cannot see.
  * 19. A 401 sends the reader to sign in; Try again reads again.
  * 20. Every stack is read-only, and an open task nobody holds says so.
+ *
+ * An event's run of show (#1661's items, on the event's own clock):
+ * 21. In the order the guest's sheet reads it — from the event's start, an
+ *     item earlier on the clock than the start last and marked — reckoned on
+ *     the event's zone, not the browser's, and each time as written.
+ * 22. Inside its event's band: not a run-sheet row, nothing to press or type
+ *     in, never "Coming up".
+ * 23. An event with no run of show shows no list.
  */
 
 const ARRIVAL = Date.parse("2099-06-20T14:30:00+10:00");
@@ -106,6 +114,7 @@ const DAY: RunSheet = {
       timezone: "Australia/Sydney",
       venueName: "The Hall",
       address: "1 Hall St",
+      runOfShow: [],
     },
     task({
       id: "flowers",
@@ -429,6 +438,7 @@ describe.skipIf(!DESIGNED)("RunSheetView", () => {
       timezone: "Australia/Sydney",
       venueName: null,
       address: null,
+      runOfShow: [],
       ...over,
     });
     authFetchMock.mockResolvedValue(
@@ -518,5 +528,75 @@ describe.skipIf(!DESIGNED)("RunSheetView", () => {
     expect(screen.queryAllByRole("button", { name: /^Assign people/ })).toHaveLength(0);
     expect(within(rowOf("cake")!).getByRole("img", { name: "Nobody assigned yet" })).toBeTruthy();
     expect(within(rowOf("kit")!).queryByRole("img", { name: "Nobody assigned yet" })).toBeNull();
+  });
+  /** A Kolkata reception at 18:00 (22:30 in Sydney, the runner's zone) whose
+   *  run of show is stored in the organiser's order, not the clock's. */
+  const RECEPTION: RunSheetEventItem = {
+    kind: "event",
+    id: "evt_reception",
+    name: "Reception",
+    startAt: "2099-06-20T18:00:00+05:30",
+    endAt: "",
+    timezone: "Asia/Kolkata",
+    venueName: null,
+    address: null,
+    runOfShow: [
+      { time: "17:30", label: "Doors close" },
+      { time: "23:30", label: "Sparklers" },
+      { time: "00:30", label: "Last bus" },
+      { time: "19:00", label: "Dinner" },
+    ],
+  };
+  const runOfShowLines = (id: string) =>
+    [...(rowOf(id)?.querySelectorAll("[data-run-of-show-item]") ?? [])].map((el) =>
+      (el.textContent ?? "").replace(/\s+/g, " ").trim(),
+    );
+
+  it("reads an event's run of show from its start on the event's own clock, after midnight last and marked", async () => {
+    authFetchMock.mockResolvedValue(json({ ...DAY, items: [RECEPTION], people: [] }));
+    view();
+    await waitFor(() => expect(rowOf("evt_reception")).toBeTruthy());
+    expect(runOfShowLines("evt_reception")).toEqual([
+      "7:00 pm Dinner",
+      "11:30 pm Sparklers",
+      "12:30 am Last bus (after midnight)",
+      "5:30 pm Doors close (after midnight)",
+    ]);
+    const times = [...rowOf("evt_reception")!.querySelectorAll("[data-run-of-show-item] time")].map(
+      (t) => (t as HTMLTimeElement).dateTime,
+    );
+    expect(times).toEqual(["19:00", "23:30", "00:30", "17:30"]);
+    expect(
+      within(rowOf("evt_reception")!).getByRole("list", { name: "Run of show for Reception" }),
+    ).toBeTruthy();
+  });
+
+  it("keeps the run of show inside its event: no row of its own, nothing to press, never coming up", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // Ten minutes before Dinner (19:00 Kolkata).
+    vi.setSystemTime(Date.parse("2099-06-20T18:50:00+05:30"));
+    authFetchMock.mockResolvedValue(json({ ...DAY, items: [RECEPTION], people: [] }));
+    view();
+    await waitFor(() => expect(rowOf("evt_reception")).toBeTruthy());
+    expect(
+      [...document.querySelectorAll("[data-run-sheet-item]")].map(
+        (el) => (el as HTMLElement).dataset.runSheetItem,
+      ),
+    ).toEqual(["evt_reception"]);
+    const list = within(rowOf("evt_reception")!).getByRole("list", {
+      name: "Run of show for Reception",
+    });
+    expect(list.querySelectorAll("[data-run-of-show-item]")).toHaveLength(4);
+    expect(list.querySelectorAll("button, input, select, textarea, a")).toHaveLength(0);
+    expect(list.querySelector("[data-run-sheet-item], [data-kind], [data-coming-up]")).toBeNull();
+    expect(document.body.textContent).not.toContain("Coming up");
+  });
+
+  it("shows no run of show for an event with none", async () => {
+    authFetchMock.mockResolvedValue(json(DAY));
+    view();
+    await waitFor(() => expect(rowOf("evt_arrival")).toBeTruthy());
+    expect(within(rowOf("evt_arrival")!).queryByRole("list")).toBeNull();
+    expect(rowOf("evt_arrival")!.querySelector("[data-run-of-show-item]")).toBeNull();
   });
 });
