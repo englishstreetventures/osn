@@ -344,7 +344,7 @@ export function requests(rows: CardRow[]): Table {
       atOpen(known),
     headers: ["month", "PRs", "median calls", "single-tool share", "median context"],
     rows: [...byMonth.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
+      .toSorted((a, b) => a[0].localeCompare(b[0]))
       .map(([month, group]) => {
         const shares = group.map((r) => r.singleToolShare).filter((s): s is number => s !== null);
 
@@ -542,7 +542,7 @@ if (import.meta.main) {
     const seconds = Number.parseInt(shown.stdout.toString().trim(), 10);
 
     if (!shown.success || Number.isNaN(seconds)) {
-      console.error(`❌ pr-metrics report: git does not know commit \`${splitCommit}\`.`);
+      process.stderr.write(`❌ pr-metrics report: git does not know commit \`${splitCommit}\`.\n`);
       process.exit(1);
     }
 
