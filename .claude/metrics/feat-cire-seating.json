@@ -3,9 +3,9 @@
   "pr": {
     "number": 1640,
     "branch": "feat/cire-seating",
-    "base_sha": "ad5d69f70c2a380608cb41af0b6a4eceaa9be112",
-    "head_sha": "f714289061590b00a0114bce43a719dcceacb172",
-    "generated_at": "2026-10-21T01:19:28.060Z",
+    "base_sha": "f5a9859fa9c20fdc61f48471571410c90bd87f91",
+    "head_sha": "aa9c273ca9057ae9f8a77fb89c0b1267206c8edd",
+    "generated_at": "2026-10-21T01:45:21.381Z",
     "merged_at": null,
     "phase": "at-open"
   },
@@ -23,35 +23,35 @@
     "method": "unconfirmed"
   },
   "window": {
-    "sessions": 22,
+    "sessions": 25,
     "first_ts": "2026-10-20T05:27:36.323Z",
-    "last_ts": "2026-10-21T01:19:26.416Z",
-    "span_seconds": 71510,
-    "active_seconds": 15116,
+    "last_ts": "2026-10-21T01:45:17.507Z",
+    "span_seconds": 73061,
+    "active_seconds": 15924,
     "compactions": 1
   },
   "spend": {
-    "usd_equivalent": 253.87675300000043,
+    "usd_equivalent": 266.8361692000004,
     "tokens": {
-      "input": 3372,
-      "output": 35249,
-      "thinking": 9079,
-      "cache_write_5m": 9714577,
+      "input": 3464,
+      "output": 38075,
+      "thinking": 10781,
+      "cache_write_5m": 10431078,
       "cache_write_1h": 0,
-      "cache_read": 511463500
+      "cache_read": 534763558
     },
     "by_model": {
       "claude-opus-5-5": {
         "tokens": {
-          "input": 3372,
-          "output": 35249,
-          "thinking": 9079,
-          "cache_write_5m": 9714577,
+          "input": 3464,
+          "output": 38075,
+          "thinking": 10781,
+          "cache_write_5m": 10431078,
           "cache_write_1h": 0,
-          "cache_read": 511463500
+          "cache_read": 534763558
         },
-        "usd_equivalent": 253.87675300000043,
-        "messages": 1670
+        "usd_equivalent": 266.8361692000004,
+        "messages": 1715
       },
       "<synthetic>": {
         "tokens": {
@@ -69,32 +69,32 @@
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 84,
-          "output": 16043,
-          "thinking": 8577,
-          "cache_write_5m": 394520,
+          "input": 98,
+          "output": 18405,
+          "thinking": 10279,
+          "cache_write_5m": 466009,
           "cache_write_1h": 0,
-          "cache_read": 842999
+          "cache_read": 1019522
         },
-        "usd_equivalent": 2.6309956,
-        "messages": 41
+        "usd_equivalent": 3.1063458,
+        "messages": 48
       },
       "subagent": {
         "tokens": {
-          "input": 3288,
-          "output": 19206,
+          "input": 3366,
+          "output": 19670,
           "thinking": 502,
-          "cache_write_5m": 9320057,
+          "cache_write_5m": 9965069,
           "cache_write_1h": 0,
-          "cache_read": 510620501
+          "cache_read": 533744036
         },
-        "usd_equivalent": 251.24575740000037,
-        "messages": 1634
+        "usd_equivalent": 263.7298234000005,
+        "messages": 1672
       }
     },
     "effort": {
-      "medium": 41,
-      "xhigh": 1391,
+      "medium": 48,
+      "xhigh": 1429,
       "high": 238
     },
     "unpriced_models": []
@@ -113,15 +113,15 @@
         "deleted": 0
       },
       "test": {
-        "added": 4155,
+        "added": 4159,
         "deleted": 20
       },
       "docs": {
-        "added": 409,
-        "deleted": 56
+        "added": 406,
+        "deleted": 53
       },
       "config": {
-        "added": 4867,
+        "added": 4874,
         "deleted": 0
       },
       "source": {
@@ -138,7 +138,7 @@
       "shared/sortable"
     ],
     "touches_migration": true,
-    "commits": 9
+    "commits": 12
   },
   "interaction": {
     "user_turns": 0,
@@ -146,17 +146,18 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 1531,
-      "Read": 76,
+      "Bash": 1569,
+      "Read": 78,
       "Edit": 28,
-      "Write": 26,
-      "StructuredOutput": 19,
+      "Write": 27,
+      "StructuredOutput": 22,
       "Skill": 18,
+      "Grep": 14,
       "Monitor": 13,
-      "Grep": 12,
       "Agent": 10,
-      "SubagentHandback": 8,
-      "ToolSearch": 1
+      "SubagentHandback": 9,
+      "ToolSearch": 1,
+      "Glob": 1
     },
     "edit_churn": {
       "files_edited_3plus": 4,
