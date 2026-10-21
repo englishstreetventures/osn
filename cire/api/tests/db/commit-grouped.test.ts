@@ -8,6 +8,7 @@ import type { Db } from "../../src/db/index";
 import {
   commitBatchResults,
   commitGroupedBatches,
+  commitGroupedBatchResults,
   MAX_STATEMENTS_PER_BATCH,
 } from "../../src/db/index";
 import { createDb, seedDb } from "../../src/db/setup";
@@ -28,6 +29,32 @@ function fakeBatchDb(record: number[]): Db {
 }
 
 const group = (size: number): Stmt[] => Array.from({ length: size }, (_, n) => ({ n }));
+
+describe("commitGroupedBatchResults", () => {
+  it("answers one result per statement, in order, across every batch it sent", async () => {
+    const sizes: number[] = [];
+    const db = {
+      batch: (statements: Stmt[]) => {
+        sizes.push(statements.length);
+        return Promise.resolve(statements.map((stmt) => ({ changes: stmt.n })));
+      },
+    } as unknown as Db;
+    // 26 pairs: 25 fill the first batch, the 26th opens a second.
+    const groups = Array.from({ length: 26 }, () => group(2));
+
+    const results = await commitGroupedBatchResults(db, groups as never);
+
+    expect(sizes).toEqual([50, 2]);
+    expect(results).toHaveLength(52);
+    expect(results.map(rowsChanged)).toEqual(groups.flat().map((stmt) => stmt.n));
+  });
+
+  it("answers nothing for zero groups", async () => {
+    const sizes: number[] = [];
+    expect(await commitGroupedBatchResults(fakeBatchDb(sizes), [])).toEqual([]);
+    expect(sizes).toEqual([]);
+  });
+});
 
 describe("commitGroupedBatches", () => {
   it("commits everything in one batch when it fits", async () => {
