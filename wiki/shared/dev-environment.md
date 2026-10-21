@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Dev environment (cire + OSN identity)
@@ -700,8 +700,9 @@ the checks already ask.
    # missing and the deployed-tier guard failed closed.
 
    curl -s -o /dev/null -w '%{http_code}\n' https://api.cire.<D>/api/auth/oidc/start
-   # 400 — the handler ran and rejected the empty body. A 503 means one of
-   # OSN_ISSUER_URL / CIRE_API_ORIGIN / CIRE_OIDC_CLIENT_ID / _SECRET is unset.
+   # 400 — the handler ran and refused the missing return_to. A 302 to
+   # /login?auth_error=sign_in_unavailable means one of OSN_ISSUER_URL /
+   # OSN_JWKS_URL / CIRE_API_ORIGIN / CIRE_OIDC_CLIENT_ID / _SECRET is unset.
    ```
 
 2. `https://id.musubi.<D>/.well-known/jwks.json` serves keys, and

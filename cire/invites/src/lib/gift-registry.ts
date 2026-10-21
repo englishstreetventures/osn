@@ -44,13 +44,35 @@ export interface GiftRegistryItem {
   sortOrder: number;
 }
 
+/**
+ * Mirrors `PublicRegistryFundDto` — one of the couple's cash funds. Its name,
+ * picture and the couple's words about it, and nothing else: a fund's goal,
+ * and how much has come in, are the couple's alone.
+ */
+export interface GiftRegistryFund {
+  id: string;
+  title: string;
+  description: string | null;
+  /** LAST SEGMENT of the R2 key (`registry-<uuid>`), not a URL. */
+  imageName: string | null;
+  imageCrop: string | null;
+  sortOrder: number;
+}
+
 /** Mirrors `PublicRegistryDto`. One primary currency for the whole list. */
 export interface GiftRegistry {
   headline: string | null;
   message: string | null;
   cashGiftsEnabled: boolean;
   currency: string;
+  /** The gifts to reserve. Never a cash fund. */
   items: GiftRegistryItem[];
+  /**
+   * The cash funds a guest may give to, present only while the couple take
+   * money. Optional because this site can reach production before the API
+   * that sends it; absent reads as none.
+   */
+  funds?: GiftRegistryFund[];
 }
 
 /** Mirrors `HouseholdClaimDto`'s `status` (a released claim is never returned). */
@@ -71,11 +93,22 @@ export interface GiftRegistryHouseholdClaim {
  * never set one" at once, deliberately. The UI renders it only when present and
  * says nothing at all otherwise — inventing a reason here would be inventing
  * data the API declined to give.
+ *
+ * `preview` is present only for the wedding's host preview household — the
+ * organiser's "Preview invite" session — which reads the list and never writes
+ * to it. The page then shows the controls a guest sees, without offering them.
  */
 export interface GiftRegistryHousehold {
   claims: GiftRegistryHouseholdClaim[];
   shippingAddress?: string;
+  preview?: true;
 }
+
+/**
+ * The code a write answers the host preview household with (403). Read by its
+ * code, never its status: the origin guard answers 403 too.
+ */
+const PREVIEW_READ_ONLY = "preview_read_only";
 
 /**
  * The list read. CREDENTIALED — the list is for the couple's guests.
@@ -118,6 +151,8 @@ export type GiftRegistryHouseholdFetch =
  *  - `signed-out`    — 401. The 30-day household session lapsed mid-visit.
  *  - `rate-limited`  — 429, with the server's `retry-after` in seconds when it
  *                      sent a usable one.
+ *  - `preview`       — 403 `preview_read_only`. The organiser's preview session,
+ *                      from a page that did not know it was one.
  */
 export type GiftRegistryWrite =
   | { kind: "ok" }
@@ -127,6 +162,7 @@ export type GiftRegistryWrite =
   | { kind: "signed-out" }
   | { kind: "rate-limited"; retryAfterSeconds: number | null }
   | { kind: "invalid" }
+  | { kind: "preview" }
   | { kind: "error" };
 
 /** Body of a claim POST. Every field is optional server-side; quantity defaults to 1. */
@@ -185,6 +221,9 @@ async function writeFailure(res: Response): Promise<GiftRegistryWrite> {
       : { kind: "hidden" };
   }
   if (res.status === 400) return { kind: "invalid" };
+  if (res.status === 403 && (await errorCode(res)) === PREVIEW_READ_ONLY) {
+    return { kind: "preview" };
+  }
   return { kind: "error" };
 }
 
@@ -238,20 +277,28 @@ export async function fetchGiftRegistryHousehold(
  * never turned it on, Stripe cannot take a charge today, or there is no
  * connected account. One code for all three, because to a guest they are the
  * same fact and none of them is theirs to fix.
+ *
+ * `preview` is the 403 `preview_read_only`: the organiser's preview session,
+ * which never gives.
+ *
+ * `fund-closed` is the 409 `fund_unavailable`: the fund the guest chose is no
+ * longer on the couple's list. The page re-reads the list.
  */
 export type GiftContributionResult =
   | { kind: "ok"; url: string }
   | { kind: "unavailable" }
+  | { kind: "fund-closed" }
   | { kind: "signed-out" }
   | { kind: "rate-limited"; retryAfterSeconds: number | null }
   | { kind: "invalid" }
+  | { kind: "preview" }
   | { kind: "error" };
 
 /** What a guest is giving, and what they want said with it. */
 export interface GiftContributionBody {
   /** Minor units of the wedding's currency. */
   amountMinor: number;
-  /** Giving TOWARDS a listed gift, rather than in general. */
+  /** Giving to one of the couple's cash funds, rather than in general. */
   itemId?: string | null;
   message?: string | null;
   displayName?: string | null;
@@ -281,8 +328,15 @@ export async function contributeGift(
       cache: "no-store",
     });
     if (res.status === 401) return { kind: "signed-out" };
-    if (res.status === 409) return { kind: "unavailable" };
+    if (res.status === 409) {
+      return (await errorCode(res)) === "fund_unavailable"
+        ? { kind: "fund-closed" }
+        : { kind: "unavailable" };
+    }
     if (res.status === 400) return { kind: "invalid" };
+    if (res.status === 403 && (await errorCode(res)) === PREVIEW_READ_ONLY) {
+      return { kind: "preview" };
+    }
     if (res.status === 429) {
       const raw = res.headers.get("retry-after");
       const seconds = raw === null ? Number.NaN : Number.parseInt(raw, 10);
@@ -430,9 +484,8 @@ export function giftRegistryImageBase(apiUrl: string, slug: string, imageName: s
  *
  * The API already parses and normalises this on write. This is the second half
  * of the same gate, at the render site, because a row can also arrive from a
- * migration, a fixture or a restored backup — the CON-S-L2 precedent, where
- * `vendor.privacyUrl` reached an `href` with no scheme check and `javascript:`
- * was therefore a same-origin script sink.
+ * migration, a fixture or a restored backup, and a `javascript:` value in an
+ * `href` is a same-origin script sink.
  *
  * `https:` only. Embedded credentials are rejected for the same reason the write
  * path rejects them: `https://evil.com@retailer.example/` reads as the retailer
@@ -485,9 +538,12 @@ export function giftRegistryQuantityHint(max: number, wanted: number): string | 
  * Sort as the API's own index does: `sort_order`, then `id` as the tie-break.
  * Re-sorted client-side rather than trusted, so a merged/refetched list is
  * stable no matter what order the rows arrived in. Copies — never sorts the
- * caller's array in place.
+ * caller's array in place. Gifts and cash funds share one order on the list,
+ * so it sorts either, or both together.
  */
-export function sortGiftRegistryItems(items: readonly GiftRegistryItem[]): GiftRegistryItem[] {
+export function sortGiftRegistryItems<T extends Pick<GiftRegistryItem, "id" | "sortOrder">>(
+  items: readonly T[],
+): T[] {
   return [...items].sort((a, b) =>
     a.sortOrder === b.sortOrder ? a.id.localeCompare(b.id) : a.sortOrder - b.sortOrder,
   );

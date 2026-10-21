@@ -51,6 +51,7 @@ interface ClaimOk {
   faq: { visible: boolean; entries: { question: string; answer: string }[] };
   preview: boolean;
   accountLink: unknown;
+  member?: unknown;
 }
 
 const db = createDb(":memory:");
@@ -973,6 +974,9 @@ describe("account-link state on POST /api/claim and GET /api/claim/session", () 
     const body = (await res.json()) as ClaimOk;
     // The response did not wait for the flag.
     expect(body.accountLink).toEqual({ enabled: false });
+    // The flag decides only the link box: the household still says who is
+    // answering.
+    expect(body.member).toBeNull();
     // The flag check was handed to the request's context, and settles later.
     expect(kept).toHaveLength(1);
     release(true);
@@ -1069,5 +1073,7 @@ describe("account-link state on POST /api/claim and GET /api/claim/session", () 
     const { body } = await claim(linkApp, publicId, osn);
     expect(body.preview).toBe(true);
     expect(body.accountLink).toEqual({ enabled: false });
+    // A host is not a guest seat, so the preview has no member step either.
+    expect(body).not.toHaveProperty("member");
   });
 });

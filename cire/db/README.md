@@ -10,8 +10,8 @@ cire/db/
 ├── drizzle.config.ts     # Drizzle Kit pointer to schema + migrations dir
 ├── migrations/           # Forward-only D1 migrations (committed)
 │   ├── 0001_initial.sql  # THE BASELINE — the whole schema in one file
-│   ├── …                 # 0082 onwards; wrangler applies in NAME order
-│   └── meta/             # drizzle-kit journal + 0081_snapshot.json (see below)
+│   ├── 0082_… – 0090_…   # numbered migrations after it
+│   └── <YYYYMMDDHHMMSS>_<name>.sql  # every migration since, one file each (see below)
 ├── migrations-archive/   # 0001–0081, the chain the baseline stands for.
 │                         # Wrangler never reads this; the ledger check and tests do.
 └── seed/
@@ -36,7 +36,7 @@ it stops rather than fetch another version.
 
 | Script             | What it does                                                                                      |
 | ------------------ | ------------------------------------------------------------------------------------------------- |
-| `db:generate`      | `drizzle-kit generate` — diff `schema.ts` against the latest migration, emit a new one            |
+| `db:generate`      | `scripts/db-generate.ts` — diff the working tree's `schema.ts` against `HEAD`'s, write one migration file (see below) |
 | `db:push`          | Check the ledger, then apply pending migrations to the **local** D1 (Miniflare-backed)            |
 | `db:migrate:local` | Same as `db:push`, named to match `:prod`                                                         |
 | `db:migrate:prod`  | Check the ledger, then apply pending migrations to the **production** D1 (`--env production`). Coordinate with deploys. |
@@ -71,8 +71,9 @@ bun run --cwd cire/api dev
 **After editing `schema.ts`**
 
 ```bash
-bun run --cwd cire/db db:generate   # emits cire/db/migrations/00NN_<desc>.sql (0082+)
-# rename to a descriptive suffix, add a rationale header comment, review the SQL
+bun run --cwd cire/db db:generate --name <snake_case>
+#   writes cire/db/migrations/<YYYYMMDDHHMMSS>_<name>.sql; add a rationale
+#   header comment and review the SQL, without changing the shape it creates
 bun run --cwd cire/db db:push       # applies it locally
 # mirror the change in cire/api/src/db/setup.ts's DDL string — the
 # ddl-lockstep test fails until all three surfaces agree
@@ -130,7 +131,8 @@ applies them and deploys the matching Worker — then dispatch a release
 
 The archive lives outside `migrations_dir`, so nothing applies it. The tests
 that replay it to prove what a migration did to existing rows are listed in
-`migrations-archive/README.md`. New migrations start at `0082`.
+`migrations-archive/README.md`. Live migrations are numbered from `0082` to
+`0090`, and timestamped after that; every name sorts after the archive's.
 
 ### Squashing the chain again
 
@@ -148,40 +150,64 @@ chain rather than raise the line:
    `scripts/cire-db-migrate.ts`. A database built from the current baseline
    holds that name first; without it in the list the check refuses every such
    database after the squash.
-3. `git mv` every live migration after the baseline into `migrations-archive/`.
-   The archive stays contiguous from `0001`.
+3. `git mv` every live migration after the baseline into `migrations-archive/`,
+   under the name it has: every deployed ledger holds that name. Update the
+   archive's range in `cire/api/tests/db/ddl-lockstep.test.ts` and
+   `scripts/tests/cire-db-migrate.test.ts`, which assert it. The pull request
+   needs the `migrations:rewrite` label, or the migration history guard refuses
+   the moves.
 4. Regenerate `0001_initial.sql` from a replay of the whole archive into
    `bun:sqlite` with `PRAGMA foreign_keys = ON`: each table's and then each
    index's `sqlite_master.sql`, in creation (`rowid`) order, leaving out
    `sqlite_%` objects, each statement followed by `;` and its own
    `--> statement-breakpoint`. Keep the header comment.
-5. Trim `meta/_journal.json` to one entry: `tag: 0001_initial`, `idx` the
-   archive's highest number. Keep only the snapshot named for that index.
-   `bunx drizzle-kit generate` must print "No schema changes, nothing to
-   migrate".
+5. `bun run --cwd cire/db db:generate --name probe` must refuse with "no
+   schema change": the new baseline and `schema.ts` agree.
 6. Set the row in `scripts/d1-migration-cost-budgets.txt` to twice the new
    baseline, and update the figures in `migrations-archive/README.md`, this
    file and `wiki/conventions/bundle-size-guards.md`.
 7. Run `bun run --cwd cire/api test`, `bun run --cwd cire/api test:d1` and
    `bun run test:scripts`.
 
-### How `meta/` relates to the hand-authored migrations
+### How a migration is made
 
-`wrangler d1 migrations apply` runs the `.sql` files in NAME order and tracks
-them in D1's own `d1_migrations` table — it never reads `meta/_journal.json`.
-The journal + latest snapshot exist for **drizzle-kit only**, so `db:generate`
-can diff `schema.ts` against the current shape and number the next file
-correctly. The journal's first entry reads **`idx: 81`, `tag: 0001_initial`**
-— the tag names the baseline file, and the index says 81 migrations have
-happened, so `db:generate` numbers the next one `0082` rather than reusing a
-number the archive already spent. Its snapshot is `meta/0081_snapshot.json`,
-named for the index. Change one and you must change the other. `bunx drizzle-kit generate` on a clean tree prints "No schema
-changes, nothing to migrate", which is the check that the baseline and
-`schema.ts` still agree. Keep it working: `db:generate` refreshes
-the journal + snapshot itself, but a **hand-written** migration must be
-accompanied by re-syncing `meta/` — easiest is to make the matching `schema.ts`
-edit first and let `db:generate` produce the SQL skeleton, then edit the SQL
-(add comments / data backfill) without changing the shape it creates.
+A migration is one file, `migrations/<YYYYMMDDHHMMSS>_<name>.sql`, stamped in
+UTC, and nothing else is committed with it: no journal, no snapshot. Two
+branches that each add one touch no file in common, so neither blocks the
+other. Wrangler applies the files in `migrations/` by leading number, then
+name, so a timestamped file sorts after every numbered one, and it records each
+by name in D1's `d1_migrations` table.
+
+`db:generate` (`scripts/db-generate.ts`) has drizzle-kit write the SQL. It
+snapshots `schema.ts` as it stands at `HEAD` (or `--from <rev>`) in a temporary
+directory and diffs the working tree against that one snapshot. So:
+
+- **Commit one migration with its schema change before generating the next.**
+  It refuses while a `.sql` in `migrations/` is uncommitted, and refuses an
+  empty diff: if the schema change is already committed, pass
+  `--from <the commit before it>`.
+- **A rename is never guessed.** On a terminal drizzle-kit asks; elsewhere it
+  exits 2 and prints the `--hints` JSON to pass back.
+- **A data-only or hand-written migration** is `--custom`: an empty file to
+  fill in. It must hold a statement before it merges.
+- **A copy-and-swap table rebuild is refused**: D1 enforces foreign keys, so
+  dropping a parent table cascades into its children
+  (`wiki/cire/cire-development.md` §Adding a column). Write it by hand instead.
+- It writes a text primary key `NOT NULL` and a boolean default as `1` or `0`,
+  as the deployed chain does.
+
+Never run `drizzle-kit generate` or `drizzle-kit up` here directly. The first
+writes a folder and a `meta/` journal wrangler never applies; the second
+renames existing migrations, and a renamed file is applied again on every
+deployed database.
+
+What proves a migration right, in CI:
+
+| Check | What it refuses |
+| --- | --- |
+| `cire/api/tests/db/ddl-lockstep.test.ts` | a chain that does not build what `schema.ts` and `setup.ts` declare, or anything in `migrations/` that is not a flat `.sql` with a statement |
+| `scripts/check-migration-orders.ts` | new files that fail, or leave a different schema, when applied in name order (a fresh or production build) and after the base chain (the dev tier) |
+| `scripts/guard-migration-history.ts` | an edited, deleted or renamed migration, a badly named or empty new one, a copy-and-swap rebuild — the `migrations:rewrite` label lifts all but the empty-file rule |
 
 **Refresh local data after pulling**
 
@@ -207,6 +233,7 @@ Seeded shape:
   - `TESTTRE-DEW-CC33` — Nori (Exampleton)
   - `TESTFOR-JOY-DD44` — Eli (Placeholder)
 - **6 guests** + **15 invitation links** (per-event-per-guest)
+- **A seating chart** on the Reception: 2 tables, Ada, Bo and Eli seated, Cleo not
 
 Use `TESTFOR-JOY-DD44` as the dev claim code (Eli is invited to every event).
 

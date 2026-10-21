@@ -25,6 +25,13 @@ vi.mock("../../src/lib/api", async () => {
   return organiserApiMock();
 });
 
+// The marketing site's origin, set apart from every default so a link built
+// from anything else shows.
+vi.mock("../../src/lib/osn", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/lib/osn")>()),
+  CIRE_MARKETING_URL: "https://marketing.test",
+}));
+
 // The change feed has its own suite (RsvpView.changes.test.tsx). Stubbed here so
 // this file's fetch order stays the RSVP read and the organiser's own writes;
 // the pure helpers stay real.
@@ -1136,9 +1143,11 @@ describe("RsvpView — plus-ones", () => {
     fireEvent.click(screen.getByRole("button", { name: "Record reply for Kit Moss" }));
     const status = await screen.findByLabelText(/Status/i);
     expect(screen.getByLabelText(/Anything else/i)).toBeTruthy();
-    // Nothing stored to keep, so no note, and nothing typed, so no attestation.
+    // Nothing stored to keep, so no note, and nothing typed, so no attestation
+    // and no request to share the privacy notice.
     expect(screen.queryByText(/Saving without changing these/i)).toBeNull();
     expect(screen.queryByLabelText(/I confirm the plus-one consented/i)).toBeNull();
+    expect(screen.queryByText(/Share our privacy notice/i)).toBeNull();
 
     fireEvent.change(status, { target: { value: "declined" } });
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
@@ -1183,6 +1192,35 @@ describe("RsvpView — plus-ones", () => {
       dietaryAttestation: ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.version,
       dietaryAttestedName: "Kit Moss",
     });
+  });
+
+  it("asks the organiser to share the privacy page under a plus-one's attestation", async () => {
+    authFetchMock.mockResolvedValueOnce(json(PLUS_ONE_VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+    await waitFor(() => expect(findRow("Kit Moss")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Record reply for Kit Moss" }));
+    fireEvent.input(await screen.findByLabelText(/Anything else/i), {
+      target: { value: "No shellfish" },
+    });
+    const box = screen.getByLabelText(ORGANISER_PLUS_ONE_DIETARY_ATTESTATION.text);
+    const link = screen.getByRole("link", {
+      name: /cireweddings\.com\/privacy/,
+    }) as HTMLAnchorElement;
+    const line = link.closest("p")!;
+
+    expect(line.textContent).toBe(
+      "Share our privacy notice with them: cireweddings.com/privacy (opens in a new tab)",
+    );
+    // The page the line names, on the marketing site, in a new tab so the
+    // open form keeps what was typed.
+    expect(link.getAttribute("href")).toBe("https://marketing.test/privacy");
+    expect(link.target).toBe("_blank");
+    expect(link.rel).toBe("noopener noreferrer");
+    // Under the box it goes with, and outside its label.
+    expect(box.closest("label")!.compareDocumentPosition(line)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 
   it.each([
@@ -1256,7 +1294,7 @@ describe("RsvpView — plus-ones", () => {
     expect(within(rowOf("Kit Moss")).getByText("Plus-one of another guest")).toBeTruthy();
   });
 
-  it("offers the guest's wording, not the plus-one's, on an ordinary guest's row", async () => {
+  it("offers the guest's wording, and none of the plus-one's, on an ordinary guest's row", async () => {
     authFetchMock.mockResolvedValueOnce(json(PLUS_ONE_VIEW));
     render(() => <RsvpView weddingId="wed_a" canEdit />);
     await waitFor(() => expect(findRow("Bo Jones")).toBeTruthy());
@@ -1267,5 +1305,6 @@ describe("RsvpView — plus-ones", () => {
     });
     expect(screen.getByLabelText(/I confirm the guest consented/i)).toBeTruthy();
     expect(screen.queryByLabelText(/I confirm the plus-one consented/i)).toBeNull();
+    expect(screen.queryByText(/Share our privacy notice/i)).toBeNull();
   });
 });

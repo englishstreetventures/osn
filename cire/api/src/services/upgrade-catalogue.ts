@@ -28,7 +28,7 @@ export const PURCHASABLE_TIERS = PAID_TIERS;
 const COPY = {
   gold: {
     title: "Gold",
-    blurb: "Your budget, checklist and gift registry, for up to 500 guests.",
+    blurb: "Your budget, checklist, gift registry and seating chart, for up to 500 guests.",
   },
   crimson: {
     title: "Crimson",

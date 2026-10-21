@@ -7,7 +7,7 @@
 
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -20,16 +20,17 @@ import {
   targetArgs,
   type Runner,
 } from "../cire-vendor-claim-review";
+import { listMigrations, migrationStatements } from "../migration-files";
 
 const ROOT = join(import.meta.dir, "..", "..");
 
-/** A schema as production has it: every migration in `dir`, in name order. */
+/** A schema as production has it: every migration in `dir`, in wrangler's order. */
 function migratedDb(dir: string): Database {
   const db = new Database(":memory:");
-  for (const file of readdirSync(dir)
-    .filter((f) => f.endsWith(".sql"))
-    .toSorted()) {
-    db.exec(readFileSync(join(dir, file), "utf8"));
+  for (const file of listMigrations(dir)) {
+    for (const statement of migrationStatements(readFileSync(join(dir, file), "utf8"))) {
+      db.exec(statement);
+    }
   }
   return db;
 }

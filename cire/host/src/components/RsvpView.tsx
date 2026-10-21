@@ -11,6 +11,7 @@ import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Table, Td, Th } from "@shared/ui/ui/table";
+import { Tooltip } from "@shared/ui/ui/tooltip";
 import {
   createEffect,
   createMemo,
@@ -26,6 +27,7 @@ import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
+import { CIRE_MARKETING_URL } from "../lib/osn";
 import { fetchRsvpChangeRows, markRsvpChangesSeen, newRowCheck } from "../lib/rsvp-changes";
 import {
   filterRows,
@@ -118,7 +120,8 @@ function attestationFor(target: EditTarget) {
  * they were sends the status only, and the API keeps the stored dietary answer
  * and whoever gave it. The attestation box opens unticked and appears only once
  * the dietary answer is edited; on a plus-one's reply it speaks of the
- * plus-one. Viewers see the same list, read-only.
+ * plus-one, with a line under it asking the organiser to share the privacy
+ * page. Viewers see the same list, read-only.
  */
 export default function RsvpView(props: RsvpViewProps) {
   const { authFetch } = useAuth();
@@ -552,33 +555,28 @@ export default function RsvpView(props: RsvpViewProps) {
                                     next one. */}
                                 <Td valign="middle" class="wrap-break-word">
                                   {row.firstName} {row.lastName}
-                                  {/* Each badge explains itself in visually
-                                      hidden text inside it, not in a `title`:
-                                      a title shows on mouse hover only and is
-                                      not part of the cell's accessible name,
-                                      and beside the text Chrome would hand it
-                                      to a screen reader a second time, as the
-                                      badge's description. `normal-case`
-                                      because the badge's `uppercase` would
-                                      otherwise reach a screen reader as
-                                      capitals. */}
+                                  {/* Each badge explains itself through
+                                      `Tooltip`: hidden text a screen reader
+                                      gets once, and the same words in a panel
+                                      on hover. Never a `title`: beside the
+                                      text, Chrome would hand it to a screen
+                                      reader a second time, as the badge's
+                                      description. */}
                                   <Show when={isNewRow()(row.guestId, section.event.id)}>
                                     {" "}
-                                    <span class="bg-gold/15 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm px-1.5 py-0.5 uppercase">
-                                      New
-                                      <span class="sr-only normal-case">
-                                        Changed by the guest since you last looked
+                                    <Tooltip text="Changed by the guest since you last looked">
+                                      <span class="bg-gold/15 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm px-1.5 py-0.5 uppercase">
+                                        New
                                       </span>
-                                    </span>
+                                    </Tooltip>
                                   </Show>
                                   <Show when={row.consentSource === "organiser_attested"}>
                                     {" "}
-                                    <span class="border-gold/40 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
-                                      Host-entered
-                                      <span class="sr-only normal-case">
-                                        Recorded by a host (phone/paper RSVP)
+                                    <Tooltip text="Recorded by a host (phone/paper RSVP)">
+                                      <span class="border-gold/40 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
+                                        Host-entered
                                       </span>
-                                    </span>
+                                    </Tooltip>
                                   </Show>
                                   <Show
                                     when={
@@ -587,24 +585,19 @@ export default function RsvpView(props: RsvpViewProps) {
                                     }
                                   >
                                     {" "}
-                                    <span class="border-gold/40 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
-                                      Host-updated
-                                      <span class="sr-only normal-case">
-                                        A host last set this status. The dietary requirements are
-                                        still the ones the guest or their household gave.
+                                    <Tooltip text="A host last set this status. The dietary requirements are still the ones the guest or their household gave.">
+                                      <span class="border-gold/40 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
+                                        Host-updated
                                       </span>
-                                    </span>
+                                    </Tooltip>
                                   </Show>
                                   <Show when={row.consentSource === "inviter_attested"}>
                                     {" "}
-                                    <span class="border-border text-text-muted text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
-                                      Household-entered
-                                      <span class="sr-only normal-case">
-                                        Given by the household that brought them, not by the
-                                        plus-one. A host may have changed the status since; the
-                                        dietary requirements are the household's.
+                                    <Tooltip text="Given by the household that brought them, not by the plus-one. A host may have changed the status since; the dietary requirements are the household's.">
+                                      <span class="border-border text-text-muted text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
+                                        Household-entered
                                       </span>
-                                    </span>
+                                    </Tooltip>
                                   </Show>
                                   <Show when={row.submittedBy}>
                                     {(by) => (
@@ -612,12 +605,11 @@ export default function RsvpView(props: RsvpViewProps) {
                                         Answered by {by().firstName}
                                         <Show when={by().viaLink}>
                                           {" "}
-                                          <span class="border-border ml-0.5 inline-block rounded-sm border px-1 align-baseline uppercase">
-                                            linked musubi
-                                            <span class="sr-only normal-case">
-                                              Sent from a signed-in linked musubi account
+                                          <Tooltip text="Sent from a signed-in linked musubi account">
+                                            <span class="border-border ml-0.5 inline-block rounded-sm border px-1 align-baseline uppercase">
+                                              linked musubi
                                             </span>
-                                          </span>
+                                          </Tooltip>
                                         </Show>
                                       </span>
                                     )}
@@ -772,16 +764,37 @@ export default function RsvpView(props: RsvpViewProps) {
             dietaryEdited(target) && (formDietary().trim().length > 0 || formPresets().length > 0)
           }
         >
-          <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
-            <input
-              type="checkbox"
-              class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
-              checked={formConsent()}
-              onChange={(e) => setFormConsent(e.currentTarget.checked)}
-              disabled={saving()}
-            />
-            <span>{attestationFor(target).text}</span>
-          </label>
+          <div class="flex flex-col gap-1.5">
+            <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
+              <input
+                type="checkbox"
+                class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
+                checked={formConsent()}
+                onChange={(e) => setFormConsent(e.currentTarget.checked)}
+                disabled={saving()}
+              />
+              <span>{attestationFor(target).text}</span>
+            </label>
+            {/* A plus-one may never see the invite or the notice it links, so
+                the organiser recording their answer is asked to pass on the
+                privacy page the line names, which leads to the guests'
+                notice. Outside the label, so it is no part of what the box
+                attests or of its accessible name; a new tab, so the form
+                keeps what was typed. */}
+            <Show when={target.plusOne}>
+              <p class="font-body text-text-muted text-ui-sm pl-6.5 leading-relaxed">
+                Share our privacy notice with them:{" "}
+                <a
+                  href={`${CIRE_MARKETING_URL}/privacy`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-gold-ink underline underline-offset-2"
+                >
+                  cireweddings.com/privacy<span class="sr-only"> (opens in a new tab)</span>
+                </a>
+              </p>
+            </Show>
+          </div>
         </Show>
 
         <Show when={formError()}>

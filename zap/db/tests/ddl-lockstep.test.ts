@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { listMigrations, migrationStatements } from "../../../scripts/migration-files";
 import { createSchemaSql } from "../src/testing";
 
 // Mechanical enforcement of the Zap DDL lockstep contract, ported from
@@ -67,21 +68,17 @@ interface TableShape {
   indexes: IndexShape[];
 }
 
+/** The chain in the order wrangler applies it. */
 function migrationFiles(): string[] {
-  return readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith(".sql"))
-    .toSorted();
+  return listMigrations(MIGRATIONS_DIR);
 }
 
 /** Apply the full migration chain to a fresh in-memory database. */
 function migratedDb(): Database {
   const db = new Database(":memory:");
   for (const file of migrationFiles()) {
-    const sql = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
-    // drizzle-kit separates statements with this marker.
-    for (const stmt of sql.split("--> statement-breakpoint")) {
-      const trimmed = stmt.trim();
-      if (trimmed) db.exec(trimmed);
+    for (const stmt of migrationStatements(readFileSync(join(MIGRATIONS_DIR, file), "utf8"))) {
+      db.exec(stmt);
     }
   }
   return db;
@@ -204,6 +201,16 @@ function snapshot(db: Database): Record<string, TableShape> {
 }
 
 describe("Zap DDL lockstep", () => {
+  // Wrangler applies every `*.sql` directly in the directory and nothing
+  // else, so anything beside them is a migration that would never run: a
+  // drizzle-kit folder, a `meta/` journal, a stray file.
+  it("holds flat .sql migrations and nothing wrangler would skip", () => {
+    const others = readdirSync(MIGRATIONS_DIR, { withFileTypes: true }).filter(
+      (entry) => !(entry.isFile() && entry.name.endsWith(".sql")),
+    );
+    expect(others.map((entry) => entry.name)).toEqual([]);
+  });
+
   const migrated = snapshot(migratedDb());
   const emitted = snapshot(emittedDb());
 
@@ -255,49 +262,5 @@ describe("Zap DDL lockstep", () => {
 
     expect(nonTableObjects(emittedDb())).toEqual(nonTableObjects(migratedDb()));
     expect(checks(emittedDb())).toEqual(checks(migratedDb()));
-  });
-
-  // `drizzle-kit generate` reads the journal and the latest snapshot, not the
-  // `.sql` files this suite otherwise applies. A journal that has lost an
-  // entry — a hand edit, a half-resolved merge conflict, a partial commit —
-  // makes the next `generate` re-emit a migration already applied to
-  // production D1, and re-running a `DROP INDEX` or `CREATE INDEX` against a
-  // real database is a hard error.
-  //
-  // Scope, stated plainly: this checks the bookkeeping — that the journal, the
-  // `.sql` files and the snapshot files name the same set of migrations, in
-  // the same order. It does NOT check a snapshot's *contents* against the
-  // schema, so a snapshot resolved by picking a side in a merge keeps its
-  // filename and passes here. That is a separate check and a heavier one; it
-  // needs `drizzle-kit generate` to run and produce nothing.
-  it("keeps drizzle/meta's bookkeeping in step with the migrations beside it", () => {
-    const journal = JSON.parse(
-      readFileSync(join(MIGRATIONS_DIR, "meta", "_journal.json"), "utf8"),
-    ) as { entries: { idx: number; tag: string }[] };
-
-    // Pairing and contiguity, before the set comparisons — sorting throws both
-    // away. `drizzle-kit` names the next migration from the last entry's idx,
-    // so a swapped pair or a gap produces a wrongly numbered migration and a
-    // snapshot that does not correspond to its `.sql`.
-    journal.entries.forEach((e, i) => {
-      expect(e.idx).toBe(i);
-      expect(e.tag.startsWith(String(e.idx).padStart(4, "0"))).toBe(true);
-    });
-
-    const tags = journal.entries.map((e) => e.tag).toSorted();
-    const basenames = migrationFiles()
-      .map((f) => f.replace(/\.sql$/, ""))
-      .toSorted();
-    // Both directions: a `.sql` with no journal entry never runs, and a
-    // journal entry with no `.sql` breaks the next generate.
-    expect(tags).toEqual(basenames);
-
-    const snapshots = readdirSync(join(MIGRATIONS_DIR, "meta"))
-      .filter((f) => f.endsWith("_snapshot.json"))
-      .map((f) => f.replace(/_snapshot\.json$/, ""))
-      .toSorted();
-    expect(snapshots).toEqual(
-      journal.entries.map((e) => String(e.idx).padStart(4, "0")).toSorted(),
-    );
   });
 });

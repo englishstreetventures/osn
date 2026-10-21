@@ -6,8 +6,9 @@ import { join } from "node:path";
 import * as cireSchema from "@cire/db";
 import { is } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
-import { getTableConfig, SQLiteSyncDialect, SQLiteTable } from "drizzle-orm/sqlite-core";
+import { getTableConfig, SQLiteDialect, SQLiteTable } from "drizzle-orm/sqlite-core";
 
+import { listMigrations, migrationStatements } from "../../../../scripts/migration-files";
 import { DDL } from "../../src/db/setup";
 
 // Mechanical enforcement of the three-way DDL lockstep contract.
@@ -199,17 +200,13 @@ function snapshotSchema(db: Database): SchemaSnapshot {
   return { tables: snapshot, nonTableObjects };
 }
 
-const sqlFilesIn = (dir: string): string[] =>
-  readdirSync(dir)
-    .filter((f) => f.endsWith(".sql"))
-    .toSorted();
+const migrationFiles = (): string[] => listMigrations(MIGRATIONS_DIR);
+const archiveFiles = (): string[] => listMigrations(ARCHIVE_DIR);
+const numberOf = (file: string): number => Number.parseInt(file.split("_")[0]!, 10);
 
-const migrationFiles = (): string[] => sqlFilesIn(MIGRATIONS_DIR);
-const archiveFiles = (): string[] => sqlFilesIn(ARCHIVE_DIR);
-const numberOf = (file: string): number => Number(file.slice(0, 4));
-
-// `wrangler d1 migrations apply` runs the files in NAME order — that, not the
-// drizzle-kit journal, is the order a deployed database experiences.
+// `wrangler d1 migrations apply` runs the files in the order `listMigrations`
+// gives: by leading number, then name. That is the order a deployed database
+// experiences.
 function applyChain(dir: string, files: readonly string[]): Database {
   const db = new Database(":memory:");
   // D1 enforces foreign keys unconditionally; every migration statement must
@@ -217,9 +214,9 @@ function applyChain(dir: string, files: readonly string[]): Database {
   db.exec("PRAGMA foreign_keys = ON;");
   for (const file of files) {
     try {
-      // `--> statement-breakpoint` lines are `--` SQL comments, so the whole
-      // file execs as-is.
-      db.exec(readFileSync(join(dir, file), "utf8"));
+      for (const statement of migrationStatements(readFileSync(join(dir, file), "utf8"))) {
+        db.exec(statement);
+      }
     } catch (cause) {
       throw new Error(`migration ${file} failed to apply cleanly on sqlite`, { cause });
     }
@@ -255,7 +252,7 @@ function applyMirrorDdl(): Database {
 
 // ── Drizzle schema (cire/db/src/schema.ts) → TableShape ─────────────────────
 
-const dialect = new SQLiteSyncDialect();
+const dialect = new SQLiteDialect();
 
 const sqlLiteral = (value: unknown): string => {
   if (typeof value === "string") return `'${value.replaceAll("'", "''")}'`;
@@ -350,26 +347,21 @@ function snapshotAndClose(db: Database): SchemaSnapshot {
 const migrated = snapshotAndClose(applyMigrations());
 
 describe("T-S1 lockstep: migrations chain", () => {
-  it("has a file for every drizzle-kit journal entry, in name order", () => {
-    const journal = JSON.parse(
-      readFileSync(join(MIGRATIONS_DIR, "meta", "_journal.json"), "utf8"),
-    ) as { entries: Array<{ idx: number; tag: string }> };
-    const tags = journal.entries.toSorted((a, b) => a.idx - b.idx).map((e) => `${e.tag}.sql`);
-    expect(migrationFiles().slice(0, tags.length)).toEqual(tags);
+  // Wrangler applies every `*.sql` directly in the directory and nothing
+  // else, so anything beside them is a migration that would never run: a
+  // drizzle-kit folder, a `meta/` journal, a stray file.
+  it("holds flat .sql migrations and nothing wrangler would skip", () => {
+    const others = readdirSync(MIGRATIONS_DIR, { withFileTypes: true }).filter(
+      (entry) => !(entry.isFile() && entry.name.endsWith(".sql")),
+    );
+    expect(others.map((entry) => entry.name)).toEqual([]);
   });
 
-  // drizzle-kit picks the snapshot named for the journal's highest idx, and
-  // diffs schema.ts against it to number and fill the next migration. With the
-  // pair broken it silently treats the database as empty and emits the WHOLE
-  // schema as the next migration, numbered from 1.
-  it("keeps the drizzle journal and its snapshot in step", () => {
-    const journal = JSON.parse(
-      readFileSync(join(MIGRATIONS_DIR, "meta", "_journal.json"), "utf8"),
-    ) as { entries: Array<{ idx: number; tag: string }> };
-    const latest = journal.entries.toSorted((a, b) => b.idx - a.idx)[0];
-    expect(latest).toBeDefined();
-    const snapshot = `${String(latest!.idx).padStart(4, "0")}_snapshot.json`;
-    expect(readdirSync(join(MIGRATIONS_DIR, "meta"))).toContain(snapshot);
+  it("gives every migration a statement to run", () => {
+    const empty = migrationFiles().filter(
+      (file) => migrationStatements(readFileSync(join(MIGRATIONS_DIR, file), "utf8")).length === 0,
+    );
+    expect(empty).toEqual([]);
   });
 
   it("leaves no __keep_* snapshot tables behind (rebuild recovery cleanup)", () => {
@@ -385,19 +377,11 @@ describe("T-S1 lockstep: migrations chain", () => {
     expect(migrationFiles()[0]).toBe("0001_initial.sql");
   });
 
-  // The baseline's journal entry carries the number of the newest migration it
-  // folds in, which is how drizzle-kit numbers the next file after it. The
-  // archive holds exactly those migrations, 0001 up to that number with none
-  // missing: scripts/cire-db-migrate.ts reads a deployed ledger against it.
-  it("archives every migration the baseline folds in, numbered 0001 to the journal's index", () => {
-    const journal = JSON.parse(
-      readFileSync(join(MIGRATIONS_DIR, "meta", "_journal.json"), "utf8"),
-    ) as { entries: Array<{ idx: number; tag: string }> };
-    const baseline = journal.entries.find((e) => e.tag === "0001_initial");
-    expect(baseline).toBeDefined();
-    expect(archiveFiles().map(numberOf)).toEqual(
-      Array.from({ length: baseline!.idx }, (_, i) => i + 1),
-    );
+  // The baseline folds in the 81 archived migrations, 0001 to 0081 with none
+  // missing: scripts/cire-db-migrate.ts reads a deployed ledger against them,
+  // and the numbered live files continue from 0082.
+  it("archives every migration the baseline folds in, numbered 0001 to 0081", () => {
+    expect(archiveFiles().map(numberOf)).toEqual(Array.from({ length: 81 }, (_, i) => i + 1));
   });
 
   // Every number the archive spent is in some deployed ledger already, so
@@ -444,6 +428,28 @@ describe("T-S1 lockstep: setup.ts test DDL ↔ migrated D1 shape", () => {
   }
 });
 
+// Columns the database still holds that schema.ts deliberately does not
+// declare, so that no statement the app sends names them and a later migration
+// can drop them under a serving Worker. Each entry is excused from the Drizzle
+// comparison only — with the foreign keys and indexes that use it — and must
+// still exist after the chain, so the entry goes when its column does.
+const UNDECLARED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  // Dropped by englishstreetventures/osn#1636.
+  tasks: ["assigned_host_id"],
+};
+
+/** `shape` without the columns named in {@link UNDECLARED_COLUMNS} for `table`. */
+function withoutUndeclared(table: string, shape: TableShape): TableShape {
+  const gone = new Set(UNDECLARED_COLUMNS[table] ?? []);
+  const kept = (columns: readonly string[]) => !columns.some((c) => gone.has(c));
+  return {
+    columns: Object.fromEntries(Object.entries(shape.columns).filter(([c]) => !gone.has(c))),
+    foreignKeys: shape.foreignKeys.filter((fk) => kept(fk.columns)),
+    indexes: shape.indexes.filter((idx) => kept(idx.columns)),
+    checks: shape.checks,
+  };
+}
+
 describe("T-S1 lockstep: Drizzle schema.ts ↔ migrated D1 shape", () => {
   it("declares the same set of tables", () => {
     expect(drizzleTables.map((t) => getTableConfig(t).name).toSorted()).toEqual(
@@ -454,9 +460,30 @@ describe("T-S1 lockstep: Drizzle schema.ts ↔ migrated D1 shape", () => {
   for (const table of drizzleTables) {
     const { name, shape } = snapshotDrizzleTable(table);
     it(`mirrors "${name}" exactly`, () => {
-      expect({ table: name, ...shape }).toEqual({ table: name, ...migrated.tables[name] });
+      const expected = migrated.tables[name];
+      expect({ table: name, ...shape }).toEqual({
+        table: name,
+        ...(expected && withoutUndeclared(name, expected)),
+      });
     });
   }
+
+  // An insert from the app leaves an undeclared column out, so SQLite fills it
+  // with NULL or its default; a NOT NULL column with neither refuses every
+  // insert, and cannot be retired by leaving it out of schema.ts.
+  it("excuses only columns the migrated database still holds, each nullable or with a default", () => {
+    for (const [table, columns] of Object.entries(UNDECLARED_COLUMNS)) {
+      for (const column of columns) {
+        const shape = migrated.tables[table]?.columns[column];
+        expect({
+          table,
+          column,
+          present: shape !== undefined,
+          insertableWithout: shape !== undefined && (!shape.notNull || shape.default !== null),
+        }).toEqual({ table, column, present: true, insertableWithout: true });
+      }
+    }
+  });
 });
 
 // ── Data migrations ──────────────────────────────────────────────────────────

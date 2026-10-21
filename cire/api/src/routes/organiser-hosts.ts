@@ -12,6 +12,7 @@ import {
   metricHostAdded,
   metricHostRemoved,
   metricHostRoleChanged,
+  metricHostRunSheetScopeChanged,
 } from "../metrics";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
@@ -20,13 +21,14 @@ import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
 import { weddingSeat } from "../middleware/wedding-seat";
 import { runCire } from "../observability";
-import { AddHostBody, UpdateHostRoleBody } from "../schemas/host";
+import { AddHostBody, UpdateHostRoleBody, UpdateRunSheetScopeBody } from "../schemas/host";
 import { hostsService } from "../services/hosts";
 import type {
   HostNotFound,
   HostWriteError,
   LastOwner,
   PeopleLimitReached,
+  RunSheetScope,
   WeddingRole,
 } from "../services/hosts";
 import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../services/osn-bridge";
@@ -47,22 +49,42 @@ const peopleLimitRefusal = (err: PeopleLimitReached) => ({
 /**
  * A person on the co-host panel. `handle` and `displayName` are absent — not
  * null — when the OSN display lookup couldn't resolve them, and the portal
- * falls back to the profile id.
+ * falls back to the profile id. `avatarUrl` is the profile's photo, an https
+ * URL, absent when there is none; the portal draws a default empty avatar then.
  */
 interface HostPersonDto {
   osnProfileId: string;
   handle?: string;
   displayName?: string;
+  avatarUrl?: string;
 }
 
 /** A seat — an owner's or a co-host's: a {@link HostPersonDto} plus their role
  *  and the seat's attribution. */
 interface HostSeatDto extends HostPersonDto {
+  /** The seat's own id (`wedding_hosts.id`): what a checklist task's
+   *  `assigneeHostIds` name, so the portal can show who holds a task. */
+  hostId: string;
   role: WeddingRole;
   createdAt: number;
   addedByOsnProfileId: string;
   addedByHandle?: string;
+  /** How far into the run sheet the seat sees. On a helper's seat only: it is
+   *  a helper's setting, and no other role's (see {@link helperScope}). */
+  runSheetScope?: RunSheetScope;
 }
+
+/**
+ * The run-sheet scope to show for a seat: its stored value on a helper's seat,
+ * and nothing on any other. An owner, editor or viewer sees the whole run sheet
+ * whatever the column holds, so a value there is not a setting and would read
+ * as one.
+ */
+const helperScope = (seat: {
+  role: WeddingRole;
+  runSheetScope: RunSheetScope;
+}): { runSheetScope?: RunSheetScope } =>
+  seat.role === "helper" ? { runSheetScope: seat.runSheetScope } : {};
 
 /** The metric label for a role change the service refused or failed. */
 function roleChangeFailure(
@@ -149,6 +171,7 @@ export const createOrganiserHostsReadRoutes = (
                     const display = displays?.get(h.osnProfileId);
                     const addedBy = displays?.get(h.addedByOsnProfileId);
                     const row: HostSeatDto = {
+                      hostId: h.id,
                       osnProfileId: h.osnProfileId,
                       role: h.role,
                       createdAt: h.createdAt.getTime(),
@@ -156,11 +179,13 @@ export const createOrganiserHostsReadRoutes = (
                       // someone, so each owner needs to see which seats another
                       // owner created. Same handle-then-id fallback as below.
                       addedByOsnProfileId: h.addedByOsnProfileId,
+                      ...helperScope(h),
                     };
                     // Handle is the display value; profileId stays as the
                     // last-resort fallback when the lookup couldn't resolve it.
                     if (display) row.handle = display.handle;
                     if (display?.displayName) row.displayName = display.displayName;
+                    if (display?.avatarUrl) row.avatarUrl = display.avatarUrl;
                     if (addedBy) row.addedByHandle = addedBy.handle;
                     return row;
                   }),
@@ -192,11 +217,11 @@ export const createOrganiserHostsReadRoutes = (
  * degradation as account-linking).
  *
  * **Host management is owner-only.** Adding a seat at any role, changing a
- * role and removing a seat are all `weddingOwner()`: an editor gets 403
- * `forbidden` for every one of them. Leaving (`DELETE /hosts/me`) is the one
- * exception, behind `weddingSeat()`: any seat holder, a `helper` too, over
- * their own seat only — the route takes no profile id, so it cannot reach
- * anyone else's.
+ * role, setting a helper's run-sheet scope and removing a seat are all
+ * `weddingOwner()`: an editor gets 403 `forbidden` for every one of them.
+ * Leaving (`DELETE /hosts/me`) is the one exception, behind `weddingSeat()`:
+ * any seat holder, a `helper` too, over their own seat only — the route takes
+ * no profile id, so it cannot reach anyone else's.
  *
  * Owners are equals. Any owner may seat someone at any role, `owner` included,
  * demote or remove another owner, or step down or leave themselves; what no one
@@ -212,7 +237,7 @@ export const createOrganiserHostsWriteRoutes = (
 ) =>
   new Elysia({ prefix: PREFIX })
     .use(osnAuth(osnAuthOptions))
-    // ADD / REMOVE / ROLE CHANGE — owners only.
+    // ADD / REMOVE / ROLE CHANGE / RUN-SHEET SCOPE — owners only.
     .group("/weddings/:weddingId", (group) =>
       group
         .use(weddingOwner(db))
@@ -404,6 +429,10 @@ export const createOrganiserHostsWriteRoutes = (
                     osnProfileId: host.osnProfileId,
                     role: host.role,
                     createdAt: host.createdAt.getTime(),
+                    // The change reset the scope unless a helper stayed one,
+                    // and only the stored role says which. The panel shows the
+                    // seat's scope from here, not from the list it read.
+                    ...helperScope(host),
                   },
                   peopleLimit: host.peopleLimit,
                 };
@@ -435,6 +464,82 @@ export const createOrganiserHostsWriteRoutes = (
                     Effect.sync(() => {
                       set.status = 500;
                       return { error: "Could not change role" };
+                    }),
+                }),
+                Effect.catchDefect(() =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
+              ),
+            );
+          },
+          // Sentinel parse hook: stops Elysia consuming the body so the handler
+          // parses it by hand — malformed JSON degrades to the schema's 400.
+          { parse: () => ({}) },
+        )
+        // Open a helper's run sheet to every task and who holds it (`full`), or
+        // narrow it back to their own tasks (`own`). 404 when the profile holds
+        // no seat on this wedding; 409 `not_a_helper` when the seat holds any
+        // other role, for which the scope means nothing. The helper's next read
+        // of the run sheet is scoped by what this wrote.
+        .put(
+          "/hosts/:osnProfileId/run-sheet-scope",
+          async ({ request, weddingId, osnProfileId, params, set }) => {
+            if (!weddingId || !osnProfileId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknownEffect(UpdateRunSheetScopeBody)(raw);
+                const host = yield* hostsService
+                  .setRunSheetScope({
+                    weddingId,
+                    osnProfileId: params.osnProfileId,
+                    scope: body.scope,
+                  })
+                  .pipe(
+                    Effect.tapError((err) =>
+                      Effect.sync(() =>
+                        metricHostRunSheetScopeChanged(
+                          err._tag === "HostNotFound"
+                            ? "not_found"
+                            : err._tag === "NotAHelper"
+                              ? "not_a_helper"
+                              : "error",
+                          body.scope,
+                        ),
+                      ),
+                    ),
+                  );
+                yield* Effect.sync(() => metricHostRunSheetScopeChanged("ok", host.runSheetScope));
+                return { host };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTags({
+                  SchemaError: () =>
+                    Effect.sync(() => {
+                      metricHostRunSheetScopeChanged("error");
+                      set.status = 400;
+                      return { error: "Missing or invalid fields" };
+                    }),
+                  HostNotFound: () =>
+                    Effect.sync(() => {
+                      set.status = 404;
+                      return { error: "host_not_found" };
+                    }),
+                  NotAHelper: () =>
+                    Effect.sync(() => {
+                      set.status = 409;
+                      return { error: "not_a_helper" };
+                    }),
+                  HostWriteError: () =>
+                    Effect.sync(() => {
+                      set.status = 500;
+                      return { error: "Could not change what they see" };
                     }),
                 }),
                 Effect.catchDefect(() =>

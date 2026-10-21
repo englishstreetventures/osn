@@ -54,7 +54,7 @@ describe("createUpgradeCatalogue", () => {
         tier: "gold",
         fromTier: "ivory",
         title: "Gold",
-        blurb: "Your budget, checklist and gift registry, for up to 500 guests.",
+        blurb: "Your budget, checklist, gift registry and seating chart, for up to 500 guests.",
         priceId: "price_g",
         amountMinor: 4900,
         currency: "AUD",

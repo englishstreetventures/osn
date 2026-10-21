@@ -309,6 +309,148 @@ describe("registry routes (Gold)", () => {
     expect(after.items).toEqual([]);
   });
 
+  it("authors a cash fund with a target the couple alone read back", async () => {
+    const app = buildApp({ tier: "gold" });
+    const fundWrites = (action: "create" | "update" | "remove" = "create") =>
+      counterValue(CIRE_METRICS.registryItemWrite, { action, kind: "cash_fund" });
+    const before = await fundWrites();
+    const updatesBefore = await fundWrites("update");
+    const removesBefore = await fundWrites("remove");
+    const res = await req(app, "POST", `${base}/items`, EDITOR, {
+      kind: "cash_fund",
+      title: "Honeymoon in Kyoto",
+      description: "Trains, temples and a very good dinner.",
+      targetMinor: 500_000,
+    });
+    expect(res.status).toBe(200);
+    const { item } = (await res.json()) as { item: RegistryItemDto };
+    expect(item.kind).toBe("cash_fund");
+    expect(item.targetMinor).toBe(500_000);
+    expect(item.priceMinor).toBeNull();
+    expect(item.quantityWanted).toBe(1);
+    // Counted as a fund, so fund authoring shows apart from gifts.
+    expect((await fundWrites()) - before).toBe(1);
+
+    const moved = await req(app, "PATCH", `${base}/items/${item.id}`, EDITOR, {
+      targetMinor: 650_000,
+      title: "Honeymoon",
+    });
+    expect(moved.status).toBe(200);
+    expect((await fundWrites("update")) - updatesBefore).toBe(1);
+    const snap = (await (await req(app, "GET", base, VIEWER)).json()) as RegistrySnapshot;
+    expect(snap.items).toHaveLength(1);
+    expect(snap.items[0]).toMatchObject({
+      kind: "cash_fund",
+      title: "Honeymoon",
+      targetMinor: 650_000,
+    });
+
+    // No target at all is a fund too: the couple need not have a number.
+    const open = await req(app, "POST", `${base}/items`, EDITOR, {
+      kind: "cash_fund",
+      title: "House deposit",
+    });
+    expect(open.status).toBe(200);
+    expect(((await open.json()) as { item: RegistryItemDto }).item.targetMinor).toBeNull();
+
+    // Removing a fund with no picture is counted as a fund's removal too.
+    expect((await req(app, "DELETE", `${base}/items/${item.id}`, EDITOR)).status).toBe(200);
+    expect((await fundWrites("remove")) - removesBefore).toBe(1);
+  });
+
+  /**
+   * A fund is a purpose to give money to, and a product is a thing to
+   * reserve. A field that belongs to the other kind has nowhere honest to go:
+   * a fund with a price reads as a thing for sale, a fund wanting three reads
+   * as three of them, a product with a target reads as a fund. Each is refused
+   * rather than stored and ignored.
+   */
+  it("refuses a field that belongs to the other kind, on create and on edit", async () => {
+    const app = buildApp({ tier: "gold" });
+    const fund = { kind: "cash_fund", title: "Honeymoon" };
+    for (const body of [
+      { ...fund, priceMinor: 10_000 },
+      { ...fund, externalUrl: "https://shop.example/trip" },
+      { ...fund, quantityWanted: 3 },
+      { ...fund, category: "Travel" },
+      { title: "Copper pan", targetMinor: 10_000 },
+      { kind: "product", title: "Copper pan", targetMinor: 10_000 },
+      // One field of each kind at once belongs to no item at all.
+      { title: "Copper pan", priceMinor: 10_000, targetMinor: 10_000 },
+      { ...fund, priceMinor: 10_000, targetMinor: 10_000 },
+    ]) {
+      const res = await req(app, "POST", `${base}/items`, EDITOR, body);
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe("invalid_item_fields");
+    }
+
+    const created = await req(app, "POST", `${base}/items`, EDITOR, fund);
+    const fundId = ((await created.json()) as { item: RegistryItemDto }).item.id;
+    const product = await seedItem(app);
+    for (const [id, patch] of [
+      [fundId, { priceMinor: 10_000 }],
+      [fundId, { externalUrl: "https://shop.example/trip" }],
+      [fundId, { quantityWanted: 3 }],
+      [fundId, { category: "Travel" }],
+      [product.id, { targetMinor: 10_000 }],
+      [product.id, { priceMinor: 10_000, targetMinor: 10_000 }],
+      [fundId, { priceMinor: 10_000, targetMinor: 10_000 }],
+    ] as const) {
+      const res = await req(app, "PATCH", `${base}/items/${id}`, EDITOR, patch);
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe("invalid_item_fields");
+    }
+
+    // Nothing was written by any refused edit.
+    const snap = (await (await req(app, "GET", base, OWNER)).json()) as RegistrySnapshot;
+    expect(snap.items.find((i) => i.id === fundId)).toMatchObject({
+      priceMinor: null,
+      externalUrl: null,
+      quantityWanted: 1,
+      category: null,
+    });
+    expect(snap.items.find((i) => i.id === product.id)?.targetMinor).toBeNull();
+  });
+
+  it("never changes an item's kind on edit, and refuses a kind it does not know", async () => {
+    // A gift holding claims turned into a fund would drop those claims from
+    // the guest list; `kind` is set when an item is created and only then.
+    const app = buildApp({ tier: "gold" });
+    const product = await seedItem(app);
+    const patched = await req(app, "PATCH", `${base}/items/${product.id}`, EDITOR, {
+      kind: "cash_fund",
+      title: "Copper saucepan",
+    });
+    expect(patched.status).toBe(200);
+    expect(((await patched.json()) as { item: RegistryItemDto }).item.kind).toBe("product");
+
+    const unknown = await req(app, "POST", `${base}/items`, EDITOR, { kind: "gift", title: "Pan" });
+    expect(unknown.status).toBe(400);
+  });
+
+  it("refuses a target that is not a positive whole amount", async () => {
+    const app = buildApp({ tier: "gold" });
+    for (const targetMinor of [0, -100, 12.5, 9_000_000_000_001]) {
+      const res = await req(app, "POST", `${base}/items`, EDITOR, {
+        kind: "cash_fund",
+        title: "Honeymoon",
+        targetMinor,
+      });
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it("still 404s an edit naming no item, whatever fields it carries", async () => {
+    // The kind check must not turn a missing item into a 400, which would tell
+    // a caller nothing true about the id they sent.
+    const app = buildApp({ tier: "gold" });
+    for (const patch of [{ targetMinor: 10_000 }, { priceMinor: 10_000 }]) {
+      const res = await req(app, "PATCH", `${base}/items/reg_not_mine`, EDITOR, patch);
+      expect(res.status).toBe(404);
+      expect(((await res.json()) as { error: string }).error).toBe("registry_item_not_found");
+    }
+  });
+
   it("404s an item id from another wedding", async () => {
     const app = buildApp({ tier: "gold" });
     const item = await seedItem(app);

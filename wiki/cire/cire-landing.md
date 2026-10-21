@@ -11,7 +11,10 @@ related:
   - "[[production-deploy]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-19
+  - "[[cire-consent]]"
+  - "[[cire-plus-ones]]"
+  - "[[testing-patterns]]"
+last-reviewed: 2026-10-21
 ---
 
 # Cire Landing
@@ -115,6 +118,62 @@ Composed as `Hero.astro` + seven section components under `components/sections/`
 A minimal fixed masthead (`SiteNav.astro`) — wordmark + the one primary CTA —
 sits over the hero and gains a hairline + blurred wash once scrolled (toggled by
 an `IntersectionObserver` sentinel, no per-frame scroll handler).
+
+## Privacy pages
+
+Four pages, set by the owner on 2026-10-20: a common page and one notice for
+each kind of person who uses Cire. Each notice carries its own "Last updated".
+
+| Page | Source | Who it is for |
+|---|---|---|
+| `/privacy` | `src/pages/privacy/index.astro` | Everyone: who runs Cire, what the three notices say in short, rights and contact. Every statement on it is one a notice already makes |
+| `/privacy/hosts` | `src/pages/privacy/hosts.astro` | Couples, co-hosts and organisers |
+| `/privacy/guests` | `src/pages/privacy/guests.astro`, rendering `cire/ui/src/guest-privacy-notice.astro` | Invited households and the people they bring |
+| `/privacy/vendors` | `src/pages/privacy/vendors.astro` | Wedding suppliers |
+
+The site footer links `/privacy`, which links to the three notices. So does the
+organiser portal's RSVP editor, under a plus-one's dietary attestation; the
+portal reads this site's origin from `PUBLIC_MARKETING_URL`
+(`CIRE_MARKETING_URL` in `cire/host/src/lib/osn.ts`).
+
+**One guest notice, two sites.** The guest site renders the same component as
+its own `/privacy` page, so a plus-one sent to cireweddings.com/privacy reaches
+the same words one link on. The component takes a `choices` slot: the guest site
+passes its button that opens the guest's privacy choices, which live on that
+origin; here the slot is empty and the notice points at the invitation's footer.
+Its cookie list is generated from the consent vendor registry, which lives in
+`@cire/ui` with it ([[cire-consent]]).
+
+**The hosts' and vendors' notices** share every section that applies to both;
+what concerns only organisers (their accounts, guest information, purchases, who
+changed a reply) is in the hosts' notice, and directory listings and a supplier's
+own vendor-portal account in the vendors'.
+Each points at the other in its first paragraph.
+
+**`PrivacyNav.astro`** (`src/components/`) is the row of links across the top of
+all four pages: Overview, Hosts, Guests, Vendors. Plain links in a `<nav>` named
+"Privacy notices", the current page marked `aria-current="page"`. No JavaScript;
+each page is its own URL and prints on its own, with the row left out.
+
+**The look**, in landing tokens only, no new token:
+
+- The row: four labels on a `--color-border` hairline, each as wide as its
+  word, `1.75rem` apart, wrapping if they ever run out of room. Labels in the
+  voice of the "Back to Cire" link — Lato `0.8125rem`, uppercase, `0.06em`
+  tracking. Other pages `--color-text-muted`; the current one `--color-text`
+  with a 2px `--color-gold` underline; hover `--color-text`; focus ring 2px
+  `--color-gold`, offset 3px, as the CTAs and footer links draw theirs.
+- Sections are `h2`, as on the other legal pages. The guest notice's sub-sections,
+  and the four parts of the vendors' notice's "Your vendor account" section, are
+  `h3`, drawn as the guest site draws its `h3`, in `--color-gold`
+  (`layouts/LegalLayout.astro`).
+- One dark palette, like the rest of the site: a light-scheme visit renders the
+  same page.
+
+`tools/e2e/tests/flows/cire-privacy-pages.flow.ts` follows the row through all
+four pages, checks the current page is marked with JavaScript on and off, tells
+the hosts' and vendors' notices apart, compares the guest notice with the guest
+site's, prints, and screenshots each page at 390 and 1280 px.
 
 ## Interactive no-op RSVP demo
 
@@ -227,9 +286,9 @@ Remaining **manual** steps (Cloudflare dashboard + one deploy), sequenced in
 
 Cire's longer-term plan is to compete with all-in-one suites (withjoy.com): not
 just the invitation, but the whole wedding **management platform** run from the
-organiser dashboard. Tracked, not yet built:
+organiser dashboard. The gift registry, with money gifts and named cash funds,
+is built ([[cire-registry]]). Tracked, not yet built:
 
-- **Registry** — gift registry as a first-class surface (parity with withjoy).
 - **Wedding-management platform** — budget, vendors, seating, schedule/timeline,
   guest communications — built out from the organiser portal (`host.cireweddings.com`).
 - **Marketing depth** — pricing page, real testimonials (flip `SHOW_TESTIMONIALS`

@@ -1,5 +1,5 @@
 import { contrastRatio, WCAG_TEXT_MIN } from "@cire/theme";
-import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, waitFor, within } from "@solidjs/testing-library";
 
 import "../../src/styles/global.css";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -220,6 +220,20 @@ function fixedContainingBlockAncestor(el: HTMLElement): HTMLElement | null {
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * Wait out the slide a switch between the sheet's panels plays. The sheet
+ * ignores a tap on its badge until the slide ends (the double-tap guard), and
+ * the badge does not move meanwhile, so Playwright's click, which waits only
+ * for its target to stop moving, would land inside the slide.
+ */
+async function panelSettled(sheet: HTMLElement) {
+  await new Promise(requestAnimationFrame);
+  const slides = [...sheet.querySelectorAll<HTMLElement>("[data-panel]")].flatMap((panel) =>
+    panel.getAnimations(),
+  );
+  await Promise.allSettled(slides.map((slide) => slide.finished));
+}
+
+/**
  * `vi.waitFor` options for the settled confirmation. The default 1000ms is too
  * short on purpose-built grounds: the sweep does not START until the sheet's
  * dwell has elapsed and then runs for `SWEEP_DURATION_MS` (500ms). The dwell is
@@ -230,6 +244,13 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * permanent, so it can never overshoot.
  */
 const SETTLED = { timeout: SAVED_DWELL_MS + SWEEP_DURATION_MS + 3000, interval: 50 };
+
+/**
+ * `waitFor` options for a sheet opening. Both packs import the sheet lazily, so
+ * the first open in a run waits for its chunk to load: 0.8–1.1s in a cloud
+ * session's Chromium, against `waitFor`'s 1000ms default.
+ */
+const SHEET_OPENS = { timeout: 3000 };
 /**
  * A returning guest: the session restores, so the invite opens with no unlock
  * choreography to wait through. Two preconditions `createSessionRestore`
@@ -321,7 +342,7 @@ describe.each([
     expect(scaleX(fill())).toBe(0);
 
     respondButton().click();
-    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy());
+    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy(), SHEET_OPENS);
     answer("Priya");
     answer("Raj");
     save();
@@ -356,22 +377,18 @@ describe.each([
     ) as HTMLButtonElement;
 
     await userEvent.click(opener);
-    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy());
+    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy(), SHEET_OPENS);
     const sheet = document.querySelector("dialog") as HTMLDialogElement;
 
-    await userEvent.click(
-      [...sheet.querySelectorAll("button")].find((b) =>
-        b.textContent?.includes("RSVP for this event"),
-      ) as HTMLButtonElement,
-    );
+    // The sheet's switch, by role and name inside the dialog: the card behind
+    // it has a "Respond" of its own.
+    const segment = (name: string) => within(sheet).getByRole("button", { name });
+    await userEvent.click(segment("Respond"));
     expect(document.activeElement?.textContent).toMatch(/Respond.*Mehndi/);
     answer("Priya");
+    await panelSettled(sheet);
 
-    await userEvent.click(
-      [...sheet.querySelectorAll("button")].find((b) =>
-        b.textContent?.includes("View event details"),
-      ) as HTMLButtonElement,
-    );
+    await userEvent.click(segment("Details"));
     expect(document.activeElement?.textContent).toMatch(/Details.*Mehndi/);
     expect(document.querySelector("dialog")).toBe(sheet);
     expect(sheet.matches(":modal")).toBe(true);
@@ -400,7 +417,7 @@ describe.each([
     await waitFor(() => expect(respondButton()).toBeTruthy(), { timeout: 3000 });
 
     respondButton().click();
-    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy());
+    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy(), SHEET_OPENS);
     answer("Priya");
     save();
 
@@ -434,7 +451,7 @@ describe.each([
     await waitFor(() => expect(respondButton()).toBeTruthy(), { timeout: 3000 });
 
     respondButton().click();
-    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy());
+    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy(), SHEET_OPENS);
     answer("Priya");
     save();
 
@@ -496,7 +513,7 @@ describe.each([
     await openByCode(Pack, [json({ rsvps: [row("guest-priya"), row("guest-raj")] })]);
 
     respondButton().click();
-    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy());
+    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy(), SHEET_OPENS);
     answer("Priya");
     answer("Raj");
     save();
@@ -513,7 +530,7 @@ describe.each([
     await openByCode(Pack, [json({ rsvps: [row("guest-priya")] })]);
 
     respondButton().click();
-    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy());
+    await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy(), SHEET_OPENS);
     answer("Priya");
     save();
     await vi.waitFor(() => {

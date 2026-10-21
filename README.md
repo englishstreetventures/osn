@@ -279,7 +279,7 @@ bun run fmt              # oxfmt
 Database work runs from the owning package:
 
 ```bash
-bun run --cwd cire/db db:migrate    # generate migrations
+bun run --cwd cire/db db:generate --name <snake_case>  # write the next migration (wiki/conventions/commands.md)
 bun run --cwd pulse/db db:studio    # Drizzle Studio
 bun run db:reset                    # reset every local database
 ```

@@ -48,6 +48,7 @@ beforeEach(() => {
   app = createApp(db, {
     osnTestKey: auth.key,
     claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+    claimSessionLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
     rsvpLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
     organiserRsvpLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
   });
@@ -173,6 +174,13 @@ describe("POST /api/rsvp → change log", () => {
   it("counts each change it logs", async () => {
     const before = await counterValue(CIRE_METRICS.rsvpChangeRecorded, { kind: "reply_new" });
     const cookie = await cookieFor(TESTTWO_CODE);
+    // A household of several says who is answering first.
+    const chosen = await appRequest(app, "/api/claim/member", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: ORIGIN, Cookie: cookie },
+      body: JSON.stringify({ guestId: BO }),
+    });
+    expect(chosen.status).toBe(200);
     await submit(cookie, [{ guestId: BO, eventId: HINDU, status: "attending" }]);
     expect(await counterValue(CIRE_METRICS.rsvpChangeRecorded, { kind: "reply_new" })).toBe(
       before + 1,

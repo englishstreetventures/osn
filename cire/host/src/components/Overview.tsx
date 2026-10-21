@@ -19,7 +19,13 @@ import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { formatMinor } from "../lib/money";
 import { buildAgenda, type AgendaItem } from "../lib/overview-agenda";
 import { createRsvpChangesResource } from "../lib/rsvp-changes";
-import { ensureTasksLoaded, peekCachedTasks, taskCounts, type TaskRow } from "../lib/tasks-store";
+import {
+  ensureTasksLoaded,
+  peekCachedTasks,
+  readTaskList,
+  type TaskList,
+  taskCounts,
+} from "../lib/tasks-store";
 import type { Tier } from "../lib/tiers";
 import { ensureVendorsLoaded, vendorCount, type VendorRow } from "../lib/vendors-store";
 import GettingStarted from "./GettingStarted";
@@ -206,7 +212,7 @@ export default function Overview(props: {
                 return [];
               }
               if (!res.ok) throw new Error(`tasks ${res.status}`);
-              return ((await res.json()) as { tasks: TaskRow[] }).tasks;
+              return readTaskList(props.weddingId, (await res.json()) as TaskList);
             }),
         budgetLocked()
           ? Promise.resolve()

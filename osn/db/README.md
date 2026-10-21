@@ -16,7 +16,7 @@ Runs against in-memory SQLite in tests (see `@shared/db-utils`).
 ## Scripts
 
 ```bash
-bun run --cwd osn/db db:migrate   # generate a new Drizzle migration
+bun run --cwd osn/db db:generate --name <snake_case>   # write the next migration (one timestamped file)
 bun run --cwd osn/db db:push      # apply the schema to the dev DB
 bun run --cwd osn/db db:studio    # open Drizzle Studio
 bun run --cwd osn/db db:seed      # run src/seed.ts

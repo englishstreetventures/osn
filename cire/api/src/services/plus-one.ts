@@ -618,12 +618,15 @@ export const plusOneService = {
    * and the answers and the household's attestation were about the person
    * before. `dietaryCleared` says whether anything was cleared, so the invite
    * can drop its own copy.
+   *
+   * `actorFor` names the household member the change log records, given the
+   * household's wedding (the member step can be off for one); none by default.
    */
   save(
     familyId: string,
     inviterGuestId: string,
     name: PlusOneName,
-    actorGuestId: string | null = null,
+    actorFor: (weddingId: string) => string | null = () => null,
   ): Effect.Effect<
     { plusOne: PlusOneRecord; created: boolean; dietaryCleared: boolean },
     | PlusOneHouseholdGone
@@ -643,6 +646,7 @@ export const plusOneService = {
         return yield* Effect.fail(new PlusOneNotAllowed());
       }
       const clean = cleanName(name);
+      const actorGuestId = actorFor(context.weddingId);
       const change = { weddingId: context.weddingId, familyId, inviterGuestId, actorGuestId };
 
       if (context.plusOne !== null) {
@@ -694,12 +698,12 @@ export const plusOneService = {
    * (the FK cascade). `removed: false` when there was none — the call is
    * idempotent. Needs no permission: a guest may always take a plus-one back.
    * The change row and the delete are one batch, the row written only while
-   * there is a plus-one for the delete to take.
+   * there is a plus-one for the delete to take. `actorFor` as for `save`.
    */
   remove(
     familyId: string,
     inviterGuestId: string,
-    actorGuestId: string | null = null,
+    actorFor: (weddingId: string) => string | null = () => null,
   ): Effect.Effect<
     { removed: boolean },
     | PlusOneHouseholdGone
@@ -723,7 +727,12 @@ export const plusOneService = {
         commitBatchResults(db, [
           recordPlusOneChange(
             db,
-            { weddingId: context.weddingId, familyId, inviterGuestId, actorGuestId },
+            {
+              weddingId: context.weddingId,
+              familyId,
+              inviterGuestId,
+              actorGuestId: actorFor(context.weddingId),
+            },
             "plus_one_removed",
             guestExists(db, theirs),
           ),

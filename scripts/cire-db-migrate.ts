@@ -35,8 +35,12 @@
  * part that spawns wrangler or sets the exit code.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+
+import { listMigrations, migrationStatements } from "./migration-files";
+
+export { migrationStatements };
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const CIRE_API_DIR = resolve(REPO_ROOT, "cire/api");
@@ -78,9 +82,7 @@ const RECOVERY =
 
 /** The archived chain, in the name order wrangler applied it. */
 export function archivedMigrations(dir: string = ARCHIVE_DIR): readonly string[] {
-  return readdirSync(dir)
-    .filter((name) => name.endsWith(".sql"))
-    .toSorted();
+  return listMigrations(dir);
 }
 
 /** A migration's leading number, or NaN for a name that has none. */
@@ -191,20 +193,6 @@ export function checkLedger(
 /** Case, quoting and whitespace dropped, so two spellings of one statement match. */
 const normalise = (sql: string): string =>
   sql.replaceAll(/[`"]/g, "").replaceAll(/\s+/g, " ").trim().replace(/;$/, "").toLowerCase();
-
-/** The statements of a migration file, one per `--> statement-breakpoint`. */
-export function migrationStatements(sql: string): readonly string[] {
-  return sql
-    .split("--> statement-breakpoint")
-    .map((chunk) =>
-      chunk
-        .split("\n")
-        .filter((line) => !line.trimStart().startsWith("--"))
-        .join("\n")
-        .trim(),
-    )
-    .filter(Boolean);
-}
 
 /**
  * For a database whose ledger holds only the baseline's name: whether its

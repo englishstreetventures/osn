@@ -1,24 +1,25 @@
 {
   "name": "@cire/db",
   "private": true,
-  "type": "module",
-  "author": "English Street Ventures Pty Ltd",
   "license": "UNLICENSED",
+  "author": "English Street Ventures Pty Ltd",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/englishstreetventures/osn.git"
   },
+  "type": "module",
   "exports": {
     ".": "./src/schema.ts",
     "./seed": "./seed/data/index.ts"
   },
   "scripts": {
     "check": "tsc --noEmit",
+    "test:migration-flow": "MIGRATION_FLOW=1 bun test tests/migration-flow.test.ts",
     "test": "bun test",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
     "seed:generate": "bun run seed/generate.ts",
     "assets:seed:dev": "bun run seed/assets.ts",
-    "db:generate": "drizzle-kit generate",
+    "db:generate": "bun run ../../scripts/db-generate.ts .",
     "db:studio": "drizzle-kit studio",
     "db:push": "bun run ../../scripts/cire-db-migrate.ts cire-db --local",
     "db:migrate:local": "bun run ../../scripts/cire-db-migrate.ts cire-db --local",
@@ -27,13 +28,13 @@
     "db:reset": "rm -rf ../api/.wrangler/state/v3/d1 && bun run db:push && bun run db:seed"
   },
   "dependencies": {
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "1.0.0-rc.4",
     "effect": "4.0.3"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",
     "better-sqlite3": "^13.0.3",
-    "drizzle-kit": "^0.31.10"
+    "drizzle-kit": "1.0.0-rc.4"
   }
 }

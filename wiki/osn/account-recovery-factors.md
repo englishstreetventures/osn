@@ -7,7 +7,7 @@ related:
   - "[[step-up]]"
   - "[[sessions]]"
   - "[[identity-model]]"
-last-reviewed: 2026-09-10
+last-reviewed: 2026-10-21
 ---
 
 # Account recovery factors — TOTP and email-verified recovery
@@ -510,7 +510,7 @@ reason nothing here runs concurrently:
   `routes/auth/{index,step-up,context,response-schemas}.ts` (two hard-coded
   purpose unions in `step-up.ts`), `metrics.ts`, `build-deps.ts`, `index.ts`
   (`Env`), `wrangler.toml`.
-- `osn/db/src/schema/index.ts` and `osn/db/drizzle/` — sequential numbering.
+- `osn/db/src/schema/index.ts` and `osn/db/drizzle/` — one migration per phase, written by `db:generate` ([[commands#Migrations]]).
 - `osn/client/src/step-up.ts` mirrors `StepUpPurpose` **by hand**.
 - The wiki pages every phase makes stale: [[step-up]], [[passkey-primary]],
   [[recovery-codes]], [[email]], [[identity-model]].

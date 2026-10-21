@@ -109,7 +109,7 @@ export function insertManyViaJsonEach<TTable extends Table>(
     if (!column) {
       throw new Error(`insertManyViaJsonEach: "${key}" is not a column of this table`);
     }
-    if (column.dataType === "buffer") {
+    if (column.dataType === "object buffer") {
       throw new Error(
         `insertManyViaJsonEach: "${key}" is a blob column, which cannot survive the JSON payload — insert it with .values() in chunks under the parameter cap`,
       );

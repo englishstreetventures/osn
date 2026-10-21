@@ -24,8 +24,11 @@ import {
   registryItems,
   registrySettings,
   rsvps,
+  seatingTables,
+  seats,
   syntheticFamilies,
   syntheticRsvps,
+  taskAssignees,
   tasks,
   type SeedBudgetItem,
   type SeedFamily,
@@ -312,6 +315,31 @@ ${body};`,
   );
 }
 
+function seatingBlock(): string {
+  const tableRows = seatingTables.map(
+    (t) => `  (
+    ${sql(t.id)}, ${sql(bootstrapWedding.id)}, ${sql(t.eventId)}, ${sql(t.name)},
+    ${t.capacity}, ${t.sortOrder}, unixepoch(), unixepoch()
+  )`,
+  );
+  const seatRows = seats.map(
+    (s) => `  (${sql(s.tableId)}, ${sql(s.eventId)}, ${sql(s.guestId)}, unixepoch())`,
+  );
+  return section(
+    `Seating chart (${tableRows.length} tables, ${seatRows.length} seated) — the Reception`,
+    `-- After the invitations: a seat's foreign key names its guest's invitation
+-- to the event, and its table's event.
+INSERT OR IGNORE INTO seating_tables (
+  id, wedding_id, event_id, name,
+  capacity, sort_order, created_at, updated_at
+) VALUES
+${tableRows.join(",\n")};
+
+INSERT OR IGNORE INTO seating_assignments (table_id, event_id, guest_id, created_at) VALUES
+${seatRows.join(",\n")};`,
+  );
+}
+
 function rsvpRow(rsvp: SeedRsvp): string {
   // Consent is stamped iff there is dietary text — Art. 9(2)(a) consent
   // authorises exactly that free-text, so a reply with none has nothing to
@@ -477,6 +505,21 @@ ${rows.join(",\n")};`,
   );
 }
 
+function taskAssigneesBlock(): string {
+  const rows = taskAssignees.map(
+    (a) => `  (${sql(a.taskId)}, ${sql(a.hostId)}, ${sql(bootstrapWedding.id)}, unixepoch())`,
+  );
+  return section(
+    `Checklist task holders (${rows.length})`,
+    `-- Each row pairs a task with a seat of the same wedding; both foreign keys
+-- carry \`wedding_id\`, so a row naming another wedding's task or seat fails.
+-- One second for every row: a task's holders read back by \`assigned_at\`, then
+-- rowid, so the order here is the order the checklist shows them in.
+INSERT OR IGNORE INTO task_assignees (task_id, host_id, wedding_id, assigned_at) VALUES
+${rows.join(",\n")};`,
+  );
+}
+
 function faqsBlock(): string {
   const rows = faqs.map(
     (f) => `  (
@@ -522,10 +565,11 @@ INSERT OR IGNORE INTO registry_settings (
 function registryItemsBlock(): string {
   const rows = registryItems.map(
     (i) => `  (
-    ${sql(i.id)}, ${sql(bootstrapWedding.id)}, 'product', ${sql(i.title)},
+    ${sql(i.id)}, ${sql(bootstrapWedding.id)}, ${sql(i.kind)}, ${sql(i.title)},
     ${sqlOrNull(i.description)},
     ${sqlOrNull(i.externalUrl)},
-    ${numOrNull(i.priceMinor)}, ${i.quantityWanted}, ${sqlOrNull(i.category)}, ${i.sortOrder},
+    ${numOrNull(i.priceMinor)}, ${i.quantityWanted}, ${sqlOrNull(i.category)},
+    ${numOrNull(i.targetMinor)}, ${i.sortOrder},
     unixepoch(), unixepoch()
   )`,
   );
@@ -535,11 +579,11 @@ function registryItemsBlock(): string {
 -- with no bytes behind it renders a broken image on both the organiser list and
 -- the guest site. The link-preview path fills it in normally.
 --
--- \`kind\` is 'product' throughout — 'cash_fund' is a declared seam with no UI in
--- v1, so seeding one would put a row on screen that nothing can edit.
+-- The last row is a cash fund with a goal. Money gifts are off here, so it
+-- shows in the organiser's list and not on the guest page.
 INSERT OR IGNORE INTO registry_items (
   id, wedding_id, kind, title, description,
-  external_url, price_minor, quantity_wanted, category, sort_order,
+  external_url, price_minor, quantity_wanted, category, target_minor, sort_order,
   created_at, updated_at
 ) VALUES
 ${rows.join(",\n")};`,
@@ -592,6 +636,9 @@ export function generateSeedSql(): string {
     "",
     tasksBlock(),
     "",
+    // After the seats and the tasks above: an assignment is FK'd to both.
+    taskAssigneesBlock(),
+    "",
     faqsBlock(),
     "",
     registrySettingsBlock(),
@@ -603,6 +650,8 @@ export function generateSeedSql(): string {
     guestsBlock(),
     "",
     guestEventsBlock(),
+    "",
+    seatingBlock(),
     "",
     rsvpsBlock(),
     "",

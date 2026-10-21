@@ -5,7 +5,7 @@ import { beforeAll } from "vitest";
 import { createAuthService } from "../../src/services/auth";
 import { createOrganisationService } from "../../src/services/organisation";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 let auth: ReturnType<typeof createAuthService>;
@@ -83,6 +83,28 @@ describe("createOrganisation", () => {
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
+
+  // The pre-check sees the handle free; a twin row written in between, as a
+  // parallel request would, makes the insert itself hit the unique index. The
+  // database's reason sits below drizzle's "Failed query" message on both
+  // drivers, so this is the case that proves it is read through the cause.
+  it.effect("answers a handle taken between the check and the insert as unavailable", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    return Effect.gen(function* () {
+      const alice = yield* registerProfile("alice@example.com", "alice");
+      sqlite.run(`
+        CREATE TRIGGER race_organisation_handle BEFORE INSERT ON organisations
+        WHEN NEW.id NOT LIKE '%_race'
+        BEGIN
+          INSERT INTO organisations (id, handle, name, owner_id, created_at, updated_at)
+          VALUES (NEW.id || '_race', NEW.handle, NEW.name, NEW.owner_id, NEW.created_at, NEW.updated_at);
+        END;
+      `);
+      const error = yield* Effect.flip(org.createOrganisation(alice.id, "racer", "Racer Org"));
+      expect(error._tag).toBe("OrgError");
+      expect(error.message).toContain("Handle unavailable");
+    }).pipe(Effect.provide(layer));
+  });
 
   it.effect("fails when handle is already taken by another org", () =>
     Effect.gen(function* () {

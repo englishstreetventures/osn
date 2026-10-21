@@ -254,7 +254,8 @@ describe("unhandled errors", () => {
     // The structured entry + the error NAME are present (triage signal).
     expect(out).toContain("unhandled request error");
     expect(out).toContain("name");
-    expect(out).toContain("SQLiteError"); // the error NAME survives
+    // the error NAME survives: drizzle wraps a failed statement on both drivers
+    expect(out).toContain("DrizzleQueryError");
     // The raw SQLite message (a D1-internal echo) must NOT appear anywhere —
     // "no such table: families" is exactly what would have leaked under the old
     // `message: error.message` log.

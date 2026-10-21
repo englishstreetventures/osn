@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import RegistryView from "../../src/components/RegistryView";
 import { apiUrl } from "../../src/lib/api";
+import { formatMinor } from "../../src/lib/money";
 import {
   __resetRegistryCache,
   type GiftLogEntry,
@@ -210,11 +211,20 @@ describe("RegistryView — the gift list", () => {
     render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
     const title = await screen.findByPlaceholderText(/copper pan/i);
     fireEvent.input(title, { target: { value: "Wine fridge" } });
+    fireEvent.input(screen.getByLabelText("How many"), { target: { value: "2" } });
+    fireEvent.input(screen.getByLabelText("Link (optional)"), {
+      target: { value: "https://shop.example/fridge" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /add gift/i }));
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
     const [url, init] = authFetch.mock.calls[0]!;
     expect(String(url)).toMatch(/\/registry\/items$/);
     expect(init.method).toBe("POST");
+    // A gift sends a gift's fields and no fund's.
+    const sent = JSON.parse(init.body);
+    expect(sent).toMatchObject({ quantityWanted: 2, externalUrl: "https://shop.example/fridge" });
+    expect(sent).not.toHaveProperty("kind");
+    expect(sent).not.toHaveProperty("targetMinor");
     expect(await screen.findByText("Wine fridge")).toBeInTheDocument();
   });
 
@@ -367,12 +377,26 @@ describe("RegistryView — the gift list", () => {
     fireEvent.input(within(editForm).getByLabelText("Gift"), {
       target: { value: "Copper saucepan" },
     });
+    // A gift's editor carries a gift's fields and no fund's goal.
+    expect(within(editForm).queryByLabelText("Goal")).toBeNull();
+    fireEvent.input(within(editForm).getByLabelText("How many"), { target: { value: "2" } });
+    fireEvent.input(within(editForm).getByLabelText("Category"), { target: { value: "Kitchen" } });
+    fireEvent.input(within(editForm).getByLabelText("Link"), {
+      target: { value: "https://shop.example/pan" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
     const [url, init] = authFetch.mock.calls[0]!;
     expect(String(url)).toMatch(/\/registry\/items\/a$/);
     expect(init.method).toBe("PATCH");
-    expect(JSON.parse(init.body)).toMatchObject({ title: "Copper saucepan", priceMinor: 12_000 });
+    expect(JSON.parse(init.body)).toMatchObject({
+      title: "Copper saucepan",
+      priceMinor: 12_000,
+      quantityWanted: 2,
+      category: "Kitchen",
+      externalUrl: "https://shop.example/pan",
+    });
+    expect(JSON.parse(init.body)).not.toHaveProperty("targetMinor");
     expect(await screen.findByText("Copper saucepan")).toBeInTheDocument();
   });
 
@@ -1323,5 +1347,495 @@ describe("RegistryView — gift log export", () => {
     expect(authFetch).toHaveBeenCalledTimes(1);
     release?.(csvResponse());
     await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("RegistryView — cash funds", () => {
+  const fund = (over: Partial<RegistryItem> = {}): RegistryItem =>
+    item({
+      id: "fund_1",
+      kind: "cash_fund",
+      title: "Honeymoon in Kyoto",
+      description: "Trains, temples and a very good dinner.",
+      targetMinor: 500_000,
+      ...over,
+    });
+  /** Settings under which guests can give money, so funds reach them. */
+  const takingMoney = {
+    ...snapshot().settings,
+    cashGiftsEnabled: true,
+    stripeConnected: true,
+    stripeChargesEnabled: true,
+  };
+
+  it("adds a cash fund with its goal in the wedding's own currency, and no gift fields", async () => {
+    // A yen wedding: ¥50,000 typed is 50,000 minor units, not 5,000,000.
+    setCachedRegistry("wed_1", snapshot({ currency: "JPY" }));
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ item: fund({ id: "new_fund", targetMinor: 50_000 }) }), {
+        status: 200,
+      }),
+    );
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+    fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon in Kyoto" } });
+    fireEvent.input(screen.getByLabelText("Goal (optional)"), { target: { value: "50000" } });
+    fireEvent.input(screen.getByLabelText("What it’s for (optional)"), {
+      target: { value: "  Trains, temples and a very good dinner.  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    const [url, init] = authFetch.mock.calls[0]!;
+    expect(String(url)).toMatch(/\/registry\/items$/);
+    expect(init.method).toBe("POST");
+    expect(init.headers).toEqual({ "Content-Type": "application/json" });
+    expect(JSON.parse(init.body)).toEqual({
+      kind: "cash_fund",
+      title: "Honeymoon in Kyoto",
+      description: "Trains, temples and a very good dinner.",
+      targetMinor: 50_000,
+      imageKey: null,
+    });
+    expect(await screen.findByText("Honeymoon in Kyoto")).toBeInTheDocument();
+    // The form is cleared for the next fund.
+    expect((screen.getByLabelText("Fund") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Goal (optional)") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("What it’s for (optional)") as HTMLTextAreaElement).value).toBe(
+      "",
+    );
+  });
+
+  it("clears the picture once a fund is added, so the next one starts without it", async () => {
+    setCachedRegistry("wed_1", snapshot());
+    authFetch.mockImplementation((url: string | URL) => {
+      const u = String(url);
+      if (u.endsWith("/registry/image"))
+        return Promise.resolve(
+          new Response(JSON.stringify({ imageKey: "assets/wed_1/registry-f1", imageUrl: "/x" }), {
+            status: 200,
+          }),
+        );
+      if (u.includes("/registry/image/")) return Promise.resolve(new Response("bytes"));
+      return Promise.resolve(
+        new Response(JSON.stringify({ item: fund({ imageKey: "assets/wed_1/registry-f1" }) }), {
+          status: 200,
+        }),
+      );
+    });
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+    fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon in Kyoto" } });
+    fireEvent.click(screen.getByRole("button", { name: "Upload a photo" }));
+    const file = screen.getByLabelText("Photo to upload");
+    Object.defineProperty(file, "files", {
+      value: [new File(["png"], "kyoto.png", { type: "image/png" })],
+      configurable: true,
+    });
+    fireEvent.change(file);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Remove picture" })).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+    const isCreate = (call: unknown[]) => String(call[0]).endsWith("/registry/items");
+    await waitFor(() => expect(authFetch.mock.calls.some(isCreate)).toBe(true));
+    expect(JSON.parse(authFetch.mock.calls.find(isCreate)![1].body).imageKey).toBe(
+      "assets/wed_1/registry-f1",
+    );
+    // The add form is empty again, picture included.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Remove picture" })).toBeNull(),
+    );
+  });
+
+  it("starts on a gift, and switching to a fund and back shows each kind's own fields", async () => {
+    setCachedRegistry("wed_1", snapshot());
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ item: fund({ targetMinor: null, description: null }) }), {
+        status: 200,
+      }),
+    );
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+
+    const giftChoice = (await screen.findByRole("radio", {
+      name: "A gift to reserve",
+    })) as HTMLInputElement;
+    const fundChoice = screen.getByRole("radio", { name: "A cash fund" }) as HTMLInputElement;
+    expect(giftChoice.checked).toBe(true);
+    expect(fundChoice.checked).toBe(false);
+    expect(screen.getByPlaceholderText(/copper pan/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Fund")).toBeNull();
+
+    fireEvent.click(fundChoice);
+    expect(screen.queryByPlaceholderText(/copper pan/i)).toBeNull();
+    expect(screen.queryByLabelText("Price (optional)")).toBeNull();
+    fireEvent.click(giftChoice);
+    expect(screen.getByPlaceholderText(/copper pan/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Goal (optional)")).toBeNull();
+
+    // A fund with nothing but a name sends no words and no goal.
+    fireEvent.click(fundChoice);
+    fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+    fireEvent.input(screen.getByLabelText("Goal (optional)"), { target: { value: "   " } });
+    fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(authFetch.mock.calls[0]![1].body)).toMatchObject({
+      description: null,
+      targetMinor: null,
+    });
+  });
+
+  it("refuses a goal below the currency's smallest unit, naming it", async () => {
+    setCachedRegistry("wed_1", snapshot());
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+    fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+    fireEvent.input(screen.getByLabelText("Goal (optional)"), { target: { value: "0.004" } });
+    fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/not allowed/);
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
+  it("says the list is full, or that the fund could not be added, without adding it", async () => {
+    for (const [answer, words] of [
+      [new Response("{}", { status: 409 }), "Your gift list is full"],
+      [new Response("{}", { status: 500 }), "Couldn't add that fund."],
+    ] as const) {
+      __resetRegistryCache();
+      authFetch.mockReset();
+      setCachedRegistry("wed_1", snapshot());
+      authFetch
+        .mockResolvedValueOnce(answer)
+        .mockResolvedValue(new Response(JSON.stringify(snapshot()), { status: 200 }));
+      const view = render(() => (
+        <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+      ));
+      fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+      fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+      fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(words);
+      expect(screen.queryByText("Honeymoon")).toBeNull();
+      view.unmount();
+    }
+  });
+
+  it("shows the couple a fund's goal, and no count of anything claimed", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ settings: takingMoney, items: [fund(), item({ id: "pan", sortOrder: 1 })] }),
+    );
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+
+    const rows = await screen.findAllByRole("listitem");
+    const fundRow = rows.find((r) => r.textContent?.includes("Honeymoon in Kyoto"))!;
+    expect(fundRow).toHaveTextContent("Cash fund");
+    expect(fundRow).toHaveTextContent(`Goal ${formatMinor(500_000, "AUD")}`);
+    expect(fundRow.textContent).not.toMatch(/claimed/i);
+    // A gift beside it keeps its claimed count.
+    const panRow = rows.find((r) => r.textContent?.includes("Copper pan"))!;
+    const claimed = [...panRow.querySelectorAll("span")].find((span) =>
+      span.textContent?.includes("claimed"),
+    );
+    expect(claimed?.textContent?.trim()).toBe("0 of 1 claimed");
+  });
+
+  it("edits a fund's goal through the currency's exponent and sends no gift fields", async () => {
+    setCachedRegistry("wed_1", snapshot({ settings: takingMoney, items: [fund()] }));
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ item: fund({ targetMinor: 650_000 }) }), { status: 200 }),
+    );
+    const { container } = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+
+    fireEvent.click(await screen.findByRole("button", { name: /edit honeymoon in kyoto/i }));
+    const editForm = container.querySelectorAll("form")[1]!;
+    const goal = within(editForm).getByLabelText("Goal") as HTMLInputElement;
+    expect(goal.value).toBe("5000.00");
+    expect(within(editForm).queryByLabelText("Price")).toBeNull();
+    fireEvent.input(goal, { target: { value: "6500" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(authFetch.mock.calls[0]![1].body)).toEqual({
+      title: "Honeymoon in Kyoto",
+      description: "Trains, temples and a very good dinner.",
+      targetMinor: 650_000,
+      imageKey: null,
+    });
+  });
+
+  it("says a field did not fit, rather than blaming a link nobody typed", async () => {
+    setCachedRegistry("wed_1", snapshot());
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "invalid_item_fields" }), { status: 400 }),
+    );
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+    fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+    fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "A cash fund takes a name, a goal, a description and a picture, and nothing else.",
+    );
+  });
+
+  it("answers each refused write in the words for its kind and its code", async () => {
+    // A fund refused for some other reason (a name too long, a goal too big),
+    // here with a body that is not even JSON.
+    setCachedRegistry("wed_1", snapshot());
+    authFetch.mockResolvedValueOnce(new Response("Bad Request", { status: 400 }));
+    const first = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+    fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+    fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+    fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Check the fund’s name and goal.");
+    first.unmount();
+
+    // A gift refused with no code: the one field a gift can get wrong is its link.
+    __resetRegistryCache();
+    authFetch.mockReset();
+    setCachedRegistry("wed_1", snapshot());
+    authFetch.mockResolvedValueOnce(new Response("{}", { status: 400 }));
+    const second = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+    fireEvent.input(await screen.findByPlaceholderText(/copper pan/i), {
+      target: { value: "Wine fridge" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add gift/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "A link must be a full https:// address.",
+    );
+    second.unmount();
+
+    // A gift edit refused as a field of the other kind.
+    __resetRegistryCache();
+    authFetch.mockReset();
+    setCachedRegistry("wed_1", snapshot({ items: [item({ id: "a" })] }));
+    authFetch
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "invalid_item_fields" }), { status: 400 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(snapshot({ items: [item({ id: "a" })] })), { status: 200 }),
+      );
+    const third = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: /edit copper pan/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "A gift to reserve has no goal. Refresh and try again.",
+    );
+    third.unmount();
+  });
+
+  it("takes back a fund that a server not yet taking funds saved as a gift", async () => {
+    // The portal can reach production before the API that knows funds. That
+    // API drops `kind`, and would put "Honeymoon" on the guest list as a gift
+    // to reserve. The portal deletes it at once and says so.
+    setCachedRegistry("wed_1", snapshot());
+    authFetch
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ item: item({ id: "oops", title: "Honeymoon" }) }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+    fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+    fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2));
+    const [url, init] = authFetch.mock.calls[1]!;
+    expect(String(url)).toMatch(/\/registry\/items\/oops$/);
+    expect(init.method).toBe("DELETE");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Cash funds aren’t available yet. Try again in a few minutes.",
+    );
+    expect(screen.queryByText("Honeymoon")).toBeNull();
+    // Taken back, so nothing to re-read.
+    expect(authFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows the couple a gift it could not take back, so they can remove it", async () => {
+    // The take-back failed, so a gift guests can reserve is on the list. The
+    // couple are told, and the list is read again so it is there to remove.
+    const saved = item({ id: "oops", title: "Honeymoon" });
+    for (const failure of [
+      () => Promise.resolve(new Response("{}", { status: 500 })),
+      () => Promise.reject(new Error("offline")),
+    ]) {
+      __resetRegistryCache();
+      authFetch.mockReset();
+      setCachedRegistry("wed_1", snapshot());
+      authFetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({ item: saved }), { status: 200 }))
+        .mockImplementationOnce(failure)
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(snapshot({ items: [saved] })), { status: 200 }),
+        );
+      const view = render(() => (
+        <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+      ));
+
+      fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+      fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+      fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/Remove it from your list/);
+      await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(3));
+      expect(String(authFetch.mock.calls[2]![0])).toMatch(/\/registry$/);
+      expect(await screen.findByText("Honeymoon")).toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  it("shows a fund with no goal without one, and edits it without inventing one", async () => {
+    setCachedRegistry("wed_1", snapshot({ items: [fund({ targetMinor: null })] }));
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ item: fund({ targetMinor: null }) }), { status: 200 }),
+    );
+    const { container } = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+
+    const [row] = await screen.findAllByRole("listitem");
+    expect(row!.textContent).not.toMatch(/Goal/);
+
+    fireEvent.click(screen.getByRole("button", { name: /edit honeymoon in kyoto/i }));
+    const editForm = container.querySelectorAll("form")[1]!;
+    expect(within(editForm).getByLabelText("Fund")).toBeInTheDocument();
+    expect((within(editForm).getByLabelText("Goal") as HTMLInputElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(authFetch.mock.calls[0]![1].body).targetMinor).toBeNull();
+  });
+
+  it("edits a fund only with a name and a real goal, and trims what was typed", async () => {
+    setCachedRegistry("wed_1", snapshot({ settings: takingMoney, items: [fund()] }));
+    authFetch.mockResolvedValue(new Response(JSON.stringify({ item: fund() }), { status: 200 }));
+    const { container } = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+    const openEditor = async () => {
+      fireEvent.click(await screen.findByRole("button", { name: /edit honeymoon in kyoto/i }));
+      return container.querySelectorAll("form")[1]!;
+    };
+
+    const editForm = await openEditor();
+    fireEvent.input(within(editForm).getByLabelText("Goal"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("A goal must be a positive amount.");
+
+    fireEvent.input(within(editForm).getByLabelText("Fund"), { target: { value: "   " } });
+    fireEvent.input(within(editForm).getByLabelText("Goal"), { target: { value: "100" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(authFetch).not.toHaveBeenCalled();
+
+    fireEvent.input(within(editForm).getByLabelText("Fund"), {
+      target: { value: "  Honeymoon  " },
+    });
+    fireEvent.input(within(editForm).getByLabelText("Description"), {
+      target: { value: "  Somewhere warm  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(authFetch.mock.calls[0]![1].body)).toMatchObject({
+      title: "Honeymoon",
+      description: "Somewhere warm",
+      targetMinor: 10_000,
+    });
+    // The error from the refused goal does not outlive a save that worked.
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  it("refuses a goal of nothing without asking the server", async () => {
+    setCachedRegistry("wed_1", snapshot());
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+    fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+    fireEvent.input(screen.getByLabelText("Goal (optional)"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("A goal must be a positive amount.");
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
+  it("sends the couple to sign in again when adding a fund answers 401", async () => {
+    setCachedRegistry("wed_1", snapshot());
+    redirectToLoginMock.mockClear();
+    authFetch.mockResolvedValueOnce(new Response("{}", { status: 401 }));
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+    fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+    fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+
+    await waitFor(() => expect(redirectToLoginMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("loads the list when nothing is cached yet, funds and all", async () => {
+    // The first visit to the module: no snapshot until the read answers.
+    authFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify(snapshot({ items: [fund(), item({ id: "pan", sortOrder: 1 })] })),
+        {
+          status: 200,
+        },
+      ),
+    );
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+    expect(await screen.findByText("Honeymoon in Kyoto")).toBeInTheDocument();
+    // A fund among gifts, with money off, still says guests cannot see it.
+    expect(screen.getByText(/only while money gifts are on/i)).toBeInTheDocument();
+  });
+
+  it("says when guests cannot see the funds, and not when they can", async () => {
+    setCachedRegistry("wed_1", snapshot({ items: [fund()] }));
+    const { unmount } = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+    expect(await screen.findByText(/only while money gifts are on/i)).toBeInTheDocument();
+    unmount();
+
+    // Money gifts switched off with Stripe still charging is the ordinary way
+    // they are off; the funds are just as hidden.
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ settings: { ...takingMoney, cashGiftsEnabled: false }, items: [fund()] }),
+    );
+    const halfOn = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+    expect(await screen.findByText(/only while money gifts are on/i)).toBeInTheDocument();
+    halfOn.unmount();
+
+    // No fund, nothing to say, whatever the money settings.
+    setCachedRegistry("wed_1", snapshot({ items: [item({})] }));
+    const giftsOnly = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+    await screen.findByText("Copper pan");
+    expect(screen.queryByText(/only while money gifts are on/i)).toBeNull();
+    giftsOnly.unmount();
+
+    setCachedRegistry("wed_1", snapshot({ settings: takingMoney, items: [fund()] }));
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+    await screen.findByText("Honeymoon in Kyoto");
+    expect(screen.queryByText(/only while money gifts are on/i)).toBeNull();
   });
 });

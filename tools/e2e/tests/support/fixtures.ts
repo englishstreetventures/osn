@@ -19,9 +19,21 @@ import {
   type BrowserContext,
   type CDPSession,
   type Page,
+  type Route,
 } from "@playwright/test";
 
-import { API_LABELS, BIRTHDATE, CLOCK_T0, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
+import {
+  API_LABELS,
+  BIRTHDATE,
+  CIRE_GIFT_LIST,
+  CIRE_ORGANISER,
+  CLOCK_T0,
+  DB_FILES,
+  DEV_LOGIN_SECRET,
+  ORGANISER_ADDRESS,
+  ORIGINS,
+  SCREENSHOT_DIR,
+} from "../../src/config";
 import { requestLine, requestSet, type Assertion, type FlowRecord } from "../../src/record";
 import { RECORD_ATTACHMENT } from "../../src/reporter";
 
@@ -208,6 +220,32 @@ export function queryOne<T>(
   }
 }
 
+/**
+ * Sends `context`'s invitation claims (`POST /api/claim`) from
+ * `ORGANISER_ADDRESS` rather than from the machine the suite runs on.
+ *
+ * cire-api limits claims per client address, five a minute, and every other
+ * flow claims from the same one; an organiser previews from their own network,
+ * so this flow's claim spends its own window. The headers are the request's
+ * own (`allHeaders`, which keeps `Origin` for the origin guard) plus the
+ * address. `tools/e2e/tests/flows.test.ts` counts such flows apart.
+ *
+ * The route stays for the rest of the flow, on purpose. While any route is
+ * installed Playwright pauses every request in the context, and removing the
+ * route while the page is still loading strands whichever request was paused
+ * at that moment: a module import the claim's reveal waits on never settles,
+ * and the invitation stays on its code form.
+ */
+export async function claimFromOrganiserAddress(context: BrowserContext): Promise<void> {
+  await context.route(`${ORIGINS.cireApi}/api/claim`, async (route: Route) => {
+    const request = route.request();
+    if (request.method() !== "POST") return route.continue();
+    return route.continue({
+      headers: { ...(await request.allHeaders()), "cf-connecting-ip": ORGANISER_ADDRESS },
+    });
+  });
+}
+
 /** A cookie in `context` by name, or undefined. */
 export async function cookieNamed(context: BrowserContext, url: string, name: string) {
   return (await context.cookies(url)).find((c) => c.name === name);
@@ -221,4 +259,86 @@ export async function cookieNamed(context: BrowserContext, url: string, name: st
 export function onSuiteClock(unixSeconds: number | undefined): boolean {
   const start = Math.floor(CLOCK_T0 / 1000);
   return unixSeconds !== undefined && unixSeconds >= start && unixSeconds < start + 3600;
+}
+
+/**
+ * Which of the gift list's private strings (`CIRE_GIFT_LIST`: every gift title,
+ * the couple's headline, their message, and the cash fund's name and words)
+ * `text` holds, comma-joined, or `"none"`. Read off a page's HTML or an API
+ * body: what a visitor without a claim must never receive.
+ */
+export function giftListTextIn(text: string): string {
+  const secret = [
+    ...CIRE_GIFT_LIST.gifts,
+    CIRE_GIFT_LIST.headline,
+    CIRE_GIFT_LIST.message,
+    CIRE_GIFT_LIST.fund.title,
+    CIRE_GIFT_LIST.fund.description,
+  ];
+  return secret.filter((s) => text.includes(s)).join(", ") || "none";
+}
+
+/**
+ * Signs `page`'s context in to the cire organiser portal as the dev profile,
+ * which owns every `CIRE_ORGANISER` wedding, and leaves the page on the
+ * portal's wedding list.
+ *
+ * osn-api's `/dev/login` mints the OSN session, since no passkey can be enrolled
+ * for an account a seed wrote. Everything after it is the real sign-in: the
+ * portal's "Continue with musubi", cire-api's OIDC start leg, osn-api's
+ * `/authorize`, which hands the first-party portal a code with no screen, and
+ * cire-api's callback, which exchanges it and sets `cire_org_session`.
+ *
+ * Each call spends two of cire-api's OIDC redirect legs (15 a minute per
+ * address), one `/dev/login` (10) and one osn-api `/authorize` (20);
+ * `tests/flows.test.ts` caps how many flows may call it.
+ */
+export async function signInToCireHost(flow: Flow, page: Page): Promise<void> {
+  const authorizePages: string[] = [];
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame() && frame.url().startsWith(`${ORIGINS.musubi}/authorize`)) {
+      authorizePages.push(frame.url());
+    }
+  });
+
+  await flow.step("organiser: get an OSN session from /dev/login", async () => {
+    const url = `${ORIGINS.osnApi}/dev/login`;
+    // The context's own request client: the session cookie lands in the jar
+    // the browser sends to osn-api's `/authorize`.
+    const response = await page
+      .context()
+      .request.get(`${url}?secret=${encodeURIComponent(DEV_LOGIN_SECRET)}`);
+    flow.recordRequest("GET", url, response.status());
+    expect(response.status(), "dev login").toBe(200);
+  });
+
+  // The flows share one database, so the check is this sign-in's own row: one
+  // more for the dev profile than before it.
+  const sessionsBefore = organiserSessions();
+  await flow.step("organiser: sign in to the portal with musubi", async () => {
+    await page.goto(`${ORIGINS.cireHost}/login`);
+    await page.getByRole("button", { name: "Continue with musubi" }).click();
+    // The portal lands on `/` and rewrites the empty hash to its wedding list.
+    await expect(page).toHaveURL(`${ORIGINS.cireHost}/#/weddings`);
+  });
+
+  flow.check("organiser: musubi /authorize page not shown", 0, authorizePages.length);
+  const cookie = await cookieNamed(page.context(), ORIGINS.cireApi, "cire_org_session");
+  flow.check("organiser: cire_org_session set by cire-api", true, cookie !== undefined);
+  flow.check("organiser: cire_org_session is HttpOnly", true, cookie?.httpOnly ?? false);
+  flow.check(
+    "organiser: one organiser_sessions row added for the dev profile",
+    1,
+    organiserSessions() - sessionsBefore,
+  );
+}
+
+/** How many cire organiser sessions the dev profile holds. */
+function organiserSessions(): number {
+  const row = queryOne<{ n: number }>(
+    DB_FILES.cire,
+    "SELECT count(*) AS n FROM organiser_sessions WHERE osn_profile_id = ?",
+    CIRE_ORGANISER.profileId,
+  );
+  return row?.n ?? 0;
 }

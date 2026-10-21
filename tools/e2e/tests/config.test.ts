@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { DEV_APPS } from "@shared/dev-urls";
 
 import { PORTS } from "../src/config";
+import { VENDOR_PORTAL_ORIGIN } from "../src/stack";
 
 // The suite's ports are written out for Node; they must stay the ones the
 // devloop itself uses with `PORTLESS=0`.
@@ -14,6 +15,12 @@ describe("PORTS", () => {
     expect(PORTS.musubi).toBe(DEV_APPS["@musubi/social"].port);
     expect(PORTS.pulseWeb).toBe(DEV_APPS["@pulse/web"].port);
     expect(PORTS.cireInvites).toBe(DEV_APPS["@cire/invites"].port);
+    expect(PORTS.cireHost).toBe(DEV_APPS["@cire/host"].port);
+    expect(PORTS.cireLanding).toBe(DEV_APPS["@cire/landing"].port);
+  });
+
+  test("the vendor portal origin cire-api is told is the vendor dev app's", () => {
+    expect(VENDOR_PORTAL_ORIGIN).toBe(`http://localhost:${DEV_APPS["@cire/vendor"].port}`);
   });
 
   test("the mail stand-in's port belongs to no dev app", () => {

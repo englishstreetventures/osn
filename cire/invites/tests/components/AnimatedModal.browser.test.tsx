@@ -18,7 +18,8 @@ import { AnimatedModal } from "../../src/components/AnimatedModal";
 describe("the guest sheet, in a real engine", () => {
   afterEach(() => {
     cleanup();
-    document.body.style.overflow = "";
+    document.documentElement.style.overflow = "";
+    document.documentElement.style.scrollbarGutter = "";
   });
 
   /**
@@ -118,5 +119,113 @@ describe("the guest sheet, in a real engine", () => {
     // rendered width, because the viewport the test runs in may be narrower than
     // the cap — the cap is what is being asserted, not the layout under it.
     expect(getComputedStyle(getByRole("dialog")).maxWidth).toBe("480px");
+  });
+  /**
+   * The invite's root carries `overflow-x: clip`, so the root's overflow is
+   * not `visible` and a `<body>` value never reaches the viewport. The lock
+   * has to be on the root itself, or a wheel or a touch on the sheet's
+   * chrome or backdrop scrolls the invite behind it.
+   */
+  it("keeps the page behind it still while the sheet is open, and lets it scroll again after", async () => {
+    const tall = document.createElement("div");
+    tall.style.height = "4000px";
+    document.body.append(tall);
+    try {
+      window.scrollTo(0, 0);
+      const { getByRole, unmount } = render(() => (
+        <AnimatedModal onClose={() => {}} label="Event details">
+          <p>body</p>
+        </AnimatedModal>
+      ));
+
+      await userEvent.wheel(getByRole("button", { name: "Close" }), { delta: { y: 600 } });
+      await userEvent.wheel(getByRole("dialog"), { delta: { y: 600 } });
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      expect(window.scrollY).toBe(0);
+
+      unmount();
+      expect(document.documentElement.style.overflow).toBe("");
+      await userEvent.wheel(tall, { delta: { y: 600 } });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(window.scrollY).toBeGreaterThan(0);
+    } finally {
+      tall.remove();
+      window.scrollTo(0, 0);
+    }
+  });
+
+  /**
+   * The gutter stands in for a classic scrollbar while the lock takes it away,
+   * and has to go with the sheet: left behind, every page after the first
+   * sheet is a scrollbar narrower for the rest of the visit.
+   *
+   * This Chromium never shows a classic scrollbar — it reports `innerWidth`
+   * equal to the root's `clientWidth` whatever the page holds — so the sheet
+   * would never reserve a gutter here. The stub is that one reading, a window
+   * 15px wider than its root as a classic scrollbar makes it; the rest is the
+   * engine's own, and the gutter it reserves really does narrow the page.
+   */
+  it("gives the page its full width back when the sheet closes", () => {
+    const root = document.documentElement;
+    const before = document.body.getBoundingClientRect().width;
+    vi.stubGlobal("innerWidth", root.clientWidth + 15);
+    try {
+      const { unmount } = render(() => (
+        <AnimatedModal onClose={() => {}} label="Event details">
+          <p>body</p>
+        </AnimatedModal>
+      ));
+      // Open, the gutter takes the scrollbar's place, so the page is narrower.
+      expect(document.body.getBoundingClientRect().width).toBeLessThan(before);
+
+      unmount();
+      expect({
+        width: document.body.getBoundingClientRect().width,
+        gutter: getComputedStyle(root).scrollbarGutter,
+      }).toEqual({ width: before, gutter: "auto" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  /**
+   * A page that shows no classic scrollbar — an invite shorter than the
+   * window, or any page on a phone, whose scrollbars overlay the content —
+   * has no width for the lock to take away, so a gutter would only narrow it
+   * as the sheet opens and widen it again as it closes. This engine shows
+   * none, as above.
+   */
+  it("adds no gutter to a page that shows no scrollbar, so it does not narrow as the sheet opens", () => {
+    const before = document.body.getBoundingClientRect().width;
+    render(() => (
+      <AnimatedModal onClose={() => {}} label="Event details">
+        <p>body</p>
+      </AnimatedModal>
+    ));
+    expect({
+      width: document.body.getBoundingClientRect().width,
+      gutter: getComputedStyle(document.documentElement).scrollbarGutter,
+    }).toEqual({ width: before, gutter: "auto" });
+  });
+
+  it("leaves the page where it was when the sheet closes", async () => {
+    const tall = document.createElement("div");
+    tall.style.height = "4000px";
+    document.body.append(tall);
+    try {
+      window.scrollTo(0, 300);
+      const { getByRole, unmount } = render(() => (
+        <AnimatedModal onClose={() => {}} label="Event details">
+          <p>body</p>
+        </AnimatedModal>
+      ));
+      await userEvent.wheel(getByRole("dialog"), { delta: { y: 600 } });
+      unmount();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      expect(window.scrollY).toBe(300);
+    } finally {
+      tall.remove();
+      window.scrollTo(0, 0);
+    }
   });
 });

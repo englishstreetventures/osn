@@ -385,11 +385,12 @@ jobs:
           # fallback.
           PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
 
-      # Fails when the SSR bundle outgrows its budget in
-      # scripts/bundle-size-budgets.txt. It runs here and on every PR
-      # (`ci.yml`), so a regression is caught on the merge gate rather than
-      # after it lands on main.
-      - name: Guard cire/invites SSR bundle size
+      # Warns (the step stays green) when the SSR bundle is over its budget
+      # in scripts/bundle-size-budgets.txt; `ci.yml` annotates the same on
+      # the pull request before it merges. Fails, and stops the release, on a
+      # source map under `dist/client`, which is served publicly as Static
+      # Assets, or a missing or empty `dist`.
+      - name: Check cire/invites SSR bundle size and refuse public source maps
         run: ./scripts/guard-bundle-size.sh cire/invites
 
       # `@astrojs/cloudflare` writes a top-level `"legacy_env": true` into the
@@ -497,10 +498,14 @@ jobs:
           PUBLIC_OSN_ACCOUNT_URL: https://musubi.social
           # The organiser's "preview / view live invite" link.
           PUBLIC_CIRE_WEB_URL: https://invite.cireweddings.com
+          # The RSVP editor's privacy link: the marketing site's /privacy.
+          PUBLIC_MARKETING_URL: https://cireweddings.com
 
+      # Warns when the bundle is over its budget, and fails, stopping the
+      # release, on a source map anywhere in `dist`, which Pages serves whole.
       # The `build` script chains this guard too, but a turbo cache replay
       # skips the chained call; this step checks the artifact either way.
-      - name: Guard cire/host bundle size
+      - name: Check cire/host bundle size and refuse public source maps
         run: ./scripts/guard-bundle-size.sh cire/host
 
       - name: Deploy cire/host to Cloudflare Pages
@@ -570,9 +575,9 @@ jobs:
           # Account management deep link (see the cire/host build above).
           PUBLIC_OSN_ACCOUNT_URL: https://musubi.social
 
-      # See the cire/host job above for why this runs even though `build`
-      # chains it.
-      - name: Guard cire/vendor bundle size
+      # See the cire/host job above for what this refuses and why it runs
+      # even though `build` chains it.
+      - name: Check cire/vendor bundle size and refuse public source maps
         run: ./scripts/guard-bundle-size.sh cire/vendor
 
       - name: Deploy cire/vendor to Cloudflare Pages
@@ -645,9 +650,9 @@ jobs:
           PUBLIC_ORGANISER_URL: https://host.cireweddings.com
           SITE: https://cireweddings.com
 
-      # See the cire/host job above for why this runs even though `build`
-      # chains it.
-      - name: Guard cire/landing bundle size
+      # See the cire/host job above for what this refuses and why it runs
+      # even though `build` chains it.
+      - name: Check cire/landing bundle size and refuse public source maps
         run: ./scripts/guard-bundle-size.sh cire/landing
 
       - name: Deploy cire/landing to Cloudflare Pages

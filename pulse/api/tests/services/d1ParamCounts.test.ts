@@ -30,7 +30,6 @@
 import { Database } from "bun:sqlite";
 
 import { events, eventSeries, type EventSeries } from "@pulse/db/schema";
-import * as schema from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { applySchema } from "@pulse/db/testing";
 import { drizzle } from "drizzle-orm/bun-sqlite";
@@ -63,8 +62,8 @@ function createCapturingTestLayer(): { layer: Layer.Layer<Db>; captured: Capture
   const captured: Captured[] = [];
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
-  const db = drizzle(sqlite, {
-    schema,
+  const db = drizzle({
+    client: sqlite,
     logger: { logQuery: (sql, params) => captured.push({ sql, params }) },
   });
   return { layer: Layer.succeed(Db, { db }), captured };

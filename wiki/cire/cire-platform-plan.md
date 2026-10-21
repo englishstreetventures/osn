@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[monorepo-structure]]"
   - "[[cire-guest-event-editor]]"
-last-reviewed: 2026-10-02
+last-reviewed: 2026-10-21
 ---
 # Platform Plan — from digital invite to wedding management platform
 
@@ -41,7 +41,8 @@ Wedding (profile: date, location, guest estimate, currency, budget)
 ├── Checklist   — planning tasks by lead time + day-of         (consumer of profile + Schedule)
 ├── Seating     — tables + assignments per event               (consumer of Guests + RSVPs)
 ├── Comms       — save-the-dates, reminders, RSVP chasing      (consumer of Guests; needs email)
-└── Registry / wishing well / photos                            (later; see [[decisions/deferred-decisions]])
+├── Registry    — gift list, money gifts, named cash funds      (built; see [[cire-registry]])
+└── Photos                                                     (later; see [[decisions/deferred-decisions]])
 ```
 
 Modules consume each other through services, never by reaching into another module's tables from a route. Route factories stay one-per-module (existing convention), services stay `Effect.Effect<A, E>` with tagged errors, D1 via Drizzle only.
@@ -52,13 +53,13 @@ Everything else builds on this. No new product surface; pure re-foundation.
 
 ### 3.1 Wedding profile
 
-Add to `weddings`: `wedding_date` (nullable — engaged couples often don't have one yet), `guest_count_estimate` (nullable int), `currency` (ISO 4217, default `AUD`), `budget_total_minor` (nullable int). New Settings view in the portal (name, slug, profile fields). The profile drives pricing estimates and checklist lead-time seeding. (The originally-planned `location_name` / `location_lat` / `location_lng` / `pricing_region` columns were shipped on `events` by 0030 and then **retired by 0036** — an event's place is its free-text `address`, the sole location source; see the retirement note below.)
+Add to `weddings`: `wedding_date` (nullable — engaged couples often don't have one yet), `guest_count_estimate` (nullable int), `currency` (ISO 4217, default `AUD`), `budget_total_minor` (nullable int). New Settings view in the portal (name, slug, profile fields). The profile drives pricing estimates and checklist lead-time seeding. (The originally-planned `location_name` / `location_lat` / `location_lng` / `pricing_region` columns were shipped on `events` by 0030 and then **retired by 0036** — an event's place is its venue name and free-text `address`; see the retirement note below.)
 
-**RETIRED (2026-07-16): the separate event location config is gone.** Product-owner decision — the free-text `events.address` already advises the venue and is the SOLE location source the guest site renders (the Maps embed is built from `address` alone; no lat/lng, no geocoding, no map API key). The stored coordinates + pricing region below were a redundant separate config whose only consumers were the UNBUILT Phase 3 planning features, so migration `0036_drop_event_location_config.sql` dropped `location_lat`/`location_lng`/`pricing_region` from `events` and removed the whole write path (the `event-location` route/service, the `settings/geocode` route + Google geocoder + `GOOGLE_GEOCODING_API_KEY`, the `lib/pricing-regions` derivation, `EventLocationsPanel`, and the event-location/geocode metrics). **If Phase 2/3 vendor-radius search or per-region pricing is ever built, geocode `address` on-demand then (YAGNI).** The paragraphs below record the original 0030 design for context only.
+**RETIRED (2026-07-16): the separate event location config is gone.** Product-owner decision — the free-text `events.address`, with the venue's name (`events.venue_name`), already advises the venue and is all the guest site renders (the Maps embed queries the address, else the name; no lat/lng, no geocoding, no map API key). The stored coordinates + pricing region below were a redundant separate config whose only consumers were the UNBUILT Phase 3 planning features, so migration `0036_drop_event_location_config.sql` dropped `location_lat`/`location_lng`/`pricing_region` from `events` and removed the whole write path (the `event-location` route/service, the `settings/geocode` route + Google geocoder + `GOOGLE_GEOCODING_API_KEY`, the `lib/pricing-regions` derivation, `EventLocationsPanel`, and the event-location/geocode metrics). **If Phase 2/3 vendor-radius search or per-region pricing is ever built, geocode `address` on-demand then (YAGNI).** The paragraphs below record the original 0030 design for context only.
 
 ~~**Location capture (decided 2026-07-08): key-optional Geocoding API now.**~~ The Settings form geocoded the organiser-typed address to lat/lng + locality server-side (Google Geocoding, same key-optional fail-soft pattern as Maps Embed / Turnstile: no key ⇒ manual lat/lng entry fallback, form still worked). `pricing_region` derived from the geocoded state/locality via a checked-in mapping (`lib/pricing-regions.ts`). All of this was removed by 0036.
 
-~~**Shipped (PR 1, 2026-07-10) — with one revision: location is EVENT-scoped, not wedding-scoped.**~~ A wedding is not a place — its events are (a Sydney reception + Jaipur ceremonies is one wedding in two countries), so `location_lat`/`location_lng` + `pricing_region` landed on `events` (the venue text stays in `events.address`), edited per event on the Events tab (`EventLocationsPanel`, member-level like the import — `PUT .../events/:eventId/location`). **Retired by 0036** — an event's place is now just its free-text `address`. The wedding keeps ONE main `currency` + `budget_total_minor` — the currency the couple thinks in, whatever countries the events land in.
+~~**Shipped (PR 1, 2026-07-10) — with one revision: location is EVENT-scoped, not wedding-scoped.**~~ A wedding is not a place — its events are (a Sydney reception + Jaipur ceremonies is one wedding in two countries), so `location_lat`/`location_lng` + `pricing_region` landed on `events` (the venue text stays in `events.address`), edited per event on the Events tab (`EventLocationsPanel`, member-level like the import — `PUT .../events/:eventId/location`). **Retired by 0036** — an event's place is now its venue name and free-text `address`. The wedding keeps ONE main `currency` + `budget_total_minor` — the currency the couple thinks in, whatever countries the events land in.
 
 Other (retired) implementation notes: `pricing_region` was **state-granular** (`au-nsw` … `au-nt`, `au-other`, `international`). The profile save is `PUT` with PATCH semantics — **this remains** for the surviving `currency`/`budget`/`wedding_date` fields. The **slug is read-only** in Settings — a rename frees the old slug for another organiser to claim while printed invite links still point at it; renames stay unshipped until a slug-tombstone design exists. The Settings tab is visible to co-hosts read-only and the profile save is owner-only. (The geocode POST is gone.)
 
@@ -125,11 +126,13 @@ PRs 0–2 can run in parallel. The IA shell deliberately lands **early** (not la
 ```
 tasks: id, wedding_id FK↘, title, notes, category (service-category enum + 'general'),
        due_at (nullable), timeframe_bucket ('12m'|'9m'|'6m'|'3m'|'1m'|'2w'|'week_of'|'day_of'),
-       status ('open'|'done'|'skipped'), assignee_osn_profile_id (nullable, opaque usr_*),
-       vendor_id (nullable FK, Phase 2), sort_order, created_at, completed_at
+       status ('open'|'done'|'skipped'), vendor_id (nullable FK, Phase 2), sort_order,
+       created_at, completed_at
+task_assignees: task_id, host_id (a wedding_hosts seat), wedding_id, assigned_at
+       — any number of seats per task, each a seat of the task's own wedding
 ```
 
-Seed from a versioned template (`cire/api/src/lib/checklist-template.ts`) resolved against `wedding_date` — "book your venue" lands at 12 months out, "final head-count to caterer" at 2 weeks. Re-anchoring when the date changes shifts *incomplete* seeded tasks only. Day-of tasks link to Schedule events → the day-of run-sheet view falls out of Schedule + `day_of` tasks.
+Seed from the starter template (`cire/api/src/lib/checklist-starter.ts`, registered in `cire/api/src/lib/checklist-templates.ts`) resolved against `wedding_date` — "visit and book your venues" lands at 12 months out, "confirm timings with every supplier" at 2 weeks. Re-anchoring when the date changes shifts *open* seeded tasks whose date the couple has not set. Built: [[cire-checklist-tasks#Starter checklist]]. A task's holders are seats of the wedding, not profile ids, so the helper run sheet can filter on them; built: [[cire-checklist-tasks#Assignees]]. Day-of tasks link to Schedule events → the day-of run-sheet view falls out of Schedule + `day_of` tasks.
 
 ### 4.2 Budget v1
 
@@ -202,9 +205,10 @@ Context-aware estimates from the wedding profile: guest count, date (season + we
 
 ## 7. Phase 4 — seating, comms, registry
 
-- **Seating**: `seating_tables` (id, wedding_id, event_id FK, name, capacity, sort_order) + `seating_assignments` (table_id, guest_id, PK pair; guest unique per event). Reads Guests + live RSVP status (badge declined/no-response guests). Drag-drop SolidJS island; CSV/print export for the venue.
+- **Seating — shipped** ([[cire-seating]]): `seating_tables` (id, wedding_id, event_id, name, capacity, sort_order) + `seating_assignments` (table_id, event_id, guest_id; PK `(table_id, guest_id)`). Deltas from the sketch: the seat repeats its table's `event_id`, so "one seat per guest per event" is a unique index the database enforces, with composite foreign keys keeping it equal to the table's event and admitting only an invited guest; a table's `wedding_id` is tied to its event's by a composite foreign key to `events (id, wedding_id)`. Gold module. Reads Guests + live RSVP status (badges declined, maybe, no reply, invite withdrawn). Seat by drag or by a per-guest menu; CSV (`seating.csv`, owner) and a print sheet for the venue. Alternative layouts (englishstreetventures/osn#1391) and a guest's own seat lookup (englishstreetventures/osn#1412) extend it without a rebuild — see [[cire-seating#Extending it]].
 - **Guest comms**: save-the-dates, "the invite is live", RSVP-chaser emails via `@shared/email` (Resend). Two prerequisites: **guest/household email columns don't exist** (new PII → consent at collection, data-map/retention/DPIA delta, §10) and **prod email is currently degraded** (`OSN_EMAIL_OPTIONAL=true`, root TODO "Re-enable email later"). Build behind the same key-optional/fail-soft pattern as Turnstile/Maps. Comms log table for auditability; unsubscribe/suppression from day one.
-- **Registry / wishing well / guest photos / Wallet passes**: remain in [[decisions/deferred-decisions]]; registry is the first candidate after Phase 2 (root TODO "withjoy parity"). Payments (wishing well) deliberately out of scope until the platform core is proven.
+- **Registry and money gifts**: built — the gift list, money gifts through Stripe Connect and named cash funds ([[cire-registry]]).
+- **Guest photos / Wallet passes**: remain in [[decisions/deferred-decisions]].
 
 ## 8. Cross-cutting
 
@@ -232,6 +236,7 @@ Flag to the root compliance programme as each phase lands (root `wiki/compliance
 - **Phase 0**: organiser-recorded dietary RSVPs — Art. 9 consent capture variant (organiser attests guest consent; record `consent_source`). **DONE (PR 5b)**: migration `0037` added `rsvps.consent_source` (`'guest' | 'organiser_attested'`); DPIA/data-map/retention updated for the organiser-attested variant; no new subprocessor. Geocoding API (organiser-typed wedding address sent to Google) → subprocessor + data-map rows; key-optional, so the degraded mode has no third-party flow.
 - **Phase 2**: vendor contact details (personal data for sole traders) → data-map + retention rows; enquiry message content.
 - **Phase 3 v2**: quoted-price aggregation — k-anonymity floor documented.
+- **Phase 4 seating — DONE** (migration 0089): seat assignments, guest data that can imply who sits with whom → [[compliance/data-map|data-map]], [[retention]] and [[compliance/dsar|DSAR]] rows; the venue CSV carries no dietary data.
 - **Phase 4**: guest emails (new high-sensitivity class: contactability) → data-map, retention, DPIA delta, suppression list; comms log retention.
 - Wedding lat/lng + budget figures: organiser-provided, wedding-scoped; add data-map rows, low sensitivity.
 
@@ -257,7 +262,7 @@ the phase's epic in GitHub Issues + the phase's section above; skim the rest.
 | Services | `cire/api/src/services/` | Return `Effect.Effect<A, E>` with `Data.TaggedError` errors; routes unwrap via `runCire`. No logic in handlers; Drizzle only, no raw SQL. |
 | Validation | `cire/api/src/schemas/` | Effect Schema per domain. |
 | Metrics | `cire/api/src/metrics.ts` | Typed `cire.*` counters/histograms; bounded attribute cardinality only (closed enums). |
-| DB schema | `cire/db/src/schema.ts` | **Three-way DDL mirror**: schema.ts + `cire/db/migrations/*.sql` + the test DDL in `cire/api/src/db/setup.ts` — mechanically enforced by `cire/api/tests/db/ddl-lockstep.test.ts` (T-S1): it replays the migration chain and diffs a normalised snapshot against both mirrors, so a change to any surface fails until all three agree. Parent-table rebuilds need the `__keep_*` snapshot/restore idiom (`migrations-archive/0006_multi_tenant.sql`) — D1 enforces FKs and DROP TABLE cascades. `cire/db/migrations/0001_initial.sql` is a baseline that builds exactly what migrations `0001`–`0081` in `cire/db/migrations-archive/` build (the same test proves it); wrangler never reads the archive, and new migrations start at `0082`. Apply them with `bun run --cwd cire/db db:migrate:<tier>`, which checks the target's ledger first. |
+| DB schema | `cire/db/src/schema.ts` | **Three-way DDL mirror**: schema.ts + `cire/db/migrations/*.sql` + the test DDL in `cire/api/src/db/setup.ts` — mechanically enforced by `cire/api/tests/db/ddl-lockstep.test.ts` (T-S1): it replays the migration chain and diffs a normalised snapshot against both mirrors, so a change to any surface fails until all three agree. Parent-table rebuilds need the `__keep_*` snapshot/restore idiom (`migrations-archive/0006_multi_tenant.sql`) — D1 enforces FKs and DROP TABLE cascades. `cire/db/migrations/0001_initial.sql` is a baseline that builds exactly what migrations `0001`–`0081` in `cire/db/migrations-archive/` build (the same test proves it); wrangler never reads the archive, and every live migration sorts after it: `0082`–`0090`, then one timestamped file each from `db:generate` ([[commands#Migrations]]). Apply them with `bun run --cwd cire/db db:migrate:<tier>`, which checks the target's ledger first. |
 | Organiser portal | `cire/host/src/` | SolidJS islands in an Astro static shell; single root island `components/OrganiserApp.tsx`; hash routing in `lib/dashboard-route.ts`; per-wedding module tabs in `components/DashboardTabs.tsx` (Phase 0 replaces with sidebar); API calls via `authFetch` + `lib/api.ts`. |
 | Guest site | `cire/invites/src/` | Only touched when a module changes what guests see (RSVP, invite render). |
 | Tests | `<pkg>/tests/`, mirroring `src/` | `bun:test` (api) / vitest (organiser, web). Test-only support code lives there too — `cire/api/tests/test-helpers/`, `cire/host/tests/test-support/` — never in `src/`. Route tests build `createApp(createDb(":memory:"))`; osnAuth accepts an injected `osnTestKey`. See [[testing-patterns]]. |
@@ -267,7 +272,7 @@ the phase's epic in GitHub Issues + the phase's section above; skim the rest.
 - **Tenant scoping**: every organiser read/write is scoped to `:weddingId` through the gates; tables without a `wedding_id` column (guests, guest_events, rsvps) scope via a `families`/`events` join — see the `diffAgainstDb` wedding-scoping entry in [[cire-guest-event-editor]] for why the join is load-bearing.
 - **No cross-DB FKs**: OSN identities are opaque `usr_*` strings; resolve via the ARC-gated `services/osn-bridge.ts` (key-optional, fail-soft). Never store OSN emails/handles.
 - **`events.end_at` `""` sentinel** = no stated end; anything aggregating or comparing event dates must use the effective end (`max(end_at, start_at)` — see `services/retention.ts`).
-- **Host preview families** (`families.kind = 'host'`) are synthetic and must stay invisible to imports, exports, RSVP counts, and (future) seating/comms.
+- **Host preview families** (`families.kind = 'host'`) are synthetic and must stay invisible to imports, exports, RSVP counts, the seating chart, and (future) comms.
 - **Guest PII rules**: dietary data is special-category — the `rsvps.dietary_presets` vocabulary as much as the `rsvps.dietary` free text, since `halal` and `nuts` name a belief and a health condition outright (Art. 9 consent columns on `rsvps`); no PII in logs (redaction deny-list in [[cire-workerd]]); new PII classes need [[compliance/data-map|root data-map]] + retention rows (§10 lists the per-phase deltas).
 - Effect is **backend-only** — never import it in `cire/host` or `cire/invites`.
 
@@ -282,7 +287,7 @@ the phase's epic in GitHub Issues + the phase's section above; skim the rest.
 ### Per-phase entry points
 
 - **Phase 0** — start from §3.6's PR table. PR 0/1/2 are independent; PR 4 (the `families` rebuild) is the only risky migration — read §3.2's mechanics note first. The roles PR extends `middleware/wedding-member.ts` + `wedding_hosts.role` (no CHECK constraint — data UPDATE + Drizzle enum widening only). The IA PR restructures `OrganiserApp.tsx`/`DashboardTabs.tsx` + `dashboard-route.ts` and must fold in the P-I3 fetch-lift (root TODO, Performance Backlog).
-- **Phase 1** — greenfield tables (`tasks`, `budget_items`, `payments`) + the shared category enum (`cire/api/src/lib/service-categories.ts`, mirror the pulse `shareSource` single-source-of-truth pattern). No auth changes; everything rides `weddingMember()`/`weddingEditor()`. Checklist template is a versioned TS module resolved against `weddings.wedding_date` (nullable — seed only when set, re-anchor incomplete seeded tasks on change).
+- **Phase 1** — greenfield tables (`tasks`, `budget_items`, `payments`) + the shared category enum (`cire/api/src/lib/service-categories.ts`, mirror the pulse `shareSource` single-source-of-truth pattern). No auth changes; everything rides `weddingMember()`/`weddingEditor()`. Checklist template is a TS module resolved against `weddings.wedding_date` (nullable — without it the seeded tasks have no due date until the date is set; re-anchor open seeded tasks on change).
 - **Phase 2** — CRM first (`vendors`, wedding-scoped, §5.1) — it is deliberately shippable without the directory. Directory (§5.2) introduces the third principal (vendor = OSN account + `directory_vendors.owner_osn_profile_id` authz) and the D1 geo query (bounding-box prefilter on indexed lat/lng, haversine order). The event point this searches around is **no longer stored** (the `events` location columns were retired by 0036) — geocode `events.address` on-demand at search time. Check [[decisions/deferred-decisions]] for the open vendor-identity decision before building self-serve.
 - **Phase 3** — pure-function engine (`services/pricing.ts`) over a versioned dataset (`lib/pricing-baselines.ts`). The old Phase 0 `pricing_region` column + its geocoding flow were **retired by migration 0036** (redundant, unbuilt-only); when this phase is built, **geocode `events.address` on-demand** to derive the region then (no stored copy). v2 (directory quote blending) needs the k-anonymity floor from §6 — do not ship aggregates without it.
-- **Phase 4** — seating consumes Guests + RSVPs (watch the host-family and `""`-endAt invariants); comms is **blocked** on guest email columns (consent decision in [[decisions/deferred-decisions]]) and prod email being enabled (root TODO "Re-enable email later") — build key-optional/fail-soft regardless.
+- **Phase 4** — seating is shipped ([[cire-seating]]); comms is **blocked** on guest email columns (consent decision in [[decisions/deferred-decisions]]) and prod email being enabled (root TODO "Re-enable email later") — build key-optional/fail-soft regardless.

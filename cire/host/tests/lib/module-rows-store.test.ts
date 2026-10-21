@@ -8,7 +8,7 @@ import {
 } from "../../src/lib/module-rows-store";
 import { __resetWeddingScope } from "../../src/lib/wedding-scope";
 
-const ROWS: ModuleRows = { budgetLines: 3, tasks: 0, gifts: 0 };
+const ROWS: ModuleRows = { budgetLines: 3, tasks: 0, gifts: 0, seats: 0 };
 
 beforeEach(() => {
   __resetWeddingScope();

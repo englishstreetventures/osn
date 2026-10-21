@@ -7,7 +7,7 @@ import {
   users,
 } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { commitBatch } from "@shared/db-utils";
+import { commitBatch, driverErrorText } from "@shared/db-utils";
 import { and, asc, eq, ne, or, sql } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
@@ -167,7 +167,7 @@ export function createProfileService(authService: AuthService) {
           }),
         catch: (cause) => {
           // UNIQUE constraint is the final safety net against a handle race.
-          const msg = cause instanceof Error ? cause.message : String(cause);
+          const msg = driverErrorText(cause);
           if (msg.includes("UNIQUE constraint failed")) {
             return new AuthError({ message: "Handle already taken" });
           }

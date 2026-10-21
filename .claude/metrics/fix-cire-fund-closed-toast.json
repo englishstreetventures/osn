@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1643,
+    "branch": "fix/cire-fund-closed-toast",
+    "base_sha": "f5a9859fa9c20fdc61f48471571410c90bd87f91",
+    "head_sha": "a73e2c1703ee9091d86abe889ee07bcabfdc82de",
+    "generated_at": "2026-10-21T01:47:14.617Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1414,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:5"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "confirmed"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-21T01:42:35.214Z",
+    "last_ts": "2026-10-21T01:42:39.551Z",
+    "span_seconds": 4,
+    "active_seconds": 4,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 0.022345999999999998,
+    "tokens": {
+      "input": 4,
+      "output": 252,
+      "thinking": 71,
+      "cache_write_5m": 814,
+      "cache_write_1h": 0,
+      "cache_read": 33050
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 4,
+          "output": 252,
+          "thinking": 71,
+          "cache_write_5m": 814,
+          "cache_write_1h": 0,
+          "cache_read": 33050
+        },
+        "usd_equivalent": 0.022345999999999998,
+        "messages": 2
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 4,
+          "output": 252,
+          "thinking": 71,
+          "cache_write_5m": 814,
+          "cache_write_1h": 0,
+          "cache_read": 33050
+        },
+        "usd_equivalent": 0.022345999999999998,
+        "messages": 2
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {
+      "medium": 2
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 3,
+      "docs": 2,
+      "config": 0,
+      "source": 3
+    },
+    "loc": {
+      "generated": {
+        "added": 10,
+        "deleted": 0
+      },
+      "test": {
+        "added": 213,
+        "deleted": 30
+      },
+      "docs": {
+        "added": 18,
+        "deleted": 3
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 67,
+        "deleted": 13
+      }
+    },
+    "packages": [
+      "cire/invites",
+      "shared/toast"
+    ],
+    "touches_migration": false,
+    "commits": 1
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Grep": 1,
+      "StructuredOutput": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}

@@ -87,6 +87,8 @@ describe("which surfaces a change redeploys", () => {
     ["cire/db/migrations/0090_x.sql", ["cire_api"]],
     ["scripts/cire-db-migrate.ts", ["cire_api"]],
     ["scripts/check-d1-database-id.ts", ["cire_api"]],
+    ["scripts/migration-files.ts", ["cire_api"]],
+    ["cire/db/migrations/20261021031500_add_bio.sql", ["cire_api"]],
     ["cire/invites/src/pages/index.astro", ["cire_invites"]],
     ["cire/host/src/App.tsx", ["cire_host"]],
     ["cire/vendor/src/App.tsx", ["cire_vendor"]],

@@ -30,7 +30,7 @@ view. For a component's full range of variants and states, open its own group:
 | `shared/ui/forms`    | Input, Label, Textarea, Select, Field, Fieldset, Checkbox, RadioGroup, UsernameInput, OtpInput |
 | `shared/ui/feedback` | Notice, Chip, EmptyState, Stat                                                  |
 | `shared/ui/data`     | Table, Meter                                                                    |
-| `shared/ui/overlays` | Dialog, Modal, DropdownMenu, Popover, Tabs                                      |
+| `shared/ui/overlays` | Dialog, Modal, DropdownMenu, Popover, InfoPopover, Tooltip, Tabs                |
 | `pulse/Icon`      | The Pulse glyph set, every icon at every size                                   |
 | `shared/toast`    | Tones, positions, stacking, actions/promises, overflow                          |
 | `shared/sortable` | Drag feel, the shift/settle animation, grip hover/focus, multi-container        |

@@ -3,7 +3,7 @@ import { Effect, Schema } from "effect";
 import { TIMEFRAME_BUCKETS } from "../lib/checklist-buckets";
 import type { TimeframeBucket } from "../lib/checklist-buckets";
 
-const MAX_TITLE_CHARS = 200;
+export const MAX_TITLE_CHARS = 200;
 const MAX_NOTES_CHARS = 2000;
 
 // The bucket enum, sourced from the single list so the two never drift.
@@ -37,9 +37,25 @@ export const UpdateTaskBody = Schema.Struct({
 });
 export type UpdateTaskBody = Schema.Schema.Type<typeof UpdateTaskBody>;
 
+// A task holder's seat id (`wedding_hosts.id`), from the path of the routes
+// that put a seat on a task or take it off. Bounded well past a seat id's
+// length; whether the seat is one of this wedding's is the service's to say.
+export const AssigneeHostId = Schema.NonEmptyString.check(Schema.isMaxLength(64));
+
 // Reorder: the new left-to-right order of task ids within one bucket.
 export const ReorderTasksBody = Schema.Struct({
   timeframeBucket: TimeframeBucketSchema,
   orderedIds: Schema.Array(Schema.NonEmptyString).check(Schema.isMaxLength(500)),
 });
 export type ReorderTasksBody = Schema.Schema.Type<typeof ReorderTasksBody>;
+
+// Apply a checklist template: the keys of the items the couple ticked. A key
+// the couple removed earlier is their confirmation to bring it back. Bounded
+// well past any template's length; the route checks each key is the
+// template's.
+export const ApplyTemplateBody = Schema.Struct({
+  items: Schema.Array(Schema.NonEmptyString.check(Schema.isMaxLength(64))).check(
+    Schema.isMaxLength(100),
+  ),
+});
+export type ApplyTemplateBody = Schema.Schema.Type<typeof ApplyTemplateBody>;

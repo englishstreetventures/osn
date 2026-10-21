@@ -223,7 +223,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
         // carries no authority over it — the events ride along only so the
         // attendance columns can name them.
         body: JSON.stringify({
-          desiredState: store.toWire(),
+          desiredState: store.toWire("guests"),
           scope: "guests",
           removeManual: true,
           baseRevision: store.baseRevision(),

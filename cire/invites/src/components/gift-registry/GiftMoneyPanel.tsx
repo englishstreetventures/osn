@@ -1,5 +1,6 @@
 import Button from "@cire/ui/button";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { toast, type ToastOptions } from "@shared/toast";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
 import {
   contributeGift,
@@ -7,7 +8,9 @@ import {
   GIFT_AMOUNT_PRESETS_MINOR,
   parseGiftAmountMinor,
   type GiftContributionResult,
+  type GiftRegistryFund,
 } from "../../lib/gift-registry";
+import { variantSrc } from "../invite-images";
 
 /**
  * GIVING MONEY, on the couple's gift page.
@@ -31,6 +34,13 @@ import {
  * not "5000"), and converted once, in `parseGiftAmountMinor`, using the same
  * exponent the prices are formatted with. JPY has no minor unit and KWD has
  * three; a fixed ×100 here would be wrong by 100× on a payment screen.
+ *
+ * THE COUPLE'S CASH FUNDS are a choice of where the money goes, above the
+ * amount: "wherever they choose" first and chosen, then each fund by its name,
+ * picture and the couple's words. Nothing else about a fund is here, and
+ * nothing else exists on the wire to show: its goal and what has come in are
+ * the couple's. A fund that closed while the page was open is said in a toast,
+ * whose Refresh reads the list again.
  */
 
 export interface GiftMoneyPanelProps {
@@ -42,8 +52,20 @@ export interface GiftMoneyPanelProps {
   currency: string;
   /** Back to the invitation, for the one failure a guest can act on. */
   inviteHref: string;
-  /** Giving TOWARDS a listed gift. Absent ⇒ a gift in general. */
-  itemId?: string | null;
+  /**
+   * The organiser's preview session, which never gives. The panel is shown as
+   * a guest sees it, with its button disabled; the page says why.
+   */
+  preview?: boolean;
+  /** The couple's cash funds, in list order. Absent or empty: no choice shown. */
+  funds?: readonly GiftRegistryFund[];
+  /** A fund's picture route, with no `?variant=` yet, or null for no picture. */
+  fundImageBase?: (fund: GiftRegistryFund) => string | null;
+  /**
+   * Read the gift list again. The toast for a fund that has closed offers it as
+   * Refresh; without it, the toast says so and offers nothing to press.
+   */
+  refreshList?: () => void;
   /**
    * How the guest is handed to Stripe. A seam, not a setting: the one line
    * that leaves the site is the one line a test cannot let run, and stubbing
@@ -60,6 +82,9 @@ export function giftMoneyMessage(result: GiftContributionResult): string {
       return "";
     case "unavailable":
       return "The couple aren’t taking money gifts at the moment.";
+    case "fund-closed":
+      // Said in a toast, not the status line; see `showFundClosed`.
+      return "This fund is no longer available.";
     case "signed-out":
       return "Your invite session has ended. Enter your invite code again on the invitation.";
     case "rate-limited":
@@ -68,14 +93,55 @@ export function giftMoneyMessage(result: GiftContributionResult): string {
         : `That was a lot of tries at once. Try again in ${result.retryAfterSeconds} seconds.`;
     case "invalid":
       return "That amount is outside what this page can take. Try another.";
+    case "preview":
+      return "Preview mode. Nothing can be given from a preview.";
     case "error":
       return "Could not reach the payment page. Check your connection and try again.";
   }
 }
 
+/**
+ * The visible mark of a chosen row: a ring, filled with a dot when chosen.
+ *
+ * The radios themselves are visually hidden so the whole row can be the
+ * control, which leaves the border's colour as the only sign of the choice. A
+ * guest who cannot tell gold from grey still has to see which fund the money
+ * goes to, so the shape carries it too. Decoration to assistive technology:
+ * the hidden radio already says checked.
+ */
+function ChoiceMark(props: { chosen: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      class="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border"
+      classList={{ "border-gold-ink": props.chosen, "border-text/55": !props.chosen }}
+    >
+      <Show when={props.chosen}>
+        <span data-gift-choice-mark class="bg-gold-ink block h-2 w-2 rounded-full" />
+      </Show>
+    </span>
+  );
+}
+
+/**
+ * One id for the closed-fund toast, so a second refusal updates the one on
+ * screen rather than stacking a copy, and a new attempt can take it away.
+ */
+const FUND_CLOSED_TOAST = "gift-fund-closed";
+
 export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
   // `null` is the "Other" row: a preset is a number, and typing is its absence.
   const [preset, setPreset] = createSignal<number | null>(GIFT_AMOUNT_PRESETS_MINOR[0]);
+  // The fund the money goes to, by id; `null` is "wherever they choose".
+  const [fundId, setFundId] = createSignal<string | null>(null);
+  const funds = createMemo(() => props.funds ?? []);
+  // A fund the couple removed leaves the list on the next read. A choice that
+  // still named it would send money nowhere the page shows, so it goes back
+  // to the couple in general.
+  createEffect(() => {
+    const chosen = fundId();
+    if (chosen !== null && !funds().some((fund) => fund.id === chosen)) setFundId(null);
+  });
   const [customText, setCustomText] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");
   const [message, setMessage] = createSignal("");
@@ -91,17 +157,39 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
 
   const priceLabel = (minor: number) => formatGiftPrice(minor, props.currency) ?? String(minor);
 
+  /**
+   * The chosen fund has closed. Said in a toast with a Refresh that reads the
+   * list again; the fresh list drops the fund, and the effect above hands the
+   * choice back to the couple.
+   *
+   * Pinned, with a close button: the toast carries the way to a fresh list,
+   * and one that leaves on its own takes that way with it. The panel's status
+   * line stays empty, so the guest is told once.
+   */
+  function showFundClosed() {
+    const options: ToastOptions = {
+      id: FUND_CLOSED_TOAST,
+      duration: Number.POSITIVE_INFINITY,
+      dismissible: true,
+    };
+    const refresh = props.refreshList;
+    if (refresh) options.action = { label: "Refresh", onClick: refresh };
+    toast.error(giftMoneyMessage({ kind: "fund-closed" }), options);
+  }
+
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     const amount = amountMinor();
-    if (amount === null || busy()) return;
+    if (amount === null || busy() || props.preview) return;
     setBusy(true);
     setStatus("");
+    // A new attempt has its own outcome; the last closed fund's toast goes.
+    toast.dismiss(FUND_CLOSED_TOAST);
     const trimmedName = displayName().trim();
     const trimmedMessage = message().trim();
     const result = await contributeGift(props.apiUrl, props.slug, {
       amountMinor: amount,
-      itemId: props.itemId ?? null,
+      itemId: fundId(),
       // Empty means "I said nothing", which is `null` on the wire, not `""`.
       displayName: trimmedName === "" ? null : trimmedName,
       message: trimmedMessage === "" ? null : trimmedMessage,
@@ -114,6 +202,10 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
       return;
     }
     setBusy(false);
+    if (result.kind === "fund-closed") {
+      showFundClosed();
+      return;
+    }
     setStatus(giftMoneyMessage(result));
   }
 
@@ -128,6 +220,79 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
       </p>
 
       <form onSubmit={(event) => void submit(event)}>
+        {/* Where the money goes. Radio-shaped for the same reason the amounts
+            are: one choice, heard as a choice. Each fund is its name, its
+            picture and the couple's words — the picture is decoration
+            (`alt=""`), since the name beside it says what it is. */}
+        <Show when={funds().length > 0}>
+          <fieldset data-gift-money-funds class="mb-6 border-0 p-0 text-left">
+            <legend class="font-body text-text-muted text-ui-sm mb-2">What it’s for</legend>
+            <div class="flex flex-col gap-2">
+              <label
+                class="font-body focus-within:ring-gold/60 flex cursor-pointer items-center gap-3 rounded-sm border px-4 py-3 transition-colors duration-200 focus-within:ring-2"
+                classList={{
+                  "border-gold bg-gold/5": fundId() === null,
+                  "border-border": fundId() !== null,
+                }}
+              >
+                <input
+                  type="radio"
+                  name="gift-fund"
+                  class="sr-only"
+                  checked={fundId() === null}
+                  onChange={() => setFundId(null)}
+                />
+                <ChoiceMark chosen={fundId() === null} />
+                <span class="text-text text-ui-base">Wherever they choose</span>
+              </label>
+              <For each={funds()}>
+                {(fund) => (
+                  <label
+                    data-gift-money-fund={fund.id}
+                    class="font-body focus-within:ring-gold/60 flex cursor-pointer items-start gap-3 rounded-sm border px-4 py-3 transition-colors duration-200 focus-within:ring-2"
+                    classList={{
+                      "border-gold bg-gold/5": fundId() === fund.id,
+                      "border-border": fundId() !== fund.id,
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="gift-fund"
+                      class="sr-only"
+                      checked={fundId() === fund.id}
+                      onChange={() => setFundId(fund.id)}
+                    />
+                    <ChoiceMark chosen={fundId() === fund.id} />
+                    <Show when={props.fundImageBase?.(fund)}>
+                      {(base) => (
+                        <img
+                          src={variantSrc(base(), "thumb")}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          class="border-border aspect-4/3 w-20 shrink-0 rounded-sm border object-cover"
+                        />
+                      )}
+                    </Show>
+                    <span class="flex min-w-0 flex-col gap-1">
+                      <span class="font-display text-text text-ui-md leading-snug font-light break-words">
+                        {fund.title}
+                      </span>
+                      <Show when={fund.description}>
+                        {(description) => (
+                          <span class="text-text-muted text-ui-sm leading-ui-normal break-words whitespace-pre-line">
+                            {description()}
+                          </span>
+                        )}
+                      </Show>
+                    </span>
+                  </label>
+                )}
+              </For>
+            </div>
+          </fieldset>
+        </Show>
+
         {/* The presets are radio-shaped, not buttons: only one amount is being
             given, and a screen reader should hear a choice rather than four
             things to press. */}
@@ -150,6 +315,12 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
                     checked={preset() === minor}
                     onChange={() => setPreset(minor)}
                   />
+                  {/* The tick is the chosen amount's sign that is not a colour. */}
+                  <Show when={preset() === minor}>
+                    <span data-gift-choice-mark aria-hidden="true" class="mr-1.5">
+                      ✓
+                    </span>
+                  </Show>
                   {priceLabel(minor)}
                 </label>
               )}
@@ -168,6 +339,11 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
                 checked={preset() === null}
                 onChange={() => setPreset(null)}
               />
+              <Show when={preset() === null}>
+                <span data-gift-choice-mark aria-hidden="true" class="mr-1.5">
+                  ✓
+                </span>
+              </Show>
               Another amount
             </label>
           </div>
@@ -210,7 +386,12 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
           </label>
         </div>
 
-        <Button type="submit" variant="cta" size="lg" disabled={amountMinor() === null || busy()}>
+        <Button
+          type="submit"
+          variant="cta"
+          size="lg"
+          disabled={amountMinor() === null || busy() || props.preview === true}
+        >
           {busy() ? "Taking you to pay…" : "Continue to payment"}
         </Button>
 
@@ -221,14 +402,13 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
           guests.
         </p>
 
-        <p
+        <output
           data-gift-money-status
-          role="status"
           aria-live="polite"
-          class="font-body text-text text-ui-sm leading-ui-normal mt-3 min-h-5"
+          class="font-body text-text text-ui-sm leading-ui-normal mt-3 block min-h-5"
         >
           {status()}
-        </p>
+        </output>
 
         <Show when={status() !== "" && props.inviteHref}>
           <Show when={status().includes("invite code")}>

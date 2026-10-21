@@ -13,6 +13,7 @@
     "dev:app": "dev-env bun run src/local.ts",
     "dev:wrangler": "wrangler dev",
     "build": "wrangler deploy --dry-run --outdir dist",
+    "test:migration-flow": "CIRE_D1_TIER=1 MIGRATION_FLOW=1 bun test tests/db/migrate-wrapper.test.ts",
     "test": "bun test --preload ./tests/test-helpers/metrics-harness.ts",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
     "deploy": "wrangler deploy --env production",
@@ -39,7 +40,7 @@
     "@shared/osn-auth-client": "workspace:*",
     "@shared/rate-limit": "workspace:*",
     "@shared/turnstile": "workspace:*",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "1.0.0-rc.4",
     "effect": "4.0.3",
     "elysia": "^1.4.30"
   },

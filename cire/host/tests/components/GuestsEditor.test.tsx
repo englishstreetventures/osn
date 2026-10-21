@@ -383,6 +383,11 @@ describe("GuestsEditor", () => {
 
       const posted = preview.body()!;
       expect(posted.desiredState.families[0]!.guests.map((g) => g.id)).toEqual(["g_1"]);
+      // A guests save governs no event, so its events carry only what the
+      // attendance columns need: no description and no venue name.
+      expect(posted.desiredState.events.map((e) => ["description" in e, "venueName" in e])).toEqual(
+        [[false, false]],
+      );
     });
 
     it("removing a household drops it from the wire", async () => {

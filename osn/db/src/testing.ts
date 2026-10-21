@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import { is, type SQL } from "drizzle-orm";
 import {
   getTableConfig,
-  SQLiteSyncDialect,
+  SQLiteDialect,
   SQLiteTable,
   type AnySQLiteColumn,
   type SQLiteColumn,
@@ -76,7 +76,7 @@ function topoSortByForeignKey(tables: SQLiteTable[]): SQLiteTable[] {
 }
 
 /** Stateless with respect to a single `sqlToQuery` call — one instance is enough. */
-const DIALECT = new SQLiteSyncDialect();
+const DIALECT = new SQLiteDialect();
 
 function emitCreateTable(table: SQLiteTable): string {
   const cfg = getTableConfig(table);

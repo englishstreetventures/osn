@@ -33,6 +33,11 @@ export { DEV_OWNER_PROFILE_ID, DEV_OWNER_SEAT_ID };
 // and prepares each chunk, and miniflare rejects a chunk whose leading lines
 // are a comment ("SQL code did not contain a statement"). Explain a table here
 // in JS, or in its migration file.
+//
+// `tasks.assigned_host_id` and its index are here and in the migrations but
+// not in the Drizzle schema, so no statement the app sends names them; only the
+// Worker before migration 0091 reads and writes the column, if it serves again.
+// Dropped by englishstreetventures/osn#1636.
 export const DDL = `
 CREATE TABLE IF NOT EXISTS weddings (
   id TEXT PRIMARY KEY,
@@ -72,6 +77,7 @@ CREATE TABLE IF NOT EXISTS wedding_hosts (
 CREATE UNIQUE INDEX IF NOT EXISTS wedding_hosts_wedding_profile_uniq ON wedding_hosts(wedding_id, osn_profile_id);
 CREATE INDEX IF NOT EXISTS wedding_hosts_profile_idx ON wedding_hosts(osn_profile_id);
 CREATE INDEX IF NOT EXISTS wedding_hosts_wedding_idx ON wedding_hosts(wedding_id);
+CREATE UNIQUE INDEX IF NOT EXISTS wedding_hosts_id_wedding_unique ON wedding_hosts(id, wedding_id);
 
 CREATE TABLE IF NOT EXISTS families (
   id TEXT PRIMARY KEY,
@@ -115,6 +121,7 @@ CREATE TABLE IF NOT EXISTS events (
   start_at TEXT NOT NULL,
   end_at TEXT NOT NULL,
   timezone TEXT NOT NULL,
+  venue_name TEXT,
   address TEXT,
   dress_code_description TEXT,
   dress_code_palette TEXT,
@@ -128,6 +135,7 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_wedding_id_sort_idx ON events(wedding_id, sort_order);
 CREATE UNIQUE INDEX IF NOT EXISTS events_wedding_slug_unique ON events(wedding_id, slug);
+CREATE UNIQUE INDEX IF NOT EXISTS events_id_wedding_uniq ON events(id, wedding_id);
 
 CREATE TABLE IF NOT EXISTS guest_events (
   guest_id TEXT NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
@@ -322,9 +330,37 @@ CREATE TABLE IF NOT EXISTS tasks (
   status TEXT NOT NULL DEFAULT 'open',
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
-  completed_at INTEGER
+  completed_at INTEGER,
+  template_id TEXT,
+  template_item TEXT,
+  due_offset_days INTEGER,
+  due_source TEXT NOT NULL DEFAULT 'manual',
+  assigned_host_id TEXT REFERENCES wedding_hosts(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS tasks_wedding_bucket_sort_idx ON tasks(wedding_id, timeframe_bucket, sort_order);
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_wedding_template_item_unique ON tasks(wedding_id, template_id, template_item) WHERE template_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS tasks_assigned_host_idx ON tasks(assigned_host_id) WHERE assigned_host_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_id_wedding_unique ON tasks(id, wedding_id);
+
+CREATE TABLE IF NOT EXISTS task_assignees (
+  task_id TEXT NOT NULL,
+  host_id TEXT NOT NULL,
+  wedding_id TEXT NOT NULL,
+  assigned_at INTEGER NOT NULL,
+  PRIMARY KEY (task_id, host_id),
+  FOREIGN KEY (task_id, wedding_id) REFERENCES tasks(id, wedding_id) ON DELETE CASCADE,
+  FOREIGN KEY (host_id, wedding_id) REFERENCES wedding_hosts(id, wedding_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS task_assignees_host_wedding_idx ON task_assignees(host_id, wedding_id);
+CREATE INDEX IF NOT EXISTS task_assignees_wedding_task_idx ON task_assignees(wedding_id, task_id, assigned_at);
+
+CREATE TABLE IF NOT EXISTS task_template_dismissals (
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  template_id TEXT NOT NULL,
+  template_item TEXT NOT NULL,
+  dismissed_at INTEGER NOT NULL,
+  PRIMARY KEY (wedding_id, template_id, template_item)
+);
 
 CREATE TABLE IF NOT EXISTS budget_items (
   id TEXT PRIMARY KEY,
@@ -508,6 +544,7 @@ CREATE TABLE IF NOT EXISTS registry_contributions (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
   item_id TEXT REFERENCES registry_items(id) ON DELETE SET NULL,
+  item_title TEXT,
   family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'pending',
   amount_minor INTEGER NOT NULL,
@@ -585,6 +622,29 @@ CREATE TABLE IF NOT EXISTS unlock_code_redemptions (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS unlock_code_redemptions_code_wedding_uniq ON unlock_code_redemptions(code_id, wedding_id);
 CREATE INDEX IF NOT EXISTS unlock_code_redemptions_wedding_idx ON unlock_code_redemptions(wedding_id);
+
+CREATE TABLE IF NOT EXISTS seating_tables (
+  id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  capacity INTEGER NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (event_id, wedding_id) REFERENCES events(id, wedding_id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS seating_tables_event_id_uniq ON seating_tables(event_id, id);
+CREATE TABLE IF NOT EXISTS seating_assignments (
+  table_id TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  guest_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (table_id, guest_id),
+  FOREIGN KEY (table_id, event_id) REFERENCES seating_tables(id, event_id) ON DELETE CASCADE,
+  FOREIGN KEY (guest_id, event_id) REFERENCES guest_events(guest_id, event_id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS seating_assignments_event_guest_uniq ON seating_assignments(event_id, guest_id);
 `;
 
 export function createDb(path: string = ":memory:") {
@@ -596,7 +656,7 @@ export function createDb(path: string = ":memory:") {
   // One transaction: on a file every autocommitted statement writes and syncs
   // its own journal, about a hundred of them; in memory it costs nothing.
   sqlite.transaction(() => sqlite.exec(DDL))();
-  return drizzle(sqlite, { schema });
+  return drizzle({ client: sqlite });
 }
 
 // The precise sync-only shape createDb() returns — narrower than the
@@ -761,4 +821,285 @@ export function applyE2eRsvpDeadline(
 ): void {
   const date = env.CIRE_E2E_RSVP_DEADLINE;
   if (date) setSampleRsvpDeadline(db, date);
+}
+
+/**
+ * A second wedding for the E2E suite's gift-list flows: on Gold, with a
+ * published list of three gifts and one cash fund, one household of one
+ * invited to one event, and the wedding's host preview household. The values
+ * the flows check are written out again in
+ * `tools/e2e/src/config.ts` (`CIRE_GIFT_LIST`); a change here goes there too,
+ * and the claimed flow fails until it does.
+ *
+ * The couple are taking money as far as their own settings go: money gifts
+ * on, a connected account that can charge and settles in the wedding's
+ * currency. The stack runs cire-api with no Stripe key, so no gift can be paid
+ * for there, and the guest list must offer neither the money form nor the
+ * fund. That is the deployment check the claimed flow holds.
+ *
+ * Its own wedding rather than the sample one, so the gift band that a
+ * published list puts on the invite never appears in the other cire flows.
+ * No `image_key` on any gift: the local asset store starts empty.
+ */
+export function seedE2eGiftList(db: TestDb): void {
+  const now = new Date();
+  const weddingId = "wed_e2e_gift_list";
+  const eventId = "evt_e2e_gift_reception";
+  const familyId = "fam_e2e_gift_list";
+  const guestId = "gst_e2e_gift_list";
+
+  db.insert(schema.weddings)
+    .values({
+      id: weddingId,
+      slug: "gift-wedding",
+      displayName: "Gift Wedding",
+      tier: "gold",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.events)
+    .values({
+      id: eventId,
+      weddingId,
+      slug: "reception",
+      name: "Reception",
+      startAt: "2099-06-20T16:00:00+00:00",
+      endAt: "2099-06-20T22:00:00+00:00",
+      timezone: "UTC",
+    })
+    .run();
+  db.insert(schema.families)
+    .values({
+      id: familyId,
+      weddingId,
+      publicId: "TESTGFT-FIG-EE55",
+      familyName: "Giftfamily",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guests)
+    .values({
+      id: guestId,
+      familyId,
+      firstName: "Gil",
+      lastName: "Giftfamily",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guestEvents).values({ guestId, eventId }).run();
+
+  // The wedding's host preview household, as `hostCodeService.ensureForWedding`
+  // makes it for "Preview invite", with a fixed code so a flow can open the
+  // preview link without the organiser portal.
+  db.insert(schema.families)
+    .values({
+      id: "fam_e2e_gift_host",
+      weddingId,
+      publicId: "HOST-E2E00000000000000000000000000001",
+      familyName: "Host Preview",
+      kind: "host",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guests)
+    .values({
+      id: "gst_e2e_gift_host",
+      familyId: "fam_e2e_gift_host",
+      firstName: "Wedding",
+      lastName: "Host",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guestEvents).values({ guestId: "gst_e2e_gift_host", eventId }).run();
+
+  db.insert(schema.registrySettings)
+    .values({
+      weddingId,
+      published: true,
+      headline: "Our gift list",
+      message: "Your being there is the gift. This list is here if you would like it.",
+      cashGiftsEnabled: true,
+      stripeAccountId: "acct_e2e_gift_list",
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
+      stripeDefaultCurrency: "AUD",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.registryItems)
+    .values([
+      {
+        id: "reg_e2e_gift_0001",
+        weddingId,
+        title: "Copper saucepan",
+        priceMinor: 32_000,
+        category: "Kitchen",
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "reg_e2e_gift_0002",
+        weddingId,
+        title: "Stoneware mixing bowls",
+        priceMinor: 14_500,
+        quantityWanted: 2,
+        category: "Kitchen",
+        sortOrder: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "reg_e2e_gift_0003",
+        weddingId,
+        title: "A walk on the beach together",
+        priceMinor: null,
+        category: null,
+        sortOrder: 2,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "reg_e2e_gift_fund",
+        weddingId,
+        kind: "cash_fund",
+        title: "Honeymoon in Kyoto",
+        description: "Trains, temples and a very good dinner.",
+        targetMinor: 500_000,
+        sortOrder: 3,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ])
+    .run();
+}
+
+/**
+ * The local dev server's reading of `CIRE_E2E_REGISTRY`: `"1"` adds the
+ * gift-list wedding (`seedE2eGiftList`); anything else, unset included, leaves
+ * the seed as it is, which is what every `bun run dev` without the E2E suite
+ * gets.
+ */
+export function applyE2eGiftList(
+  db: TestDb,
+  env: Readonly<Record<string, string | undefined>>,
+): void {
+  if (env.CIRE_E2E_REGISTRY === "1") seedE2eGiftList(db);
+}
+
+/** An owner seat for the dev profile on one of the E2E organiser weddings. */
+function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date): void {
+  db.insert(schema.weddingHosts)
+    .values({
+      id: seatId,
+      weddingId,
+      osnProfileId: DEV_OWNER_PROFILE_ID,
+      addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+      role: "owner",
+      createdAt: now,
+    })
+    .run();
+}
+
+/**
+ * Three weddings for the E2E suite's organiser flows, each on Gold and owned by
+ * the dev profile, which osn-api's `/dev/login` signs in as:
+ *
+ * - `wed_e2e_checklist`: a wedding date (2099-06-20) and an empty checklist,
+ *   for the starter checklist.
+ * - `wed_e2e_holders`: one open task nobody holds, an editor and a viewer, for
+ *   putting people on a task and removing one from the wedding.
+ * - `wed_e2e_scope`: a helper seeing their own tasks, for widening, narrowing
+ *   and resetting what a helper sees on the run sheet.
+ *
+ * The co-hosts are bare profile ids with no OSN account behind them; the local
+ * server resolves no names, so the portal shows the ids. Every id and value a
+ * flow checks is written out again as `CIRE_ORGANISER` in
+ * `tools/e2e/src/config.ts`; a change here goes there too.
+ */
+export function seedE2eOrganiser(db: TestDb): void {
+  const now = new Date();
+  const wedding = (id: string, slug: string, displayName: string, weddingDate?: string) =>
+    db
+      .insert(schema.weddings)
+      .values({
+        id,
+        slug,
+        displayName,
+        tier: "gold",
+        weddingDate: weddingDate ?? null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+  wedding("wed_e2e_checklist", "checklist-wedding", "Checklist Wedding", "2099-06-20");
+  seatDevOwner(db, "wed_e2e_checklist", "whost_e2e_checklist_owner", now);
+
+  wedding("wed_e2e_holders", "holders-wedding", "Holders Wedding");
+  seatDevOwner(db, "wed_e2e_holders", "whost_e2e_holders_owner", now);
+  db.insert(schema.weddingHosts)
+    .values([
+      {
+        id: "whost_e2e_bea",
+        weddingId: "wed_e2e_holders",
+        osnProfileId: "usr_e2e_bea",
+        addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+        role: "editor",
+        createdAt: now,
+      },
+      {
+        id: "whost_e2e_cal",
+        weddingId: "wed_e2e_holders",
+        osnProfileId: "usr_e2e_cal",
+        addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+        role: "viewer",
+        createdAt: now,
+      },
+    ])
+    .run();
+  db.insert(schema.tasks)
+    .values({
+      id: "tsk_e2e_holders_venue",
+      weddingId: "wed_e2e_holders",
+      title: "Book the venue",
+      timeframeBucket: "12m",
+      status: "open",
+      sortOrder: 0,
+      createdAt: now,
+    })
+    .run();
+
+  wedding("wed_e2e_scope", "scope-wedding", "Scope Wedding");
+  seatDevOwner(db, "wed_e2e_scope", "whost_e2e_scope_owner", now);
+  db.insert(schema.weddingHosts)
+    .values({
+      id: "whost_e2e_dee",
+      weddingId: "wed_e2e_scope",
+      osnProfileId: "usr_e2e_dee",
+      addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+      role: "helper",
+      runSheetScope: "own",
+      createdAt: now,
+    })
+    .run();
+}
+
+/**
+ * The local dev server's reading of `CIRE_E2E_ORGANISER`: `"1"` adds the
+ * organiser weddings (`seedE2eOrganiser`); anything else, unset included,
+ * leaves the seed as it is, which is what every `bun run dev` without the E2E
+ * suite gets.
+ */
+export function applyE2eOrganiser(
+  db: TestDb,
+  env: Readonly<Record<string, string | undefined>>,
+): void {
+  if (env.CIRE_E2E_ORGANISER === "1") seedE2eOrganiser(db);
 }

@@ -134,7 +134,7 @@ describe("changing the wedding's currency while money gifts are on", () => {
     moneyGifts(db, { on: false, settles: "AUD" });
     const client = db.$client;
     const prepare = client.prepare.bind(client);
-    Object.defineProperty(client, "prepare", {
+    Object.defineProperty(client, "query", {
       configurable: true,
       value: (sql: string) => {
         if (sql.startsWith('update "weddings"')) {
@@ -146,7 +146,7 @@ describe("changing the wedding's currency while money gifts are on", () => {
       },
     });
     const exit = await save(db, { currency: "USD" });
-    Reflect.deleteProperty(client, "prepare");
+    Reflect.deleteProperty(client, "query");
     expectLocked(exit);
     expect(currencyOf(db)).toBe("AUD");
   });
@@ -158,7 +158,7 @@ describe("changing the wedding's currency while money gifts are on", () => {
     const db = db0();
     const client = db.$client;
     const prepare = client.prepare.bind(client);
-    Object.defineProperty(client, "prepare", {
+    Object.defineProperty(client, "query", {
       configurable: true,
       value: (sql: string) => {
         if (sql.startsWith('update "weddings"')) {
@@ -168,7 +168,7 @@ describe("changing the wedding's currency while money gifts are on", () => {
       },
     });
     const exit = await save(db, { displayName: "Renamed" });
-    Reflect.deleteProperty(client, "prepare");
+    Reflect.deleteProperty(client, "query");
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       expect(exit.cause.toString()).toContain(new WeddingNotFound({ weddingId: "x" })._tag);

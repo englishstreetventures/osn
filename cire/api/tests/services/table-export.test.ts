@@ -4,7 +4,7 @@ import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests } from "@ci
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
-import { DbService } from "../../src/db";
+import { DbService, dbQuery } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { tableExportService } from "../../src/services/table-export";
 import { TestDbLayer } from "../db/test-layer";
@@ -245,7 +245,7 @@ describe("tableExportService.eventsCsv", () => {
         // Header + the seed's 5 events.
         expect(rows).toHaveLength(6);
         expect(rows[0]).toBe(
-          "Event Name,Slug,Starts At,Ends At,Timezone,Address,Description,Dress Code,Dress Code Palette,Pinterest URL,Maps URL,Invited Guests",
+          "Event Name,Slug,Starts At,Ends At,Timezone,Venue,Address,Description,Dress Code,Dress Code Palette,Pinterest URL,Maps URL,Invited Guests",
         );
         const names = rows.slice(1).map((r) => r.split(",")[0]!);
         expect(names).toEqual([
@@ -258,6 +258,28 @@ describe("tableExportService.eventsCsv", () => {
         // Swatches render as `Name (color)` pairs.
         expect(rows[1]).toContain("Blush (oklch(86.50% 0.0480 12.50))");
         expect(rows[1]).toContain("123 Example St");
+      }),
+    ),
+  );
+
+  it(
+    "writes each event's venue name in the Venue column, beside its address",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        yield* dbQuery(() =>
+          db
+            .update(events)
+            .set({ venueName: "The Glasshouse" })
+            .where(eq(events.name, "Kitchen Tea"))
+            .run(),
+        );
+        const rows = lines(yield* tableExportService.eventsCsv(BOOTSTRAP_WEDDING_ID));
+        const header = rows[0]!.split(",");
+        const kitchenTea = rows.find((r) => r.startsWith("Kitchen Tea,"))!.split(",");
+        expect(kitchenTea[header.indexOf("Venue")]).toBe("The Glasshouse");
+        const catholic = rows.find((r) => r.startsWith("Catholic Ceremony,"))!.split(",");
+        expect(catholic[header.indexOf("Venue")]).toBe("");
       }),
     ),
   );
@@ -373,7 +395,7 @@ describe("tableExportService.eventsCsv", () => {
 
         const csv = yield* tableExportService.eventsCsv("wed_empty");
         expect(lines(csv)).toEqual([
-          "Event Name,Slug,Starts At,Ends At,Timezone,Address,Description,Dress Code,Dress Code Palette,Pinterest URL,Maps URL,Invited Guests",
+          "Event Name,Slug,Starts At,Ends At,Timezone,Venue,Address,Description,Dress Code,Dress Code Palette,Pinterest URL,Maps URL,Invited Guests",
         ]);
       }),
     ),

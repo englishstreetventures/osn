@@ -16,7 +16,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[database-environments]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Infrastructure as code (Alchemy)
@@ -403,7 +403,7 @@ On dev every API Worker traces every request. osn-api, cire-api and cire-invites
 
 `alchemy` stays on an exact pin, and `shared/infra/tests/package.test.ts` fails on any other version. Repeat this review on every bump.
 
-The CI lint, OpenAPI-freshness and E2E jobs and every product deploy job in `production-release.yml` never load the Alchemy tree, so they install with `--filter '!@*/infra'`, which leaves out `@shared/infra` and every `@<product>/infra` stack: each stack depends on `alchemy` itself, so leaving out `@shared/infra` alone installs the whole tree anyway. The jobs that build, test or type-check those packages keep the full install, and so do `deploy.yml`'s stack jobs, which run Alchemy. `alchemy-state.yml` and the D1 latency probe (`cire-d1-latency-probe.yml`) install `--filter @shared/infra` alone; the probe then runs its script with `bun --no-install`. `scripts/tests/deploy-workflows.test.ts` accepts either install form in the two deploy workflows.
+The CI lint, OpenAPI-freshness, E2E and migration-workflow jobs and every product deploy job in `production-release.yml` never load the Alchemy tree, so they install with `--filter '!@*/infra'`, which leaves out `@shared/infra` and every `@<product>/infra` stack: each stack depends on `alchemy` itself, so leaving out `@shared/infra` alone installs the whole tree anyway. The jobs that build, test or type-check those packages keep the full install, and so do `deploy.yml`'s stack jobs, which run Alchemy. `alchemy-state.yml` and the D1 latency probe (`cire-d1-latency-probe.yml`) install `--filter @shared/infra` alone; the probe then runs its script with `bun --no-install`. `scripts/tests/deploy-workflows.test.ts` accepts either install form in the two deploy workflows.
 
 A job that caches bun's store keys the cache on its install form: `<os>-bun-noinfra-<bun.lock hash>` for `--filter '!@*/infra'`, `<os>-bun-shared-infra-<bun.lock hash>` for `--filter @shared/infra`, and `<os>-bun-<bun.lock hash>` for a full install. GitHub saves a key once, from the first job that misses it, so a filtered install that saved the full install's key would leave every full install fetching the Alchemy tree. `scripts/tests/deploy-workflows.test.ts` holds every workflow's bun cache key to the install its job runs.
 

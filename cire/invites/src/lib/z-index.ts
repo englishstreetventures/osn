@@ -12,7 +12,7 @@
  * | `BASE`          | 0   | Normal page flow — hero, story, event grid (default).   |
  * | `EVENT_CARD`    | 10  | An event card's own local stacking context.             |
  * | `STICKY_RAIL`   | 20  | The gift list's sticky return rail.                     |
- * | `MODAL_POPOVER` | 110 | The Add-to-Calendar menu.                               |
+ * | `MODAL_POPOVER` | 110 | A link menu: Add to calendar, Open in maps.             |
  * | `TOAST`         | 150 | Confirmation toasts (`@shared/toast` `<Toaster>`).       |
  * | `CONSENT`       | 200 | Consent banner, legal pages only (`ConsentBanner`).     |
  *
@@ -20,8 +20,8 @@
  * `Modal`, a `<dialog>` opened with `showModal()`, which paints in the TOP
  * LAYER — above every stacking context in the document, whatever number
  * anything here carries. So no entry here can rank against a sheet, and the
- * two things that must appear over one (the Add-to-Calendar menu, the toast
- * container) get there by entering the top layer, never by out-numbering it.
+ * two things that must appear over one (a link menu, the toast container)
+ * get there by entering the top layer, never by out-numbering it.
  *
  * ## The invariants
  *
@@ -79,11 +79,12 @@ export const Z_LAYER = {
    */
   STICKY_RAIL: 20,
   /**
-   * The Add-to-Calendar menu. Named for where it is usually opened from —
-   * inside the details sheet — though that case is settled by the top layer
-   * rather than by this number; see the note above. What the number decides is
-   * the other case: the same menu opened from an event card, where it has to
-   * clear the cards and the sticky rail.
+   * A link menu (`LinkMenu`: Add to calendar, Open in maps). Named for where
+   * it is opened from — inside the details sheet — though that case is settled
+   * by the top layer rather than by this number; see the note above. What the
+   * number decides is a menu painted outside the top layer: in an engine
+   * without the Popover API, or opened outside a sheet, where it has to clear
+   * the cards and the sticky rail.
    */
   MODAL_POPOVER: 110,
   /**

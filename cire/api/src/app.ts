@@ -81,6 +81,7 @@ import {
 import { createRegistryStripeRoutes } from "./routes/registry-stripe";
 import { createRsvpRoutes } from "./routes/rsvp";
 import { createRsvpDigestStopRoutes } from "./routes/rsvp-digest-stop";
+import { createSeatingRoutes } from "./routes/seating";
 import { createStripePlatformWebhookRoutes } from "./routes/stripe-platform-webhook";
 import { createStripeWebhookRoutes } from "./routes/stripe-webhook";
 import { createTaskReadRoutes, createTaskWriteRoutes } from "./routes/tasks";
@@ -126,13 +127,13 @@ const defaultClaimLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60_000
  */
 const defaultClaimSessionLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 /**
- * Default per-IP rate limiter for the account-link surface (S-L1): 20 req/min.
+ * Default per-IP rate limiter for the account-link surface: 20 req/min.
  * Higher than claim because a household legitimately polls GET link-status, but
  * still caps the POST's ARC-sign + S2S amplifier and the membership-probe oracle.
  */
 const defaultAccountLinkLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
 /**
- * Default per-IP limiter for organiser invite-builder writes (IB-S-L1). An
+ * Default per-IP limiter for organiser invite-builder writes. An
  * authenticated organiser could otherwise drive unbounded 5 MB R2 image writes;
  * 30 req/min is generous for hand-editing while capping the storage/cost
  * amplifier.
@@ -164,7 +165,7 @@ const defaultWeddingCreateLimiter = createRateLimiter({ maxRequests: 10, windowM
  */
 const defaultRemintLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 /**
- * Default per-USER limiter for the CSV + JSON RSVP export routes (CSV-S-L1).
+ * Default per-USER limiter for the CSV + JSON RSVP export routes.
  * An authenticated organiser (or a compromised organiser token) could otherwise
  * loop these reads and burn D1 read quota / Worker CPU on the Free tier.
  * 10 exports/min is generous for hand-use while capping the D1 amplifier.
@@ -211,7 +212,7 @@ const defaultWeddingLifecycleLimiter = createRateLimiter({ maxRequests: 5, windo
  */
 const defaultHandleSearchLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 /**
- * Default per-IP limiter for the vendor portal routes (S-L1). Covers both the
+ * Default per-IP limiter for the vendor portal routes. Covers both the
  * unauthenticated claim preview (DB-query amplifier) and the ARC-calling consume
  * endpoint; 20 req/min is generous for hand-use while bounding amplification.
  */
@@ -436,10 +437,13 @@ export interface AppOptions {
   osnTestKey?: CryptoKey;
   /**
    * OIDC relying-party credentials for organiser sign-in. Absent ⇒ the
-   * `/api/auth/oidc/*` routes answer 503 and nobody can sign in — which is the
-   * honest state of a tier that has no client secret, not a silent downgrade.
-   * Built in `index.ts` from `OSN_ISSUER_URL` + `CIRE_OIDC_CLIENT_ID` +
-   * `CIRE_OIDC_CLIENT_SECRET`.
+   * `/api/auth/oidc/*` legs send the browser to the login page with
+   * `sign_in_unavailable` and nobody can sign in — which is the honest state of
+   * a tier that has no client secret, not a silent downgrade. Built by
+   * `oidcConfigFromEnv` (`lib/oidc.ts`), in `index.ts` and `local.ts` alike,
+   * from `OSN_ISSUER_URL`, `OSN_JWKS_URL`, `CIRE_API_ORIGIN`,
+   * `CIRE_OIDC_CLIENT_ID` and `CIRE_OIDC_CLIENT_SECRET`; `local.ts` defaults
+   * `OSN_JWKS_URL` to the issuer's JWKS path.
    */
   oidc?: OidcConfig | null;
   /** Override the OIDC start/callback rate limiter (useful for testing). */
@@ -472,6 +476,12 @@ export interface AppOptions {
    * without an ARC key simply doesn't offer it. Tests inject a stub.
    */
   resolveOsnAccountId?: OsnAccountResolver;
+  /**
+   * Weddings whose households get the member step only while
+   * `cire.account-linking` is on for them (`index.ts` reads
+   * `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS`). Omitted ⇒ every guest household.
+   */
+  memberStepExcludedWeddings?: ReadonlySet<string>;
   /**
    * Resolves an OSN handle to a profile id (server-to-server, ARC) for the
    * add-co-host POST. When omitted, the add-host endpoint answers 503 — adding
@@ -815,6 +825,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     // musubi serves profile pictures from its own identity host, the OIDC
     // issuer; no other avatar host is shown on the guest site.
     avatarOrigins: originOf(osnIssuerUrl),
+    memberStepExcludedWeddings: options.memberStepExcludedWeddings,
   };
 
   // Capture the chain so we can conditionally mount the payment webhook below.
@@ -851,12 +862,12 @@ export function createApp(db: Db, options: AppOptions = {}) {
           set.status = 404;
           return { error: "Not found" };
         }
-        // S-M1: Elysia's default error renderer puts `error.message` in the
+        // Elysia's default error renderer puts `error.message` in the
         // response body, which leaks internals (D1 error strings, Effect
         // causes, table names) to callers — the claim endpoint is pre-auth.
         // Log the detail, return a generic body.
         //
-        // OBS-S-L2: log only NON-SENSITIVE identifiers — the Elysia error
+        // Log only NON-SENSITIVE identifiers — the Elysia error
         // `code`, the error `name`, and (for `Data.TaggedError` defects) the
         // tagged `_tag`. We deliberately do NOT log the free-form
         // `error.message`: `redact()` scrubs by object KEY, not by substring
@@ -918,7 +929,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // caller is the guest Worker's server render, whose fetch has no Origin.
       // It reads public invite data only — no cookie, no write.
       .use(createInviteResolveRoutes(db))
-      // C5 / S-L3: CSRF origin guard on every state-changing method, using the
+      // CSRF origin guard on every state-changing method, using the
       // same allowlist CORS echoes. Mounted before the route factories so it
       // gates the whole app. Empty allowlist (dev) disables it.
       .use(originGuard(corsOrigins))
@@ -967,7 +978,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createRsvpRoutes(db, { limiter: rsvpLimiter, accountLinking }))
       // The household's plus-ones: same cookie, same no-Turnstile argument, and
       // a per-IP limiter like the guest registry writes.
-      .use(createPlusOneRoutes(db, { limiter: plusOneLimiter }))
+      .use(createPlusOneRoutes(db, { limiter: plusOneLimiter, accountLinking }))
       // Guest gift registry, four sibling instances by gate class: the gift
       // IMAGE read takes no auth (a per-save uuid name, and a session lookup on
       // every image on a page of dozens is the wrong trade — see the route);
@@ -981,13 +992,17 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // 404 `registry_not_found`, not 402, because no caller — anonymous, or
       // holding a cookie for some other wedding — may learn which weddings
       // have bought which tier.
-      .use(createRegistryGuestImageRoutes(db, { assets, images }))
-      .use(createRegistryGuestListRoutes(db))
+      //
+      // `takesPayments` is the contribute route's own mount condition below:
+      // the list offers money and cash funds, and a fund's picture serves,
+      // only where a guest's press can reach a payment page.
+      .use(createRegistryGuestImageRoutes(db, { assets, images, takesPayments: stripe !== null }))
+      .use(createRegistryGuestListRoutes(db, { takesPayments: stripe !== null }))
       .use(createRegistryGuestMineRoutes(db))
       .use(createRegistryGuestClaimRoutes(db, { limiter: registryGuestLimiter }))
       // Giving money. Mounted only with Stripe configured — a guest must never
-      // be offered a button that cannot lead anywhere. Its own limiter, tighter
-      // than the claim one: every call is an outbound Stripe request.
+      // be offered a button that cannot lead anywhere. Its own limiter, apart
+      // from the claim one: every call is an outbound Stripe request.
       .use(
         stripe
           ? createRegistryContributeRoutes(db, {
@@ -1033,7 +1048,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createOrganiserChangeRoutes(db, r2, osnAuthOptions))
       // Wedding-profile Settings (platform Phase 0). Reads admit owner OR
       // co-host; the profile save is owner-only. No event location config —
-      // an event's place is its free-text `address` (the sole location source).
+      // an event's place is its venue name and free-text `address`.
       .use(createOrganiserSettingsRoutes(db, osnAuthOptions))
       // Organiser-recorded RSVPs (platform Phase 0). Editor records a
       // phone/paper RSVP on a guest's behalf into the SAME `rsvps` table the
@@ -1158,7 +1173,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // gating the guest-only unlink (same sibling pattern as rsvp + organiser).
       // The household's link state is read through the claim and restore
       // responses, not here.
-      .use(createAccountLinkRoutes(db, accountLinkLimiter, resolveOsnAccountId))
+      .use(createAccountLinkRoutes(db, accountLinkLimiter, accountLinking))
       .use(
         createAccountLinkPostRoute(
           db,
@@ -1210,6 +1225,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // accumulated route-type surface here caps the depth; it's runtime-inert
   // (`.use()` only needs an Elysia instance) and scoped to this final mount.
   const rootApp: AnyElysia = app;
+  // The seating chart. `.use()` registers on the instance itself, so this mounts it.
+  rootApp.use(createSeatingRoutes(db, osnAuthOptions));
   // The portal's read of the invite images. The organiser-facing customisation
   // links the closing image here, because the public route keeps it for claimed
   // households. A sibling of the invite builder's writes, with no limiter — see

@@ -1,5 +1,53 @@
 # @osn/pulse
 
+## 0.24.24
+
+### Patch Changes
+
+- Updated dependencies [130d873]
+  - @pulse/api@0.27.26
+
+## 0.24.23
+
+### Patch Changes
+
+- Updated dependencies [e5fc2a7]
+  - @shared/toast@0.3.7
+
+## 0.24.22
+
+### Patch Changes
+
+- 5ab88f0: Build with vite 8.3.3 (range `^8.3.3`), which clears the advisory on vite 8.2.0
+  through 8.2.3.
+- Updated dependencies [5ab88f0]
+  - @shared/ui@0.5.1
+  - @shared/rp-auth@0.2.11
+  - @shared/toast@0.3.6
+
+## 0.24.21
+
+### Patch Changes
+
+- Updated dependencies [745c4ea]
+  - @shared/ui@0.5.0
+
+## 0.24.20
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
+- Updated dependencies [fa0f54a]
+  - @pulse/api@0.27.25
+  - @shared/design-tokens@0.3.6
+  - @shared/legal@0.0.7
+  - @shared/rp-auth@0.2.10
+  - @shared/toast@0.3.5
+  - @shared/ui@0.4.4
+
 ## 0.24.19
 
 ### Patch Changes

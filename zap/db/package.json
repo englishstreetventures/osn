@@ -1,14 +1,14 @@
 {
   "name": "@zap/db",
-  "version": "0.6.6",
+  "version": "0.6.8",
   "private": true,
-  "type": "module",
-  "author": "English Street Ventures Pty Ltd",
   "license": "UNLICENSED",
+  "author": "English Street Ventures Pty Ltd",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/englishstreetventures/osn.git"
   },
+  "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
@@ -16,7 +16,8 @@
     "./testing": "./src/testing.ts"
   },
   "scripts": {
-    "db:migrate": "bunx drizzle-kit generate",
+    "db:generate": "bun run ../../scripts/db-generate.ts .",
+    "db:migrate": "bun run db:generate",
     "db:push": "bunx drizzle-kit push",
     "db:studio": "bunx drizzle-kit studio",
     "db:seed": "bun run src/seed.ts",
@@ -31,7 +32,7 @@
   },
   "dependencies": {
     "@shared/db-utils": "workspace:*",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "1.0.0-rc.4",
     "effect": "4.0.3"
   },
   "devDependencies": {
@@ -40,7 +41,7 @@
     "@shared/typescript-config": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",
     "better-sqlite3": "^13.0.3",
-    "drizzle-kit": "^0.31.10",
+    "drizzle-kit": "1.0.0-rc.4",
     "vitest": "5.0.3",
     "wrangler": "4.149.0"
   }

@@ -22,7 +22,7 @@ packages:
   - "@osn/api"
   - "@zap/api"
   - "@cire/api"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-20
 ---
 
 # Backend Code Patterns
@@ -32,6 +32,9 @@ OSN's backend uses a layered architecture. **Routes** handle HTTP concerns: vali
 ## Route Layer -- Elysia TypeBox for HTTP shapes
 
 Routes use Elysia's built-in TypeBox (`t`) for request/response validation. This validates raw HTTP types and drives Eden client type inference.
+
+> [!note] Cire's API decodes with Effect Schema instead
+> `cire/api` routes pass a sentinel `parse` hook and decode `request.json()` with Effect Schema (`cire/api/src/schemas/`), so malformed JSON gets the schema's own 400. Follow that local pattern in cire; everywhere else TypeBox is the boundary. See [[schema-layers#Rules]] and [[cire-development]].
 
 ```typescript
 export const createEventsRoutes = (dbLayer: Layer.Layer<Db> = DbLive) => {

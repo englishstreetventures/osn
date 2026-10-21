@@ -12,7 +12,7 @@ related:
   - "[[identity-model]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # OSN and Musubi
@@ -71,7 +71,7 @@ pulse render the same primitives. That makes it neither, and it lives under
 |---|---|---|
 | `@shared/ui` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, the rest, plus `clsx()` | Interoperation never depends on them; five products consume them |
 | `@osn/auth-ui` | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `RecoveryCodesView`, `SessionsView`, `TotpView`, `ChangeEmailForm` | Each one is a client of a named OSN ceremony, and its shape is fixed by that protocol, not by our styling |
-| `@cire/ui` | cire's house style — gold primary, 4px corners | One product's own chrome |
+| `@cire/ui` | cire's house style — gold primary, 4px corners — and the guest privacy notice with the consent registry it is built from | One product's own chrome, and content two of its sites publish |
 
 `@osn/auth-ui` is the line's real test. It renders `@shared/ui` primitives, so
 it looks like product code; what keeps it in `osn/` is that every view is

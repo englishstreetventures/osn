@@ -37,11 +37,12 @@ describe("LOCKED_EXPORTS", () => {
 
 describe("fetchModuleRows", () => {
   it("reads the wedding's counts from module-rows", async () => {
-    const authFetch = vi.fn(async () => json({ budgetLines: 4, tasks: 12, gifts: 7 }));
+    const authFetch = vi.fn(async () => json({ budgetLines: 4, tasks: 12, gifts: 7, seats: 9 }));
     expect(await fetchModuleRows(authFetch, "wed_1")).toEqual({
       budgetLines: 4,
       tasks: 12,
       gifts: 7,
+      seats: 9,
     });
     expect(authFetch).toHaveBeenCalledWith(
       "https://api.test/api/organiser/weddings/wed_1/module-rows",
@@ -54,6 +55,7 @@ describe("fetchModuleRows", () => {
       budgetLines: 0,
       tasks: 0,
       gifts: 0,
+      seats: 0,
     });
   });
 

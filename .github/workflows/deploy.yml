@@ -291,10 +291,13 @@ jobs:
           SITE: ${{ steps.hosts.outputs.musubi_landing_origin }}
           PUBLIC_APP_URL: ${{ steps.hosts.outputs.musubi_social_origin }}
 
-      # musubi/landing's `build` script runs scripts/guard-bundle-size.sh too,
-      # but not when turbo replays a cached build; this checks what is about to
-      # upload either way (wiki/conventions/bundle-size-guards.md).
-      - name: Guard musubi/landing bundle size
+      # Warns (the step stays green) when the bundle is over its budget, and
+      # fails, stopping the deploy, on a source map anywhere in `dist`, which
+      # is served whole. musubi/landing's `build` script runs
+      # scripts/guard-bundle-size.sh too, but not when turbo replays a cached
+      # build; this checks what is about to upload either way
+      # (wiki/conventions/bundle-size-guards.md).
+      - name: Check musubi/landing bundle size and refuse public source maps
         run: ./scripts/guard-bundle-size.sh musubi/landing
 
       # The dev token must reach the dev account and no other: a token created
@@ -598,6 +601,8 @@ jobs:
           # to the production account surface.
           PUBLIC_OSN_ACCOUNT_URL: ${{ steps.hosts.outputs.musubi_social_origin }}
           PUBLIC_CIRE_WEB_URL: ${{ steps.hosts.outputs.cire_invites_origin }}
+          # The RSVP editor's privacy link: the dev marketing site's /privacy.
+          PUBLIC_MARKETING_URL: ${{ steps.hosts.outputs.cire_landing_origin }}
 
       - name: Build cire/vendor (dev)
         run: bun run build --filter=@cire/vendor
@@ -611,19 +616,23 @@ jobs:
           PUBLIC_ORGANISER_URL: ${{ steps.hosts.outputs.cire_host_origin }}
           SITE: ${{ steps.hosts.outputs.cire_landing_origin }}
 
-      # Each site's `build` script runs scripts/guard-bundle-size.sh too, but
-      # not when turbo replays a cached build; these check what is about to
-      # upload either way (wiki/conventions/bundle-size-guards.md).
-      - name: Guard cire/invites SSR bundle size
+      # Each warns (the step stays green) when its bundle is over its budget,
+      # and fails, stopping the deploy, on a public source map (anywhere in a
+      # site's `dist`, or under the guest site's `dist/client`) or a missing or
+      # empty `dist`. Each site's `build` script runs
+      # scripts/guard-bundle-size.sh too, but not when turbo replays a cached
+      # build; these check what is about to upload either way
+      # (wiki/conventions/bundle-size-guards.md).
+      - name: Check cire/invites SSR bundle size and refuse public source maps
         run: ./scripts/guard-bundle-size.sh cire/invites
 
-      - name: Guard cire/host bundle size
+      - name: Check cire/host bundle size and refuse public source maps
         run: ./scripts/guard-bundle-size.sh cire/host
 
-      - name: Guard cire/vendor bundle size
+      - name: Check cire/vendor bundle size and refuse public source maps
         run: ./scripts/guard-bundle-size.sh cire/vendor
 
-      - name: Guard cire/landing bundle size
+      - name: Check cire/landing bundle size and refuse public source maps
         run: ./scripts/guard-bundle-size.sh cire/landing
 
       # The dev token must reach the dev account and no other: a token created
@@ -1061,10 +1070,13 @@ jobs:
         env:
           SITE: ${{ steps.hosts.outputs.pulse_landing_origin }}
 
-      # pulse/landing's `build` script runs scripts/guard-bundle-size.sh too,
-      # but not when turbo replays a cached build; this checks what is about to
-      # upload either way (wiki/conventions/bundle-size-guards.md).
-      - name: Guard pulse/landing bundle size
+      # Warns (the step stays green) when the bundle is over its budget, and
+      # fails, stopping the deploy, on a source map anywhere in `dist`, which
+      # is served whole. pulse/landing's `build` script runs
+      # scripts/guard-bundle-size.sh too, but not when turbo replays a cached
+      # build; this checks what is about to upload either way
+      # (wiki/conventions/bundle-size-guards.md).
+      - name: Check pulse/landing bundle size and refuse public source maps
         run: ./scripts/guard-bundle-size.sh pulse/landing
 
       # The dev token must reach the dev account and no other: a token created

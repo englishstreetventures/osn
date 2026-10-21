@@ -1,5 +1,5 @@
 ---
-title: Cire vendors
+title: Vendors — directory, CRM, and email-verification claim
 tags: [systems, cire, vendors, phase2]
 related:
   - "[[cire-auth]]"
@@ -34,8 +34,8 @@ Global directory of vendors. One row per vendor business (not per wedding). A ve
 | `website`, `instagram`, `location_text` | Optional public details |
 | `price_band`, `price_min_minor`, `price_max_minor` | Optional price guide |
 | `listed` | `'draft'` (seeded, not browsable) or `'live'`; defaults to `'draft'` |
-| `lead_forward_email` | The vendor's own lead-capture address, copied on a new enquiry; null until set in the portal |
-| `claimed_by_profile_id` | The OSN profile that claimed the listing; the vendor-side member of any enquiry chat. Null until an operator confirms the claim |
+| `lead_forward_email` | A second address a new enquiry to an unclaimed listing is copied to. Nothing in cire-api or the portal writes it — `UpsertListingBody` has no such field — so it is null unless set by hand (englishstreetventures/osn#1622) |
+| `claimed_by_profile_id` | The OSN profile that claimed the listing; the vendor-side member of any enquiry chat. Zap takes a message only from a chat member (`zap/api/src/services/messages.ts`, `NotChatMember`), so only this profile can reply or quote, though every member of the owning org can read the thread. Null until an operator confirms the claim; only that confirm writes it, so a listing the vendor creates in the portal never has one, and enquiries to it never reach a chat (englishstreetventures/osn#1621) |
 | `review_org_id`, `review_profile_id`, `review_requested_at` | A redeemed claim waiting for an operator: the org and profile that redeemed it, and when. Null when no claim waits. `review_org_id` is unique (`directory_vendors_review_org_uniq`), so an org holds at most one pending claim |
 | `created_at`, `updated_at` | Timestamps (second precision) |
 

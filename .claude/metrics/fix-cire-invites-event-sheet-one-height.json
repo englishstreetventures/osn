@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1641,
+    "branch": "fix/cire-invites-event-sheet-one-height",
+    "base_sha": "5ab88f0c149f993b2515ace1c8748b0556e9f0b5",
+    "head_sha": "6242a28cc884d7380851ca50966c3e02b24d2d70",
+    "generated_at": "2026-10-21T01:24:16.084Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-20T14:47:30.991Z",
+    "last_ts": "2026-10-21T01:18:42.636Z",
+    "span_seconds": 37872,
+    "active_seconds": 3209,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 24.572325399999993,
+    "tokens": {
+      "input": 360,
+      "output": 9760,
+      "thinking": 1667,
+      "cache_write_5m": 233223,
+      "cache_write_1h": 211103,
+      "cache_read": 54989588
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 316,
+          "output": 9438,
+          "thinking": 1667,
+          "cache_write_5m": 153379,
+          "cache_write_1h": 211103,
+          "cache_read": 53628734
+        },
+        "usd_equivalent": 24.097236599999995,
+        "messages": 149
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 2
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 44,
+          "output": 322,
+          "thinking": 0,
+          "cache_write_5m": 79844,
+          "cache_write_1h": 0,
+          "cache_read": 1360854
+        },
+        "usd_equivalent": 0.47508880000000003,
+        "messages": 21
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 54,
+          "output": 7840,
+          "thinking": 1667,
+          "cache_write_5m": 0,
+          "cache_write_1h": 211103,
+          "cache_read": 4913877
+        },
+        "usd_equivalent": 3.8113908000000007,
+        "messages": 20
+      },
+      "subagent": {
+        "tokens": {
+          "input": 306,
+          "output": 1920,
+          "thinking": 0,
+          "cache_write_5m": 233223,
+          "cache_write_1h": 0,
+          "cache_read": 50075711
+        },
+        "usd_equivalent": 20.760934599999995,
+        "messages": 152
+      }
+    },
+    "effort": {
+      "medium": 40,
+      "xhigh": 130
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 4,
+      "docs": 3,
+      "config": 0,
+      "source": 4
+    },
+    "loc": {
+      "generated": {
+        "added": 19,
+        "deleted": 0
+      },
+      "test": {
+        "added": 319,
+        "deleted": 113
+      },
+      "docs": {
+        "added": 52,
+        "deleted": 19
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 101,
+        "deleted": 93
+      }
+    },
+    "packages": [
+      "cire/invites"
+    ],
+    "touches_migration": false,
+    "commits": 5
+  },
+  "interaction": {
+    "user_turns": 1,
+    "corrective_turns": 1,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 144,
+      "Edit": 16,
+      "Read": 5,
+      "Skill": 3,
+      "Write": 2,
+      "SendUserFile": 2,
+      "mcp__github__search_issues": 2,
+      "mcp__github__issue_write": 2,
+      "SubagentHandback": 2,
+      "SendMessage": 2,
+      "mcp__github__list_issue_types": 1,
+      "ToolSearch": 1,
+      "Monitor": 1,
+      "Agent": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 4
+    },
+    "skills": {
+      "prep-pr": 1,
+      "rate-complexity": 1,
+      "review-deps": 1
+    },
+    "subagents": {
+      "mechanic": 1
+    }
+  }
+}

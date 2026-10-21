@@ -1,5 +1,48 @@
 # @osn/social
 
+## 0.18.10
+
+### Patch Changes
+
+- Updated dependencies [e5fc2a7]
+  - @shared/toast@0.3.7
+  - @osn/auth-ui@3.0.15
+
+## 0.18.9
+
+### Patch Changes
+
+- 5ab88f0: Build with vite 8.3.3 (range `^8.3.3`), which clears the advisory on vite 8.2.0
+  through 8.2.3.
+- Updated dependencies [5ab88f0]
+  - @shared/ui@0.5.1
+  - @shared/toast@0.3.6
+  - @osn/auth-ui@3.0.14
+
+## 0.18.8
+
+### Patch Changes
+
+- Updated dependencies [745c4ea]
+  - @shared/ui@0.5.0
+  - @osn/auth-ui@3.0.13
+
+## 0.18.7
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
+- Updated dependencies [fa0f54a]
+  - @osn/auth-ui@3.0.12
+  - @osn/client@2.18.6
+  - @shared/design-tokens@0.3.6
+  - @shared/legal@0.0.7
+  - @shared/toast@0.3.5
+  - @shared/ui@0.4.4
+
 ## 0.18.6
 
 ### Patch Changes

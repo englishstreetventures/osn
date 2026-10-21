@@ -6,7 +6,7 @@ related:
   - "[[github-issues-setup]]"
   - "[[cire-platform-plan]]"
   - "[[cire]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-21
 ---
 
 # Deferred decisions
@@ -69,7 +69,6 @@ A row graduates to an issue when its "Revisit When" lands.
 | Pricing baseline sourcing + regions | Hand-curated AU-first dataset vs licensed data | Phase 3 start — see [[cire-platform-plan]] §6 |
 | Multi-currency budget entries | v1 single-currency (all figures in the wedding's main `currency`, organiser converts on entry — decided) vs additive v2: display-only `original_currency` + `original_amount_minor` (+ entered rate) on `budget_items`/`payments` | Budget v1 build, or first real multi-country wedding asking for it — see [[cire-platform-plan]] §4.2 |
 | Guest email collection point (comms) | Guest-entered at RSVP vs organiser-entered vs both; consent design first | Comms build (Phase 4) — see [[cire-platform-plan]] §7 |
-| Wishing well | Payment processing (requires ABN) | After business is set up |
 | Guest photo sharing | R2 + moderation | Post-MVP |
 | iPhone AirDrop sharing | Web Share API + custom payload | After core invite is built |
 | Account-linking ARC key provisioning + rotation | Stable `CIRE_API_ARC_PRIVATE_KEY` secret pre-registered in osn-api `service_accounts` (shipped) vs. lazy self-registration per isolate vs. KV-persisted rotating key | Before production launch of linking — wire the secret + osn-side registration; decide rotation story (Workers have no startup hook) |
@@ -103,8 +102,8 @@ Folded in from the retired `cire/wiki/deferred.md` when the cire vault merged in
 | Guest/event editor endpoint shape | **Batch draft-save (desired-state reconcile)**, not per-row `POST/PATCH/DELETE` — the editor submits a whole draft through the same preview → warnings → apply pipeline the import uses, with an ID-aware diff; per-row endpoints may land later as sugar over the same reconcile. Amends [[cire-platform-plan]] §3.3. See [[cire-guest-event-editor]] §3 + §11. | 2026-07-12 |
 | Editor checkpoint retention | **Keep the last 10 before-image snapshots** per wedding (R2 Free-tier cap); older change-history rows stay listed but lose revertability, marked in the UI. See [[cire-guest-event-editor]] §4. | 2026-07-12 |
 | Editor-created household code minting (pre-PR-4) | **Auto-mint claim codes**, exactly like the import, until platform PR 4 (code-less households) lands — then manual creation switches to code-less per the decided §3.2 model. See [[cire-guest-event-editor]] §11. | 2026-07-12 |
-| Geocoding wedding/vendor locations | **RETIRED 2026-07-16 (migration 0036).** The Phase-0 key-optional geocoding flow + the `pricing_region` it derived were removed — they only fed unbuilt Phase 3 features and the guest map never used them (it renders `address` alone). If Phase 2/3 ever needs a point, geocode `events.address` on-demand then. ~~Settings form geocoded the typed address server-side (Google Geocoding; no key ⇒ manual lat/lng fallback).~~ See [[cire-platform-plan]] §3.1. | 2026-07-16 |
-| Location scope: wedding vs event | **RESOLVED → then RETIRED 2026-07-16 (migration 0036): there is no stored event location at all.** An event's place is its free-text `address` (the sole location source). ~~Location is EVENT-scoped; `location_lat`/`location_lng` + `pricing_region` live on `events`~~ — those columns were dropped as a redundant, unbuilt-only config. See [[cire-platform-plan]] §3.1. | 2026-07-16 |
+| Geocoding wedding/vendor locations | **RETIRED 2026-07-16 (migration 0036).** The Phase-0 key-optional geocoding flow + the `pricing_region` it derived were removed — they only fed unbuilt Phase 3 features and the guest map never used them (it queries the address, else the venue name). If Phase 2/3 ever needs a point, geocode `events.address` on-demand then. ~~Settings form geocoded the typed address server-side (Google Geocoding; no key ⇒ manual lat/lng fallback).~~ See [[cire-platform-plan]] §3.1. | 2026-07-16 |
+| Location scope: wedding vs event | **RESOLVED → then RETIRED 2026-07-16 (migration 0036): there is no stored event location at all.** An event's place is its venue name and free-text `address`. ~~Location is EVENT-scoped; `location_lat`/`location_lng` + `pricing_region` live on `events`~~ — those columns were dropped as a redundant, unbuilt-only config. See [[cire-platform-plan]] §3.1. | 2026-07-16 |
 | Organiser route aliases during module move | **One-release alias layer.** Same factories mounted at old + new prefixes for one release, old prefix deleted next release — Worker/Pages deploys are non-atomic and cached portal bundles outlive the Worker flip, so lockstep-only guarantees a broken window. See [[cire-platform-plan]] §3.4. | 2026-07-08 |
 | Import code minting after invite decoupling | **Import keeps auto-minting** claim codes at apply time (sheet = invite list, current workflow preserved); only manually-created households start code-less. See [[cire-platform-plan]] §3.2. | 2026-07-08 |
 | Import diff vs manually-added rows | **Provenance column** — `source: 'import' \ | 'manual'` on families/guests; diff manages import-sourced rows only by default, explicit toggle to include manual rows. See [[cire-platform-plan]] §3.3. |
@@ -127,12 +126,11 @@ Folded in from the retired `cire/wiki/deferred.md` when the cire vault merged in
 Post-MVP ideas, too vague to be issues. Folded in from the retired `cire/wiki/future.md`.
 An idea graduates to a GitHub issue when someone can write its "done when".
 
-> **Promoted 2026-07-08:** "Platformise as multi-tenant SaaS" and "General wedding planning — guest list management, seating charts" graduated into the wedding-management platform build-out — architecture in [[cire-platform-plan]], phased work in GitHub Issues. Wishing well, guest photos, and Wallet passes stay here (referenced by the plan's Phase 4 as later work).
+> **Promoted 2026-07-08:** "Platformise as multi-tenant SaaS" and "General wedding planning — guest list management, seating charts" graduated into the wedding-management platform build-out — architecture in [[cire-platform-plan]], phased work in GitHub Issues. Guest photos and Wallet passes stay here (referenced by the plan's Phase 4 as later work); the wishing well is built as the gift registry's money gifts ([[cire-registry]]).
 
 - Astro → Solid Start migration for the guest-facing app (post-platformisation, only if SaaS path is taken)
 - Apple Wallet pass generation for each event
 - Physical + digital hybrid: QR codes on printed invites linking to digital counterparts
-- Wishing well with payment processing
 - Photo collection and guest photo uploads
 - iPhone tip-to-tip AirDrop invite sharing
 - White-label / custom domain support per wedding
