@@ -145,7 +145,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
   };
 
   const holderWrites = createHolderWrites({
-    send: async (taskId, hostId, on) => {
+    send: async (taskId, hostId, putOn) => {
       const done = beginTaskWrite(props.weddingId);
       try {
         return await authFetch(
@@ -155,7 +155,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
               `/tasks/${encodeURIComponent(taskId)}/assignees/${encodeURIComponent(hostId)}`,
             ),
           ),
-          { method: on ? "PUT" : "DELETE" },
+          { method: putOn ? "PUT" : "DELETE" },
         );
       } finally {
         done();
