@@ -17,7 +17,7 @@ related:
   - "[[dev-environment]]"
   - "[[d1-read-replication]]"
   - "[[cire-development]]"
-last-reviewed: 2026-09-25
+last-reviewed: 2026-10-22
 ---
 
 # Database Environments
@@ -110,7 +110,7 @@ Three rewrite shapes recur:
    subject (a profile/account being deleted) can't change between read and batch.
 3. **Check-then-insert under a constraint** (handle/email uniqueness) → pre-check
    for a friendly error, then rely on the **UNIQUE constraint** as the
-   authoritative race-safe guard (S-H1/S-M2 preserved), mapping the violation to
+   authoritative race-safe guard, mapping the violation to
    a clean error. Count caps with no backing constraint (maxProfiles, passkey
    cap) become best-effort with a documented benign over-by-one race; the
    last-passkey invariant is kept race-safe with a **count-guarded conditional

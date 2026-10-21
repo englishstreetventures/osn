@@ -8,7 +8,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[shared/observability/logging]]"
   - "[[shared/observability/tracing]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-22
 ---
 
 # Observability Setup Runbook
@@ -153,7 +153,7 @@ Then add domain-specific metrics:
 echo -n "<instance-id>:<api-token>" | base64
 ```
 
-### Environment Not Classified Correctly (S-L20)
+### Environment Not Classified Correctly
 
 **Symptom:** Dev and production data mixed in dashboards.
 
@@ -184,7 +184,7 @@ echo -n "<instance-id>:<api-token>" | base64
 
 **Symptom:** External requests show up with attacker-controlled trace IDs in internal traces.
 
-**Cause:** An inbound `traceparent` is trustworthy only from an ARC-authenticated caller (S-H13).
+**Cause:** An inbound `traceparent` is trustworthy only from an ARC-authenticated caller.
 
 **Fix:** The Elysia plugin only extracts upstream trace context when the request presents `Authorization: ARC ...`. Anonymous/public requests start fresh root spans. The Workers entries run without that plugin, so they neither extract nor emit trace context at all.
 

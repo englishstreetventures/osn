@@ -6,7 +6,7 @@ related:
   - "[[review-findings]]"
   - "[[contributing]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-09-07
+last-reviewed: 2026-10-22
 ---
 
 # Code Comments
@@ -22,8 +22,8 @@ rules below. It runs at `warn` while the existing references are cleaned up
 
 | Shape | Example | Why it goes |
 |---|---|---|
-| Tracker issue number | `osn-tracker#589` | Stops resolving when the issue closes. This repo is public and the tracker is private, so it is a disclosure as well as a dead link |
-| Review finding tag | `S-M3`, `P-C1`, `C-L1`, `T-S2`, `D-H1` | Means nothing to a reader who cannot open the tracker, and nothing at all once the finding is closed |
+| Tracker issue number | a number in the private tracker | Stops resolving when the issue closes. This repo is public and the tracker is private, so it is a disclosure as well as a dead link |
+| Review finding tag | a severity-and-number code from a review | Means nothing to a reader who cannot open the tracker, and nothing at all once the finding is closed |
 | Phase or plan code | `O3:`, `Z4:`, `X1:` | The plan ships and the code refers to nothing |
 | Bug-history narration | "used to be", "was reported as" | Describes a state the code is no longer in |
 
@@ -53,7 +53,7 @@ what would replace it. `englishstreetventures/osn` issues only, never the privat
 ```
 
 > [!warning]
-> Never "fix" an `osn-tracker#589` reference by dropping the repo to `#589`.
+> Never "fix" a tracker reference by dropping the repo name from it.
 > The bare form passes the linter and resolves to an unrelated issue in the
 > public repo, so the edit looks clean and quietly invents a wrong
 > cross-reference. Replace the reference with the constraint it stood for, or

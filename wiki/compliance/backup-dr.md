@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[soc2]]"
   - "[[breach-response]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-22
 ---
 
 # Backup + Disaster Recovery
@@ -68,7 +68,7 @@ Quarterly. Documented under `wiki/compliance/dr-drills/<YYYY>-<Q>.md`.
 | Region outage | Multi-region replica (planned with Supabase config) |
 | Cloud provider outage | Document recovery into a second cloud (planned; long lead-time, accept 24+h RTO) |
 | Domain takeover | Registrar lock + WebAuthn + alert on DNS change |
-| Auth-key compromise (signing keys) | Rotate; revoke ARC kid; fail-closed cache eviction (already handled by S-H100 fix) |
+| Auth-key compromise (signing keys) | Rotate; revoke ARC kid; fail-closed cache eviction |
 | Total OSN compromise | Backups are encrypted at rest; restore to clean infra; communicate per [[breach-response]] |
 
 ## Runbook: stop the R2 reconcilers around a `cire-db` restore
@@ -101,8 +101,8 @@ The 14-day limit is this runbook's, not the code's: nothing lifts a stop by itse
 
 Tracked with `C-` IDs:
 
-1. **DR plan finalised** — this page is the outline; complete it once we choose the Supabase target. ID: **C-M6**.
-2. **First restore drill** — schedule for Q3 2026 (initial dry run before production traffic). ID: **C-M6** (bundled).
-3. **GitHub mirror** to a second host (Codeberg / Gitlab.com / private S3) for code-catastrophic-loss scenarios. ID: **C-L23**.
-4. **Encryption-at-rest documentation** — confirm Supabase / R2 / Redis-provider encryption-at-rest defaults; capture in [[soc2]] C1. ID: **C-L24**.
-5. **Backup integrity verification** — checksum each snapshot; reject restores from corrupted snapshots automatically. ID: **C-L25**.
+1. **DR plan finalised** — this page is the outline; complete it once we choose the Supabase target.
+2. **First restore drill** — schedule for Q3 2026 (initial dry run before production traffic).
+3. **GitHub mirror** to a second host (Codeberg / Gitlab.com / private S3) for code-catastrophic-loss scenarios.
+4. **Encryption-at-rest documentation** — confirm Supabase / R2 / Redis-provider encryption-at-rest defaults; capture in [[soc2]] C1.
+5. **Backup integrity verification** — checksum each snapshot; reject restores from corrupted snapshots automatically.

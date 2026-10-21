@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-10-22
 ---
 # Identity Model
 
@@ -282,7 +282,7 @@ Settings-surface operations over an account's existing credentials. All routes b
 | Column | Type | Notes |
 |--------|------|-------|
 | `label` | `text` | User-editable friendly name. NULL → UI falls back to synced/device heuristic |
-| `last_used_at` | `integer` | Unix seconds. Coalesced to 60s on assertion / step-up (P-W4) |
+| `last_used_at` | `integer` | Unix seconds. Coalesced to 60s on assertion / step-up |
 | `aaguid` | `text` | Authenticator model UUID from WebAuthn attestation |
 | `backup_eligible` / `backup_state` | `integer` 0/1 | WebAuthn sync-capable / synced flags |
 | `updated_at` | `integer` | Unix seconds for any metadata change (rename, counter bump) |
@@ -291,7 +291,7 @@ Settings-surface operations over an account's existing credentials. All routes b
 
 - `residentKey: "required"` — discoverable-credential / conditional-UI login is mandatory.
 - `userVerification: "required"` — biometric or PIN, never silent sign-in.
-- `maxPasskeys = 10` per account (P-I10), enforced at `begin` and re-checked race-safely at `complete`.
+- `maxPasskeys = 10` per account, enforced at `begin` and re-checked race-safely at `complete`.
 
 ### Discoverable-credential login
 
@@ -307,7 +307,7 @@ Settings-surface operations over an account's existing credentials. All routes b
 |-------|--------|-------|
 | P1: Schema + terminology | ✅ Done | `accounts` table, `userId` → `profileId`, seed data, email dedup, service/route/test rename from "user" → "profile" terminology |
 | P2: Auth refactor | ✅ Done | Two-tier tokens (refresh=account, access=profile), `POST /profiles/switch`, `POST /profiles/list`, `verifyRefreshToken`, `findDefaultProfile`, scope claim validation, per-account rate limiting |
-| P3: Profile CRUD | ✅ Done | `createProfile` (maxProfiles enforcement, S-L1), `deleteProfile` (cascade delete graph+org data), `setDefaultProfile`, three REST routes, `withProfileCrud` observability wrapper, S-L2 resolved |
+| P3: Profile CRUD | ✅ Done | `createProfile` (maxProfiles enforcement), `deleteProfile` (cascade delete graph+org data), `setDefaultProfile`, three REST routes, `withProfileCrud` observability wrapper |
 | P4: Client SDK | ✅ Done | Multi-session `AccountSession` storage in `@osn/client`, `listProfiles` / `switchProfile` / `createProfile` / `deleteProfile` / `getActiveProfile` methods, SolidJS `AuthContext` integration (`profiles` resource, `activeProfileId` signal), legacy session migration, Effect Schema validation on storage reads + API responses, Base64URL JWT parsing, expired token pruning |
 | P5: UI | ✅ Done | Profile switcher component, create form, onboarding |
 | P6: Privacy audit | ✅ Done | `passkeyUserId` column (WebAuthn correlation fix), `accountId` log redaction, privacy invariant tests, route/token/span/metric audit (all clean) |

@@ -7,7 +7,7 @@ related:
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
   - "[[cire-rsvp-table]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 # Host Portal Layout System
 
@@ -214,7 +214,7 @@ component was previously reading a container it did not live in.
   preview layers — five inline per-section previews, and the composed pane — used
   to both be mounted at every width with the container query hiding one, so the
   idle layer still took every token write on every keystroke and colour-drag
-  frame (perf **P-I1**). The builder now observes its own `@container/builder`
+  frame. The builder now observes its own `@container/builder`
   element and mounts one layer or the other:
 
   - A `ResizeObserver`'s `contentRect` **is** the content box a container query

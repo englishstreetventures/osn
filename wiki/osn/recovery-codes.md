@@ -13,7 +13,7 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/auth-ui"
-last-reviewed: 2026-10-17
+last-reviewed: 2026-10-22
 ---
 # Recovery Codes
 
@@ -173,9 +173,9 @@ POST /recovery/generate
 
 Step-up gated (M-PK1): a stolen access token on its own must not be able to burn the account's codes. Run the ceremony first (`[[step-up]]`) and pass the token it mints. Allowed factors default to `["webauthn", "otp"]`.
 
-**Purpose-bound (S-M1).** The token must carry `purpose: "recovery_generate"`. Generating destroys the whole existing set, so a token minted for another ceremony — an email change, a passkey delete — must not be replayable here. Callers pass `purpose` to `/step-up/passkey/complete` or `/step-up/otp/complete`; a purposeless token is refused with `step_up_required`. See `[[step-up]]`.
+**Purpose-bound.** The token must carry `purpose: "recovery_generate"`. Generating destroys the whole existing set, so a token minted for another ceremony — an email change, a passkey delete — must not be replayable here. Callers pass `purpose` to `/step-up/passkey/complete` or `/step-up/otp/complete`; a purposeless token is refused with `step_up_required`. See `[[step-up]]`.
 
-Wire field is `recoveryCodes` (not `codes`) so the redaction deny-list entry matches (S-L2). Emits `osn.auth.session.security_invalidation{trigger="recovery_code_generate"}` on every successful generate so out-of-band regeneration is visible in the existing session-invalidation dashboard.
+Wire field is `recoveryCodes` (not `codes`) so the redaction deny-list entry matches. Emits `osn.auth.session.security_invalidation{trigger="recovery_code_generate"}` on every successful generate so out-of-band regeneration is visible in the existing session-invalidation dashboard.
 
 Regenerating atomically replaces any previous set — the transaction deletes the existing rows and inserts the new ones. The previous codes become permanently invalid.
 
@@ -216,7 +216,7 @@ On success the server:
 2. **Revokes every session on the account** in the same transaction. The fresh session issued by the login step is the only one standing afterwards. Emits `osn.auth.session.security_invalidation{trigger="recovery_code_consume"}`.
 3. Sets the HttpOnly session cookie (C3) and returns the access token in the body.
 
-All failure modes — unknown identifier, bad code, used code — surface as `{ error: "invalid_request" }` with no distinguishing detail. Both the known-identifier + wrong-code branch and the unknown-identifier branch run the same DB + SHA-256 work, so latency does not reveal whether the user exists (S-M2). Recovery login is the "lost device" escape hatch; see `[[passkey-primary]]` for the broader login model.
+All failure modes — unknown identifier, bad code, used code — surface as `{ error: "invalid_request" }` with no distinguishing detail. Both the known-identifier + wrong-code branch and the unknown-identifier branch run the same DB + SHA-256 work, so latency does not reveal whether the user exists. Recovery login is the "lost device" escape hatch; see `[[passkey-primary]]` for the broader login model.
 
 ## Service layer
 
@@ -225,7 +225,7 @@ All failure modes — unknown identifier, bad code, used code — surface as `{ 
 - `generateRecoveryCodesForAccount(accountId, eventMeta?) → { recoveryCodes: string[] }` — transactional replace + insert. The optional `eventMeta` (UA label + IP) is persisted on the paired `security_events` audit row (see **Regeneration notification** below).
 - `consumeRecoveryCode(identifier, code) → { profile }` — verify, mark used, revoke sessions, return profile.
 - `completeRecoveryLogin(identifier, code) → { session, profile }` — `consumeRecoveryCode` + `issueTokens`, wrapped with the standard `withAuthLogin("recovery_code")` metric span.
-- `countActiveRecoveryCodes(accountId) → { active, total, generatedAt }` — one SQL aggregate (P-I1), never SELECTs the secret-bearing `code_hash`. Backs `GET /recovery/status`.
+- `countActiveRecoveryCodes(accountId) → { active, total, generatedAt }` — one SQL aggregate, never SELECTs the secret-bearing `code_hash`. Backs `GET /recovery/status`.
 - `listUnacknowledgedSecurityEvents(accountId) → { events }` — drives the in-app security-events banner.
 - `acknowledgeSecurityEvent(accountId, id) → { acknowledged }` — idempotent, scoped to the owning account.
 
@@ -234,9 +234,9 @@ All failure modes — unknown identifier, bad code, used code — surface as `{ 
 Step-up gates `/recovery/generate`, but a compromised session with inbox access could still mint a step-up token and burn the user's codes; the actual takeover step is `/login/recovery/complete`. The audit trail is the final defence on both halves:
 
 1. **Audit row — generate.** Every `generateRecoveryCodesForAccount` call inserts a `security_events` row (kind `"recovery_code_generate"`) in the same transaction as the code swap. If the audit write fails, the codes don't commit either.
-2. **Audit row — consume (S-H1).** Every successful `consumeRecoveryCode` inserts a `security_events` row (kind `"recovery_code_consume"`) in the same transaction as the sessions wipe. Failed consume attempts (wrong code, unknown identifier) do NOT record — only genuine takeovers.
-3. **Email notification.** Both kinds fire a best-effort email (S-L5 framed, codes never included). Dispatch runs through `forkBackground` (`osn/api/src/lib/background.ts`) with a 10 s `Effect.timeout`, so mailer health does not affect user-visible request latency (P-W2). `forkBackground`, not a bare `Effect.forkDetach`: on workerd a promise never handed to `ExecutionContext.waitUntil` may not run at all once the response is returned — see [[backend-patterns#Background work must reach waitUntil]]. Failure is reported via `osn.auth.security_event.notified{result=failed}` and never rolls back the primary action.
-4. **In-app banner.** `GET /account/security-events` surfaces still-unacknowledged rows (newest first, `limit 50`, backed by a partial index over `WHERE acknowledged_at IS NULL` — P-W1). Dismissal happens via `POST /account/security-events/:id/ack` or the bulk `POST /account/security-events/ack-all`, **both gated by a fresh step-up token (S-M1)** — an XSS-captured access token cannot silently clear the banner, because the banner exists to warn about that compromise. Ack is idempotent; ack-all returns the number of rows dismissed. UI in `@osn/auth-ui/SecurityEventsBanner` (opens `StepUpDialog` on "Acknowledge", then POSTs to `ack-all`); SDK in `@osn/client/security-events.ts`.
+2. **Audit row — consume.** Every successful `consumeRecoveryCode` inserts a `security_events` row (kind `"recovery_code_consume"`) in the same transaction as the sessions wipe. Failed consume attempts (wrong code, unknown identifier) do NOT record — only genuine takeovers.
+3. **Email notification.** Both kinds fire a best-effort email. Dispatch runs through `forkBackground` (`osn/api/src/lib/background.ts`) with a 10 s `Effect.timeout`, so mailer health does not affect user-visible request latency. `forkBackground`, not a bare `Effect.forkDetach`: on workerd a promise never handed to `ExecutionContext.waitUntil` may not run at all once the response is returned — see [[backend-patterns#Background work must reach waitUntil]]. Failure is reported via `osn.auth.security_event.notified{result=failed}` and never rolls back the primary action.
+4. **In-app banner.** `GET /account/security-events` surfaces still-unacknowledged rows (newest first, `limit 50`, backed by a partial index over `WHERE acknowledged_at IS NULL`). Dismissal happens via `POST /account/security-events/:id/ack` or the bulk `POST /account/security-events/ack-all`, **both gated by a fresh step-up token** — an XSS-captured access token cannot silently clear the banner, because the banner exists to warn about that compromise. Ack is idempotent; ack-all returns the number of rows dismissed. UI in `@osn/auth-ui/SecurityEventsBanner` (opens `StepUpDialog` on "Acknowledge", then POSTs to `ack-all`); SDK in `@osn/client/security-events.ts`.
 
    Where that banner mounts is the host application's choice, and `@musubi/social` mounts it in the **application shell** — every route once a session exists, not the Settings page alone. A channel that survives email filtering is worth little behind a page the user has no reason to open. See [[social#Account-health banners]]. The component renders nothing rather than throwing when the list cannot be read, because a Solid resource rethrows on read and shell code has no page-sized blast radius.
 
@@ -262,7 +262,7 @@ await client.loginWithRecoveryCode({ identifier, code });  // → { session, pro
 
 - reads `GET /recovery/status` on mount, and again once the user dismisses a fresh set, and says outright when the account has **no** codes — the failure mode this view exists to catch is a user who never made any;
 - runs the step-up ceremony through `StepUpDialog` before generating, with `purpose="recovery_generate"`, and passes the minted token straight to generate;
-- confirms before rotating an existing set (the previous codes die immediately), and treats an **unreadable** count as "might have codes" so a failed status read never skips the warning (S-L1);
+- confirms before rotating an existing set (the previous codes die immediately), and treats an **unreadable** count as "might have codes" so a failed status read never skips the warning;
 - holds the generate button until the first status read settles — before that the view cannot tell a first set from a rotation — and **says so while it waits** (2026-07-30): a pulse skeleton reserves the status line's height so nothing shifts when the count lands, and the button reads "Checking…". Held-and-silent read as broken on a slow link, which is the opposite of what a panel about account recovery wants to convey;
 - shows the codes once with copy + `.txt` download, and gates the Done button on an explicit "I've saved these" checkbox. The file is named after the product the view is rendered for (`recoveryCodesFileName`: "Musubi" → `musubi-recovery-codes.txt`), so somebody who keeps codes for several services can tell the files apart;
 - fails soft on a status read error — the count goes unknown, generation still works.

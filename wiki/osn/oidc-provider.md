@@ -9,7 +9,7 @@ related:
   - "[[rate-limiting]]"
   - "[[cire-auth]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-22
 ---
 
 # OIDC provider
@@ -99,9 +99,9 @@ Everything is `cache-control: no-store`. `GET /authorize` also sends `Referrer-P
 
 **No refresh tokens, and never an `osn-access` audience.** The token endpoint returns an ID token and a scoped access token bound to the client. It cannot be used to mint a first-party session.
 
-**A parked request belongs to one browser.** When `/authorize` parks a request for the consent UI, the response also sets a per-request HttpOnly cookie (`__Host-osn_oar_…`, 600 s — the request's own TTL) carrying a 256-bit secret whose SHA-256 rides in the parked entry. `/authorize/context` answers a missing or wrong binding exactly like an unknown id, and `/authorize/decision` refuses it **before** consuming the request — so a leaked, forwarded, or guessed `oar_` id can neither be read nor approved anywhere else, and a forged attempt cannot burn the real user's pending flow. (S-M1 oidc.)
+**A parked request belongs to one browser.** When `/authorize` parks a request for the consent UI, the response also sets a per-request HttpOnly cookie (`__Host-osn_oar_…`, 600 s — the request's own TTL) carrying a 256-bit secret whose SHA-256 rides in the parked entry. `/authorize/context` answers a missing or wrong binding exactly like an unknown id, and `/authorize/decision` refuses it **before** consuming the request — so a leaked, forwarded, or guessed `oar_` id can neither be read nor approved anywhere else, and a forged attempt cannot burn the real user's pending flow.
 
-**`auth_time` is the session's truth, and freshness demands are enforced.** Codes carry the session row's `created_at` — the moment the user actually authenticated on that device — never the code-mint time. `max_age` is parsed (digits only, ≤10-year ceiling) and an exceeded value behaves exactly like `prompt=login`: the request parks with `requireAuthAfter = now`, and the decision refuses (`400 login_required`, request left alive) any session created before that instant. `max_age` is also re-checked outright at decision time, because a user can sit on the consent screen while their session ages past it. (S-H1 oidc.)
+**`auth_time` is the session's truth, and freshness demands are enforced.** Codes carry the session row's `created_at` — the moment the user actually authenticated on that device — never the code-mint time. `max_age` is parsed (digits only, ≤10-year ceiling) and an exceeded value behaves exactly like `prompt=login`: the request parks with `requireAuthAfter = now`, and the decision refuses (`400 login_required`, request left alive) any session created before that instant. `max_age` is also re-checked outright at decision time, because a user can sit on the consent screen while their session ages past it.
 
 **The exchange re-checks the consent.** `POST /oidc/token` reads the (account, client) consent row after PKCE passes and refuses `invalid_grant` when it is absent or revoked. The revoke route already deletes in-flight codes, but a code inserted concurrently with the revoke can slip past that delete — the exchange-time re-read closes the race by construction, so withdrawal means *now* under every interleaving.
 
@@ -109,7 +109,7 @@ Everything is `cache-control: no-store`. `GET /authorize` also sends `Referrer-P
 
 **A restricted recovery session is not a signed-in session.** `/authorize` resolves the visitor from the HttpOnly **session cookie**, not from an access token — so the `osn-recovery` audience, which every access-token verifier rejects, does not reach this decision at all, and a recovery session sets that cookie because passkey enrolment needs it. `verifyRefreshToken` therefore refuses a restricted session unless the caller explicitly asks for one, and token refresh is the only caller that does. Without that default a user midway through account recovery — holding a session that may enrol a passkey and nothing else — could complete an authorization here and be signed into every relying party, which is full access at pulse, cire and zap from a session that has none at the issuer. A recovery cookie is treated exactly like no cookie: `reason=login`, or `login_required` under `prompt=none`. See [[sessions#The restricted recovery session]].
 
-**Reserved client ids do not exist.** `RESERVED_OIDC_CLIENT_IDS` (`osn-access`, `osn-recovery`, `osn-step-up`, and the ARC S2S audiences) is enforced in `findClient` — a row seeded under such a name reads as absent everywhere at once. Self-serve registration cannot collide by construction (`client_id` is server-generated), so the lookup guard covers hand-seeded rows. OIDC access tokens carry a `typ: "at+jwt"` header (RFC 9068), so no verifier can mistake one for an ID token or a first-party token even before checking `aud`. (S-M2 oidc.)
+**Reserved client ids do not exist.** `RESERVED_OIDC_CLIENT_IDS` (`osn-access`, `osn-recovery`, `osn-step-up`, and the ARC S2S audiences) is enforced in `findClient` — a row seeded under such a name reads as absent everywhere at once. Self-serve registration cannot collide by construction (`client_id` is server-generated), so the lookup guard covers hand-seeded rows. OIDC access tokens carry a `typ: "at+jwt"` header (RFC 9068), so no verifier can mistake one for an ID token or a first-party token even before checking `aud`.
 
 **Authorization responses name their issuer.** Every redirect back to a relying party, success or failure, carries an `iss` parameter (RFC 9207), advertised in discovery, so a client talking to several providers can tell which one answered.
 

@@ -17,7 +17,7 @@ packages:
   - "@osn/auth-ui"
   - "@musubi/social"
   - "@shared/crypto"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-22
 status: design — not yet implemented
 ---
 
@@ -255,14 +255,14 @@ Hard requirements:
   `[[compliance/data-map]]`, `[[compliance/retention]]`,
   `[[compliance/subprocessors]]`.
 - **DSAR coverage**: `verified_attributes` and `presentations` must
-  appear in `GET /account/export` (C-H1) and be hard-deleted by
-  `DELETE /account` (C-H2). See `[[compliance/dsar]]`.
+  appear in `GET /account/export` and be hard-deleted by
+  `DELETE /account`. See `[[compliance/dsar]]`.
 - **DVS access**: registration with the Department of Home Affairs;
   DVS-approved consent statement shown verbatim before each DVS
   call; retain the consent record. The Australian Privacy Act 1988 +
   APP 11 also bind us once we touch this data.
 - **COPPA / age gate**: a verified `age_over_16: true` attribute can
-  satisfy the C-H8 hard age gate during registration, replacing the
+  satisfy the hard age gate during registration, replacing the
   self-declared birthdate path.
 - **DSA Art. 28**: Pulse becomes capable of credibly enforcing minor
   protections via verified age, which interacts with future Pulse

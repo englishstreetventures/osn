@@ -13,7 +13,7 @@ related:
   - "[[cire-auth]]"
   - "[[dev-environment]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -84,10 +84,10 @@ Unavailability Playbook below for the exact fail-open vs fail-closed split —
 
 - **Rate limiters (auth per-IP, graph/org-write per-user) → fail CLOSED.**
   `createRedisRateLimiter().check()` returns `false` on any Redis error
-  (`shared/redis/src/rate-limiter.ts`, S-M36), so auth + graph/org writes
+  (`shared/redis/src/rate-limiter.ts`), so auth + graph/org writes
   degrade to **HTTP 429**.
 - **Step-up JTI store → fails CLOSED** (`osn/api/src/lib/step-up-jti-store.ts`,
-  default `failClosedOnError = true`, S-H1): step-up-gated actions (recovery
+  default `failClosedOnError = true`): step-up-gated actions (recovery
   generate, email change complete, security-event ack, passkey rename/delete)
   start **rejecting** the ceremony.
 - **Ceremony store → conservative → ceremony fails CLOSED at complete**
@@ -96,8 +96,7 @@ Unavailability Playbook below for the exact fail-open vs fail-closed split —
 - **Rotated-session store → fails OPEN** (`osn/api/src/lib/rotated-session-store.ts`):
   reuse detection silently no-ops, so a refresh **still works** but the
   reuse-revocation safety net is temporarily off.
-- **Recovery lockout store → fails OPEN** (`osn/api/src/lib/recovery-lockout-store.ts`,
-  S-H1): the per-account recovery brute-force ceiling stops enforcing — the
+- **Recovery lockout store → fails OPEN** (`osn/api/src/lib/recovery-lockout-store.ts`): the per-account recovery brute-force ceiling stops enforcing — the
   per-IP limiter is the only remaining brake.
 
 **User-visible symptom:** users can't log in / register (ceremony complete
@@ -432,11 +431,11 @@ fail-open vs fail-closed split is NOT uniform — read this table, don't guess.*
 
 | Dependency down / over-quota | Subsystem | Posture (verified) | Effect | Detect | Action |
 |---|---|---|---|---|---|
-| **Upstash** (osn-api) | Auth + graph/org rate limiters | **fail-CLOSED** — `rate-limiter.ts` `check()` returns `false` on error (S-M36) | 429 on auth + graph/org writes | `osn.auth.rate_limited` spike, store error logs | Wait out blip; if quota → upgrade Upstash. **Do not** flip to fail-open. |
-| **Upstash** (osn-api) | Step-up JTI store | **fail-CLOSED** — `step-up-jti-store.ts` `failClosedOnError ?? true` (S-H1) | Step-up-gated actions rejected | step-up error logs, `osn.auth.step_up.verified` drop | Same — security posture is intentional. |
+| **Upstash** (osn-api) | Auth + graph/org rate limiters | **fail-CLOSED** — `rate-limiter.ts` `check()` returns `false` on error | 429 on auth + graph/org writes | `osn.auth.rate_limited` spike, store error logs | Wait out blip; if quota → upgrade Upstash. **Do not** flip to fail-open. |
+| **Upstash** (osn-api) | Step-up JTI store | **fail-CLOSED** — `step-up-jti-store.ts` `failClosedOnError ?? true` | Step-up-gated actions rejected | step-up error logs, `osn.auth.step_up.verified` drop | Same — security posture is intentional. |
 | **Upstash** (osn-api) | Ceremony store | **conservative → ceremony fails CLOSED at complete** — `ceremony-store.ts` (`get`→null) | Login/registration `complete` fails | `osn.auth.ceremony_store.operations`, error logs | Restore Redis / upgrade; this is the user-facing one. |
 | **Upstash** (osn-api) | Rotated-session store | **fail-OPEN** — `rotated-session-store.ts` (`check`→null, `track` logs+continues) | Refresh still works; **reuse-revocation off** | reuse-store error logs, `osn.auth.session.reuse_detected` flat | Restore promptly — a safety net is down, but no user breakage. |
-| **Upstash** (osn-api) | Recovery lockout store | **fail-OPEN** — `recovery-lockout-store.ts` (`isLocked`→false, `recordFailure`→0) (S-H1) | Per-account recovery brute-force ceiling off; per-IP limiter still applies | `osn.auth.recovery.lockout` flat, error logs | Restore promptly — brute-force ceiling is the protection that's down. |
+| **Upstash** (osn-api) | Recovery lockout store | **fail-OPEN** — `recovery-lockout-store.ts` (`isLocked`→false, `recordFailure`→0) | Per-account recovery brute-force ceiling off; per-IP limiter still applies | `osn.auth.recovery.lockout` flat, error logs | Restore promptly — brute-force ceiling is the protection that's down. |
 | **D1** down / over daily rows quota | cire-api + osn-api | **fail-CLOSED** — cire `index.ts` returns **503** on absent/erroring `env.DB` | App-wide 503 on DB routes | CF D1 metrics vs daily line; 503 in Workers Logs | Wait for UTC reset, free storage, or upgrade to Workers Paid (D1 paid tier). |
 | **A Worker** over daily request quota | osn-api / cire-api | CF edge **429** before handler runs | Site-wide 429 (resets UTC midnight) | account Requests metric vs 100K | Upgrade to **Workers Paid** ($5/mo). |
 | **Pages** build cap | static sites | already-deployed site keeps serving; new deploys queue/fail | stale deploys, build failures | Pages build history | Wait for month reset or Pages Pro. |

@@ -9,7 +9,7 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 # Cire invite builder
 
@@ -129,7 +129,7 @@ would render the band as a zero-height box.
 The first cut gated it only with `<Show when={claimResult()}>`, which controls
 rendering, not delivery: the note still shipped in the unauthenticated
 `GET /api/invite/:slug` body and in the SSR'd island props, so it was one `curl`
-away (S-H1). The gate is now real:
+away. The gate is now real:
 
 - `inviteService.getForSlug` **redacts** `footer` from the public payload. Every
   other field there (hero, story, events header, welcome greeting, theme) is
@@ -188,7 +188,7 @@ an invite and the distinction is load-bearing:
 |---|---|---|
 | What | Invite content — the couple's closing image + note | Site chrome — couple's title + Privacy/Terms/Privacy-choices + the build's version ([[#The footer's version]]) |
 | Where | Only the invite, immediately above the footer | Every document (invite, `/privacy`, `/terms`, 404) |
-| When | Conditional — nothing set ⇒ **renders nothing at all** | Always (compliance blocker C-H4) |
+| When | Conditional — nothing set ⇒ **renders nothing at all** | Always |
 | Themed | Yes — reuses the **welcome** tone, no setting of its own | No — inherits the root palette |
 | Gated | Yes — only after the guest claims their code | No — always |
 
@@ -625,7 +625,7 @@ which is now correct rather than a compromise: `--color-gold` no longer paints
 any normal-size text on that surface. The event-card date — the 0.92rem line
 that made it a text pair wearing a UI bar, and the reason `chapel` (3.58:1) and
 `garden` (3.91:1) would have warned out of the box at 4.5 — moved to
-`--color-gold-ink`, closing **C-M2**. What is left on that pair is genuinely UI:
+`--color-gold-ink` closes the finding. What is left on that pair is genuinely UI:
 the card's outlined buttons, the hairlines and the lit card edge.
 **`--color-bloom` gets `bloom-on-raised`, held to 3:1 like `gilt-on-raised`
 above it** — the answered RSVP button's fill is the shape of a control on
@@ -1417,7 +1417,7 @@ panel side of the relationship unwired — no `aria-controls`, no
 `role="tabpanel"`, no `aria-labelledby`, and every tab sat in the normal `Tab`
 sequence instead of a roving tabindex, which is worse than not using the role
 at all: assistive tech is told "this is a tabs widget" and then doesn't get
-tabs-widget behaviour (a security-review compliance finding, C-M1). Fixed to
+tabs-widget behaviour (a security-review compliance finding). Fixed to
 the full [WAI-ARIA APG tabs pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/),
 hand-wired rather than migrated to Kobalte's `Tabs` primitive (a bigger,
 riskier change to the `SectionCard`/`hidden`-attribute mount-persistence this
@@ -1492,11 +1492,11 @@ session after a rotate or resize, and `selectSection` then focuses a
 **Arrow keys follow the geometry, not the DOM order.** `ArrowLeft`/`ArrowRight`
 step one, always. `ArrowDown`/`ArrowUp` are handled **only while the menu is
 open** — on the wide single-line row APG reserves them for the browser, and
-handling them there swallowed page scroll from a focused tab (**SM-C-L1**) — and
+handling them there swallowed page scroll from a focused tab — and
 open, they step by `SECTION_MENU_COLUMNS`, not by one: in a row-major two-column
 grid the next item is to the right and the one below is two along, so aliasing
 Down to Right would make the arrows disagree with what the organiser can see
-(**SM-C-L2**). At the ends they wrap **within the column** (`stepSectionRow`):
+. At the ends they wrap **within the column** (`stepSectionRow`):
 with nine tabs the last row is a single cell, and a plain modulo step would carry
 Down from Closing (right column) to Design (left). Two columns are kept deliberately over a spatially-simpler single
 column, which at ≈396px would overflow the `max-h-[60vh]` cap on a landscape
@@ -1516,7 +1516,7 @@ says nothing to a screen reader, and an `aria-label` overrides subtree content, 
 the `sr-only` span the tabs themselves use would be dropped here — without the
 clause the collapsed trigger tells a sighted organiser three things and a
 screen-reader one only two, which is exactly the claim the design rests on
-(**SM-C-L3**).
+.
 
 **Sections stay MOUNTED — only visually hidden.** `SectionCard` (`fields.tsx`)
 takes a `hidden` prop and applies it as the native HTML `hidden` attribute on
@@ -1587,7 +1587,7 @@ legitimate reason is a guard that gets deleted), and
 catalog doesn't carry — via `Object.hasOwn`, because a bare lookup resolves
 PROTOTYPE keys, so `constructor`/`__proto__`/`toString` each returned something
 truthy, the `??` never fired, and every field read `undefined`: a fourth,
-unintended shape (S-L2) — the same fallback the guest registry's `resolveDesignId`
+unintended shape — the same fallback the guest registry's `resolveDesignId`
 makes, so the two can't disagree about what an unknown id renders as. The pane
 names the pack it is showing ("Gala design"), because the packs differ in
 layout rather than colour: unlabelled, a re-shaped preview reads as a rendering
@@ -1699,13 +1699,13 @@ close/reload, and `lib/unsaved-guard` lets `OrganiserApp.setRoute`
 Back/Forward deliberately bypasses it). Each dirty half is **skipped when
 unchanged**: a copy-only edit PUTs only `/invite/text`, a colour-only edit
 only `/invite/theme`, and a no-op save is unreachable from the UI.
-This keeps writes proportional to actual changes (P-W1) and pairs with the
+This keeps writes proportional to actual changes and pairs with the
 server-side split below: since migration `0029` the guest image-cache
 version is a dedicated `images_updated_at` column — bumped only by image
 upload/remove/crop and a `heroBlur` change (the one theme field that alters
 the served bytes), backfilled from `updated_at`, coalesced to it when NULL —
 so copy/colour saves never bust the per-variant transform cache or force
-guests to re-download the hero (WT-P-I1; transforms are the metered resource,
+guests to re-download the hero (transforms are the metered resource,
 see the root `[[free-tier-limits]]`). Dirty parts run sequentially (text,
 then theme, then the section switches), mutating the loaded data after each
 success — the API's three-endpoint split is an implementation detail the

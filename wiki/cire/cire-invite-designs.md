@@ -12,7 +12,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 # Invite design selector
 
@@ -33,7 +33,7 @@ round-trips.
   holds the one-off `premium_templates` entitlement (`hasPremiumTemplates`,
   given the tier `weddingEditor` already read: no statement on Crimson, the
   entitlement probe alone below it — see [[cire-entitlements]]). `inviteService.setDesign` bumps
-  `updatedAt` only — never `imagesUpdatedAt` (WT-P-I1).
+  `updatedAt` only — never `imagesUpdatedAt`.
 - **Web** — `cire/invites/src/designs/`: `registry.ts` maps `DesignId` →
   per-design component tree (`classic/` holds the original layout);
   `resolve.ts` (`resolveDesignId`) falls back to classic on unknown ids so a

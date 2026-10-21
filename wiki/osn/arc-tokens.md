@@ -20,7 +20,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-22
 ---
 # ARC Tokens (S2S Auth)
 
@@ -220,11 +220,11 @@ to each downstream — otherwise the first `/internal/account-deleted` POST is
 
 ### Key revocation
 
-`DELETE /graph/internal/service-keys/:keyId` (also protected by `INTERNAL_SERVICE_SECRET`) sets `revoked_at` in the DB AND evicts the in-process public key cache entry immediately — revocation takes effect on the next request with no wait for the 5-minute cache TTL (S-H100).
+`DELETE /graph/internal/service-keys/:keyId` (also protected by `INTERNAL_SERVICE_SECRET`) sets `revoked_at` in the DB AND evicts the in-process public key cache entry immediately — revocation takes effect on the next request with no wait for the 5-minute cache TTL.
 
-`/register-service` validates requested `allowedScopes` against a server-side allowlist (`PERMITTED_SCOPES`). Any unknown scope returns 400 — a service cannot self-promote its scope set (S-M101).
+`/register-service` validates requested `allowedScopes` against a server-side allowlist (`PERMITTED_SCOPES`). Any unknown scope returns 400 — a service cannot self-promote its scope set.
 
-> ⚠ **Scope authorisation is service-granular, not key-granular (S-H1, 2026-07-05).**
+> ⚠ **Scope authorisation is service-granular, not key-granular.**
 > `allowedScopes` lives on `service_accounts` (one row per serviceId) and every
 > `/register-service` call **replaces** it wholesale, while keys live per-`kid` in
 > `service_account_keys`. Consequences: (a) a service that registers multiple keys
@@ -282,12 +282,12 @@ the runs where the timing happens to tie.
 
 ## Security Notes
 
-- **S-C2 (fixed):** Untrusted ARC `iss` claim was used as a metric label before verification. Fixed with `safeIssuer()` runtime guard in `arc-metrics.ts`.
-- **S-H100 (fixed):** Revocation now evicts `publicKeyCache` immediately via `evictPublicKeyCacheEntry(kid)` — no 5-minute window.
-- **S-H101 (fixed):** `INTERNAL_SERVICE_SECRET` comparison uses `crypto.timingSafeEqual` — no timing oracle.
-- **S-M100 (fixed):** `peekClaims` uses base64url decode (RFC 7515 §2) — `-` and `_` in UUID `kid`s are handled correctly.
-- **S-M101 (fixed):** `/register-service` validates `allowedScopes` against `PERMITTED_SCOPES` allowlist — services cannot self-promote.
-- **S-M102 (fixed):** `resolvePublicKey` cache hit stores `allowedScopes` and validates scopes on every hit — no bypass when `tokenScopes` is omitted.
+- Untrusted ARC `iss` claim was used as a metric label before verification. Fixed with `safeIssuer()` runtime guard in `arc-metrics.ts`.
+- Revocation now evicts `publicKeyCache` immediately via `evictPublicKeyCacheEntry(kid)` — no 5-minute window.
+- `INTERNAL_SERVICE_SECRET` comparison uses `crypto.timingSafeEqual` — no timing oracle.
+- `peekClaims` uses base64url decode (RFC 7515 §2) — `-` and `_` in UUID `kid`s are handled correctly.
+- `/register-service` validates `allowedScopes` against `PERMITTED_SCOPES` allowlist — services cannot self-promote.
+- `resolvePublicKey` cache hit stores `allowedScopes` and validates scopes on every hit — no bypass when `tokenScopes` is omitted.
 - ARC tokens are machine-to-machine only. Never use them for user-facing authentication — use access tokens for that.
 - The `Authorization: ARC ...` header is the trust boundary for inbound trace context propagation -- only ARC-authenticated callers have their `traceparent` honoured.
 
@@ -297,7 +297,7 @@ ARC token metrics live in `shared/crypto/src/arc-metrics.ts`:
 - `arc.token.issued` — counter by issuer/audience
 - `arc.token.verification` — counter by result (ok, expired, bad_signature, unknown_issuer, revoked_key, scope_denied, audience_mismatch, malformed)
 - All issuer/audience values pass through `safeIssuer()` to prevent cardinality explosion
-- `verifyArcToken` self-reports its outcomes; receiver middlewares whose early-exit branches reject **before** `verifyArcToken` runs must record the counter themselves. Pulse's `requireArc` does (S-L6, 2026-07-05): missing/malformed token → `malformed`, kid not in registry → `unknown_issuer`, kid revoked or registration expired → `revoked_key`, registry scope denial → `scope_denied`. No double-count — paths that reach `verifyArcToken` are only counted there.
+- `verifyArcToken` self-reports its outcomes; receiver middlewares whose early-exit branches reject **before** `verifyArcToken` runs must record the counter themselves. Pulse's `requireArc` does: missing/malformed token → `malformed`, kid not in registry → `unknown_issuer`, kid revoked or registration expired → `revoked_key`, registry scope denial → `scope_denied`. No double-count — paths that reach `verifyArcToken` are only counted there.
 
 ## Source Files
 

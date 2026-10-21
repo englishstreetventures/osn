@@ -24,7 +24,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 
 # Cire
@@ -58,7 +58,7 @@ Two separate systems by design — full contract in [[cire-auth]]:
 
 ## Guest + organiser features (shipped by 2026-07-22)
 
-- **Per-section invite theming (#152)** — organisers theme each invite section with a bounded set of fonts + colours (migration `0014`). The allowlist is CSS-injection-safe: only known font keys and validated colour values reach the rendered styles, so a malicious value can't break out into arbitrary CSS. The colour validator's single source of truth is the zero-dependency `@cire/theme` package (`isSafeCssColor`) — `cire/api` validates at write time and `cire/invites` re-checks at render time from the same definition (IB-S-L1, fixed 2026-07-03). A shared **scoped token bridge** (`sectionTokenBridge`, 2026-07-09) re-points the guest site's Tailwind tokens at the validated `--invite-*` vars per section, so the theme reaches every descendant (event-card buttons, hover states, the RSVP/details modals). This fixed the reported "details theme only changed the header" bug. Migration `0028` made the last hardcoded guest-facing copy editable (events-section eyebrow/heading + the post-claim welcome greeting), and the guest tab `<title>` follows the couple's hero title. Full contract in [[cire-invite-builder]].
+- **Per-section invite theming (#152)** — organisers theme each invite section with a bounded set of fonts + colours (migration `0014`). The allowlist is CSS-injection-safe: only known font keys and validated colour values reach the rendered styles, so a malicious value can't break out into arbitrary CSS. The colour validator's single source of truth is the zero-dependency `@cire/theme` package (`isSafeCssColor`) — `cire/api` validates at write time and `cire/invites` re-checks at render time from the same definition. A shared **scoped token bridge** (`sectionTokenBridge`, 2026-07-09) re-points the guest site's Tailwind tokens at the validated `--invite-*` vars per section, so the theme reaches every descendant (event-card buttons, hover states, the RSVP/details modals). This fixed the reported "details theme only changed the header" bug. Migration `0028` made the last hardcoded guest-facing copy editable (events-section eyebrow/heading + the post-claim welcome greeting), and the guest tab `<title>` follows the couple's hero title. Full contract in [[cire-invite-builder]].
 - **Google Maps Embed preview (#146)** — venue/location previews use the Maps Embed API, key-optional with a CSS-card fallback when no key is set (same graceful-degradation pattern as Turnstile and the optional email).
 - **Turnstile bot protection (#154)** — guest claim + RSVP (and the organiser-portal OSN register/login) are gated by Cloudflare Turnstile, key-optional + fail-closed; **inert until a widget is created**. See [[turnstile]].
 - **Organiser Security / Devices section (#155)** — the portal's `SecurityPanel` mounts `@osn/auth-ui`'s `PasskeysView` to list / add / rename / remove passkeys, with passkey-only step-up (the `passkeyOnly` flag on `StepUpDialog`). The flag is still forced on, but its original reason has expired: it was set because the deployed osn-api ran with email degraded, and osn-api has delivered through Resend since 2026-06-18 ([[email]]). Whether to re-enable the OTP factor is an open decision, tracked as an issue in `englishstreetventures/osn`; the code comment in `cire/host/src/components/SecurityPanel.tsx` still cites the degraded-email reason. New-device help points at synced/backed-up passkeys, the cross-device QR ceremony, or a recovery code. See [[passkey-primary]], [[sessions]].
@@ -252,14 +252,14 @@ Guest data (family/guest names, RSVP status, **special-category dietary
 free-text**, claim codes) lives in cire's own Cloudflare D1 + R2 and is
 recorded in the OSN compliance programme:
 
-- [[data-map]] — cire section (fields, lawful basis, recipients); dietary Art. 9(2)(a) consent captured (C-H2 (cire dietary), PR #123), covering both `rsvps.dietary` and the `rsvps.dietary_presets` vocabulary; residual C-H1 R2 retention + C-L1 age-gate note
-- [[dpia/cire-guest-data]] — Art. 35 DPIA (dietary special-category, presets and free text alike; consent asked once per submission and never pre-ticked for a member with no record; gating consent mitigation RESOLVED PR #123, sign-off pending residual C-H1)
-- [[retention]] — cire rows: guest data swept at 1 year (PR #132) + expired guest sessions swept daily (PR #127); R2-object lifecycle still open (C-H1)
-- [[subprocessors]] — Cloudflare D1/R2 (guest-PII volume) + Pinterest embed (C-H3)
-- privacy notice — guest site publishes `/privacy` + `/terms` (PR #124, C-H4)
-- [[dsar]] — cross-DB reachability + orphan-tolerance decision (C-M1)
-- [[access-control]] — cire D1/R2 operator access + the two cire credential classes (C-M3)
-- [[soc2]] — `@cire/api` observability exception; redaction deny-list interim guard (C-M2)
+- [[data-map]] — cire section (fields, lawful basis, recipients); dietary Art. 9(2)(a) consent captured (PR #123), covering both `rsvps.dietary` and the `rsvps.dietary_presets` vocabulary; residual R2 retention + the age-gate note
+- [[dpia/cire-guest-data]] — Art. 35 DPIA (dietary special-category, presets and free text alike; consent asked once per submission and never pre-ticked for a member with no record; gating consent mitigation RESOLVED PR #123, sign-off pending residual retention items)
+- [[retention]] — cire rows: guest data swept at 1 year (PR #132) + expired guest sessions swept daily (PR #127); R2-object lifecycle still open
+- [[subprocessors]] — Cloudflare D1/R2 (guest-PII volume) + Pinterest embed
+- privacy notice — guest site publishes `/privacy` + `/terms`
+- [[dsar]] — cross-DB reachability + orphan-tolerance decision
+- [[access-control]] — cire D1/R2 operator access + the two cire credential classes
+- [[soc2]] — `@cire/api` observability exception; redaction deny-list interim guard
 
 ## Related
 

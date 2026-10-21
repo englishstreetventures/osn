@@ -12,7 +12,7 @@ packages:
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-22
 ---
 
 # Passkey-Primary Login
@@ -77,7 +77,7 @@ UI surface (`@osn/auth-ui`):
   first-credential enrolment succeeds.
 - `<PasskeysView>` (`@osn/auth-ui/PasskeysView`) — Settings → Security
   surface. Lists the account's credentials; supports rename (step-up
-  gated, S-M2), delete (last-passkey guarded), and **Add passkey** (step-up
+  gated), delete (last-passkey guarded), and **Add passkey** (step-up
   gated via the same `/passkey/register/*` endpoints the registration
   flow uses). `@musubi/social` mounts it behind a lazy-loaded
   `SecuritySection` so `@simplewebauthn/browser` only ships when the tab
@@ -177,7 +177,7 @@ screen:
   (the Copenhagen Book path).
 - FIDO2 security keys with PIN/biometric register as non-discoverable — they
   work for identified login but not for the identifier-less flow.
-- Obsolete UP-only U2F tokens **cannot register** — intentional (S-H2). They
+- Obsolete UP-only U2F tokens **cannot register** — intentional. They
   would fail at verification time anyway because `verifyAuthenticationResponse`
   sets `requireUserVerification: true`; admitting them at registration and
   rejecting at login would only produce broken accounts.
@@ -186,7 +186,7 @@ Both login options (identified and identifier-less) use `userVerification:
 "required"` so options and verifier agree. The ceremony is phishing-resistant
 with a second factor (UV = PIN, biometric, or device unlock).
 
-## Step-up gating on register (S-H1)
+## Step-up gating on register
 
 `/passkey/register/begin` requires a fresh step-up token (`X-Step-Up-Token`
 header or `step_up_token` body field; webauthn or otp AMR) when the account
@@ -363,7 +363,7 @@ organisation's `dev_bootstrap_org` — are in `RESERVED_HANDLES`, which
 organisation creation now consults as well, so no real registration can occupy
 either row first. Full operator notes in [[dev-environment]] §5.
 
-### The residual: the URL is a bearer credential (S-L3)
+### The residual: the URL is a bearer credential
 
 The whole point of the route is that one URL signs you in, which means the URL
 **is** the credential. Anyone who reads it — a link pasted in chat, a shell
@@ -380,7 +380,7 @@ So treat it like a password — never in an issue, a PR, or a chat, and rotate
 can exist**: the dev tier holds seeded weddings and no real guest data, and
 production cannot mount the route at all.
 
-## Enumeration safety (S-M1)
+## Enumeration safety
 
 `/login/passkey/begin` returns a uniform `200 { options: { allowCredentials,
 userVerification, … } }` in all three branches:
@@ -398,7 +398,7 @@ endpoint. A DB SELECT runs on both branches (real query for known; a
 never-matching accountId query for unknown) so the latency distribution is
 the same.
 
-## Access-token audience (S-M2)
+## Access-token audience
 
 Access tokens carry `aud: "osn-access"`; `verifyAccessToken` asserts it.
 This prevents any future token type minted with the same ES256 key from
@@ -421,4 +421,4 @@ authenticating access-token routes by accident.
   dropped `otp_begin`, `otp_complete`, `magic_begin`.
 - **Body input**: `POST /passkey/register/complete` no longer accepts
   `session_token` in the body; the server derives it from the HttpOnly
-  cookie (S-H1).
+  cookie.

@@ -10,7 +10,7 @@ related:
   - "[[social-graph]]"
   - "[[arc-tokens]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-22
 ---
 
 # Zap
@@ -154,7 +154,7 @@ add-member) when the two share a permitted OSN social-graph relationship.
 ### Deferred
 
 - **Z7** — inbound ARC surface (`/internal/chats*` for c2b): **shipped** in the c2b PR (see [[#c2b-consumer-to-business-chats]] above). Pulse-driven event group chats remain a separate PR.
-- **S-M6** — widen the 48-bit UUID-slice IDs (`chat_`/`cmem_`/`msg_`): separate
+-  — widen the 48-bit UUID-slice IDs (`chat_`/`cmem_`/`msg_`): separate
   PR.
 
 ## Observability
