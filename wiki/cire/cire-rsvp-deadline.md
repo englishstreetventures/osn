@@ -9,6 +9,7 @@ related:
   - "[[cire-invite-designs]]"
 last-reviewed: 2026-10-21
 ---
+
 # RSVP deadline
 
 An organiser sets a **"kindly respond by" date** on their wedding. Guests see it on their invite and can reply — and change their reply — right up to the end of that day. Past it the invite **locks**: the guest write path refuses, and the invite renders read-only.
@@ -23,34 +24,34 @@ A wedding with no deadline behaves exactly as cire always did. Every wedding tha
 
 Cire answers it the same way the `events` table already does: **wall-clock value + IANA zone**.
 
-| Column (`weddings`) | Type | Meaning |
-|---|---|---|
-| `rsvp_deadline` | `text` (nullable) | Date-only ISO `YYYY-MM-DD`, **inclusive** of its whole day. `NULL` = no deadline. |
-| `rsvp_deadline_timezone` | `text` (nullable) | IANA zone the day is measured in. `NULL` ⇒ UTC. |
+| Column (`weddings`)      | Type              | Meaning                                                                           |
+| ------------------------ | ----------------- | --------------------------------------------------------------------------------- |
+| `rsvp_deadline`          | `text` (nullable) | Date-only ISO `YYYY-MM-DD`, **inclusive** of its whole day. `NULL` = no deadline. |
+| `rsvp_deadline_timezone` | `text` (nullable) | IANA zone the day is measured in. `NULL` ⇒ UTC.                                   |
 
 The lock instant is the **last millisecond of that local day** — `23:59:59.999` in `rsvp_deadline_timezone`.
 
-The zone is never picked by hand. The organiser portal stamps the organiser's own browser zone at the moment they *choose or change* the date, which is the day they mean. Saving an unrelated field later — possibly from another country — never re-stamps it.
+The zone is never picked by hand. The organiser portal stamps the organiser's own browser zone at the moment they _choose or change_ the date, which is the day they mean. Saving an unrelated field later — possibly from another country — never re-stamps it.
 
 ### Why on `weddings`, not `wedding_invite_customisations`
 
-The customisations table is documented as *strictly presentational*: every column there changes how the invite looks. This pair gates a **write**. Putting it on `weddings` keeps that table's contract honest and puts the deadline next to `wedding_date`, the other planning fact it belongs with.
+The customisations table is documented as _strictly presentational_: every column there changes how the invite looks. This pair gates a **write**. Putting it on `weddings` keeps that table's contract honest and puts the deadline next to `wedding_date`, the other planning fact it belongs with.
 
 ### The single source of the instant
 
 `cire/api/src/lib/rsvp-deadline.ts` is the only place a date becomes a moment.
 
 ```ts
-resolveRsvpDeadline(date, timezone, now)
-  // → { date, timezone, closesAt, closed } | null
-isRsvpClosed(date, timezone, now)  // → boolean
+resolveRsvpDeadline(date, timezone, now);
+// → { date, timezone, closesAt, closed } | null
+isRsvpClosed(date, timezone, now); // → boolean
 ```
 
 Everything — the guest write gate, the claim payload, the guest banner — goes through it, so the server's 403 and the invite's "closed" copy can never disagree about when the door shut. One read-side caller uses it too: the budget snapshot's `rsvpsClosed`, which switches a per-head budget line from pricing expected guests to confirmed ones at the same instant the invite locks (see [[cire-budget#Per-head lines]]).
 
-Offsets come from `Intl.DateTimeFormat` (no tz library on a Worker): format the instant into the zone, read the wall-clock fields back, and subtract. It runs **two passes** — the first offset is sampled at the UTC-interpreted instant, which is up to a day away from the real one and so can land on the wrong side of a DST transition; re-sampling at the corrected instant settles it. That is what makes "the end of 5 April in Sydney" resolve at `+10` (the day *ends* on AEST) rather than the `+11` in force when it began.
+Offsets come from `Intl.DateTimeFormat` (no tz library on a Worker): format the instant into the zone, read the wall-clock fields back, and subtract. It runs **two passes** — the first offset is sampled at the UTC-interpreted instant, which is up to a day away from the real one and so can land on the wrong side of a DST transition; re-sampling at the corrected instant settles it. That is what makes "the end of 5 April in Sydney" resolve at `+10` (the day _ends_ on AEST) rather than the `+11` in force when it began.
 
-Formatters are **cached per zone** and reused across both passes (P-W1). Construction is the expensive half of ICU date handling (~226 µs/call vs ~16 µs cached) and this runs on every claim and every RSVP submit, against a 10 ms Workers CPU budget. Only *successful* lookups are cached, which is what bounds the map: a miss stores nothing, so junk input can't grow it, and canonicalisation on write (below) means only canonical identifiers ever reach it.
+Formatters are **cached per zone** and reused across both passes (P-W1). Construction is the expensive half of ICU date handling (~226 µs/call vs ~16 µs cached) and this runs on every claim and every RSVP submit, against a 10 ms Workers CPU budget. Only _successful_ lookups are cached, which is what bounds the map: a miss stores nothing, so junk input can't grow it, and canonicalisation on write (below) means only canonical identifiers ever reach it.
 
 ### Zones are canonicalised on write
 
@@ -69,13 +70,13 @@ Locking guests out of an invite because of a data problem is the worse failure. 
 
 ## Who the deadline stops
 
-| Path | Gated? | Why |
-|---|---|---|
-| `POST /api/rsvp` (guest invite) | **Yes** — 403 `{ "error": "rsvp_closed" }` | The point of the feature. |
-| `PUT …/guests/:guestId/rsvps/:eventId` (organiser-recorded) | **No** | A phone/paper reply arriving after the date is exactly the case the deadline creates. The organiser set the date; they can answer for it. |
-| Host-preview family | Already 403 | Preview sessions never write real RSVP data, deadline or not. |
-| `PUT` / `DELETE /api/plus-one/:guestId` (the household's plus-one) | **Yes** — 403 `rsvp_closed` | Same predicate and instant as the reply: the plus-one prompt locks when the replies do ([[cire-plus-ones]]). |
-| `PUT …/plus-one` permission routes (organiser) | **No** | Same reasoning as the organiser-recorded reply. |
+| Path                                                               | Gated?                                     | Why                                                                                                                                       |
+| ------------------------------------------------------------------ | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/rsvp` (guest invite)                                    | **Yes** — 403 `{ "error": "rsvp_closed" }` | The point of the feature.                                                                                                                 |
+| `PUT …/guests/:guestId/rsvps/:eventId` (organiser-recorded)        | **No**                                     | A phone/paper reply arriving after the date is exactly the case the deadline creates. The organiser set the date; they can answer for it. |
+| Host-preview family                                                | Already 403                                | Preview sessions never write real RSVP data, deadline or not.                                                                             |
+| `PUT` / `DELETE /api/plus-one/:guestId` (the household's plus-one) | **Yes** — 403 `rsvp_closed`                | Same predicate and instant as the reply: the plus-one prompt locks when the replies do ([[cire-plus-ones]]).                              |
+| `PUT …/plus-one` permission routes (organiser)                     | **No**                                     | Same reasoning as the organiser-recorded reply.                                                                                           |
 
 Enforcement lives on the **write**, not only in the UI: a stale tab, or anything talking to the API directly, must not be able to slip a late reply in. The route reads the deadline in the same join it already makes for the family's `kind`, so the gate costs no extra round-trip — and **fails closed on a zero-row join** (S-L1), since both gates read that one result and optional chaining would have made a missing row answer "allow" to each of them.
 
@@ -100,11 +101,11 @@ The deadline rides the **claim payload** (`ClaimResponse.rsvpDeadline`), not the
 
 The date a guest has to act on should not read the same a month out as it does in its final week, so the guest side has a **tri-state verdict**, not a boolean. `rsvpDeadlineState` (`cire/invites/src/components/rsvp-deadline.ts`) answers:
 
-| State | When | Notice | Claim-panel line |
-|---|---|---|---|
-| `open` | more than 7 days to go | "Kindly respond by …" | "RSVP by …" |
-| `closing-soon` | 7 days or fewer | "RSVPs close soon — kindly respond by …" | "RSVP by … — closing soon" |
-| `closed` | past `closesAt` | "RSVPs closed on …" | "RSVPs closed on …" |
+| State          | When                   | Notice                                   | Claim-panel line           |
+| -------------- | ---------------------- | ---------------------------------------- | -------------------------- |
+| `open`         | more than 7 days to go | "Kindly respond by …"                    | "RSVP by …"                |
+| `closing-soon` | 7 days or fewer        | "RSVPs close soon — kindly respond by …" | "RSVP by … — closing soon" |
+| `closed`       | past `closesAt`        | "RSVPs closed on …"                      | "RSVPs closed on …"        |
 
 `null` is the fourth answer and means **this wedding set no deadline** — nothing renders. It is never returned for a real deadline, including one whose `closesAt` will not parse: that case asks `isRsvpClosed`, which falls back to the server's own verdict, and an unparseable instant the server calls open reads `open`. Nearness cannot be measured from a broken instant, and a notice that vanished while the buttons stayed locked is the failure that shape prevents.
 
@@ -124,31 +125,34 @@ One verdict drives **four** surfaces, in both the `classic` and `gala` designs:
 1. **A line in the claim panel, where the guest lands** — the date as a label rather than a sentence, under the greeting: "RSVP by Tuesday 1 September 2026". Deliberately not the notice's wording, so the two copies on one page read as two statements of a fact rather than as one sentence printed twice.
 
    It is an **ordinary paragraph**: no `role`, no `id`, and no `aria-hidden`. Silent because it is not a live region — a second live region would read the same fact twice every time the deadline moved — but still in the accessibility tree, because hiding it would take the date away from exactly the screen-reader user this copy exists for.
-2. **A line directly on top of the event cards** — one line governs every card (a per-card repeat would be four copies of one fact), so it is placed as the list's **label**, not as a third line of section header: in `classic` it sits below the centred header block, in `gala` *below* the header rule. Both hold it tight to the list (`mb-3`) with nothing between, and both **centre** it — the line speaks for the whole list, so running it along the cards' left edge made it read as a note on the first card rather than on all of them. Pinned by a DOM-position test in each pack.
+
+2. **A line directly on top of the event cards** — one line governs every card (a per-card repeat would be four copies of one fact), so it is placed as the list's **label**, not as a third line of section header: in `classic` it sits below the centred header block, in `gala` _below_ the header rule. Both hold it tight to the list (`mb-3`) with nothing between, and both **centre** it — the line speaks for the whole list, so running it along the cards' left edge made it read as a note on the first card rather than on all of them. Pinned by a DOM-position test in each pack.
 
    This is the copy that **announces** (`role="status"`) and the one each closed "RSVP given" button describes itself by (`RSVP_NOTICE_ID`), so it is also the one that has to stay in the DOM once the deadline passes — which it does, because a wedding with a deadline renders this line in all three states.
 
    **It is a `<p role="status">`, and stays one.** `<output>` is the only HTML element carrying `role="status"` implicitly, which is why `jsx-a11y/prefer-tag-over-role` names it — but `<output>` is form-associated: it has a form owner, takes `for` / `form` / `name`, and a form reset blanks it. An RSVP-by date is not the result of a calculation or of anything the guest did in a form. The live region earns its place on the other side: `createRsvpDeadlineState` chains a timer to the deadline boundaries, so this sentence rewrites itself under a guest who is only reading (`open` → `closing soon` → `closed`). The reason is stated on the `role` line in `cire/invites/src/components/RsvpDeadlineNotice.tsx`, and `tests/components/RsvpDeadlineNotice.test.tsx` pins that the announcing copy carries the role and the silent one carries none.
 
-   **Its colour is `--color-gold-ink`, never `--color-gold`.** This is normal-size text, which WCAG 1.4.3 puts at 4.5:1, while `--color-gold` is the *metal* — rules, borders, buttons — and `derivePalette` deliberately holds it only to the 3:1 UI floor so a genuinely gold gold isn't bleached into a cream. A live invite on a taupe-on-cream scheme shipped this line at **3.35:1**: over the floor, under the bar, so nothing moved it. `--color-gold-ink` is the same hue walked to 4.5:1 against all three surfaces — the section's tone is the organiser's pick, so any of `ground` / `card` / `raised` can be the backdrop. Closed, the line drops to `--color-text-muted`, which is walked the same way. See `[[cire-invite-builder]]`.
+   **Its colour is `--color-gold-ink`, never `--color-gold`.** This is normal-size text, which WCAG 1.4.3 puts at 4.5:1, while `--color-gold` is the _metal_ — rules, borders, buttons — and `derivePalette` deliberately holds it only to the 3:1 UI floor so a genuinely gold gold isn't bleached into a cream. A live invite on a taupe-on-cream scheme shipped this line at **3.35:1**: over the floor, under the bar, so nothing moved it. `--color-gold-ink` is the same hue walked to 4.5:1 against all three surfaces — the section's tone is the organiser's pick, so any of `ground` / `card` / `raised` can be the backdrop. Closed, the line drops to `--color-text-muted`, which is walked the same way. See `[[cire-invite-builder]]`.
 
    `closing-soon` and `closed` add a **border and padding** and nothing else: no tint behind the text. A wash between the ink and the section would composite a backdrop neither `derivePalette`'s walk nor `RESIDUAL_PAIRS` measures, which is how an organiser-side chip once shipped marked at under 2:1 with a green suite. Both packs assert the absence.
 
    `RsvpDeadlineNotice` (`cire/invites/src/components/RsvpDeadlineNotice.tsx`) owns the state-to-treatment mapping for all four call sites, so the packs cannot drift on which state looks like what. **Placement is still each pack's own** — spacing and alignment are passed in, and each pack's tests pin its own.
+
 3. **Each event card** — an "RSVPs closed" badge beside the event name, and an answer button that follows what the household sent ([[cire-invite-designs#Event card states]] has the full table):
 
-   | On file for the event | Button | Opens |
-   |---|---|---|
-   | A reply from every invited member (`hasHouseholdResponded`) | "RSVP given", bloom fill and tick | the sheet, read-only |
+   | On file for the event                                                              | Button                                      | Opens                |
+   | ---------------------------------------------------------------------------------- | ------------------------------------------- | -------------------- |
+   | A reply from every invited member (`hasHouseholdResponded`)                        | "RSVP given", bloom fill and tick           | the sheet, read-only |
    | A reply from some of them (`hasAnyHouseholdReply`, any status, plus-ones excluded) | "RSVP given" on plain gold, no fill or tick | the sheet, read-only |
-   | Nothing | none | — |
+   | Nothing                                                                            | none                                        | —                    |
 
-   The button stays an ordinary enabled button: a guest can always look back at what they sent, and the sheet itself refuses an edit. It points at the notice above through `aria-describedby` and the shared `RSVP_NOTICE_ID`. An event with no reply loses its button rather than keeping an inert one, since there is nothing to answer and nothing to look at; the badge says why, and *Event Details stays open*. The fill and tick keep meaning "everyone answered", which is why a part reply gets the label without them.
+   The button stays an ordinary enabled button: a guest can always look back at what they sent, and the sheet itself refuses an edit. It points at the notice above through `aria-describedby` and the shared `RSVP_NOTICE_ID`. An event with no reply loses its button rather than keeping an inert one, since there is nothing to answer and nothing to look at; the badge says why, and _Event Details stays open_. The fill and tick keep meaning "everyone answered", which is why a part reply gets the label without them.
 
    The badge is a plain `<span>` after the `<h3>`, never inside it — inside, it would rename the heading for anyone moving by headings — with no live region of its own: the notice above already announces. It wears the notice's closed treatment (hairline border, muted ink, no tint).
 
    The button can unmount while it holds focus: the deadline passes with it focused, or passes while the sheet is open over it, in which case the sheet returns focus to an opener that is gone when it closes. Either way `EventCard` moves focus to Event Details, and only when focus has fallen to `<body>`.
-4. **The event sheet** ([[cire-invite-designs#The event sheet]]) — its RSVP form goes read-only: no submit button at all, the dismiss button says "Close", and the title reads "Your RSVP" in place of "Respond". Each member's answer on file is written out — "Attending", "Not attending", "Not decided" for a stored "maybe", "No reply" — in place of the two answer buttons, since with nothing left to press, which greyed button is lit would show the answer by colour alone. The dietary choices stay on show, disabled, for every member whose reply on file is not a decline — a stored "maybe" included, since the caterers' sheet blanks only declines. The view reads the replies on file alone: edits left unsaved when the deadline passes under an open form are dropped. The consent and plus-one attestation boxes give way to one line, "Dietary requirements on file are shared with the caterers for this wedding", shown when any such reply carries dietary data, with the privacy-notice link: a box that cannot be pressed reads as the record, and its unticked default would misstate consent recorded on another basis (a row the couple entered, an earlier wording). A household with a reply reaches it from the card's "RSVP given" or from the details, whose switch beside the sheet's close button reads "Details" and "Your RSVP" in place of "Respond"; a household with none gets no switch on the details and no swipe into the form, and the details panel's closed notice says "RSVPs closed on …" and the next step — to reply, or to change a reply, contact the couple directly — in a live region present from the start. The deadline can also pass with the form already open — in which case unmounting the submit button would strand focus outside an `aria-modal` dialog, so a focus rescue moves it to the dismiss button *when nothing else holds it*. The sheet does the same when the details' switch goes, moving focus to the details heading; a household with a reply keeps the same switch, its second segment under the new label, so its focus never moves. Each rescue acts only in the panel on screen: the other one is kept mounted but hidden, and focus moved into it would be invisible.
+
+4. **The event sheet** ([[cire-invite-designs#The event sheet]]) — its RSVP form goes read-only: no submit button at all, the dismiss button says "Close", and the title reads "Your RSVP" in place of "Respond". Each member's answer on file is written out — "Attending", "Not attending", "Not decided" for a stored "maybe", "No reply" — in place of the two answer buttons, since with nothing left to press, which greyed button is lit would show the answer by colour alone. The dietary choices stay on show, disabled, for every member whose reply on file is not a decline — a stored "maybe" included, since the caterers' sheet blanks only declines. The view reads the replies on file alone: edits left unsaved when the deadline passes under an open form are dropped. The consent and plus-one attestation boxes give way to one line, "Dietary requirements on file are shared with the caterers for this wedding", shown when any such reply carries dietary data, with the privacy-notice link: a box that cannot be pressed reads as the record, and its unticked default would misstate consent recorded on another basis (a row the couple entered, an earlier wording). A household with a reply reaches it from the card's "RSVP given" or from the details, whose badge beside the sheet's close button reads "View your RSVP →" in place of "Give RSVP →"; a household with none gets no badge and no swipe into the form, and the details panel's closed notice says "RSVPs closed on …" and the next step — to reply, or to change a reply, contact the couple directly — in a live region present from the start. The deadline can also pass with the form already open — in which case unmounting the submit button would strand focus outside an `aria-modal` dialog, so a focus rescue moves it to the dismiss button _when nothing else holds it_. The sheet does the same when the details' badge goes, moving focus to the details' title; a household with a reply keeps the same badge under its new label, so its focus never moves. Each rescue acts only in the panel on screen: the other one is kept mounted but hidden, and focus moved into it would be invisible.
 
 The dates render in the **wedding's** zone, so a guest abroad sees the date the couple wrote, not the one their own clock rolls it to.
 
@@ -160,18 +164,18 @@ A 403 from the write path is disambiguated by its body: `rsvp_closed` gets "RSVP
 
 **Settings → RSVP by**, via the same `PUT /api/organiser/weddings/:weddingId/settings` PATCH-semantics body.
 
-It is the **one field on that panel a co-host may write**. The rest of Settings is wedding identity and money — owner-only in the roles matrix — but the deadline *runs* the wedding rather than describing it: the co-host chasing replies is exactly the person who needs to move the date, and nothing they do to it is something an owner can't undo. A `viewer` co-host still gets nothing.
+It is the **one field on that panel a co-host may write**. The rest of Settings is wedding identity and money — owner-only in the roles matrix — but the deadline _runs_ the wedding rather than describing it: the co-host chasing replies is exactly the person who needs to move the date, and nothing they do to it is something an owner can't undo. A `viewer` co-host still gets nothing.
 
 A middleware can't express "this field, not that one", so the route splits the decision in two:
 
-| Layer | Decides |
-|---|---|
+| Layer             | Decides                                                                                                                            |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `weddingEditor()` | Who reaches the handler at all — owner or `editor`; a `viewer` gets its usual 403 `read_only_role`, a non-member the 404/403 pair. |
-| The handler | Whether a **non-owner's** patch reached past the deadline. Any other key present ⇒ 403 `owner_only_fields` naming them. |
+| The handler       | Whether a **non-owner's** patch reached past the deadline. Any other key present ⇒ 403 `owner_only_fields` naming them.            |
 
 Shape is checked **before** privilege, so a co-host who typos a date is told the date is wrong rather than that they lack permission for a field they're allowed to write. The refusal is whole — a patch mixing the deadline with an owner-only field writes neither — and it is logged (`settings owner-only fields refused`), because the portal never sends that body, so every occurrence is a stale tab or a hand-crafted call. Rejected rather than silently filtered: a save that reports success while quietly discarding half the form is the worse failure.
 
-The allow-list (`ownerOnlySettingsIn`, `cire/api/src/schemas/settings.ts`) is **derived from the request schema's own field list** rather than from the incoming object's keys. Two properties fall out: a field added to `UpdateSettingsBody` is owner-only from the moment it exists (the list can't drift, because it *is* the schema), and the check reads each key the same way the writer does — `patch[key]`, through the prototype chain — so gate and writer can never disagree about what a patch contains (S-M1).
+The allow-list (`ownerOnlySettingsIn`, `cire/api/src/schemas/settings.ts`) is **derived from the request schema's own field list** rather than from the incoming object's keys. Two properties fall out: a field added to `UpdateSettingsBody` is owner-only from the moment it exists (the list can't drift, because it _is_ the schema), and the check reads each key the same way the writer does — `patch[key]`, through the prototype chain — so gate and writer can never disagree about what a patch contains (S-M1).
 
 **A deadline can never be set in the past** — by anyone, owner included. `weddingSettingsService.update` refuses a write that would leave the deadline already closed with 400 `rsvp_deadline_in_past` (S-L3). A backdated date locks the invite for every guest the instant it lands, and a guest turned away is told only that RSVPs closed, never that the date moved under them. The check runs on the **resulting pair**, not on the patch — either half decides the instant, and moving the zone alone can shift an open deadline by up to ~26 hours — and it asks `isRsvpClosed`, so it cannot disagree with the guest write gate about when a day ends. Three things it deliberately still allows: **today** (the deadline is inclusive, so it closes at the end of that day — this is what "stop taking replies" actually means), a deadline that lapsed naturally staying put while other fields are edited, and clearing a lapsed deadline to reopen RSVPs. The portal mirrors the rule against the organiser's own calendar so the mistake never round-trips.
 
@@ -181,7 +185,7 @@ The write is **narrow**: `weddingSettingsService.update` names only the columns 
 
 Both deadline keys travel together on that list. Admitting the date without the zone would leave a co-host able to set a deadline they can't say the zone of — and the zone is what makes "the end of that day" mean anything.
 
-The portal mirrors it: a co-host sees the profile fields disabled with the RSVP-by picker live, a **"Save RSVP-by date"** button (labelled for what it writes, since "Save settings" beside five disabled fields reads as a button about to overwrite them), and a body carrying the deadline pair *alone* — not the untouched values sitting in the disabled inputs, which would earn the 403.
+The portal mirrors it: a co-host sees the profile fields disabled with the RSVP-by picker live, a **"Save RSVP-by date"** button (labelled for what it writes, since "Save settings" beside five disabled fields reads as a button about to overwrite them), and a body carrying the deadline pair _alone_ — not the untouched values sitting in the disabled inputs, which would earn the 403.
 
 The two columns are **one fact**: clearing the date clears the zone in the same write, whichever order a client sends them in, so a zone can never outlive its date and re-appear next to an empty field.
 
@@ -191,13 +195,13 @@ It is the only field on that panel guests feel, which is why its hint says so ex
 
 ## Files
 
-| Concern | File |
-|---|---|
-| Columns | `cire/db/src/schema.ts` (`weddings`), migrations `0055_rsvp_deadline.sql` + `0056_settings_attribution.sql` |
-| Date → instant | `cire/api/src/lib/rsvp-deadline.ts` |
-| Write gate | `cire/api/src/routes/rsvp.ts` |
-| Guest payload | `cire/api/src/services/claim.ts`, `cire/api/src/schemas/claim.ts` |
-| Organiser write | `cire/api/src/schemas/settings.ts`, `cire/api/src/services/wedding-settings.ts` |
-| Who may write it | `cire/api/src/routes/organiser-settings.ts` (gate + field check), `cire/api/src/middleware/wedding-editor.ts` |
-| Organiser UI | `cire/host/src/components/SettingsPanel.tsx` |
-| Guest UI | `cire/invites/src/components/rsvp-deadline.ts`, `createRsvpDeadlineState.ts`, `RsvpDeadlineNotice.tsx`, `LoginSection.tsx`, `PlusOnePrompt.tsx`, `EventCard.tsx`, `EventSheet.tsx`, `RsvpPanel.tsx`, `DetailsPanel.tsx`, `designs/{classic,gala}/InvitePage.tsx` |
+| Concern          | File                                                                                                                                                                                                                                                             |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Columns          | `cire/db/src/schema.ts` (`weddings`), migrations `0055_rsvp_deadline.sql` + `0056_settings_attribution.sql`                                                                                                                                                      |
+| Date → instant   | `cire/api/src/lib/rsvp-deadline.ts`                                                                                                                                                                                                                              |
+| Write gate       | `cire/api/src/routes/rsvp.ts`                                                                                                                                                                                                                                    |
+| Guest payload    | `cire/api/src/services/claim.ts`, `cire/api/src/schemas/claim.ts`                                                                                                                                                                                                |
+| Organiser write  | `cire/api/src/schemas/settings.ts`, `cire/api/src/services/wedding-settings.ts`                                                                                                                                                                                  |
+| Who may write it | `cire/api/src/routes/organiser-settings.ts` (gate + field check), `cire/api/src/middleware/wedding-editor.ts`                                                                                                                                                    |
+| Organiser UI     | `cire/host/src/components/SettingsPanel.tsx`                                                                                                                                                                                                                     |
+| Guest UI         | `cire/invites/src/components/rsvp-deadline.ts`, `createRsvpDeadlineState.ts`, `RsvpDeadlineNotice.tsx`, `LoginSection.tsx`, `PlusOnePrompt.tsx`, `EventCard.tsx`, `EventSheet.tsx`, `RsvpPanel.tsx`, `DetailsPanel.tsx`, `designs/{classic,gala}/InvitePage.tsx` |

@@ -40,10 +40,10 @@ There is no single component package. There are two shared layers and one
 product layer, and which one a component belongs in is decided by
 [[osn-and-musubi]]'s discriminator rather than by taste:
 
-| Package        | On disk                                   | Holds                                                                                                                                                                           | Depends on                                                              |
-| -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                       | `@kobalte/core`, `clsx`, CVA                                            |
-| `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
+| Package        | On disk                                   | Holds                                                                                                                                                                                                                                                                                       | Depends on                                                              |
+| -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                                                                                                                                   | `@kobalte/core`, `clsx`, CVA                                            |
+| `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget`                                                                                                             | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
 | `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Loading`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
@@ -215,12 +215,12 @@ starts `autoUpdate` only once the panel mounts. Showing every row of a 900-row
 RSVP list again, about 120 of them badged, costs 4 to 12 ms more with each
 badge inside `Tooltip` than with the same badges bare.
 
-*Measured 2026-10-20 — a one-off script over the fixture
+_Measured 2026-10-20 — a one-off script over the fixture
 `cire/host/tests/components/RsvpView.layout.browser.test.tsx` held that day:
 three events of 300 guests, all drawn at once, 900 rows. A search that matches
 no row, then a timed `search("")` and forced layout, 12 times, median taken;
 three runs with each badge inside `Tooltip` (76–82 ms) and three with the same
-badges bare (70–72 ms)*
+badges bare (70–72 ms)_
 
 Two test files hold the guarantees, in real Chrome.
 `cire/host/tests/components/RsvpView.badges.browser.test.tsx` holds them where
@@ -266,11 +266,11 @@ keeps its heads in view).
 </Table>
 ```
 
-| `pin` | On | Holds the cell | Layer |
-|---|---|---|---|
-| `top` | `Th` | at the top of the box | 2 |
-| `top-start` | `Th` | at the corner: top and start edge | 3 |
-| `start` | `Td` | at the start edge | 1 |
+| `pin`       | On   | Holds the cell                    | Layer |
+| ----------- | ---- | --------------------------------- | ----- |
+| `top`       | `Th` | at the top of the box             | 2     |
+| `top-start` | `Th` | at the corner: top and start edge | 3     |
+| `start`     | `Td` | at the start edge                 | 1     |
 
 A pinned cell paints `--ui-ground`, so the rows passing under it never show
 through. That is only invisible on a table set straight on the page ground; on
@@ -513,7 +513,7 @@ Key behaviours you get by default:
 - **RadioGroup** — grouped `role="radiogroup"`, single selection, keyboard navigation
 - **Checkbox** — `role="checkbox"`, indeterminate support
 - **Focus on Checkbox and RadioGroup** — Kobalte keeps a real `<input>`, clipped to 1px, for focus and semantics, and paints a sibling `<div>` as the box or circle. Keyboard focus lands on the input, never on the `<div>`, so a ring keyed to the `<div>`'s own `:focus-visible` never draws. The input carries a plain `peer` marker and the `<div>` draws `peer-focus-visible:ring-2 ring-ui-focus`, the shape `Switch` uses; there is no ring offset, so nothing paints a ground-coloured halo on another surface. `tests/checkbox.browser.test.tsx` and `tests/radio-group.browser.test.tsx` tab to each and measure the ring
-- **Switch** — not Kobalte: a native `<input type="checkbox" role="switch">`, visually hidden inside its label beside a painted track, so Space toggles it and it is announced as a switch. The element carries everything a switch needs, and it renders on the organiser portal, whose bundle budget had no room for Kobalte's form-control layer (~0.9 KB gzip there). Controlled: it shows `checked` and nothing else. Use it where flipping it *is* the action, and a `Checkbox` for a choice saved later with a form. `readOnly` is for someone who may read the setting but not change it — it stays in the tab order, announced as read-only, at full contrast — and `busy` holds it read-only and announced as busy while a change saves, so it keeps focus. `disabled` removes it from the tab order; prefer `readOnly` whenever the state is worth reading
+- **Switch** — not Kobalte: a native `<input type="checkbox" role="switch">`, visually hidden inside its label beside a painted track, so Space toggles it and it is announced as a switch. The element carries everything a switch needs, and it renders on the organiser portal, whose bundle budget had no room for Kobalte's form-control layer (~0.9 KB gzip there). Controlled: it shows `checked` and nothing else. Use it where flipping it _is_ the action, and a `Checkbox` for a choice saved later with a form. `readOnly` is for someone who may read the setting but not change it — it stays in the tab order, announced as read-only, at full contrast — and `busy` holds it read-only and announced as busy while a change saves, so it keeps focus. `disabled` removes it from the tab order; prefer `readOnly` whenever the state is worth reading
 
 ### Simple styled components (Input, Label, Card, Textarea, Select)
 
@@ -687,12 +687,12 @@ consent prompt, in
 is the one call site — takes four things together, because no one of them
 covers every browser:
 
-| Prop on `Modal` | What it stops |
-| --- | --- |
-| `dismissable={false}` | The backdrop click, which `Modal` handles itself |
-| `closedby="none"` | Escape and the back gesture, in browsers that support the attribute; the request never reaches the dialog, so the back gesture goes back a page instead |
-| `onCancel={(e) => e.preventDefault()}` | Escape and the back gesture where `closedby` is unsupported, by refusing the `cancel` they fire |
-| `onClose` that mounts a fresh `Modal` | The case a browser will not let a page refuse: it allows a refused `cancel` only after the user has interacted, and otherwise closes the dialog regardless. Where `closedby` is unsupported, the back gesture therefore does nothing until the dialog is answered |
+| Prop on `Modal`                        | What it stops                                                                                                                                                                                                                                                     |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dismissable={false}`                  | The backdrop click, which `Modal` handles itself                                                                                                                                                                                                                  |
+| `closedby="none"`                      | Escape and the back gesture, in browsers that support the attribute; the request never reaches the dialog, so the back gesture goes back a page instead                                                                                                           |
+| `onCancel={(e) => e.preventDefault()}` | Escape and the back gesture where `closedby` is unsupported, by refusing the `cancel` they fire                                                                                                                                                                   |
+| `onClose` that mounts a fresh `Modal`  | The case a browser will not let a page refuse: it allows a refused `cancel` only after the user has interacted, and otherwise closes the dialog regardless. Where `closedby` is unsupported, the back gesture therefore does nothing until the dialog is answered |
 
 An unmount never fires `onClose` (the listener is removed first), so closing
 the dialog by answering it cannot trigger the reopen.
@@ -795,18 +795,19 @@ error rather than needing a trip to the source.
 
 `@cire/ui`'s `Button` is the house style rather than the shadcn set — uppercase,
 tracked, a sharp 4px corner, a gold primary — and on a cire surface it is where a
-call site's colour, shape and padding have to come from. Fifteen variants,
+call site's colour, shape and padding have to come from. Sixteen variants,
 grouped by the job rather than by the look:
 
-| Group          | Variants                              | What each is for                                                                                                                                                                                                                              |
-| -------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Commit         | `primary`, `cta`                      | The one thing to do on the screen. `cta` is the guest site's: outlined at rest and filled on hover, because an invite is restrained enough that a gold fill at rest would be the loudest thing on a page whose job is a photograph and a date |
-| Secondary      | `outline`, `quiet`, `dashed`          | A gold wash, a neutral action, and the empty slot — a dashed box promises that something _appears_, a solid one that something _happens_                                                                                                      |
-| Destructive    | `danger`, `quietDanger`, `bareDanger` | Red at rest for the button that commits it; muted at rest and red on hover for the control that merely offers it, boxed (`quietDanger`) or as a glyph (`bareDanger`). A column of red-outlined buttons down a table reads as an error state   |
+| Group          | Variants                              | What each is for                                                                                                                                                                                                                                                                                       |
+| -------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Commit         | `primary`, `cta`                      | The one thing to do on the screen. `cta` is the guest site's: outlined at rest and filled on hover, because an invite is restrained enough that a gold fill at rest would be the loudest thing on a page whose job is a photograph and a date                                                          |
+| Secondary      | `outline`, `quiet`, `dashed`          | A gold wash, a neutral action, and the empty slot — a dashed box promises that something _appears_, a solid one that something _happens_                                                                                                                                                               |
+| Destructive    | `danger`, `quietDanger`, `bareDanger` | Red at rest for the button that commits it; muted at rest and red on hover for the control that merely offers it, boxed (`quietDanger`) or as a glyph (`bareDanger`). A column of red-outlined buttons down a table reads as an error state                                                            |
 | Text           | `link`, `subtle`, `touchLink`         | Accent ink, muted ink, and muted ink carrying its underline at rest. The last is for a link whose underline must show without hover: on `@cire/invites`, read on a phone where there is no hover to reveal one, and for a link set inside a sentence, where colour alone does not mark it (WCAG 1.4.1) |
-| Glyph          | `bare`                                | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline                                                                                                                                                    |
-| Field          | `field`                               | A control shaped like the field it stands in for — the dietary picker's collapsed trigger, in a column of text inputs: sentence case, an input's padding, transparent like the inputs around it |
-| State and fill | `choice`, `tile`                      | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same; and the control that _is_ a block — a card, a row — where a hairline stops describing the target             |
+| Glyph          | `bare`                                | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline                                                                                                                                                                                                             |
+| Field          | `field`                               | A control shaped like the field it stands in for — the dietary picker's collapsed trigger, in a column of text inputs: sentence case, an input's padding, transparent like the inputs around it                                                                                                        |
+| Chrome         | `chip`                                | A control in a sheet's own chrome rather than its content — the guest event sheet's badge, "Give RSVP →" and "← See details", in its bar beside the round close button. A pill on the surface fill, opaque because content scrolls under it, in accent ink because it leads somewhere                  |
+| State and fill | `choice`, `tile`                      | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same; and the control that _is_ a block — a card, a row — where a hairline stops describing the target                                                                      |
 
 Five sizes, and they are not one scale:
 
