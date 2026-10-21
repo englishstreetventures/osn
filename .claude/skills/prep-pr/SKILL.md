@@ -358,7 +358,7 @@ to measure afterwards:
 Invoke the `review-performance` skill (`.claude/skills/review-performance/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context.
 
 **Agent 2 — Security review** (`reviewer` agent):
-Invoke the `review-security` skill (`.claude/skills/review-security/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context.
+Invoke the `review-security` skill (`.claude/skills/review-security/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context. **This is the double review's second pass: pass `effort: xhigh` on this Agent call** (the owner's instruction; the definition's `high` covers Agent 1). Agent 1 passes no effort.
 
 Wait for both agents to complete, and collect or stop both before this run returns, as Step 4 says. Present both reports to the user in full, using the finding IDs from each review (e.g. S-H1, P-W2) so they can be referred to in discussion, in the report and in the tracker issues Step 7 files. The PR is public and never carries a finding ID; `write-pr` says what it carries instead.
 
