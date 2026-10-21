@@ -288,32 +288,40 @@ test("cire-rsvp", async ({ page, context, flow }) => {
   flow.check("a short drag springs back to the details", true, await details.isVisible());
 
   // The badge's words follow the finger rather than changing once the panels
-  // land: held part-way, "Give RSVP" and "See details" are both part-way
-  // through their crossfade.
+  // land: held part-way, "Give RSVP" is leaving the badge by the start as "See
+  // details" comes in from the end, each partly shown and side by side.
   const midSwipe = await flow.step(
     "hold a swipe part-way, and see the badge follow it",
     async () => {
       const at = await onContent("details");
       const finger = await swipe(page, at, { x: at.x - 120, y: at.y }, 1000, false);
       await expect(form).toBeVisible();
-      const opacities = await giveRsvp.evaluate((chip) =>
-        [...chip.firstElementChild!.children].map((label) =>
-          Number(getComputedStyle(label).opacity),
-        ),
-      );
+      const shown = await giveRsvp.evaluate((chip) => {
+        const frame = chip.firstElementChild!.getBoundingClientRect();
+        const [leaving, coming] = [...chip.firstElementChild!.children].map((label) => {
+          const box = label.getBoundingClientRect();
+          const left = Math.max(box.left, frame.left);
+          return { left, width: Math.max(0, Math.min(box.right, frame.right) - left) };
+        });
+        return {
+          both: leaving!.width > 0 && coming!.width > 0,
+          apart:
+            leaving!.left < coming!.left && leaving!.left + leaving!.width <= coming!.left + 0.5,
+        };
+      });
       await page.screenshot({
         path: resolve(SCREENSHOT_DIR, "cire-rsvp--sheet-mid-swipe.png"),
         animations: "disabled",
       });
       await finger.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
       await expect(form).toBeHidden();
-      return opacities;
+      return shown;
     },
   );
   flow.check(
-    "mid-swipe both of the badge's words are part-way through their crossfade",
+    "mid-swipe the badge shows part of each of its words, side by side",
     true,
-    midSwipe.length === 2 && midSwipe.every((opacity) => opacity > 0 && opacity < 1),
+    midSwipe.both && midSwipe.apart,
   );
 
   await flow.step("swipe left to the RSVP form", async () => {
