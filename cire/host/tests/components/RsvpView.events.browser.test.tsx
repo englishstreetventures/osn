@@ -396,9 +396,13 @@ describe("the RSVP page's event tabs", () => {
     };
 
     // A deep link to the middle of the strip lands with the tab at its end
-    // edge, inside the track's 4px padding — not scrolled past it.
+    // edge, inside the track's 4px padding — not scrolled past it. Within a
+    // pixel: the strip scrolls by `offsetLeft` and `offsetWidth`, which are
+    // whole pixels, while a label's box need not be (it is not on CI's fonts).
     const cocktails = eventTab("Cocktail hour");
-    expect(cocktails.getBoundingClientRect().right).toBeCloseTo(inner().right - 4, 0);
+    const gap = inner().right - cocktails.getBoundingClientRect().right;
+    expect(gap).toBeGreaterThanOrEqual(3);
+    expect(gap).toBeLessThanOrEqual(5);
     expect(track.scrollLeft).toBeLessThan(track.scrollWidth - track.clientWidth);
 
     // Arrowing to a neighbour already in view does not move the strip.
