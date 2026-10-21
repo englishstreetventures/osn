@@ -35,10 +35,9 @@ import {
 import { accountLinkService } from "../services/account-link";
 import { type AccountLinkGate, claimService } from "../services/claim";
 import {
-  GuestEmailSeatRefused,
+  type GuestEmailSeatRefused,
   guestEmailService,
   type SeatRefusal,
-  type SeatRequest,
 } from "../services/guest-email";
 import { inviteService } from "../services/invite";
 import { sessionService } from "../services/session";
@@ -381,7 +380,9 @@ const LINKING_OFF: AccountLinkState = { enabled: false };
 /**
  * The weddings kept out of the member step for this household right now: the
  * excluded list while account linking is off for it, else none. Reads the
- * flag only when the list is not empty, as `POST /member` does.
+ * flag only when the list is not empty, as `POST /member` does. The routes
+ * start it before reading the body and the seat read awaits it, so the waits
+ * overlap.
  */
 async function memberStepOffFor(
   linking: AccountLinking,
@@ -669,20 +670,20 @@ export const createClaimMemberRoutes = (
           set.status = 401;
           return { error: "Unauthorized" };
         }
+        // Started before the body is read, and awaited after the seat read.
+        const memberStepOff = memberStepOffFor(accountLinking, familyId, request);
         const raw: unknown = await request.json().catch(() => null);
-        const memberStepOff = await memberStepOffFor(accountLinking, familyId, request);
         return runCire(
           Effect.gen(function* () {
             const body = yield* Schema.decodeUnknownEffect(GuestEmailBody)(raw);
-            const seat: SeatRequest = {
+            // The seat is checked before the address, so a refused seat learns
+            // nothing about the address rule.
+            const seat = yield* guestEmailService.resolveSeat({
               familyId,
               sessionMember: memberGuestId,
               bodyMember: body.memberGuestId,
               memberStepOff,
-            };
-            // The seat is checked before the address, so a refused seat learns
-            // nothing about the address rule.
-            yield* guestEmailService.checkSeat(seat);
+            });
             const address = parseGuestEmail(body.email);
             if (address === null) return yield* addressRefusal("invalid", set);
             if (body.consentVersion !== GUEST_EMAIL_CONSENT.version) {
@@ -699,6 +700,16 @@ export const createClaimMemberRoutes = (
                   return { error: "Missing or invalid fields" };
                 }),
               GuestEmailSeatRefused: (e: GuestEmailSeatRefused) => seatRefusal(e.reason, set),
+              GuestEmailTooManyChanges: () =>
+                Effect.logWarning("guest email refused", { reason: "too_many_changes" }).pipe(
+                  Effect.andThen(
+                    Effect.sync(() => {
+                      metricGuestEmailBlocked("too_many_changes");
+                      set.status = 429;
+                      return { error: "too_many_changes" };
+                    }),
+                  ),
+                ),
               GuestEmailWriteError: () => writeFailed("Could not save your email", set),
             }),
           ),
@@ -713,17 +724,18 @@ export const createClaimMemberRoutes = (
           set.status = 401;
           return { error: "Unauthorized" };
         }
+        const memberStepOff = memberStepOffFor(accountLinking, familyId, request);
         const raw: unknown = await request.json().catch(() => null);
-        const memberStepOff = await memberStepOffFor(accountLinking, familyId, request);
         return runCire(
           Effect.gen(function* () {
             const body = yield* Schema.decodeUnknownEffect(GuestEmailRemoveBody)(raw);
-            yield* guestEmailService.removeOwn({
+            const seat = yield* guestEmailService.resolveSeat({
               familyId,
               sessionMember: memberGuestId,
               bodyMember: body.memberGuestId,
               memberStepOff,
             });
+            yield* guestEmailService.removeOwn(seat);
             return { email: null };
           }).pipe(
             Effect.provideService(DbService, db),

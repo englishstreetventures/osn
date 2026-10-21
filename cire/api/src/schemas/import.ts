@@ -402,17 +402,21 @@ export const GuestRemove = Schema.Struct({
 export type GuestRemove = Schema.Schema.Type<typeof GuestRemove>;
 
 /**
- * One guest's address the plan sets or clears. `email` null clears it.
- * `emailWas` is the stored address the diff decided against: the write applies
- * only while it still is, so an address that changed between the diff and the
- * commit (a guest's save on the invite) is never overwritten. `record` is the
- * consent record a revert restores; without one the address is the applying
- * organiser's, stamped from their attestation.
+ * One guest's address the plan sets or clears. `email` null clears it, and
+ * `emailHash` is its suppression hash (null with it). `emailWas` and
+ * `emailSourceWas` are the stored address and its source the diff decided
+ * against: the write applies only while both still are, so an address a guest
+ * saved between the diff and the commit — even the same address, now theirs —
+ * is never overwritten. `record` is the consent record a revert restores;
+ * without one the address is the applying organiser's, stamped from their
+ * attestation.
  */
 export const GuestEmailWrite = Schema.Struct({
   guestId: Schema.String,
   email: Schema.NullOr(Schema.String),
+  emailHash: Schema.NullOr(Schema.String),
   emailWas: Schema.NullOr(Schema.String),
+  emailSourceWas: Schema.NullOr(Schema.Literals(["guest", "organiser_attested"])),
   record: Schema.optional(EmailRecord),
 });
 export type GuestEmailWrite = Schema.Schema.Type<typeof GuestEmailWrite>;

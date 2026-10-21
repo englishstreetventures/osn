@@ -35,7 +35,7 @@ import type {
 import type { ChildrenPolicy, PlusOnePolicy, RunOfShowItem } from "../schemas/import";
 import { decodeCrop, type ImageCrop } from "../schemas/invite";
 import { type LinkFacts, linkStateFor, readLinkFacts } from "./account-link";
-import { hashGuestEmail, suppressedHashes } from "./email-suppression";
+import { optedOutGuests } from "./email-suppression";
 import { eventImagePath, versionFromKey } from "./event-image";
 import { inviteFaqService } from "./invite-faq";
 import type { OsnAccountResolver } from "./osn-bridge";
@@ -840,33 +840,41 @@ export const claimService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      const rows = yield* dbQuery(() =>
-        db
-          .select({
-            guestId: guests.id,
-            familyId: families.id,
-            firstName: guests.firstName,
-            lastName: guests.lastName,
-            nickname: guests.nickname,
-            plusOneAllowed: guests.plusOneAllowed,
-            plusOneOf: guests.plusOneOfGuestId,
-            publicId: families.publicId,
-            familyName: families.familyName,
-            codeSharedAt: families.codeSharedAt,
-            firstOpenedAt: families.firstOpenedAt,
-            deactivatedAt: families.deactivatedAt,
-            email: guests.email,
-            emailSource: guests.emailSource,
-            eventId: guestEvents.eventId,
-          })
-          .from(guests)
-          .innerJoin(families, eq(guests.familyId, families.id))
-          .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
-          // Exclude the synthetic host preview family — it must never appear in
-          // the organiser's real guest roster or counts.
-          .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-          .orderBy(asc(guests.sortOrder))
-          .all(),
+      // The roster and the guests whose address the wedding has suppressed are
+      // independent reads, run together.
+      const [rows, optedOut] = yield* Effect.all(
+        [
+          dbQuery(() =>
+            db
+              .select({
+                guestId: guests.id,
+                familyId: families.id,
+                firstName: guests.firstName,
+                lastName: guests.lastName,
+                nickname: guests.nickname,
+                plusOneAllowed: guests.plusOneAllowed,
+                plusOneOf: guests.plusOneOfGuestId,
+                publicId: families.publicId,
+                familyName: families.familyName,
+                codeSharedAt: families.codeSharedAt,
+                firstOpenedAt: families.firstOpenedAt,
+                deactivatedAt: families.deactivatedAt,
+                email: guests.email,
+                emailSource: guests.emailSource,
+                eventId: guestEvents.eventId,
+              })
+              .from(guests)
+              .innerJoin(families, eq(guests.familyId, families.id))
+              .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
+              // Exclude the synthetic host preview family — it must never appear in
+              // the organiser's real guest roster or counts.
+              .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+              .orderBy(asc(guests.sortOrder))
+              .all(),
+          ),
+          optedOutGuests(weddingId),
+        ],
+        { concurrency: "unbounded" },
       );
 
       const byGuest = new Map<
@@ -901,27 +909,13 @@ export const claimService = {
             deactivatedAt: row.deactivatedAt === null ? null : row.deactivatedAt.getTime(),
             email: row.email,
             emailSource: row.email === null ? null : row.emailSource,
-            emailOptedOut: false,
+            emailOptedOut: optedOut.has(row.guestId),
           };
           byGuest.set(row.guestId, entry);
         }
         if (row.eventId !== null) entry.events.push(row.eventId);
       }
-      const roster = Array.from(byGuest.values());
-      // Which addresses the wedding's suppression list holds. Read only when a
-      // guest has an address, and then once for the wedding.
-      if (roster.some((g) => g.email !== null)) {
-        const suppressed = yield* suppressedHashes(weddingId);
-        if (suppressed.size > 0) {
-          for (const entry of roster) {
-            if (entry.email === null) continue;
-            const email = entry.email;
-            const hash = yield* Effect.promise(() => hashGuestEmail(weddingId, email));
-            entry.emailOptedOut = suppressed.has(hash);
-          }
-        }
-      }
-      return roster;
+      return Array.from(byGuest.values());
     }).pipe(Effect.withSpan("cire.claim.getAllGuests"));
   },
 

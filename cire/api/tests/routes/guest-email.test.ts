@@ -1,4 +1,5 @@
 import { describe, it, expect } from "bun:test";
+import { createHash } from "node:crypto";
 
 import { BOOTSTRAP_WEDDING_ID, emailSuppressions, families, guests } from "@cire/db";
 import { GUEST_EMAIL_CONSENT, ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
@@ -12,10 +13,13 @@ import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { parseSessionToken } from "../../src/lib/cookie";
+import { CIRE_METRICS } from "../../src/metrics";
 import { hashGuestEmail } from "../../src/services/email-suppression";
+import { guestEmailService, MAX_OPT_OUTS_PER_SEAT } from "../../src/services/guest-email";
 import { hostCodeService } from "../../src/services/host-code";
 import { jsonBody } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
+import { counterValue } from "../test-helpers/metrics-harness";
 
 // Seeded families (cire/db/seed/data/guests.ts):
 //   TESTONE-IVY-AA11 Testfamily → Ada
@@ -351,5 +355,198 @@ describe("guest email routes — logs", () => {
       await remove(app, cookie, cleo);
     });
     expect(logs).not.toContain("example.test");
+  });
+});
+
+describe("guest email routes — bodies and failed writes", () => {
+  // Input refusals: a body missing a field, or carrying an address past the
+  // raw cap, is refused before anything is read or written.
+  it("refuses a body missing a field or carrying an oversized address", async () => {
+    const { db, app } = buildApp();
+    const cookie = await answeringAs(app, db, "Cleo");
+    const cleo = guestId(db, "Cleo");
+    for (const body of [
+      { memberGuestId: cleo, email: ADDRESS },
+      { email: ADDRESS, consentVersion: GUEST_EMAIL_CONSENT.version },
+      {
+        memberGuestId: cleo,
+        email: `${"a".repeat(1015)}@example.test`,
+        consentVersion: GUEST_EMAIL_CONSENT.version,
+      },
+    ]) {
+      const res = await call(app, "PUT", PATH, cookie, body);
+      expect(res.status).toBe(400);
+      expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
+    }
+    const removed = await call(app, "DELETE", PATH, cookie, {});
+    expect(removed.status).toBe(400);
+    expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
+  });
+
+  it("answers 500 and changes nothing when the write fails", async () => {
+    const { db, app } = buildApp();
+    const cookie = await answeringAs(app, db, "Cleo");
+    const cleo = guestId(db, "Cleo");
+    expect((await save(app, cookie, cleo)).status).toBe(200);
+    db.$client.exec(
+      "CREATE TRIGGER fail_email BEFORE UPDATE OF email ON guests BEGIN SELECT RAISE(ABORT, 'x'); END;",
+    );
+
+    const saved = await save(app, cookie, cleo, "other@example.test");
+    expect(saved.status).toBe(500);
+    expect(await jsonBody(saved)).toEqual({ error: "Could not save your email" });
+    const removed = await remove(app, cookie, cleo);
+    expect(removed.status).toBe(500);
+    expect(await jsonBody(removed)).toEqual({ error: "Could not remove your email" });
+    expect(emailRow(db, cleo)?.email).toBe(ADDRESS);
+  });
+});
+
+describe("guest email routes — the member step and opt-outs", () => {
+  // The permit side of the excluded-wedding gate: with account linking on,
+  // the wedding has the member step and its guests reach their address.
+  it("lets a guest of an excluded wedding save once account linking is on", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const limiter = () => createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 });
+    const app = createApp(db, {
+      claimLimiter: limiter(),
+      claimSessionLimiter: limiter(),
+      rsvpLimiter: limiter(),
+      plusOneLimiter: limiter(),
+      accountLinkLimiter: limiter(),
+      resolveOsnAccountId: async (profileId) => ({ ok: true, accountId: `acc_${profileId}` }),
+      osnIssuerUrl: "https://id.musubi.test",
+      flags: createStaticFlags({ "cire.account-linking": true }),
+      memberStepExcludedWeddings: new Set([BOOTSTRAP_WEDDING_ID]),
+    });
+    const cookie = await claim(app, TESTFAMILY);
+    const ada = guestId(db, "Ada");
+    const res = await save(app, cookie, ada, "ada@example.test");
+    expect(res.status).toBe(200);
+    expect(emailRow(db, ada)?.email).toBe("ada@example.test");
+  });
+
+  // An organiser may store an address the guest withdrew; when the same seat
+  // removes it again, the second opt-out meets the first and must not fail.
+  it("removes again after an organiser re-adds a withdrawn address", async () => {
+    const { db, app } = buildApp();
+    const cookie = await answeringAs(app, db, "Cleo");
+    const cleo = guestId(db, "Cleo");
+    expect((await save(app, cookie, cleo)).status).toBe(200);
+    expect((await remove(app, cookie, cleo)).status).toBe(200);
+    db.update(guests)
+      .set({
+        email: ADDRESS,
+        emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, ADDRESS),
+        emailSource: "organiser_attested",
+        emailConsentAt: new Date(),
+        emailConsentVersion: ORGANISER_EMAIL_ATTESTATION.version,
+        emailAttestedByOsnProfileId: "usr_owner",
+      })
+      .where(eq(guests.id, cleo))
+      .run();
+
+    const res = await remove(app, cookie, cleo);
+    expect(res.status).toBe(200);
+    expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
+    expect(db.select().from(emailSuppressions).all()).toHaveLength(1);
+  });
+
+  // The opt-out names the address the row holds when the removal runs, not
+  // one read before it: an organiser's change landing in between is the one
+  // withdrawn.
+  it("records the address the row holds when the removal runs", async () => {
+    const { db, app } = buildApp();
+    const cookie = await answeringAs(app, db, "Cleo");
+    const cleo = guestId(db, "Cleo");
+    expect((await save(app, cookie, cleo)).status).toBe(200);
+    const [family] = db
+      .select({ familyId: guests.familyId })
+      .from(guests)
+      .where(eq(guests.id, cleo))
+      .all();
+    const seat = await Effect.runPromise(
+      guestEmailService
+        .resolveSeat({
+          familyId: family!.familyId,
+          sessionMember: cleo,
+          bodyMember: cleo,
+          memberStepOff: Promise.resolve(new Set()),
+        })
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    db.update(guests)
+      .set({
+        email: "changed@example.test",
+        emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, "changed@example.test"),
+      })
+      .where(eq(guests.id, cleo))
+      .run();
+    await Effect.runPromise(
+      guestEmailService.removeOwn(seat).pipe(Effect.provideService(DbService, db)),
+    );
+    expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
+    expect(
+      db
+        .select({ hash: emailSuppressions.emailHash })
+        .from(emailSuppressions)
+        .all()
+        .map((r) => r.hash),
+    ).toEqual([await hashGuestEmail(BOOTSTRAP_WEDDING_ID, "changed@example.test")]);
+  });
+
+  // Each removal of a different address adds a row; one session must not grow
+  // the list without end.
+  it(`refuses a new address once the seat holds ${MAX_OPT_OUTS_PER_SEAT} opt-outs`, async () => {
+    const { db, app } = buildApp();
+    const cookie = await answeringAs(app, db, "Cleo");
+    const cleo = guestId(db, "Cleo");
+    for (let i = 0; i < MAX_OPT_OUTS_PER_SEAT; i += 1) {
+      expect((await save(app, cookie, cleo, `cleo${i}@example.test`)).status).toBe(200);
+      expect((await remove(app, cookie, cleo)).status).toBe(200);
+    }
+    const res = await save(app, cookie, cleo, "one-more@example.test");
+    expect(res.status).toBe(429);
+    expect(await jsonBody(res)).toEqual({ error: "too_many_changes" });
+    expect(emailRow(db, cleo)?.email).toBeNull();
+    expect(db.select().from(emailSuppressions).all()).toHaveLength(MAX_OPT_OUTS_PER_SEAT);
+  });
+});
+
+describe("the suppression hash", () => {
+  // Stored opt-outs outlive deploys: the hash must stay exactly SHA-256 of
+  // `wedding_id:address` in lower-case hex, checked here against an
+  // independent computation rather than against itself.
+  it("is the SHA-256 hex of the wedding id and the address", async () => {
+    expect(await hashGuestEmail("wed_1", "ada@example.test")).toBe(
+      createHash("sha256").update("wed_1:ada@example.test").digest("hex"),
+    );
+  });
+});
+
+describe("guest email metrics", () => {
+  it("counts each refusal by reason and each change by who made it", async () => {
+    const { db, app } = buildApp();
+    const blocked = (reason: string) => counterValue(CIRE_METRICS.guestEmailBlocked, { reason });
+    const changed = (action: string) =>
+      counterValue(CIRE_METRICS.guestEmailChanged, { by: "guest", action });
+    const before = {
+      required: await blocked("member_required"),
+      invalid: await blocked("invalid"),
+      set: await changed("set"),
+      cleared: await changed("cleared"),
+    };
+    const unchosen = await claim(app, SAMPLETON);
+    const cleo = guestId(db, "Cleo");
+    await save(app, unchosen, cleo);
+    const cookie = await answeringAs(app, db, "Cleo");
+    await save(app, cookie, cleo, "not an address");
+    await save(app, cookie, cleo);
+    await remove(app, cookie, cleo);
+    expect(await blocked("member_required")).toBe(before.required + 1);
+    expect(await blocked("invalid")).toBe(before.invalid + 1);
+    expect(await changed("set")).toBe(before.set + 1);
+    expect(await changed("cleared")).toBe(before.cleared + 1);
   });
 });

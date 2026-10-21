@@ -533,6 +533,7 @@ export type GuestEmailBlockReason =
   | "member_changed"
   | "invalid"
   | "consent_outdated"
+  | "too_many_changes"
   | "attestation_required";
 type GuestEmailBlockedAttrs = { reason: GuestEmailBlockReason };
 type ChecklistTemplateAppliedAttrs = { template: ChecklistTemplateId };

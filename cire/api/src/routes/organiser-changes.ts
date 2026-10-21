@@ -149,6 +149,12 @@ function catchParseErrors(set: { status?: number | string }) {
   };
 }
 
+/** The plan the preview returns: everything but the address writes. */
+function planWithoutEmails(plan: ImportPlan): Omit<ImportPlan, "emailWrites"> {
+  const { emailWrites: _emailWrites, ...rest } = plan;
+  return rest;
+}
+
 /**
  * How a change's addresses are reconciled, from the door it came through: an
  * editor save may remove an address a guest gave themselves; a spreadsheet
@@ -492,8 +498,10 @@ export const createOrganiserChangeRoutes = (
                     decoded.kind === "editor"
                       ? clearedHalves(decoded.desiredState, plan, decoded.scope)
                       : null,
+                  // The address writes stay server-side: apply re-diffs, and
+                  // the portal reads only `emailAttestations`.
                   plan: {
-                    ...plan,
+                    ...planWithoutEmails(plan),
                     eventCreates: [...plan.eventCreates],
                     eventUpdates: [...plan.eventUpdates],
                     eventRemoves: [...plan.eventRemoves],
@@ -505,7 +513,6 @@ export const createOrganiserChangeRoutes = (
                     guestRemoves: [...plan.guestRemoves],
                     eventLinkCreates: [...plan.eventLinkCreates],
                     eventLinkRemoves: [...plan.eventLinkRemoves],
-                    emailWrites: [...(plan.emailWrites ?? [])],
                     warnings: [...plan.warnings],
                   },
                   warnings: [...plan.warnings],
