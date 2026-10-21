@@ -486,19 +486,37 @@ describe("the calendar menu", () => {
 
     expect(document.activeElement).toBe(menu);
     expect(menu.hasAttribute("data-quiet-focus")).toBe(true);
-    expect(getComputedStyle(menu).outlineStyle).toBe("none");
-    for (const item of items()) {
-      expect({
-        item: item.textContent,
-        alpha: alphaOf(getComputedStyle(item).backgroundColor),
-      }).toEqual({
-        item: item.textContent,
-        alpha: 0,
-      });
-    }
-    // The arrows still reach the items from there.
+
+    // Nor is an item a pointer focuses — a tap lands focus on the link it
+    // presses. The fill follows keyboard focus (`focus-visible:`), not focus.
+    const [first] = items();
+    first!.focus();
+    expect(alphaOf(getComputedStyle(first!).backgroundColor)).toBe(0);
+
+    // The arrows still reach the items from the menu.
+    menu.focus();
     await userEvent.keyboard("{ArrowDown}");
     expect(document.activeElement).toBe(items()[0]);
+  });
+
+  it("draws no ring on the menu while it is marked quiet, where a key press would draw one", async () => {
+    // Chromium never matches `:focus-visible` on a script's focus after a
+    // click, so the ring is asked for here the way an engine that does
+    // (iOS Safari after a tap) would show it: focus moved by script after a
+    // key press.
+    await page.viewport(...PHONE);
+    await openSheet();
+    trigger().focus();
+    await userEvent.keyboard("{Enter}");
+    const menu = await calendarMenu();
+
+    menu.setAttribute("data-quiet-focus", "");
+    menu.focus();
+    expect(getComputedStyle(menu).outlineStyle).toBe("none");
+
+    // Unmarked, the same focus draws the ring.
+    menu.removeAttribute("data-quiet-focus");
+    expect(getComputedStyle(menu).outlineStyle).toBe("solid");
   });
 
   it("opens from the trigger on the arrows, on the first item or the last", async () => {
