@@ -6,6 +6,10 @@
  * refused rather than recorded under a member it never showed, and the page
  * asks "Who are you?" again before the save goes through.
  *
+ * Then the member gives an address for wedding emails, ticking the consent
+ * box, and removes it again: the row records the guest's own consent, and the
+ * removal clears it and records the opt-out on the suppression list.
+ *
  * The stack runs with `cire.account-linking` off (no GrowthBook key) and no
  * musubi bridge, so this is the guest experience with the flag off: the member
  * step and its attribution, and no musubi link box. That the flag, and not the
@@ -198,5 +202,83 @@ test("cire-member-step", async ({ page, context, flow }) => {
     "reception replies written on the suite clock",
     true,
     onSuiteClock(replies?.createdAt),
+  );
+
+  const emailBox = page.getByRole("region", { name: "Wedding emails" });
+  const emailCall = (method: "PUT" | "DELETE") =>
+    page.waitForResponse(
+      (r) =>
+        r.url() === `${ORIGINS.cireApi}/api/claim/member/email` && r.request().method() === method,
+    );
+
+  const saved = await flow.step(`${CIRE_HOUSEHOLD.member} adds an email address`, async () => {
+    await emailBox.getByLabel(`Your email, ${CIRE_HOUSEHOLD.member}`).fill(CIRE_HOUSEHOLD.email);
+    await emailBox.getByRole("checkbox", { name: /emails about this wedding/ }).check();
+    const response = emailCall("PUT");
+    await emailBox.getByRole("button", { name: "Add email" }).click();
+    const status = (await response).status();
+    await expect(emailBox.getByText(CIRE_HOUSEHOLD.email)).toBeVisible();
+    await expect(emailBox.getByText("You added this.", { exact: false })).toBeVisible();
+    return status;
+  });
+  flow.check("the address is saved", 200, saved);
+
+  const stored = queryOne<{
+    email: string | null;
+    source: string | null;
+    version: string | null;
+    consentAt: number | undefined;
+  }>(
+    DB_FILES.cire,
+    `SELECT g.email, g.email_source AS source, g.email_consent_version AS version,
+            g.email_consent_at AS consentAt
+       FROM guests g JOIN families f ON f.id = g.family_id
+      WHERE f.public_id = ? AND g.first_name = ?`,
+    CIRE_HOUSEHOLD.code,
+    CIRE_HOUSEHOLD.member,
+  );
+  flow.check(
+    `${CIRE_HOUSEHOLD.member}'s address, given by the guest under the guest's consent`,
+    `${CIRE_HOUSEHOLD.email} guest guest-email-`,
+    `${stored?.email ?? "none"} ${stored?.source ?? "none"} ${stored?.version?.replace(/\d{4}-\d{2}-\d{2}$/, "") ?? "none"}`,
+  );
+  flow.check("consent recorded on the suite clock", true, onSuiteClock(stored?.consentAt));
+
+  const removed = await flow.step(`${CIRE_HOUSEHOLD.member} removes the address`, async () => {
+    const response = emailCall("DELETE");
+    await emailBox.getByRole("button", { name: "Remove email" }).click();
+    const status = (await response).status();
+    await expect(emailBox.getByText("Removed.", { exact: false })).toBeVisible();
+    return status;
+  });
+  flow.check("the address is removed", 200, removed);
+
+  const after = queryOne<{ email: string | null; source: string | null; version: string | null }>(
+    DB_FILES.cire,
+    `SELECT g.email, g.email_source AS source, g.email_consent_version AS version
+       FROM guests g JOIN families f ON f.id = g.family_id
+      WHERE f.public_id = ? AND g.first_name = ?`,
+    CIRE_HOUSEHOLD.code,
+    CIRE_HOUSEHOLD.member,
+  );
+  flow.check(
+    "nothing of the address or its consent is left on the guest",
+    "none none none",
+    `${after?.email ?? "none"} ${after?.source ?? "none"} ${after?.version ?? "none"}`,
+  );
+  const optOuts = queryOne<{ n: number; reason: string | null }>(
+    DB_FILES.cire,
+    `SELECT COUNT(*) AS n, MIN(s.reason) AS reason
+       FROM email_suppressions s
+       JOIN guests g ON g.id = s.guest_id
+       JOIN families f ON f.id = g.family_id
+      WHERE f.public_id = ? AND g.first_name = ?`,
+    CIRE_HOUSEHOLD.code,
+    CIRE_HOUSEHOLD.member,
+  );
+  flow.check(
+    "one opt-out recorded for the seat",
+    "1 guest_removed",
+    `${optOuts?.n ?? 0} ${optOuts?.reason ?? "none"}`,
   );
 });

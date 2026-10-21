@@ -19,7 +19,7 @@ import { readEmail } from "./utils";
  *
  * Purely additive, like the account-link box: a failure says so in the box and
  * never touches the invite around it. Its buttons are named for the address
- * ("Save email", not "Save"), so they never collide with the RSVP sheet's.
+ * and never contain "Save", so they never collide with the RSVP sheet's.
  */
 interface GuestEmailBoxProps {
   /** cire-api origin (the same value the rest of the invite fetches from). */
@@ -210,7 +210,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
             </label>
             <span class="flex flex-wrap items-center gap-2">
               <Button type="submit" variant="cta" disabled={busy() || !valid() || !consent()}>
-                {busy() ? "Saving…" : "Save email"}
+                {busy() ? "Saving…" : props.email ? "Use this email" : "Add email"}
               </Button>
               <Show when={props.email}>
                 <Button
