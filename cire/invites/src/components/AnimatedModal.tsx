@@ -41,15 +41,16 @@ interface AnimatedModalProps {
   /**
    * A control drawn in the toolbar's bar, between the title and the close
    * button, so it stays put while the content scrolls under it — EventSheet's
-   * way between its two panels. Absent ⇒ the title and the close button alone.
+   * badge to its other panel. Absent ⇒ the title and the close button alone.
    * Only drawn with {@link toolbar}.
    */
   action?: JSX.Element;
   /**
-   * The sheet's title, at the start of the toolbar's bar: one line, cut short
-   * with an ellipsis before the action or the close button give way. The
-   * caller owns the heading element, its `id` (for {@link labelledBy}) and
-   * its focus. Only drawn with {@link toolbar}.
+   * The sheet's title, at the start of the toolbar's bar, in the room the
+   * action and the close button leave it. It may wrap onto several lines, and
+   * the bar grows to hold it. The caller owns the heading element, its `id`
+   * (for {@link labelledBy}), its wrapping and its focus. Only drawn with
+   * {@link toolbar}.
    */
   title?: JSX.Element;
   /**
@@ -133,13 +134,15 @@ function CloseButton(props: { onClick: () => void }) {
  * holding the title, the action and the close button: the content scrolls
  * under it rather than past it, so it is frosted — a translucent fill of the
  * sheet's own surface over a blur of whatever is beneath — behind the title,
- * while the switch and the cross keep opaque fills of their own. It is the
+ * while the action and the cross keep opaque fills of their own. It is the
  * scrollport's first child, not a sibling, because a sticky box stays put
  * only over the box that scrolls it; it takes its own height in flow, so the
- * content starts below it at rest, and the scrollport's `scroll-padding-top`
- * is that same height, so focus scrolling never parks a control under it.
- * Full-bleed, it runs the scrollport's width; the scrollbar runs the
- * scrollport's height beside it.
+ * content starts below it at rest. That height is at least 3.75rem and grows
+ * with a title that wraps, so the scrollport's `scroll-padding-top` follows
+ * it: a `ResizeObserver` writes the bar's height to `--sheet-bar` on the
+ * scrollport, and focus scrolling never parks a control under it, however
+ * many lines the title takes. Full-bleed, it runs the scrollport's width; the
+ * scrollbar runs the scrollport's height beside it.
  *
  * And the **initial focus**, which goes to the scrollport rather than to a
  * control. Without a toolbar, `showModal()` left alone focuses the first
@@ -170,6 +173,26 @@ export function AnimatedModal(props: AnimatedModalProps) {
    * the time anything hears about it.
    */
   const [open, setOpen] = createSignal(true);
+
+  let scroller: HTMLDivElement | undefined;
+  let bar: HTMLDivElement | undefined;
+
+  // The bar's own height, border included, as the scrollport's scroll padding
+  // (see the component doc). The border box's layout size, which the sheet's
+  // entry scale does not shrink, and fractional, where `offsetHeight` would
+  // round it. Before the first observation, and in an engine with no
+  // `ResizeObserver`, the padding falls back to the bar's 3.75rem floor; the
+  // first callback lands before the first paint.
+  onMount(() => {
+    if (!bar || !scroller || typeof ResizeObserver === "undefined") return;
+    const port = scroller;
+    const observer = new ResizeObserver(([entry]) => {
+      const height = entry?.borderBoxSize[0]?.blockSize;
+      if (height !== undefined) port.style.setProperty("--sheet-bar", `${height}px`);
+    });
+    observer.observe(bar, { box: "border-box" });
+    onCleanup(() => observer.disconnect());
+  });
 
   onMount(() => {
     const root = document.documentElement;
@@ -269,9 +292,9 @@ export function AnimatedModal(props: AnimatedModalProps) {
 
           The scroll padding keeps focus-driven scrolling clear of whatever
           sits at the top: tabbing BACKWARDS scrolls a target to the top of
-          the scrollport. Under a toolbar that is the bar, and `scroll-pt-15`
-          is its `h-15` — one step of the spacing scale, so the two cannot
-          drift. Without one it is the close chip's 52px footprint
+          the scrollport. Under a toolbar that is the bar, whose height the
+          observer above writes to `--sheet-bar`, falling back to its
+          `min-h-15` floor. Without one it is the close chip's 52px footprint
           (`scroll-pt-14`, 56px), and `pt-8` starts the content below it; the
           bar takes its own room in flow and needs no top padding.
 
@@ -281,12 +304,15 @@ export function AnimatedModal(props: AnimatedModalProps) {
           inside it (bound to the pointer) are each the size of the sheet. The
           property is inherited, so this covers everything the sheet holds. */}
       <div
-        ref={(el) => props.scrollRef?.(el)}
+        ref={(el) => {
+          scroller = el;
+          props.scrollRef?.(el);
+        }}
         autofocus
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region MUST be focusable or it has no keyboard (WCAG 2.1.1; axe `scrollable-region-focusable`). This rule and that one disagree by construction on scrollports, and keyboard operability wins: measured, focus elsewhere left Arrow/PageDown moving this sheet 0px.
         tabindex="0"
         class={`flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-6 [-webkit-tap-highlight-color:transparent] ${
-          props.toolbar ? "scroll-pt-15" : "scroll-pt-14 pt-8"
+          props.toolbar ? "scroll-pt-[var(--sheet-bar,3.75rem)]" : "scroll-pt-14 pt-8"
         } ${props.flushBottom ? "pb-0" : "pb-[max(2.5rem,env(safe-area-inset-bottom))] md:pb-10"}`}
       >
         <Show when={props.toolbar}>
@@ -295,20 +321,24 @@ export function AnimatedModal(props: AnimatedModalProps) {
               `-mx-6` cancels the scrollport's sides, and `pl-6` puts the title
               on the content's own 24px edge while `pr-2` keeps the cross 8px
               in from the sheet's corner, where the chip sits without a bar.
-              `h-15` is fixed, because the title is one line whatever its
-              length; `shrink-0`, or this column would shrink it to its 46px
-              of content once the panels overflow. `mb-5` is the gap above the
+              `min-h-15` is a floor, not a height: a long title wraps rather
+              than being cut short, and the bar grows with it, `py-2` keeping
+              its lines off the bar's edges; the action and the cross stay
+              centred on it. `shrink-0`, or this column would shrink it to its
+              content once the panels overflow. `mb-5` is the gap above the
               content at rest.
 
               Frosted: 75% of the sheet's own surface over a blur of what
               passes under it, which holds the title at 4.5:1 over pure black
-              or pure white content on every scheme. The switch and the cross
-              keep opaque fills: the switch's gold words would need a 92% fill
-              to hold 4.5:1 there, which leaves no glass to see through
-              (`EventSheet.browser.test.tsx`). `z-10` for the same reason as
-              the close chip above: the dietary pills are positioned boxes
-              later in the tree, and they scroll under this. */}
-          <div class="bg-surface/75 border-border/60 sticky top-0 z-10 -mx-6 mb-5 flex h-15 shrink-0 items-center gap-1 border-b pr-2 pl-6 backdrop-blur-md">
+              or pure white content on every scheme. The action and the cross
+              keep opaque fills of their own (`EventSheet.browser.test.tsx`).
+              `z-10` for the same reason as the close chip above: the dietary
+              pills are positioned boxes later in the tree, and they scroll
+              under this. */}
+          <div
+            ref={(el) => (bar = el)}
+            class="bg-surface/75 border-border/60 sticky top-0 z-10 -mx-6 mb-5 flex min-h-15 shrink-0 items-center gap-1 border-b py-2 pr-2 pl-6 backdrop-blur-md"
+          >
             <div class="mr-1 min-w-0 flex-1">{props.title}</div>
             {props.action}
             <CloseButton onClick={() => setOpen(false)} />

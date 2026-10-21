@@ -189,13 +189,13 @@ describe("AnimatedModal", () => {
         labelledBy="sheet-title"
         toolbar
         title={<h2 id="sheet-title">Mehndi</h2>}
-        action={<button type="button">Respond</button>}
+        action={<button type="button">Give RSVP</button>}
       >
         <p>Body</p>
       </AnimatedModal>
     ));
     const close = getByRole("button", { name: "Close" });
-    const action = getByRole("button", { name: "Respond" });
+    const action = getByRole("button", { name: "Give RSVP" });
     const title = getByRole("heading", { name: "Mehndi" });
     const scroller = scrollerOf(close.closest("dialog")!);
     const bar = close.parentElement!;
@@ -211,10 +211,11 @@ describe("AnimatedModal", () => {
     expect(title.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(bar.className.split(/\s+/)).toEqual(expect.arrayContaining(["sticky", "top-0", "z-10"]));
     // The bar takes its own height in flow, so the content needs no top
-    // padding to clear it, and focus scrolling keeps a target below it.
+    // padding to clear it; it grows with a title that wraps, and focus
+    // scrolling keeps a target below whatever height it has.
     expect(scroller.className).not.toMatch(/(^|\s)pt-(8|16)(\s|$)/);
-    expect(bar.className.split(/\s+/)).toContain("h-15");
-    expect(scroller.className.split(/\s+/)).toContain("scroll-pt-15");
+    expect(bar.className.split(/\s+/)).toContain("min-h-15");
+    expect(scroller.className.split(/\s+/)).toContain("scroll-pt-[var(--sheet-bar,3.75rem)]");
   });
 
   it("keeps the plain top padding without a toolbar", () => {
