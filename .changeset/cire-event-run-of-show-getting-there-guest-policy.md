@@ -44,7 +44,8 @@ Organisers can give each event a run of show, getting-there notes and a guest po
   optional, so either can deploy before the API. An older API drops them from
   a save: deploy `cire-api` first.
 - The end-to-end flow `cire-event-details` now also builds a run of show
-  (moving an item from the keyboard), sets the notes and the policy, reverts a
-  later save, round-trips the events sheet, and checks the guest sheet for two
+  (moving an item from the keyboard), sets the notes and the policy, clears
+  two of them in a later save and reverts it, round-trips the events sheet,
+  reads the event back in the Events list, and checks the guest sheet for two
   households: the organiser's preview, which may bring no plus-one, and one
   that may.
