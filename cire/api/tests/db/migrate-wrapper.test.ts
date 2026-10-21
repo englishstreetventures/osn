@@ -167,127 +167,136 @@ describe.skipIf(process.env.CIRE_D1_TIER !== "1")("cire-db-migrate.ts on a local
 // holds, a database built from zero ends with the same schema, and a file
 // that fails leaves no trace. The ledgers and schemas they end with are
 // written to e2e-artifacts/migrations/ledger.json.
-describe.skipIf(process.env.CIRE_D1_TIER !== "1")("timestamped migrations on a local D1", () => {
-  const STAMPED = "20261021031500_e2e_add_note.sql";
-  const FAILING = "20261021031501_e2e_fails.sql";
-  const artifact: Record<string, unknown> = {};
+// Fourteen wrangler runs, about a minute, testing the migration workflow rather
+// than cire/api: CI runs them in their own job (`test:migration-flow`), not in
+// the D1 tier every cire/api build and deploy waits on.
+describe.skipIf(process.env.CIRE_D1_TIER !== "1" || process.env.MIGRATION_FLOW !== "1")(
+  "timestamped migrations on a local D1",
+  () => {
+    const STAMPED = "20261021031500_e2e_add_note.sql";
+    const FAILING = "20261021031501_e2e_fails.sql";
+    const artifact: Record<string, unknown> = {};
 
-  /** A wrangler config over a copy of the live chain plus `extra` files. */
-  function chain(name: string, extra: Record<string, string>): string {
-    const dir = join(root, name);
-    mkdirSync(join(dir, "migrations"), { recursive: true });
-    for (const file of listMigrations(MIGRATIONS_DIR)) {
-      copyFileSync(join(MIGRATIONS_DIR, file), join(dir, "migrations", file));
+    /** A wrangler config over a copy of the live chain plus `extra` files. */
+    function chain(name: string, extra: Record<string, string>): string {
+      const dir = join(root, name);
+      mkdirSync(join(dir, "migrations"), { recursive: true });
+      for (const file of listMigrations(MIGRATIONS_DIR)) {
+        copyFileSync(join(MIGRATIONS_DIR, file), join(dir, "migrations", file));
+      }
+      for (const [file, sql] of Object.entries(extra)) {
+        writeFileSync(join(dir, "migrations", file), sql);
+      }
+      writeFileSync(
+        join(dir, "wrangler.toml"),
+        [
+          `name = "cire-${name}"`,
+          'compatibility_date = "2025-03-01"',
+          "[[d1_databases]]",
+          'binding = "DB"',
+          'database_name = "cire-db"',
+          'database_id = "00000000-0000-0000-0000-000000000001"',
+          `migrations_dir = "${join(dir, "migrations")}"`,
+          "",
+        ].join("\n"),
+      );
+      return join(dir, "wrangler.toml");
     }
-    for (const [file, sql] of Object.entries(extra)) {
-      writeFileSync(join(dir, "migrations", file), sql);
+
+    function apply(
+      config: string,
+      persist: string,
+    ): { readonly exitCode: number; readonly output: string } {
+      const result = Bun.spawnSync(
+        [WRANGLER, "d1", "migrations", "apply", ...target(persist), "--config", config],
+        {
+          cwd: CIRE_API,
+          stdin: "ignore",
+          stdout: "pipe",
+          stderr: "pipe",
+          env: { ...process.env, CI: "1" },
+        },
+      );
+      return {
+        exitCode: result.exitCode ?? 1,
+        output: `${result.stdout.toString()}${result.stderr.toString()}`,
+      };
     }
-    writeFileSync(
-      join(dir, "wrangler.toml"),
-      [
-        `name = "cire-${name}"`,
-        'compatibility_date = "2025-03-01"',
-        "[[d1_databases]]",
-        'binding = "DB"',
-        'database_name = "cire-db"',
-        'database_id = "00000000-0000-0000-0000-000000000001"',
-        `migrations_dir = "${join(dir, "migrations")}"`,
-        "",
-      ].join("\n"),
-    );
-    return join(dir, "wrangler.toml");
-  }
 
-  function apply(
-    config: string,
-    persist: string,
-  ): { readonly exitCode: number; readonly output: string } {
-    const result = Bun.spawnSync(
-      [WRANGLER, "d1", "migrations", "apply", ...target(persist), "--config", config],
-      {
-        cwd: CIRE_API,
-        stdin: "ignore",
-        stdout: "pipe",
-        stderr: "pipe",
-        env: { ...process.env, CI: "1" },
-      },
-    );
-    return {
-      exitCode: result.exitCode ?? 1,
-      output: `${result.stdout.toString()}${result.stderr.toString()}`,
-    };
-  }
+    function rows(config: string, persist: string, sql: string): readonly D1Row[] {
+      const result = Bun.spawnSync(
+        [
+          WRANGLER,
+          "d1",
+          "execute",
+          ...target(persist),
+          "--config",
+          config,
+          "--json",
+          "--command",
+          sql,
+        ],
+        { cwd: CIRE_API, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+      );
+      expect(result.exitCode).toBe(0);
+      return parseD1Rows(result.stdout.toString());
+    }
 
-  function rows(config: string, persist: string, sql: string): readonly D1Row[] {
-    const result = Bun.spawnSync(
-      [
-        WRANGLER,
-        "d1",
-        "execute",
-        ...target(persist),
-        "--config",
+    const ledger = (config: string, persist: string) =>
+      namesOf(rows(config, persist, "SELECT name FROM d1_migrations ORDER BY id"));
+    const schema = (config: string, persist: string) =>
+      rows(
         config,
-        "--json",
-        "--command",
-        sql,
-      ],
-      { cwd: CIRE_API, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
-    );
-    expect(result.exitCode).toBe(0);
-    return parseD1Rows(result.stdout.toString());
-  }
+        persist,
+        "SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name <> 'd1_migrations' ORDER BY name",
+      );
+    const NOTE = "ALTER TABLE `weddings` ADD `e2e_note` text;";
 
-  const ledger = (config: string, persist: string) =>
-    namesOf(rows(config, persist, "SELECT name FROM d1_migrations ORDER BY id"));
-  const schema = (config: string, persist: string) =>
-    rows(
-      config,
-      persist,
-      "SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name <> 'd1_migrations' ORDER BY name",
-    );
-  const NOTE = "ALTER TABLE `weddings` ADD `e2e_note` text;";
-
-  afterAll(() => {
-    const out = join(REPO_ROOT, "e2e-artifacts", "migrations");
-    mkdirSync(out, { recursive: true });
-    writeFileSync(join(out, "ledger.json"), `${JSON.stringify(artifact, null, 2)}\n`);
-  });
-
-  test("an existing database applies the new file alone; one built from zero ends the same", () => {
-    const today = chain("today", {});
-    const persist = join(root, "existing");
-    expect(apply(today, persist).exitCode).toBe(0);
-    const before = ledger(today, persist);
-
-    const next = chain("next", { [STAMPED]: NOTE });
-    const applied = apply(next, persist);
-    expect(applied.exitCode).toBe(0);
-    const after = ledger(next, persist);
-    expect(after).toEqual([...before, STAMPED]);
-    expect(checkLedger(after, archivedMigrations())).toMatchObject({
-      ok: true,
-      baselineOnly: false,
+    afterAll(() => {
+      const out = join(REPO_ROOT, "e2e-artifacts", "migrations");
+      mkdirSync(out, { recursive: true });
+      writeFileSync(join(out, "ledger.json"), `${JSON.stringify(artifact, null, 2)}\n`);
     });
 
-    const zero = join(root, "zero");
-    expect(apply(next, zero).exitCode).toBe(0);
-    expect(ledger(next, zero)).toEqual(after);
-    expect(schema(next, zero)).toEqual(schema(next, persist));
+    test("an existing database applies the new file alone; one built from zero ends the same", () => {
+      const today = chain("today", {});
+      const persist = join(root, "existing");
+      expect(apply(today, persist).exitCode).toBe(0);
+      const before = ledger(today, persist);
 
-    artifact.existing = { ledger: after, schema: schema(next, persist) };
-    artifact.fromZero = { ledger: ledger(next, zero) };
-  }, 180_000);
+      const next = chain("next", { [STAMPED]: NOTE });
+      const applied = apply(next, persist);
+      expect(applied.exitCode).toBe(0);
+      const after = ledger(next, persist);
+      expect(after).toEqual([...before, STAMPED]);
+      expect(checkLedger(after, archivedMigrations())).toMatchObject({
+        ok: true,
+        baselineOnly: false,
+      });
 
-  test("a timestamped file that fails leaves no table and no ledger row", () => {
-    const config = chain("failing", {
-      [FAILING]:
-        "CREATE TABLE `e2e_partial` (`id` text PRIMARY KEY NOT NULL);\n--> statement-breakpoint\nALTER TABLE `no_such_table` ADD `x` text;",
-    });
-    const persist = join(root, "failing");
-    const failed = apply(config, persist);
-    expect(failed.exitCode).not.toBe(0);
-    expect(ledger(config, persist)).not.toContain(FAILING);
-    expect(schema(config, persist).map((row) => row.name)).not.toContain("e2e_partial");
-    artifact.failing = { exitCode: failed.exitCode, ledger: ledger(config, persist) };
-  }, 120_000);
-});
+      const zero = join(root, "zero");
+      expect(apply(next, zero).exitCode).toBe(0);
+      const zeroLedger = ledger(next, zero);
+      const existingSchema = schema(next, persist);
+      expect(zeroLedger).toEqual(after);
+      expect(schema(next, zero)).toEqual(existingSchema);
+
+      artifact.existing = { ledger: after, schema: existingSchema };
+      artifact.fromZero = { ledger: zeroLedger };
+    }, 180_000);
+
+    test("a timestamped file that fails leaves no table and no ledger row", () => {
+      const config = chain("failing", {
+        [FAILING]:
+          "CREATE TABLE `e2e_partial` (`id` text PRIMARY KEY NOT NULL);\n--> statement-breakpoint\nALTER TABLE `no_such_table` ADD `x` text;",
+      });
+      const persist = join(root, "failing");
+      const failed = apply(config, persist);
+      expect(failed.exitCode).not.toBe(0);
+      const failingLedger = ledger(config, persist);
+      expect(failingLedger).not.toContain(FAILING);
+      expect(schema(config, persist).map((row) => row.name)).not.toContain("e2e_partial");
+      artifact.failing = { exitCode: failed.exitCode, ledger: failingLedger };
+    }, 120_000);
+  },
+);

@@ -14,6 +14,7 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
+    "test:migration-flow": "MIGRATION_FLOW=1 bun test tests/migration-flow.test.ts",
     "test": "bun test",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
     "seed:generate": "bun run seed/generate.ts",

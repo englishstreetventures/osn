@@ -299,17 +299,6 @@ jobs:
       - name: D1 integration tests
         run: bun run test:d1
 
-      # migrate-wrapper (this tier) and cire/db's migration-flow write the
-      # ledgers, schemas and verdicts they end with here, so a reviewer can see
-      # what a migration did on a real local D1 without rerunning it.
-      - name: Upload migration artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: migration-artifacts
-          path: e2e-artifacts/migrations/
-          if-no-files-found: ignore
-
       # The browser tier (`*.browser.test.tsx`) runs in a real Chromium, because
       # jsdom computes no CSS and no layout — so stacking order, sticky
       # positioning, Tailwind's compiled output and the reduced-motion clamp are
@@ -591,6 +580,9 @@ jobs:
   # earns trust; promote it once it has a record of staying green.
   e2e:
     name: E2E
+    # Not one of `ci`'s needs, so nothing reads its result on a merge-queue
+    # group, and the push to main that follows runs it on the same commit.
+    if: github.event_name != 'merge_group'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -653,10 +645,56 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  # The migration workflow end to end: `db:generate` on parallel branches of
+  # copies of cire's and osn's real schemas (cire/db's migration-flow), and
+  # timestamped migrations applied by the real wrangler to a local D1 that
+  # already holds the chain and to one built from zero (cire/api's
+  # migrate-wrapper). Several minutes of drizzle-kit and wrangler runs that
+  # test no package's own code, so they are a job of their own rather than
+  # part of every package's tests and every deploy. Both write the ledgers,
+  # schemas and verdicts they end with to e2e-artifacts/migrations/.
+  migration-flow:
+    name: Migration workflow
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: db:generate across parallel branches
+        timeout-minutes: 12
+        run: bun run --cwd cire/db test:migration-flow
+
+      - name: Timestamped migrations on a local D1
+        timeout-minutes: 6
+        run: bun run --cwd cire/api test:migration-flow
+
+      - name: Upload migration artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-artifacts
+          path: e2e-artifacts/migrations/
+          if-no-files-found: ignore
+
   ci:
     name: CI
     if: always()
-    needs: [lint, typecheck, build-test, script-tests, openapi-freshness]
+    needs: [lint, typecheck, build-test, script-tests, openapi-freshness, migration-flow]
     runs-on: ubuntu-latest
     steps:
       - name: Check results

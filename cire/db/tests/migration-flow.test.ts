@@ -30,6 +30,10 @@ const CIRE_DB = join(import.meta.dir, "..");
 const REPO_ROOT = join(CIRE_DB, "..", "..");
 const GENERATE = join(REPO_ROOT, "scripts", "db-generate.ts");
 const SLOW = 300_000;
+// About two minutes of drizzle-kit runs, none of which tests cire/db's own
+// code, so they stay out of `bun test` and every build that runs it: CI runs
+// them in their own job, through `test:migration-flow`.
+const FLOW = process.env.MIGRATION_FLOW === "1";
 
 const flow: Record<string, unknown> = {};
 let generateTmp: string;
@@ -126,13 +130,14 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  rmSync(generateTmp, { recursive: true, force: true });
+  if (!FLOW) return;
   const out = join(REPO_ROOT, "e2e-artifacts", "migrations");
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, "flow.json"), `${JSON.stringify(flow, null, 2)}\n`);
-  rmSync(generateTmp, { recursive: true, force: true });
 });
 
-describe("db:generate on cire, parallel branches and the merge-queue check", () => {
+describe.skipIf(!FLOW)("db:generate on cire, parallel branches and the merge-queue check", () => {
   let cire: Workspace;
   const schema = () => join(cire.pkg, "src", "schema.ts");
   const migrations = () => join(cire.pkg, "migrations");
@@ -332,38 +337,41 @@ describe("db:generate on cire, parallel branches and the merge-queue check", () 
   );
 });
 
-describe("db:generate on osn's layout: drizzle/ and a schema split across files", () => {
-  test(
-    "writes one ALTER into drizzle/ for a new column, and refuses when nothing changed",
-    () => {
-      const osnDb = join(REPO_ROOT, "osn", "db");
-      const osn = workspace(
-        osnDb,
-        ["src", "drizzle"],
-        'export default { dialect: "sqlite", schema: "./src/schema/index.ts", out: "./drizzle" };\n',
-      );
-      try {
-        const unchanged = osn.generate("nothing");
-        expect(unchanged.exitCode).toBe(1);
-        expect(unchanged.output).toContain("no schema change");
+describe.skipIf(!FLOW)(
+  "db:generate on osn's layout: drizzle/ and a schema split across files",
+  () => {
+    test(
+      "writes one ALTER into drizzle/ for a new column, and refuses when nothing changed",
+      () => {
+        const osnDb = join(REPO_ROOT, "osn", "db");
+        const osn = workspace(
+          osnDb,
+          ["src", "drizzle"],
+          'export default { dialect: "sqlite", schema: "./src/schema/index.ts", out: "./drizzle" };\n',
+        );
+        try {
+          const unchanged = osn.generate("nothing");
+          expect(unchanged.exitCode).toBe(1);
+          expect(unchanged.output).toContain("no schema change");
 
-        addToTable(
-          join(osn.pkg, "src", "schema", "index.ts"),
-          "accounts",
-          'flowProbe: text("flow_probe"),',
-        );
-        const made = osn.generate("flow_probe");
-        expect(made.exitCode).toBe(0);
-        const file = made.output.trim().split("\n").at(-1)!;
-        expect(file).toMatch(/^osn\/db\/drizzle\/\d{14}_flow_probe\.sql$/);
-        expect(readFileSync(join(osn.repo, file), "utf8")).toBe(
-          "ALTER TABLE `accounts` ADD `flow_probe` text;",
-        );
-        flow.osnLayout = { file: stable(file) };
-      } finally {
-        rmSync(osn.repo, { recursive: true, force: true });
-      }
-    },
-    SLOW,
-  );
-});
+          addToTable(
+            join(osn.pkg, "src", "schema", "index.ts"),
+            "accounts",
+            'flowProbe: text("flow_probe"),',
+          );
+          const made = osn.generate("flow_probe");
+          expect(made.exitCode).toBe(0);
+          const file = made.output.trim().split("\n").at(-1)!;
+          expect(file).toMatch(/^osn\/db\/drizzle\/\d{14}_flow_probe\.sql$/);
+          expect(readFileSync(join(osn.repo, file), "utf8")).toBe(
+            "ALTER TABLE `accounts` ADD `flow_probe` text;",
+          );
+          flow.osnLayout = { file: stable(file) };
+        } finally {
+          rmSync(osn.repo, { recursive: true, force: true });
+        }
+      },
+      SLOW,
+    );
+  },
+);
