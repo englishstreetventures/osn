@@ -658,17 +658,23 @@ export interface AppOptions {
   /** Override the guest "give money" limiter (useful for testing). */
   registryContributeLimiter?: RateLimiterBackend;
   /**
-   * Stripe Connect. BOTH halves are key-optional and independent, because in
-   * practice they arrive at different moments: the client can be configured
-   * before an endpoint has a signing secret, and a signing secret is useless
-   * without the client.
+   * Stripe Connect. Both halves are key-optional, because in practice they
+   * arrive at different moments: the client can be configured before an
+   * endpoint has a signing secret, and a signing secret is useless without the
+   * client.
    *
    *  - `stripe` absent ⇒ the organiser onboarding routes are not mounted, so a
    *    deployment with no Stripe account has no payment surface at all rather
    *    than one that 500s.
-   *  - `stripeWebhookSecret` absent ⇒ the webhook route is not mounted, because
-   *    nothing could be verified and an endpoint that writes from unverified
-   *    bodies is an unauthenticated write API.
+   *  - `stripeWebhookSecret` absent or blank ⇒ the webhook route is not
+   *    mounted, because nothing could be verified and an endpoint that writes
+   *    from unverified bodies is an unauthenticated write API.
+   *  - Money gifts need BOTH: the client opens the payment page and the webhook
+   *    records the gift. With the client alone a guest would pay and the gift
+   *    would stay `pending` for good, so the guest money surface (the
+   *    contribute route, money and cash funds on the list, a fund's picture)
+   *    exists only with both, and building the app logs a warning when the
+   *    client comes without the secret.
    */
   stripe?: StripeClient | null;
   stripeWebhookSecret?: string | null;
@@ -818,6 +824,31 @@ export function createApp(db: Db, options: AppOptions = {}) {
   } = options;
   const corsOrigins = allowedOrigins ?? [webOrigin];
   const corsOriginSet = new Set(corsOrigins);
+
+  // A secret of nothing but whitespace is no secret: no signature could match
+  // it. One value serves the webhook mount and the money gate below, so the two
+  // can never disagree about whether gifts get recorded.
+  const connectWebhookSecret = stripeWebhookSecret?.trim() || null;
+  // The Stripe client the guest money routes may use: only where the Connect
+  // webhook exists to record what they take.
+  const giftStripe = connectWebhookSecret ? stripe : null;
+  // Whether a guest can give money on this deployment at all. The guest list,
+  // a fund's picture and the organiser's registry read all take it, so the
+  // guest surface and the portal agree with the contribute route's mount.
+  const takesPayments = giftStripe !== null;
+  if (stripe && !connectWebhookSecret) {
+    // Once per app build: per isolate on the Worker, once at boot locally.
+    // Names the variables, never their values.
+    runCireSync(
+      Effect.logWarning(
+        "money gifts disabled: STRIPE_SECRET_KEY is set without STRIPE_WEBHOOK_SECRET",
+        {
+          detail:
+            "guests are offered no money gift until the Connect webhook secret is set and the Worker redeployed",
+        },
+      ),
+    );
+  }
 
   // Vendor CRM deps — use injected instances (tests) or module-level defaults
   // (production). The email layer defaults to LogEmailLive so tests that don't
@@ -1077,18 +1108,20 @@ export function createApp(db: Db, options: AppOptions = {}) {
       //
       // `takesPayments` is the contribute route's own mount condition below:
       // the list offers money and cash funds, and a fund's picture serves,
-      // only where a guest's press can reach a payment page.
-      .use(createRegistryGuestImageRoutes(db, { assets, images, takesPayments: stripe !== null }))
-      .use(createRegistryGuestListRoutes(db, { takesPayments: stripe !== null }))
+      // only where a guest's press can reach a payment page and the gift it
+      // pays for will be recorded.
+      .use(createRegistryGuestImageRoutes(db, { assets, images, takesPayments }))
+      .use(createRegistryGuestListRoutes(db, { takesPayments }))
       .use(createRegistryGuestMineRoutes(db))
       .use(createRegistryGuestClaimRoutes(db, { limiter: registryGuestLimiter }))
-      // Giving money. Mounted only with Stripe configured — a guest must never
-      // be offered a button that cannot lead anywhere. Its own limiter, apart
-      // from the claim one: every call is an outbound Stripe request.
+      // Giving money. Mounted only with the Stripe client AND the Connect
+      // webhook secret — a guest must never be offered a button that cannot
+      // lead anywhere, nor pay for a gift nothing will record. Its own limiter,
+      // apart from the claim one: every call is an outbound Stripe request.
       .use(
-        stripe
+        giftStripe
           ? createRegistryContributeRoutes(db, {
-              stripe,
+              stripe: giftStripe,
               limiter: registryContributeLimiter,
               guestOrigin: webOrigin,
             })
@@ -1167,8 +1200,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // from every route here, and the portal fades that module's nav row and
       // offers the upgrade rather than opening it. Mounting it unconditionally
       // is deliberate — the lock is the tier, not the absence of a route, so
-      // moving one wedding to Gold opens it with no deploy.
-      .use(createRegistryReadRoutes(db, osnAuthOptions))
+      // moving one wedding to Gold opens it with no deploy. The read tells the
+      // portal `takesPayments`, so it never says guests can give money where
+      // the guest list offers none.
+      .use(createRegistryReadRoutes(db, osnAuthOptions, { takesPayments }))
       // `assets` goes to the write factory for ONE reason: deleting an item has to
       // reap the R2 object its `image_key` pointed at, and D1's cascade stops at
       // the row.
@@ -1346,9 +1381,9 @@ export function createApp(db: Db, options: AppOptions = {}) {
   );
   // Stripe's own deliveries. Mounted only with a signing secret: nothing else
   // authenticates this endpoint, so without one it must not exist.
-  const withStripeWebhook: AnyElysia = stripeWebhookSecret
+  const withStripeWebhook: AnyElysia = connectWebhookSecret
     ? withRealtimeFallback.use(
-        createStripeWebhookRoutes(db, { webhookSecret: stripeWebhookSecret }),
+        createStripeWebhookRoutes(db, { webhookSecret: connectWebhookSecret }),
       )
     : withRealtimeFallback;
   // Self-serve upgrades. Mounted HERE, past the `AnyElysia` widening, rather

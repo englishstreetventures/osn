@@ -45,8 +45,9 @@ export const CIRE_RSVP_CLOSED_ISO = "2099-01-02T00:00:00.000Z";
  * invite" opens the invitation with.
  *
  * `fund` is a cash fund on the same list. The couple's settings take money,
- * but the stack's cire-api has no Stripe key, so no guest may be offered the
- * fund or the money form. The locked flow checks the fund absent without a
+ * but the stack's cire-api has a Stripe key and no Connect webhook secret, so
+ * it could never record a gift and no guest may be offered the fund or the
+ * money form. The locked flow checks the fund absent without a
  * claim, and the claimed flow checks it absent with one; the claimed flow
  * reads the fund's row from the database, so a drifted value fails there.
  */

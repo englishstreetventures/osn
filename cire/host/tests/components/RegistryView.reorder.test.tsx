@@ -81,6 +81,7 @@ const snapshot = (items: RegistryItem[] = ITEMS): RegistrySnapshot => ({
   currency: "AUD",
   contributionsPrimaryMinor: 0,
   contributionsOtherCurrencyCount: 0,
+  takesPayments: true,
 });
 
 const ok = () => new Response(JSON.stringify({ ok: true }), { status: 200 });

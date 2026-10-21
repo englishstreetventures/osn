@@ -7,11 +7,11 @@
  * locks the list again and removes the household's session.
  *
  * The couple also have a cash fund, and their own settings take money. This
- * stack's cire-api has no Stripe key, so nothing a guest presses could reach
- * a payment page: the list offers neither the money form nor the fund. The
- * flow reads the fund's row and the couple's Stripe-ready settings from the
- * database first, so the fund's absence is the deployment's doing, not a seed
- * that lacks one.
+ * stack's cire-api has a Stripe key and no Connect webhook secret: it could
+ * open a payment page but never record the gift, so the list offers neither
+ * the money form nor the fund. The flow reads the fund's row and the couple's
+ * Stripe-ready settings from the database first, so the fund's absence is the
+ * deployment's doing, not a seed that lacks one.
  *
  * The wedding is the gift-list one cire-api seeds for the suite
  * (`CIRE_GIFT_LIST`); every string the locked flow checks is absent is checked
@@ -144,10 +144,10 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
     CIRE_GIFT_LIST.slug,
   );
   flow.check("the couple's settings take money", 1, money?.ready ?? 0);
-  // …and still nothing is offered, because this deployment cannot take a
-  // payment: no Stripe key, no contribute route.
-  flow.check("money offered on a stack with no Stripe", false, after.moneyOffered);
-  flow.check("funds offered on a stack with no Stripe", 0, after.fundsOffered);
+  // …and still nothing is offered, because this deployment cannot record a
+  // payment: a Stripe key but no webhook secret, so no contribute route.
+  flow.check("money offered on a stack with no Stripe webhook secret", false, after.moneyOffered);
+  flow.check("funds offered on a stack with no Stripe webhook secret", 0, after.fundsOffered);
   flow.check("money form on the page", 0, after.moneyForm);
   flow.check("fund on the page", "none", after.fundOnPage);
 
