@@ -70,7 +70,8 @@ import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support
  * 22. Inside its event's band: not a run-sheet row, nothing to press or type
  *     in, never "Coming up".
  * 23. An event with no run of show shows no list.
- * 24. A holder OSN gave no name: a face, counted, never named.
+ * 24. A holder OSN gave no name: a face, counted, never named; one the
+ *     answer carries no seat for: left out.
  * 25. A first flag weeks away: one timer of the longest wait a browser keeps,
  *     never a loop of timers that fire at once.
  */
@@ -375,6 +376,26 @@ describe("RunSheetView", () => {
     expect(rowOf("rings")!.querySelector('[data-holder="whost_nameless"]')).toBeTruthy();
     expect(rowOf("rings")!.textContent).toContain("Held by 2 people");
     expect(rowOf("rings")!.textContent).not.toContain("whost_nameless");
+  });
+
+  it("leaves out a holder the answer carries no seat for", async () => {
+    authFetchMock.mockResolvedValue(
+      json({
+        ...DAY,
+        items: [
+          task({
+            id: "rings",
+            title: "Mind the rings",
+            runAt: "2099-06-20T14:30:00+10:00",
+            assigneeHostIds: ["whost_me", "whost_gone"],
+          }),
+        ],
+      }),
+    );
+    view();
+    await waitFor(() => expect(rowOf("rings")).toBeTruthy());
+    expect(rowOf("rings")!.querySelectorAll("[data-holder]")).toHaveLength(1);
+    expect(rowOf("rings")!.textContent).toContain("Held by Me Myself");
   });
 
   it("reads the run sheet again when the tasks or the seats change", async () => {
