@@ -364,6 +364,13 @@ describe("the holders on each row, painted", () => {
               `"${count.textContent}" is drawn to ${figures.right}px; the + covers from ${cover.left}px`,
             ).toBe(true);
           }
+          // With nothing after it, as for a viewer, the count is a disc with its
+          // figures centred; before an editor's + it is a pill padded at its end.
+          const shape = {
+            disc: Math.abs(more.width - more.height) < 0.5,
+            centred: Math.abs(figures.left - more.left - (more.right - figures.right)) < 0.5,
+          };
+          expect(shape).toEqual({ disc: role === "viewer", centred: role === "viewer" });
           expect(within(list).queryAllByRole("button", { name: /^Assign people/ })).toHaveLength(
             role === "editor" ? TASKS.length : 0,
           );

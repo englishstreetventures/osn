@@ -120,7 +120,7 @@ export default function TaskHolders(props: TaskHoldersProps) {
             .map((h) => nameOf(h))
             .filter(Boolean)
             .join(", ")}
-          class={`bg-surface-raised text-text border-border-strong ring-bg font-body text-ui-xs relative flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full border ps-1.5 font-medium tabular-nums ring-2 ${beforePlus ? "pe-4" : "pe-1.5"}`}
+          class={`bg-surface-raised text-text border-border-strong ring-bg font-body text-ui-xs relative flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full border ps-1 font-medium tabular-nums ring-2 ${beforePlus ? "pe-4" : "pe-1"}`}
         >
           {`+${rest().length}`}
         </span>
