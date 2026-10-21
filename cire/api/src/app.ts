@@ -750,10 +750,12 @@ export function createApp(db: Db, options: AppOptions = {}) {
   const corsOrigins = allowedOrigins ?? [webOrigin];
   const corsOriginSet = new Set(corsOrigins);
 
-  // A secret of nothing but whitespace is no secret: no signature could match
-  // it. One value serves the webhook mount and the money gate below, so the two
-  // can never disagree about whether gifts get recorded.
+  // A signing secret of nothing but whitespace counts as unset: anyone could
+  // sign a delivery with it, so neither webhook route may mount on one. The
+  // Connect value also serves the money gate below, so the webhook mount and
+  // the gate can never disagree about whether gifts get recorded.
   const connectWebhookSecret = stripeWebhookSecret?.trim() || null;
+  const platformWebhookSecret = stripePlatformWebhookSecret?.trim() || null;
   // The Stripe client the guest money routes may use: only where the Connect
   // webhook exists to record what they take.
   const giftStripe = connectWebhookSecret ? stripe : null;
@@ -1307,10 +1309,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // The platform endpoint, on its own secret. Without it a purchase can be
   // started and paid but never granted — nothing else in the system moves a
   // purchase off `pending`.
-  return stripePlatformWebhookSecret
+  return platformWebhookSecret
     ? withUpgradeRoutes.use(
         createStripePlatformWebhookRoutes(db, {
-          webhookSecret: stripePlatformWebhookSecret,
+          webhookSecret: platformWebhookSecret,
           upgrades,
         }),
       )

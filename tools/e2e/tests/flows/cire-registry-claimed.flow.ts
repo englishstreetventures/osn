@@ -20,9 +20,12 @@
  * locked one pass on nothing.
  */
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import type { Page } from "@playwright/test";
 
-import { CIRE_GIFT_LIST, DB_FILES, ORIGINS } from "../../src/config";
+import { CIRE_GIFT_LIST, DB_FILES, LOG_DIR, ORIGINS } from "../../src/config";
 import { expect, giftListTextIn, onSuiteClock, queryOne, test } from "../support/fixtures";
 
 const LIST_URL = `${ORIGINS.cireApi}/api/invite/${CIRE_GIFT_LIST.slug}/registry`;
@@ -150,6 +153,16 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
   flow.check("funds offered on a stack with no Stripe webhook secret", 0, after.fundsOffered);
   flow.check("money form on the page", 0, after.moneyForm);
   flow.check("fund on the page", "none", after.fundOnPage);
+  // The stack is the one these labels name: cire-api logs this warning only
+  // when it holds a Stripe key and no webhook secret, once, when it builds the
+  // app. With no key at all the checks above would pass too, and say nothing.
+  const cireApiLog = readFileSync(resolve(LOG_DIR, "cireApi.log"), "utf8");
+  flow.check(
+    "cire-api warned once of a Stripe key with no webhook secret",
+    1,
+    cireApiLog.split("money gifts disabled: STRIPE_SECRET_KEY is set without STRIPE_WEBHOOK_SECRET")
+      .length - 1,
+  );
 
   const sessions = queryOne<{ n: number; created_at: number }>(
     DB_FILES.cire,

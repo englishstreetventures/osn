@@ -25,7 +25,7 @@ delivery is being refused resolves to which of the two you are holding.
 | Charge type | direct, on the couple's account | platform charge |
 | Signing secret | `STRIPE_WEBHOOK_SECRET` | `STRIPE_PLATFORM_WEBHOOK_SECRET` |
 | `event.account` | always present | must be **absent** |
-| Unset secret ⇒ | route not mounted, and guests are offered no money gift | route not mounted |
+| Unset or blank secret ⇒ | route not mounted, and guests are offered no money gift | route not mounted |
 | System page | [[cire-registry]] | [[cire-upgrades]] |
 
 A Stripe endpoint is scoped to one or the other, each carries its own signing
@@ -64,10 +64,11 @@ Dashboard. `Settings → Developers` does not hold it.
 
 Needed for the registry's card contributions. Without its secret cire-api
 offers guests no money gift at all — no contribute route, no money form, no
-cash fund — and logs `money gifts disabled: STRIPE_SECRET_KEY is set without
-STRIPE_WEBHOOK_SECRET` when it builds the app; a couple's Connect capabilities
-are never cached, and a revoked account is never noticed. With the secret set
-but the endpoint missing at Stripe, gifts are offered and each stays `pending`.
+cash fund — and, where `STRIPE_SECRET_KEY` is set, logs `money gifts disabled:
+STRIPE_SECRET_KEY is set without STRIPE_WEBHOOK_SECRET` when it builds the app.
+A couple's Connect capabilities then change only when the portal's refresh
+reads them, and a revoked account is never noticed. With the secret set but
+the endpoint missing at Stripe, gifts are offered and each stays `pending`.
 
 1. Workbench → Webhooks → **Create new destination**.
 2. URL:
