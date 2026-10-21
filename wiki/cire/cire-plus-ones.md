@@ -205,7 +205,7 @@ A plus-one is the household's data, not the organiser's sheet. The reconcile pip
 - **The diff** (`import.ts diffAgainstDb`) matches only the organiser's guests. A desired row that names a plus-one's id is dropped before matching. The organiser editor leaves plus-ones out of its drafts anyway (`cire/host/src/lib/guest-event-draft.ts`): a draft carrying the id of a plus-one removed since would otherwise be refused as stale, with no concurrent edit to explain it.
 - **A removed guest takes their plus-one**, named in the plan's removals, its RSVP-loss warnings and a warning of its own ("Removing guest Bo also removes their plus-one Sam.").
 - **A plus-one's invitations follow the inviter's.** Their desired events are the inviter's desired events, so the plan adds and drops their links with the inviter's.
-- **Plus-ones hold places under the guest cap** in the preview's arithmetic, as they do at apply time.
+- **Plus-ones hold places under the guest cap** in the preview's arithmetic, as they do at apply time. The apply's guest inserts check the cap as they write, as a naming does, so a plus-one named while a change is being applied is counted: the change's batch that would pass the cap is refused ([[cire-entitlements#Guest cap]]).
 - **An events revert** that re-creates an event re-invites each live plus-one wherever it re-invites their inviter.
 
 ### Not carried

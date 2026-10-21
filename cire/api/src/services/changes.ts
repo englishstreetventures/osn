@@ -522,9 +522,9 @@ export function releaseClaim(
  * Run `write` — everything a change does from its first write to its commit —
  * under `claim`, releasing the claim if it fails. A typed failure that
  * `before` recognises happened before any data statement was sent, so the head
- * stays put and the same preview can be retried (a 402 after an upgrade). Any
- * other failure, a defect or an interruption may have followed a committed
- * batch, so the head moves.
+ * stays put and the same preview can be retried (a 402 from the cap check
+ * before the write, after an upgrade). Any other failure, a defect or an
+ * interruption may have followed a committed batch, so the head moves.
  */
 export function underClaim<A, E, R>(
   claim: ChangeClaim,
