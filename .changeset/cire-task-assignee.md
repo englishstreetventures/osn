@@ -38,7 +38,7 @@ that it matches nobody. Photos load with no `Referer`. A viewer sees the faces, 
 circle on an open task nobody holds. The task drawer, its Edit button and the
 "Needs an owner" mark are gone.
 
-Migration `0087_task_assignees.sql` adds the `task_assignees` table — one row
+Migration `0088_task_assignees.sql` adds the `task_assignees` table — one row
 per task and seat, with `assigned_at` — whose two foreign keys,
 `(task_id, wedding_id)` to `tasks` and `(host_id, wedding_id)` to
 `wedding_hosts`, both cascade on delete and refuse a task paired with another
@@ -46,7 +46,12 @@ wedding's seat. It adds the unique indexes on `tasks(id, wedding_id)` and
 `wedding_hosts(id, wedding_id)` those keys reference, and indexes
 `task_assignees` on `(wedding_id, task_id, assigned_at)` and
 `(host_id, wedding_id)`, so a task's holders and both cascades find their rows
-without walking the wedding's.
+without walking the wedding's. It then copies each task's single assignee from
+`0087_task_assigned_host.sql` onto the table, when that seat is of the task's
+own wedding. `tasks.assigned_host_id` stays in the database, unread, so the API
+version before this one keeps working while a deploy migrates and if it rolls
+back; the Drizzle schema no longer declares it, and a later release drops it
+(englishstreetventures/osn#1636).
 
 The hosts' privacy notice on the marketing site now says that everyone on a
 wedding sees the others' musubi name, handle and profile photo, and which

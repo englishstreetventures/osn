@@ -9,7 +9,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[cire-auth]]"
   - "[[d1-limits]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 # Checklist / Tasks
 
@@ -26,8 +26,9 @@ wedding as they like ([[#Assignees]]).
 Built by the baseline `0001_initial.sql` (`migrations-archive/0038_tasks.sql`
 first); `0086_task_templates.sql` added the four template columns and the
 unique index with `ALTER TABLE ADD` and no rebuild, and
-`0087_task_assignees.sql` the unique index on `(id, wedding_id)` that the
-holders table references ([[#Assignees]]).
+`0088_task_assignees.sql` the unique index on `(id, wedding_id)` that the
+holders table references ([[#Assignees]]). `0087_task_assigned_host.sql` added
+`assigned_host_id`, below the table.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -48,6 +49,22 @@ holders table references ([[#Assignees]]).
 
 Who holds a task is not a column here: it is the `task_assignees` table
 ([[#Assignees]]).
+
+> [!important] `assigned_host_id` is in the database and nowhere else
+> `0087_task_assigned_host.sql` added `assigned_host_id` (nullable `text`, FK →
+> `wedding_hosts(id)` ON DELETE SET NULL) and its partial index
+> `tasks_assigned_host_idx (assigned_host_id) WHERE assigned_host_id IS NOT NULL`,
+> for a single assignee. `0088_task_assignees.sql` copied each value onto
+> `task_assignees` and left the column, because every deploy migrates before the
+> new Worker serves and the Worker before it still reads the column
+> ([[production-deploy#4. Database migrations]]). `cire/db/src/schema.ts` does not
+> declare it, since Drizzle names every declared column in each insert, select
+> and returning, so no statement the API sends names it and nothing reads or
+> writes it; the test DDL in `cire/api/src/db/setup.ts` keeps it, and
+> `tests/db/ddl-lockstep.test.ts` excuses it from the Drizzle comparison alone.
+> Never declare it again, and never copy it onto `task_assignees` a second time:
+> a holder removed since `0088` may still be in it. englishstreetventures/osn#1636
+> drops it.
 
 **Indexes:**
 
@@ -153,7 +170,9 @@ a profile id, because the helper run sheet filters on the seat
 
 ### `task_assignees` table
 
-Built by `0087_task_assignees.sql`: one row per task and seat.
+Built by `0088_task_assignees.sql`: one row per task and seat. The migration
+also gave each task whose `assigned_host_id` named a seat of its own wedding one
+holder row, stamped with the time it ran.
 
 | Column | Type | Notes |
 |---|---|---|
