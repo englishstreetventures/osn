@@ -22,6 +22,7 @@
   "dependencies": {
     "@astrojs/solid-js": "^7.0.2",
     "@cire/dietary": "workspace:*",
+    "@cire/guest-email": "workspace:*",
     "@cire/invite-designs": "workspace:*",
     "@cire/theme": "workspace:*",
     "@cire/ui": "workspace:*",

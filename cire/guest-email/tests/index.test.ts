@@ -1,0 +1,121 @@
+import { describe, expect, it } from "bun:test";
+
+import {
+  GUEST_EMAIL_CONSENT,
+  isValidGuestEmail,
+  MAX_GUEST_EMAIL_LENGTH,
+  normaliseGuestEmail,
+  ORGANISER_EMAIL_ATTESTATION,
+  parseGuestEmail,
+} from "../src/index";
+
+// One test per way an address can be wrong. Each is an input the API must
+// refuse at both doors (the guest's own entry and the organiser's sheet or
+// editor), so a looser check would store an address no mail could reach, or
+// a string that is not one address at all.
+describe("isValidGuestEmail refuses", () => {
+  it("an address with no @", () => {
+    expect(isValidGuestEmail("ada.example.com")).toBe(false);
+  });
+
+  it("an address with two @", () => {
+    expect(isValidGuestEmail("ada@home@example.com")).toBe(false);
+  });
+
+  it("an empty local part", () => {
+    expect(isValidGuestEmail("@example.com")).toBe(false);
+  });
+
+  it("an empty domain", () => {
+    expect(isValidGuestEmail("ada@")).toBe(false);
+  });
+
+  it("a domain without a dot", () => {
+    expect(isValidGuestEmail("ada@localhost")).toBe(false);
+  });
+
+  it("whitespace inside the address", () => {
+    expect(isValidGuestEmail("ada lovelace@example.com")).toBe(false);
+    expect(isValidGuestEmail("ada@exam\tple.com")).toBe(false);
+  });
+
+  it("an address longer than 254 characters", () => {
+    const domain = `${"a".repeat(63)}.${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(57)}.com`;
+    const address = `ada@${domain}`;
+    expect(address.length).toBeGreaterThan(MAX_GUEST_EMAIL_LENGTH);
+    expect(isValidGuestEmail(address)).toBe(false);
+  });
+
+  it("a local part longer than 64 characters", () => {
+    expect(isValidGuestEmail(`${"a".repeat(65)}@example.com`)).toBe(false);
+    expect(isValidGuestEmail(`${"a".repeat(64)}@example.com`)).toBe(true);
+  });
+
+  it("a control character", () => {
+    expect(isValidGuestEmail("ada\u0000@example.com")).toBe(false);
+    expect(isValidGuestEmail("ada@example.com\u007f")).toBe(false);
+  });
+
+  it("a list of addresses", () => {
+    expect(isValidGuestEmail("ada@example.com,bo@example.com")).toBe(false);
+    expect(isValidGuestEmail("ada@example.com;bo@example.com")).toBe(false);
+  });
+
+  it("a display-name form", () => {
+    expect(isValidGuestEmail("Ada <ada@example.com>")).toBe(false);
+    expect(isValidGuestEmail('"Ada" ada@example.com')).toBe(false);
+  });
+
+  it("a domain with an empty label", () => {
+    expect(isValidGuestEmail("ada@example..com")).toBe(false);
+    expect(isValidGuestEmail("ada@.example.com")).toBe(false);
+    expect(isValidGuestEmail("ada@example.com.")).toBe(false);
+  });
+});
+
+describe("normaliseGuestEmail", () => {
+  // The stored form is what the diff compares and what the suppression hash
+  // is taken over, so two spellings of one address must store one value.
+  it("folds surrounding space and case to one stored value", () => {
+    expect(normaliseGuestEmail("  Ada.Lovelace@Example.COM \n")).toBe("ada.lovelace@example.com");
+  });
+});
+
+describe("parseGuestEmail", () => {
+  it("answers the stored form for a valid address and null for anything else", () => {
+    expect(parseGuestEmail(" Ada@Example.com ")).toBe("ada@example.com");
+    expect(parseGuestEmail("not an address")).toBeNull();
+    expect(parseGuestEmail("")).toBeNull();
+  });
+});
+
+describe("the consent wordings", () => {
+  /**
+   * The wording and the version are pinned together on purpose. The API stamps
+   * the version onto every stored address as the evidence of which words were
+   * on screen when the guest consented or the organiser attested, so changing
+   * the words without the version makes that evidence false. If this fails
+   * because the wording changed, change the version in the same commit, then
+   * update both strings here.
+   */
+  it("pins the guest's consent to its version", () => {
+    expect(GUEST_EMAIL_CONSENT.version).toBe("guest-email-2026-10-21");
+    expect(GUEST_EMAIL_CONSENT.text).toBe(
+      "I’d like emails about this wedding from my hosts, sent through Cire to this address. I can remove it here at any time.",
+    );
+  });
+
+  it("pins the organiser's attestation to its version", () => {
+    expect(ORGANISER_EMAIL_ATTESTATION.version).toBe("organiser-email-2026-10-21");
+    expect(ORGANISER_EMAIL_ATTESTATION.text).toBe(
+      "I confirm each guest whose email address I’m adding or changing agreed to get emails about this wedding, and I’ll share Cire’s guest privacy notice (cireweddings.com/privacy/guests) with them.",
+    );
+  });
+
+  // A stored version must say whose words it names on its own.
+  it("never lets the two versions be confused", () => {
+    expect(GUEST_EMAIL_CONSENT.version).not.toBe(ORGANISER_EMAIL_ATTESTATION.version);
+    expect(GUEST_EMAIL_CONSENT.version.startsWith("guest-")).toBe(true);
+    expect(ORGANISER_EMAIL_ATTESTATION.version.startsWith("organiser-")).toBe(true);
+  });
+});
