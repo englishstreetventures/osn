@@ -669,4 +669,51 @@ describe("the maps menu", () => {
       path: "__screenshots__/DetailsPanel.browser.test.tsx/maps-menu-open.png",
     });
   });
+
+  it("opens on its last item for ArrowUp, walks its three items both ways round, and claims every key", async () => {
+    // Three items, where the calendar's two cannot tell one step back from
+    // one step on, or ArrowUp's open from an open on the second item.
+    await page.viewport(...PHONE);
+    await openSheet();
+    const unclaimed: string[] = [];
+    const record = (e: KeyboardEvent) => {
+      if (!e.defaultPrevented) unclaimed.push(e.key);
+    };
+    window.addEventListener("keydown", record);
+    try {
+      trigger().focus();
+      await userEvent.keyboard("{ArrowUp}");
+      await calendarMenu();
+      const at = () => document.activeElement?.textContent;
+      const walk = [at()];
+      for (const key of [
+        "{ArrowUp}",
+        "{ArrowUp}",
+        "{ArrowUp}",
+        "{ArrowDown}",
+        "{ArrowDown}",
+        "{ArrowDown}",
+        "{Home}",
+        "{End}",
+      ]) {
+        await userEvent.keyboard(key);
+        walk.push(at());
+      }
+      expect(walk).toEqual([
+        "Waze",
+        "Apple Maps",
+        "Google Maps",
+        "Waze",
+        "Google Maps",
+        "Apple Maps",
+        "Waze",
+        "Google Maps",
+        "Waze",
+      ]);
+    } finally {
+      window.removeEventListener("keydown", record);
+    }
+    // The trigger's ArrowUp included: it sits in the sheet's scrollport too.
+    expect(unclaimed).toEqual([]);
+  });
 });
