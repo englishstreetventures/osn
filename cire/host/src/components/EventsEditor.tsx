@@ -60,8 +60,9 @@ const UNNAMED_EVENT = "Untitled event";
  * The Events EDITOR (guest+event editor E6, §8). A re-orderable list of events
  * on top of the SHARED draft store (the same one the Guests editor uses — E6
  * mutates the `events` slice E5 carried through untouched). Add/edit an event
- * via a drawer form (name, start/end + timezone, address, dress-code + palette
- * reusing {@link ColorPicker}, Pinterest/Maps URLs); delete with an impact
+ * via a drawer form (name, start/end + timezone, venue name, address,
+ * description, dress-code + palette reusing {@link ColorPicker}, Pinterest/Maps
+ * URLs); delete with an impact
  * confirm; re-order by DRAGGING a row's grip handle (`@shared/sortable`), writing
  * `sortOrder`. Save posts only the events half of the draft as a DesiredState
  * with `scope: "events"` to `changes/preview` → the shared {@link ChangePreview}
@@ -256,7 +257,7 @@ export default function EventsEditor(props: { weddingId: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          desiredState: store.toWire(),
+          desiredState: store.toWire("events"),
           scope: "events",
           removeManual: true,
           baseRevision: store.baseRevision(),
@@ -893,6 +894,21 @@ function EventDrawer(props: {
           </div>
         </Fieldset>
 
+        <Field label="Venue name" hint="Shown above the address on the invite.">
+          {(field) => (
+            <Input
+              {...field}
+              value={props.event.venueName ?? ""}
+              placeholder="The Grounds of Alexandria"
+              onInput={(e) =>
+                props.onPatch({
+                  venueName: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
+                })
+              }
+            />
+          )}
+        </Field>
+
         <Field label="Address">
           {(field) => (
             <Input
@@ -903,6 +919,22 @@ function EventDrawer(props: {
                   address: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
                 })
               }
+            />
+          )}
+        </Field>
+
+        <Field
+          label="Description"
+          hint="Shown under About in the event's details, and in guests' calendar entries."
+        >
+          {(field) => (
+            <Textarea
+              {...field}
+              value={props.event.description}
+              rows={4}
+              onInput={(e) => props.onPatch({ description: e.currentTarget.value })}
+              // `resize-none` for the reason the dress-code field below gives.
+              resize="none"
             />
           )}
         </Field>

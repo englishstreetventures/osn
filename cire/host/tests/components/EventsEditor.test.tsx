@@ -221,6 +221,63 @@ describe("EventsEditor", () => {
     expect(body.baseRevision).toBe(HEAD);
   });
 
+  it("edits the venue name and the description, and sends a cleared venue name as null", async () => {
+    authFetchMock.mockImplementation((url: string) => {
+      if (String(url).endsWith("/events")) {
+        return Promise.resolve(
+          json([
+            // No `venueName` at all: an API older than the field.
+            { ...EVENTS[0], description: "Mass at 3." },
+            { ...EVENTS[1], venueName: "The Grounds of Alexandria" },
+          ]),
+        );
+      }
+      return Promise.resolve(fallback(url));
+    });
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+
+    const edit = (i: number) =>
+      fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[i]!);
+    const done = () => fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    edit(0);
+    await waitFor(() => expect(screen.getByLabelText("Venue name")).toBeTruthy());
+    const venue = screen.getByLabelText("Venue name") as HTMLInputElement;
+    const description = screen.getByLabelText("Description", {
+      exact: true,
+    }) as HTMLTextAreaElement;
+    expect(venue.value).toBe("");
+    expect(description.value).toBe("Mass at 3.");
+    fireEvent.input(venue, { target: { value: "St Mary's Hall" } });
+    fireEvent.input(description, { target: { value: "Mass at 3.\nDrinks after." } });
+    done();
+
+    edit(1);
+    await waitFor(() =>
+      expect((screen.getByLabelText("Venue name") as HTMLInputElement).value).toBe(
+        "The Grounds of Alexandria",
+      ),
+    );
+    fireEvent.input(screen.getByLabelText("Venue name"), { target: { value: "" } });
+    done();
+
+    fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+    await waitFor(() =>
+      expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/changes/preview"))).toBe(
+        true,
+      ),
+    );
+    const body = JSON.parse(
+      authFetchMock.mock.calls.find((c) => String(c[0]).endsWith("/changes/preview"))![1].body,
+    );
+    expect(body.desiredState.events[0]).toMatchObject({
+      venueName: "St Mary's Hall",
+      description: "Mass at 3.\nDrinks after.",
+    });
+    expect(body.desiredState.events[1]).toMatchObject({ venueName: null, description: "" });
+  });
+
   it("opens the drawer and edits an event name", async () => {
     primeLoad();
     render(() => <EventsEditor weddingId="wed_a" />);

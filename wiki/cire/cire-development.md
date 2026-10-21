@@ -319,9 +319,13 @@ the archived chain in `cire/db/migrations-archive/`, and
 that chain, where wrangler would skip the rest without a word. Why, and how to
 squash the chain again: `cire/db/README.md`.
 
-Local sign-in also needs an `oauth_clients` row in the local OSN D1 and
-`CIRE_OIDC_CLIENT_SECRET` in `cire/api/.dev.vars`. Without them `/api/auth/oidc/*`
-answers 503 and the rest of cire works as normal.
+Local sign-in also needs an `oauth_clients` row in the local OSN database and the
+client's credentials: `CIRE_OIDC_CLIENT_SECRET` in `cire/api/.dev.vars` under
+`wrangler dev`, or `OSN_ISSUER_URL`, `CIRE_API_ORIGIN`, `CIRE_OIDC_CLIENT_ID` and
+`CIRE_OIDC_CLIENT_SECRET` in the environment of the bun server (`src/local.ts`,
+which needs all four). Without them `/api/auth/oidc/*` answers 503 and the rest of
+cire works as normal. The E2E stack sets all four, against its own osn-api
+([[testing-patterns#The end-to-end suite]]).
 
 Local mail goes to the in-memory recorder. To read it in an inbox instead, run
 the Resend emulator and set `RESEND_API_KEY` and `RESEND_API_URL` in

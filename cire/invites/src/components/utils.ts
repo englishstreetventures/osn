@@ -152,6 +152,9 @@ export function isValidClaimResponse(data: unknown): data is ClaimResult {
     if (!("endAt" in e) || typeof e.endAt !== "string") return false;
     if (!("timezone" in e) || typeof e.timezone !== "string") return false;
     if (!("address" in e) || (e.address !== null && typeof e.address !== "string")) return false;
+    // Optional, as the plus-one fields are: required here, it would send every
+    // household back to the code form while the site runs ahead of the API.
+    if ("venueName" in e && e.venueName !== null && typeof e.venueName !== "string") return false;
     if (!("dressCodeDescription" in e)) return false;
     if (e.dressCodeDescription !== null && typeof e.dressCodeDescription !== "string") return false;
     if (!("dressCodePalette" in e)) return false;

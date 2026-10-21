@@ -12,18 +12,19 @@
 //                                                       parseHttpUrl)
 //   cire/api/src/lib/event-time.ts                    (parseWallTime — the
 //                                                       Start/End cell shape)
-//   cire/api/src/services/spreadsheet.ts              (MAX_CELL_LENGTH; the
-//                                                       required-name + event
-//                                                       field checks)
+//   cire/api/src/schemas/import.ts                    (MAX_CELL_LENGTH)
+//   cire/api/src/services/spreadsheet.ts              (the required-name +
+//                                                       event field checks)
 //   cire/theme (isSafeCssColor)                        (the palette colour
 //                                                       allow-list)
 
 import { isSafeCssColor } from "@cire/theme";
 
-/** Mirror of spreadsheet.ts `MAX_CELL_LENGTH` — the server rejects any single
- *  field longer than this. The one hard length bound guests actually hit; there
- *  are no tighter per-field name bounds server-side, so the client must not
- *  invent stricter ones (they'd block a draft the server would accept). */
+/** Mirror of `MAX_CELL_LENGTH` in cire/api/src/schemas/import.ts — the server
+ *  rejects any single field longer than this. The one hard length bound guests
+ *  actually hit; there are no tighter per-field name bounds server-side, so the
+ *  client must not invent stricter ones (they'd block a draft the server would
+ *  accept). */
 export const MAX_CELL_LENGTH = 10_000;
 
 /** Mirror of guest-event-validation.ts `isBlank`: a required name is present iff
