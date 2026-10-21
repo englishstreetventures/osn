@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Guards with a threshold
@@ -209,7 +209,7 @@ the guard's warning regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 176733 B | 188433 B *(re-baselined, englishstreetventures/osn#1325 — see below)* |
-| cire/host | static | 282159 B | 293859 B *(re-baselined, englishstreetventures/osn#479 — see below)* |
+| cire/host | static | 288812 B | 300512 B *(re-baselined, englishstreetventures/osn#479 — see below)* |
 | cire/vendor | static | 77305 B | 81644 B |
 | cire/landing | static | 164847 B | 176547 B |
 | musubi/landing | static | 15206 B | 26865 B |
@@ -289,21 +289,20 @@ delete dialog in Settings and the "Recently deleted" list with Restore came to
 guard prints.*
 
 The seating chart (englishstreetventures/osn#479) raised it again, on the same
-trade as the vendors split. `main` measured **274190 B** across 54 files. The
-Seating module, loaded on demand like the registry, came to **282159 B** across
-61 files, past the 280159 B threshold. Loaded eagerly it measured **279485 B**
-across 54 files — under the threshold — but put `OrganiserApp`'s chunk at
-**79585 B** against **63737 B** loaded on demand: Seating is a Gold module, and
-its view, the sortable package's drop zones and the menu it shares with other
-on-demand panels would otherwise land on every organiser's first load. **+7969 B
-shipped, ~15.8 KB kept off the first load.** The threshold moved to measured +
-~11.7 KB, **293859 B**. No dependency was added.
+trade as the vendors split. `main` measured **279974 B** across 54 files, 185 B
+under the 280159 B threshold. With the Seating module, loaded on demand like the
+registry, it came to **288812 B** across 61 files: **+8838 B**. Loading it
+eagerly instead put `OrganiserApp`'s chunk at **79585 B** against **63737 B**
+on demand: Seating is a Gold module, and its view, the sortable package's drop
+zones and the menu it shares with other on-demand panels would otherwise land on
+every organiser's first load, about 15.8 KB of it. The threshold moved to
+measured + ~11.7 KB, **300512 B**. No dependency was added.
 
-*Measured 2026-10-20 — `rm -rf dist && bunx --bun astro build` in `cire/host`,
-then `../../scripts/guard-bundle-size.sh .`, on `feat/cire-seating`; the eager
-figure from the same build with `ModuleShell`'s `lazy()` for `SeatingView`
-replaced by a static import; `main`'s from the branch before its host changes.
-Chunk sizes by `gzip -c <chunk> | wc -c`.*
+*Measured 2026-10-21 — `bun run --cwd cire/host build`, which ends with
+`../../scripts/guard-bundle-size.sh .`, on `feat/cire-seating` rebased onto
+`main` 0619a7dfd and on a clean checkout of 0619a7dfd. The chunk sizes are from
+2026-10-20, on the branch before that rebase, with `ModuleShell`'s `lazy()` for
+`SeatingView` replaced by a static import; `gzip -c <chunk> | wc -c`.*
 
 ### `cire/invites` went up for the household member step
 

@@ -11,7 +11,7 @@ packages:
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Browser Tests

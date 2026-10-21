@@ -11,7 +11,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # DPIA — Cire guest data (special-category dietary)

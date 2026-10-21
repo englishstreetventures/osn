@@ -8,7 +8,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-guest-event-editor]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 # Seating chart
 

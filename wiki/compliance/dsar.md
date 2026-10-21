@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # DSAR Runbook
