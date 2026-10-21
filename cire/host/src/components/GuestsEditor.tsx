@@ -706,7 +706,7 @@ function GuestEmailCell(props: {
               onClick={() => props.store.updateGuest(props.guest.key, { email: "" })}
               aria-label={`Remove ${props.guest.firstName || "the guest"}’s email address`}
             >
-              Remove
+              Remove email
             </Button>
           </span>
         </Show>
