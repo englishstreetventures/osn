@@ -106,8 +106,7 @@ jobs:
       - name: Format check
         run: bun run fmt:check
 
-      # Tracker #619 — the general half of the tracker #287 finding. Astro
-      # routes every file under `src/pages`, so an un-prefixed `*.test.ts`
+      # Astro routes every file under `src/pages`, so an un-prefixed `*.test.ts`
       # there is built and deployed as a live route (which is exactly how
       # cire/invites' Worker picked up 119 KB gzip of vitest). Needs no build
       # and no per-app baseline, so it belongs in the fast job rather than
@@ -242,36 +241,37 @@ jobs:
       - name: Test
         run: bun run test
 
-      # Tracker #287: the cire/invites SSR Worker bundle reached 470 KB gzip
-      # unnoticed — a whole animation library in the server module graph with
-      # nothing there calling it, and three drift-guard tests routed as pages.
-      # `bun run build` above already produced every app's `dist/`, so
-      # measuring it here costs a few seconds and puts the budget check on the
-      # merge gate. The deploy workflow runs the same script, but only after a
-      # merge to main — which is one merge too late to stop the regression.
+      # A bundle can grow by a whole library with nobody noticing: the
+      # cire/invites SSR Worker bundle once reached 470 KB gzip, with an
+      # animation library in the server module graph that nothing there
+      # called. `bun run build` above already produced every app's `dist/`, so
+      # checking it here costs a few seconds and shows the result on the pull
+      # request, before it merges.
       #
-      # The three tests that were routed have since moved to `tests/pages/`,
-      # out of `src/pages` entirely, so Astro cannot route them at all — but
-      # the guard stays: it is what catches the NEXT library that wanders into
-      # the server graph, which is the half of #287 a file move does nothing
-      # about.
+      # Two different outcomes. An app over its budget gets a ::warning::
+      # annotation on this run and the job stays green: the budget watches
+      # growth and is not a hard cap, so a warning is read and acted on (find
+      # what is newly reachable, or re-baseline) rather than blocking the
+      # merge. Everything else the script refuses fails the job, and with it
+      # the `ci` gate: a source map anywhere an app is served publicly, a
+      # missing or empty `dist/`, a symlink in what it measures, a missing or
+      # malformed budgets file.
       #
-      # Tracker #619 generalised the script per-app: cire/invites is the only
-      # `output: "server"` app (a Worker, `dist/server`); the other five are
-      # `output: "static"` (Cloudflare Pages, `dist/_astro/*.js` +
-      # `dist/_astro/*.css` only — see scripts/guard-bundle-size.sh's own
-      # comment for why static measures an allowlist rather than a directory).
-      # Every app's mode and threshold is a row in
-      # scripts/bundle-size-budgets.txt, not an argument here — that file is
-      # the single source of truth, and `--all` walks every row in it. See
-      # that file's own comment for the re-baselining steps, and
+      # cire/invites is the only `output: "server"` app (a Worker,
+      # `dist/server`); the other five are `output: "static"` (Cloudflare
+      # Pages, `dist/_astro/*.js` + `dist/_astro/*.css` only — see
+      # scripts/guard-bundle-size.sh's own comment for why static measures an
+      # allowlist rather than a directory). Every app's mode and threshold is
+      # a row in scripts/bundle-size-budgets.txt, not an argument here — that
+      # file is the single source of truth, and `--all` walks every row in it.
+      # See that file's own comment for the re-baselining steps, and
       # wiki/conventions/bundle-size-guards.md for every app's reading.
       #
       # This reads the `dist/` each build step already made and takes well
-      # under a second per app, so it sits after Test deliberately: a size
-      # trip fails the job either way, and running it last means the author
-      # still gets the test result in the same round trip.
-      - name: Guard Astro app bundle sizes
+      # under a second per app, so it sits after Test deliberately: a refusal
+      # fails the job either way, and running it last means the author still
+      # gets the test result in the same round trip.
+      - name: Check Astro app bundle sizes and refuse public source maps
         run: ./scripts/guard-bundle-size.sh --all
 
       # Each API's d1-integration.test.ts lives under `tests/d1/` (cire's under

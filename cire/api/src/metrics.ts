@@ -30,6 +30,7 @@ import {
 import type { Result } from "@shared/observability/metrics";
 import { Effect } from "effect";
 
+import type { ChecklistTemplateId } from "./lib/checklist-templates";
 import type { WeddingRole } from "./services/hosts";
 import type { ImageVariant, OutputFormat } from "./services/invite-image-transform";
 import type { PaidTier, Tier } from "./services/tiers";
@@ -97,6 +98,10 @@ export const CIRE_METRICS = {
   plusOneChanged: "cire.plus_one.changed",
   plusOneBlocked: "cire.plus_one.blocked",
   plusOnePermissionSet: "cire.plus_one.permission.set",
+  // Checklist tasks seeded from a template, by template.
+  checklistTemplateApplied: "cire.tasks.template.applied",
+  // Checklist assignee writes, by action and outcome.
+  taskAssignmentChanged: "cire.tasks.assignment.changed",
   // Organiser spreadsheet import.
   importApplied: "cire.import.applied",
   importRows: "cire.import.rows",
@@ -491,6 +496,16 @@ export type PlusOneAction = "added" | "renamed" | "removed";
  *  revoking permission with the remove flag. */
 export type PlusOneActor = "guest" | "organiser";
 type PlusOneChangedAttrs = { action: PlusOneAction; actor: PlusOneActor };
+type ChecklistTemplateAppliedAttrs = { template: ChecklistTemplateId };
+/** `assign` hands a task to a seat; `unassign` leaves it with nobody. */
+export type TaskAssignmentAction = "assign" | "unassign";
+/** `task_not_found` — no such task on the wedding; `assignee_not_in_wedding`
+ *  — the seat named is not one of the wedding's. */
+export type TaskAssignmentResult = "ok" | "task_not_found" | "assignee_not_in_wedding";
+type TaskAssignmentChangedAttrs = {
+  action: TaskAssignmentAction;
+  result: TaskAssignmentResult;
+};
 /** Why a guest plus-one write was refused before any write — one label per
  *  gate on the guest routes. */
 export type PlusOneBlockedReason = "preview" | "deadline" | "not_allowed" | "capacity";
@@ -902,6 +917,18 @@ const plusOneChanged = createCounter<PlusOneChangedAttrs>({
   unit: "{plus_one}",
 });
 
+const checklistTemplateApplied = createCounter<ChecklistTemplateAppliedAttrs>({
+  name: CIRE_METRICS.checklistTemplateApplied,
+  description: "Checklist tasks added from a template, by template",
+  unit: "{task}",
+});
+
+const taskAssignmentChanged = createCounter<TaskAssignmentChangedAttrs>({
+  name: CIRE_METRICS.taskAssignmentChanged,
+  description: "Checklist assignee writes, by action and outcome",
+  unit: "{request}",
+});
+
 const plusOneBlocked = createCounter<PlusOneBlockedAttrs>({
   name: CIRE_METRICS.plusOneBlocked,
   description: "Guest plus-one writes refused before any write, by gate",
@@ -1255,6 +1282,19 @@ export const metricRsvpDigestEmails = (outcome: RsvpDigestOutcome, count = 1): v
 
 export const metricPlusOneChanged = (action: PlusOneAction, actor: PlusOneActor, count = 1): void =>
   plusOneChanged.add(count, { action, actor });
+
+/** Tasks one apply of a checklist template added (none when every picked item
+ *  was already on the list). */
+export const metricChecklistTemplateApplied = (
+  template: ChecklistTemplateId,
+  count: number,
+): void => checklistTemplateApplied.add(count, { template });
+
+/** One assignee write on a checklist task, and how it ended. */
+export const metricTaskAssignmentChanged = (
+  action: TaskAssignmentAction,
+  result: TaskAssignmentResult,
+): void => taskAssignmentChanged.inc({ action, result });
 
 export const metricPlusOneBlocked = (reason: PlusOneBlockedReason): void =>
   plusOneBlocked.inc({ reason });

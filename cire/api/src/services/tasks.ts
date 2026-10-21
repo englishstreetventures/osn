@@ -9,17 +9,29 @@
  * even with a leaked task id — a mismatched (weddingId, taskId) fails
  * `TaskNotInWedding` rather than touching a row.
  */
-import { tasks } from "@cire/db";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { taskTemplateDismissals, tasks, weddingHosts, weddings } from "@cire/db";
+import { and, asc, eq, exists, isNotNull, type SQL, sql } from "drizzle-orm";
+import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
-import { DbService, commitGroupedBatches, dbQuery } from "../db";
+import { bound, commitBatchResults, DbService, commitGroupedBatches, dbQuery } from "../db";
+import type { Db } from "../db";
 import type { TimeframeBucket } from "../lib/checklist-buckets";
+import { metricTaskAssignmentChanged } from "../metrics";
+import type { TaskAssignmentAction } from "../metrics";
 
 /** No task with this id under this wedding (missing or another wedding's). 404-class. */
 export class TaskNotInWedding extends Data.TaggedError("TaskNotInWedding") {}
 
+/** The seat named for a task is not one of the task's wedding: another
+ *  wedding's seat, a guest's id, or no seat at all. 422-class. */
+export class HostNotInWedding extends Data.TaggedError("HostNotInWedding") {}
+
 export type TaskStatus = "open" | "done";
+
+/** Where a task's due date comes from: `template` follows the wedding date,
+ *  `manual` is whatever the couple set. */
+export type TaskDueSource = "manual" | "template";
 
 export interface TaskDto {
   id: string;
@@ -34,6 +46,13 @@ export interface TaskDto {
   createdAt: number;
   /** ms epoch, or null while open. */
   completedAt: number | null;
+  /** The template this task was seeded from, or null for a task the couple typed. */
+  templateId: string | null;
+  /** The item's key inside that template, or null. */
+  templateItem: string | null;
+  dueSource: TaskDueSource;
+  /** The seat (`wedding_hosts.id`) the task is assigned to, or null. */
+  assignedHostId: string | null;
 }
 
 export interface CreateTaskInput {
@@ -53,7 +72,7 @@ export interface UpdateTaskPatch {
   sortOrder?: number;
 }
 
-interface TaskRow {
+export interface TaskRow {
   id: string;
   weddingId: string;
   title: string;
@@ -64,9 +83,14 @@ interface TaskRow {
   sortOrder: number;
   createdAt: Date;
   completedAt: Date | null;
+  templateId: string | null;
+  templateItem: string | null;
+  dueOffsetDays: number | null;
+  dueSource: TaskDueSource;
+  assignedHostId: string | null;
 }
 
-const toDto = (r: TaskRow): TaskDto => ({
+export const toDto = (r: TaskRow): TaskDto => ({
   id: r.id,
   weddingId: r.weddingId,
   title: r.title,
@@ -77,7 +101,45 @@ const toDto = (r: TaskRow): TaskDto => ({
   sortOrder: r.sortOrder,
   createdAt: r.createdAt.getTime(),
   completedAt: r.completedAt ? r.completedAt.getTime() : null,
+  templateId: r.templateId,
+  templateItem: r.templateItem,
+  dueSource: r.dueSource,
+  assignedHostId: r.assignedHostId,
 });
+
+/**
+ * A seeded task's due date: the wedding's STORED date moved by `offset` days,
+ * in SQLite's own date arithmetic. NULL when the wedding has no date or the
+ * item no offset, so nothing is ever guessed. The wedding id is bound rather
+ * than correlated to an outer row, so the subquery cannot pick up a column of
+ * the statement around it.
+ */
+export const anchoredDueAt = (weddingId: string, offset: SQL): SQL =>
+  sql`date((SELECT ${weddings.weddingDate} FROM ${weddings} WHERE ${weddings.id} = ${weddingId}), ${offset} || ' days')`;
+
+/**
+ * Re-date every open task of `weddingId` whose due date follows the wedding
+ * date, from the date as stored. A done task keeps the date it was done
+ * against, and a date the couple set (`due_source = 'manual'`) is never
+ * touched. A task already on the right date is not written, so a save that
+ * does not move the date writes no task row. Returned unrun, so the settings
+ * save can commit it in the same batch as the date it reads.
+ */
+export const reanchorTemplateDueDates = (db: Db, weddingId: string) => {
+  const anchored = anchoredDueAt(weddingId, sql`${tasks.dueOffsetDays}`);
+  return db
+    .update(tasks)
+    .set({ dueAt: anchored })
+    .where(
+      and(
+        eq(tasks.weddingId, weddingId),
+        isNotNull(tasks.templateId),
+        eq(tasks.dueSource, "template"),
+        eq(tasks.status, "open"),
+        sql`${tasks.dueAt} IS NOT ${anchored}`,
+      ),
+    );
+};
 
 export const tasksService = {
   list(weddingId: string): Effect.Effect<TaskDto[], never, DbService> {
@@ -125,6 +187,11 @@ export const tasksService = {
         sortOrder,
         createdAt: now,
         completedAt: null,
+        templateId: null,
+        templateItem: null,
+        dueOffsetDays: null,
+        dueSource: "manual",
+        assignedHostId: null,
       };
       yield* dbQuery(() => db.insert(tasks).values(row).run());
       return toDto(row);
@@ -140,16 +207,28 @@ export const tasksService = {
       const db = yield* DbService;
       const { weddingId, taskId, patch } = input;
 
-      const set: Partial<TaskRow> = {};
+      // Every SET expression below reads the row as it was before this UPDATE.
+      const set: SQLiteUpdateSetSource<typeof tasks> = {};
       if (patch.title !== undefined) set.title = patch.title;
       if (patch.timeframeBucket !== undefined) set.timeframeBucket = patch.timeframeBucket;
       if (patch.notes !== undefined) set.notes = patch.notes;
-      if (patch.dueAt !== undefined) set.dueAt = patch.dueAt;
+      if (patch.dueAt !== undefined) {
+        set.dueAt = patch.dueAt;
+        // A date the couple sends is theirs from now on, and the wedding date
+        // stops moving it — unless it is the date already there, which an edit
+        // form sends back with every other change.
+        set.dueSource = sql`CASE WHEN ${tasks.dueAt} IS ${patch.dueAt} THEN ${tasks.dueSource} ELSE 'manual' END`;
+      }
       if (patch.sortOrder !== undefined) set.sortOrder = patch.sortOrder;
       if (patch.status !== undefined) {
         set.status = patch.status;
         // done stamps completed_at; reopening clears it.
         set.completedAt = patch.status === "done" ? new Date() : null;
+        // A done task kept its date while the wedding date moved. Reopened, a
+        // date that follows the wedding date catches up with it.
+        if (patch.status === "open" && patch.dueAt === undefined) {
+          set.dueAt = sql`CASE WHEN ${tasks.dueSource} = 'template' AND ${tasks.status} = 'done' THEN ${anchoredDueAt(weddingId, sql`${tasks.dueOffsetDays}`)} ELSE ${tasks.dueAt} END`;
+        }
       }
 
       // Single round trip (as hosts.setRole): RETURNING reports whether a
@@ -175,17 +254,93 @@ export const tasksService = {
     }).pipe(Effect.withSpan("cire.tasks.update"));
   },
 
+  /**
+   * Hand a task to a seat of its wedding (`wedding_hosts.id`), or to nobody
+   * when `hostId` is null. Any seat of the wedding may hold a task, whatever
+   * its role.
+   *
+   * The seat check rides in the UPDATE's own WHERE, so a seat that is not the
+   * wedding's is never written, and one removed while this runs is either not
+   * found here or cleared by the foreign key's SET NULL after. RETURNING says
+   * whether anything was written; only when nothing was is the task read, to
+   * tell the two refusals apart: no task is `TaskNotInWedding`, a task left
+   * as it was is `HostNotInWedding`.
+   */
+  assign(
+    weddingId: string,
+    taskId: string,
+    hostId: string | null,
+  ): Effect.Effect<TaskDto, TaskNotInWedding | HostNotInWedding, DbService> {
+    const action: TaskAssignmentAction = hostId === null ? "unassign" : "assign";
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const ours = and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId));
+      // The wedding id is bound, not correlated to the task row: the UPDATE is
+      // already scoped to it, so the seat must be that same wedding's.
+      const seatOfWedding =
+        hostId === null
+          ? undefined
+          : exists(
+              db
+                .select({ one: sql`1` })
+                .from(weddingHosts)
+                .where(and(eq(weddingHosts.id, hostId), eq(weddingHosts.weddingId, weddingId))),
+            );
+      const [updated] = yield* dbQuery(() =>
+        db
+          .update(tasks)
+          .set({ assignedHostId: hostId })
+          .where(and(ours, seatOfWedding))
+          .returning()
+          .all(),
+      );
+      if (updated) return toDto(updated as TaskRow);
+      const [found] = yield* dbQuery(() =>
+        db.select({ id: tasks.id }).from(tasks).where(ours).all(),
+      );
+      return yield* Effect.fail(found ? new HostNotInWedding() : new TaskNotInWedding());
+    }).pipe(
+      Effect.tap(() => Effect.sync(() => metricTaskAssignmentChanged(action, "ok"))),
+      Effect.tapError((err) =>
+        Effect.sync(() =>
+          metricTaskAssignmentChanged(
+            action,
+            err._tag === "HostNotInWedding" ? "assignee_not_in_wedding" : "task_not_found",
+          ),
+        ),
+      ),
+      Effect.withSpan("cire.tasks.assign", { attributes: { "task.assignment": action } }),
+    );
+  },
+
   remove(weddingId: string, taskId: string): Effect.Effect<void, TaskNotInWedding, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      // Single round trip: DELETE .. RETURNING reports whether a row existed.
-      const [removed] = yield* dbQuery(() =>
-        db
-          .delete(tasks)
-          .where(and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId)))
-          .returning({ id: tasks.id })
-          .all(),
+      const ours = and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId));
+      // One batch, so a seeded task is never gone without the record that the
+      // couple removed it: applying its template again then leaves it out
+      // unless they pick it. A typed task has no template and records nothing.
+      // DELETE .. RETURNING reports whether a row existed.
+      const results = yield* dbQuery(() =>
+        commitBatchResults(db, [
+          db
+            .insert(taskTemplateDismissals)
+            .select(
+              db
+                .select({
+                  weddingId: tasks.weddingId,
+                  templateId: sql<string>`${tasks.templateId}`.as("template_id"),
+                  templateItem: sql<string>`${tasks.templateItem}`.as("template_item"),
+                  dismissedAt: bound(new Date(), taskTemplateDismissals.dismissedAt),
+                })
+                .from(tasks)
+                .where(and(ours, isNotNull(tasks.templateId), isNotNull(tasks.templateItem))),
+            )
+            .onConflictDoNothing(),
+          db.delete(tasks).where(ours).returning({ id: tasks.id }),
+        ]),
       );
+      const [removed] = results[1] as readonly { id: string }[];
       if (!removed) return yield* Effect.fail(new TaskNotInWedding());
     }).pipe(Effect.withSpan("cire.tasks.remove"));
   },

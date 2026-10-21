@@ -68,6 +68,7 @@ describe("origin guard (C5 / S-L3)", () => {
   const organiserWrites = [
     ["PATCH", "/api/organiser/weddings/w1/tasks/reorder"],
     ["PATCH", "/api/organiser/weddings/w1/tasks/t1"],
+    ["PUT", "/api/organiser/weddings/w1/tasks/t1/assignee"],
     ["DELETE", "/api/organiser/weddings/w1/tasks/t1"],
     ["PUT", "/api/organiser/weddings/w1/settings"],
   ] as const;
