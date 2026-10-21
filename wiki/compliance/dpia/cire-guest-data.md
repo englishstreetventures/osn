@@ -189,20 +189,26 @@ final sign-off now turns only on the residual retention gaps below.
   - **`own`** — the tasks their seat holds (title, notes, status, time), the
     names and photo URLs of the people who hold those tasks with them, and
     the events those tasks are linked to: name, start, end, time zone, venue
-    name and **full address**. The owner chose (2026-10-21) to give an `own`
-    helper the address, since someone carrying the cake has to find the venue;
-    an event's address can be a private home. Nothing of any task, event or
-    person not linked to their own tasks.
+    name, **full address** and **run of show** (each item's time and label).
+    The owner chose (2026-10-21) to give an `own` helper the address, since
+    someone carrying the cake has to find the venue; an event's address can
+    be a private home. The owner chose the same day that the run sheet shows
+    each event's run of show, and that an `own` helper gets it only for the
+    events their tasks link to. A run-of-show label is organiser free text
+    written for guests, and may name a person ("Speeches by Sam"); it is
+    already read by every invited household of the event. Nothing of any
+    task, event or person not linked to their own tasks.
   - **`full`** — every task on the run sheet and who holds it, and every event
-    of the wedding with the same fields, addresses included.
+    of the wedding with the same fields, addresses and runs of show included.
 
   Never the guest list, an RSVP, a dietary answer or a claim code, and no
-  event field beyond those named (no description, dress code or image).
+  event field beyond those named (no description, dress code, getting-there
+  notes, guest policy or image).
   Assessed as acceptable: only an owner widens a helper, behind a
   confirmation; it never opens the guest list; a helper's response is
   narrowed on the server, not in the page, and a test pins the exact fields;
-  and no task text, person's name or event address is written to a log by
-  the route. See [[cire-auth#The run-sheet scope]].
+  and no task text, person's name, event address or run-of-show label is
+  written to a log by the route. See [[cire-auth#The run-sheet scope]].
 - **Granularity (2026-08-01).** The field is stored per **(guest, event)** — a
   guest answers once per event they are invited to — and `GET …/rsvps.csv` now
   discloses it that way, one dietary column per event. It previously collapsed

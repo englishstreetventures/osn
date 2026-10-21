@@ -12,8 +12,9 @@ last-reviewed: 2026-10-21
 ---
 # Run sheet
 
-The day of the wedding in one list: its events and the checklist tasks that
-happen on the day, in the order they happen, with who does what. A Gold
+The day of the wedding in one list: its events, each with its run of show,
+and the checklist tasks that happen on the day, in the order they happen, with
+who does what. A Gold
 module. Owners, editors and viewers read the whole day; a `helper` — someone
 handed a job on the day — reads only as much as their seat's scope allows
 ([[cire-auth#The run-sheet scope]]). It is read-only for every role: a task's
@@ -101,7 +102,8 @@ over ARC, and every publish sends each open run sheet to read again.
   scope: "own" | "full",
   viewerHostId: string,
   items: (
-    | { kind: "event"; id; name; startAt; endAt; timezone; venueName; address }
+    | { kind: "event"; id; name; startAt; endAt; timezone; venueName; address;
+        runOfShow: { time; label }[] }
     | { kind: "task"; id; title; notes; status; runAt; runTimezone; eventId;
         runOffsetMinutes; anchored; eventRemoved; assigneeHostIds }
   )[],
@@ -113,11 +115,18 @@ over ARC, and every publish sends each open run sheet to read again.
 `cire/api/src/services/run-sheet.ts`). For `own`: only the tasks the reader's
 seat holds (`runSheetVisibleTo`), only the events those tasks link to, only
 the people holding them. For `full`: every listed task, every event, every
-holder. Every reader gets an event's name, times, zone, venue name and address,
-and no other field. No count or total rides alongside. People carry no role,
+holder. Every reader gets an event's name, times, zone, venue name, address
+and run of show, and no other field. The run of show rides on its event, so an
+`own` reader gets the items of the events they are given and of no other. It is
+answered in the organiser's order (`sort_order`), each item's `time` an `HH:MM`
+on the event's own clock, as `GET …/events` answers it
+([[cire-guest-event-editor]]); the portal orders it. No count or total rides
+alongside. People carry no role,
 and their names are looked up for them alone, fail-soft: an unreachable lookup
-leaves profile ids. One batch of four reads (listed tasks, holders, events,
-seats), then the narrowing in the Worker.
+leaves profile ids. One batch of four reads (listed tasks, holders, events —
+each carrying its run of show as one JSON column, `runOfShowColumn` in
+`cire/api/src/services/run-of-show.ts` — and seats), then the narrowing in the
+Worker.
 
 **Order** (`orderRunSheet`, `cire/api/src/lib/run-sheet.ts`): by instant, not by
 the text of the time, so a Kolkata time sits between two Sydney times when it
@@ -157,7 +166,9 @@ freezes their tasks too.
 An apply or revert that created, updated or removed an event publishes
 `tasks-changed` after it commits, and after one that failed part way (some
 batches may have committed); one that touched only the guests publishes
-nothing ([[realtime]]).
+nothing ([[realtime]]). A change to one event's run of show and nothing else
+publishes too: every event a schedule change keeps is in its plan as an update,
+so the run sheet, which shows the run of show, reads again.
 
 ## In the portal
 
@@ -185,7 +196,13 @@ and why, is `cire/host/DESIGN.md` §7; where they sit in the layout is
   AEST"); a day that mixes zones puts the zone under every time. Untimed tasks
   come last, under "Any time on the day".
 - **Events** show their name, start and end ("to 12:30 am Sun" past
-  midnight), venue name and address.
+  midnight), venue name and address, and their **run of show** inside the
+  event's band: read-only, in the order the guest's sheet reads it —
+  `guestOrder` in `cire/host/src/lib/event-guest-details.ts`, from the event's
+  start on its own clock, an item earlier on the clock than the start last
+  and marked "(after midnight)" — each time its own `HH:MM` as written
+  (`clockLabel`). The items are not rows: no marker on the thread, no flags,
+  nobody holding them. A task still links only to an event's start.
 - **Tasks** show their time, title, notes and holders (the read-only avatar
   stack, the reader first). A linked task says where it sits against its
   event: "30 min before Ceremony", "At the start of Ceremony", "3 hr 30 min
@@ -261,7 +278,7 @@ Anyone else sees the time as text, and nothing on an untimed task.
 | `import applied: …` (info) | gains `linkedTasksKept` / `linkedTasksRemoved`, counts only |
 
 A task's title and notes, a person's name, handle or profile id, and an
-event's name or address never reach a log ([[cire-guest-data]] records why
+event's name, address or run of show never reach a log ([[cire-guest-data]] records why
 titles and notes are sensitive).
 
 ## Releases in either order
@@ -269,7 +286,8 @@ titles and notes are sensitive).
 | Serving | Meets | Behaviour |
 |---|---|---|
 | New portal | API older than run times | `GET /run-sheet` is 404, which the view shows as a quiet error; a time saved is "not saved" |
-| Old portal | New API | its apply sends no `removeLinkedTasks`, so every linked task is kept, frozen |
+| Old portal | New API | its apply sends no `removeLinkedTasks`, so every linked task is kept, frozen; it does not read `runOfShow` |
+| New portal | API without the run of show on the run sheet | the store reads an absent `runOfShow` as none: the bands show no items |
 
 ## Tests
 
@@ -279,23 +297,27 @@ titles and notes are sensitive).
 - `cire/api/tests/routes/tasks.test.ts` ("a task's run time") — every refusal
   writing nothing, every kind, the answers, publishes.
 - `cire/api/tests/routes/run-sheet.test.ts` — the role and scope matrix, the
-  raw-text absence of everything an `own` helper must not get, gates, limiter,
-  names, failure.
+  raw-text absence of everything an `own` helper must not get (other events'
+  runs of show included), every event's run of show for the others, the exact
+  event fields, gates, limiter, names, failure.
 - `cire/api/tests/services/import-linked-tasks.test.ts` and
   `tests/routes/organiser-changes.test.ts` — the preview list, keep and remove,
-  races, dismissals, one batch per removed event, revert, publishes, counts.
+  races, dismissals, one batch per removed event, revert, publishes (a change
+  to a run of show alone included), counts; the guest cap still checked on
+  each batch's last guest insert when removed events move the batch edges.
 - `cire/api/tests/db/migration-20261021153838.test.ts`, `tasks-event-index.test.ts`,
   `d1-integration.test.ts` — the migration keeps every row, the SET NULL, the
-  index.
+  index; the run sheet's one-batch read over D1, runs of show included.
 - `cire/host/tests/lib/run-sheet-store.test.ts`, `run-sheet.test.ts`,
   `run-time-write.test.ts`; `tasks-store.test.ts`, unedited across the move
   into `reread-cache.ts`.
 - `cire/host/tests/components/RunSheetView.test.tsx` and
   `RunTimeEditor.test.tsx` — the screens' contract: the states and their copy,
   grouping by each row's zone, the flags, the timer and tab wake, the re-reads,
-  and every kind of write the editor sends.
+  an event's run of show ordered across midnight on its own zone and kept
+  inside its band, and every kind of write the editor sends.
 - `cire/host/tests/components/RunSheetView.browser.test.tsx` and
   `RunTimeEditor.browser.test.tsx` — painted in Chromium at 390 and 1280px in
-  both ramps: markers on the thread, the holders' column, every word at
-  4.5:1, the popover inside the screen, Tab kept inside it, the focus back on
+  both ramps: markers on the thread, the holders' column, a run of show inside
+  its band, every word at 4.5:1, the popover inside the screen, Tab kept inside it, the focus back on
   the trigger after a keyboard save ([[browser-tests]]).
