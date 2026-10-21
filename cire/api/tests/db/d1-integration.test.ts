@@ -19,6 +19,7 @@ import {
   registrySettings,
   rsvpChanges,
   rsvps,
+  runOfShowItems,
   seatingAssignments,
   seatingTables,
   taskAssignees,
@@ -76,7 +77,7 @@ import {
 import { createEnquiryService, listingEnquiriesQuery } from "../../src/services/enquiries";
 import { giftExportService } from "../../src/services/gift-export";
 import { hostsService, MAX_HOSTS_PER_WEDDING } from "../../src/services/hosts";
-import { applyImport } from "../../src/services/import";
+import { applyImport, diffAgainstDb } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
 import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq";
 import { maintenanceSweeps } from "../../src/services/maintenance-sweeps";
@@ -354,6 +355,7 @@ beforeEach(async () => {
     rsvps,
     seatingAssignments,
     seatingTables,
+    runOfShowItems,
     guestEvents,
     guests,
     families,
@@ -754,6 +756,103 @@ describe("cire/api over real D1 (Miniflare)", () => {
       await expect(run(applyImport("imp_dup", plan, BOOTSTRAP_WEDDING_ID))).rejects.toThrow();
       expect(await db.select().from(families).where(eq(families.id, "fam_x"))).toHaveLength(0);
       expect(await db.select().from(families).where(eq(families.id, "fam_y"))).toHaveLength(0);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "applyImport writes full runs of show under D1's parameter cap, and the claim and the diff read them back",
+    async () => {
+      // 40 items of five columns is 200 values: a plain multi-row insert of
+      // one event's list is over D1's 100 bound parameters, which bun:sqlite
+      // never enforces.
+      const list = (tag: string) =>
+        Array.from({ length: 40 }, (_, i) => ({
+          time: `${String(i % 24).padStart(2, "0")}:${i < 24 ? "00" : "30"}`,
+          label: `${tag} ${i}`,
+        }));
+      const event = (name: string, runOfShow: { time: string; label: string }[]) => ({
+        name,
+        startAt: "",
+        endAt: "",
+        timezone: "",
+        address: null,
+        dressCodeDescription: null,
+        dressCodePalette: [],
+        pinterestUrl: null,
+        mapsUrl: null,
+        sortOrder: 0,
+        runOfShow,
+      });
+      const plan = (
+        creates: ImportPlan["eventCreates"],
+        updates: ImportPlan["eventUpdates"],
+      ): ImportPlan => ({
+        eventCreates: creates,
+        eventUpdates: updates,
+        eventRemoves: [],
+        familyCreates: [],
+        familyUpdates: [],
+        familyRemoves: [],
+        guestCreates: [],
+        guestUpdates: [],
+        guestRemoves: [],
+        eventLinkCreates: [],
+        eventLinkRemoves: [],
+        warnings: [],
+      });
+
+      await run(
+        applyImport(
+          "imp_ros_1",
+          plan(
+            [
+              { id: "evt_ros_1", event: event("Brunch", list("Brunch")) },
+              { id: "evt_ros_2", event: event("Picnic", list("Picnic")) },
+            ],
+            [{ id: EVENT_A, event: event("Ceremony", list("First")) }],
+          ),
+          BOOTSTRAP_WEDDING_ID,
+        ),
+      );
+      expect(await db.select().from(runOfShowItems)).toHaveLength(120);
+
+      // A changed list replaces the whole of the old one.
+      await run(
+        applyImport(
+          "imp_ros_2",
+          plan([], [{ id: EVENT_A, event: event("Ceremony", list("Second")) }]),
+          BOOTSTRAP_WEDDING_ID,
+        ),
+      );
+      const ceremony = await db
+        .select({ label: runOfShowItems.label })
+        .from(runOfShowItems)
+        .where(eq(runOfShowItems.eventId, EVENT_A))
+        .orderBy(runOfShowItems.sortOrder);
+      expect(ceremony.map((r) => r.label)).toEqual(list("Second").map((i) => i.label));
+
+      // The household is invited to the Ceremony: its claim carries the list.
+      const claimed = await run(claimService.lookup(PUBLIC_ID));
+      expect(claimed.events.find((e) => e.id === EVENT_A)?.runOfShow).toEqual(list("Second"));
+
+      // The diff reads every stored list in one statement and writes none
+      // that is unchanged.
+      const diffed = await run(
+        diffAgainstDb(
+          [
+            { ...event("Ceremony", list("Second")), id: EVENT_A },
+            { ...event("Reception", []), id: EVENT_B, sortOrder: 1 },
+            { ...event("Brunch", list("Brunch")), id: "evt_ros_1", sortOrder: 2 },
+            { ...event("Picnic", list("Changed")), id: "evt_ros_2", sortOrder: 3 },
+          ],
+          [],
+          BOOTSTRAP_WEDDING_ID,
+          { scope: "events", matchByName: false },
+        ),
+      );
+      const written = diffed.eventUpdates.filter((u) => u.event.runOfShow !== undefined);
+      expect(written.map((u) => u.id)).toEqual(["evt_ros_2"]);
     },
     MF_TIMEOUT_MS,
   );

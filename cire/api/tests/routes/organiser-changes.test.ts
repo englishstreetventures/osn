@@ -9,6 +9,7 @@ import {
   imports,
   organiserSessions,
   rsvps,
+  runOfShowItems,
   seatingAssignments,
   seatingTables,
   weddingHosts,
@@ -417,6 +418,273 @@ describe("an event's description and venue name", () => {
       .map((text) => JSON.parse(text) as { events: object[] });
     expect(changes).toHaveLength(1);
     expect(changes[0]!.events[0]).toHaveProperty("location", null);
+  });
+});
+
+// ── An event's run of show, getting-there notes and guest policy ──────────
+
+describe("an event's run of show, getting-there notes and guest policy", () => {
+  /** The events editor's event, as the current host sends it. */
+  const editorEvent = (extra: object = {}) => ({
+    name: "Kitchen Tea",
+    startAt: "2026-11-20T16:00:00+11:00",
+    endAt: "",
+    timezone: "Australia/Sydney",
+    location: null,
+    description: "",
+    venueName: null,
+    address: null,
+    dressCodeDescription: null,
+    dressCodePalette: [],
+    pinterestUrl: null,
+    mapsUrl: null,
+    sortOrder: 0,
+    ...extra,
+  });
+  const RUN = [
+    { time: "17:15", label: "Speeches" },
+    { time: "16:00", label: "Tea is poured" },
+    { time: "16:45", label: "Garden games" },
+  ];
+  const DETAILS = {
+    runOfShow: RUN,
+    gettingThere: "Park on Sample Lane.\nThe gate is on the left.",
+    childrenPolicy: "adults_only",
+    plusOnePolicy: "welcome",
+    guestPolicyNote: "Hats encouraged.",
+  };
+
+  async function preview(app: ReturnType<typeof buildApp>["app"], eventsBody: object[]) {
+    const res = await editorPreview(app, {
+      desiredState: { events: eventsBody, families: [] },
+      scope: "events",
+    });
+    expect(res.status).toBe(200);
+    return (await res.json()) as {
+      changeId: string;
+      warnings: string[];
+      plan: {
+        eventCreates: { event: Record<string, unknown> }[];
+        eventUpdates: { event: Record<string, unknown> }[];
+      };
+    };
+  }
+
+  async function previewAndApply(app: ReturnType<typeof buildApp>["app"], eventsBody: object[]) {
+    const json = await preview(app, eventsBody);
+    const apply = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: json.changeId });
+    expect(apply.status).toBe(200);
+    return json;
+  }
+
+  const row = (db: ReturnType<typeof buildApp>["db"]) =>
+    db
+      .select({
+        id: events.id,
+        gettingThere: events.gettingThere,
+        childrenPolicy: events.childrenPolicy,
+        plusOnePolicy: events.plusOnePolicy,
+        guestPolicyNote: events.guestPolicyNote,
+        dressCodeDescription: events.dressCodeDescription,
+      })
+      .from(events)
+      .all()[0]!;
+  const items = (db: ReturnType<typeof buildApp>["db"]) =>
+    db
+      .select({
+        eventId: runOfShowItems.eventId,
+        weddingId: runOfShowItems.weddingId,
+        sortOrder: runOfShowItems.sortOrder,
+        time: runOfShowItems.time,
+        label: runOfShowItems.label,
+      })
+      .from(runOfShowItems)
+      .orderBy(runOfShowItems.eventId, runOfShowItems.sortOrder)
+      .all();
+
+  // A new event arrives with all three: the run of show in the organiser's
+  // order, under the event's own wedding.
+  it("stores all three on an event the editor creates, and the preview's plan carries them", async () => {
+    const { app, db } = buildApp();
+    const created = await previewAndApply(app, [editorEvent(DETAILS)]);
+    expect(created.plan.eventCreates[0]!.event).toMatchObject(DETAILS);
+    expect(row(db)).toMatchObject({
+      gettingThere: DETAILS.gettingThere,
+      childrenPolicy: "adults_only",
+      plusOnePolicy: "welcome",
+      guestPolicyNote: "Hats encouraged.",
+    });
+    const { id } = row(db);
+    expect(items(db)).toEqual(
+      RUN.map((item, sortOrder) => ({
+        eventId: id,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        sortOrder,
+        ...item,
+      })),
+    );
+  });
+
+  // An older host sends none of the fields. Its save must not wipe what a
+  // newer host (or a sheet) stored.
+  it("keeps all three when an older host's save carries none of them", async () => {
+    const { app, db } = buildApp();
+    await previewAndApply(app, [editorEvent(DETAILS)]);
+    const { id } = row(db);
+    const older = editorEvent({ id, dressCodeDescription: "Garden party" }) as Record<
+      string,
+      unknown
+    >;
+    delete older.description;
+    delete older.venueName;
+    await previewAndApply(app, [older]);
+    expect(row(db)).toMatchObject({
+      dressCodeDescription: "Garden party",
+      gettingThere: DETAILS.gettingThere,
+      childrenPolicy: "adults_only",
+      plusOnePolicy: "welcome",
+      guestPolicyNote: "Hats encouraged.",
+    });
+    expect(items(db).map((i) => i.label)).toEqual(RUN.map((i) => i.label));
+  });
+
+  // Every editor save sends every event's run of show. An unchanged list is
+  // left as stored rather than deleted and written again.
+  it("writes no run-of-show statement for a save that leaves the list as it is", async () => {
+    const { app, db } = buildApp();
+    await previewAndApply(app, [editorEvent(DETAILS)]);
+    const { id } = row(db);
+    const unchanged = await preview(app, [
+      editorEvent({ ...DETAILS, id, dressCodeDescription: "Garden party" }),
+    ]);
+    expect(unchanged.plan.eventUpdates[0]!.event).not.toHaveProperty("runOfShow");
+    const recorded = recordStatements(db);
+    const apply = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: unchanged.changeId });
+    expect(apply.status).toBe(200);
+    expect(
+      recorded.filter((s) => /^\s*(insert|delete)\b[^;]*run_of_show_items/i.test(s.sql)),
+    ).toEqual([]);
+
+    // A changed list is the whole list: reordered, one gone, one retimed.
+    await previewAndApply(app, [
+      editorEvent({
+        ...DETAILS,
+        id,
+        runOfShow: [
+          { time: "16:05", label: "Tea is poured" },
+          { time: "17:15", label: "Speeches" },
+        ],
+      }),
+    ]);
+    expect(items(db).map(({ sortOrder, time, label }) => ({ sortOrder, time, label }))).toEqual([
+      { sortOrder: 0, time: "16:05", label: "Tea is poured" },
+      { sortOrder: 1, time: "17:15", label: "Speeches" },
+    ]);
+  });
+
+  // An event the editor removes takes its run of show with it.
+  it("removes an event's run of show with the event", async () => {
+    const { app, db } = buildApp();
+    await previewAndApply(app, [
+      editorEvent(DETAILS),
+      editorEvent({ name: "Reception", runOfShow: [{ time: "18:00", label: "Doors" }] }),
+    ]);
+    const reception = db
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.name, "Reception"))
+      .all()[0]!;
+    const kitchenTea = db
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.name, "Kitchen Tea"))
+      .all()[0]!;
+    await previewAndApply(app, [editorEvent({ ...DETAILS, id: kitchenTea.id })]);
+    expect(items(db).some((i) => i.eventId === reception.id)).toBe(false);
+    expect(items(db)).toHaveLength(RUN.length);
+  });
+
+  // The editor door holds every value to what the sheet door admits. One
+  // event keeps the body far under the 1 MB caps, so the field check answers.
+  describe("an editor value the sheet could not carry", () => {
+    const over = "x".repeat(10_001);
+    it.each([
+      ["a time past the clock", { runOfShow: [{ time: "24:00", label: "Late" }] }],
+      ["a 12-hour time", { runOfShow: [{ time: "4:00 pm", label: "Tea" }] }],
+      ["a time without its leading zero", { runOfShow: [{ time: "4:00", label: "Tea" }] }],
+      ["a blank label", { runOfShow: [{ time: "16:00", label: "   " }] }],
+      ["a label over 200 characters", { runOfShow: [{ time: "16:00", label: "x".repeat(201) }] }],
+      [
+        "a label holding a line break",
+        { runOfShow: [{ time: "16:00", label: "Tea\n17:00 Cake" }] },
+      ],
+      [
+        "41 items",
+        { runOfShow: Array.from({ length: 41 }, () => ({ time: "16:00", label: "Tea" })) },
+      ],
+      ["getting-there notes over 10,000 characters", { gettingThere: over }],
+      ["a guest policy note over 10,000 characters", { guestPolicyNote: over }],
+      ["an unknown children preset", { childrenPolicy: "kids_ok" }],
+      ["an unknown plus-one preset", { plusOnePolicy: "yes" }],
+    ])("refuses %s, and stores nothing", async (_case, extra) => {
+      const { app, db } = buildApp();
+      const res = await editorPreview(app, {
+        desiredState: { events: [editorEvent(extra)], families: [] },
+        scope: "events",
+      });
+      expect(res.status).toBe(400);
+      expect(db.select().from(imports).all()).toHaveLength(0);
+    });
+
+    it("takes every value at its cap", async () => {
+      const { app } = buildApp();
+      await preview(app, [
+        editorEvent({
+          runOfShow: Array.from({ length: 40 }, () => ({ time: "23:59", label: "x".repeat(200) })),
+          gettingThere: over.slice(1),
+          guestPolicyNote: over.slice(1),
+        }),
+      ]);
+    });
+  });
+
+  // An update that would leave an event without something it has is named in
+  // the preview, at either door. A sheet without the columns says nothing.
+  it("warns when a change would clear any of them, and not when it says nothing about them", async () => {
+    const { app, db } = buildApp();
+    await previewAndApply(app, [editorEvent(DETAILS)]);
+    const { id } = row(db);
+    const cleared = await preview(app, [
+      editorEvent({
+        id,
+        runOfShow: [],
+        gettingThere: null,
+        childrenPolicy: null,
+        plusOnePolicy: null,
+        guestPolicyNote: null,
+      }),
+    ]);
+    expect(cleared.warnings).toEqual([
+      'Event "Kitchen Tea" would lose its run of show, getting-there notes, children policy, plus-one policy and guest policy note.',
+    ]);
+
+    const sheetWarnings = async (header: string, cells: string) => {
+      const res = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        eventsCsv: [header, `Kitchen Tea,2026-11-20T16:00,Australia/Sydney${cells}`].join("\n"),
+      });
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { warnings: string[] }).warnings;
+    };
+    expect(
+      await sheetWarnings("Event Name,Start,Timezone,Run of Show,Plus-Ones", ",,Welcome"),
+    ).toEqual(['Event "Kitchen Tea" would lose its run of show.']);
+    expect(await sheetWarnings("Event Name,Start,Timezone", "")).toEqual([]);
+    expect(
+      await sheetWarnings(
+        "Event Name,Start,Timezone,Run of Show,Getting There,Children,Plus-Ones,Guest Policy Note",
+        `,"17:15 Speeches\n16:00 Tea is poured\n16:45 Garden games",Park on Sample Lane.,Adults only,Welcome,Hats encouraged.`,
+      ),
+    ).toEqual([]);
   });
 });
 

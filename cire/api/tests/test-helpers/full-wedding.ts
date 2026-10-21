@@ -36,6 +36,7 @@ export const WEDDING_CHILD_TABLES = [
   "unlock_code_redemptions",
   "seating_tables",
   "seating_assignments",
+  "run_of_show_items",
 ] as const;
 
 /** The household's claim code {@link fullWeddingStatements} writes. Upper
@@ -98,6 +99,7 @@ export function fullWeddingStatements(
     sql`INSERT INTO guests (id, family_id, first_name, created_at, updated_at) VALUES (${guest}, ${fam}, 'Ada', ${s}, ${s})`,
     sql`INSERT INTO events (id, wedding_id, slug, name, start_at, end_at, timezone, event_image_key) VALUES (${event}, ${id}, 'ceremony', 'Ceremony', '2027-01-01T10:00', '2027-01-01T11:00', 'UTC', ${keys.assets[3]!})`,
     sql`INSERT INTO guest_events (guest_id, event_id) VALUES (${guest}, ${event})`,
+    sql`INSERT INTO run_of_show_items (event_id, wedding_id, sort_order, time, label) VALUES (${event}, ${id}, 0, '16:00', 'Ceremony')`,
     sql`INSERT INTO seating_tables (id, wedding_id, event_id, name, capacity, created_at, updated_at) VALUES (${`stb_${id}`}, ${id}, ${event}, 'Table 1', 8, ${s}, ${s})`,
     sql`INSERT INTO seating_assignments (table_id, event_id, guest_id, created_at) VALUES (${`stb_${id}`}, ${event}, ${guest}, ${s})`,
     sql`INSERT INTO rsvps (id, guest_id, event_id, status, created_at) VALUES (${`rsvp_${id}`}, ${guest}, ${event}, 'attending', ${s})`,

@@ -7,6 +7,12 @@ import { serialiseCsv } from "../lib/csv";
 import { compareEventsByStart } from "../lib/event-order";
 import { formatWallTime } from "../lib/event-time";
 import { decodePalette, safeHttpUrl, withPlusOnesAfterInviters } from "./claim";
+import {
+  CHILDREN_POLICY_LABEL,
+  PLUS_ONE_POLICY_LABEL,
+  runOfShowCell,
+} from "./guest-event-validation";
+import { byEvent, storedRunsOfShow } from "./run-of-show";
 
 /**
  * Invited-guest count per event for one wedding, aggregated IN SQL (`GROUP BY`
@@ -200,7 +206,7 @@ export const tableExportService = {
       // The two reads are independently wedding-scoped — collapse them to one
       // D1 round-trip (matches the parallel shape in state-export.ts and
       // rsvp-export.ts).
-      const [eventRows, invitedByEvent] = yield* Effect.all(
+      const [eventRows, invitedByEvent, items] = yield* Effect.all(
         [
           dbQuery(() =>
             db
@@ -213,6 +219,10 @@ export const tableExportService = {
                 timezone: events.timezone,
                 venueName: events.venueName,
                 address: events.address,
+                gettingThere: events.gettingThere,
+                childrenPolicy: events.childrenPolicy,
+                plusOnePolicy: events.plusOnePolicy,
+                guestPolicyNote: events.guestPolicyNote,
                 description: events.description,
                 dressCodeDescription: events.dressCodeDescription,
                 dressCodePalette: events.dressCodePalette,
@@ -225,10 +235,12 @@ export const tableExportService = {
               .all(),
           ),
           invitedCountsByEvent(weddingId),
+          storedRunsOfShow(weddingId),
         ],
-        { concurrency: 2 },
+        { concurrency: 3 },
       );
       const orderedEvents = eventRows.toSorted(compareEventsByStart);
+      const runOfShow = byEvent(items);
 
       const header = [
         "Event Name",
@@ -243,6 +255,11 @@ export const tableExportService = {
         "Dress Code Palette",
         "Pinterest URL",
         "Maps URL",
+        "Run of Show",
+        "Getting There",
+        "Children",
+        "Plus-Ones",
+        "Guest Policy Note",
         "Invited Guests",
       ];
       const rows = orderedEvents.map((e) => {
@@ -262,6 +279,12 @@ export const tableExportService = {
           (palette ?? []).map((s) => `${s.name} (${s.color})`).join("; "),
           safeHttpUrl(e.pinterestUrl) ?? "",
           safeHttpUrl(e.mapsUrl) ?? "",
+          // In the organiser's order, as the dashboard lists it.
+          runOfShowCell(runOfShow.get(e.id) ?? []),
+          e.gettingThere ?? "",
+          e.childrenPolicy ? CHILDREN_POLICY_LABEL[e.childrenPolicy] : "",
+          e.plusOnePolicy ? PLUS_ONE_POLICY_LABEL[e.plusOnePolicy] : "",
+          e.guestPolicyNote ?? "",
           String(invitedByEvent.get(e.id) ?? 0),
         ];
       });

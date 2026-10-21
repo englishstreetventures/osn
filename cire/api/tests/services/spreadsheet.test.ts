@@ -1167,3 +1167,135 @@ describe("an upload takes the download's formula guard back off", () => {
     expect(family!.guests[0]!.eventNames).toEqual(["+1 Drinks"]);
   });
 });
+
+// ── An event's run of show, getting-there notes and guest policy ────────────
+
+describe("parseEventsCsv — run of show, getting there and guest policy", () => {
+  const HEADER =
+    "Event Name,Start,Timezone,Run of Show,Getting There,Children,Plus-Ones,Guest Policy Note";
+  const row = (cells: string) =>
+    [HEADER, `Kitchen Tea,2026-11-20T16:00,Australia/Sydney,${cells}`].join("\n");
+  const parse = (csv: string) => Effect.runPromise(parseEventsCsv(csv));
+  const refusal = async (csv: string) => {
+    const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
+    expect(error).toBeInstanceOf(MalformedSpreadsheet);
+    return error as MalformedSpreadsheet;
+  };
+  const hours = (count: number, minutes: string, label: (i: number) => string) =>
+    Array.from(
+      { length: count },
+      (_, i) => `${String(i % 24).padStart(2, "0")}:${minutes} ${label(i)}`,
+    ).join("\n");
+
+  // What a sheet carries is what the event gets. One item per line, the time
+  // first; an hour without its leading zero is the same clock; blank lines are
+  // nothing; the presets read whatever their case and spacing.
+  it("reads every column, normalising each time to HH:MM and skipping blank lines", async () => {
+    const [event] = await parse(
+      row(
+        '"4:00 Tea is poured\n\n  16:45   Garden games \n17:15 Speeches",Park on Sample Lane.,  adults ONLY ,by  invitation,Hats welcome.',
+      ),
+    );
+    expect(event).toMatchObject({
+      runOfShow: [
+        { time: "04:00", label: "Tea is poured" },
+        { time: "16:45", label: "Garden games" },
+        { time: "17:15", label: "Speeches" },
+      ],
+      gettingThere: "Park on Sample Lane.",
+      childrenPolicy: "adults_only",
+      plusOnePolicy: "by_invitation",
+      guestPolicyNote: "Hats welcome.",
+    });
+    const [other] = await parse(row(",,Children welcome,Welcome,"));
+    expect(other).toMatchObject({ childrenPolicy: "children_welcome", plusOnePolicy: "welcome" });
+  });
+
+  // A column that is there but blank clears; "Not stated" is the same as blank.
+  it("reads blank cells, and Not stated, as clears", async () => {
+    const [event] = await parse(row(",,,not stated,"));
+    expect(event).toMatchObject({
+      runOfShow: [],
+      gettingThere: null,
+      childrenPolicy: null,
+      plusOnePolicy: null,
+      guestPolicyNote: null,
+    });
+  });
+
+  // A column the sheet does not carry says nothing about its field.
+  it("leaves every field out when the sheet has none of the columns", async () => {
+    const [event] = await parse(
+      ["Event Name,Start,Timezone", "Kitchen Tea,2026-11-20T16:00,Australia/Sydney"].join("\n"),
+    );
+    for (const field of [
+      "runOfShow",
+      "gettingThere",
+      "childrenPolicy",
+      "plusOnePolicy",
+      "guestPolicyNote",
+    ]) {
+      expect(event).not.toHaveProperty(field);
+    }
+  });
+
+  // A cell the parser cannot read is refused where it is, by row and column.
+  const NO_TIME = "Run of Show lines must start with a 24-hour time (HH:MM)";
+  it.each([
+    ["a line with no time", '"16:00 Tea\nSpeeches at five"', NO_TIME],
+    ["a time past the clock", '"25:00 Late"', NO_TIME],
+    ["a 12-hour time", '"4pm Tea"', NO_TIME],
+    ["a time with no label", '"16:00   "', "Run of Show lines need a label after the time"],
+    [
+      "a label over 200 characters",
+      `"16:00 ${"x".repeat(201)}"`,
+      "Run of Show labels must be at most 200 characters",
+    ],
+    [
+      "more than 40 lines",
+      `"${hours(41, "00", (i) => `Item ${i}`)}"`,
+      "Run of Show holds at most 40 items",
+    ],
+  ])("refuses %s in Run of Show", async (_case, cell, reason) => {
+    const error = await refusal(row(`${cell},,,,`));
+    expect(error.reason).toBe(reason as MalformedSpreadsheet["reason"]);
+    expect(error.atRow).toBe(2);
+    expect(error.atColumn).toBe(4);
+  });
+
+  it("takes a label of exactly 200 characters, 40 times over", async () => {
+    const [event] = await parse(row(`"${hours(40, "30", () => "y".repeat(200))}",,,,`));
+    expect(event!.runOfShow).toHaveLength(40);
+  });
+
+  it("refuses a Children or Plus-Ones value that is not one of the presets", async () => {
+    const children = await refusal(row(",,Kids fine,,"));
+    expect(children).toMatchObject({
+      reason: "Children must be Adults only, Children welcome or blank",
+      atRow: 2,
+      atColumn: 6,
+    });
+    const plusOnes = await refusal(row(",,,Yes,"));
+    expect(plusOnes).toMatchObject({
+      reason: "Plus-Ones must be By invitation, Welcome or blank",
+      atRow: 2,
+      atColumn: 7,
+    });
+  });
+
+  // A before-image is the app's own output, read back by a revert. A cell it
+  // cannot read must not make the change unrevertable: a bad line is dropped
+  // and an unknown preset reads as not stated, as a non-http URL reads blank.
+  it("reads a before-image leniently", async () => {
+    const [event] = await Effect.runPromise(
+      parseEventsCsv(row('"16:00 Tea\nnot a line\n99:99 Late",,Sometimes,Maybe,'), {
+        snapshot: true,
+      }),
+    );
+    expect(event).toMatchObject({
+      runOfShow: [{ time: "16:00", label: "Tea" }],
+      childrenPolicy: null,
+      plusOnePolicy: null,
+    });
+  });
+});

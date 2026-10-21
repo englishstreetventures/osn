@@ -25,6 +25,20 @@ export const MAX_EVENTS = 200;
  */
 export const MAX_CELL_LENGTH = 10_000;
 
+/**
+ * The most items one event's run of show may hold, at either front door. With
+ * {@link MAX_RUN_OF_SHOW_LABEL} it keeps a full run of show's sheet cell
+ * (`HH:MM label` per line) under {@link MAX_CELL_LENGTH}, so a download of one
+ * re-imports.
+ */
+export const MAX_RUN_OF_SHOW_ITEMS = 40;
+
+/** The longest one run-of-show item's label may be, in characters. */
+export const MAX_RUN_OF_SHOW_LABEL = 200;
+
+/** A 24-hour wall clock, `HH:MM`: hours 00–23, minutes 00–59. */
+export const CLOCK_TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
 /** A check that a string is at most {@link MAX_CELL_LENGTH} characters. */
 const withinCell = (field: string) =>
   Schema.makeFilter((s: string) =>
@@ -54,6 +68,39 @@ export const PaletteSwatch = Schema.Struct({
   ),
 });
 export type PaletteSwatch = Schema.Schema.Type<typeof PaletteSwatch>;
+
+/**
+ * One item of an event's run of show. `time` is the event's own wall clock, so
+ * it carries no date and no offset. The label is one line: the sheet writes one
+ * item per line, so a line break inside a label would come back as an item with
+ * no time. Validation only, no trim, so the diff compares what was sent.
+ */
+export const RunOfShowItem = Schema.Struct({
+  time: Schema.String.check(
+    Schema.makeFilter((s: string) =>
+      CLOCK_TIME_RE.test(s) ? undefined : "run of show time must be a 24-hour time (HH:MM)",
+    ),
+  ),
+  label: Schema.String.check(
+    Schema.makeFilter((s: string) =>
+      s.trim().length > 0 && s.length <= MAX_RUN_OF_SHOW_LABEL && !/[\r\n]/.test(s)
+        ? undefined
+        : `run of show label must be one non-blank line of at most ${MAX_RUN_OF_SHOW_LABEL} characters`,
+    ),
+  ),
+});
+export type RunOfShowItem = Schema.Schema.Type<typeof RunOfShowItem>;
+
+/** Whether children are welcome at an event. Absent or null ⇒ not stated. */
+export const ChildrenPolicy = Schema.Literals(["adults_only", "children_welcome"]);
+export type ChildrenPolicy = Schema.Schema.Type<typeof ChildrenPolicy>;
+
+/**
+ * How plus-ones work at an event. Wording only: each guest's own
+ * `plus_one_allowed` decides who may bring one. Absent or null ⇒ not stated.
+ */
+export const PlusOnePolicy = Schema.Literals(["by_invitation", "welcome"]);
+export type PlusOnePolicy = Schema.Schema.Type<typeof PlusOnePolicy>;
 
 export const ParsedEvent = Schema.Struct({
   /**
@@ -89,6 +136,20 @@ export const ParsedEvent = Schema.Struct({
    * the venue name, which requires it, after a rollback.
    */
   location: Schema.optional(Schema.Null),
+  /**
+   * The event's run of show, in the organiser's order. Same absent-is-not-empty
+   * rule as `description`: absent leaves the stored list as it is; present is
+   * the whole list, so `[]` clears it.
+   */
+  runOfShow: Schema.optional(
+    Schema.Array(RunOfShowItem).check(Schema.isMaxLength(MAX_RUN_OF_SHOW_ITEMS)),
+  ),
+  /** Parking, transport and accessibility notes. Absent keeps; `null` clears. */
+  gettingThere: Schema.optional(Schema.NullOr(BoundedText("gettingThere"))),
+  /** The guest policy's two presets and its note. Absent keeps; `null` clears. */
+  childrenPolicy: Schema.optional(Schema.NullOr(ChildrenPolicy)),
+  plusOnePolicy: Schema.optional(Schema.NullOr(PlusOnePolicy)),
+  guestPolicyNote: Schema.optional(Schema.NullOr(BoundedText("guestPolicyNote"))),
   address: Schema.NullOr(BoundedText("address")),
   dressCodeDescription: Schema.NullOr(BoundedText("dressCodeDescription")),
   dressCodePalette: Schema.Array(PaletteSwatch),

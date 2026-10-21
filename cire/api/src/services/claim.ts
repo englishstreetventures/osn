@@ -31,12 +31,14 @@ import type {
   OrganiserHouseholdRow,
   DressSwatch,
 } from "../schemas/claim";
+import type { ChildrenPolicy, PlusOnePolicy, RunOfShowItem } from "../schemas/import";
 import { decodeCrop, type ImageCrop } from "../schemas/invite";
 import { type LinkFacts, linkStateFor, readLinkFacts } from "./account-link";
 import { eventImagePath, versionFromKey } from "./event-image";
 import { inviteFaqService } from "./invite-faq";
 import type { OsnAccountResolver } from "./osn-bridge";
 import { isDietaryConsentCurrent, withoutSubmitter } from "./rsvp";
+import { byEvent, runsOfShowFor, storedRunsOfShow } from "./run-of-show";
 
 export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
 
@@ -476,16 +478,25 @@ function buildInvite(
       }
     }
 
-    const eventRows =
+    // The events and their runs of show, read side by side: both are keyed
+    // only off the household's event ids.
+    const [eventRows, itemRows] =
       eventIds.size === 0
-        ? []
-        : yield* dbQuery(() =>
-            db
-              .select()
-              .from(events)
-              .where(inArray(events.id, jsonEachIn([...eventIds])))
-              .all(),
+        ? [[], []]
+        : yield* Effect.all(
+            [
+              dbQuery(() =>
+                db
+                  .select()
+                  .from(events)
+                  .where(inArray(events.id, jsonEachIn([...eventIds])))
+                  .all(),
+              ),
+              runsOfShowFor([...eventIds]),
+            ],
+            { concurrency: "unbounded" },
           );
+    const runOfShow = byEvent(itemRows);
 
     const eventList: Array<ClaimResponse["events"][number]> = [];
     for (const e of eventRows) {
@@ -502,6 +513,11 @@ function buildInvite(
         timezone: e.timezone,
         venueName: e.venueName ?? null,
         address: e.address ?? null,
+        runOfShow: runOfShow.get(e.id) ?? [],
+        gettingThere: e.gettingThere ?? null,
+        childrenPolicy: e.childrenPolicy ?? null,
+        plusOnePolicy: e.plusOnePolicy ?? null,
+        guestPolicyNote: e.guestPolicyNote ?? null,
         dressCodeDescription: e.dressCodeDescription ?? null,
         dressCodePalette: palette,
         pinterestUrl: safeHttpUrl(e.pinterestUrl),
@@ -737,6 +753,11 @@ export const claimService = {
       venueName: string | null;
       address: string | null;
       description: string;
+      runOfShow: readonly RunOfShowItem[];
+      gettingThere: string | null;
+      childrenPolicy: ChildrenPolicy | null;
+      plusOnePolicy: PlusOnePolicy | null;
+      guestPolicyNote: string | null;
       dressCodeDescription: string | null;
       dressCodePalette: readonly DressSwatch[] | null;
       pinterestUrl: string | null;
@@ -749,14 +770,21 @@ export const claimService = {
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const rows = yield* dbQuery(() =>
-        db
-          .select()
-          .from(events)
-          .where(eq(events.weddingId, weddingId))
-          .orderBy(asc(events.sortOrder))
-          .all(),
+      const [rows, items] = yield* Effect.all(
+        [
+          dbQuery(() =>
+            db
+              .select()
+              .from(events)
+              .where(eq(events.weddingId, weddingId))
+              .orderBy(asc(events.sortOrder))
+              .all(),
+          ),
+          storedRunsOfShow(weddingId),
+        ],
+        { concurrency: "unbounded" },
       );
+      const runOfShow = byEvent(items);
       return rows.map((row) => {
         const { palette } = decodePalette(row.dressCodePalette);
         return {
@@ -770,6 +798,11 @@ export const claimService = {
           venueName: row.venueName,
           address: row.address,
           description: row.description,
+          runOfShow: runOfShow.get(row.id) ?? [],
+          gettingThere: row.gettingThere,
+          childrenPolicy: row.childrenPolicy,
+          plusOnePolicy: row.plusOnePolicy,
+          guestPolicyNote: row.guestPolicyNote,
           dressCodeDescription: row.dressCodeDescription,
           dressCodePalette: palette,
           pinterestUrl: safeHttpUrl(row.pinterestUrl),

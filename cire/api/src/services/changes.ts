@@ -226,7 +226,10 @@ export function createSourceFor(kind: "import" | "editor"): Provenance {
  *
  * The projection below is the full `ParsedEvent` shape rather than the two fields
  * today's consumers touch, so the value stays an honest desired-state event and a
- * future reader of `desiredState.events` isn't handed a half-built record.
+ * future reader of `desiredState.events` isn't handed a half-built record. The
+ * run of show, getting-there notes and guest policy are left out: absent says
+ * nothing about them, a guests-scoped change emits no event op to write them,
+ * and the run of show would cost a second read.
  */
 export function currentEventsAsParsed(
   weddingId: string,
