@@ -181,6 +181,7 @@ const afterTheCloseEvent = () => new Promise((resolve) => setTimeout(resolve, 0)
 afterEach(async () => {
   cleanup();
   document.documentElement.style.overflow = "";
+  document.documentElement.style.scrollbarGutter = "";
   await emulate({ reducedMotion: "no-preference" });
 });
 
@@ -1337,6 +1338,7 @@ describe("EventSheet — one height for both panels", () => {
         heights.fromDetails = stop();
         first.unmount();
         document.documentElement.style.overflow = "";
+        document.documentElement.style.scrollbarGutter = "";
 
         // Opened on the form: answer, which grows the form, then a swipe to
         // the details as the first switch, and the switch back.

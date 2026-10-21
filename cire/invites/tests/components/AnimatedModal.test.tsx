@@ -29,6 +29,7 @@ describe("AnimatedModal", () => {
     vi.restoreAllMocks();
     // Defensive: ensure the body scroll lock is never left applied between tests.
     document.documentElement.style.overflow = "";
+    document.documentElement.style.scrollbarGutter = "";
   });
 
   it("names the dialog via labelledBy → the referenced title element", () => {

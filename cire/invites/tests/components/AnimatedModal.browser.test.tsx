@@ -19,6 +19,7 @@ describe("the guest sheet, in a real engine", () => {
   afterEach(() => {
     cleanup();
     document.documentElement.style.overflow = "";
+    document.documentElement.style.scrollbarGutter = "";
   });
 
   /**

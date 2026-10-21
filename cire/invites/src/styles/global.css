@@ -695,10 +695,6 @@
        `position: sticky` descendant. Both elements need it — setting it on one
        alone lets the other still pan sideways. */
     overflow-x: clip;
-    /* The event sheet locks the page by setting `overflow: hidden` here, which
-       takes away a classic (non-overlay) scrollbar; a reserved gutter keeps the
-       invite behind the sheet from shifting sideways as it opens and closes. */
-    scrollbar-gutter: stable;
   }
 
   /* Desktop only — phones already fill their column at 16px, and the same step

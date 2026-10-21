@@ -108,6 +108,7 @@ describe("EventSheet", () => {
   afterEach(() => {
     cleanup();
     document.documentElement.style.overflow = "";
+    document.documentElement.style.scrollbarGutter = "";
   });
 
   it("hands the details its site origin, for the calendar invite's link", () => {

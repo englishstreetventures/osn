@@ -125,9 +125,16 @@ export function AnimatedModal(props: AnimatedModalProps) {
   onMount(() => {
     const root = document.documentElement;
     const previousOverflow = root.style.overflow;
+    const previousGutter = root.style.scrollbarGutter;
     root.style.overflow = "hidden";
+    // `hidden` takes a classic (non-overlay) scrollbar away; a gutter of the
+    // same width keeps the invite behind the sheet from shifting sideways as
+    // it opens and closes. Only while locked: held all the time, it would
+    // narrow every page that has no scrollbar to give back.
+    root.style.scrollbarGutter = "stable";
     onCleanup(() => {
       root.style.overflow = previousOverflow;
+      root.style.scrollbarGutter = previousGutter;
     });
   });
 

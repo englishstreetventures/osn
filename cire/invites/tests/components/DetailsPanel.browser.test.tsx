@@ -188,6 +188,7 @@ afterEach(() => {
   cleanup();
   unpinZone();
   document.documentElement.style.overflow = "";
+  document.documentElement.style.scrollbarGutter = "";
   applyPaletteToRoot(null);
   const root = document.documentElement;
   for (const name of Array.from(root.style)) {
