@@ -186,9 +186,11 @@ final sign-off now turns only on the residual retention gaps below.
   disclosure within the wedding team, not a leak to guard against. **The
   disclosure is live** (2026-10-21): `GET …/run-sheet` serves it, on Gold
   weddings only ([[cire-run-sheet]]). What each helper receives:
-  - **`own`** — the tasks their seat holds (title, notes, status, time), the
-    names and photo URLs of the people who hold those tasks with them, and
-    the events those tasks are linked to: name, start, end, time zone, venue
+  - **`own`** — the tasks their seat holds (title, notes, status, time); for
+    each person who holds those tasks with them, their seat id (a random key
+    that names nothing outside this wedding) and the handle, display name and
+    photo URL OSN gives them, and never their OSN profile id or role; and the
+    events those tasks are linked to: name, start, end, time zone, venue
     name, **full address** and **run of show** (each item's time and label).
     The owner chose (2026-10-21) to give an `own` helper the address, since
     someone carrying the cake has to find the venue; an event's address can
@@ -198,8 +200,9 @@ final sign-off now turns only on the residual retention gaps below.
     written for guests, and may name a person ("Speeches by Sam"); it is
     already read by every invited household of the event. Nothing of any
     task, event or person not linked to their own tasks.
-  - **`full`** — every task on the run sheet and who holds it, and every event
-    of the wedding with the same fields, addresses and runs of show included.
+  - **`full`** — every task on the run sheet and who holds it (the same fields
+    for each person), and every event of the wedding with the same fields,
+    addresses and runs of show included.
 
   Never the guest list, an RSVP, a dietary answer or a claim code, and no
   event field beyond those named (no description, dress code, getting-there
@@ -208,7 +211,10 @@ final sign-off now turns only on the residual retention gaps below.
   confirmation; it never opens the guest list; a helper's response is
   narrowed on the server, not in the page, and a test pins the exact fields;
   and no task text, person's name, event address or run-of-show label is
-  written to a log by the route. See [[cire-auth#The run-sheet scope]].
+  written to a log by the route. The names and photo URLs are held in the
+  Worker's memory for at most five minutes, keyed by profile id, so a re-read
+  does not ask OSN again; nothing is written. See [[cire-auth#The run-sheet
+  scope]].
 - **Granularity (2026-08-01).** The field is stored per **(guest, event)** — a
   guest answers once per event they are invited to — and `GET …/rsvps.csv` now
   discloses it that way, one dietary column per event. It previously collapsed

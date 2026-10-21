@@ -209,7 +209,7 @@ the guard's warning regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 176733 B | 188433 B *(re-baselined, englishstreetventures/osn#1325 — see below)* |
-| cire/host | static | 288927 B | 300627 B *(re-baselined, englishstreetventures/osn#479 — see below)* |
+| cire/host | static | 319202 B | 330902 B *(re-baselined, englishstreetventures/osn#1396 — see below)* |
 | cire/vendor | static | 77305 B | 81644 B |
 | cire/landing | static | 164847 B | 176547 B |
 | musubi/landing | static | 15206 B | 26865 B |
@@ -303,6 +303,26 @@ measured + ~11.7 KB, **300627 B**. No dependency was added.
 `main` 0619a7dfd and on a clean checkout of 0619a7dfd. The chunk sizes are from
 2026-10-20, on the branch before that rebase, with `ModuleShell`'s `lazy()` for
 `SeatingView` replaced by a static import; `gzip -c <chunk> | wc -c`.*
+
+The run sheet (englishstreetventures/osn#1396) raised it again. `main` measured
+**303580 B** across 61 files, already 2953 B over the 300627 B threshold. The
+run sheet view, the run-time editor on each checklist row, their stores and the
+schedule change's linked-task choice came to **319202 B** across 69 files:
+**+15622 B**, no dependency added. The view loads on demand, like the seating
+chart: eager, the total was 315844 B across 63 files and `OrganiserApp`'s chunk
+86191 B; on demand the chunk is 75505 B and the view's own 4647 B. Most of the
+chunk's drop moved into chunks the first load still fetches — what the view
+shares with the checklist, such as the holders' faces and their tooltip — so
+the first load fell by **1380 B** (173833 B to 172453 B, `OrganiserApp` and
+every chunk it imports statically). The threshold moved to measured + ~11.7 KB,
+**330902 B**.
+
+*Measured 2026-10-21 — `rm -rf cire/host/dist && bunx --bun astro build` in
+`cire/host`, then `scripts/guard-bundle-size.sh .`, on
+`feat/cire-run-sheet-view` and on a checkout of `origin/main` da80019c; the
+eager figures from the same build with `RunSheetView`'s two `lazy()` imports
+replaced by static ones. Chunk sizes `gzip -nc <chunk> | wc -c`; the first load
+sums that over `OrganiserApp`'s chunk and every chunk it imports statically.*
 
 ### `cire/invites` went up for the household member step
 

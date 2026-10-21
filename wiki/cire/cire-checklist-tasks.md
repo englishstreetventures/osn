@@ -52,13 +52,14 @@ run-time columns and `tasks_event_idx`, again in place ([[cire-run-sheet]]).
 | `run_at` | `text` | a fixed time on the day, `YYYY-MM-DDTHH:MM:SS±HH:MM`, or the time a task kept when its event was removed; NULL on an untimed or linked task |
 | `run_timezone` | `text` | the IANA zone of `run_at`, as the organiser chose it |
 | `event_id` | `text` | FK → `events(id)` ON DELETE SET NULL; the event a linked task's time is counted from |
-| `run_offset_minutes` | `integer` | minutes from that event's start, negative before it, −1440..1440; set exactly when `event_id` is |
+| `run_offset_minutes` | `integer` | minutes from that event's start, negative before it, −1440..1440; every writer sets it with `event_id`. A row whose event was deleted by anything but a schedule change keeps it after the foreign key nulls `event_id`, and reads as untimed |
 | `event_removed_at` | `integer` | unix seconds; when a schedule change removed the task's event and it kept its time |
 
-The five run-time columns hold one of four states — untimed, fixed, linked,
-frozen — written together by the task service and the schedule change and by
+The five run-time columns hold one of the states in [[cire-run-sheet#A task's
+time]] — untimed, fixed, linked, frozen with the time it kept, frozen with no
+time — written together by the task service and the schedule change and by
 nothing else; no CHECK holds them. A linked task's time is derived on every
-read. See [[cire-run-sheet#A task's time]].
+read.
 
 Who holds a task is not a column here: it is the `task_assignees` table
 ([[#Assignees]]).
@@ -190,7 +191,11 @@ the event's start 422 `run_time_out_of_range`, and neither writes any field of
 the patch. Every answer that carries a task — the list, every write, the
 starter apply — carries its time: `runAt`, `runTimezone`, `eventId`,
 `runOffsetMinutes`, `anchored`, `eventRemoved`, a linked task's derived from
-its event (one more statement in each batch reads the events). See
+its event. The list, the holder writes and the starter apply read each task
+with its event's start and zone in the statement that reads the task (a LEFT
+JOIN on the task's own wedding, so a link to another wedding's event finds
+none); the PATCH answer, an `UPDATE … RETURNING` row, reads its event in one
+more statement of its batch. See
 [[cire-run-sheet]]; counted by `cire.tasks.run_time.changed`.
 
 In the portal each bucket is its own sortable list (`ChecklistView.tsx`): a
@@ -288,7 +293,7 @@ each send one batch of three statements:
    wedding's id) ON CONFLICT DO NOTHING RETURNING host_id` — the task row
    supplies its own id and wedding — or `DELETE … WHERE task_id = ? AND host_id
    = ? AND wedding_id = ? RETURNING host_id`.
-2. The task, scoped to the wedding.
+2. The task, scoped to the wedding, with its linked event's start and zone.
 3. Its holders, in order.
 
 No task is `TaskNotInWedding`. When the INSERT wrote nothing, the holders tell

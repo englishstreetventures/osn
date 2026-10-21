@@ -28,9 +28,9 @@ event — or sits in the `day_of` bucket. Done tasks stay, marked done.
 Migration `20261021153838_task_run_time.sql` adds five nullable columns to `tasks`
 ([[cire-checklist-tasks]]), with `ALTER TABLE ADD` and no
 rebuild. Only the task service and the schedule change write them, all five
-together, so a task is always in one of four states. No CHECK constraint holds
-them: the states live in `RunTimePatch` (`cire/api/src/schemas/tasks.ts`) and
-the service.
+together, so every write leaves a task in one of the five states below. No
+CHECK constraint holds them: the states live in `RunTimePatch`
+(`cire/api/src/schemas/tasks.ts`) and the service.
 
 | State | `run_at` | `run_timezone` | `event_id` | `run_offset_minutes` | `event_removed_at` |
 |---|---|---|---|---|---|
@@ -38,6 +38,14 @@ the service.
 | Fixed | the time, `YYYY-MM-DDTHH:MM:SS±HH:MM`, the offset stamped from its zone | the IANA zone, as the organiser chose it | NULL | NULL | NULL |
 | Linked | NULL | NULL | the event | minutes from its start, −1440..1440 | NULL |
 | Frozen | the time it last had, on the removed event's clock | the removed event's zone | NULL | NULL | when the event went |
+| Frozen, no time | NULL | NULL | NULL | NULL | when the event went — the event's start could not be read, or the task was linked after the change read its offsets |
+
+One more shape exists that no writer leaves: an event deleted by anything but
+the schedule change — the wedding's own cascade deletes its tasks too, so in
+practice a Worker from before these columns, mid-deploy — has its `event_id`
+nulled by the foreign key, and `run_offset_minutes` stays. It carries no event
+and no time, so `deriveRunTime` reads it as untimed, not linked; the next
+run-time write replaces all five columns.
 
 `event_id` references `events(id)` `ON DELETE SET NULL`, single-column on
 purpose: a composite `(event_id, wedding_id)` key, like `task_assignees`',
@@ -107,7 +115,7 @@ over ARC, and every publish sends each open run sheet to read again.
     | { kind: "task"; id; title; notes; status; runAt; runTimezone; eventId;
         runOffsetMinutes; anchored; eventRemoved; assigneeHostIds }
   )[],
-  people: { hostId; osnProfileId; handle?; displayName?; avatarUrl? }[],
+  people: { hostId; handle?; displayName?; avatarUrl? }[],
 }
 ```
 
@@ -121,12 +129,26 @@ and run of show, and no other field. The run of show rides on its event, so an
 answered in the organiser's order (`sort_order`), each item's `time` an `HH:MM`
 on the event's own clock, as `GET …/events` answers it
 ([[cire-guest-event-editor]]); the portal orders it. No count or total rides
-alongside. People carry no role,
-and their names are looked up for them alone, fail-soft: an unreachable lookup
-leaves profile ids. One batch of four reads (listed tasks, holders, events —
-each carrying its run of show as one JSON column, `runOfShowColumn` in
+alongside. A person is their seat id — what a task's `assigneeHostIds` name —
+and the handle, display name and photo URL OSN gives them: no role, and no OSN
+profile id. Names are looked up for those people alone, fail-soft: an
+unreachable lookup leaves each their seat id alone. The lookup goes through a
+per-isolate cache (`cacheProfileDisplayResolver` in
+`cire/api/src/services/osn-bridge.ts`: five minutes, 500 profiles, oldest out
+first, only profiles OSN named), so a burst of re-reads costs one ARC call per
+isolate, and only for profiles it does not hold; a renamed person shows their
+old name for at most five minutes. It holds display data alone and is asked
+only for people the narrowing already chose. `GET …/hosts` keeps the uncached
+lookup.
+
+One batch of four reads (listed tasks, holders, events — each carrying its run
+of show as one JSON column, `runOfShowColumn` in
 `cire/api/src/services/run-of-show.ts` — and seats), then the narrowing in the
-Worker.
+Worker. For `own` each read already keeps to the reader's tasks in SQL — the
+tasks their seat holds, those tasks' holders and events, the seats holding them
+— so a helper's read does not grow with the rest of the wedding; the Worker's
+narrowing still decides what is answered. The tasks are read unsorted:
+`orderRunSheet` puts the whole day in order.
 
 **Order** (`orderRunSheet`, `cire/api/src/lib/run-sheet.ts`): by instant, not by
 the text of the time, so a Kolkata time sits between two Sydney times when it
@@ -144,15 +166,17 @@ preview lists the checklist tasks linked to each event it removes
 asks whether to remove them too. The apply body's `removeLinkedTasks` names the
 ones chosen; absent — an older portal, or nothing chosen — keeps every one.
 
-Each removed event commits as **one batch** with its tasks
-(`removedEventGroup` in `cire/api/src/services/import.ts`; the write set is
-committed in groups, never split across batches):
+The events a change removes commit as **one group** with their tasks, so in
+one batch: at most six statements however many events go, each binding its ids
+as one JSON parameter (`removedEventsGroup` in `cire/api/src/services/import.ts`;
+the write set is committed in groups, never split across batches):
 
-1. the chosen tasks still linked to it are deleted, a seeded task's dismissal
-   written first so the starter does not bring it back;
-2. every other task still linked to it is frozen — unlinked, at the time the
-   diff computed for its offset, on the event's clock, marked removed;
-3. its RSVPs, invitations and the event.
+1. the chosen tasks still linked to a removed event are deleted, a seeded
+   task's dismissal written first so the starter does not bring it back;
+2. every other task still linked to one is frozen — unlinked, at the time the
+   diff computed for its event and offset, on its event's clock and in its
+   zone, marked removed;
+3. their RSVPs, invitations and the events.
 
 A task relinked to a surviving event since the preview is neither removed nor
 frozen. A task linked to the removed event since the preview, at an offset
@@ -180,11 +204,13 @@ and why, is `cire/host/DESIGN.md` §7; where they sit in the layout is
 ### Where it opens
 
 - **Module.** "Run sheet", after the Checklist, locked below Gold
-  (`module-nav.ts`); `ModuleShell` mounts `RunSheetView`.
+  (`module-nav.ts`); `ModuleShell` mounts `RunSheetView`, which is its own
+  chunk, loaded the first time it opens (as the seating chart is), behind
+  `PanelLoading`.
 - **A helper's seat.** `RunSheetSeat` in `OrganiserApp.tsx` mounts the same
-  view under the panel header the shell gives every module, inside the
-  wedding's cache scope, so its rows go with the seat. Below Gold the co-host
-  panel offers the role as "Helper (needs Gold)".
+  view, from the same chunk, under the panel header the shell gives every
+  module, inside the wedding's cache scope, so its rows go with the seat. Below
+  Gold the co-host panel offers the role as "Helper (needs Gold)".
 
 ### What the run sheet shows
 
@@ -204,7 +230,8 @@ and why, is `cire/host/DESIGN.md` §7; where they sit in the layout is
   (`clockLabel`). The items are not rows: no marker on the thread, no flags,
   nobody holding them. A task still links only to an event's start.
 - **Tasks** show their time, title, notes and holders (the read-only avatar
-  stack, the reader first). A linked task says where it sits against its
+  stack, the reader first). A holder OSN gave no name is a face alone, and the
+  holders' text counts them ("Held by 2 people") rather than naming anyone. A linked task says where it sits against its
   event: "30 min before Ceremony", "At the start of Ceremony", "3 hr 30 min
   after Reception".
 - **Flags**, each a word and a glyph: "You" on the reader's tasks
@@ -250,6 +277,8 @@ no time — and opens a popover:
 
 - **Event**: "No event — a fixed time", or one of the wedding's events (read
   the first time a popover opens on the page, through `ensureEventsLoaded`).
+  Their starts are read on their own clocks when a popover asks, once for each
+  events list however many rows offer it, never as the rows mount.
 - **Linked**: "Before or after the start" (minutes up to 1440, before or
   after; sent as `offset`) or "At a clock time" (a date and time on the
   event's clock; sent as `clock`, which the API turns into an offset). No zone
@@ -295,27 +324,39 @@ titles and notes are sensitive).
   offsets at the 2099 Sydney transitions (4 October, 5 April), zones, ranges.
 - `cire/api/tests/lib/run-sheet.test.ts` — the order, one case per tie.
 - `cire/api/tests/routes/tasks.test.ts` ("a task's run time") — every refusal
-  writing nothing, every kind, the answers, publishes.
+  writing nothing, every kind, an offset and a clock time exactly a day either
+  side of the start, the answers (each reading its events with its tasks),
+  publishes.
 - `cire/api/tests/routes/run-sheet.test.ts` — the role and scope matrix, the
   raw-text absence of everything an `own` helper must not get (other events'
   runs of show included), every event's run of show for the others, the exact
-  event fields, gates, limiter, names, failure.
+  event fields and a person's (no profile id), gates (the session cookie live
+  and dead, the whole 402), limiter, names asked once in five minutes, what
+  each read fetches for `own` and `full`, failure.
 - `cire/api/tests/services/import-linked-tasks.test.ts` and
   `tests/routes/organiser-changes.test.ts` — the preview list, keep and remove,
-  races, dismissals, one batch per removed event, revert, publishes (a change
-  to a run of show alone included), counts; the guest cap still checked on
-  each batch's last guest insert when removed events move the batch edges.
+  races, dismissals, every removed event and its tasks in one group of single
+  statements, the chosen tasks' delete and dismissal in the batch that deletes
+  their event, revert, publishes (a change to a run of show alone included),
+  counts; the guest cap still checked on each batch's last guest insert.
+- `cire/api/tests/services/osn-bridge.test.ts` — the name cache: a repeat
+  within five minutes, only misses sent, nothing kept for an unnamed profile or
+  a failure, the oldest out first.
 - `cire/api/tests/db/migration-20261021153838.test.ts`, `tasks-event-index.test.ts`,
   `d1-integration.test.ts` — the migration keeps every row, the SET NULL, the
-  index; the run sheet's one-batch read over D1, runs of show included.
+  index; the run sheet's one-batch read over D1, runs of show included, and an
+  `own` read narrowed in SQL; the checklist's joined read; a two-event removal
+  with a chosen and a kept task.
 - `cire/host/tests/lib/run-sheet-store.test.ts`, `run-sheet.test.ts`,
   `run-time-write.test.ts`; `tasks-store.test.ts`, unedited across the move
   into `reread-cache.ts`.
 - `cire/host/tests/components/RunSheetView.test.tsx` and
   `RunTimeEditor.test.tsx` — the screens' contract: the states and their copy,
-  grouping by each row's zone, the flags, the timer and tab wake, the re-reads,
-  an event's run of show ordered across midnight on its own zone and kept
-  inside its band, and every kind of write the editor sends.
+  grouping by each row's zone, the flags, the timer (one timer of the longest
+  wait a browser keeps for a flag weeks away) and tab wake, the re-reads, a
+  holder with no name, an event's run of show ordered across midnight on its
+  own zone and kept inside its band, every kind of write the editor sends, and
+  the events' starts read once, when a popover opens.
 - `tools/e2e/tests/flows/cire-helper-scope.flow.ts` — end to end, after the
   scope steps and on the same sign-in: an owner's day in order on Sydney's
   clock with the browser in UTC, "Coming up" at a held 10:05, a run of show
