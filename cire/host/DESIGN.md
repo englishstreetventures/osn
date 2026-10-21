@@ -526,6 +526,10 @@ holders' stack:
   time for Greet the celebrant".
 - **Anyone else** sees the same pill as text (`RunTimeChip`), and nothing on an
   untimed task.
+- **On a narrow row** the time, the holders and delete wrap together onto a
+  line of their own at the row's end once the title would fall under 8rem
+  beside them: a title squeezed into a column of broken words is worse than a
+  row one line taller.
 - **The popover is a form**, so unlike the assign popover it is `modal`: Tab
   moves between its fields and stays inside, Escape closes it, and the focus
   goes back to the trigger. It does not lock the page's scroll. It grows as

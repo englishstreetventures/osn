@@ -570,7 +570,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                     <li
                                       ref={sortable.ref}
                                       style={maybeTransformStyle(sortable.transform())}
-                                      class="border-border bg-surface/10 relative flex items-center gap-3 rounded-sm border px-3 py-2"
+                                      class="border-border bg-surface/10 relative flex flex-wrap items-center gap-x-3 gap-y-2 rounded-sm border px-3 py-2"
                                       classList={{
                                         "border-gold/60 bg-surface/80 z-10 shadow-lg":
                                           sortable.isActiveDraggable(),
@@ -589,7 +589,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                         onChange={() => props.canEdit && toggleDone(task)}
                                       />
                                       <span
-                                        class={`text-ui-base min-w-0 flex-1 wrap-break-word ${
+                                        class={`text-ui-base min-w-32 flex-1 wrap-break-word ${
                                           task.status === "done"
                                             ? "text-text-muted line-through"
                                             : "text-text"
@@ -602,48 +602,54 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                           </span>
                                         </Show>
                                       </span>
-                                      {/* Its time on the day: a control for an owner or
+                                      {/* The row's controls, as one group: where the title
+                                          would get narrower than 8rem beside them, they
+                                          wrap together onto a line of their own, at the
+                                          row's end, rather than squeeze it. */}
+                                      <div class="ms-auto flex shrink-0 items-center gap-3">
+                                        {/* Its time on the day: a control for an owner or
                                           editor, read live so a save keeps the row and the
                                           focus on its trigger; the time alone for anyone
                                           else, and nothing when it has none. */}
-                                      <Show
-                                        when={props.canEdit}
-                                        fallback={<RunTimeChip task={live() ?? task} />}
-                                      >
-                                        <RunTimeEditor
-                                          weddingId={props.weddingId}
-                                          task={live() ?? task}
-                                          events={events()}
-                                          eventsFailed={eventsFailed()}
-                                          onOpen={openEvents}
-                                        />
-                                      </Show>
-                                      <TaskHolders
-                                        title={task.title}
-                                        open={task.status === "open"}
-                                        holders={holders()}
-                                        canAssign={props.canEdit === true}
-                                        seats={seats()}
-                                        seatsFailed={seatsFailed()}
-                                        viewerHostId={viewerHostId()}
-                                        holds={(hostId) => holding().includes(hostId)}
-                                        busy={holderWrites.busy(task.id)}
-                                        onOpen={openPeople}
-                                        onToggle={(hostId) => {
-                                          haptic("commit");
-                                          holderWrites.toggle(task.id, hostId);
-                                        }}
-                                      />
-                                      <Show when={props.canEdit}>
-                                        <Button
-                                          variant="bareDanger"
-                                          type="button"
-                                          aria-label="Delete task"
-                                          onClick={() => deleteTask(task)}
+                                        <Show
+                                          when={props.canEdit}
+                                          fallback={<RunTimeChip task={live() ?? task} />}
                                         >
-                                          ✕
-                                        </Button>
-                                      </Show>
+                                          <RunTimeEditor
+                                            weddingId={props.weddingId}
+                                            task={live() ?? task}
+                                            events={events()}
+                                            eventsFailed={eventsFailed()}
+                                            onOpen={openEvents}
+                                          />
+                                        </Show>
+                                        <TaskHolders
+                                          title={task.title}
+                                          open={task.status === "open"}
+                                          holders={holders()}
+                                          canAssign={props.canEdit === true}
+                                          seats={seats()}
+                                          seatsFailed={seatsFailed()}
+                                          viewerHostId={viewerHostId()}
+                                          holds={(hostId) => holding().includes(hostId)}
+                                          busy={holderWrites.busy(task.id)}
+                                          onOpen={openPeople}
+                                          onToggle={(hostId) => {
+                                            haptic("commit");
+                                            holderWrites.toggle(task.id, hostId);
+                                          }}
+                                        />
+                                        <Show when={props.canEdit}>
+                                          <Button
+                                            variant="bareDanger"
+                                            type="button"
+                                            aria-label="Delete task"
+                                            onClick={() => deleteTask(task)}
+                                          >
+                                            ✕
+                                          </Button>
+                                        </Show>
+                                      </div>
                                     </li>
                                   );
                                 }}

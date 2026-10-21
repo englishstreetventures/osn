@@ -314,9 +314,10 @@ component was previously reading a container it did not live in.
   is in `cire/host/DESIGN.md` §7, the behaviour in [[cire-run-sheet#In the portal]].
 - **Checklist row** (`ChecklistView`) — the task's time on the day sits between
   the title and the holders' stack: an empty dotted slot or a pill for an owner
-  or editor (`RunTimeEditor`), the pill as text for anyone else. The title is
-  `min-w-0` and breaks long words, so the controls keep their room on a 22rem
-  bucket.
+  or editor (`RunTimeEditor`), the pill as text for anyone else. The time,
+  the holders and delete are one group at the row's end: where the title
+  would fall under 8rem beside them, the group wraps onto a line of its own,
+  still at the end, and the title keeps the row's width.
 
 ## Organiser client caches: stale-while-revalidate
 
