@@ -320,6 +320,8 @@ export function DetailsPanel(props: DetailsPanelProps) {
                     >
                       {line.clock}
                     </time>
+                    {/* A space, so the line reads "4:00 pm Ceremony" rather
+                        than run together; a grid draws none for it. */}{" "}
                     <span class="font-body text-text text-ui-base leading-ui-normal font-light wrap-anywhere">
                       {line.label}
                     </span>
