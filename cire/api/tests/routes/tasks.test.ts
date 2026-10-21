@@ -812,6 +812,18 @@ describe("task writes publish tasks-changed", () => {
     expect(publishes).toStrictEqual([]);
   });
 
+  it("not for a write that names nothing to change", async () => {
+    const { app, publishes } = buildWithHub();
+    const id = await newTask(app);
+    publishes.length = 0;
+    // A patch with no field reads the task and writes nothing.
+    expect((await req(app, "PATCH", `${base}/${id}`, EDITOR, {})).status).toBe(200);
+    // A reorder naming no task moves none.
+    const reorder = { timeframeBucket: "12m", orderedIds: [] };
+    expect((await req(app, "PATCH", `${base}/reorder`, EDITOR, reorder)).status).toBe(200);
+    expect(publishes).toStrictEqual([]);
+  });
+
   it("never on a wedding below Gold, which refuses every task write", async () => {
     const { app, publishes } = buildWithHub("ivory");
     expect((await req(app, "POST", base, EDITOR, CREATE)).status).toBe(402);
