@@ -84,6 +84,7 @@ import {
 import { createRegistryStripeRoutes } from "./routes/registry-stripe";
 import { createRsvpRoutes } from "./routes/rsvp";
 import { createRsvpDigestStopRoutes } from "./routes/rsvp-digest-stop";
+import { createRunSheetRoutes } from "./routes/run-sheet";
 import { createSeatingRoutes } from "./routes/seating";
 import { createStripePlatformWebhookRoutes } from "./routes/stripe-platform-webhook";
 import { createStripeWebhookRoutes } from "./routes/stripe-webhook";
@@ -203,6 +204,15 @@ const defaultOrganiserRsvpLimiter = createRateLimiter({ maxRequests: 60, windowM
  * editing session reaches it, while a script is held to it.
  */
 const defaultTaskWriteLimiter = createRateLimiter({ maxRequests: 120, windowMs: 60_000 });
+/**
+ * Default per-USER limiter for the day-of run sheet's read, mounted after its
+ * role and tier gates. A read may look up the names of the people on it over
+ * ARC, and every publish of `tasks-changed` sends each open run sheet to read
+ * again, so this bounds what one seat — a helper's included, who has no other
+ * limited surface — can make the Worker do. 120 a minute is two a second, far
+ * past what reading the day by hand sends.
+ */
+const defaultRunSheetReadLimiter = createRateLimiter({ maxRequests: 120, windowMs: 60_000 });
 /**
  * Default per-USER limiter shared by an owner's wedding delete and restore.
  * Owner-gated already, so this only caps a scripted toggle; 5/min is more than
@@ -450,6 +460,8 @@ export interface AppOptions {
   organiserRsvpLimiter?: RateLimiterBackend;
   /** Override the checklist write rate limiter (useful for testing). */
   taskWriteLimiter?: RateLimiterBackend;
+  /** Override the run-sheet read rate limiter (useful for testing). */
+  runSheetReadLimiter?: RateLimiterBackend;
   /** Override the co-host handle-search rate limiter (useful for testing). */
   handleSearchLimiter?: RateLimiterBackend;
   /** Override the public CSP-report collector rate limiter (useful for testing). */
@@ -750,6 +762,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     weddingLifecycleLimiter = defaultWeddingLifecycleLimiter,
     organiserRsvpLimiter = defaultOrganiserRsvpLimiter,
     taskWriteLimiter = defaultTaskWriteLimiter,
+    runSheetReadLimiter = defaultRunSheetReadLimiter,
     handleSearchLimiter = defaultHandleSearchLimiter,
     cspReportLimiter = defaultCspReportLimiter,
     vendorPortalLimiter = defaultVendorPortalLimiter,
@@ -1136,6 +1149,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // write gate.
       .use(createTaskReadRoutes(db, osnAuthOptions))
       .use(createTaskWriteRoutes(db, osnAuthOptions, taskWriteLimiter, weddingSignals))
+      // The day-of run sheet: read-only, for every role, a helper's included —
+      // so behind `weddingRunSheet()`, never `weddingMember()` — then Gold, then
+      // a per-user limiter. Narrowed on the server to the reader's scope.
+      .use(createRunSheetRoutes(db, osnAuthOptions, runSheetReadLimiter, resolveOsnProfileDisplays))
       .use(createBudgetReadRoutes(db, osnAuthOptions))
       .use(createBudgetWriteRoutes(db, osnAuthOptions))
       // Gift registry. Same read/write gate split as the modules above, and the
