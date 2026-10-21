@@ -19,6 +19,7 @@ import { createEffect, createMemo, createSignal, For, on, onMount, Show, untrack
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
+import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
 import { haptic } from "../lib/haptics";
 import { createHolderWrites, readerFirst } from "../lib/holder-writes";
 import {
@@ -48,6 +49,7 @@ import {
 import { normaliseWeddingRole } from "../lib/wedding-roles";
 import ChecklistStarter from "./ChecklistStarter";
 import ReorderControls from "./ReorderControls";
+import RunTimeEditor, { RunTimeChip } from "./RunTimeEditor";
 import TaskHolders, { type Holder } from "./TaskHolders";
 /** A bucket with nothing in it. One shared array, so `sameRows` sees an empty
  *  bucket as unchanged from one write to the next. */
@@ -141,6 +143,25 @@ export default function ChecklistView(props: ChecklistViewProps) {
     return ensureHostsLoaded(props.weddingId, loadSeats).catch((err: unknown) => {
       if (isAuthExpired(err)) return redirectToLogin();
       setSeatsFailed(true);
+    });
+  };
+
+  // ── When each task runs on the day ─────────────────────────────────────
+  // The events a time can follow are read when an owner or editor first opens
+  // a task's time, not with the checklist: most visits set no time, and the
+  // other modules usually have the events cached already.
+  const events = eventsAccessor(props.weddingId);
+  const [eventsFailed, setEventsFailed] = createSignal(false);
+  const openEvents = () => {
+    setEventsFailed(false);
+    ensureEventsLoaded(props.weddingId, async () => {
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/events")));
+      if (res.status === 401) redirectToLogin();
+      if (!res.ok) throw new Error(`Failed to load the events (${res.status})`);
+      return (await res.json()) as EventRow[];
+    }).catch((err: unknown) => {
+      if (isAuthExpired(err)) return redirectToLogin();
+      setEventsFailed(true);
     });
   };
 
@@ -568,7 +589,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                         onChange={() => props.canEdit && toggleDone(task)}
                                       />
                                       <span
-                                        class={`text-ui-base flex-1 ${
+                                        class={`text-ui-base min-w-0 flex-1 wrap-break-word ${
                                           task.status === "done"
                                             ? "text-text-muted line-through"
                                             : "text-text"
@@ -581,6 +602,22 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                           </span>
                                         </Show>
                                       </span>
+                                      {/* Its time on the day: a control for an owner or
+                                          editor, read live so a save keeps the row and the
+                                          focus on its trigger; the time alone for anyone
+                                          else, and nothing when it has none. */}
+                                      <Show
+                                        when={props.canEdit}
+                                        fallback={<RunTimeChip task={live() ?? task} />}
+                                      >
+                                        <RunTimeEditor
+                                          weddingId={props.weddingId}
+                                          task={live() ?? task}
+                                          events={events()}
+                                          eventsFailed={eventsFailed()}
+                                          onOpen={openEvents}
+                                        />
+                                      </Show>
                                       <TaskHolders
                                         title={task.title}
                                         open={task.status === "open"}

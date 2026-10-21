@@ -205,7 +205,7 @@ function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) 
             panel opens at the page's top left and is put beside its trigger
             a frame later, and a scrolling focus would jump the page there. */}
         <Popover.Content
-          class="assign-popover border-border bg-surface-raised lip z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none"
+          class="droplet-popover border-border bg-surface-raised lip z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none"
           onKeyDown={(e: KeyboardEvent) => {
             // Tab would carry the focus out of a popover portalled to the end
             // of the page, past everything; it closes it instead, and the
@@ -216,7 +216,7 @@ function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) 
             }
           }}
         >
-          <div class="assign-popover-body flex min-h-0 flex-col">
+          <div class="droplet-popover-body flex min-h-0 flex-col">
             <Popover.Title class="text-text-muted font-body text-ui-xs tracking-ui-widest px-4 pt-3 pb-2 uppercase">
               Assign people
             </Popover.Title>

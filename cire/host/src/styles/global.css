@@ -733,9 +733,10 @@
   }
 }
 
-/* ── The assign popover: a droplet ──────────────────────────────────────────
- * The popover that puts people on a checklist task grows out of the + that
- * opened it: a small round drop at the trigger, springing out to the panel and
+/* ── A row's popover: a droplet ─────────────────────────────────────────────
+ * The popovers on a checklist row — the one that puts people on a task and
+ * the one that sets its time on the day — grow out of the control that opened
+ * them: a small round drop at the trigger, springing out to the panel and
  * squaring its corners as it lands, with what is inside fading in once it has
  * room. `transform-origin` is the point Kobalte works out for the side the
  * panel opened on, so the drop leaves from the trigger whether the panel
@@ -794,7 +795,7 @@
   }
 }
 
-@utility assign-popover {
+@utility droplet-popover {
   transform-origin: var(--kb-popover-content-transform-origin);
 
   &[data-expanded] {
@@ -807,7 +808,7 @@
   }
 }
 
-@utility assign-popover-body {
+@utility droplet-popover-body {
   animation: droplet-content var(--dur-slow) var(--ease-out);
 }
 

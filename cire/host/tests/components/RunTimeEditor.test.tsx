@@ -101,7 +101,7 @@ afterEach(() => {
 
 /** `true` once the designed editor replaces the placeholder: then every case
  *  below runs, and must pass. */
-const DESIGNED = false;
+const DESIGNED = true;
 
 describe.skipIf(!DESIGNED)("RunTimeEditor", () => {
   it("names the task's time on its trigger, or offers to set one", () => {
@@ -241,7 +241,11 @@ describe.skipIf(!DESIGNED)("RunTimeEditor", () => {
     authFetchMock.mockResolvedValue(json({}, 401));
     editor();
     fireEvent.click(trigger());
-    fireEvent.click(await screen.findByRole("button", { name: "Clear time" }));
+    fireEvent.input(await screen.findByLabelText("Date"), { target: { value: "2099-06-20" } });
+    // An untimed task offers no "Clear time": there is nothing to clear.
+    expect(screen.queryByRole("button", { name: "Clear time" })).toBeNull();
+    fireEvent.input(screen.getByLabelText("Time"), { target: { value: "12:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
   });
 });
