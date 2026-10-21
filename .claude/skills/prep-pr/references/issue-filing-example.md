@@ -4,7 +4,7 @@ Reference for `prep-pr` Step 7. The four fields are Issue / Why / Solution / Rat
 
 Write the body to a scratch file outside the repository first (with the Write
 tool), then pass the file. A heredoc inside `$(…)` is forbidden in this
-repository, and the local shell, fish, has no heredocs at all.
+repository.
 
 The body file:
 

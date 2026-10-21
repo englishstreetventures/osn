@@ -30,7 +30,7 @@ Every subagent this skill dispatches gets `TASK-BRANCH: <the PR's branch>` as
 the first line of its prompt, so its spend lands on that branch's card
 (`tools/pr-metrics/index.ts`, `resolveDispatchBranch`).
 
-The commands below are bash. The local shell is fish, so run them inside
+The commands below are bash. The local Bash tool runs zsh, so run them inside
 `bash -c '…'` or from a script file, and remember that a shell variable does not
 outlive one Bash call: write each commit you will need later into the report,
 and pass it on by its value.
