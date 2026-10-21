@@ -535,10 +535,15 @@ if (import.meta.main) {
   // The one analysis that needs git: when the commit landed. Its committer time
   // is when it reached the branch it was merged to.
   if (splitCommit !== null) {
-    const shown = Bun.spawnSync(["git", "log", "-1", "--format=%ct", splitCommit, "--"], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    // `--end-of-options`: the value is whatever followed the flag, and git
+    // would read `--output=<file>` there as an option and write the file.
+    const shown = Bun.spawnSync(
+      ["git", "log", "-1", "--format=%ct", "--end-of-options", splitCommit, "--"],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
     const seconds = Number.parseInt(shown.stdout.toString().trim(), 10);
 
     if (!shown.success || Number.isNaN(seconds)) {

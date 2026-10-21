@@ -263,8 +263,9 @@ test(
       expect(text).not.toContain(leaked);
       expect(render).not.toContain(leaked);
     }
-    // Two reports read, but only the two test-kind findings counted.
-    expect(card.review?.reports).toBe(2);
+    // The security report is never opened, and the tracker-kind finding in the
+    // tests report is not counted.
+    expect(card.review?.reports).toBe(1);
     expect(card.review?.findings).toBe(2);
   }),
 );

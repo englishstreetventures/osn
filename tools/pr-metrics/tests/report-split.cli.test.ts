@@ -272,6 +272,20 @@ test("--split-at groups cards by when their sessions ran against the commit's ti
   });
 });
 
+// The value reaches `git log`; read as an option, `--output=<file>` would
+// create the file before the script exited.
+test("--split-at never lets its value reach git as an option", async () => {
+  const one = [card({ number: 1, first: "2026-09-01T10:00:00Z", last: "2026-09-01T11:00:00Z" })];
+
+  await withRepo(one, async (repo, dir) => {
+    const target = join(repo, "written-by-git");
+    const { code } = await report(repo, ["--dir", dir, "--split-at", `--output=${target}`]);
+
+    expect(code).toBe(1);
+    expect(await Bun.file(target).exists()).toBe(false);
+  });
+});
+
 test("--split-at with a commit git does not know exits 1 and says so", async () => {
   const one = [card({ number: 1, first: "2026-09-01T10:00:00Z", last: "2026-09-01T11:00:00Z" })];
 

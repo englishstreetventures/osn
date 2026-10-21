@@ -31,7 +31,7 @@ questions.
 | `--pr`, `--issue`, `--issue-type`, `--issue-labels` | Unset                          |
 | `--complexity`, `--complexity-method`               | Unset                          |
 | `--phase`                                           | `at-open`                      |
-| `--review-reports`                                  | The four `*-REVIEW.md` at root |
+| `--review-reports`                                  | `TEST-` and `DOCS-REVIEW.md`   |
 | `--if-absent`                                       | Off — see below                |
 
 ## Who writes a card

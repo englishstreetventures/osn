@@ -434,10 +434,10 @@ several in parallel.
 
 ## Review findings acted on
 
-`card` reads the review reports at the checkout root (`TEST-REVIEW.md`,
-`DOCS-REVIEW.md`, `PERFORMANCE-REVIEW.md`, `SECURITY-REVIEW.md`, or the files
-`--review-reports` names) and asks of each finding: did a commit after the
-review change the line it cites?
+`card` reads the review reports at the checkout root (`TEST-REVIEW.md` and
+`DOCS-REVIEW.md`, or the files `--review-reports` names) and asks of each
+finding: did a commit after the review change the line it cites? The security
+and performance reports are not opened: they hold only tracker kinds.
 
 | Field | Meaning |
 |---|---|
@@ -460,7 +460,9 @@ How the reviewed commit is found: the newest commit on this branch (first
 parent, after the merge base) whose **author** time is no later than the
 report's mtime. Author time survives a rebase; committer time does not. A
 report older than every commit on the branch, or left by another branch, is
-not read.
+not read. Nor is one whose reviewed commit is the newest and was committed
+after the report: a fix was amended or squashed into it, and nothing is left to
+diff.
 
 What the figure cannot say:
 

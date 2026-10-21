@@ -1064,13 +1064,9 @@ export interface ReviewSummary {
   control_changed: number;
 }
 
-/** The review report files `prep-pr` and the review skills leave at the root. */
-export const DEFAULT_REVIEW_REPORTS = [
-  "TEST-REVIEW.md",
-  "DOCS-REVIEW.md",
-  "PERFORMANCE-REVIEW.md",
-  "SECURITY-REVIEW.md",
-];
+/** The review reports whose findings a public card may count. The security
+ * and performance reports hold only tracker kinds, so they are never opened. */
+export const DEFAULT_REVIEW_REPORTS = ["TEST-REVIEW.md", "DOCS-REVIEW.md"];
 
 /** Finding kinds that may be counted on a public card. */
 const PUBLIC_FINDING_KINDS = new Set(["T", "D"]);
