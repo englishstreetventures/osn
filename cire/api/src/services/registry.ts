@@ -88,10 +88,23 @@ export class SettingsChanged extends Data.TaggedError("SettingsChanged")<{
 }> {}
 /** A guest asked to give money to a couple who are not taking it. 409-class. */
 export class CashGiftsUnavailable extends Data.TaggedError("CashGiftsUnavailable") {}
+/**
+ * A guest asked to give to a cash fund this wedding does not have: the couple
+ * deleted it, or the id names a gift to reserve, another wedding's fund or
+ * nothing at all. One answer for all of them. 409-class: the page they gave
+ * from is out of date.
+ */
+export class FundUnavailable extends Data.TaggedError("FundUnavailable") {}
+/**
+ * An item write carrying a field of the other kind: a cash fund with a price,
+ * a link, a category or more than one wanted, or a gift to reserve with a
+ * target. 400-class.
+ */
+export class RegistryItemFieldsInvalid extends Data.TaggedError("RegistryItemFieldsInvalid") {}
 /** The wedding is at its item ceiling. 409-class. */
 export class RegistryItemLimitReached extends Data.TaggedError("RegistryItemLimitReached") {}
 /**
- * A quantity outside the range the CHECK constraints allow (S-M1). The service
+ * A quantity outside the range the CHECK constraints allow. The service
  * refuses it so the caller gets a tagged error rather than a raw D1 constraint
  * throw, which surfaces as a 500 and says nothing useful.
  */
@@ -117,7 +130,7 @@ const GIFT_LOG_PAGE = 50;
  */
 const MAX_GIFT_LOG_OFFSET = 500;
 /**
- * Ceiling on items per wedding (S-L4). `reorderItems` already caps its id list at
+ * Ceiling on items per wedding. `reorderItems` already caps its id list at
  * 500; without a matching cap on creation the two disagree, and a list past the
  * reorder cap becomes unorderable.
  */
@@ -365,6 +378,8 @@ export interface CreateRegistryItemInput {
   priceMinor: number | null;
   quantityWanted: number;
   category: string | null;
+  /** A cash fund's goal; must be null (or absent) on a gift to reserve. */
+  targetMinor?: number | null;
 }
 
 export interface UpdateRegistryItemPatch {
@@ -376,6 +391,36 @@ export interface UpdateRegistryItemPatch {
   priceMinor?: number | null;
   quantityWanted?: number;
   category?: string | null;
+  targetMinor?: number | null;
+}
+
+/**
+ * Which kind of item a write's fields fit, or `null` when they fit either.
+ *
+ * A cash fund is a purpose to give money to: a price would read as a thing
+ * for sale, a link as a shop, a category as a shelf, and more than one wanted
+ * as several funds. A gift to reserve has no target. Only a value that says
+ * something counts: a null, or a quantity of one, fits both.
+ *
+ * `"both"` means the fields belong to two kinds at once, which no item is.
+ */
+function kindTheFieldsNeed(fields: {
+  externalUrl?: string | null;
+  priceMinor?: number | null;
+  quantityWanted?: number;
+  category?: string | null;
+  targetMinor?: number | null;
+}): RegistryItemKind | "both" | null {
+  const product =
+    (fields.priceMinor ?? null) !== null ||
+    (fields.externalUrl ?? null) !== null ||
+    (fields.category ?? null) !== null ||
+    (fields.quantityWanted !== undefined && fields.quantityWanted !== 1);
+  const fund = (fields.targetMinor ?? null) !== null;
+  if (product && fund) return "both";
+  if (product) return "product";
+  if (fund) return "cash_fund";
+  return null;
 }
 
 interface SettingsRow {
@@ -720,10 +765,9 @@ interface CurrencyTotal {
 /**
  * Succeeded contributions totalled PER CURRENCY, computed IN SQL.
  *
- * It used to be a JS loop over the gift log, which quietly made the total a
- * function of how many rows the log happened to return — so paginating the log
- * would have started under-reporting the money. One query, whatever the page
- * size.
+ * In SQL, not summed from the gift log: a total taken from the log would be
+ * a function of how many rows one page returns, and would under-report the
+ * money once the log ran past a page. One query, whatever the page size.
  *
  * A same-currency row has no primary snapshot (the FX columns are NULL) and so
  * contributes its as-given amount; that is the `coalesce` pair.
@@ -955,7 +999,7 @@ function contributionOnAccount(
 }
 
 /**
- * Does this R2 key name a REGISTRY object under this wedding? (S-H1, S-M1)
+ * Does this R2 key name a REGISTRY object under this wedding?
  *
  * `ImageKey` in the HTTP schema pins the SHAPE — `assets/<wedding>/registry-…` —
  * but shape alone lets an editor of wedding A point an item at wedding B's
@@ -995,7 +1039,7 @@ export const registryService = {
   get(weddingId: string): Effect.Effect<RegistrySnapshot, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      // Five independent reads (P-W1). Each is a separate D1 round trip and none
+      // Five independent reads. Each is a separate D1 round trip and none
       // depends on another's result, so issuing them together overlaps the
       // latency instead of stacking it — the same shape claimService.get uses.
       // On bun:sqlite the concurrency is a no-op; on D1 it is most of the
@@ -1140,7 +1184,10 @@ export const registryService = {
           kind: sql<GiftKind>`'contribution'`.as("kind"),
           id: registryContributions.id,
           itemId: registryContributions.itemId,
-          itemTitle: registryItems.title,
+          // The fund's name as the guest saw it when they gave, kept on the
+          // gift itself: a fund renamed or deleted since does not rewrite
+          // what the couple's record says the money was for.
+          itemTitle: registryContributions.itemTitle,
           familyId: registryContributions.familyId,
           familyName: families.familyName,
           displayName: registryContributions.displayName,
@@ -1159,9 +1206,6 @@ export const registryService = {
             .as("created_at"),
         })
         .from(registryContributions)
-        // LEFT: a general cash gift has no item, and an item deleted after the
-        // fact sets `item_id` NULL rather than erasing the gift.
-        .leftJoin(registryItems, eq(registryContributions.itemId, registryItems.id))
         .innerJoin(families, eq(registryContributions.familyId, families.id))
         .where(
           and(
@@ -1601,38 +1645,47 @@ export const registryService = {
    *  - the couple must have said yes (`cash_gifts_enabled`) AND Stripe must be
    *    able to take the charge today (`stripe_charges_enabled`) AND there must
    *    be an account to take it into. All three, or the guest is sent away
-   *    before their card is.
+   *    before their card is;
+   *  - a gift given to a fund must name a cash fund of THIS wedding.
    *
    * A missing registry and a foreign family both fail as `RegistryNotVisible`,
    * which the route answers as the same 404 everything else does. The preview
-   * household fails as `RegistryPreviewSession`. Only the cash-specific refusal
-   * is a guest's own failure, because it is the one a guest looking at a
-   * contribute button can actually act on.
+   * household fails as `RegistryPreviewSession`. The cash and fund refusals are
+   * a guest's own, because they are the ones a guest looking at a contribute
+   * button can act on. They come in that order: a page left open after the
+   * couple stopped taking money is told that, not that its fund has gone.
    */
   contributionContext(input: {
     slug: string;
     familyId: string;
     /**
-     * The line the guest aimed the money at, if they picked one. Checked here
+     * The cash fund the guest is giving to, if they chose one. Checked here
      * rather than by the caller so it rides in the gate's own statement instead
-     * of costing a round trip of its own; an id that is not this wedding's
-     * comes back as `null` rather than as a refusal.
+     * of costing a round trip of its own.
      */
     itemId?: string | null;
   }): Effect.Effect<
-    { weddingId: string; stripeAccountId: string; currency: string; itemId: string | null },
-    RegistryNotVisible | RegistryPreviewSession | CashGiftsUnavailable,
+    {
+      weddingId: string;
+      stripeAccountId: string;
+      currency: string;
+      itemId: string | null;
+      /** The fund's name as it stands now, to keep with the gift. */
+      itemTitle: string | null;
+    },
+    RegistryNotVisible | RegistryPreviewSession | CashGiftsUnavailable | FundUnavailable,
     DbService
   > {
     return Effect.gen(function* () {
-      // The household and item checks ride in the gate's own statement. A
+      // The household and fund checks ride in the gate's own statement. A
       // household of another wedding fails the gate as `RegistryNotVisible`,
       // and any household but a `guest` one is refused here, both before the
       // cash checks: the same allow-list the claim and release statements use.
-      const { settings, weddingId, currency, itemBelongs, familyKind } =
+      const itemId = input.itemId || null;
+      const { settings, weddingId, currency, fundTitle, familyKind } =
         yield* resolveVisibleRegistry(input.slug, {
           familyId: input.familyId,
-          itemId: input.itemId || undefined,
+          itemId: itemId ?? undefined,
         });
       if (familyKind !== "guest") return yield* Effect.fail(new RegistryPreviewSession());
       if (!takesMoney(settings, currency)) {
@@ -1640,15 +1693,12 @@ export const registryService = {
       }
       const stripeAccountId = settings.stripeAccountId;
       if (!stripeAccountId) return yield* Effect.fail(new CashGiftsUnavailable());
-      return {
-        weddingId,
-        stripeAccountId,
-        currency,
-        // An item id that is not this wedding's is dropped, not refused: what
-        // the guest is doing is giving money, and which line they aimed it at
-        // is the smaller half of that.
-        itemId: itemBelongs ? (input.itemId ?? null) : null,
-      };
+      // A guest who chose a fund chose where the money goes. A gift to reserve,
+      // another wedding's fund, a fund the couple deleted and an id that names
+      // nothing all get this one refusal, rather than a gift quietly given to
+      // the couple in general.
+      if (itemId !== null && fundTitle === null) return yield* Effect.fail(new FundUnavailable());
+      return { weddingId, stripeAccountId, currency, itemId, itemTitle: fundTitle };
     }).pipe(Effect.withSpan("cire.registry.contributionContext"));
   },
 
@@ -1775,7 +1825,10 @@ export const registryService = {
     id: string;
     weddingId: string;
     familyId: string;
+    /** The cash fund given to, or null for a gift to no fund. */
     itemId: string | null;
+    /** That fund's name as the guest saw it; kept with the gift for good. */
+    itemTitle: string | null;
     amountMinor: number;
     currency: string;
     message: string | null;
@@ -1791,6 +1844,7 @@ export const registryService = {
             id: input.id,
             weddingId: input.weddingId,
             itemId: input.itemId,
+            itemTitle: input.itemTitle,
             familyId: input.familyId,
             status: "pending",
             amountMinor: input.amountMinor,
@@ -2316,21 +2370,26 @@ export const registryService = {
     input: CreateRegistryItemInput,
   ): Effect.Effect<
     RegistryItemDto,
-    ImageKeyNotInWedding | InvalidQuantity | RegistryItemLimitReached,
+    ImageKeyNotInWedding | InvalidQuantity | RegistryItemLimitReached | RegistryItemFieldsInvalid,
     DbService
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
+      const kind = input.kind ?? "product";
+      const needs = kindTheFieldsNeed(input);
+      if (needs !== null && needs !== kind) {
+        return yield* Effect.fail(new RegistryItemFieldsInvalid());
+      }
       if (input.imageKey && !imageKeyBelongsTo(input.weddingId, input.imageKey)) {
         return yield* Effect.fail(new ImageKeyNotInWedding());
       }
       if (!inQuantityRange(input.quantityWanted, 1, Number.MAX_SAFE_INTEGER)) {
         return yield* Effect.fail(new InvalidQuantity());
       }
-      // One aggregate, not a full column scan (P-W3), and it answers both
-      // questions the insert has: is the wedding at its ceiling, and what is the
-      // next sort_order. Reading every row's sort_order to take a max was the
-      // whole list on every create (S-L4 added the ceiling that made it worse).
+      // One aggregate, not a full column scan, and it answers both questions
+      // the insert has: is the wedding at its ceiling, and what is the next
+      // sort_order. Reading every row's sort_order to take a max would read the
+      // whole list on every create.
       const [agg] = yield* dbQuery(() =>
         db
           .select({
@@ -2352,7 +2411,7 @@ export const registryService = {
       const row: ItemRow = {
         id: `reg_${crypto.randomUUID()}`,
         weddingId: input.weddingId,
-        kind: input.kind ?? "product",
+        kind,
         title: input.title,
         description: input.description,
         imageKey: input.imageKey,
@@ -2361,7 +2420,7 @@ export const registryService = {
         priceMinor: input.priceMinor,
         quantityWanted: input.quantityWanted,
         allowPartial: false,
-        targetMinor: null,
+        targetMinor: input.targetMinor ?? null,
         category: input.category,
         sortOrder: Number(maxSort) + 1,
         createdAt: now,
@@ -2378,13 +2437,19 @@ export const registryService = {
     patch: UpdateRegistryItemPatch;
   }): Effect.Effect<
     RegistryItemDto,
-    ImageKeyNotInWedding | InvalidQuantity | RegistryItemNotInWedding,
+    ImageKeyNotInWedding | InvalidQuantity | RegistryItemNotInWedding | RegistryItemFieldsInvalid,
     DbService
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const { weddingId, itemId, patch } = input;
 
+      // The fields this patch sets decide which kind of item it may touch. The
+      // kind goes in the UPDATE's own WHERE, so the success path stays one
+      // statement; only a refusal pays for telling "no such item" from "the
+      // other kind" below.
+      const needs = kindTheFieldsNeed(patch);
+      if (needs === "both") return yield* Effect.fail(new RegistryItemFieldsInvalid());
       if (patch.imageKey && !imageKeyBelongsTo(weddingId, patch.imageKey)) {
         return yield* Effect.fail(new ImageKeyNotInWedding());
       }
@@ -2404,6 +2469,7 @@ export const registryService = {
       if (patch.priceMinor !== undefined) set.priceMinor = patch.priceMinor;
       if (patch.quantityWanted !== undefined) set.quantityWanted = patch.quantityWanted;
       if (patch.category !== undefined) set.category = patch.category;
+      if (patch.targetMinor !== undefined) set.targetMinor = patch.targetMinor;
 
       // One round trip (as budgetService.updateItem): RETURNING reports whether
       // an (item, wedding) row existed, so there is no separate existence SELECT.
@@ -2411,12 +2477,34 @@ export const registryService = {
         db
           .update(registryItems)
           .set(set)
-          .where(and(eq(registryItems.id, itemId), eq(registryItems.weddingId, weddingId)))
+          .where(
+            and(
+              eq(registryItems.id, itemId),
+              eq(registryItems.weddingId, weddingId),
+              needs === null ? undefined : eq(registryItems.kind, needs),
+            ),
+          )
           .returning()
           .all(),
       );
-      if (!updated) return yield* Effect.fail(new RegistryItemNotInWedding());
-      // The claimed sum for the ONE item that changed (P-W4). The wedding-wide
+      if (!updated) {
+        if (needs === null) return yield* Effect.fail(new RegistryItemNotInWedding());
+        // The kind was part of the match, so a miss may be an item of the
+        // other kind. One point read on the failure path tells the two apart.
+        const [exists] = yield* dbQuery(() =>
+          db
+            .select({ id: registryItems.id })
+            .from(registryItems)
+            .where(and(eq(registryItems.id, itemId), eq(registryItems.weddingId, weddingId)))
+            .all(),
+        );
+        return yield* Effect.fail(
+          exists ? new RegistryItemFieldsInvalid() : new RegistryItemNotInWedding(),
+        );
+      }
+      // A cash fund is never claimed, so it has nothing to count.
+      if ((updated as ItemRow).kind === "cash_fund") return toItemDto(updated as ItemRow, 0);
+      // The claimed sum for the ONE item that changed. The wedding-wide
       // GROUP BY this used to call built a map of every item's claims to read a
       // single key out of it.
       const [claimedRow] = yield* dbQuery(() =>
@@ -2444,8 +2532,8 @@ export const registryService = {
    * The ROUTE reaps the object (best-effort, outside this Effect's requirements)
    * — this service stays DB-only, exactly as `eventImageService` keeps its R2
    * work in the module that owns the bucket. But whether the object may be
-   * reaped is a DB question, so it is answered here, right after the delete
-   * (S-M1): nothing stops two items naming the same key — duplicate an item,
+   * reaped is a DB question, so it is answered here, right after the delete:
+   * nothing stops two items naming the same key — duplicate an item,
    * or paste the same shop link twice and save it once — and reaping on the
    * first delete would blank the survivor's picture. Counting AFTER the delete
    * and in the same step is what makes the answer true at reap time.
@@ -2459,7 +2547,7 @@ export const registryService = {
     weddingId: string,
     itemId: string,
   ): Effect.Effect<
-    { imageKey: string | null; imageKeyOrphaned: boolean },
+    { kind: RegistryItemKind; imageKey: string | null; imageKeyOrphaned: boolean },
     RegistryItemNotInWedding,
     DbService
   > {
@@ -2467,17 +2555,22 @@ export const registryService = {
       const db = yield* DbService;
       // Claims cascade with the item; contributions do NOT — their `item_id` is
       // ON DELETE SET NULL, so removing a listing never erases a record of money
-      // someone actually sent.
+      // someone actually sent, and each gift keeps its fund's name in
+      // `item_title`.
       const [removed] = yield* dbQuery(() =>
         db
           .delete(registryItems)
           .where(and(eq(registryItems.id, itemId), eq(registryItems.weddingId, weddingId)))
-          .returning({ id: registryItems.id, imageKey: registryItems.imageKey })
+          .returning({
+            id: registryItems.id,
+            kind: registryItems.kind,
+            imageKey: registryItems.imageKey,
+          })
           .all(),
       );
       if (!removed) return yield* Effect.fail(new RegistryItemNotInWedding());
-      const imageKey = (removed as { imageKey: string | null }).imageKey;
-      if (!imageKey) return { imageKey: null, imageKeyOrphaned: false };
+      const { kind, imageKey } = removed as { kind: RegistryItemKind; imageKey: string | null };
+      if (!imageKey) return { kind, imageKey: null, imageKeyOrphaned: false };
       const [row] = yield* dbQuery(() =>
         db
           .select({ total: sql<number>`count(*)` })
@@ -2486,7 +2579,7 @@ export const registryService = {
           .all(),
       );
       const remaining = Number((row as { total: number } | undefined)?.total ?? 0) || 0;
-      return { imageKey, imageKeyOrphaned: remaining === 0 };
+      return { kind, imageKey, imageKeyOrphaned: remaining === 0 };
     }).pipe(Effect.withSpan("cire.registry.removeItem"));
   },
 
@@ -2530,7 +2623,7 @@ export const registryService = {
    * claims — which is what makes the same statement serve both the first claim
    * and a later change, via the ON CONFLICT arm.
    *
-   * The same WHERE also proves the household belongs to this wedding (S-H2). A
+   * The same WHERE also proves the household belongs to this wedding. A
    * guest session names a `family_id`; without the EXISTS, a leaked id from
    * another wedding would write a claim row carrying THIS wedding's `wedding_id`
    * and a foreign family's — a cross-tenant row that then shows up in the
@@ -2539,6 +2632,9 @@ export const registryService = {
    * The EXISTS also requires a `guest` household. The wedding's host preview
    * household reads the list and never writes to it: a reservation it held
    * would read as taken to every real guest.
+   *
+   * And the item must be a `product`. A cash fund is given to, never reserved:
+   * a claim on one would mark the couple's honeymoon as taken.
    */
   claim(input: {
     weddingId: string;
@@ -2580,6 +2676,7 @@ export const registryService = {
           FROM ${registryItems} ri
           WHERE ri.id = ${itemId}
             AND ri.wedding_id = ${weddingId}
+            AND ri.kind = 'product'
             AND EXISTS (
                   SELECT 1 FROM ${families} f
                   WHERE f.id = ${familyId} AND f.wedding_id = ${weddingId}
@@ -2606,13 +2703,13 @@ export const registryService = {
       // refused re-claim would read as a success.
       if ((written as unknown[]).length > 0) return;
 
-      // Nothing written means one of four things; only the failure path pays
+      // Nothing written means one of five things; only the failure path pays
       // for telling them apart.
       const { familyRows, itemRows } = yield* Effect.all(
         {
           itemRows: dbQuery(() =>
             db
-              .select({ id: registryItems.id })
+              .select({ kind: registryItems.kind })
               .from(registryItems)
               .where(and(eq(registryItems.id, itemId), eq(registryItems.weddingId, weddingId)))
               .all(),
@@ -2627,7 +2724,7 @@ export const registryService = {
         },
         { concurrency: "unbounded" },
       );
-      // FAMILY FIRST, and the order is the security property (S-M1). A cookie
+      // FAMILY FIRST, and the order is the security property. A cookie
       // names a household, not a wedding, so a holder of ANY valid session can
       // point it at any slug. Answering `RegistryItemNotInWedding` first told
       // them whether the item id they guessed exists on a wedding they cannot
@@ -2638,7 +2735,12 @@ export const registryService = {
       if (!family) return yield* Effect.fail(new FamilyNotInWedding());
       // This wedding's own preview household: it learns nothing it did not know.
       if (family.kind === "host") return yield* Effect.fail(new RegistryPreviewSession());
-      if (!itemRows[0]) return yield* Effect.fail(new RegistryItemNotInWedding());
+      // A cash fund is not a gift to reserve, so to a claim it is no gift at
+      // all — never "fully claimed", which would say someone took it.
+      const [item] = itemRows;
+      if (!item || item.kind !== "product") {
+        return yield* Effect.fail(new RegistryItemNotInWedding());
+      }
       return yield* Effect.fail(new ItemFullyClaimed());
     }).pipe(Effect.withSpan("cire.registry.claim"));
   },
@@ -2662,7 +2764,7 @@ export const registryService = {
       const db = yield* DbService;
       // The WHERE matches an EXISTING claim row, which `claim` already refused
       // to write unless the household belonged to the wedding — so a foreign
-      // family id simply matches nothing. What that leaves is the S-M1 problem:
+      // family id simply matches nothing. What that leaves is a probe:
       // "matched nothing" would answer `registry_item_not_found` to a foreign
       // cookie on a visible registry and `registry_not_found` on an invisible
       // one, which is a probe for which weddings have a list. The failure path
@@ -2796,7 +2898,7 @@ export const registryService = {
   hasRows(weddingId: string): Effect.Effect<boolean, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      // Both probes always (P-I5): the short-circuit saved a round trip only for
+      // Both probes always: the short-circuit saved a round trip only for
       // weddings that HAVE items, and cost a serial second one for every wedding
       // that does not — which is every wedding, since the feature ships locked.
       const [itemRows, contributionRows] = yield* Effect.all(
@@ -2864,6 +2966,26 @@ export interface PublicRegistryItemDto {
 }
 
 /**
+ * One cash fund as a guest sees it: its name, its picture and the couple's
+ * words about it, and nothing else.
+ *
+ * No target, no price and no count. The target is the couple's planning
+ * number, and how much has come in — in total or from anyone — is theirs too:
+ * a guest choosing where to give sees what each fund is for, never how near it
+ * is to anything. A narrow type of its own, rather than the item DTO with fields
+ * left out, so a field added to items cannot reach a fund by accident.
+ */
+export interface PublicRegistryFundDto {
+  id: string;
+  title: string;
+  description: string | null;
+  /** As on {@link PublicRegistryItemDto}: the key's last segment, never the key. */
+  imageName: string | null;
+  imageCrop: string | null;
+  sortOrder: number;
+}
+
+/**
  * The published registry as a guest sees it: the couple's copy and the list.
  *
  * What is ABSENT is the point — no gift log, no Stripe identifiers, no
@@ -2875,15 +2997,22 @@ export interface PublicRegistryDto {
   message: string | null;
   /**
    * Whether a guest may give money RIGHT NOW — the couple's intent AND Stripe's
-   * capability, ANDed here so the guest surface never has to reason about the
-   * two separately. A contribute button the couple meant to offer but Stripe
-   * cannot honour is a refund and a support case; one they never meant to offer
+   * capability AND a deployment that can take a payment at all, ANDed here so
+   * the guest surface never has to reason about them separately. A contribute
+   * button the couple meant to offer but nothing can honour is a refund and a
+   * support case, or a button that leads nowhere; one they never meant to offer
    * is worse.
    */
   cashGiftsEnabled: boolean;
   /** The wedding's primary currency — what every `priceMinor` is denominated in. */
   currency: string;
+  /** The gifts to reserve. Never a cash fund: a fund is given to, not reserved. */
   items: PublicRegistryItemDto[];
+  /**
+   * The couple's cash funds, in list order. Empty whenever `cashGiftsEnabled`
+   * is false: a fund nobody can give to is not offered.
+   */
+  funds: PublicRegistryFundDto[];
 }
 
 /** One of THIS household's live claims. */
@@ -2923,7 +3052,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * Has the couple's shipping-address embargo lifted?
  *
  * A NULL date means no embargo, and so does an unparseable one — the write
- * schema validates the shape (S-M2), so a value that got past it is corruption,
+ * schema validates the shape, so a value that got past it is corruption,
  * and failing open here matches what `schemas/registry.ts` documents. Comparing
  * `YYYY-MM-DD` strings lexicographically IS a date comparison for that shape, and
  * avoids inventing a timezone the couple never chose.
@@ -2942,16 +3071,26 @@ const toPublicItemDto = (
   kind: r.kind,
   title: r.title,
   description: r.description,
-  imageName:
-    r.imageKey && imageKeyBelongsTo(weddingId, r.imageKey)
-      ? (r.imageKey.split("/")[2] ?? null)
-      : null,
+  imageName: publicImageName(weddingId, r.imageKey),
   imageCrop: r.imageCrop,
   externalUrl: r.externalUrl,
   priceMinor: r.priceMinor,
   quantityWanted: r.quantityWanted,
   quantityClaimed,
   category: r.category,
+  sortOrder: r.sortOrder,
+});
+
+/** The last segment of a gift's own R2 key, or null for a key it does not own. */
+const publicImageName = (weddingId: string, imageKey: string | null): string | null =>
+  imageKey && imageKeyBelongsTo(weddingId, imageKey) ? (imageKey.split("/")[2] ?? null) : null;
+
+const toPublicFundDto = (weddingId: string, r: ItemRow): PublicRegistryFundDto => ({
+  id: r.id,
+  title: r.title,
+  description: r.description,
+  imageName: publicImageName(weddingId, r.imageKey),
+  imageCrop: r.imageCrop,
   sortOrder: r.sortOrder,
 });
 
@@ -2970,7 +3109,10 @@ const toPublicItemDto = (
  *   `assets/<weddingId>/<imageName>`. The public image route asks it, so a gift
  *   the couple deleted, or a picture they replaced, stops serving by its name
  *   at once — including from the Worker's own cache, whose every lookup runs
- *   after this gate.
+ *   after this gate. The kind of that item comes back as `imageKind`
+ *   (`product` when both kinds name it, and when not asked), because a cash
+ *   fund's picture serves only while the fund is offered, which is the
+ *   caller's to judge.
  * - `familyId` — the household belongs to THIS wedding. A `cire_session` names
  *   a household, not a wedding, so without it one leaked code would open every
  *   couple's list; answering it as `RegistryNotVisible` keeps a stranger
@@ -2978,10 +3120,10 @@ const toPublicItemDto = (
  *
  * Two more checks answer rather than fail:
  *
- * - `itemId` — whether that item is one of THIS wedding's, returned as
- *   `itemBelongs` (always `false` when not asked). A cash gift aimed at a line
- *   that is not this wedding's is kept and its line dropped, so a foreign item
- *   must not close the gate.
+ * - `itemId` — the name of that item if it is a cash fund of THIS wedding,
+ *   returned as `fundTitle` (null otherwise, and when not asked). A gift given
+ *   to a fund keeps the name, and the caller refuses a gift aimed at anything
+ *   else; it is not the gate's to close.
  * - with `familyId`, the household's kind, returned as `familyKind` (`guest`
  *   when not asked): a real invited household, or the wedding's host preview
  *   household. The same subquery reads the household's wedding and its kind.
@@ -3006,7 +3148,8 @@ function resolveVisibleRegistry(
     weddingId: string;
     settings: RegistrySettingsRecord;
     currency: string;
-    itemBelongs: boolean;
+    fundTitle: string | null;
+    imageKind: RegistryItemKind;
     familyKind: FamilyKind;
   },
   RegistryNotVisible,
@@ -3021,12 +3164,18 @@ function resolveVisibleRegistry(
           id: weddings.id,
           currency: weddings.currency,
           tier: weddings.tier,
-          // A check the caller did not ask for is the constant 1, so the row
+          // The kind of an item of this wedding naming the image, or NULL when
+          // none does. Two items can share one picture, and a gift on the list
+          // keeps its picture whatever a fund beside it does: `max` gives
+          // 'product' whenever one names it, because the kind CHECK allows only
+          // 'product' and 'cash_fund' and 'product' sorts after. An aggregate
+          // rather than ORDER BY … LIMIT 1, so the read needs no sort. A check
+          // the caller did not ask for is the constant 'product', so the row
           // keeps one shape.
-          imageListed: (imageName === undefined
-            ? sql<number>`1`
-            : sql<number>`EXISTS (SELECT 1 FROM ${registryItems} WHERE ${registryItems.weddingId} = ${outerColumn(weddings.id)} AND ${registryItems.imageKey} = 'assets/' || ${outerColumn(weddings.id)} || '/' || ${imageName})`
-          ).as("image_listed"),
+          imageKind: (imageName === undefined
+            ? sql<RegistryItemKind | null>`'product'`
+            : sql<RegistryItemKind | null>`(SELECT max(${registryItems.kind}) FROM ${registryItems} WHERE ${registryItems.weddingId} = ${outerColumn(weddings.id)} AND ${registryItems.imageKey} = 'assets/' || ${outerColumn(weddings.id)} || '/' || ${imageName})`
+          ).as("image_kind"),
           // The household's kind, or NULL when it is not this wedding's. Not
           // asked, it is the constant 'guest': the check passes and nothing
           // is a preview. `families.id` is the key, so this is a point read.
@@ -3034,11 +3183,14 @@ function resolveVisibleRegistry(
             ? sql<FamilyKind | null>`'guest'`
             : sql<FamilyKind | null>`(SELECT ${families.kind} FROM ${families} WHERE ${families.id} = ${familyId} AND ${families.weddingId} = ${outerColumn(weddings.id)})`
           ).as("family_kind"),
-          // The constant 0 here, not 1: this check answers, it does not gate.
-          itemListed: (itemId === undefined
-            ? sql<number>`0`
-            : sql<number>`EXISTS (SELECT 1 FROM ${registryItems} WHERE ${registryItems.id} = ${itemId} AND ${registryItems.weddingId} = ${outerColumn(weddings.id)})`
-          ).as("item_listed"),
+          // The fund's name, or NULL when the id names no cash fund of this
+          // wedding. This check answers, it does not gate.
+          fundTitle: (itemId === undefined
+            ? sql<string | null>`NULL`
+            : sql<
+                string | null
+              >`(SELECT ${registryItems.title} FROM ${registryItems} WHERE ${registryItems.id} = ${itemId} AND ${registryItems.weddingId} = ${outerColumn(weddings.id)} AND ${registryItems.kind} = 'cash_fund')`
+          ).as("fund_title"),
           // NULL exactly when the wedding has no settings row: the LEFT JOIN
           // leaves every settings column NULL then, and this one is the key.
           settingsWeddingId: registrySettings.weddingId,
@@ -3064,7 +3216,7 @@ function resolveVisibleRegistry(
     if (!row) return yield* Effect.fail(new RegistryNotVisible());
     const settings = row.settingsWeddingId === null ? defaultSettings(row.id) : gateSettings(row);
     const onGold = tierAtLeast(normaliseTier(row.tier), "gold");
-    if (!onGold || !settings.published || !row.imageListed || row.familyKind === null) {
+    if (!onGold || !settings.published || row.imageKind === null || row.familyKind === null) {
       return yield* Effect.fail(new RegistryNotVisible());
     }
     // Same fallback `primaryCurrency` has always used.
@@ -3072,11 +3224,24 @@ function resolveVisibleRegistry(
       weddingId: row.id,
       settings,
       currency: row.currency ?? "AUD",
-      itemBelongs: Boolean(row.itemListed),
+      fundTitle: row.fundTitle,
+      imageKind: row.imageKind,
       familyKind: row.familyKind,
     };
   });
 }
+
+/**
+ * Whether guests may give money here today, and so whether funds are offered:
+ * the deployment can take a payment at all (`takesPayments`, true exactly when
+ * the contribute route is mounted), and the couple and their account can
+ * (`takesMoney`).
+ */
+const moneyIsOpen = (
+  takesPayments: boolean,
+  settings: RegistrySettingsRecord,
+  currency: string,
+): boolean => takesPayments && takesMoney(settings, currency);
 
 /** `families.kind`: a real invited household, or the wedding's host preview one. */
 type FamilyKind = "guest" | "host";
@@ -3093,9 +3258,9 @@ interface GateRow {
   id: string;
   currency: string | null;
   tier: string;
-  imageListed: number;
+  imageKind: RegistryItemKind | null;
   familyKind: FamilyKind | null;
-  itemListed: number;
+  fundTitle: string | null;
   settingsWeddingId: string | null;
   published: boolean | null;
   headline: string | null;
@@ -3133,7 +3298,7 @@ export const registryGuestService = {
    * The write routes resolve the wedding from the SLUG and hand the id to
    * `registryService.claim` / `releaseClaim`, so a `cire_session` cookie minted
    * for wedding A carries no authority on wedding B's slug: the claim statement
-   * proves the household belongs to the wedding it names (S-H2) and fails
+   * proves the household belongs to the wedding it names and fails
    * `FamilyNotInWedding` when it does not.
    */
   visibleWeddingId(slug: string): Effect.Effect<string, RegistryNotVisible, DbService> {
@@ -3152,15 +3317,26 @@ export const registryGuestService = {
    * from the wedding the SLUG resolves to and a `name` the caller has already
    * matched against `REGISTRY_IMAGE_NAME`, so no request can name another
    * wedding's object or climb out of the prefix.
+   *
+   * A picture only a cash fund names serves only while funds are offered
+   * (`takesPayments`, as {@link registryGuestService.guestView} takes it): when
+   * the couple stop taking money their funds leave the list, and turning money
+   * off withdraws a fund's picture as deleting the fund would.
    */
   visibleImageKey(
     slug: string,
     name: string,
+    takesPayments: boolean,
   ): Effect.Effect<string, RegistryNotVisible, DbService> {
-    return resolveVisibleRegistry(slug, { imageName: name }).pipe(
-      Effect.map((r) => `assets/${r.weddingId}/${name}`),
-      Effect.withSpan("cire.registry.visibleImageKey"),
-    );
+    return Effect.gen(function* () {
+      const { weddingId, imageKind, settings, currency } = yield* resolveVisibleRegistry(slug, {
+        imageName: name,
+      });
+      if (imageKind === "cash_fund" && !moneyIsOpen(takesPayments, settings, currency)) {
+        return yield* Effect.fail(new RegistryNotVisible());
+      }
+      return `assets/${weddingId}/${name}`;
+    }).pipe(Effect.withSpan("cire.registry.visibleImageKey"));
   },
 
   /**
@@ -3183,6 +3359,12 @@ export const registryGuestService = {
   guestView(input: {
     slug: string;
     familyId: string;
+    /**
+     * Whether this deployment can take a payment at all: true exactly when the
+     * contribute route is mounted. Required, with no default, so no caller can
+     * offer money by leaving it out.
+     */
+    takesPayments: boolean;
   }): Effect.Effect<PublicRegistryDto, RegistryNotVisible, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
@@ -3204,15 +3386,22 @@ export const registryGuestService = {
         },
         { concurrency: "unbounded" },
       );
+      // A deployment and a couple that can take money, intent AND capability
+      // AND one currency. See the DTO and `takesMoney`.
+      const cashGiftsEnabled = moneyIsOpen(input.takesPayments, settings, currency);
+      const rows = itemRows as ItemRow[];
       return {
         headline: settings.headline,
         message: settings.message,
-        // Intent AND capability AND one currency. See the DTO and `takesMoney`.
-        cashGiftsEnabled: takesMoney(settings, currency),
+        cashGiftsEnabled,
         currency,
-        items: (itemRows as ItemRow[]).map((r) =>
-          toPublicItemDto(weddingId, r, claimed.get(r.id) ?? 0),
-        ),
+        items: rows
+          .filter((r) => r.kind === "product")
+          .map((r) => toPublicItemDto(weddingId, r, claimed.get(r.id) ?? 0)),
+        // A fund nobody can give to today is not offered at all.
+        funds: cashGiftsEnabled
+          ? rows.filter((r) => r.kind === "cash_fund").map((r) => toPublicFundDto(weddingId, r))
+          : [],
       };
     }).pipe(Effect.withSpan("cire.registry.guestView"));
   },

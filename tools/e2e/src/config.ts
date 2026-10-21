@@ -43,6 +43,12 @@ export const CIRE_RSVP_CLOSED_ISO = "2099-01-02T00:00:00.000Z";
  * each of them reaches the household, so a value that drifts from the seed
  * fails that flow. `previewCode` is the host household's code, which "Preview
  * invite" opens the invitation with.
+ *
+ * `fund` is a cash fund on the same list. The couple's settings take money,
+ * but the stack's cire-api has no Stripe key, so no guest may be offered the
+ * fund or the money form. The locked flow checks the fund absent without a
+ * claim, and the claimed flow checks it absent with one; the claimed flow
+ * reads the fund's row from the database, so a drifted value fails there.
  */
 export const CIRE_GIFT_LIST = {
   slug: "gift-wedding",
@@ -54,6 +60,11 @@ export const CIRE_GIFT_LIST = {
   firstGiftId: "reg_e2e_gift_0001",
   headline: "Our gift list",
   message: "Your being there is the gift. This list is here if you would like it.",
+  fund: {
+    id: "reg_e2e_gift_fund",
+    title: "Honeymoon in Kyoto",
+    description: "Trains, temples and a very good dinner.",
+  },
 } as const;
 
 /**

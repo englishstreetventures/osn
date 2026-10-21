@@ -1,5 +1,15 @@
 # @osn/ui
 
+## 3.0.14
+
+### Patch Changes
+
+- 5ab88f0: Build with vite 8.3.3 (range `^8.3.3`), which clears the advisory on vite 8.2.0
+  through 8.2.3.
+- Updated dependencies [5ab88f0]
+  - @shared/ui@0.5.1
+  - @shared/toast@0.3.6
+
 ## 3.0.13
 
 ### Patch Changes

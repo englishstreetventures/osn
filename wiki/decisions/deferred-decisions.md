@@ -6,7 +6,7 @@ related:
   - "[[github-issues-setup]]"
   - "[[cire-platform-plan]]"
   - "[[cire]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Deferred decisions
@@ -69,7 +69,6 @@ A row graduates to an issue when its "Revisit When" lands.
 | Pricing baseline sourcing + regions | Hand-curated AU-first dataset vs licensed data | Phase 3 start — see [[cire-platform-plan]] §6 |
 | Multi-currency budget entries | v1 single-currency (all figures in the wedding's main `currency`, organiser converts on entry — decided) vs additive v2: display-only `original_currency` + `original_amount_minor` (+ entered rate) on `budget_items`/`payments` | Budget v1 build, or first real multi-country wedding asking for it — see [[cire-platform-plan]] §4.2 |
 | Guest email collection point (comms) | Guest-entered at RSVP vs organiser-entered vs both; consent design first | Comms build (Phase 4) — see [[cire-platform-plan]] §7 |
-| Wishing well | Payment processing (requires ABN) | After business is set up |
 | Guest photo sharing | R2 + moderation | Post-MVP |
 | iPhone AirDrop sharing | Web Share API + custom payload | After core invite is built |
 | Account-linking ARC key provisioning + rotation | Stable `CIRE_API_ARC_PRIVATE_KEY` secret pre-registered in osn-api `service_accounts` (shipped) vs. lazy self-registration per isolate vs. KV-persisted rotating key | Before production launch of linking — wire the secret + osn-side registration; decide rotation story (Workers have no startup hook) |
@@ -127,12 +126,11 @@ Folded in from the retired `cire/wiki/deferred.md` when the cire vault merged in
 Post-MVP ideas, too vague to be issues. Folded in from the retired `cire/wiki/future.md`.
 An idea graduates to a GitHub issue when someone can write its "done when".
 
-> **Promoted 2026-07-08:** "Platformise as multi-tenant SaaS" and "General wedding planning — guest list management, seating charts" graduated into the wedding-management platform build-out — architecture in [[cire-platform-plan]], phased work in GitHub Issues. Wishing well, guest photos, and Wallet passes stay here (referenced by the plan's Phase 4 as later work).
+> **Promoted 2026-07-08:** "Platformise as multi-tenant SaaS" and "General wedding planning — guest list management, seating charts" graduated into the wedding-management platform build-out — architecture in [[cire-platform-plan]], phased work in GitHub Issues. Guest photos and Wallet passes stay here (referenced by the plan's Phase 4 as later work); the wishing well is built as the gift registry's money gifts ([[cire-registry]]).
 
 - Astro → Solid Start migration for the guest-facing app (post-platformisation, only if SaaS path is taken)
 - Apple Wallet pass generation for each event
 - Physical + digital hybrid: QR codes on printed invites linking to digital counterparts
-- Wishing well with payment processing
 - Photo collection and guest photo uploads
 - iPhone tip-to-tip AirDrop invite sharing
 - White-label / custom domain support per wedding

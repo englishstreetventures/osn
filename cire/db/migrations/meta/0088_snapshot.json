@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "60b8a5fd-f20d-4ea4-98cf-a65f25d82980",
+  "id": "4957666a-510f-40b3-9c49-c623df7f7fe4",
   "prevId": "315306c3-c6e8-441b-be06-a29063c918ca",
   "tables": {
     "budget_items": {
@@ -409,13 +409,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "venue_name": {
-          "name": "venue_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "address": {
@@ -1737,6 +1730,13 @@
         },
         "item_id": {
           "name": "item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "item_title": {
+          "name": "item_title",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

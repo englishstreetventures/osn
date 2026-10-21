@@ -260,11 +260,17 @@ export function onSuiteClock(unixSeconds: number | undefined): boolean {
 
 /**
  * Which of the gift list's private strings (`CIRE_GIFT_LIST`: every gift title,
- * the couple's headline and their message) `text` holds, comma-joined, or
- * `"none"`. Read off a page's HTML or an API body: what a visitor without a
- * claim must never receive.
+ * the couple's headline, their message, and the cash fund's name and words)
+ * `text` holds, comma-joined, or `"none"`. Read off a page's HTML or an API
+ * body: what a visitor without a claim must never receive.
  */
 export function giftListTextIn(text: string): string {
-  const secret = [...CIRE_GIFT_LIST.gifts, CIRE_GIFT_LIST.headline, CIRE_GIFT_LIST.message];
+  const secret = [
+    ...CIRE_GIFT_LIST.gifts,
+    CIRE_GIFT_LIST.headline,
+    CIRE_GIFT_LIST.message,
+    CIRE_GIFT_LIST.fund.title,
+    CIRE_GIFT_LIST.fund.description,
+  ];
   return secret.filter((s) => text.includes(s)).join(", ") || "none";
 }

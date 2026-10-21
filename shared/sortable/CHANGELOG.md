@@ -1,5 +1,12 @@
 # @shared/sortable
 
+## 0.2.4
+
+### Patch Changes
+
+- 5ab88f0: Build with vite 8.3.3 (range `^8.3.3`), which clears the advisory on vite 8.2.0
+  through 8.2.3.
+
 ## 0.2.3
 
 ### Patch Changes

@@ -111,8 +111,12 @@ const logDefect = (cause: unknown) => Effect.logError("registry guest handler de
  * that split exists: the writes carry a limiter this read must not, and the
  * tier check must cover every registry route without ever leaking onto
  * the invite's own public routes.
+ *
+ * `takesPayments` is whether this deployment mounted the contribute route. The
+ * list offers money, and the couple's cash funds, only when it is true: a
+ * guest must never be offered a button that cannot lead anywhere.
  */
-export const createRegistryGuestListRoutes = (db: Db) =>
+export const createRegistryGuestListRoutes = (db: Db, deps: { readonly takesPayments: boolean }) =>
   new Elysia({ prefix: "/api/invite" })
     .use(sessionAuth(db))
     .get("/:slug/registry", ({ params, familyId, set }) => {
@@ -124,12 +128,14 @@ export const createRegistryGuestListRoutes = (db: Db) =>
       // claimed an hour ago — two households buying the same pan.
       set.headers["cache-control"] = "no-store";
       return runCire(
-        registryGuestService.guestView({ slug: params.slug, familyId }).pipe(
-          Effect.provideService(DbService, db),
-          Effect.catchTag("RegistryNotVisible", () => notVisible(set)),
-          Effect.tapDefect(logDefect),
-          Effect.catchDefect(() => internal(set)),
-        ),
+        registryGuestService
+          .guestView({ slug: params.slug, familyId, takesPayments: deps.takesPayments })
+          .pipe(
+            Effect.provideService(DbService, db),
+            Effect.catchTag("RegistryNotVisible", () => notVisible(set)),
+            Effect.tapDefect(logDefect),
+            Effect.catchDefect(() => internal(set)),
+          ),
       );
     });
 
@@ -156,11 +162,17 @@ export const createRegistryGuestListRoutes = (db: Db) =>
  * picture over it closes the URL at the Worker at once, its own cache included.
  * Browsers and proxies hold the bytes for an hour (`lifetime: "revocable"`), not
  * a year, so the same withdrawal reaches every copy outside the Worker within
- * the hour.
+ * the hour. A cash fund's picture also closes while the couple are not taking
+ * money (`takesPayments`, as the list route takes it), because the fund leaves
+ * the list then.
  */
 export const createRegistryGuestImageRoutes = (
   db: Db,
-  deps: { readonly assets?: AssetsBucket; readonly images?: ImagesBindingLike } = {},
+  deps: {
+    readonly takesPayments: boolean;
+    readonly assets?: AssetsBucket;
+    readonly images?: ImagesBindingLike;
+  },
 ) =>
   new Elysia({ prefix: "/api/invite" }).get(
     "/:slug/registry/image/:name",
@@ -182,7 +194,11 @@ export const createRegistryGuestImageRoutes = (
           // `registry-<uuid>` — so no request can name another wedding's object,
           // climb out of the prefix, or reach the invite builder's slots,
           // however it spells the path.
-          const key = yield* registryGuestService.visibleImageKey(params.slug, params.name);
+          const key = yield* registryGuestService.visibleImageKey(
+            params.slug,
+            params.name,
+            deps.takesPayments,
+          );
           return yield* serveTransformedImage({
             request,
             key,
@@ -309,7 +325,7 @@ function giftIdempotencyKey(input: {
 export interface RegistryContributeDeps {
   /** Absent ⇒ the route is not mounted; a guest is never offered a dead button. */
   readonly stripe: StripeClient;
-  /** Its OWN limiter, tighter than the claim one — see the route header. */
+  /** Its OWN limiter, apart from the claim one — see the route header. */
   readonly limiter: RateLimiterBackend;
   /** Guest-site origin, for the two URLs Stripe returns the guest to. */
   readonly guestOrigin: string;
@@ -324,21 +340,22 @@ export interface RegistryContributeDeps {
  * charge is DIRECT on the couple's connected account: the money is theirs from
  * the moment it is taken, and cire never holds it.
  *
- * **Its own limiter, and a tight one.** Every call here is an outbound Stripe
- * request — the same "amplifier" shape the link-preview route is limited for,
- * and the one guest route that can cost money to be wrong about. It answers
+ * **Its own limiter**, at the claim route's rate. Every call here is an outbound
+ * Stripe request — the same "amplifier" shape the link-preview route is limited
+ * for, and the one guest route that can cost money to be wrong about. It answers
  * before `sessionAuth`, so a refused request costs no session lookup, and a
  * caller with no claimed session spends the same per-IP budget as a guest.
  *
  * **The gates that matter run before Stripe does** (`contributionContext`): the
  * registry must be visible, the household must belong to THIS wedding and not
- * be its host preview household, the couple must have said yes, and Stripe
- * must be able to take the charge today. A guest is turned away before their
- * card is, or not at all.
+ * be its host preview household, the couple must have said yes, Stripe must
+ * be able to take the charge today, and a gift given to a fund must name one of
+ * this wedding's cash funds. A guest is turned away before their card is, or
+ * not at all.
  *
- * **Nothing is recorded here.** A session is an intention, not a gift. The row
- * in `registry_contributions` is written by the webhook when Stripe says the
- * money moved — which is the only party that knows.
+ * **The gift is written first, as `pending`**, before Stripe is asked for a
+ * page, and Stripe is told one opaque id. The webhook settles that row when
+ * Stripe says the money moved — the only party that knows.
  */
 export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeDeps) =>
   new Elysia({ prefix: "/api/invite" })
@@ -359,7 +376,7 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
               familyId,
               itemId: body.itemId,
             });
-            const itemId = context.itemId;
+            const { itemId, itemTitle } = context;
 
             // The attempt this guest already has open, if they have one. This
             // is the idempotency that has no edges: the time bucket
@@ -392,8 +409,8 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
             // the ONLY thing about this gift that reaches Stripe.
             const contributionId = `rct_${crypto.randomUUID()}`;
 
-            // THE ROW COMES FIRST, before Stripe is told anything (osn-tracker
-            // #528). Written the other way round there is a window — small, but
+            // THE ROW COMES FIRST, before Stripe is told anything. Written the
+            // other way round there is a window — small, but
             // it is the window in which the guest's money moves — where a
             // session exists at Stripe and no row exists here: evict the Worker
             // between the call and the insert and the settle webhook names a
@@ -405,6 +422,7 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
               weddingId: context.weddingId,
               familyId,
               itemId,
+              itemTitle,
               amountMinor: body.amountMinor,
               currency: context.currency,
               message: body.message,
@@ -485,6 +503,14 @@ export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeD
               Effect.sync(() => {
                 set.status = 409;
                 return { error: "cash_gifts_unavailable" };
+              }),
+            ),
+            // The page offered a fund this wedding no longer has (or never
+            // had). Its own code, so the page can say so and re-read the list.
+            Effect.catchTag("FundUnavailable", () =>
+              Effect.sync(() => {
+                set.status = 409;
+                return { error: "fund_unavailable" };
               }),
             ),
             Effect.catchTag("StripeError", () =>
