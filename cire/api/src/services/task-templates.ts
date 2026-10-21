@@ -27,9 +27,11 @@ import { metricChecklistTemplateApplied } from "../metrics";
 import {
   anchoredDueAt,
   type AssigneeRow,
+  eventTimesOf,
   type TaskDto,
   type TaskRow,
   weddingAssignees,
+  weddingEventTimes,
   withAssignees,
 } from "./tasks";
 
@@ -194,16 +196,22 @@ export const taskTemplatesService = {
             .from(tasks)
             .where(eq(tasks.weddingId, weddingId))
             .orderBy(asc(tasks.timeframeBucket), asc(tasks.sortOrder)),
-          // The holders of the tasks already there: the portal replaces its
-          // checklist with this answer.
+          // The holders of the tasks already there, and the events their times
+          // are counted from: the portal replaces its checklist with this
+          // answer.
           weddingAssignees(db, weddingId),
+          weddingEventTimes(db, weddingId),
         ]),
       );
       const added = rowsChanged(results[1]);
       metricChecklistTemplateApplied(templateId, added);
       return {
         added,
-        tasks: withAssignees(results[2] as TaskRow[], results[3] as AssigneeRow[]),
+        tasks: withAssignees(
+          results[2] as TaskRow[],
+          results[3] as AssigneeRow[],
+          eventTimesOf(results[4]),
+        ),
       };
     }).pipe(Effect.withSpan("cire.tasks.template_apply"));
   },

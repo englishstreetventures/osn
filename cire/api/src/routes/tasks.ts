@@ -85,8 +85,9 @@ function answerHolderWrite(
  *
  *   GET /api/organiser/weddings/:weddingId/tasks   (weddingMember — any role incl. viewer)
  *
- * Answers `{ tasks, viewerHostId }`: every task with the seats holding it, and
- * the caller's own seat id, so the portal can tell which holder is the reader.
+ * Answers `{ tasks, viewerHostId }`: every task with the seats holding it and
+ * its time on the day (a linked task's derived from its event), and the
+ * caller's own seat id, so the portal can tell which holder is the reader.
  *
  * Split from the write factory so the read gate (weddingMember) never
  * cross-contaminates with the write gate (weddingEditor). This mirrors the
@@ -132,6 +133,10 @@ export const createTaskReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
  *   GET    /api/organiser/weddings/:weddingId/tasks/templates/:templateId (weddingEditor)
  *   POST   /api/organiser/weddings/:weddingId/tasks/templates/:templateId (weddingEditor)
  *   PATCH  /api/organiser/weddings/:weddingId/tasks/:taskId   (weddingEditor)
+ *          (also a task's run time: `runTime`, see `RunTimePatch`; a link to an
+ *          event not of the wedding is 422 `event_not_in_wedding`, a clock time
+ *          more than a day from the event's start 422 `run_time_out_of_range`,
+ *          and neither writes any field of the patch)
  *   PUT    /api/organiser/weddings/:weddingId/tasks/:taskId/assignees/:hostId (weddingEditor)
  *   DELETE /api/organiser/weddings/:weddingId/tasks/:taskId/assignees/:hostId (weddingEditor)
  *   DELETE /api/organiser/weddings/:weddingId/tasks/:taskId   (weddingEditor)
@@ -354,6 +359,18 @@ export const createTaskWriteRoutes = (
                   Effect.sync(() => {
                     set.status = 404;
                     return { error: "task_not_found" };
+                  }),
+                ),
+                Effect.catchTag("EventNotInWedding", () =>
+                  Effect.sync(() => {
+                    set.status = 422;
+                    return { error: "event_not_in_wedding" };
+                  }),
+                ),
+                Effect.catchTag("RunTimeOutOfRange", () =>
+                  Effect.sync(() => {
+                    set.status = 422;
+                    return { error: "run_time_out_of_range" };
                   }),
                 ),
                 Effect.catchDefect(() =>

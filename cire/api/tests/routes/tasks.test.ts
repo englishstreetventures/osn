@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, guests, taskAssignees, tasks, weddingHosts } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, guests, taskAssignees, tasks, weddingHosts } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { CloseTargets, HubNamespace } from "@shared/realtime/server";
 import { eq, sql } from "drizzle-orm";
@@ -21,6 +21,8 @@ const EDITOR = "usr_editor";
 const VIEWER = "usr_viewer";
 const HELPER = "usr_helper";
 const STRANGER = "usr_stranger";
+/** The sample wedding's first seeded event, which `seedDb` inserts. */
+const SEED_EVENT = "9f7a2c14-1b3d-4e5f-8a01-000000000001";
 /** A seat on the other wedding, so never assignable on the bootstrap one. */
 const OTHER_SEAT = "whost_other_editor";
 
@@ -688,6 +690,441 @@ describe("the people holding a task", () => {
   });
 });
 
+// ── A task's run time ───────────────────────────────────────────────────────
+
+/** A task as every answer carries its time. */
+type TimedTask = {
+  id: string;
+  title: string;
+  runAt: string | null;
+  runTimezone: string | null;
+  eventId: string | null;
+  runOffsetMinutes: number | null;
+  anchored: boolean;
+  eventRemoved: boolean;
+};
+
+describe("a task's run time", () => {
+  const CEREMONY = "evt_rt_ceremony";
+  const THEIRS = "evt_rt_theirs";
+
+  /** The bootstrap wedding with a ceremony at 15:00 Sydney on a June day (AEST,
+   *  +10:00), and the other wedding with an event of its own. */
+  function build() {
+    const db = buildDb("gold");
+    db.insert(events)
+      .values([
+        {
+          id: CEREMONY,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: "rt-ceremony",
+          name: "Ceremony",
+          startAt: "2099-06-20T15:00:00+10:00",
+          endAt: "",
+          timezone: "Australia/Sydney",
+        },
+        {
+          id: THEIRS,
+          weddingId: "wed_other",
+          slug: "rt-theirs",
+          name: "Their ceremony",
+          startAt: "2099-06-20T15:00:00+10:00",
+          endAt: "",
+          timezone: "Australia/Sydney",
+        },
+      ])
+      .run();
+    return { db, app: createApp(db, appOptions()) };
+  }
+
+  async function newTask(app: App): Promise<string> {
+    const res = await req(app, "POST", base, EDITOR, {
+      title: "Bring the rings",
+      timeframeBucket: "day_of",
+    });
+    expect(res.status).toBe(200);
+    const { task } = (await res.json()) as { task: TimedTask };
+    expect(task).toMatchObject({
+      runAt: null,
+      runTimezone: null,
+      eventId: null,
+      runOffsetMinutes: null,
+      anchored: false,
+      eventRemoved: false,
+    });
+    return task.id;
+  }
+
+  const patch = (app: App, id: string, body: unknown) =>
+    req(app, "PATCH", `${base}/${id}`, EDITOR, body);
+
+  /** The row's five run-time columns, as stored. */
+  const stored = (db: ReturnType<typeof buildDb>, id: string) =>
+    db
+      .select({
+        title: tasks.title,
+        runAt: tasks.runAt,
+        runTimezone: tasks.runTimezone,
+        eventId: tasks.eventId,
+        runOffsetMinutes: tasks.runOffsetMinutes,
+        eventRemovedAt: tasks.eventRemovedAt,
+      })
+      .from(tasks)
+      .where(eq(tasks.id, id))
+      .all()[0];
+
+  const UNTIMED = {
+    runAt: null,
+    runTimezone: null,
+    eventId: null,
+    runOffsetMinutes: null,
+    eventRemovedAt: null,
+  };
+
+  const counted = (kind: string, result: string) =>
+    counterValue(CIRE_METRICS.taskRunTimeChanged, { kind, result });
+
+  // ── Refusals ──────────────────────────────────────────────────────────────
+
+  it("400s a run time that cannot say what it means, and writes nothing", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    for (const runTime of [
+      { kind: "fixed", at: "2099-06-20T15:00" },
+      { kind: "fixed", timezone: "Australia/Sydney" },
+      { kind: "offset", eventId: CEREMONY },
+      { kind: "offset", offsetMinutes: -30 },
+      { kind: "clock", eventId: CEREMONY },
+      { kind: "clock", at: "2099-06-20T14:30" },
+      { kind: "later" },
+      { at: "2099-06-20T15:00", timezone: "Australia/Sydney" },
+      "2099-06-20T15:00",
+      { kind: "offset", eventId: "", offsetMinutes: 0 },
+      { kind: "offset", eventId: "e".repeat(65), offsetMinutes: 0 },
+    ]) {
+      const res = await patch(app, id, { runTime, title: "Changed" });
+      expect(res.status, JSON.stringify(runTime)).toBe(400);
+    }
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+  });
+
+  it("400s a zone that is not a real IANA zone, a fixed offset included", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    for (const timezone of ["+10:00", "UTC+10", "GMT+10", "Mars/Base", "", "A".repeat(65)]) {
+      const res = await patch(app, id, {
+        runTime: { kind: "fixed", at: "2099-06-20T15:00", timezone },
+      });
+      expect(res.status, timezone).toBe(400);
+    }
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+  });
+
+  it("400s a date and time that does not exist or is not one", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    for (const at of ["2099-13-40T99:99", "tomorrow", "2099-06-20", "15:00", ""]) {
+      for (const runTime of [
+        { kind: "fixed", at, timezone: "Australia/Sydney" },
+        { kind: "clock", eventId: CEREMONY, at },
+      ]) {
+        expect((await patch(app, id, { runTime })).status, `${runTime.kind} ${at}`).toBe(400);
+      }
+    }
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+  });
+
+  it("400s an offset that is not whole minutes or is more than a day from the start", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    for (const offsetMinutes of [0.5, 1441, -1441, Number.MAX_SAFE_INTEGER, "30", null]) {
+      const res = await patch(app, id, {
+        runTime: { kind: "offset", eventId: CEREMONY, offsetMinutes },
+      });
+      expect(res.status, String(offsetMinutes)).toBe(400);
+    }
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+  });
+
+  it("422s a link to another wedding's event, a task, a guest or nothing, and writes no field of the patch", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const other = await newTask(app);
+    const guestId = db.select({ id: guests.id }).from(guests).limit(1).all()[0]!.id;
+    const before = await counted("offset", "event_not_in_wedding");
+    const beforeClock = await counted("clock", "event_not_in_wedding");
+
+    for (const eventId of [THEIRS, other, guestId, "evt_nope"]) {
+      const offset = await patch(app, id, {
+        title: "Changed",
+        runTime: { kind: "offset", eventId, offsetMinutes: -30 },
+      });
+      expect(offset.status, eventId).toBe(422);
+      expect(await jsonBody(offset)).toEqual({ error: "event_not_in_wedding" });
+      const clock = await patch(app, id, {
+        title: "Changed",
+        runTime: { kind: "clock", eventId, at: "2099-06-20T14:30" },
+      });
+      expect(clock.status, eventId).toBe(422);
+      expect(await jsonBody(clock)).toEqual({ error: "event_not_in_wedding" });
+    }
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+    expect((await counted("offset", "event_not_in_wedding")) - before).toBe(4);
+    expect((await counted("clock", "event_not_in_wedding")) - beforeClock).toBe(4);
+  });
+
+  it("404s a missing task before it judges the event", async () => {
+    const { app } = build();
+    for (const runTime of [
+      { kind: "offset", eventId: THEIRS, offsetMinutes: 0 },
+      { kind: "clock", eventId: THEIRS, at: "2099-06-20T14:30" },
+      { kind: "offset", eventId: CEREMONY, offsetMinutes: 0 },
+      { kind: "clock", eventId: CEREMONY, at: "2099-06-20T14:30" },
+    ]) {
+      const res = await patch(app, "tsk_nope", { runTime });
+      expect(res.status, JSON.stringify(runTime)).toBe(404);
+      expect(await jsonBody(res)).toEqual({ error: "task_not_found" });
+    }
+  });
+
+  it("422s a clock time more than a day from the event's start, and writes nothing", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const before = await counted("clock", "out_of_range");
+    for (const at of ["2099-06-21T15:01", "2099-06-19T14:59", "2098-06-20T15:00"]) {
+      const res = await patch(app, id, {
+        title: "Changed",
+        runTime: { kind: "clock", eventId: CEREMONY, at },
+      });
+      expect(res.status, at).toBe(422);
+      expect(await jsonBody(res)).toEqual({ error: "run_time_out_of_range" });
+    }
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+    expect((await counted("clock", "out_of_range")) - before).toBe(3);
+  });
+
+  // ── Writes ────────────────────────────────────────────────────────────────
+
+  it("stamps a fixed time with its own zone's offset for that date, ignoring any offset sent", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const before = await counted("fixed", "ok");
+
+    const winter = await patch(app, id, {
+      runTime: { kind: "fixed", at: "2099-06-20T15:00+05:30", timezone: "Australia/Sydney" },
+    });
+    expect(winter.status).toBe(200);
+    expect(((await winter.json()) as { task: TimedTask }).task).toMatchObject({
+      runAt: "2099-06-20T15:00:00+10:00",
+      runTimezone: "Australia/Sydney",
+      eventId: null,
+      runOffsetMinutes: null,
+      anchored: false,
+      eventRemoved: false,
+    });
+
+    const summer = await patch(app, id, {
+      runTime: { kind: "fixed", at: "2099-12-20T15:00", timezone: "Australia/Sydney" },
+    });
+    expect(summer.status).toBe(200);
+    expect(stored(db, id)).toEqual({
+      title: "Bring the rings",
+      ...UNTIMED,
+      runAt: "2099-12-20T15:00:00+11:00",
+      runTimezone: "Australia/Sydney",
+    });
+    expect((await counted("fixed", "ok")) - before).toBe(2);
+  });
+
+  it("stores a zone as it was sent, an alias included", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const res = await patch(app, id, {
+      runTime: { kind: "fixed", at: "2099-06-20T12:00", timezone: "Asia/Calcutta" },
+    });
+    expect(res.status).toBe(200);
+    expect(stored(db, id)).toMatchObject({
+      runAt: "2099-06-20T12:00:00+05:30",
+      runTimezone: "Asia/Calcutta",
+    });
+  });
+
+  it("links a task by an offset, and answers the time it derives in the event's zone", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const res = await patch(app, id, {
+      runTime: { kind: "offset", eventId: CEREMONY, offsetMinutes: -30 },
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { task: TimedTask }).task).toMatchObject({
+      runAt: "2099-06-20T14:30:00+10:00",
+      runTimezone: "Australia/Sydney",
+      eventId: CEREMONY,
+      runOffsetMinutes: -30,
+      anchored: true,
+      eventRemoved: false,
+    });
+    // Only the link is stored: the time is derived on every read.
+    expect(stored(db, id)).toEqual({
+      title: "Bring the rings",
+      ...UNTIMED,
+      eventId: CEREMONY,
+      runOffsetMinutes: -30,
+    });
+  });
+
+  it("saves a clock time typed against an event as an offset from its start", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const res = await patch(app, id, {
+      runTime: { kind: "clock", eventId: CEREMONY, at: "2099-06-20T16:15" },
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { task: TimedTask }).task).toMatchObject({
+      runAt: "2099-06-20T16:15:00+10:00",
+      runOffsetMinutes: 75,
+      anchored: true,
+    });
+    expect(stored(db, id)).toMatchObject({ eventId: CEREMONY, runOffsetMinutes: 75, runAt: null });
+  });
+
+  it("replaces the whole run time each write: a link drops a fixed time, a fixed time drops a link, null drops both", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const fixed = { kind: "fixed", at: "2099-06-20T12:00", timezone: "Australia/Sydney" };
+    const linked = { kind: "offset", eventId: CEREMONY, offsetMinutes: 10 };
+
+    expect((await patch(app, id, { runTime: fixed })).status).toBe(200);
+    expect((await patch(app, id, { runTime: linked })).status).toBe(200);
+    expect(stored(db, id)).toEqual({
+      title: "Bring the rings",
+      ...UNTIMED,
+      eventId: CEREMONY,
+      runOffsetMinutes: 10,
+    });
+
+    // A key the kind does not take is ignored, never stored beside it.
+    expect(
+      (await patch(app, id, { runTime: { ...fixed, eventId: CEREMONY, offsetMinutes: 5 } })).status,
+    ).toBe(200);
+    expect(stored(db, id)).toEqual({
+      title: "Bring the rings",
+      ...UNTIMED,
+      runAt: "2099-06-20T12:00:00+10:00",
+      runTimezone: "Australia/Sydney",
+    });
+
+    expect((await patch(app, id, { runTime: linked })).status).toBe(200);
+    const before = await counted("clear", "ok");
+    expect((await patch(app, id, { runTime: null })).status).toBe(200);
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+    expect((await counted("clear", "ok")) - before).toBe(1);
+  });
+
+  it("drops the event-removed mark on any run-time write, and keeps it on any other", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const freeze = () =>
+      db
+        .update(tasks)
+        .set({
+          runAt: "2099-06-20T14:30:00+10:00",
+          runTimezone: "Australia/Sydney",
+          eventRemovedAt: new Date(),
+        })
+        .where(eq(tasks.id, id))
+        .run();
+
+    freeze();
+    expect((await patch(app, id, { title: "Still frozen" })).status).toBe(200);
+    expect(stored(db, id)?.eventRemovedAt).not.toBeNull();
+    const kept = (await (await req(app, "GET", base, OWNER)).json()) as { tasks: TimedTask[] };
+    expect(kept.tasks.find((t) => t.id === id)).toMatchObject({
+      runAt: "2099-06-20T14:30:00+10:00",
+      runTimezone: "Australia/Sydney",
+      eventRemoved: true,
+    });
+
+    for (const runTime of [
+      { kind: "offset", eventId: CEREMONY, offsetMinutes: 0 },
+      { kind: "fixed", at: "2099-06-20T12:00", timezone: "Australia/Sydney" },
+      null,
+    ]) {
+      freeze();
+      const res = await patch(app, id, { runTime });
+      expect(res.status, JSON.stringify(runTime)).toBe(200);
+      expect(((await res.json()) as { task: TimedTask }).task.eventRemoved).toBe(false);
+      expect(stored(db, id)?.eventRemovedAt).toBeNull();
+    }
+  });
+
+  // ── Every answer carries the derived time ─────────────────────────────────
+
+  it("answers a linked task's time on the list, the holder writes and the starter, and follows the event when it moves", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    expect(
+      (await patch(app, id, { runTime: { kind: "offset", eventId: CEREMONY, offsetMinutes: -30 } }))
+        .status,
+    ).toBe(200);
+    const want = { id, runAt: "2099-06-20T14:30:00+10:00", anchored: true, runOffsetMinutes: -30 };
+
+    const list = (await (await req(app, "GET", base, VIEWER)).json()) as { tasks: TimedTask[] };
+    expect(list.tasks.find((t) => t.id === id)).toMatchObject(want);
+
+    const put = await req(app, "PUT", `${base}/${id}/assignees/whost_helper`, EDITOR);
+    expect(((await put.json()) as { task: TimedTask }).task).toMatchObject(want);
+    const del = await req(app, "DELETE", `${base}/${id}/assignees/whost_helper`, EDITOR);
+    expect(((await del.json()) as { task: TimedTask }).task).toMatchObject(want);
+
+    const key = CHECKLIST_TEMPLATES.starter[0]!.key;
+    const starter = await req(app, "POST", `${base}/templates/starter`, EDITOR, { items: [key] });
+    expect(starter.status).toBe(200);
+    const applied = (await starter.json()) as { tasks: TimedTask[] };
+    expect(applied.tasks.find((t) => t.id === id)).toMatchObject(want);
+    // A seeded task starts untimed.
+    expect(applied.tasks.filter((t) => t.id !== id).every((t) => t.runAt === null)).toBe(true);
+
+    // The ceremony moves to Kolkata, a day later: the task goes with it.
+    db.update(events)
+      .set({ startAt: "2099-06-21T10:00:00+05:30", timezone: "Asia/Kolkata" })
+      .where(eq(events.id, CEREMONY))
+      .run();
+    const moved = (await (await req(app, "GET", base, OWNER)).json()) as { tasks: TimedTask[] };
+    expect(moved.tasks.find((t) => t.id === id)).toMatchObject({
+      runAt: "2099-06-21T09:30:00+05:30",
+      runTimezone: "Asia/Kolkata",
+      anchored: true,
+    });
+  });
+
+  it("reads a link no writer leaves, to another wedding's event, as untimed", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    db.update(tasks).set({ eventId: THEIRS, runOffsetMinutes: -30 }).where(eq(tasks.id, id)).run();
+    const list = (await (await req(app, "GET", base, OWNER)).json()) as { tasks: TimedTask[] };
+    expect(list.tasks.find((t) => t.id === id)).toMatchObject({
+      runAt: null,
+      eventId: null,
+      anchored: false,
+    });
+  });
+
+  it("answers 500, counts the failure and writes nothing when the database fails a run-time write", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const before = await counted("offset", "error");
+    const failure = failStatements(db, (text) => text.startsWith('update "tasks"'));
+    const res = await patch(app, id, {
+      runTime: { kind: "offset", eventId: CEREMONY, offsetMinutes: 0 },
+    });
+    failure.restore();
+    expect(res.status).toBe(500);
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+    expect((await counted("offset", "error")) - before).toBe(1);
+  });
+});
+
 describe("task writes publish tasks-changed", () => {
   type Published = { name: string; signal: unknown; targets: CloseTargets };
 
@@ -746,6 +1183,14 @@ describe("task writes publish tasks-changed", () => {
     ["an edit", { title: "Book the hall" }],
     ["a tick", { status: "done" }],
     ["an untick", { status: "open" }],
+    [
+      "a fixed time",
+      { runTime: { kind: "fixed", at: "2099-06-20T15:00", timezone: "Australia/Sydney" } },
+    ],
+    ["a cleared time", { runTime: null }],
+    // The sample wedding's first seeded event (cire/db/seed/data/events.ts).
+    ["a link", { runTime: { kind: "offset", eventId: SEED_EVENT, offsetMinutes: -30 } }],
+    ["a clock time", { runTime: { kind: "clock", eventId: SEED_EVENT, at: "2026-10-31T09:30" } }],
   ])("after %s", async (_label, patch) => {
     const { app, publishes } = buildWithHub();
     const id = await newTask(app);
@@ -815,6 +1260,27 @@ describe("task writes publish tasks-changed", () => {
       ["POST", `${base}/templates/starter`, EDITOR, { items: ["no-such-item"] }, 400],
       ["POST", `${base}/templates/nope`, EDITOR, { items: [] }, 404],
       ["PUT", holderPath(id, OTHER_SEAT), EDITOR, undefined, 422],
+      [
+        "PATCH",
+        `${base}/${id}`,
+        EDITOR,
+        { runTime: { kind: "fixed", at: "soon", timezone: "Australia/Sydney" } },
+        400,
+      ],
+      [
+        "PATCH",
+        `${base}/${id}`,
+        EDITOR,
+        { runTime: { kind: "offset", eventId: "evt_nope", offsetMinutes: 0 } },
+        422,
+      ],
+      [
+        "PATCH",
+        `${base}/${id}`,
+        EDITOR,
+        { runTime: { kind: "clock", eventId: "evt_nope", at: "2099-06-20T15:00" } },
+        422,
+      ],
       ["PUT", holderPath("tsk_nope", "whost_helper"), EDITOR, undefined, 404],
       ["DELETE", holderPath("tsk_nope", "whost_helper"), EDITOR, undefined, 404],
     ];
