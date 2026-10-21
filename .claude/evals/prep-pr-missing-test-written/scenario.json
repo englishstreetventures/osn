@@ -1,0 +1,11 @@
+{
+  "description": "A branch adds one small source module with no test file, and the test review reports that gap as missing. Tests whether prep-pr writes the missing test on the branch, as its Step 4 says, instead of asking whether to, filing the gap as an issue, or leaving it as a note in the report. The test must assert the cases the review names, and the report must say the gap is closed and that the test was not run.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/englishstreetventures/osn.git",
+      "ref": "6f45a1a6c8393e4a15c48ba23e0101316dcf6688",
+      "installPath": "."
+    }
+  }
+}
