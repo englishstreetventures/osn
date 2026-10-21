@@ -27,7 +27,8 @@ export interface TaskRow {
  * A task as either API release sends it. The API before holders names one
  * `assignedHostId` and no `assigneeHostIds`, and a release can put this portal
  * in front of it, so every answer the portal reads goes through
- * {@link readTaskRow}.
+ * {@link readTaskRow}. Read until englishstreetventures/osn#1636 drops the
+ * column that API reads; no API that sends the old shape can serve after it.
  */
 export type TaskWire = Omit<TaskRow, "assigneeHostIds"> & {
   assigneeHostIds?: string[];
