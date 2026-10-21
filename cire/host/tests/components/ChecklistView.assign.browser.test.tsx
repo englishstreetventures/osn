@@ -77,6 +77,8 @@ const SEATS: HostSeat[] = [
 ];
 const FOUR = SEATS.slice(0, 4);
 const id = (key: string) => `whost_${key}`;
+/** Seven more people, for a task held by fifteen. */
+const CROWD = ["uma", "vic", "wes", "xia", "yan", "zoe", "abe"].map((key) => seat(key, "viewer"));
 
 const TASKS = [
   row({ id: "a", title: "Confirm the string quartet's arrival time", sortOrder: 0 }),
@@ -109,6 +111,14 @@ const TASKS = [
     sortOrder: 5,
   }),
 ];
+
+/** Held by everyone: three faces and a two-digit count, "+12". */
+const CROWDED = row({
+  id: "g",
+  title: "Greet every guest at the ceremony door",
+  assigneeHostIds: [...SEATS, ...CROWD].map((s) => s.hostId),
+  sortOrder: 6,
+});
 
 // A phone's width, and tall enough to hold the whole checklist: a screenshot of
 // a scrolled page comes out with a blank band above it. Opening the popover on
@@ -249,6 +259,34 @@ function paintedBox(el: Element): { left: number; right: number } {
   return { left: box.left - spread, right: box.right + spread };
 }
 
+/**
+ * The count's figures are whole: they sit inside its own disc or pill, and
+ * nothing painted after it — an editor's +, with its ring — comes within a
+ * clear gap of them, so the last figure never reads as part of the dotted
+ * circle. A viewer has no layer after the count. Answers where the figures are
+ * drawn.
+ */
+function expectCountWhole(count: Element, role: "editor" | "viewer"): DOMRect {
+  const figures = textBox(count);
+  expect(
+    contains(count.getBoundingClientRect(), figures),
+    `"${count.textContent}" inside its disc`,
+  ).toBe(true);
+  const layers = [...count.parentElement!.children];
+  const after = layers.slice(layers.indexOf(count) + 1);
+  expect(after.map((layer) => layer.hasAttribute("data-assign-plus"))).toEqual(
+    role === "editor" ? [true] : [],
+  );
+  for (const layer of after) {
+    const cover = paintedBox(layer);
+    expect(
+      figures.right + CLEAR_OF_THE_PLUS <= cover.left,
+      `"${count.textContent}" is drawn to ${figures.right}px; the + covers from ${cover.left}px`,
+    ).toBe(true);
+  }
+  return figures;
+}
+
 const optionNamed = (listbox: HTMLElement, name: string) =>
   within(listbox)
     .getAllByRole("option")
@@ -275,7 +313,8 @@ describe("the holders on each row, painted", () => {
         it(`keeps every row's stack inside it — ${viewport.name}px, ${theme}, as ${role === "editor" ? "an editor" : "a viewer"}`, async () => {
           await page.viewport(viewport.width, viewport.height);
           document.documentElement.dataset.theme = theme;
-          seedTasks(TASKS);
+          answering([...SEATS, ...CROWD]);
+          seedTasks([...TASKS, CROWDED]);
           render(() => (
             <div style={{ padding: "16px" }}>
               <ChecklistView weddingId="wed_1" canEdit={role === "editor"} />
@@ -344,26 +383,12 @@ describe("the holders on each row, painted", () => {
                 ? "on top"
                 : "under";
           expect(plusPaint).toBe(role === "editor" ? "on top" : "none");
-          // The count's figures are whole: they sit inside its own disc, and
-          // nothing painted after it — an editor's +, with its ring — comes
-          // within a clear gap of them, so the last figure never reads as part
-          // of the dotted circle. A viewer has no layer after the count.
-          const count = welcome.querySelector("[data-more]")!;
-          const figures = textBox(count);
-          expect(contains(more, figures), `"${count.textContent}" inside its disc`).toBe(true);
-          const after = [...count.parentElement!.children].slice(
-            [...count.parentElement!.children].indexOf(count) + 1,
-          );
-          expect(after.map((layer) => layer.hasAttribute("data-assign-plus"))).toEqual(
-            role === "editor" ? [true] : [],
-          );
-          for (const layer of after) {
-            const cover = paintedBox(layer);
-            expect(
-              figures.right + CLEAR_OF_THE_PLUS <= cover.left,
-              `"${count.textContent}" is drawn to ${figures.right}px; the + covers from ${cover.left}px`,
-            ).toBe(true);
-          }
+          // The count's figures are whole, at one digit and at two: fifteen
+          // holders are three faces and "+12".
+          const figures = expectCountWhole(welcome.querySelector("[data-more]")!, role);
+          const crowded = rowOf(CROWDED.title);
+          expect(crowded.querySelector("[data-more]")?.textContent).toBe("+12");
+          expectCountWhole(crowded.querySelector("[data-more]")!, role);
           // With nothing after it, as for a viewer, the count is a disc with its
           // figures centred; before an editor's + it is a pill padded at its end.
           const shape = {
@@ -372,7 +397,7 @@ describe("the holders on each row, painted", () => {
           };
           expect(shape).toEqual({ disc: role === "viewer", centred: role === "viewer" });
           expect(within(list).queryAllByRole("button", { name: /^Assign people/ })).toHaveLength(
-            role === "editor" ? TASKS.length : 0,
+            role === "editor" ? TASKS.length + 1 : 0,
           );
           expect(
             within(rowOf("Confirm the string quartet's arrival time")).queryAllByRole("img", {
