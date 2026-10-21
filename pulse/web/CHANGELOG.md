@@ -1,5 +1,26 @@
 # @osn/pulse
 
+## 0.24.25
+
+### Patch Changes
+
+- Updated dependencies [5c0c03e]
+  - @shared/ui@0.6.0
+
+## 0.24.24
+
+### Patch Changes
+
+- Updated dependencies [130d873]
+  - @pulse/api@0.27.26
+
+## 0.24.23
+
+### Patch Changes
+
+- Updated dependencies [e5fc2a7]
+  - @shared/toast@0.3.7
+
 ## 0.24.22
 
 ### Patch Changes

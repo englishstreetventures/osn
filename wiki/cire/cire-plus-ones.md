@@ -12,7 +12,7 @@ related:
   - "[[cire-invite-designs]]"
   - "[[cire-rsvp-changes]]"
   - "[[cire-landing]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 # Cire plus-ones
 
@@ -137,11 +137,12 @@ The switch is `@shared/ui`'s `Switch` ([[component-library]]).
 
 ## The RSVP table
 
-The organiser portal's **RSVPs** tab (`RsvpView`) lists a plus-one like any guest, with three additions:
+The organiser portal's **RSVPs** tab (`RsvpView`) lists a plus-one like any guest, with four additions:
 
 - **The marker.** Under the plus-one's name, on its own line, "Plus-one of <inviter's full name>" — the words the Households tab uses. It wraps rather than widening the fixed Guest column. When the API names no inviter (an older API, or none found) it reads "Plus-one of another guest".
 - **The provenance badge.** A reply the household gave for its plus-one (`inviter_attested`) is badged **Household-entered**, in muted ink, apart from the gold **Host-entered** of an organiser's reply. A guest's or household's reply whose status a host changed since also carries a gold **Host-updated** (the view's `statusRecordedByHost`). A guest's own reply carries no badge.
 - **Search.** The marker is part of what a word matches, so "plus-one" lists every plus-one and the inviter's name finds the guest they brought.
+- **Sort.** The API orders the replies and the guests still to answer as two lists, each with a plus-one straight after the guest who brought them, and the table shows the replies first. The Household sort keeps that order inside each household, so a plus-one follows their inviter when both have replied or neither has; when only one has, the reply comes first. Sorted by Guest, a plus-one files under their own surname, and the marker is what still names their inviter ([[cire-rsvp-table#Sorting]]).
 
 Recording a reply for a plus-one offers the same dietary picker and free text as for any guest, prefilled with the stored answer. Left as they are, the form says the stored requirements stay. Once the organiser edits them, an unticked box appears with the organiser's plus-one wording ("I confirm the plus-one consented…"), and the save carries that wording's version and the plus-one's full name. Under the box, and only on a plus-one's reply, a line asks the organiser to pass on the notice the plus-one may never see: "Share our privacy notice with them: cireweddings.com/privacy", linked to that page in a new tab; the page leads to the guests' notice ([[cire-landing#Privacy pages]]). The line is not part of the attested wording, so it carries no version.
 
@@ -192,6 +193,7 @@ The claim and welcome panel (`LoginSection`, [[cire-invite-designs]]) carries th
 - **State.** The prompt makes the request and hands the page an update (`onPlusOneChange`); the pack applies it to its claim result, so the Respond dialog, the greeting and every card read the one copy. The pure updates are in `cire/invites/src/components/plus-one-updates.ts`, which loads with the prompt; `plus-one.ts` holds only what every invite page asks (who is a plus-one, who was invited).
 - **The Respond dialog** lists a plus-one after the member who brought them, labelled as their guest. Their dietary answers sit behind a second box — the attestation, naming only the plus-ones it covers — apart from the household's own consent box. Each box opens ticked only when every person it covers has a current record for that box.
 - **The greeting** counts the members the couple invited: a guest on their own who names a plus-one is still greeted by name.
+- **An event's guest policy** never contradicts the permission. An organiser may set an event's plus-one preset to "By invitation" or "Welcome" ([[cire-guest-event-editor]]); that is wording, and `plus_one_allowed` stays the only thing that lets a member name anyone. The claim sends the preset `welcome` only to a household with a member who is invited to that event and has `plusOneAllowed`, and `null` to any other (`buildInvite` in `cire/api/src/services/claim.ts`); the details sheet applies the same rule again (`guestPolicyLines` in `cire/invites/src/components/event-details.ts`), and shows nothing about plus-ones to any other household. "Plus-ones by invitation" is true for everyone and sent and shown to all. Host preview's household is never allowed one, so the preview never shows "Welcome".
 - **Completeness.** `hasHouseholdResponded` (the Respond button's tick) and the sheet's celebration leave plus-ones out, so naming a guest after answering never takes a tick back. The prompt says plainly while a named guest still has an event unanswered.
 - **Account linking** does not take a plus-one's seat: the invite does not offer it ("Which guest are you?" is asked of people holding the code), and `POST /api/account/link` refuses it (`403 plus_one_seat`). A plus-one seat already linked stays listed so its Unlink is reachable.
 
@@ -205,7 +207,7 @@ A plus-one is the household's data, not the organiser's sheet. The reconcile pip
 - **The diff** (`import.ts diffAgainstDb`) matches only the organiser's guests. A desired row that names a plus-one's id is dropped before matching. The organiser editor leaves plus-ones out of its drafts anyway (`cire/host/src/lib/guest-event-draft.ts`): a draft carrying the id of a plus-one removed since would otherwise be refused as stale, with no concurrent edit to explain it.
 - **A removed guest takes their plus-one**, named in the plan's removals, its RSVP-loss warnings and a warning of its own ("Removing guest Bo also removes their plus-one Sam.").
 - **A plus-one's invitations follow the inviter's.** Their desired events are the inviter's desired events, so the plan adds and drops their links with the inviter's.
-- **Plus-ones hold places under the guest cap** in the preview's arithmetic, as they do at apply time.
+- **Plus-ones hold places under the guest cap** in the preview's arithmetic, as they do at apply time. The apply's guest inserts check the cap as they write, as a naming does, so a plus-one named while a change is being applied is counted: the change's batch that would pass the cap is refused ([[cire-entitlements#Guest cap]]).
 - **An events revert** that re-creates an event re-invites each live plus-one wherever it re-invites their inviter.
 
 ### Not carried

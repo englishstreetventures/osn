@@ -271,8 +271,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      # @shared/infra's Alchemy tree is about 100 packages and over 1 GB
+      # unpacked, and only a job that builds, tests or type-checks that
+      # package loads it; every other job installs without it.
+      - name: Install dependencies except @shared/infra
+        run: bun install --frozen-lockfile --filter '!@shared/infra'
 
       - name: Guard against placeholder D1 database_id
         run: bun run scripts/check-d1-database-id.ts
@@ -343,8 +346,8 @@ jobs:
             ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-turbo-build-
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Install dependencies except @shared/infra
+        run: bun install --frozen-lockfile --filter '!@shared/infra'
 
       - name: Build cire/invites (dev)
         run: bun run build --filter=@cire/invites
@@ -476,8 +479,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-astro-fonts-
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Install dependencies except @shared/infra
+        run: bun install --frozen-lockfile --filter '!@shared/infra'
 
       - name: Build cire/host (dev)
         run: bun run build --filter=@cire/host
@@ -563,8 +566,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-astro-fonts-
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Install dependencies except @shared/infra
+        run: bun install --frozen-lockfile --filter '!@shared/infra'
 
       - name: Build cire/vendor (dev)
         run: bun run build --filter=@cire/vendor
@@ -643,8 +646,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-astro-fonts-
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Install dependencies except @shared/infra
+        run: bun install --frozen-lockfile --filter '!@shared/infra'
 
       - name: Build cire/landing (dev)
         run: bun run build --filter=@cire/landing
@@ -711,8 +714,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Install dependencies except @shared/infra
+        run: bun install --frozen-lockfile --filter '!@shared/infra'
 
       - name: Apply osn D1 migrations (remote dev)
         run: bun run --cwd osn/db db:migrate:dev
@@ -812,8 +815,8 @@ jobs:
             ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-turbo-build-
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Install dependencies except @shared/infra
+        run: bun install --frozen-lockfile --filter '!@shared/infra'
 
       # No hard sitekey gate here, unlike prod: whether Turnstile enforces on dev
       # depends on osn-api-dev holding TURNSTILE_SECRET_KEY, which is a

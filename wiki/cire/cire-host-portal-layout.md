@@ -6,6 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
+  - "[[cire-rsvp-table]]"
 last-reviewed: 2026-10-21
 ---
 # Host Portal Layout System
@@ -281,6 +282,27 @@ component was previously reading a container it did not live in.
      deleting the entry) and PR #864 (stale-while-revalidate).
 - **Event cards** (`EventTable`) — cards flow in an `auto-grid`; each card is its
   own `@container/card` and its details grid switches at `@md/card`.
+- **RSVPs** (`RsvpView`) — one event at a time, from a tab strip nested in
+  the module shell's own tab panel; what the page does is in
+  [[cire-rsvp-table]]. The layout half:
+
+  - The strip takes the module sub-tabs' look but scrolls sideways rather than
+    wrapping, and the strip scrolls a chosen or focused tab into view, never
+    the page.
+  - The table scrolls **in its own box**, so its head row can stay in view, and
+    pins its head row with `@shared/ui`'s `pin` variant. Why a pinned head
+    needs the box, its height under the top bar and its scroll padding are in
+    `cire/host/DESIGN.md` §A table that keeps its heads in view; the rule
+    underneath is in [[frontend-patterns]] §`position: sticky` resolves its
+    offsets against the scrollport. A wheel over the table moves the rows
+    first and the page once the box reaches its end.
+  - The Guest column is pinned only while the panel is narrower than 47rem
+    (39rem for a viewer, whose table is narrower):
+    `@min-[47rem]/panel:static` puts its cells back in flow above that. Wider,
+    the table needs no sideways scroll, and 900 pinned cells would cost every
+    scrolled frame for a column that cannot slide.
+  - Switching event keeps the box and puts it back to its top-left; it is not
+    remounted.
 
 ## Organiser client caches: stale-while-revalidate
 
@@ -533,4 +555,5 @@ What that leaves testable, and where it lives:
 | DOM containment of grid siblings, and per-group reorder indices | `ChecklistView.test.tsx`, `BudgetView.test.tsx` |
 | Master-detail behaviour: draft-per-enquiry, no cross-thread messages, placeholder, `aria-current` cardinality, post-reply refresh | `EnquiriesView.test.tsx`, `EnquiryInbox.test.tsx` |
 | Which preview layer mounts, and that its crossover matches `@4xl/builder` | `InviteBuilder.test.tsx` — a stub `ResizeObserver` reporting a fixed content-box width; a reasonable cheap choice in the unit tier, since happy-dom runs no layout, not a workaround for a missing harness |
+| The RSVP view's event tabs (ids beside the shell's, keys, a strip of twelve), sort heads, the pinned head row at 1280 and Guest column at 390 (in flow at 1280), focus kept clear of the pinned cells, and the box fitting under the top bar | `RsvpView.events.browser.test.tsx`, real Chromium, with the real `ModuleShell` around it; screenshots in light and dark land in its gitignored `__screenshots__/` |
 | The container queries themselves | `bun run --cwd cire/host test:browser` — a real-Chromium tier documented in `wiki/conventions/browser-tests.md`. Worked example: `cire/host/tests/components/PreviewInviteButton.browser.test.tsx`, which asserts the "Preview invite" label is clipped to `sr-only` at phone width and swaps to the written label once the `frame` container passes 42rem. |

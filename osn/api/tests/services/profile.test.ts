@@ -7,7 +7,7 @@ import { createGraphService } from "../../src/services/graph";
 import { createOrganisationService } from "../../src/services/organisation";
 import { createProfileService } from "../../src/services/profile";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 let auth: ReturnType<typeof createAuthService>;
@@ -141,6 +141,28 @@ describe("createProfile", () => {
       expect(error.message).toContain("Handle already taken");
     }).pipe(Effect.provide(createTestLayer())),
   );
+
+  // The pre-check sees the handle free; a twin row written in between, as a
+  // parallel request would, makes the insert itself hit the unique index. The
+  // database's reason sits below drizzle's "Failed query" message on both
+  // drivers, so this is the case that proves it is read through the cause.
+  it.effect("answers a handle taken between the check and the insert as taken", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    return Effect.gen(function* () {
+      const { accountId } = yield* setupAccount("race@test.com", "raceuser");
+      sqlite.run(`
+        CREATE TRIGGER race_profile_handle BEFORE INSERT ON users
+        WHEN NEW.id NOT LIKE '%_race'
+        BEGIN
+          INSERT INTO users (id, account_id, handle, is_default, created_at, updated_at)
+          VALUES (NEW.id || '_race', NEW.account_id, NEW.handle, 0, NEW.created_at, NEW.updated_at);
+        END;
+      `);
+      const error = yield* Effect.flip(profile.createProfile(accountId, "racer"));
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toContain("Handle already taken");
+    }).pipe(Effect.provide(layer));
+  });
 
   it.effect("fails with nonexistent account", () =>
     Effect.gen(function* () {

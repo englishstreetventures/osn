@@ -1,4 +1,4 @@
-# Design — OSN Social
+# Design — Musubi Social
 
 A locked design system for the `@musubi/social` app. Every screen reads this file
 before it changes visual style. Do not regenerate per page — extend or amend
@@ -97,7 +97,10 @@ amending this file.
 - **Mobile shell** = `MobileTopBar` (wordmark · theme toggle · account
   control) above the scroll column + `MobileNav` (fixed bottom tab bar, the
   five primary destinations, 20px icons + `text-meta` labels). Nav items are
-  defined once in `nav.tsx` and shared by both shells.
+  defined once in `nav.tsx` and shared by both shells. The mobile wordmark is
+  the product name alone: the desktop rail's small-caps "Social" tag is left
+  out, because at 320px the signed-out bar has no room for it beside "Sign in"
+  and "Create account".
 - **Search** is the one asymmetric surface, because the reachable spot
   differs by shell. The desktop rail carries a live combobox (`GlobalSearch`)
   under the wordmark; mobile gets a **Search tab** in the bottom bar routing

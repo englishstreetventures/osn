@@ -8,7 +8,7 @@ related:
   - "[[osn-and-musubi]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # OSN Wiki
@@ -44,6 +44,7 @@ Applies to every product: architecture, platform systems, observability, deploys
 - [[database-environments]] — four DB environments (local bun:sqlite / dev·staging·prod D1), driver-agnostic Drizzle seam, D1 transaction caveat
 - [[dev-environment]] — the isolated cire + OSN dev tier: tier map, how a merge deploys dev, how a change reaches production, how to reset dev by hand
 - [[production-deploy]] — production runbook for osn-api + the cire stack (secret/var checklist, migrations, the daily production release and its one approval, smoke checks)
+- [[infrastructure-as-code]] — Alchemy and `@shared/infra`: the dev and production accounts, the Worker and storage builders, stage rules, the secret inventory and its checks, the state store, and the planned stack per product
 - [[free-tier-limits]] — provider free-tier ceilings (Upstash / Workers / D1 / Pages / Turnstile / WAF), what breaks at each cap, the unavailability playbook, and the Cloudflare security-hardening TODO
 - [[rate-limit-incident]] — false positives, tuning, Redis health
 - [[bun-1.4-migration]] — what Bun 1.4 is worth using here: adopted (`$` shell, `Bun.TOML` guard, bun-types), impossible (`Bun.Image` in the seed), and what is left
@@ -83,7 +84,7 @@ Our identity and social app, its consent screen and marketing site.
 - [[social]] — identity & social-graph management UI (`@musubi/social`)
 - [[social-mobile-ux]] — mobile UX audit + phased responsive-shell plan for `@musubi/social`
 - [[authorize-ui]] — the OIDC consent screen (`/authorize` in `@musubi/social`)
-- [[osn-landing]] — marketing site for OSN (`@musubi/landing`) — dark/dotted, connections-led
+- [[osn-landing]] — marketing site for Musubi (`@musubi/landing`) — dark/dotted, connections-led
 - [[musubi-identity-migration]] — moving osn-api to `id.musubi.social` and making musubi.social the OSN identity home (blockers, credential bridge, config inventory, cutover order)
 
 ## Pulse
@@ -119,6 +120,7 @@ Weddings: guest site, organiser portal, vendor portal, API.
 - [[cire-rsvp-deadline]] — the "respond by" date and how the invite locks past it
 - [[cire-plus-ones]] — a guest's plus-one: the organiser's permission, the household's naming, how the change pipeline treats them
 - [[cire-rsvp-changes]] — the RSVP change log, the organisers' daily digest email and the "since your last visit" card and badges
+- [[cire-rsvp-table]] — the host portal's RSVP page: one event at a time, the event in the address, search and chips, sorting
 - [[cire-vendors]] — vendor directory, CRM, and the email-verification claim
 - [[cire-workerd]] — what cire does differently on workerd (no OTel SDK, deferred export)
 - [[cire]] — wedding-invite stack (`@cire/invites` + `@cire/host` + `@cire/api` + `@cire/db`)

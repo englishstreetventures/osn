@@ -9,6 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
+  - "[[infrastructure-as-code]]"
 last-reviewed: 2026-10-20
 ---
 
@@ -300,9 +301,11 @@ account-level permissions — Cloudflare offers no per-script or per-database
 resource filter, and only R2 scopes per bucket. So `CLOUDFLARE_API_TOKEN_DEV`
 can write production Workers as well, however the token is named. The boundary
 is the approval gate plus a separate credential to revoke, not a narrower grant.
-The only hard boundary is a **separate Cloudflare account** for dev; that is
-tracked as an open item rather than done here, because a second account means a
-second zone, second D1 set and second Upstash, and the cost maths changes.
+The only hard boundary is a **separate Cloudflare account** for dev. That is
+decided: Alchemy builds dev fresh in a new account (englishstreetventures/osn#1538),
+whose credentials take names of their own, `CLOUDFLARE_DEV_ACCOUNT_ID` and
+`CLOUDFLARE_DEV_ACCOUNT_API_TOKEN` ([[infrastructure-as-code#Accounts]]). Until
+then the old dev tier stays in the production account.
 
 ### Dev concurrency is per job, not per workflow
 
@@ -469,18 +472,17 @@ dashboard-only.
    repo-settings change; an unarmed `production` silently deploys straight to the live
    couples' sites.
 
-   **On the two token names.** Every dev job reads
+   **On the token names.** Every old-tier dev job reads
    `${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}`; prod jobs
-   read the bare `CLOUDFLARE_API_TOKEN`. `CLOUDFLARE_API_TOKEN_DEV` is **not set today**
-   and an unset secret is the empty string, so dev falls through to the prod-scoped
-   token. That is deliberate: it was decided on 2026-08-14 to ship the dev tier on the
-   single existing Cloudflare account and take separate accounts later. A second token
-   inside one account buys nothing anyway — `Workers Scripts:Edit` and `D1:Edit` are
-   account-scoped with no per-script or per-database filter (only R2 scopes per bucket),
-   so a token named `…_DEV` can still write production Workers. The boundary that makes
-   the name real is a **separate Cloudflare account**. Set `CLOUDFLARE_API_TOKEN_DEV` on the
-   `dev` Environment the day that account exists — no workflow change needed, the
-   fallback picks it up.
+   read the bare `CLOUDFLARE_API_TOKEN`. The `dev` Environment holds
+   `CLOUDFLARE_API_TOKEN_DEV`, and it reaches the production account: `Workers
+   Scripts:Edit` and `D1:Edit` are account-scoped with no per-script or per-database
+   filter (only R2 scopes per bucket), so a token named `…_DEV` can still write
+   production Workers. Only a separate Cloudflare account makes the name mean
+   anything. That account does **not** reuse `CLOUDFLARE_API_TOKEN_DEV`: Alchemy reads
+   `CLOUDFLARE_DEV_ACCOUNT_ID` and `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN` from the `dev`
+   Environment, and `CLOUDFLARE_API_TOKEN_DEV` is deleted with the old dev tier
+   ([[infrastructure-as-code#Accounts]]).
 
    `CLOUDFLARE_ACCOUNT_ID` is shared by both Environments.
 

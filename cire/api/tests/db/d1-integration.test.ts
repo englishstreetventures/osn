@@ -19,6 +19,7 @@ import {
   registrySettings,
   rsvpChanges,
   rsvps,
+  runOfShowItems,
   seatingAssignments,
   seatingTables,
   taskAssignees,
@@ -46,6 +47,7 @@ import { asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { Miniflare } from "miniflare";
 
+import { listMigrations, migrationStatements } from "../../../../scripts/migration-files";
 import {
   createSessionRoutedClient,
   D1_SESSION_CONSTRAINT,
@@ -77,7 +79,7 @@ import {
 import { createEnquiryService, listingEnquiriesQuery } from "../../src/services/enquiries";
 import { giftExportService } from "../../src/services/gift-export";
 import { hostsService, MAX_HOSTS_PER_WEDDING } from "../../src/services/hosts";
-import { applyImport } from "../../src/services/import";
+import { applyImport, diffAgainstDb } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
 import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq";
 import { maintenanceSweeps } from "../../src/services/maintenance-sweeps";
@@ -160,17 +162,8 @@ const MIGRATION_0091 = "0091_task_assignees.sql";
  * of each archived file named above, holds one statement, and D1's `prepare`
  * takes exactly one. Archived files before 0058 do not all keep to that.
  */
-function migrationStatements(file: string, dir: string = ARCHIVE_DIR): string[] {
-  return readFileSync(join(dir, file), "utf8")
-    .split("--> statement-breakpoint")
-    .map((chunk) =>
-      chunk
-        .split("\n")
-        .filter((line) => !line.trimStart().startsWith("--"))
-        .join("\n")
-        .trim(),
-    )
-    .filter(Boolean);
+function fileStatements(file: string, dir: string = ARCHIVE_DIR): readonly string[] {
+  return migrationStatements(readFileSync(join(dir, file), "utf8"));
 }
 
 /**
@@ -314,6 +307,76 @@ async function seed(): Promise<void> {
   ]);
 }
 
+/** `n` more guests on the seeded wedding, in a household `fam_fill`. */
+async function fillGuests(n: number): Promise<void> {
+  const now = new Date();
+  await db.insert(families).values({
+    id: "fam_fill",
+    weddingId: BOOTSTRAP_WEDDING_ID,
+    publicId: "FILL-0001",
+    familyName: "Filler",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const filler = Array.from({ length: n }, (_, i) => ({
+    id: `g_fill_${i}`,
+    familyId: "fam_fill",
+    firstName: `Filler${i}`,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  // Under D1's 100-parameter statement limit.
+  for (let i = 0; i < filler.length; i += 10) {
+    await db.insert(guests).values(filler.slice(i, i + 10));
+  }
+}
+
+async function realGuestTotal(): Promise<number> {
+  const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(guests);
+  return n;
+}
+
+function importPlan(parts: Partial<ImportPlan>): ImportPlan {
+  return {
+    eventCreates: [],
+    eventUpdates: [],
+    eventRemoves: [],
+    familyCreates: [],
+    familyUpdates: [],
+    familyRemoves: [],
+    guestCreates: [],
+    guestUpdates: [],
+    guestRemoves: [],
+    eventLinkCreates: [],
+    eventLinkRemoves: [],
+    warnings: [],
+    ...parts,
+  };
+}
+
+/**
+ * A handle on the same D1 database whose first `batch()` waits while each of
+ * `inviters` names a plus-one through the real service: households writing
+ * between a caller's reads and its first batch.
+ */
+function namingBeforeFirstBatch(inviters: readonly string[]): Db {
+  let named = false;
+  return createD1Db({
+    prepare: (query) => d1.prepare(query),
+    batch: async (statements) => {
+      if (!named) {
+        named = true;
+        for (const inviter of inviters) {
+          await run(
+            plusOneService.save(FAMILY_ID, inviter, { firstName: `Plus ${inviter}`, lastName: "" }),
+          );
+        }
+      }
+      return d1.batch(statements);
+    },
+  });
+}
+
 beforeAll(async () => {
   mf = new Miniflare({
     modules: true,
@@ -356,6 +419,7 @@ beforeEach(async () => {
     rsvps,
     seatingAssignments,
     seatingTables,
+    runOfShowItems,
     guestEvents,
     guests,
     families,
@@ -756,6 +820,103 @@ describe("cire/api over real D1 (Miniflare)", () => {
       await expect(run(applyImport("imp_dup", plan, BOOTSTRAP_WEDDING_ID))).rejects.toThrow();
       expect(await db.select().from(families).where(eq(families.id, "fam_x"))).toHaveLength(0);
       expect(await db.select().from(families).where(eq(families.id, "fam_y"))).toHaveLength(0);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "applyImport writes full runs of show under D1's parameter cap, and the claim and the diff read them back",
+    async () => {
+      // 40 items of five columns is 200 values: a plain multi-row insert of
+      // one event's list is over D1's 100 bound parameters, which bun:sqlite
+      // never enforces.
+      const list = (tag: string) =>
+        Array.from({ length: 40 }, (_, i) => ({
+          time: `${String(i % 24).padStart(2, "0")}:${i < 24 ? "00" : "30"}`,
+          label: `${tag} ${i}`,
+        }));
+      const event = (name: string, runOfShow: { time: string; label: string }[]) => ({
+        name,
+        startAt: "",
+        endAt: "",
+        timezone: "",
+        address: null,
+        dressCodeDescription: null,
+        dressCodePalette: [],
+        pinterestUrl: null,
+        mapsUrl: null,
+        sortOrder: 0,
+        runOfShow,
+      });
+      const plan = (
+        creates: ImportPlan["eventCreates"],
+        updates: ImportPlan["eventUpdates"],
+      ): ImportPlan => ({
+        eventCreates: creates,
+        eventUpdates: updates,
+        eventRemoves: [],
+        familyCreates: [],
+        familyUpdates: [],
+        familyRemoves: [],
+        guestCreates: [],
+        guestUpdates: [],
+        guestRemoves: [],
+        eventLinkCreates: [],
+        eventLinkRemoves: [],
+        warnings: [],
+      });
+
+      await run(
+        applyImport(
+          "imp_ros_1",
+          plan(
+            [
+              { id: "evt_ros_1", event: event("Brunch", list("Brunch")) },
+              { id: "evt_ros_2", event: event("Picnic", list("Picnic")) },
+            ],
+            [{ id: EVENT_A, event: event("Ceremony", list("First")) }],
+          ),
+          BOOTSTRAP_WEDDING_ID,
+        ),
+      );
+      expect(await db.select().from(runOfShowItems)).toHaveLength(120);
+
+      // A changed list replaces the whole of the old one.
+      await run(
+        applyImport(
+          "imp_ros_2",
+          plan([], [{ id: EVENT_A, event: event("Ceremony", list("Second")) }]),
+          BOOTSTRAP_WEDDING_ID,
+        ),
+      );
+      const ceremony = await db
+        .select({ label: runOfShowItems.label })
+        .from(runOfShowItems)
+        .where(eq(runOfShowItems.eventId, EVENT_A))
+        .orderBy(runOfShowItems.sortOrder);
+      expect(ceremony.map((r) => r.label)).toEqual(list("Second").map((i) => i.label));
+
+      // The household is invited to the Ceremony: its claim carries the list.
+      const claimed = await run(claimService.lookup(PUBLIC_ID));
+      expect(claimed.events.find((e) => e.id === EVENT_A)?.runOfShow).toEqual(list("Second"));
+
+      // The diff reads every stored list in one statement and writes none
+      // that is unchanged.
+      const diffed = await run(
+        diffAgainstDb(
+          [
+            { ...event("Ceremony", list("Second")), id: EVENT_A },
+            { ...event("Reception", []), id: EVENT_B, sortOrder: 1 },
+            { ...event("Brunch", list("Brunch")), id: "evt_ros_1", sortOrder: 2 },
+            { ...event("Picnic", list("Changed")), id: "evt_ros_2", sortOrder: 3 },
+          ],
+          [],
+          BOOTSTRAP_WEDDING_ID,
+          { scope: "events", matchByName: false },
+        ),
+      );
+      const written = diffed.eventUpdates.filter((u) => u.event.runOfShow !== undefined);
+      expect(written.map((u) => u.id)).toEqual(["evt_ros_2"]);
     },
     MF_TIMEOUT_MS,
   );
@@ -2636,6 +2797,89 @@ describe("cire/api over real D1 (Miniflare)", () => {
     MF_TIMEOUT_MS,
   );
 
+  it(
+    "an import's batch rolls back over D1 when a plus-one named after its cap check takes the last place",
+    async () => {
+      // 99 guests: one place left, and the import adds one guest in a new household.
+      await fillGuests(BASE_GUEST_CAP - 3);
+      await db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, GUEST_1));
+      const racing = namingBeforeFirstBatch([GUEST_1]);
+      const plan = importPlan({
+        familyCreates: [{ id: "fam_late", publicId: "LATE-0001", familyName: "Late" }],
+        guestCreates: [
+          {
+            id: "g_late",
+            familyId: "fam_late",
+            firstName: "Lee",
+            lastName: "",
+            nickname: null,
+            sortOrder: 0,
+          },
+        ],
+      });
+
+      const failure = await Effect.runPromise(
+        Effect.flip(applyImport("imp_race_one", plan, BOOTSTRAP_WEDDING_ID)).pipe(
+          Effect.provideService(DbService, racing),
+        ),
+      );
+
+      expect(failure._tag).toBe("ImportError");
+      expect(failure._tag === "ImportError" ? failure.capacity : undefined).toMatchObject({
+        limit: BASE_GUEST_CAP,
+        current: BASE_GUEST_CAP,
+        requiredTier: "gold",
+      });
+      expect(await realGuestTotal()).toBe(BASE_GUEST_CAP);
+      // The household rode in the same batch as the refused guest.
+      expect(await db.select().from(families).where(eq(families.id, "fam_late"))).toHaveLength(0);
+      const named = await db.select().from(guests).where(eq(guests.plusOneOfGuestId, GUEST_1));
+      expect(named).toHaveLength(1);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "every D1 batch of an import's guests checks the cap at its end, not only the last",
+    async () => {
+      // 49 guests, and 51 more in batches of 50 and 1. Two plus-ones named
+      // before the first batch make it end at 101.
+      await fillGuests(BASE_GUEST_CAP / 2 - 3);
+      await db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.familyId, FAMILY_ID));
+      const racing = namingBeforeFirstBatch([GUEST_1, GUEST_2]);
+      const plan = importPlan({
+        guestCreates: Array.from({ length: 51 }, (_, i) => ({
+          id: `g_more_${i}`,
+          familyId: "fam_fill",
+          firstName: `More${i}`,
+          lastName: "",
+          nickname: null,
+          sortOrder: 1000 + i,
+        })),
+      });
+
+      const failure = await Effect.runPromise(
+        Effect.flip(applyImport("imp_race_many", plan, BOOTSTRAP_WEDDING_ID)).pipe(
+          Effect.provideService(DbService, racing),
+        ),
+      );
+
+      expect(failure._tag).toBe("ImportError");
+      expect(failure._tag === "ImportError" ? failure.capacity : undefined).toMatchObject({
+        limit: BASE_GUEST_CAP,
+        current: BASE_GUEST_CAP / 2 + 1,
+        requiredTier: "gold",
+      });
+      expect(await realGuestTotal()).toBe(BASE_GUEST_CAP / 2 + 1);
+      const imported = await db
+        .select({ id: guests.id })
+        .from(guests)
+        .where(sql`${guests.id} LIKE 'g_more_%'`);
+      expect(imported).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
   // On D1 a failed single statement arrives as drizzle's `DrizzleQueryError`:
   // its message names only the statement, and the database's reason sits on
   // its `cause`. Each unique conflict must still reach its documented answer.
@@ -3400,7 +3644,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "runs migration 0065 on D1's own SQLite: every section on, the FAQ switch kept",
     async () => {
-      const statements = migrationStatements(MIGRATION_0065);
+      const statements = fileStatements(MIGRATION_0065);
       expect(statements).toHaveLength(1);
 
       await db.delete(weddingInviteCustomisations);
@@ -3585,12 +3829,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
       try {
         const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
-        const files = readdirSync(MIGRATIONS_DIR)
-          .filter((f) => f.endsWith(".sql"))
-          .toSorted();
+        const files = listMigrations(MIGRATIONS_DIR);
         expect(files[0]).toBe("0001_initial.sql");
         for (const file of files) {
-          for (const stmt of migrationStatements(file, MIGRATIONS_DIR)) {
+          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
             await chainD1.prepare(stmt).run();
           }
         }
@@ -3680,7 +3922,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           await chainD1.prepare(stmt).run();
         }
 
-        const statements = migrationStatements(MIGRATION_0076);
+        const statements = fileStatements(MIGRATION_0076);
         expect(statements).toHaveLength(3);
         for (const stmt of statements) await chainD1.prepare(stmt).run();
 
@@ -3743,13 +3985,11 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
       try {
         const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
-        const files = readdirSync(MIGRATIONS_DIR)
-          .filter((f) => f.endsWith(".sql"))
-          .toSorted();
+        const files = listMigrations(MIGRATIONS_DIR);
         const cut = files.indexOf(MIGRATION_0091);
         expect(cut).toBeGreaterThan(0);
         for (const file of files.slice(0, cut)) {
-          for (const stmt of migrationStatements(file, MIGRATIONS_DIR)) {
+          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
             await chainD1.prepare(stmt).run();
           }
         }
@@ -3764,7 +4004,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         const tasksBefore = await chainD1.prepare("SELECT * FROM tasks ORDER BY id").all();
 
         const before = Math.floor(Date.now() / 1000);
-        const statements = migrationStatements(MIGRATION_0091, MIGRATIONS_DIR);
+        const statements = fileStatements(MIGRATION_0091, MIGRATIONS_DIR);
         expect(statements).toHaveLength(6);
         for (const stmt of statements) await chainD1.prepare(stmt).run();
 
@@ -4303,9 +4543,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       // and the narrowed index, so only the migration's UPDATEs are replayed:
       // what is proven is that D1 accepts them (`unixepoch()` included) and
       // that they lift each wedding to the tier its legacy rows paid for.
-      const updates = migrationStatements(MIGRATION_0073).filter((stmt) =>
-        stmt.startsWith("UPDATE"),
-      );
+      const updates = fileStatements(MIGRATION_0073).filter((stmt) => stmt.startsWith("UPDATE"));
       expect(updates).toHaveLength(3);
 
       const stamp = new Date(1_790_000_000_000);

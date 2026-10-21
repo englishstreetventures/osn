@@ -1,0 +1,36 @@
+{
+  "name": "@shared/infra",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "author": "English Street Ventures Pty Ltd",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstreetventures/osn.git"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bunx --bun vitest --project package",
+    "test:repo": "bunx --bun vitest run --project repo",
+    "test:run": "bunx --bun vitest run",
+    "secrets:check-live": "bun run scripts/check-live-secrets.ts",
+    "secrets:check-github": "bun run scripts/check-github-secrets.ts",
+    "token:check": "bun run scripts/check-token-reach.ts",
+    "state:bootstrap": "DO_NOT_TRACK=1 bun alchemy provider cloudflare bootstrap",
+    "state:check": "DO_NOT_TRACK=1 bun alchemy state ls --backend cloudflare"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "4.0.3",
+    "@effect/platform-node": "4.0.3",
+    "alchemy": "2.0.0-beta.83",
+    "effect": "4.0.3"
+  },
+  "devDependencies": {
+    "@shared/typescript-config": "workspace:*",
+    "vitest": "5.0.3"
+  }
+}

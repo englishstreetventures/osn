@@ -217,31 +217,49 @@ export function formatTimeRange(
 }
 
 /**
+ * The start of a Google Maps search URL, completed by an
+ * `encodeURIComponent`-escaped query: the one way both {@link resolveMapsUrl}
+ * and the venue row's Google Maps entry (`maps-destinations.ts`) search.
+ */
+export const GOOGLE_MAPS_SEARCH = "https://www.google.com/maps/search/?api=1&query=";
+
+/**
  * Resolve a safe, always-working "open in maps" URL.
  *
  * Prefers the organiser-supplied `mapsUrl` when it is a valid http(s) link;
  * otherwise derives a Google Maps *search* URL from {@link venueQuery}. Returns
  * null only when neither a usable link nor anything to search for is
  * available, so the caller can hide the affordance rather than render a dead
- * button.
+ * button. What the venue row offers is `mapsDestinations`
+ * (`maps-destinations.ts`), which has something in it exactly when this is not
+ * null.
  */
 export function resolveMapsUrl(
   event: Pick<EventSummary, "mapsUrl" | "address" | "venueName">,
 ): string | null {
-  const direct = event.mapsUrl?.trim();
-  if (direct && isHttpUrl(direct)) return direct;
+  const direct = organiserMapsUrl(event);
+  if (direct) return direct.text;
 
   const venue = venueQuery(event);
   if (!venue) return null;
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(venue)}`;
+  return `${GOOGLE_MAPS_SEARCH}${encodeURIComponent(venue)}`;
 }
 
-function isHttpUrl(s: string): boolean {
+/**
+ * The organiser's `mapsUrl`, trimmed and parsed, when it is an http(s) link:
+ * the one parse {@link resolveMapsUrl} and `mapsDestinations` both read, so the
+ * venue row and what it offers cannot disagree about whether there is one.
+ */
+export function organiserMapsUrl(
+  event: Pick<EventSummary, "mapsUrl">,
+): { text: string; url: URL } | null {
+  const written = event.mapsUrl?.trim();
+  if (!written) return null;
   try {
-    const u = new URL(s);
-    return u.protocol === "http:" || u.protocol === "https:";
+    const url = new URL(written);
+    return url.protocol === "http:" || url.protocol === "https:" ? { text: written, url } : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -311,6 +329,149 @@ export function guestLocalTime(
   } catch {
     return null;
   }
+}
+
+// ── The run of show ──────────────────────────────────────────────────────────
+
+/** A 24-hour wall clock, `HH:MM`: what cire-api stores for an item's time. */
+const CLOCK_TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+/** One run-of-show item as the payload carries it. */
+export interface RunOfShowItem {
+  time: string;
+  label: string;
+}
+
+/** One run-of-show item as the guest reads it. */
+export interface RunOfShowLine extends RunOfShowItem {
+  /** The time on a 12-hour clock, "4:00 pm". */
+  clock: string;
+}
+
+/**
+ * Whether a payload's item can be shown: an object with a 24-hour `HH:MM` time
+ * and a label that is not blank. The claim guard does not check the run of
+ * show, so this is where a malformed item is dropped.
+ */
+export function isRunOfShowItem(item: unknown): item is RunOfShowItem {
+  if (typeof item !== "object" || item === null) return false;
+  if (!("time" in item) || typeof item.time !== "string" || !CLOCK_TIME_RE.test(item.time)) {
+    return false;
+  }
+  return "label" in item && typeof item.label === "string" && item.label.trim().length > 0;
+}
+
+/** Minutes past midnight of an `HH:MM` clock time. */
+function minutesOf(time: string): number {
+  return Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+}
+
+/**
+ * Minutes past midnight of the event's start on its own zone's clock, or null
+ * when there is no start to read. The stored offset is a derived detail, so
+ * the zone is asked first; the stored value's own clock stands in when the
+ * zone does not resolve, rather than letting the render throw.
+ */
+function startMinutes(event: Pick<EventSummary, "startAt" | "timezone">): number | null {
+  const start = instant(event.startAt);
+  if (start) {
+    try {
+      const parts = formatter("en-GB", {
+        timeZone: event.timezone,
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).formatToParts(start);
+      const hour = parts.find((p) => p.type === "hour")?.value;
+      const minute = parts.find((p) => p.type === "minute")?.value;
+      if (hour && minute) return Number(hour) * 60 + Number(minute);
+    } catch {
+      // A zone this runtime does not know: the stored clock below.
+    }
+  }
+  const stored = /T(\d{2}):(\d{2})/.exec(event.startAt);
+  return stored ? Number(stored[1]) * 60 + Number(stored[2]) : null;
+}
+
+/** An `HH:MM` time on a 12-hour clock, "4:00 pm". Written out rather than
+ *  through `Intl`, so a server render and the browser's always agree. */
+function twelveHour(time: string): string {
+  const hours = Number(time.slice(0, 2));
+  const suffix = hours < 12 ? "am" : "pm";
+  return `${hours % 12 === 0 ? 12 : hours % 12}:${time.slice(3, 5)} ${suffix}`;
+}
+
+/**
+ * The event's run of show as the guest reads it: the items that can be shown
+ * ({@link isRunOfShowItem}), in time order from the event's start. A time
+ * earlier on the clock than the start reads as after midnight, so a
+ * reception's "12:30 am Carriages" comes last. Items at the same time keep the
+ * organiser's order, which is the order they arrive in. With no start to read,
+ * plain clock order.
+ */
+export function runOfShowLines(
+  event: Pick<EventSummary, "startAt" | "timezone" | "runOfShow">,
+): RunOfShowLine[] {
+  if (!Array.isArray(event.runOfShow)) return [];
+  const items = (event.runOfShow as unknown[]).filter(isRunOfShowItem);
+  const start = startMinutes(event) ?? 0;
+  const fromStart = (time: string) => (minutesOf(time) - start + 1440) % 1440;
+  // A stable insertion by distance from the start: a list holds at most 40
+  // items, and the browser floor predates `toSorted`.
+  const ordered: { item: RunOfShowItem; at: number }[] = [];
+  for (const item of items) {
+    const at = fromStart(item.time);
+    let i = ordered.length;
+    while (i > 0 && ordered[i - 1]!.at > at) i -= 1;
+    ordered.splice(i, 0, { item, at });
+  }
+  return ordered.map(({ item }) => ({
+    time: item.time,
+    label: item.label.trim(),
+    clock: twelveHour(item.time),
+  }));
+}
+
+// ── The guest policy ─────────────────────────────────────────────────────────
+
+/** The guest policy as one household reads it. */
+export interface GuestPolicyLines {
+  /** The presets in words, children first. */
+  presets: string[];
+  note: string | null;
+}
+
+/** The children preset in words, or null for none this build knows. */
+function childrenWords(policy: string | null | undefined): string | null {
+  if (policy === "adults_only") return "Adults only";
+  if (policy === "children_welcome") return "Children welcome";
+  return null;
+}
+
+/**
+ * An event's guest policy as this household reads it, or null when it has
+ * nothing to say. Wording only: each member's own plus-one permission is the
+ * truth, so "Plus-ones welcome" is said only to a household with a member,
+ * invited to this event, who may bring one — never to one that cannot take it
+ * up. "By invitation" is true for every household. A preset this build does
+ * not know is left out.
+ */
+export function guestPolicyLines(
+  event: Pick<EventSummary, "id" | "childrenPolicy" | "plusOnePolicy" | "guestPolicyNote">,
+  members: readonly Pick<FamilyMember, "eventIds" | "plusOneAllowed">[] | undefined,
+): GuestPolicyLines | null {
+  const presets: string[] = [];
+  const children = childrenWords(event.childrenPolicy);
+  if (children) presets.push(children);
+  if (event.plusOnePolicy === "by_invitation") presets.push("Plus-ones by invitation");
+  if (
+    event.plusOnePolicy === "welcome" &&
+    (members ?? []).some((m) => m.plusOneAllowed === true && m.eventIds.includes(event.id))
+  ) {
+    presets.push("Plus-ones welcome");
+  }
+  const note = text(event.guestPolicyNote);
+  return presets.length === 0 && note === null ? null : { presets, note };
 }
 
 /** One member of a household, as far as an invitation is concerned. */

@@ -26,6 +26,7 @@ import {
   type DashboardRoute,
   DEFAULT_MODULE,
   defaultSub,
+  isRsvpPage,
   isSubOf,
   LIST_ROUTE,
   type Module,
@@ -163,8 +164,12 @@ function WeddingDashboard(props: {
    *  even while the same wedding object stays selected. */
   module: () => Module;
   sub: () => string;
+  /** The event the RSVP page shows, from the address; see `dashboard-route.ts`. */
+  rsvpEvent: () => string | undefined;
   onModule: (module: Module, sub?: string) => void;
   onSub: (sub: string) => void;
+  /** The RSVP page's event switch, reported up so the address names it. */
+  onRsvpEvent: (eventId: string) => void;
   /** A Settings save changed the name/slug — bubble it up so the wedding list
    *  (and the top bar's switcher) reflect it without a refetch. */
   onWeddingUpdated: (patch: { displayName: string; slug: string }) => void;
@@ -200,6 +205,8 @@ function WeddingDashboard(props: {
           sub={props.sub()}
           onModule={props.onModule}
           onSub={props.onSub}
+          rsvpEvent={props.rsvpEvent()}
+          onRsvpEvent={props.onRsvpEvent}
           onWeddingUpdated={props.onWeddingUpdated}
           onWeddingDeleted={props.onWeddingDeleted}
           onTierRaised={props.onTierRaised}
@@ -529,6 +536,14 @@ function Dashboard() {
     const r = route();
     if (r.view !== "weddings" || r.weddingId === null) return;
     setRoute({ view: "weddings", weddingId: r.weddingId, module: r.module, sub }, "replace");
+  }
+
+  /** Switch the RSVP page's event (replace, like a sub flip). Ignored off that
+   *  page, so a late report from a view on its way out writes nothing. */
+  function selectRsvpEvent(rsvpEvent: string) {
+    const r = route();
+    if (r.view !== "weddings" || r.weddingId === null || !isRsvpPage(r.module, r.sub)) return;
+    setRoute({ ...r, rsvpEvent }, "replace");
   }
 
   const [loaded] = createResource<WeddingsState>(async () => {
@@ -934,8 +949,15 @@ function Dashboard() {
                                   const r = route();
                                   return r.view === "weddings" ? r.sub : defaultSub(DEFAULT_MODULE);
                                 }}
+                                rsvpEvent={() => {
+                                  const r = route();
+                                  return r.view === "weddings" && r.weddingId !== null
+                                    ? r.rsvpEvent
+                                    : undefined;
+                                }}
                                 onModule={selectModule}
                                 onSub={selectSub}
+                                onRsvpEvent={selectRsvpEvent}
                                 onWeddingUpdated={(patch) => handleWeddingUpdated(weddingId, patch)}
                                 onWeddingDeleted={(restoreUntil) =>
                                   handleWeddingDeleted(weddingId, restoreUntil)

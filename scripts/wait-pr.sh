@@ -4,6 +4,17 @@
 # agent and review-pr Step 7. Tested by scripts/tests/wait-pr.cli.test.ts.
 #
 #   bash scripts/wait-pr.sh <pr-number> [minutes]      # minutes defaults to 30
+#   bash scripts/wait-pr.sh --until-merged <pr-number> [minutes]
+#
+# --until-merged is for a pull request already handed to the merge queue
+# (`gh pr merge --squash --auto`). Green checks on the pull request mean
+# nothing there: the queue tests it again with the pull requests ahead of it,
+# and it stays OPEN until the queue merges it. So this mode ends only at MERGED
+# (exit 0), at a conflict (exit 1), or when the pull request is OPEN, out of the
+# queue and has no auto-merge request (exit 1): GitHub turns auto-merge off when
+# the queue ejects a pull request, so that is what an ejection looks like. A
+# pull request waiting on its own checks before entering the queue still has
+# its auto-merge request and keeps the wait going. CLOSED is exit 1 here.
 #
 # Exit 0 — done: the pull request is MERGED or CLOSED, or it has checks, none
 #          pending, and the same set on two polls running (a job that waits on
@@ -28,10 +39,15 @@
 set -u
 
 usage() {
-  echo "usage: wait-pr.sh <pr-number> [minutes]   (WAIT_PR_REPO=<owner>/<name> to change repository)" >&2
+  echo "usage: wait-pr.sh [--until-merged] <pr-number> [minutes]   (WAIT_PR_REPO=<owner>/<name> to change repository)" >&2
   exit 3
 }
 
+until_merged=""
+if [ "${1:-}" = "--until-merged" ]; then
+  until_merged=1
+  shift
+fi
 pr=${1:-}
 minutes=${2:-30}
 repo=${WAIT_PR_REPO:-englishstreetventures/osn}
@@ -44,6 +60,10 @@ name=${repo#*/}
 
 query='query($o:String!,$name:String!,$n:Int!){repository(owner:$o,name:$name){pullRequest(number:$n){state mergeStateStatus commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}'
 shape='.data.repository.pullRequest | "\(.state) \(.mergeStateStatus) \(.commits.nodes[0].commit.statusCheckRollup.state // "NONE")"'
+if [ -n "$until_merged" ]; then
+  query='query($o:String!,$name:String!,$n:Int!){repository(owner:$o,name:$name){pullRequest(number:$n){state mergeStateStatus isInMergeQueue autoMergeRequest{enabledAt} commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}'
+  shape='.data.repository.pullRequest | "\(.state) \(.mergeStateStatus) \(.commits.nodes[0].commit.statusCheckRollup.state // "NONE") \(.isInMergeQueue) \(.autoMergeRequest != null)"'
+fi
 buckets='[.[].bucket] | group_by(.) | map("\(.[0])=\(length)") | join(" ")'
 
 errfile=$(mktemp "${TMPDIR:-/tmp}/wait-pr.XXXXXX") || exit 3
@@ -71,13 +91,32 @@ while :; do
     view=""
   fi
 
-  read -r state merge rollup <<<"$view"
-  case "${state:-}" in
-    MERGED | CLOSED) echo "terminal: $last"; exit 0 ;;
-  esac
+  read -r state merge rollup queued auto <<<"$view"
+  if [ -n "$until_merged" ]; then
+    case "${state:-}" in
+      MERGED) echo "terminal: $last"; exit 0 ;;
+      CLOSED) echo "terminal: closed without merging — $last"; exit 1 ;;
+    esac
+  else
+    case "${state:-}" in
+      MERGED | CLOSED) echo "terminal: $last"; exit 0 ;;
+    esac
+  fi
   if [ "${state:-} ${merge:-}" = "OPEN DIRTY" ]; then
     echo "terminal: conflicts with its base — $last"
     exit 1
+  fi
+  if [ -n "$until_merged" ]; then
+    if [ "${state:-} ${queued:-} ${auto:-}" = "OPEN false false" ]; then
+      echo "terminal: left the merge queue without merging — $last"
+      exit 1
+    fi
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      echo "timeout after $minutes min — last seen: $last"
+      exit 2
+    fi
+    sleep 30
+    continue
   fi
 
   case "${rollup:-}" in

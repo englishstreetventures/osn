@@ -3,7 +3,7 @@ import { devPort } from "@shared/dev-urls";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, fontProviders } from "astro/config";
 
-// Pure static marketing site for OSN. The landing page is the same for every
+// Pure static marketing site for Musubi. The landing page is the same for every
 // visitor (unlike the identity app `@musubi/social`, which is per-user), so it
 // prerenders to plain HTML and deploys to Cloudflare Pages exactly like cire's
 // landing — no Cloudflare adapter is needed for a static build.

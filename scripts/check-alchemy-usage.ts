@@ -1,0 +1,288 @@
+#!/usr/bin/env bun
+/**
+ * Guard: every Alchemy CLI run sends no telemetry, no committed command prints
+ * or deletes Alchemy state or the state store, and no stack chooses its own
+ * state store.
+ *
+ *  - Commands are read after joining backslash line continuations and split
+ *    into segments on `&&`, `||`, `;`, `|` and a background `&` (not the `&`
+ *    of a redirection such as `2>&1`); each segment is checked alone.
+ *  - package.json scripts: every segment that runs Alchemy starts with
+ *    `DO_NOT_TRACK=1 `; when the leading assignments set it more than once,
+ *    the last one decides.
+ *  - workflows: a step that runs Alchemy has `DO_NOT_TRACK: "1"` in its own
+ *    `env` or, when the step sets none, in the job or workflow `env`; a
+ *    different value there turns telemetry on. A segment's own leading
+ *    `DO_NOT_TRACK=` overrides the env, and must then be `1`; with no env
+ *    value, each Alchemy segment carries the inline prefix. Composite
+ *    actions: on the step or the segment.
+ *  - all three: `alchemy state ls`/`list` is the only `state` command allowed
+ *    (bare `state` opens an explorer that reads records; `provider cloudflare
+ *    state logs` reads the store's logs), and never `nuke`, `drift … --repair`,
+ *    `teardown`, `provider cloudflare token` (it prints the token it creates),
+ *    `logs` (it prints a stage's Worker logs), and `destroy` unless it names
+ *    exactly one stage with a literal `--stage` that is neither `dev` nor
+ *    `production`: without `--stage` the stage comes from `ALCHEMY_STAGE` in
+ *    the environment, `--env-file` or `.env`, and a variable or expression
+ *    may hold either.
+ *  - stack files (`*\/infra/**\/*.ts`, `*alchemy.run.ts`, tests excluded): no
+ *    state constructor (`localState`, `inMemoryState`, `postgresState`,
+ *    `makeLocalState`, `makePostgresState`, `makeHttpStateStore`,
+ *    `InMemoryService`), no `alchemy/State` module in any import form, no
+ *    `state` import from `alchemy/Cloudflare`, and no `.state(` call in a
+ *    file that names `alchemy/Cloudflare` or `alchemy/AWS` as a module in any
+ *    import form; `shared/infra/src/stack.ts` alone calls
+ *    `Cloudflare.state()`.
+ *
+ * Tests: scripts/tests/check-alchemy-usage.test.ts (the checks) and
+ * scripts/tests/check-alchemy-usage.cli.test.ts (this file run as CI runs it).
+ * CI runs this file against the committed tree in the `script-tests` job of
+ * .github/workflows/ci.yml.
+ * Imports only Bun and Node built-ins.
+ */
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+export type Finding = { readonly where: string; readonly problem: string };
+
+export const STATE_STORE_FILE = "shared/infra/src/stack.ts";
+
+/**
+ * `alchemy` run as a command: the word on its own or at the end of a path,
+ * with or without `@<version>`, then whitespace and anything (a subcommand, a
+ * flag or an entry file). `alchemy-state` and `alchemy.run.ts` do not match.
+ */
+const ALCHEMY_COMMAND = /(?:^|[\s;&|(`'"/])alchemy(?:@\S+)?\s+\S/m;
+
+/** The start of an Alchemy invocation inside a command line. */
+const INVOCATION = String.raw`\balchemy(?:@\S+)?\s+`;
+
+const FORBIDDEN: readonly { readonly pattern: RegExp; readonly why: string }[] = [
+  {
+    pattern: new RegExp(String.raw`${INVOCATION}(?:[^\n]*?\s)?state\b(?!\s+(?:ls|list)\b)`),
+    why: "only `alchemy state ls` may run; every other state command prints, reads or deletes Alchemy state",
+  },
+  {
+    pattern: new RegExp(String.raw`${INVOCATION}[^\n]*\bnuke\b`),
+    why: "deletes every resource in the account",
+  },
+  {
+    pattern: new RegExp(String.raw`${INVOCATION}[^\n]*\bdrift\b[^\n]*--repair\b`),
+    why: "`drift --repair` is never run",
+  },
+  {
+    pattern: new RegExp(String.raw`${INVOCATION}[^\n]*\bteardown\b`),
+    why: "deletes the state store",
+  },
+  {
+    pattern: new RegExp(String.raw`${INVOCATION}[^\n]*\bprovider\s+cloudflare\s+token\b`),
+    why: "creates a Cloudflare API token and prints it to stdout, which lands in a public run log",
+  },
+  {
+    pattern: new RegExp(String.raw`${INVOCATION}(?:[^\n]*?\s)?(?<!\bstate\s+)logs(?=\s|$)`),
+    why: "prints a stage's Worker logs, which carry request paths, into a public run log",
+  },
+];
+
+const DESTROY = new RegExp(String.raw`${INVOCATION}(?:[^\n]*?\s)?destroy(?=\s|$)`);
+
+/** Every `--stage` value in a segment, as written. */
+const STAGE_FLAG = /(?:^|\s)--stage(?:=|\s+)(\S+)/g;
+
+/** A stage name as `parseStage()` in shared/infra/src/stage.ts shapes it, written out literally. */
+const LITERAL_STAGE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
+const LONG_LIVED_STAGES: ReadonlySet<string> = new Set(["dev", "production"]);
+
+const unquote = (value: string): string => value.replace(/^(["'])(.*)\1$/, "$2");
+
+/**
+ * `destroy` runs only on one stage the guard can read and prove short-lived.
+ * Without `--stage`, Alchemy takes the stage from ALCHEMY_STAGE in the
+ * environment, an --env-file or .env; a variable or an expression may hold
+ * dev or production. Every form the guard cannot read fails.
+ */
+function destroyProblem(segment: string): string | undefined {
+  if (!DESTROY.test(segment)) return undefined;
+  const stages = [...segment.matchAll(STAGE_FLAG)].map((match) => unquote(match[1] ?? ""));
+  const [stage] = stages;
+  if (stages.length !== 1 || stage === undefined || !LITERAL_STAGE.test(stage)) {
+    return "`destroy` names exactly one stage with a literal --stage; any other form may reach dev or production";
+  }
+  return LONG_LIVED_STAGES.has(stage)
+    ? "`destroy` on dev or production deletes every resource and state row of a long-lived stage"
+    : undefined;
+}
+
+const STATE_CONSTRUCTOR =
+  /\b(?:localState|inMemoryState|postgresState|makeLocalState|makePostgresState|makeHttpStateStore|InMemoryService)\s*\(|\bCloudflare\.state\b|\bimport\s*\{[^}]*\bstate\b[^}]*\}\s*from\s*["']alchemy\/Cloudflare["']/;
+
+/** `alchemy/State` or a path under it, quoted as a module specifier: every state store and the `State` service live there. */
+const STATE_MODULE = /["']alchemy\/State(?:\/[^"'\n]*)?["']/;
+
+/** `alchemy/Cloudflare` or `alchemy/AWS`, or a path under either, quoted as a module specifier: each exports a `state()`. */
+const STATE_PROVIDER_MODULE = /["']alchemy\/(?:Cloudflare|AWS)(?:\/[^"'\n]*)?["']/;
+
+const STATE_CALL = /\.state\s*\(/;
+
+/** Backslash-newline continuations become one space, as the shell reads them. */
+const joinContinuations = (command: string): string => command.replace(/\\\r?\n\s*/g, " ");
+
+/** `&&`, `||`, `;`, `|`, or a lone `&` that runs a command in the background; never the `&` of `2>&1`, `>&2` or `&>`. */
+const COMMAND_SEPARATOR = /&&|\|\||;|\||(?<![<>])&(?!>)/;
+
+/** The Alchemy segments of a command: one per part between separators. */
+const alchemySegments = (command: string): string[] =>
+  joinContinuations(command)
+    .split("\n")
+    .flatMap((line) => line.split(COMMAND_SEPARATOR))
+    .filter((segment) => ALCHEMY_COMMAND.test(segment));
+
+/** The `NAME=value` assignments a command segment starts with. */
+const LEADING_ASSIGNMENTS = /^\s*((?:[A-Za-z_]\w*=\S*\s+)*)/;
+
+/** The value a segment's own leading assignments give DO_NOT_TRACK (the last one wins), or undefined when they set none. */
+const inlineTelemetry = (segment: string): string | undefined =>
+  [...(LEADING_ASSIGNMENTS.exec(segment)?.[1] ?? "").matchAll(/(?:^|\s)DO_NOT_TRACK=(\S*)/g)]
+    .map((match) => match[1])
+    .at(-1);
+
+function forbidden(where: string, segment: string): Finding[] {
+  const problems = FORBIDDEN.filter(({ pattern }) => pattern.test(segment)).map(({ why }) => why);
+  const destroy = destroyProblem(segment);
+  return [...problems, ...(destroy === undefined ? [] : [destroy])].map((problem) => ({
+    where,
+    problem,
+  }));
+}
+
+interface Manifest {
+  readonly scripts?: Readonly<Record<string, string>>;
+}
+
+export function checkPackageScripts(where: string, manifestText: string): Finding[] {
+  const manifest = JSON.parse(manifestText) as Manifest;
+  const findings: Finding[] = [];
+  for (const [name, value] of Object.entries(manifest.scripts ?? {})) {
+    const at = `${where} scripts.${name}`;
+    for (const segment of alchemySegments(value)) {
+      if (inlineTelemetry(segment) !== "1") {
+        findings.push({ where: at, problem: "an Alchemy command must start with DO_NOT_TRACK=1" });
+      }
+      findings.push(...forbidden(at, segment));
+    }
+  }
+  return findings;
+}
+
+/** A workflow or step `env:` block; GitHub Actions values are scalars. */
+type EnvBlock = Readonly<Record<string, string | number | boolean>>;
+
+interface Step {
+  readonly env?: EnvBlock;
+  readonly run?: string;
+}
+
+interface Workflow {
+  readonly env?: EnvBlock;
+  readonly jobs?: Readonly<
+    Record<string, { readonly env?: EnvBlock; readonly steps?: readonly Step[] }>
+  >;
+}
+
+interface CompositeAction {
+  readonly runs?: { readonly steps?: readonly Step[] };
+}
+
+/** The first env block that sets `DO_NOT_TRACK` decides; none set means on. */
+const telemetryOff = (...levels: readonly (EnvBlock | undefined)[]): boolean => {
+  const decider = levels.find((env) => env !== undefined && env.DO_NOT_TRACK !== undefined);
+  return decider !== undefined && String(decider.DO_NOT_TRACK) === "1";
+};
+
+function checkSteps(
+  where: string,
+  steps: readonly Step[],
+  outer: readonly (EnvBlock | undefined)[],
+): Finding[] {
+  const findings: Finding[] = [];
+  for (const [index, step] of steps.entries()) {
+    if (typeof step.run !== "string") continue;
+    const segments = alchemySegments(step.run);
+    if (segments.length === 0) continue;
+    const at = `${where}.steps[${index}]`;
+    const off = telemetryOff(step.env, ...outer);
+    const segmentOff = (segment: string): boolean => {
+      const inline = inlineTelemetry(segment);
+      return inline === undefined ? off : inline === "1";
+    };
+    if (!segments.every(segmentOff)) {
+      findings.push({ where: at, problem: 'an Alchemy step needs DO_NOT_TRACK: "1" in its env' });
+    }
+    for (const segment of segments) findings.push(...forbidden(at, segment));
+  }
+  return findings;
+}
+
+export function checkWorkflow(where: string, yamlText: string): Finding[] {
+  const workflow = (Bun.YAML.parse(yamlText) ?? {}) as Workflow;
+  return Object.entries(workflow.jobs ?? {}).flatMap(([jobId, job]) =>
+    checkSteps(`${where} jobs.${jobId}`, job.steps ?? [], [job.env, workflow.env]),
+  );
+}
+
+export function checkCompositeAction(where: string, yamlText: string): Finding[] {
+  const action = (Bun.YAML.parse(yamlText) ?? {}) as CompositeAction;
+  return checkSteps(`${where} runs`, action.runs?.steps ?? [], []);
+}
+
+export function checkStackSource(where: string, text: string): Finding[] {
+  const choosesState =
+    STATE_CONSTRUCTOR.test(text) ||
+    STATE_MODULE.test(text) ||
+    (STATE_PROVIDER_MODULE.test(text) && STATE_CALL.test(text));
+  return choosesState
+    ? [{ where, problem: `a stack takes its state from stackOptions() (${STATE_STORE_FILE})` }]
+    : [];
+}
+
+if (import.meta.main) {
+  const root = resolve(import.meta.dir, "..");
+  let gitFailed = false;
+  const tracked = (...patterns: string[]): string[] => {
+    const result = spawnSync("git", ["ls-files", "--", ...patterns], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    if (result.status !== 0) gitFailed = true;
+    return (result.stdout ?? "").split("\n").filter((path) => path !== "");
+  };
+  const read = (path: string): string => readFileSync(resolve(root, path), "utf8");
+  const manifests = tracked("package.json", "*/package.json");
+  const findings = [
+    ...manifests.flatMap((path) => checkPackageScripts(path, read(path))),
+    ...tracked(".github/workflows/*.yml", ".github/workflows/*.yaml").flatMap((path) =>
+      checkWorkflow(path, read(path)),
+    ),
+    ...tracked(".github/actions/*/action.yml", ".github/actions/*/action.yaml").flatMap((path) =>
+      checkCompositeAction(path, read(path)),
+    ),
+    ...tracked("*/infra/*.ts", "*alchemy.run.ts")
+      .filter((path) => path !== STATE_STORE_FILE && !/(?:^|\/)tests\//.test(path))
+      .flatMap((path) => checkStackSource(path, read(path))),
+  ];
+  if (gitFailed || !manifests.includes("package.json")) {
+    process.stderr.write(
+      "check-alchemy-usage: could not list the files git tracks; nothing was checked.\n",
+    );
+    process.exit(1);
+  }
+  for (const finding of findings) process.stderr.write(`${finding.where}: ${finding.problem}\n`);
+  process.stdout.write(
+    findings.length === 0
+      ? "check-alchemy-usage: every Alchemy use passes.\n"
+      : `check-alchemy-usage: ${findings.length} finding(s).\n`,
+  );
+  process.exit(findings.length === 0 ? 0 : 1);
+}

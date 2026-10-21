@@ -1,8 +1,7 @@
-import * as schema from "@cire/db";
 import { type AnyColumn, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
-import type { AnySQLiteColumn, BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
+import type { AnySQLiteColumn, SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core";
 import { Context, Effect } from "effect";
 
 import type { D1QueryClient } from "./d1-session";
@@ -20,7 +19,7 @@ import type { D1QueryClient } from "./d1-session";
  * synchronous bun:sqlite result is a harmless no-op; D1 returns a real Promise.
  * `unknown` for the run-result type covers bun's `void` and D1's `D1Result`.
  */
-export type Db = BaseSQLiteDatabase<"sync" | "async", unknown, typeof schema>;
+export type Db = SQLiteAsyncDatabase<"sync" | "async", unknown>;
 
 export class DbService extends Context.Service<DbService, Db>()("DbService") {}
 
@@ -37,7 +36,7 @@ export function createD1Db(client: D1QueryClient): Db {
   // The driver only ever reaches for `prepare` and `batch`, which is exactly
   // what `D1QueryClient` guarantees; the cast just satisfies the wider binding
   // type Drizzle's signature asks for, and is confined to this one call.
-  return drizzleD1(client as D1Database, { schema });
+  return drizzleD1(client as D1Database);
 }
 
 /**
@@ -53,30 +52,8 @@ export function createD1Db(client: D1QueryClient): Db {
 export const dbQuery = <A>(run: () => A | Promise<A>): Effect.Effect<A> =>
   Effect.promise(() => Promise.resolve(run()));
 
-/**
- * The text of a failed query as the database gave it: the error's message and
- * the message of every `cause` beneath it, one per line. For code that tells
- * one constraint failure from another by its wording.
- *
- * The database's reason is not always on the outer error. bun:sqlite throws it
- * directly, and so does a failed D1 `batch()`; a failed single statement on D1
- * reaches the caller as drizzle's `DrizzleQueryError`, whose message names only
- * the statement (`Failed query: …`) and whose `cause` carries
- * `D1_ERROR: UNIQUE constraint failed: …`. Reading `String(error)` alone misses
- * that case.
- */
-export function driverErrorText(error: unknown): string {
-  const lines: string[] = [];
-  let current: unknown = error;
-  // Read by shape, not `instanceof Error`: an error built in another realm
-  // (Miniflare's workerd) is still an error. Bounded, so a cause chain that
-  // loops back on itself still ends.
-  for (let depth = 0; depth < 8 && typeof current === "object" && current !== null; depth++) {
-    if ("message" in current && typeof current.message === "string") lines.push(current.message);
-    current = "cause" in current ? current.cause : undefined;
-  }
-  return lines.join("\n");
-}
+/** See `driverErrorText` in `@shared/db-utils`; re-exported so cire's services keep one import. */
+export { driverErrorText } from "@shared/db-utils";
 
 /**
  * A reference to `column` that always renders qualified, as `"table"."column"`,
@@ -262,15 +239,15 @@ export type ReturningTail<T> = BatchItem<"sqlite"> & PromiseLike<T[]>;
  * Commit GROUPS of statements exactly as {@link commitGroupedBatches} does,
  * then run one trailing read and return its rows — folding a read-back into
  * the same D1 round-trip as the write that produced it, instead of a second
- * one after (P-W1).
+ * one after.
  *
  * The tail rides in the FINAL chunk when it fits under
  * `MAX_STATEMENTS_PER_BATCH`; if appending it would push that chunk over the
  * ceiling, it ships as its own trailing batch instead. Either way it ends up
  * the last statement of the last batch actually sent, so its rows are always
  * `results.at(-1)` of that batch — D1 returns one result per statement, and
- * `drizzle-orm@0.45.2`'s `d1/session` maps a SELECT's element to its rows via
- * `mapResult(result, true)`. Correctness never depends on the tail sharing a
+ * `drizzle-orm@1.0.0-rc.4`'s `d1/session` `batch` maps a SELECT's element to
+ * its rows. Correctness never depends on the tail sharing a
  * batch with the writes (every earlier batch is already committed by the
  * time the next one runs) — only the saved round-trip does.
  *

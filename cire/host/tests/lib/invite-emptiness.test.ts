@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   faqState,
   footerState,
+  hasGuestPolicy,
+  hasRunOfShow,
   hasText,
   heroState,
   isFaqEmpty,
@@ -13,7 +15,7 @@ import {
 } from "../../src/lib/invite-emptiness";
 
 /**
- * T-M2 (web.md). `invite-emptiness.ts` is a hand-maintained mirror of
+ * `invite-emptiness.ts` is a hand-maintained mirror of
  * `cire/invites/src/components/invite-emptiness.ts`, and nothing checked that the
  * two agree. The stakes are quiet but real: these predicates decide whether the
  * builder's per-section badge says "Shown" or "Hidden — empty", so a drift
@@ -197,4 +199,49 @@ describe("faqState", () => {
     [{ question: "Parking?", answer: "Yes." }],
     [{ question: "Parking?", answer: " " }],
   );
+});
+
+// The per-event blocks of the guest's details sheet. The guest site's run of
+// show keeps only an item with a 24-hour time and a label, and its policy row
+// needs a preset it knows or a note.
+describe("hasRunOfShow", () => {
+  it("is empty with no items, or none with both a time and a label", () => {
+    expect(hasRunOfShow([])).toBe(false);
+    expect(hasRunOfShow(null)).toBe(false);
+    expect(hasRunOfShow(undefined)).toBe(false);
+    for (const value of ABSENT) {
+      expect(hasRunOfShow([{ time: "16:00", label: value as string }])).toBe(false);
+      expect(hasRunOfShow([{ time: value as string, label: "Tea" }])).toBe(false);
+    }
+    // Exactly `HH:MM` on a 24-hour clock, as the guest site reads it.
+    for (const time of ["4pm", "24:00", "16:60", "x16:00", "16:000", "6:00"]) {
+      expect(hasRunOfShow([{ time, label: "Tea" }])).toBe(false);
+    }
+  });
+
+  it("has content once any one item has both", () => {
+    expect(
+      hasRunOfShow([
+        { time: "16:00", label: " " },
+        { time: "17:15", label: "Speeches" },
+      ]),
+    ).toBe(true);
+  });
+});
+
+describe("hasGuestPolicy", () => {
+  it("is empty with no preset it knows and no note", () => {
+    expect(hasGuestPolicy(null, null, null)).toBe(false);
+    expect(hasGuestPolicy(undefined, undefined, undefined)).toBe(false);
+    expect(hasGuestPolicy("kids_ok", "sometimes", null)).toBe(false);
+    for (const value of ABSENT) expect(hasGuestPolicy(null, null, value)).toBe(false);
+  });
+
+  it("has content with either preset or a note", () => {
+    expect(hasGuestPolicy("adults_only", null, null)).toBe(true);
+    expect(hasGuestPolicy("children_welcome", null, null)).toBe(true);
+    expect(hasGuestPolicy(null, "by_invitation", null)).toBe(true);
+    expect(hasGuestPolicy(null, "welcome", null)).toBe(true);
+    expect(hasGuestPolicy(null, null, "Hats encouraged.")).toBe(true);
+  });
 });

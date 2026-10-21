@@ -14,6 +14,7 @@ related:
   - "[[dev-environment]]"
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
+  - "[[infrastructure-as-code]]"
 last-reviewed: 2026-10-21
 ---
 
@@ -312,6 +313,17 @@ osn-api secrets are set with `wrangler secret put … --env <env>` (§3.1), surf
 > `wrangler.toml`); non-secret vars live in each `wrangler.toml` (`[vars]` /
 > `[env.<env>.vars]`). cire Pages `PUBLIC_*` are **build-time** env vars.
 
+> [!important] The secret inventory decides which secrets a Worker keeps
+> `SECRET_INVENTORY` (`shared/infra/src/secrets/inventory.ts`) lists every
+> secret osn-api, cire-api, zap-api and cire-invites may hold. Once a Worker
+> deploys through Alchemy, its deploy uploads exactly those names and deletes
+> every other secret the Worker holds, so a name this section sets that the
+> inventory lacks needs an inventory change first. A production value set by
+> hand with `wrangler secret put` is set in the `production` GitHub
+> Environment too, or the next Alchemy deploy writes the old value back.
+> `bun run --cwd shared/infra secrets:check-live -- --tier production` shows
+> any drift. See [[infrastructure-as-code#Secrets]].
+
 ### 3.1 osn-api (Cloudflare Worker)
 
 osn-api is a Worker: non-secret config is `[vars]` / `[env.<env>.vars]` in
@@ -374,7 +386,7 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 | `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Conditional** | Bearer secret guarding `POST /graph/internal/register-service` (`routes/graph-internal.ts`). Needed **only** to register cire-api's ARC public key (§6.2). Endpoint returns 501 when unset. |
 | `TURNSTILE_SECRET_KEY` | `wrangler secret put` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, `/register/begin` + `/login/passkey/begin` **require** a valid Turnstile token and **fail-closed** (reject on missing/invalid/duplicate; single-use enforced by Cloudflare). When unset, those gates are skipped and the flows behave as before — safe to leave unset until the widget exists. **Currently SET** on `osn-api-production` (#160), so the gates bite. Server half of the sitekey baked into the **musubi/social** build as `VITE_TURNSTILE_SITEKEY` (§3.3) — it was the organiser-portal build until the 2026-07-27 OIDC swap moved the ceremonies. Create the widget in §3.4. (`build-deps.ts` → `createTurnstileVerifier`). |
 | `TRUSTED_PROXY_COUNT` | `[env.<env>.vars]` | Optional | On Workers, Cloudflare sets `cf-connecting-ip`, so this is usually unneeded. Set only if a proxy sits in front and XFF must be trusted N hops. |
-| `OSN_RP_NAME` | `[env.<env>.vars]` | Optional | Display name in passkey prompts (default `OSN`). |
+| `OSN_RP_NAME` | `[env.<env>.vars]` | Optional | Display name in passkey prompts and the issuer label in authenticator apps (default: the instance name, `Musubi`). Display only: changing it leaves existing passkeys and authenticator codes working, since sign-in checks `OSN_RP_ID` and the TOTP secret, never the name. |
 | `OSN_ACCESS_TOKEN_TTL` / `OSN_REFRESH_TOKEN_TTL` | `[env.<env>.vars]` | Optional | Defaults 300s / 2592000s. |
 | `PULSE_API_URL` / `ZAP_API_URL` | `[env.<env>.vars]` | Optional | Outbound ARC key registration for account-erasure fan-out. |
 
@@ -674,8 +686,8 @@ bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
 ### 4.1 Apply cire D1 migrations (remote)
 
 Migrations live in `cire/db/migrations/`: one baseline file,
-`0001_initial.sql`, holding the whole schema, plus anything numbered `0082` and
-up. The baseline builds exactly what migrations `0001`–`0081` in
+`0001_initial.sql`, holding the whole schema, then the numbered files `0082` to
+`0090` and the timestamped files (`<YYYYMMDDHHMMSS>_<name>.sql`) after them. The baseline builds exactly what migrations `0001`–`0081` in
 `cire/db/migrations-archive/` build; nothing applies the archive. Production
 applied that chain file by file, so its `d1_migrations` ledger holds every
 archived name, `0001_initial.sql` among them, and wrangler skips the baseline

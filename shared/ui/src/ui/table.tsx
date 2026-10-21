@@ -71,6 +71,43 @@ const ALIGN = {
 } satisfies Readonly<Record<CellAlign, string>>;
 
 /**
+ * A cell held in view while its table scrolls: the head row at the top of the
+ * box, the first column at its start edge, and the one cell that is both at
+ * the corner.
+ *
+ * Sticky cells only stick inside a box that scrolls. `Table`'s box scrolls
+ * sideways, so it holds a pinned column without help; to hold a pinned head
+ * row as the rows go by, the call site also gives the box a height it scrolls
+ * within (`max-h-*` and `overflow-y-auto` on `Table`'s `class`), `isolate`,
+ * so the layers below stay inside the box, and `relative`, so `sr-only` text
+ * in its cells belongs to it. It also gives the box
+ * scroll padding a little larger than the head row's height (`scroll-pt-*`)
+ * and the pinned column's width (`scroll-ps-*`): a control that takes focus
+ * is then scrolled clear of the pinned cells, rather than left beneath them
+ * where nobody can see it.
+ *
+ * A pinned cell paints the page's ground, so the rows passing under it never
+ * show through. That is only invisible on a table set straight on the ground —
+ * on a tinted card it would read as a band. Layers: corner over the head row
+ * over the first column over the rest. The start column and the corner carry a
+ * full-strength hairline on their end edge, which is what says where the held
+ * column stops once the others slide beneath it.
+ */
+export type ThPin = "top" | "top-start";
+export type TdPin = "start";
+
+const TH_PIN = {
+  top: "base:sticky base:top-0 base:z-2 base:bg-ui-ground",
+  "top-start":
+    "base:sticky base:top-0 base:start-0 base:z-3 base:bg-ui-ground base:border-e base:border-e-ui-hairline",
+} satisfies Readonly<Record<ThPin, string>>;
+
+const TD_PIN = {
+  start:
+    "base:sticky base:start-0 base:z-1 base:bg-ui-ground base:border-e base:border-e-ui-hairline",
+} satisfies Readonly<Record<TdPin, string>>;
+
+/**
  * `Omit<…, "align">` because `<th>` and `<td>` both carry a deprecated native
  * `align` attribute typed `"left" | "center" | "right" | …`. Intersecting
  * rather than omitting it silently narrows the prop to the one value the two
@@ -80,6 +117,9 @@ const ALIGN = {
 export type ThProps = Omit<SafeProps<"th">, "align"> & {
   /** {@link CellAlign}. `end` for a column of figures, `center` for checkboxes or icons. */
   align?: CellAlign;
+  /** {@link ThPin}: `top` for a head held at the top of the box, `top-start`
+   *  for the head of a held first column. */
+  pin?: ThPin;
 };
 
 /**
@@ -87,7 +127,7 @@ export type ThProps = Omit<SafeProps<"th">, "align"> & {
  * guess which cells a header governs, and in a wide table it guesses wrong.
  */
 export function Th(props: ThProps) {
-  const [own, rest] = splitProps(props, ["align", "class"]);
+  const [own, rest] = splitProps(props, ["align", "pin", "class"]);
   return (
     <th
       scope="col"
@@ -95,8 +135,8 @@ export function Th(props: ThProps) {
       class={`base:font-ui-body base:border-ui-hairline base:text-ui-accent-ink base:border-b base:px-4 base:py-3 ${
         ALIGN[own.align ?? "start"]
       } base:text-ui-xs base:font-normal base:tracking-ui-wider base:whitespace-nowrap base:uppercase${
-        own.class ? ` ${own.class}` : ""
-      }`}
+        own.pin ? ` ${TH_PIN[own.pin]}` : ""
+      }${own.class ? ` ${own.class}` : ""}`}
     />
   );
 }
@@ -132,6 +172,9 @@ export type TdProps = Omit<SafeProps<"td">, "align"> & {
    * baseline, and that is right for a row of plain text.
    */
   valign?: "baseline" | "middle";
+  /** {@link TdPin}: `start` for the first cell of a column held at the start
+   *  edge while the table scrolls sideways. */
+  pin?: TdPin;
 };
 
 const TD_TONE = {
@@ -147,6 +190,7 @@ export function Td(props: TdProps) {
     "align",
     "tone",
     "valign",
+    "pin",
     "class",
   ]);
   return (
@@ -160,7 +204,7 @@ export function Td(props: TdProps) {
         own.numeric
           ? "base:text-right base:font-ui-mono base:tabular-nums"
           : ALIGN[own.align ?? "start"]
-      }${own.class ? ` ${own.class}` : ""}`}
+      }${own.pin ? ` ${TD_PIN[own.pin]}` : ""}${own.class ? ` ${own.class}` : ""}`}
     />
   );
 }

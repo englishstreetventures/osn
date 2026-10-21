@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The merge queue tests each group of pull requests on the commit it would
+  # land as. Migrations from two pull requests meet for the first time there,
+  # so the migration order check below has to run on it.
+  merge_group:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -54,8 +58,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Install dependencies
-        run: bun install
+      # @shared/infra's Alchemy tree is about 100 packages and over 1 GB
+      # unpacked, and only a job that builds, tests or type-checks that
+      # package loads it; every other job installs without it.
+      - name: Install dependencies except @shared/infra
+        run: bun install --filter '!@shared/infra'
 
       - name: Lint
         run: bun run lint
@@ -92,9 +99,14 @@ jobs:
       # rather than in the script-tests job, which does no `bun install` on
       # purpose. Those installs can reach the registry, so on a pull request
       # it runs only when something it exercises changed; it runs on every
-      # push to main.
+      # push to main. A merge-queue group skips it: each pull request in the
+      # group already ran it when it touched what the test exercises.
       - name: Test the lint-warning ceiling guard
         run: |
+          if [ "$GITHUB_EVENT_NAME" = "merge_group" ]; then
+            echo "Merge-queue group: each pull request ran this when it needed to; skipped."
+            exit 0
+          fi
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && git diff --quiet HEAD^1 HEAD -- \
             scripts/guard-lint-warnings.sh scripts/lint-warning-count.ts \
             scripts/tests/guard-lint-warnings.test.sh package.json bun.lock .bun-version; then
@@ -367,7 +379,11 @@ jobs:
     # a shasum, and `bun test ./scripts/` with no install.
     timeout-minutes: 5
     steps:
+      # Two commits deep so a pull request's merge commit has its base,
+      # `HEAD^1`, for the migration order check below.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       # No bun needed, so it runs right after checkout. The `lint` job runs
       # this same script too, and that copy is the one that matters for
@@ -418,6 +434,27 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # A migration is named by when it was generated, so one generated before
+      # another can merge after it: the dev tier then applies it after main's
+      # files, while a database built from zero, or a daily release catching
+      # up, applies everything in name order. Both orders must apply and leave
+      # one schema. On a pull request the files it adds are those on its merge
+      # commit's second side (`HEAD^1` is the base it merges into); in the merge
+      # queue they are everything since the queue's base. No install: the
+      # script imports bun:sqlite and sibling scripts only.
+      - name: Check new migrations apply in either order
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        env:
+          QUEUE_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          if [ -n "$QUEUE_BASE" ]; then
+            git fetch --no-tags --depth=1 origin "$QUEUE_BASE"
+            base="$QUEUE_BASE"
+          else
+            base="$(git rev-parse HEAD^1)"
+          fi
+          bun run scripts/check-migration-orders.ts --base "$base"
+
       # `scripts/` is not a workspace, so `turbo test` never reaches it and the
       # tests under it ran nowhere: `test:migration` was declared in the root
       # package.json and called by no workflow, so the throttle and backfill
@@ -463,6 +500,11 @@ jobs:
       # general, this step proves it against this repo's own bunfig.toml.
       - name: Check release-age excludes are marked and bounded
         run: bun run check:release-age-excludes
+
+      # The guard's own tests run in "Test the scripts"; this runs it against
+      # the committed package scripts, workflows and stack files.
+      - name: Check Alchemy usage
+        run: bun run check:alchemy-usage
 
       # The pre-push hook's `audit-ignores` check, run against the committed
       # lefthook.yml: it fails once a `--ignore` in the `audit` command has
@@ -524,8 +566,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Install dependencies
-        run: bun install
+      - name: Install dependencies except @shared/infra
+        run: bun install --filter '!@shared/infra'
 
       - name: Regenerate OpenAPI documents
         run: |
@@ -546,6 +588,9 @@ jobs:
   # earns trust; promote it once it has a record of staying green.
   e2e:
     name: E2E
+    # Not one of `ci`'s needs, so nothing reads its result on a merge-queue
+    # group, and the push to main that follows runs it on the same commit.
+    if: github.event_name != 'merge_group'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -568,8 +613,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Install dependencies except @shared/infra
+        run: bun install --frozen-lockfile --filter '!@shared/infra'
 
       # The same cache and the same two bounded halves as the browser tier in
       # `build-test`, for the same reasons (see the comments there). Run from
@@ -608,10 +653,56 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  # The migration workflow end to end: `db:generate` on parallel branches of
+  # copies of cire's and osn's real schemas (cire/db's migration-flow), and
+  # timestamped migrations applied by the real wrangler to a local D1 that
+  # already holds the chain and to one built from zero (cire/api's
+  # migrate-wrapper). Several minutes of drizzle-kit and wrangler runs that
+  # test no package's own code, so they are a job of their own rather than
+  # part of every package's tests and every deploy. Both write the ledgers,
+  # schemas and verdicts they end with to e2e-artifacts/migrations/.
+  migration-flow:
+    name: Migration workflow
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies except @shared/infra
+        run: bun install --frozen-lockfile --filter '!@shared/infra'
+
+      - name: db:generate across parallel branches
+        timeout-minutes: 12
+        run: bun run --cwd cire/db test:migration-flow
+
+      - name: Timestamped migrations on a local D1
+        timeout-minutes: 6
+        run: bun run --cwd cire/api test:migration-flow
+
+      - name: Upload migration artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-artifacts
+          path: e2e-artifacts/migrations/
+          if-no-files-found: ignore
+
   ci:
     name: CI
     if: always()
-    needs: [lint, typecheck, build-test, script-tests, openapi-freshness]
+    needs: [lint, typecheck, build-test, script-tests, openapi-freshness, migration-flow]
     runs-on: ubuntu-latest
     steps:
       - name: Check results

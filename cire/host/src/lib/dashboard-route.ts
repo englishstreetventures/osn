@@ -8,12 +8,16 @@
  *   #/w/<weddingId>                         → that wedding, default module (overview)
  *   #/w/<weddingId>/<module>                → that wedding + a module (default sub)
  *   #/w/<weddingId>/<module>/<sub>          → that wedding + a module + a sub-view
+ *   #/w/<weddingId>/guests/rsvps/<eventId>  → the RSVP page, on one event
  *   #/security                              → the account-security view
  *
- * `<module>` is one of `MODULES` below, and each
- * module carries an optional `<sub>` (e.g. `guests/rsvps`, `invite/codes`,
- * `settings/hosts`). Deeper sub-state (open modals, a selected row) is
- * intentionally NOT deep-linked yet — see the wiki.
+ * `<module>` is one of {@link MODULES} below, and each module carries an
+ * optional `<sub>` (e.g. `guests/rsvps`, `invite/codes`,
+ * `settings/hosts`). The RSVP page alone goes one level deeper: it shows one
+ * event at a time, and the event it shows is part of the address, so a reload
+ * or a shared link opens the same event. Any other page ignores a segment past
+ * its sub, and nothing else inside a view (an open modal, a selected row, a
+ * sort) is in the address.
  *
  * Anything unrecognised parses to the wedding list, so a stale or hand-edited
  * hash degrades gracefully rather than erroring. The pre-IA `#/weddings/<id>/<tab>`
@@ -91,8 +95,22 @@ export function isSubOf(module: Module, sub: string): boolean {
  */
 export type DashboardRoute =
   | { view: "weddings"; weddingId: null; module: Module; sub: string }
-  | { view: "weddings"; weddingId: string; module: Module; sub: string }
+  | {
+      view: "weddings";
+      weddingId: string;
+      module: Module;
+      sub: string;
+      /** The event the RSVP page shows. Read and written only on guests/rsvps;
+       *  absent, the page shows its first event. */
+      rsvpEvent?: string;
+    }
   | { view: "security"; weddingId: null; module: Module; sub: string };
+
+/** Whether a module and sub are the RSVP page, the one page whose address
+ *  names an event. */
+export function isRsvpPage(module: Module, sub: string): boolean {
+  return module === "guests" && sub === "rsvps";
+}
 
 export const LIST_ROUTE: DashboardRoute = {
   view: "weddings",
@@ -182,13 +200,25 @@ export function parseRoute(hash: string): DashboardRoute {
     };
   }
 
-  // Canonical IA shape: #/w/<id>/<module>/<sub>
+  // Canonical IA shape: #/w/<id>/<module>/<sub>[/<eventId> on the RSVP page]
   if (parts[0] === "w") {
     const weddingId = parts[1];
     if (!weddingId) return LIST_ROUTE;
     const rawModule = parts[2];
     const module = rawModule && isModule(rawModule) ? rawModule : DEFAULT_MODULE;
-    return weddingRoute(weddingId, module, parts[3]);
+    const route = weddingRoute(weddingId, module, parts[3]);
+    const rsvpEvent = parts[4];
+    // A dot segment is dropped like any id read from the address, though this
+    // one only ever selects among the events the API returned.
+    if (
+      route.weddingId !== null &&
+      isRsvpPage(route.module, route.sub) &&
+      rsvpEvent &&
+      !isDotSegment(rsvpEvent)
+    ) {
+      return { ...route, rsvpEvent };
+    }
+    return route;
   }
 
   // Legacy shape kept alive for one release: #/weddings/<id>/<tab> → (module, sub).
@@ -219,5 +249,9 @@ export function serializeRoute(route: DashboardRoute): string {
   // short + canonical; an explicit module and/or non-default sub is appended.
   if (route.module === DEFAULT_MODULE && onDefaultSub) return `#/w/${id}`;
   if (onDefaultSub) return `#/w/${id}/${route.module}`;
-  return `#/w/${id}/${route.module}/${route.sub}`;
+  const page = `#/w/${id}/${route.module}/${route.sub}`;
+  if (route.rsvpEvent !== undefined && isRsvpPage(route.module, route.sub)) {
+    return `${page}/${encodeURIComponent(route.rsvpEvent)}`;
+  }
+  return page;
 }

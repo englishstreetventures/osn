@@ -33,6 +33,7 @@ import { weddingIsLive } from "../db/live-wedding";
 import { ChangeScope, DesiredState } from "../schemas/import";
 import type { ImportPlan, ParsedEvent, ParsedFamily, Provenance } from "../schemas/import";
 import { decodePalette, safeHttpUrl } from "./claim";
+import { tidyEditorEvent } from "./guest-event-validation";
 import { parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
 import type { SpreadsheetParseError } from "./spreadsheet";
 
@@ -226,7 +227,10 @@ export function createSourceFor(kind: "import" | "editor"): Provenance {
  *
  * The projection below is the full `ParsedEvent` shape rather than the two fields
  * today's consumers touch, so the value stays an honest desired-state event and a
- * future reader of `desiredState.events` isn't handed a half-built record.
+ * future reader of `desiredState.events` isn't handed a half-built record. The
+ * run of show, getting-there notes and guest policy are left out: absent says
+ * nothing about them, a guests-scoped change emits no event op to write them,
+ * and the run of show would cost a second read.
  */
 export function currentEventsAsParsed(
   weddingId: string,
@@ -294,8 +298,13 @@ export function decodeChangeBody(
 
     if ("desiredState" in body) {
       // Editor front door: the draft is the whole truth (manage all shown rows).
+      // Its event text is held to the sheet door's rules (`tidyEditorEvent`),
+      // so the download of what it stores re-imports unchanged.
       return {
-        desiredState: body.desiredState,
+        desiredState: {
+          ...body.desiredState,
+          events: body.desiredState.events.map(tidyEditorEvent),
+        },
         removeManual: body.removeManual,
         baseRevision: body.baseRevision,
         // The draft is id-authoritative: every existing row carries its id, so an
@@ -522,9 +531,9 @@ export function releaseClaim(
  * Run `write` — everything a change does from its first write to its commit —
  * under `claim`, releasing the claim if it fails. A typed failure that
  * `before` recognises happened before any data statement was sent, so the head
- * stays put and the same preview can be retried (a 402 after an upgrade). Any
- * other failure, a defect or an interruption may have followed a committed
- * batch, so the head moves.
+ * stays put and the same preview can be retried (a 402 from the cap check
+ * before the write, after an upgrade). Any other failure, a defect or an
+ * interruption may have followed a committed batch, so the head moves.
  */
 export function underClaim<A, E, R>(
   claim: ChangeClaim,

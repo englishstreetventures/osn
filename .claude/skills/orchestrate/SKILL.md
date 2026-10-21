@@ -148,15 +148,15 @@ Collect **orientation pointers** for the subagent: the files in play, the patter
 
 **Check every premise before writing the brief.** A wrong fact in a brief costs
 the subagent a full plan-and-stress cycle, or a stop and a resume, before any
-code exists: a migration "numbered 0002" when the generator continues the
-archived chain, a script that no longer exists, a column on the wrong table, a
+code exists: a migration given a number when `db:generate` names it by its
+timestamp, a script that no longer exists, a column on the wrong table, a
 route said to lack a limiter it has. Three checks, all before dispatch:
 
 1. **Each claim about the code, checked on `origin/main` with a command.** Fetch
    first, with Step 2's refspec, and write `origin/main`'s short SHA on the
    `premises:` line, so a check made against a stale ref shows as one. List
    every fact the brief will state — a file, a column, a script, a route's
-   behaviour, the next migration number — and run the command that shows it:
+   behaviour — and run the command that shows it:
    `git show origin/main:<path>`, `git grep -n '<text>' origin/main -- <dir>`,
    `git ls-tree --name-only origin/main <dir>/`. Quote the command and the
    output on the task's `premises:` line. A claim the output contradicts is
@@ -333,7 +333,7 @@ operations in this loop, and `shepherd` pins the cheapest model in the fleet
 precisely because it is not the thing making that call. Then you act on what the
 line and the shepherd report:
 
-- All checks green and `mergeStateStatus: CLEAN` → **you** run `gh pr merge <n> --squash --delete-branch`.
+- All checks green and `mergeStateStatus: CLEAN` → **you** hand it to the merge queue with `gh pr merge <n> --squash --auto` (in a remote session, which has no GraphQL, the GitHub MCP `enable_pr_auto_merge` tool with the squash method). With the `main` ruleset's merge queue on, that queues it, and the queue re-runs CI on the pull request together with the ones ahead of it; without the queue, `--auto` merges once the required checks pass. Then wait for the merge itself, in the background: `bash scripts/wait-pr.sh --until-merged <n> 60`. Exit 0 is `MERGED`; exit 1 with "left the merge queue" means the group failed. Read that group's failing check as for any red check: a migration that clashes with one that merged first is regenerated on the new `main` (`wiki/conventions/commands.md` §Migrations), then pushed and queued again.
 - `DIRTY` or `BEHIND` → dispatch an **`implementer`** to rebase onto the latest `origin/main`, resolve conflicts (sibling PRs that merged first are usually additive — keep both sides; for changeset or version churn from the release workflow, take the regenerated state), re-run the touched package's tests and `git push --force-with-lease`. Conflict resolution is a judgement call and a force-push is not recoverable, so neither belongs to the polling agent.
 - A check failure → first find out whose it is: a test or error line that also fails on `main`, or one the branch never touches that passes on a rerun, is not this branch's to fix (`review-pr` Step 4 has the commands). A real failure of the branch's → dispatch an `implementer` fix subagent, push, re-poll. Never merge red.
 - Once `MERGED`, **you** remove the worktree this run created and delete the local branch: `git -C <dir> status --porcelain` must print nothing first, since `--force` would take uncommitted work with it, then `git worktree remove --force <dir>`. Never leave one of those behind. A worktree another tool or session made — an adopted pull request's — stays where it is, and the closing summary names it.

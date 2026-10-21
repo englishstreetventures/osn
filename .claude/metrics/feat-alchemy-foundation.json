@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1569,
+    "branch": "feat/alchemy-foundation",
+    "base_sha": "3321751c3ff0eca36f290b16c58d29168351ce41",
+    "head_sha": "1faa4340cd2c882963e6ec081e03c67793d5f90a",
+    "generated_at": "2026-10-19T07:15:26.043Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1533,
+    "type": "Task",
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:5",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-15T16:29:30.615Z",
+    "last_ts": "2026-10-19T06:11:53.361Z",
+    "span_seconds": 308543,
+    "active_seconds": 17304,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 212.8080079000002,
+    "tokens": {
+      "input": 3742,
+      "output": 27546,
+      "thinking": 4791,
+      "cache_write_5m": 12914768,
+      "cache_write_1h": 0,
+      "cache_read": 393277371
+    },
+    "by_model": {
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 628,
+          "output": 4289,
+          "thinking": 0,
+          "cache_write_5m": 1630291,
+          "cache_write_1h": 0,
+          "cache_read": 27613975
+        },
+        "usd_equivalent": 9.642668500000012,
+        "messages": 305
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 3114,
+          "output": 23257,
+          "thinking": 4791,
+          "cache_write_5m": 11284477,
+          "cache_write_1h": 0,
+          "cache_read": 365663396
+        },
+        "usd_equivalent": 203.16533940000014,
+        "messages": 1517
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 7
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 3742,
+          "output": 27546,
+          "thinking": 4791,
+          "cache_write_5m": 12914768,
+          "cache_write_1h": 0,
+          "cache_read": 393277371
+        },
+        "usd_equivalent": 212.8080079000002,
+        "messages": 1829
+      }
+    },
+    "effort": {
+      "xhigh": 1519,
+      "medium": 109,
+      "high": 194
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 16,
+      "docs": 10,
+      "config": 9,
+      "source": 19
+    },
+    "loc": {
+      "generated": {
+        "added": 351,
+        "deleted": 0
+      },
+      "test": {
+        "added": 2111,
+        "deleted": 1
+      },
+      "docs": {
+        "added": 3690,
+        "deleted": 28
+      },
+      "config": {
+        "added": 253,
+        "deleted": 36
+      },
+      "source": {
+        "added": 1651,
+        "deleted": 0
+      }
+    },
+    "packages": [
+      "shared/infra"
+    ],
+    "touches_migration": false,
+    "commits": 34
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 1551,
+      "Edit": 210,
+      "Read": 163,
+      "Write": 46,
+      "SubagentHandback": 44,
+      "Agent": 37,
+      "Skill": 14,
+      "SendMessage": 14,
+      "ToolSearch": 5,
+      "Monitor": 3,
+      "mcp__claude_ai_Cloudflare_Developer_Platform__search_cloudflare_documentation": 1,
+      "mcp__claude_ai_Cloudflare_Developer_Platform__workers_list": 1,
+      "mcp__claude_ai_Cloudflare_Developer_Platform__workers_get_worker": 1,
+      "mcp__claude_ai_Cloudflare_Developer_Platform__d1_databases_list": 1,
+      "mcp__claude_ai_Cloudflare_Developer_Platform__r2_buckets_list": 1,
+      "WebFetch": 1,
+      "TaskStop": 1,
+      "bash": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 15,
+      "max_edits_one_file": 89
+    },
+    "skills": {
+      "new-feat": 3,
+      "superpowers:writing-plans": 1,
+      "superpowers:subagent-driven-development": 1,
+      "write-wiki": 2,
+      "obsidian:obsidian-markdown": 2,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-security": 1,
+      "review-performance": 1,
+      "review-docs": 1
+    },
+    "subagents": {
+      "attacker": 2,
+      "implementer": 4,
+      "general-purpose": 17,
+      "mechanic": 8,
+      "reviewer": 6
+    }
+  }
+}

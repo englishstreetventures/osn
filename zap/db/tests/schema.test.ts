@@ -109,7 +109,7 @@ function createTestDb() {
       expires_at INTEGER
     )
   `);
-  return drizzle(sqlite, { schema });
+  return drizzle({ client: sqlite });
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +162,9 @@ describe("chat_members schema", () => {
         profileId: "usr_alice",
         joinedAt: now,
       }),
-    ).rejects.toThrow(/UNIQUE constraint failed/);
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringMatching(/UNIQUE constraint failed/) },
+    });
   });
 
   it("allows same user in different chats", async () => {

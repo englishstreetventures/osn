@@ -198,6 +198,29 @@ export const CIRE_EVENT_EDIT = {
   /** What the second save changes, so the venue name and description it
    *  carries are the ones the editor read back. */
   dressCode: "Garden party. Flat shoes for the lawn.",
+  /** The run of show as typed into the drawer, out of time order. The flow
+   *  then moves the second item up with the keyboard, so the organiser's
+   *  order is Tea, Speeches, Games and the guest's time order Tea, Games,
+   *  Speeches. */
+  runOfShow: [
+    { time: "17:15", label: "Speeches" },
+    { time: "16:00", label: "Tea is poured" },
+    { time: "16:45", label: "Garden games" },
+  ],
+  gettingThere:
+    "Park on Sample Lane; the gate is on the left.\nThe lawn is step-free from the car park.",
+  /** What the second save puts in its place, before the flow reverts it. */
+  gettingThereChanged: "Park on Sample Lane.",
+  /** The guest policy, as the drawer's selects name the presets. */
+  children: "Adults only",
+  plusOnes: "Welcome",
+  policyNote: "Babes in arms are welcome.",
+  /**
+   * A seeded household invited to the Kitchen Tea that no other flow claims:
+   * Eli, of TESTFOR. The flow allows Eli a plus-one and opens the invitation
+   * as Eli's household, the one kind that is told plus-ones are welcome.
+   */
+  allowedGuest: { code: "TESTFOR-JOY-DD44", firstName: "Eli" },
 } as const;
 
 /** Seeded cire guest: the first canonical family in `cire/db/seed/data/guests.ts`. */

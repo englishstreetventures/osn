@@ -108,6 +108,47 @@ function button(name: string | RegExp): HTMLButtonElement {
   return within(document.body).getByRole("button", { name }) as HTMLButtonElement;
 }
 
+/**
+ * A segment of the sheet's switch, by its words. Scoped to the dialog: the
+ * harness's event card has a "Respond" of its own.
+ */
+function segment(name: "Details" | "Respond" | "Your RSVP"): HTMLButtonElement {
+  return within(dialog()).getByRole("button", { name }) as HTMLButtonElement;
+}
+
+/** The switch, and its two decorations: the gold pill and the on-gold overlay. */
+function panelSwitch() {
+  const group = within(dialog()).getByRole("group", { name: "Event sheet" });
+  return {
+    group,
+    pill: group.firstElementChild as HTMLElement,
+    overlay: group.lastElementChild as HTMLElement,
+  };
+}
+
+/**
+ * A computed `inset()`'s four edges in px, for a box `width` wide. Chromium
+ * keeps a percentage, or a `calc()` of one and a length, as written.
+ */
+function insetOf(clip: string, width: number): number[] {
+  const body = /^inset\((.*?)(?: round .*)?\)$/.exec(clip)?.[1] ?? "";
+  const edges = body.match(/calc\([^)]*\)|-?[\d.]+(?:px|%)|0/g) ?? [];
+  const px = (edge: string) => {
+    const length = /(-?[\d.]+)px/.exec(edge);
+    const share = /(-?[\d.]+)%/.exec(edge);
+    return (length ? Number(length[1]) : 0) + (share ? (Number(share[1]) / 100) * width : 0);
+  };
+  const [top = "0", right = top, bottom = top, left = right] = edges;
+  return [px(top), px(right), px(bottom), px(left)];
+}
+
+/** Where the pill stands, as a share of one segment's width: 0 under Details. */
+function pillProgress(): number {
+  const { pill } = panelSwitch();
+  // The layout width, not the painted one: the sheet's own entry scales it.
+  return new DOMMatrix(getComputedStyle(pill).transform).m41 / pill.offsetWidth;
+}
+
 function cardButton(label: string): HTMLButtonElement {
   return [...document.querySelectorAll("article button")].find(
     (b) => b.textContent === label,
@@ -128,12 +169,19 @@ async function settle() {
   await new Promise(requestAnimationFrame);
 }
 
+/** Wait for the switch's pill, whose easing is a transition rather than an animation. */
+async function settleSwitch() {
+  await settle();
+  await new Promise((resolve) => setTimeout(resolve, 320));
+}
+
 /** `close` lands in a task after the Escape that caused it. */
 const afterTheCloseEvent = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 afterEach(async () => {
   cleanup();
-  document.body.style.overflow = "";
+  document.documentElement.style.overflow = "";
+  document.documentElement.style.scrollbarGutter = "";
   await emulate({ reducedMotion: "no-preference" });
 });
 
@@ -147,7 +195,7 @@ describe("EventSheet — moving between the panels", () => {
     const sheet = dialog();
     expect(sheet.matches(":modal")).toBe(true);
 
-    await userEvent.click(button("Give RSVP"));
+    await userEvent.click(segment("Respond"));
     expect(document.activeElement?.textContent).toMatch(/Respond.*Mehndi/);
     expect(document.activeElement?.tagName).toBe("H3");
     await settle();
@@ -162,13 +210,13 @@ describe("EventSheet — moving between the panels", () => {
     const other = await within(fieldset).findByPlaceholderText(/no onion/i);
     await userEvent.type(other, "no curry leaves");
 
-    await userEvent.click(button("See details"));
+    await userEvent.click(segment("Details"));
     expect(document.activeElement?.textContent).toMatch(/Details.*Mehndi/);
     await settle();
     expect(getComputedStyle(wrapperOf("rsvp")).display).toBe("none");
     expect(getComputedStyle(wrapperOf("details")).display).not.toBe("none");
 
-    await userEvent.click(button("Give RSVP"));
+    await userEvent.click(segment("Respond"));
     await settle();
     const back = within(sheet).getByRole("group", { name: /priya sharma/i });
     expect(within(back).getByText("Attending").getAttribute("aria-pressed")).toBe("true");
@@ -184,7 +232,7 @@ describe("EventSheet — moving between the panels", () => {
 
     await userEvent.click(opener);
     await settle();
-    await userEvent.click(button("Give RSVP"));
+    await userEvent.click(segment("Respond"));
     await settle();
 
     await userEvent.keyboard("{Escape}");
@@ -201,7 +249,7 @@ describe("EventSheet — moving between the panels", () => {
 
     await userEvent.click(opener);
     await settle();
-    await userEvent.click(button("See details"));
+    await userEvent.click(segment("Details"));
     await settle();
 
     await userEvent.keyboard("{Escape}");
@@ -219,7 +267,7 @@ describe("EventSheet — moving between the panels", () => {
     scroller().scrollTop = scroller().scrollHeight;
     expect(scroller().scrollTop).toBeGreaterThan(0);
 
-    await userEvent.click(button("See details"));
+    await userEvent.click(segment("Details"));
     await settle();
 
     expect(scroller().scrollTop).toBe(0);
@@ -241,7 +289,7 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(cardButton("Event Details"));
     await settle();
 
-    button("Give RSVP").click();
+    segment("Respond").click();
     const form = wrapperOf("rsvp");
     const [slide] = form.getAnimations();
     expect((slide as CSSAnimation).animationName).toBe("panel-from-end");
@@ -272,7 +320,7 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(cardButton("Respond"));
     await settle();
 
-    button("See details").click();
+    segment("Details").click();
     const [slide] = wrapperOf("details").getAnimations();
     expect((slide as CSSAnimation).animationName).toBe("panel-from-start");
     slide!.pause();
@@ -301,7 +349,7 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(cardButton("Event Details"));
     await settle();
 
-    await userEvent.click(button("Give RSVP"));
+    await userEvent.click(segment("Respond"));
     await settle();
 
     const bar = button("Save").parentElement as HTMLElement;
@@ -316,7 +364,7 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(cardButton("Respond"));
     await settle();
 
-    button("See details").click();
+    segment("Details").click();
     const details = wrapperOf("details");
     expect(Number.parseFloat(getComputedStyle(details).animationDuration)).toBeLessThan(0.001);
     await new Promise(requestAnimationFrame);
@@ -339,7 +387,7 @@ describe("EventSheet — the motion", () => {
     render(() => <Harness />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
-    await userEvent.click(button("Give RSVP"));
+    await userEvent.click(segment("Respond"));
     await settle();
     const spinner = document.createElement("span");
     wrapperOf("details").append(spinner);
@@ -348,7 +396,7 @@ describe("EventSheet — the motion", () => {
       iterations: Infinity,
     });
 
-    button("See details").click();
+    segment("Details").click();
     const [slide] = wrapperOf("details").getAnimations();
     slide!.finish();
     await settle();
@@ -367,12 +415,12 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(cardButton("Event Details"));
     await settle();
 
-    button("Give RSVP").click();
+    segment("Respond").click();
     // Hold the first slide halfway, so the switch back lands mid-slide.
     const [first] = wrapperOf("rsvp").getAnimations();
     first!.pause();
     first!.currentTime = 140;
-    button("See details").click();
+    segment("Details").click();
     const [slide] = wrapperOf("details").getAnimations();
     slide!.pause();
     slide!.currentTime = 0;
@@ -387,44 +435,76 @@ describe("EventSheet — the motion", () => {
   });
 });
 
-describe("EventSheet — the badge", () => {
-  it("gives it a 44px target on both panels, level with the close button", async () => {
-    // A thumb has to hit it; drawn as a small pill, it would otherwise be only
-    // as tall as its line of text.
+describe("EventSheet — the switch", () => {
+  it("gives each segment a 44px target on both panels, level with the close button", async () => {
+    // A thumb has to hit either segment; drawn as a small pill, they would
+    // otherwise be only as tall as their line of text.
     await page.viewport(...PHONE);
     render(() => <Harness />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
 
     const close = button("Close").getBoundingClientRect();
-    const give = button("Give RSVP").getBoundingClientRect();
-    expect(give.height).toBeGreaterThanOrEqual(44);
-    expect(give.top).toBe(close.top);
-    expect(give.right).toBeLessThanOrEqual(close.left);
+    const group = panelSwitch().group.getBoundingClientRect();
+    expect(group.top + group.height / 2).toBeCloseTo(close.top + close.height / 2, 0);
+    expect(group.right).toBeLessThanOrEqual(close.left);
+    for (const name of ["Details", "Respond"] as const) {
+      expect(segment(name).getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    }
     expect(button(/add to calendar/i).getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
 
-    await userEvent.click(button("Give RSVP"));
+    await userEvent.click(segment("Respond"));
     await settle();
-    expect(button("See details").getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    for (const name of ["Details", "Respond"] as const) {
+      expect(segment(name).getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    }
   });
 
-  it("is a pill, not the house's square corner", async () => {
+  it("shows both segments on both panels, and moves the choice between them", async () => {
     await page.viewport(...PHONE);
     render(() => <Harness />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
-    const badge = button("Give RSVP");
-    const radius = Number.parseFloat(getComputedStyle(badge).borderTopLeftRadius);
-    expect(radius).toBeGreaterThanOrEqual(badge.getBoundingClientRect().height / 2);
+    expect(segment("Details").getAttribute("aria-pressed")).toBe("true");
+    expect(segment("Respond").getAttribute("aria-pressed")).toBe("false");
+    expect(pillProgress()).toBeCloseTo(0, 2);
+
+    await userEvent.click(segment("Respond"));
+    await settleSwitch();
+    expect(segment("Details").getAttribute("aria-pressed")).toBe("false");
+    expect(segment("Respond").getAttribute("aria-pressed")).toBe("true");
+    expect(pillProgress()).toBeCloseTo(1, 2);
+  });
+
+  it("is a pill, filled like the close button beside it", async () => {
+    await page.viewport(...PHONE);
+    render(() => <Harness />);
+    await userEvent.click(cardButton("Event Details"));
+    await settle();
+    const { group } = panelSwitch();
+    const radius = Number.parseFloat(getComputedStyle(group).borderTopLeftRadius);
+    expect(radius).toBeGreaterThanOrEqual(group.getBoundingClientRect().height / 2);
     // Opaque, because the sheet's content scrolls underneath it — and filled
     // like the close button beside it.
-    expect(getComputedStyle(badge).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
-    expect(getComputedStyle(badge).backgroundColor).toBe(
+    expect(getComputedStyle(group).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(group).backgroundColor).toBe(
       getComputedStyle(button("Close")).backgroundColor,
     );
   });
 
-  it("keeps the heading clear of the badge row on a 320px phone", async () => {
+  it("opens on the form with the pill already under it, not sliding there", async () => {
+    // The pill's place is written before the first paint, so a sheet opened
+    // on the form shows no pill crossing over as it opens.
+    await page.viewport(...PHONE);
+    render(() => <Harness />);
+    await userEvent.click(cardButton("Respond"));
+    const { pill } = panelSwitch();
+    expect(pill.getAnimations()).toHaveLength(0);
+    expect(pillProgress()).toBeCloseTo(1, 2);
+    await settle();
+  });
+
+  it("keeps the heading clear of the switch's row on a 320px phone", async () => {
     await page.viewport(320, 640);
     render(() => <Harness />);
     await userEvent.click(cardButton("Event Details"));
@@ -432,6 +512,8 @@ describe("EventSheet — the badge", () => {
     const row = button("Close").parentElement!.getBoundingClientRect();
     const heading = dialog().querySelector("h3")!.getBoundingClientRect();
     expect(heading.top).toBeGreaterThanOrEqual(row.bottom);
+    // Nor does the row run off the sheet's start edge.
+    expect(row.left).toBeGreaterThanOrEqual(dialog().getBoundingClientRect().left);
   });
 
   it.each([
@@ -440,20 +522,20 @@ describe("EventSheet — the badge", () => {
     // height ever followed its content again, when the second tap would meet
     // the backdrop and close the sheet.
     ["a household of one", [priya]],
-  ])("does not take the second tap of a double tap straight back, for %s", async (_, members) => {
-    // The badge sits in the same corner on both panels, and the sheet keeps
-    // one height, so the second tap of a double tap lands on its twin.
+  ])("leaves the sheet on the form after a double tap on Respond, for %s", async (_, members) => {
+    // The second tap of a double tap lands where the first did: on the
+    // segment just chosen, which does nothing. The overlay drawn over it
+    // takes no pointer input, so the tap reaches the button.
     await page.viewport(...PHONE);
     render(() => <Harness members={members} />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
-    const at = centre(button("Give RSVP"));
+    const respond = segment("Respond");
+    const at = centre(respond);
     await mouseClick(at);
     // A thumb's double tap: the second lands some 60ms after the first.
     await new Promise((resolve) => setTimeout(resolve, 60));
-    expect(document.elementFromPoint(at.x, at.y)?.closest("button")?.textContent).toContain(
-      "See details",
-    );
+    expect(document.elementFromPoint(at.x, at.y)?.closest("button")).toBe(respond);
     await mouseClick(at);
     await new Promise(requestAnimationFrame);
     expect(document.querySelector("dialog")?.open).toBe(true);
@@ -467,11 +549,188 @@ describe("EventSheet — the badge", () => {
     render(() => <Harness />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
-    await userEvent.click(button("Give RSVP"));
+    await userEvent.click(segment("Respond"));
     await settle();
     await mouseClick({ x: 10, y: 10 });
     await afterTheCloseEvent();
     expect(document.querySelector("dialog")).toBeNull();
+  });
+});
+
+describe("EventSheet — the switch follows a swipe", () => {
+  it("is drawn at 390px on the details, mid-swipe and on the form", async () => {
+    // Screenshots for review: the pill under Details, crossing over under the
+    // finger with the words changing ink at its edge, and under Respond.
+    const shotOf = (name: string) =>
+      page.screenshot({ path: `__screenshots__/EventSheet.browser.test.tsx/switch-${name}.png` });
+    await page.viewport(390, 844);
+    render(() => <Harness />);
+    await userEvent.click(cardButton("Event Details"));
+    await settle();
+    await shotOf("details");
+
+    const start = bodyOf("details");
+    const width = wrapperOf("details").parentElement!.clientWidth;
+    await touchDrag(start, { x: start.x - width * 0.45, y: start.y }, { end: "hold" });
+    await new Promise(requestAnimationFrame);
+    try {
+      expect(pillProgress()).toBeGreaterThan(0.3);
+      expect(pillProgress()).toBeLessThan(0.6);
+      await shotOf("mid-drag");
+    } finally {
+      await cdp().send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await settleSwipe();
+    }
+
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+    expect(pillProgress()).toBeCloseTo(1, 2);
+    await shotOf("rsvp");
+  });
+
+  it("moves the pill with the finger, with no easing, and back when the drag is cancelled", async () => {
+    await openOn("details");
+    const width = wrapperOf("details").parentElement!.clientWidth;
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 120, y: start.y }, { end: "hold" });
+    await new Promise(requestAnimationFrame);
+    const { group, pill, overlay } = panelSwitch();
+    try {
+      // The share of the panels' width the finger has covered.
+      expect(Math.abs(pillProgress() - 120 / width)).toBeLessThan(0.05);
+      expect(group.hasAttribute("data-dragging")).toBe(true);
+      // Under the finger nothing eases, or the pill would trail it.
+      expect(getComputedStyle(pill).transitionProperty).toBe("none");
+      expect(getComputedStyle(overlay).transitionProperty).toBe("none");
+    } finally {
+      await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+      await settleSwipe();
+    }
+
+    expect(pillProgress()).toBeCloseTo(0, 2);
+    expect(group.hasAttribute("data-dragging")).toBe(false);
+    expect(getComputedStyle(pill).transitionProperty).toBe("transform, clip-path");
+  });
+
+  it("lands the pill under the form when a swipe carries on, and back with the swipe home", async () => {
+    await openOn("details");
+    let start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
+    await settleSwipe();
+    expect(pillProgress()).toBeCloseTo(1, 2);
+    expect(segment("Respond").getAttribute("aria-pressed")).toBe("true");
+
+    start = bodyOf("rsvp");
+    await touchDrag(start, { x: start.x + 250, y: start.y }, { ms: 600 });
+    await settleSwipe();
+    expect(pillProgress()).toBeCloseTo(0, 2);
+    expect(segment("Details").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("clips the on-gold words to the pill, wherever the finger has it", async () => {
+    // The overlay's clip and the pill's box are one shape: the words on gold
+    // are on-gold, and every word off it is gold.
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 150, y: start.y }, { end: "hold" });
+    await new Promise(requestAnimationFrame);
+    try {
+      const { group, pill, overlay } = panelSwitch();
+      const box = pill.getBoundingClientRect();
+      const frame = overlay.getBoundingClientRect();
+      // `inset(top right bottom left)`: the clipped box is the pill's.
+      const clip = getComputedStyle(overlay).clipPath;
+      const [, right, , left] = insetOf(clip, frame.width);
+      expect(frame.left + left).toBeCloseTo(box.left, 0);
+      expect(frame.right - right).toBeCloseTo(box.right, 0);
+      expect(group.hasAttribute("data-dragging")).toBe(true);
+    } finally {
+      await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+      await settleSwipe();
+    }
+  });
+});
+
+/**
+ * What the arriving heading shows after a switch. A heading is never reached by
+ * keyboard, so after a touch or a click the ring would read as the heading
+ * being selected. Chromium draws none either way; the engines that do (iOS
+ * Safari) are out of reach here, so these pin the mechanism: the mark on a
+ * pointer's or a swipe's move, none on a key's, and the rule that drops the
+ * ring where the mark is.
+ */
+describe("EventSheet — focus after a switch", () => {
+  it("hands the heading focus quietly after a swipe", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
+    await settleSwipe();
+
+    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    expect(document.activeElement).toBe(heading);
+    expect(heading.hasAttribute("data-quiet-focus")).toBe(true);
+  });
+
+  it("hands the heading focus quietly after a click on the switch", async () => {
+    await openOn("details");
+    await userEvent.click(segment("Respond"));
+    await settle();
+
+    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    expect(document.activeElement).toBe(heading);
+    expect(heading.hasAttribute("data-quiet-focus")).toBe(true);
+  });
+
+  it("keeps the ring for a key press on the switch, and drops it only where the mark is", async () => {
+    await openOn("details");
+    segment("Respond").focus();
+    await userEvent.keyboard("{Enter}");
+    await settle();
+
+    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    expect(document.activeElement).toBe(heading);
+    expect(heading.hasAttribute("data-quiet-focus")).toBe(false);
+    // Reached by keyboard, so the engine draws the ring, and the page's rule
+    // paints it.
+    expect(heading.matches(":focus-visible")).toBe(true);
+    expect(getComputedStyle(heading).outlineStyle).toBe("solid");
+
+    // The same focus, marked: the rule in `global.css` takes the ring away.
+    heading.setAttribute("data-quiet-focus", "");
+    expect(getComputedStyle(heading).outlineStyle).toBe("none");
+  });
+
+  it("clears the mark once the heading loses focus", async () => {
+    await openOn("details");
+    await userEvent.click(segment("Respond"));
+    await settle();
+    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    expect(heading.hasAttribute("data-quiet-focus")).toBe(true);
+
+    button("Close").focus();
+    expect(heading.hasAttribute("data-quiet-focus")).toBe(false);
+  });
+
+  it("drops a text selection as a drag begins, and selects nothing while it runs", async () => {
+    // A long press can start a native selection on the panel's text; the drag
+    // that follows must not carry it along, highlighted, under the finger.
+    await openOn("details");
+    const heading = wrapperOf("details").querySelector("h3")!;
+    getSelection()!.selectAllChildren(heading);
+    expect(getSelection()!.isCollapsed).toBe(false);
+
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 120, y: start.y }, { end: "hold" });
+    await new Promise(requestAnimationFrame);
+    try {
+      expect(getSelection()!.isCollapsed).toBe(true);
+      const rail = wrapperOf("details").parentElement!;
+      expect(getComputedStyle(rail).userSelect).toBe("none");
+    } finally {
+      await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+      await settleSwipe();
+    }
+    // Once still, the text can be selected again (a long press to copy the address).
+    expect(getComputedStyle(wrapperOf("details").parentElement!).userSelect).not.toBe("none");
   });
 });
 
@@ -737,8 +996,8 @@ describe("EventSheet — swiping between the panels", () => {
       await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
       await settleSwipe();
       expect(dialog().querySelector('[data-panel="rsvp"]')).toBeNull();
-      // The badge still moves between the panels.
-      await userEvent.click(button("Give RSVP"));
+      // The switch still moves between the panels.
+      await userEvent.click(segment("Respond"));
       expect(wrapperOf("rsvp").hidden).toBe(false);
     } finally {
       delete (viewport as unknown as { scale?: number }).scale;
@@ -814,7 +1073,7 @@ describe("EventSheet — swiping between the panels", () => {
     expect(wrapperOf("details").style.transform).toBe("");
     expect(wrapperOf("rsvp").hidden).toBe(true);
     // A button switch afterwards still slides the form in.
-    await userEvent.click(button("Give RSVP"));
+    await userEvent.click(segment("Respond"));
     expect(wrapperOf("rsvp").className).toContain("animate-panel-from-end");
     await settle();
   });
@@ -899,7 +1158,7 @@ describe("EventSheet — swiping between the panels", () => {
       await openOn("rsvp");
       await userEvent.click(within(dialog()).getByText("Attending"));
       await userEvent.click(button("Save"));
-      expect(button("See details").disabled).toBe(true);
+      expect(segment("Details").disabled).toBe(true);
 
       const start = bodyOf("rsvp");
       await touchDrag(start, { x: start.x + 250, y: start.y }, { ms: 600 });
@@ -1055,12 +1314,12 @@ async function swipeFrom(panel: EventPanel) {
 describe("EventSheet — one height for both panels", () => {
   for (const vp of viewports) {
     for (const fx of fixtures) {
-      it(`keeps one height on a ${fx.name} event at ${vp.size.join("×")}, by badge and by swipe`, async () => {
+      it(`keeps one height on a ${fx.name} event at ${vp.size.join("×")}, by the switch and by swipe`, async () => {
         await page.viewport(vp.size[0], vp.size[1]);
         const heights: Record<string, number[]> = {};
 
-        // Opened on the details: the badge there and back, then a swipe there
-        // and back. The first switch is the badge's.
+        // Opened on the details: the switch there and back, then a swipe there
+        // and back. The first switch is a press of the switch.
         const first = render(() => <Harness event={fx.event} members={fx.members} />);
         await userEvent.click(cardButton("Event Details"));
         await settle();
@@ -1069,19 +1328,20 @@ describe("EventSheet — one height for both panels", () => {
         const dl = wrapperOf("details").querySelector("dl")!.getBoundingClientRect();
         const headingGap = dl.top - h3.bottom;
         await shot(`${vp.name}-${fx.name}-details`);
-        await userEvent.click(button("Give RSVP"));
+        await userEvent.click(segment("Respond"));
         await settle();
         await shot(`${vp.name}-${fx.name}-rsvp`);
-        await userEvent.click(button("See details"));
+        await userEvent.click(segment("Details"));
         await settle();
         await swipeFrom("details");
         await swipeFrom("rsvp");
         heights.fromDetails = stop();
         first.unmount();
-        document.body.style.overflow = "";
+        document.documentElement.style.overflow = "";
+        document.documentElement.style.scrollbarGutter = "";
 
         // Opened on the form: answer, which grows the form, then a swipe to
-        // the details as the first switch, and the badge back.
+        // the details as the first switch, and the switch back.
         render(() => <Harness event={fx.event} members={fx.members} />);
         await userEvent.click(cardButton("Respond"));
         await settle();
@@ -1094,7 +1354,7 @@ describe("EventSheet — one height for both panels", () => {
         const gap = scroller().getBoundingClientRect().bottom - bar.getBoundingClientRect().bottom;
         await shot(`${vp.name}-${fx.name}-rsvp-attending`);
         await swipeFrom("rsvp");
-        await userEvent.click(button("Give RSVP"));
+        await userEvent.click(segment("Respond"));
         await settle();
         heights.fromForm = stop();
 
@@ -1137,7 +1397,7 @@ describe("EventSheet — a full event inside the sheet", () => {
       await shot(`${vp.name}-full-details-end`);
 
       // The form scrolls under its bar, and its last guest ends above it.
-      await userEvent.click(button("Give RSVP"));
+      await userEvent.click(segment("Respond"));
       await settle();
       expect(scroller().scrollHeight).toBeGreaterThan(scroller().clientHeight);
       scroller().scrollTop = scroller().scrollHeight;

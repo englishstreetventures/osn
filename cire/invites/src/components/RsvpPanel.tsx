@@ -44,7 +44,7 @@ export interface RsvpPanelProps {
    * a line saying dietary requirements on file are shared with the caterers.
    *
    * A household with a reply on file reaches it on purpose, from the event
-   * card's "RSVP given" or the details' "View your RSVP" badge. It is also
+   * card's "RSVP given" or the sheet's "Your RSVP" segment. It is also
    * what a sheet already open becomes when the deadline passes under it. The
    * server refuses a write past the deadline regardless (403 `rsvp_closed`).
    */
@@ -440,7 +440,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
   // Save waits for "Who are you?"; preview never writes, so never waits.
   const blockedByMember = () => props.memberRequired === true && props.preview !== true;
 
-  // C-L2: the deadline can pass with this sheet open, and closing it unmounts
+  // The deadline focus rescue. The deadline can pass with this sheet open, and closing it unmounts
   // the submit button. If focus was ON that button, the browser drops focus to
   // `<body>` — outside an `aria-modal` dialog, with no keyboard way back in.
   //
@@ -487,10 +487,11 @@ export function RsvpPanel(props: RsvpPanelProps) {
     // a second POST would rewrite the same rows. The Save button advertises
     // this with `aria-disabled` rather than `disabled`, precisely so it can
     // keep focus (disabling the focused control drops focus to `<body>`,
-    // outside this `aria-modal` dialog — the C-L2 failure below), which leaves
+    // outside this `aria-modal` dialog — the failure the deadline focus rescue
+    // above exists for), which leaves
     // the guard here as the thing that actually stops the resubmit.
     //
-    // `loading()` is guarded here too (S-L1), even though the button carries a
+    // `loading()` is guarded here too, even though the button carries a
     // real `disabled` in that state. The attribute only stops paths that route
     // through the button — a programmatic `form.requestSubmit()` or a dispatched
     // `submit` event reaches this handler regardless, and a second concurrent
@@ -626,7 +627,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
         // which keeps the answers it already has until the next claim.
         const data: unknown = await res.json().catch(() => null);
         const rows = isValidRsvpSaveResponse(data) ? data.rsvps : null;
-        // All three writes in one `batch` (P-I1). We are past an `await`, so
+        // All three writes in one `batch`. We are past an `await`, so
         // without it each is its own synchronous graph walk: `locked()` is a
         // plain accessor rather than a memo, so every `disabled={locked()}`
         // site subscribes individually — both toggles per member, the dietary
@@ -637,7 +638,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
         // intermediate state, on the exact frame the button's label flips to
         // "Saved".
         //
-        // Order inside the batch is load-bearing (S-L2): `enterSavedState`
+        // Order inside the batch is load-bearing: `enterSavedState`
         // registers the dwell timer BEFORE `onSubmitted` hands rows to the
         // parent. A parent that responded by unmounting this sheet would
         // otherwise run `onCleanup` first and leave the timer to be registered
@@ -741,6 +742,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
       <Show when={props.closed}>
         <p
           class="border-border bg-surface-raised text-text-muted text-ui-xs mb-6 rounded-sm border px-3.5 py-2.5 leading-relaxed"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: that element is form-associated, and this is a notice about the wedding, not the result of anything the guest did.
           role="status"
         >
           {props.closedOn ? `RSVPs closed on ${props.closedOn}.` : "RSVPs have closed."} This is
@@ -752,6 +754,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
       <Show when={props.preview}>
         <p
           class="border-gold/40 bg-gold/5 text-gold-ink text-ui-xs mb-6 rounded-sm border px-3.5 py-2.5 leading-relaxed"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: that element is form-associated, and this is a notice about the wedding, not the result of anything the guest did.
           role="status"
         >
           Preview — try the RSVP as a guest would. Nothing you send here is saved.
@@ -1006,7 +1009,11 @@ export function RsvpPanel(props: RsvpPanelProps) {
             in a `<Show>`: assistive tech announces a CHANGE inside a live
             region it was already watching, and a region that springs into
             existence alongside its content is frequently missed. */}
-        <p class="sr-only" role="status">
+        <p
+          class="sr-only"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the same live region as the notices above; `<output>` would make this one line form-associated where they are not.
+          role="status"
+        >
           {saved() ? `Your RSVP for ${props.event.name} has been saved.` : ""}
         </p>
 
@@ -1034,15 +1041,16 @@ export function RsvpPanel(props: RsvpPanelProps) {
             // closing itself — and an early `onClose` here would race the
             // dwell timer for the same call.
             //
-            // `&& !props.closed` is load-bearing, not defensive (T-M2). Past the
+            // `&& !props.closed` is load-bearing, not defensive. Past the
             // deadline this button relabels to "Close" and becomes the form's
-            // ONLY control — and it is the target of the C-L2 focus rescue
+            // ONLY control — and it is the target of the deadline focus rescue
             // above, which calls `.focus()` on it. `.focus()` is a no-op on a
             // disabled button. The deadline can flip INSIDE the dwell,
             // unmounting the focused submit button; without this clause the
             // rescue would fire into a disabled control and strand focus on
             // `<body>`, outside an `aria-modal` dialog with no keyboard way
-            // back in. That is exactly the failure C-L2 exists to prevent, so
+            // back in. That is exactly the failure the deadline focus rescue
+            // exists to prevent, so
             // the confirmed state must not be able to reintroduce it.
             disabled={(loading() || saved()) && !props.closed}
           >
@@ -1083,7 +1091,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
               // Not `disabled`: this button holds keyboard focus at the moment
               // the reply lands, and disabling a focused control drops focus to
               // `<body>` — outside an `aria-modal` dialog, with no keyboard way
-              // back in (the same failure C-L2 documents below). `aria-disabled`
+              // back in (the failure the deadline focus rescue exists for). `aria-disabled`
               // states the same thing without moving focus; `handleSubmit`
               // enforces it.
               aria-disabled={saved() || blockedByMember() || undefined}

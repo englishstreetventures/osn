@@ -350,17 +350,17 @@ rather than emitting one:
 bun run --cwd cire/db db:generate --name rsvp_dietary_presets
 ```
 
-Pass `--name`. Without it drizzle-kit invents one, and the journal entry's `tag`
-is the emitted filename — renaming the file by hand afterwards fails the first
-assertion in `cire/api/tests/db/ddl-lockstep.test.ts`.
+`--name` is required, in snake_case. The file it writes is
+`cire/db/migrations/<YYYYMMDDHHMMSS>_<name>.sql`, stamped in UTC, and it is the
+whole migration: no journal and no snapshot go with it, so two branches that
+each add a migration never conflict. How it is generated, and what it refuses,
+is in `cire/db/README.md` §How a migration is made; the same workflow serves
+osn, pulse and zap ([[commands#Migrations]]).
 
-**A boolean column with a default needs one hand edit.** drizzle-kit writes
-`integer(..., { mode: "boolean" }).default(true)` into the migration as
-`DEFAULT true`. SQLite accepts it, but `PRAGMA table_info` then reads the
-default back as the text `true`, while the lockstep test renders Drizzle's
-boolean default as `1`. Change it to `DEFAULT 1` (or `DEFAULT 0`) in the
-generated SQL and use the same literal in `setup.ts`; leave the snapshot as
-drizzle-kit wrote it. `0063_invite_section_visibility.sql` is the example.
+**A boolean default is written `1` or `0`.** `db:generate` corrects drizzle-kit's
+`DEFAULT true` to `DEFAULT 1` (SQLite would read `true` back as text, where the
+lockstep test renders Drizzle's boolean default as `1`). Use the same literal in
+`setup.ts`. `0063_invite_section_visibility.sql` in the archive is the example.
 
 **A cire column has three DDL surfaces, not two.** The migration and
 `cire/db/src/schema.ts` are the two an agent reaches for; the third is the test
@@ -375,9 +375,9 @@ tier is reseeded, and `cire/db/tests/seed/seed.test.ts` fails on a table the
 file does not drop.
 
 **Dropping a column is `ALTER TABLE … DROP COLUMN`, never a copy-and-swap.**
-Check what `db:generate` wrote before keeping it: a `__new_<table>` rebuild drops
-the table, and D1 enforces foreign keys, so the drop cascades into every child
-table. SQLite refuses to drop an indexed column, so `DROP INDEX` comes first,
+`db:generate` refuses a `__new_<table>` rebuild, which drops the table, and D1
+enforces foreign keys, so the drop cascades into every child table. Write such a
+change by hand with `--custom`. SQLite refuses to drop an indexed column, so `DROP INDEX` comes first,
 and each statement needs its own `--> statement-breakpoint`, because
 `d1-integration.test.ts` and D1's `prepare` take one statement at a time. A data
 step that has to run before the drop goes at the top of the same file.
@@ -457,7 +457,9 @@ override still applies). It percent-encodes the id, so an id holding `/`, `?` or
 `#` stays inside its own segment. Encoding leaves `.` and `..` alone and the URL
 parser resolves them as dot segments, so where a wedding id is read from a URL —
 the dashboard hash (`dashboard-route.ts`) and the upgrade return query
-(`upgrade-return.ts`) — `isDotSegment` refuses it. Ids further along the path
+(`upgrade-return.ts`) — `isDotSegment` refuses it. `parseRoute` drops the RSVP page's event id, also
+read from the hash, the same way, though that id only ever selects among the
+events the API returned and never reaches a request path. Ids further along the path
 (an item, a task, a payment) are encoded at the call site with
 `encodeURIComponent`. `tests/lib/wedding-path.contract.test.ts` fails on any
 hand-built `/api/organiser/weddings/${…}` outside `api.ts`.

@@ -31,7 +31,7 @@ describe("WebAuthn browser ceremony", () => {
     const result = await startRegistration({
       optionsJSON: {
         challenge: "AQID",
-        rp: { name: "OSN", id: "example.com" },
+        rp: { name: "Musubi", id: "example.com" },
         user: { id: "BAUG", name: "alice", displayName: "Alice" },
         pubKeyCredParams: [{ type: "public-key", alg: -7 }],
       },
@@ -131,7 +131,7 @@ describe("WebAuthn browser ceremony", () => {
     const error: unknown = await startRegistration({
       optionsJSON: {
         challenge: "AQID",
-        rp: { name: "OSN", id: "example.com" },
+        rp: { name: "Musubi", id: "example.com" },
         user: { id: "BAUG", name: "alice", displayName: "Alice" },
         pubKeyCredParams: [{ type: "public-key", alg: -7 }],
       },

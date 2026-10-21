@@ -195,7 +195,7 @@ describe("createRegistrationClient", () => {
 
   describe("passkeyRegisterBegin / passkeyRegisterComplete (access-token-gated)", () => {
     it("passkeyRegisterBegin sends Authorization: Bearer <accessToken>", async () => {
-      const options = { challenge: "ch_123", rp: { name: "OSN" } };
+      const options = { challenge: "ch_123", rp: { name: "Musubi" } };
       const { calls } = stubFetch(() => jsonResponse(options));
       const result = await client.passkeyRegisterBegin({
         profileId: "usr_abc",

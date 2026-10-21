@@ -13,6 +13,7 @@ related:
   - "[[rate-limiting]]"
   - "[[cire-auth]]"
   - "[[testing-patterns]]"
+  - "[[toast]]"
 last-reviewed: 2026-10-21
 ---
 
@@ -195,7 +196,7 @@ A couple can list named cash funds — a honeymoon, a house deposit — beside t
 
 **Deleting a fund keeps every gift given to it**, as deleting any listing does (`item_id` is SET NULL), and each gift keeps the fund's name in `item_title`. A gift still `pending` at the time settles as normal. There is no "retire" state: a couple who want a fund off the list delete it.
 
-**The guest's choice.** In `GiftMoneyPanel`, "What it's for" sits above the amounts: "Wherever they choose" first and chosen, then each fund by its picture, name and words, as radios. The radios are visually hidden so the whole row is the control, so the chosen row shows a filled ring and the chosen amount a tick as well as the gold border: colour alone would not tell every guest which fund their money goes to. The choice sends the fund's id as `itemId`. A `409 fund_unavailable` says the fund is no longer on the couple's list, the page re-reads the list, and the choice goes back to "Wherever they choose" once the fund is gone from it. The invite's teaser band takes fund pictures into its peek row too.
+**The guest's choice.** In `GiftMoneyPanel`, "What it's for" sits above the amounts: "Wherever they choose" first and chosen, then each fund by its picture, name and words, as radios. The radios are visually hidden so the whole row is the control, so the chosen row shows a filled ring and the chosen amount a tick as well as the gold border: colour alone would not tell every guest which fund their money goes to. The choice sends the fund's id as `itemId`. A `409 fund_unavailable` raises an error toast, "This fund is no longer available.", with a **Refresh** action; the panel's status line stays empty, so the guest is told once. The toast stays until the guest presses Refresh or closes it, and a new attempt to give takes it away. Refresh re-reads the list, and once the fund is gone from it the choice goes back to "Wherever they choose". The page does not re-read on its own: the owner chose the button. The gift page mounts its own `<Toaster>` for this ([[toast]]). The invite's teaser band takes fund pictures into its peek row too.
 
 ### What the couple keeps (built)
 

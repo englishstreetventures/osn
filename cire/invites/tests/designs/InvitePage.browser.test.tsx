@@ -1,5 +1,5 @@
 import { contrastRatio, WCAG_TEXT_MIN } from "@cire/theme";
-import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, waitFor, within } from "@solidjs/testing-library";
 
 import "../../src/styles/global.css";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -380,20 +380,15 @@ describe.each([
     await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy(), SHEET_OPENS);
     const sheet = document.querySelector("dialog") as HTMLDialogElement;
 
-    await userEvent.click(
-      [...sheet.querySelectorAll("button")].find((b) =>
-        b.textContent?.includes("Give RSVP"),
-      ) as HTMLButtonElement,
-    );
+    // The sheet's switch, by role and name inside the dialog: the card behind
+    // it has a "Respond" of its own.
+    const segment = (name: string) => within(sheet).getByRole("button", { name });
+    await userEvent.click(segment("Respond"));
     expect(document.activeElement?.textContent).toMatch(/Respond.*Mehndi/);
     answer("Priya");
     await panelSettled(sheet);
 
-    await userEvent.click(
-      [...sheet.querySelectorAll("button")].find((b) =>
-        b.textContent?.includes("See details"),
-      ) as HTMLButtonElement,
-    );
+    await userEvent.click(segment("Details"));
     expect(document.activeElement?.textContent).toMatch(/Details.*Mehndi/);
     expect(document.querySelector("dialog")).toBe(sheet);
     expect(sheet.matches(":modal")).toBe(true);

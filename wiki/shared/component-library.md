@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Component Library (Zaidan)
@@ -215,11 +215,12 @@ starts `autoUpdate` only once the panel mounts. Showing every row of a 900-row
 RSVP list again, about 120 of them badged, costs 4 to 12 ms more with each
 badge inside `Tooltip` than with the same badges bare.
 
-*Measured 2026-10-20 — a one-off script over the 900-row fixture in
-`cire/host/tests/components/RsvpView.layout.browser.test.tsx`: a search that
-matches no row, then a timed `search("")` and forced layout, 12 times, median
-taken; three runs with each badge inside `Tooltip` (76–82 ms) and three with
-the same badges bare (70–72 ms)*
+*Measured 2026-10-20 — a one-off script over the fixture
+`cire/host/tests/components/RsvpView.layout.browser.test.tsx` held that day:
+three events of 300 guests, all drawn at once, 900 rows. A search that matches
+no row, then a timed `search("")` and forced layout, 12 times, median taken;
+three runs with each badge inside `Tooltip` (76–82 ms) and three with the same
+badges bare (70–72 ms)*
 
 Two test files hold the guarantees, in real Chrome.
 `cire/host/tests/components/RsvpView.badges.browser.test.tsx` holds them where
@@ -230,6 +231,67 @@ tree once and never as a description, with the panel closed and open.
 `shared/ui/tests/tooltip.browser.test.tsx` holds the two a caller's page can
 hide: the hidden copy as written inside an `uppercase` run, and no animation
 for a reader who asked for reduced motion.
+
+### Table and its pinned cells
+
+`Table` is the scroll box, `Th` a column head, `Td` a cell. The box scrolls
+sideways so a wide table never takes the page with it, and it is a named,
+focusable region so its far columns are reachable from the keyboard.
+
+A sticky cell inside a `Table` sticks to its box, never to the page
+([[frontend-patterns]] §`position: sticky` resolves its offsets against the
+scrollport). For a long table whose head row and first column must stay on
+screen, the call site gives the box a height to scroll within and pins the
+cells. The sizes in angle brackets are the call site's: cire's RSVP table uses
+`6rem`, `scroll-pt-12` and `scroll-ps-50` (`cire/host/DESIGN.md` §A table that
+keeps its heads in view).
+
+```tsx
+<Table
+  label="Replies"
+  class="relative isolate max-h-[calc(100svh-<top bar and a margin>)] scroll-pt-<head row> scroll-ps-<pinned column> overflow-y-auto"
+>
+  <thead>
+    <tr>
+      <Th pin="top-start">Guest</Th>
+      <Th pin="top">Status</Th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <Td pin="start">Ada Sharma</Td>
+      <Td>Attending</Td>
+    </tr>
+  </tbody>
+</Table>
+```
+
+| `pin` | On | Holds the cell | Layer |
+|---|---|---|---|
+| `top` | `Th` | at the top of the box | 2 |
+| `top-start` | `Th` | at the corner: top and start edge | 3 |
+| `start` | `Td` | at the start edge | 1 |
+
+A pinned cell paints `--ui-ground`, so the rows passing under it never show
+through. That is only invisible on a table set straight on the page ground; on
+a tinted card it reads as a band. The start column and the corner carry a
+full-strength hairline on their end edge, which says where the held column
+stops once the others slide beneath it; the row rules stay at 40%. On the box,
+`isolate` keeps the layers inside it; `relative` makes it the containing block
+for any `sr-only` text in its cells ([[frontend-patterns]] §`sr-only` is
+`position: absolute`); and scroll padding a little larger than the head row and
+the pinned column keeps a focused control clear of the pinned cells. Pin a
+column only where the box can scroll sideways: each pinned cell costs every
+scrolled frame.
+
+`pin` is a variant because `shadcn/no-restyle` refuses a cell's colour and
+border from a call site (§What a call site may set, below). The position
+classes alone would leave a transparent cell the rows show through.
+`shared/ui/tests/data.browser.test.tsx` holds it in real Chrome: the head row
+at the top and the first column at the start of a box scrolled both ways, each
+painted over what passes beneath, opaque over white and over black alike, with
+the full hairline at its end edge, and a plain cell left transparent and in
+flow. Its one user is cire's RSVP table ([[cire-rsvp-table]]).
 
 ## Importing
 
@@ -671,8 +733,8 @@ whole mechanism, and it is enough for paint.
 > of anything, so a toast raised over a modal is seen and nothing more, and has
 > to be a confirmation the dialog itself also states.
 
-Both of these are live in `cire/invites`: `AddToCalendar` renders in place as a
-popover, and `@shared/toast`'s `Toaster` takes a `topLayer` flag that shows the
+Both of these are live in `cire/invites`: `LinkMenu` (Add to calendar, Open in
+maps) renders in place as a popover, and `@shared/toast`'s `Toaster` takes a `topLayer` flag that shows the
 container as a popover while it has something to show ([[toast]] §`topLayer`).
 `cire/invites/src/lib/z-index.ts` documents what is left for numbers to decide,
 which is everything that is not a dialog.
@@ -743,7 +805,7 @@ grouped by the job rather than by the look:
 | Destructive    | `danger`, `quietDanger`, `bareDanger` | Red at rest for the button that commits it; muted at rest and red on hover for the control that merely offers it, boxed (`quietDanger`) or as a glyph (`bareDanger`). A column of red-outlined buttons down a table reads as an error state   |
 | Text           | `link`, `subtle`, `touchLink`         | Accent ink, muted ink, and muted ink carrying its underline at rest. The last is for a link whose underline must show without hover: on `@cire/invites`, read on a phone where there is no hover to reveal one, and for a link set inside a sentence, where colour alone does not mark it (WCAG 1.4.1) |
 | Glyph          | `bare`                                | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline                                                                                                                                                    |
-| Chrome         | `chip`                                | A control in a sheet's own chrome rather than its content — the guest event sheet's "Give RSVP →" and "← See details" beside its round close button. A pill on the surface fill, so content can scroll under it, in accent ink because it leads somewhere |
+| Field          | `field`                               | A control shaped like the field it stands in for — the dietary picker's collapsed trigger, in a column of text inputs: sentence case, an input's padding, transparent like the inputs around it |
 | State and fill | `choice`, `tile`                      | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same; and the control that _is_ a block — a card, a row — where a hairline stops describing the target             |
 
 Five sizes, and they are not one scale:
@@ -754,11 +816,12 @@ Five sizes, and they are not one scale:
 | `swatch`         | one hairline of padding, no type at all           | A control whose content is the thing itself — a colour swatch, a product thumbnail. The picture is what sizes it |
 | `icon`           | square, sized to the glyph rather than to a label | A single glyph                                                                                                   |
 
-Three sizing tables, picked by the variant. The borderless ones take the type
+Four sizing tables, picked by the variant. The borderless ones take the type
 step and none of the box padding, because `px-4 py-2` around a text link is a
 word floating in a gap. `tile` takes square block padding, because its interior
 is a small layout — a numbered marker beside two lines of text — rather than a
-word. Everything else takes the ordinary one.
+word. `field` takes an input's padding and sentence case. Everything else takes
+the ordinary one.
 
 `cire/ui/src/button.tsx` carries the reason for each in its own doc comment, and
 that is the bar for adding one: a variant is a design concept somebody can name,

@@ -584,7 +584,7 @@ export function createStepUpModule(ctx: AuthContext) {
         .send({
           template: "otp-step-up",
           to: account.email,
-          data: { code, ttlMinutes: otpTtl / 60 },
+          data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
         })
         .pipe(
           Effect.mapError(

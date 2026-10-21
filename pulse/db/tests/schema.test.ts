@@ -11,7 +11,7 @@ import { applySchema } from "../src/testing";
 function createTestDb() {
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
-  return drizzle(sqlite, { schema });
+  return drizzle({ client: sqlite });
 }
 
 describe("events schema", () => {
@@ -135,7 +135,9 @@ describe("event_rsvps schema", () => {
         profileId: "usr_alice",
         createdAt: now,
       }),
-    ).rejects.toThrow(/UNIQUE constraint failed/);
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringMatching(/UNIQUE constraint failed/) },
+    });
   });
 
   it("allows same user on different events", async () => {
@@ -233,7 +235,9 @@ describe("pulse_close_friends schema", () => {
         friendId: "usr_bob",
         createdAt: now,
       }),
-    ).rejects.toThrow(/UNIQUE constraint failed/);
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringMatching(/UNIQUE constraint failed/) },
+    });
   });
 
   it("allows the same friend across two different profiles (one-way edges)", async () => {

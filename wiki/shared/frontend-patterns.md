@@ -23,7 +23,7 @@ packages:
   - "@cire/host"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Frontend Patterns
@@ -246,6 +246,24 @@ For that to work the panel around the scrollport must not itself scroll, which i
 also covers the `<dialog>` user-agent padding that put this exact bar 16px above
 the edge it seats on.
 
+**The scrollport is the nearest box that scrolls on either axis.** A box with
+`overflow-x: auto` computes its `overflow-y` to `auto` as well (CSS Overflow 3
+§3.1), so it scrolls both ways, and a sticky cell inside it sticks to that box —
+never to the page beyond. `@shared/ui`'s `Table` wraps every table in such a
+box, so a table head marked `sticky top-0` stays put only if that box itself
+scrolls down: give it a height to scroll within. Three costs come with that,
+each measured on cire's RSVP table ([[cire-rsvp-table]]):
+
+- **Focus can land under a sticky cell.** The browser scrolls a focused control
+  into the scrollport, which still includes the area an opaque sticky cell
+  covers. Scroll padding the size of the sticky head row and column
+  (`scroll-pt-*`, `scroll-ps-*`) keeps focus clear of them.
+- **Every sticky cell costs every scrolled frame.** A column pinned on each of
+  900 rows multiplies the main-thread time a scroll takes; pin it only where
+  the box can actually scroll that way.
+- **A wheel over the box moves its rows first**, and the page only once the box
+  reaches its end.
+
 ### The top layer is above every `z-index`, and outside it everything is `inert`
 
 A `<dialog>` opened with `showModal()` paints above every stacking context in the
@@ -337,7 +355,11 @@ Three facts decide how a short badge explains itself:
   readers can be set to announce capitals, or read a word in capitals letter by
   letter, and a sentence is meant to be read as written. A one-word label can
   stay `uppercase`, as the badges' own words do; give a hidden sentence
-  `normal-case`.
+  `normal-case`. A control whose name is a phrase takes an `aria-label` in
+  sentence case instead of building its name from its text: the RSVP page's
+  event tabs ("Reception, 300 guests") name themselves that way, because a name
+  read from their text also gains a space before each comma between flex items
+  (`cire/host/tests/components/RsvpView.events.browser.test.tsx`).
 
   *Unverified — no screen reader was run; what was measured is the text in
   Chrome's accessibility tree.*

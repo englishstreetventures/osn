@@ -14,7 +14,7 @@ import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data, type Types } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { DbService, dbQuery, driverErrorText } from "../db";
 import type { BatchableDb, BatchStatements, Db } from "../db";
 import { metricImportApplied } from "../metrics";
 import type {
@@ -34,18 +34,40 @@ import type {
   ImportSummary,
   ParsedEvent,
   Provenance,
+  RunOfShowItem,
 } from "../schemas/import";
 import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
+import { sameRunOfShow } from "./guest-event-validation";
 import { resolvePinUrl } from "./pinterest-resolve";
+import { runOfShowColumn, runOfShowFrom, runOfShowStatements } from "./run-of-show";
 import { seatingLoss, seatingLossWarning } from "./seating";
-import { BASE_GUEST_CAP, CapacityExceeded, capForTier, normaliseTier, tierService } from "./tiers";
+import {
+  BASE_GUEST_CAP,
+  CapacityExceeded,
+  capForTier,
+  normaliseTier,
+  roomForOneMoreGuest,
+  tierService,
+} from "./tiers";
 
 // ── Tagged errors ─────────────────────────────────────────────────────────────
 
+/**
+ * The write set did not commit in full. Batches before the failed one may have
+ * committed (see {@link commitWriteSet}), so a caller treats this as a change
+ * that may have written part of its data.
+ */
 export class ImportError extends Data.TaggedError("ImportError")<{
   readonly reason: string;
   readonly cause?: unknown;
+  /**
+   * Set when the guest cap refused a batch while it was being written: the
+   * check before the write passed, and another writer took the place between
+   * it and the batch. Carries the numbers for the same answer as a refusal
+   * before the write.
+   */
+  readonly capacity?: CapacityExceeded;
 }> {}
 
 /**
@@ -217,15 +239,29 @@ export interface DiffOptions {
 
 /**
  * A stored event as the diff reads it: `id` for matching and the op lists,
- * `name` for the normalised-name map, and whether the row has a venue name and
- * a description, so the preview can warn when an update would clear one.
- * Flags rather than the text: a description can run to `MAX_CELL_LENGTH`.
+ * `name` for the normalised-name map, and whether the row has each of the
+ * texts an update can clear, so the preview can warn when one would go. Flags
+ * rather than the text: a description can run to `MAX_CELL_LENGTH`.
  */
 interface ExistingEvent {
   readonly id: string;
   readonly name: string;
   readonly hasVenueName?: boolean;
   readonly hasDescription?: boolean;
+  readonly hasGettingThere?: boolean;
+  readonly hasChildrenPolicy?: boolean;
+  readonly hasPlusOnePolicy?: boolean;
+  readonly hasGuestPolicyNote?: boolean;
+  /** The stored run of show as {@link runOfShowColumn} reads it, or null when
+   *  the diff did not read it. */
+  readonly runOfShow?: string | null;
+}
+
+/** "a", "a and b", "a, b and c". */
+function listed(words: readonly string[]): string {
+  return words.length <= 1
+    ? (words[0] ?? "")
+    : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
 }
 
 /**
@@ -234,13 +270,46 @@ interface ExistingEvent {
  * (`sheetText` in `services/spreadsheet.ts`), but a download made before the
  * venue name existed has a Location column that is always blank, and
  * re-uploading one would otherwise clear every venue name set since unseen.
+ * The run of show, getting-there notes and guest policy follow the same rule,
+ * so a clear of any of them is named too. `storedRunOfShow` is the event's
+ * list as stored (empty when it has none).
  */
-function clearWarning(existing: ExistingEvent, parsed: ParsedEvent): string | null {
+function clearWarning(
+  existing: ExistingEvent,
+  parsed: ParsedEvent,
+  storedRunOfShow: readonly RunOfShowItem[],
+): string | null {
   const lost = [
     existing.hasVenueName === true && parsed.venueName === null ? "venue name" : null,
     existing.hasDescription === true && parsed.description === "" ? "description" : null,
+    storedRunOfShow.length > 0 && parsed.runOfShow?.length === 0 ? "run of show" : null,
+    existing.hasGettingThere === true && parsed.gettingThere === null
+      ? "getting-there notes"
+      : null,
+    existing.hasChildrenPolicy === true && parsed.childrenPolicy === null
+      ? "children policy"
+      : null,
+    existing.hasPlusOnePolicy === true && parsed.plusOnePolicy === null ? "plus-one policy" : null,
+    existing.hasGuestPolicyNote === true && parsed.guestPolicyNote === null
+      ? "guest policy note"
+      : null,
   ].filter((field) => field !== null);
-  return lost.length === 0 ? null : `Event "${parsed.name}" would lose its ${lost.join(" and ")}.`;
+  return lost.length === 0 ? null : `Event "${parsed.name}" would lose its ${listed(lost)}.`;
+}
+
+/**
+ * The event as an update writes it: without `runOfShow` when the list it
+ * states is the one stored, so apply leaves that list alone. Every events
+ * editor save states every event's list, and rewriting each unchanged one
+ * would cost a delete and an insert per event on every save.
+ */
+function withoutUnchangedRunOfShow(
+  parsed: ParsedEvent,
+  stored: readonly RunOfShowItem[],
+): ParsedEvent {
+  if (parsed.runOfShow === undefined || !sameRunOfShow(parsed.runOfShow, stored)) return parsed;
+  const { runOfShow: _unchanged, ...rest } = parsed;
+  return rest;
 }
 
 export function diffAgainstDb(
@@ -293,20 +362,34 @@ export function diffAgainstDb(
     // branch below exists purely to build the name → id map, so dragging full
     // event rows — descriptions, palettes, URLs — across the D1 wire to do it is
     // pure waste.
-    const existingEvents: readonly ExistingEvent[] =
-      options.existingEvents ??
-      (yield* dbQuery(() =>
-        db
-          .select({
-            id: events.id,
-            name: events.name,
-            hasVenueName: sql<boolean>`${events.venueName} IS NOT NULL`.mapWith(Boolean),
-            hasDescription: sql<boolean>`${events.description} <> ''`.mapWith(Boolean),
-          })
-          .from(events)
-          .where(eq(events.weddingId, weddingId))
-          .all(),
-      ));
+    // Each event's stored run of show rides the same read, and only when the
+    // change states a run of show for some event: an update's list is compared
+    // with its event's, so an unchanged one is not rewritten, and an emptied
+    // one is warned about.
+    const statesRunOfShow = manageEvents && parsedEvents.some((e) => e.runOfShow !== undefined);
+    const existingEvents: readonly ExistingEvent[] = options.existingEvents
+      ? options.existingEvents
+      : yield* dbQuery(() =>
+          db
+            .select({
+              id: events.id,
+              name: events.name,
+              hasVenueName: sql<boolean>`${events.venueName} IS NOT NULL`.mapWith(Boolean),
+              hasDescription: sql<boolean>`${events.description} <> ''`.mapWith(Boolean),
+              hasGettingThere: sql<boolean>`${events.gettingThere} IS NOT NULL`.mapWith(Boolean),
+              hasChildrenPolicy: sql<boolean>`${events.childrenPolicy} IS NOT NULL`.mapWith(
+                Boolean,
+              ),
+              hasPlusOnePolicy: sql<boolean>`${events.plusOnePolicy} IS NOT NULL`.mapWith(Boolean),
+              hasGuestPolicyNote: sql<boolean>`${events.guestPolicyNote} IS NOT NULL`.mapWith(
+                Boolean,
+              ),
+              runOfShow: statesRunOfShow ? runOfShowColumn : sql<string | null>`NULL`,
+            })
+            .from(events)
+            .where(eq(events.weddingId, weddingId))
+            .all(),
+        );
     const existingEventByNorm = new Map(existingEvents.map((e) => [normaliseName(e.name), e]));
     const existingEventById = new Map(existingEvents.map((e) => [e.id, e]));
 
@@ -336,10 +419,11 @@ export function diffAgainstDb(
         const candidate = byId ?? (matchByName ? existingEventByNorm.get(norm) : undefined);
         const existing = candidate && !matchedEventIds.has(candidate.id) ? candidate : undefined;
         if (existing) {
-          eventUpdates.push({ id: existing.id, event: parsed });
+          const stored = runOfShowFrom(existing.runOfShow);
+          eventUpdates.push({ id: existing.id, event: withoutUnchangedRunOfShow(parsed, stored) });
           eventIdByNorm.set(norm, existing.id);
           matchedEventIds.add(existing.id);
-          const cleared = clearWarning(existing, parsed);
+          const cleared = clearWarning(existing, parsed, stored);
           if (cleared) clearWarnings.push(cleared);
         } else {
           const id = crypto.randomUUID();
@@ -892,10 +976,11 @@ export function diffAgainstDb(
     }
 
     // ── Capacity preview warning (non-blocking) ──────────────────────────────
-    // Warn early when this plan would breach the tier's cap. The hard atomic
-    // block lives in applyImport — this warning lets the preview UI surface the
-    // issue before the organiser commits. Host-preview families are excluded from
-    // the current-guest count (same join + ne(kind,'host') as tierService).
+    // Warn early when this plan would breach the tier's cap. applyImport
+    // enforces it, before the write and inside it — this warning lets the
+    // preview UI surface the issue before the organiser commits. Host-preview
+    // families are excluded from the current-guest count (same join +
+    // ne(kind,'host') as tierService).
     //
     // `derivedCap` rides on the returned plan so `applyImport` doesn't read the
     // SAME tier a second time in the SAME request — see `applyImport`'s call to
@@ -1025,6 +1110,57 @@ async function commitWriteSet(db: Db, statements: BatchItem<"sqlite">[]): Promis
   );
 }
 
+/**
+ * Whether the statement at `index` of a write set is the last of a run ending
+ * at `lastIndex` to commit in its D1 batch: it is the run's last, or the next
+ * statement starts the next batch. {@link commitWriteSet} slices the write set
+ * into batches of {@link MAX_STATEMENTS_PER_BATCH}, so statement `i` commits in
+ * batch `floor(i / MAX_STATEMENTS_PER_BATCH)`.
+ */
+function closesBatch(index: number, lastIndex: number): boolean {
+  return (
+    index === lastIndex ||
+    Math.floor((index + 1) / MAX_STATEMENTS_PER_BATCH) !==
+      Math.floor(index / MAX_STATEMENTS_PER_BATCH)
+  );
+}
+
+/**
+ * The database's own words when a guest insert built by {@link insertGuest}
+ * found no room under the cap. No other write in the set puts NULL in
+ * `guests.family_id`: every planned guest names its household.
+ */
+const NO_ROOM_FOR_GUEST = "NOT NULL constraint failed: guests.family_id";
+
+/**
+ * One planned guest's insert. When `checkCap` is set, the row names its
+ * household only while the wedding has room for one more guest under the cap
+ * its tier gives it now, counting every guest written before it, the earlier
+ * rows of its own batch included. Without room the household is NULL: the NOT
+ * NULL column fails the statement and, on D1, rolls back the batch it rides in.
+ */
+function insertGuest(
+  db: Db,
+  gc: GuestCreate,
+  weddingId: string,
+  now: Date,
+  checkCap: boolean,
+): BatchItem<"sqlite"> {
+  return db.insert(guests).values({
+    id: gc.id,
+    familyId: checkCap
+      ? sql`CASE WHEN ${roomForOneMoreGuest(weddingId)} THEN ${gc.familyId} END`
+      : gc.familyId,
+    firstName: gc.firstName,
+    lastName: gc.lastName,
+    nickname: gc.nickname,
+    sortOrder: gc.sortOrder,
+    source: gc.source ?? "import",
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
 export function applyImport(
   importId: string,
   plan: ImportPlan,
@@ -1098,6 +1234,13 @@ export function applyImport(
               eq(seatingTables.weddingId, weddingId),
             ),
           ),
+        // Their runs of show, by the same rule.
+        ...runOfShowStatements(
+          db,
+          weddingId,
+          [],
+          plan.eventRemoves.map((er) => er.id),
+        ),
       );
     }
     for (const er of plan.eventRemoves) {
@@ -1108,22 +1251,46 @@ export function applyImport(
       );
     }
 
+    // Two reads before any write, sent together: neither needs the other.
+    //
     // Slugs already taken by this wedding's surviving events, so fresh mints
     // can't collide on the (wedding_id, slug) unique index — within the sheet
     // ("Ceremony" + "Ceremony!") or against events this plan keeps. Skipped
     // when the plan creates no events — the set is only consulted by
     // mintUniqueEventSlug.
+    //
+    // The capacity check, on the NET change in guests (creates minus
+    // removals), for every plan that adds a guest. A refusal here writes
+    // nothing. The net figure is what the guarded inserts in step 7 arrive at,
+    // since every removal lands before them: a churn import that removes K and
+    // adds K at the cap passes, and a wedding already over its cap passes only
+    // an import that ends within it. So step 7 refuses only when another
+    // writer took a place after this check. `plan.derivedCap` — set by
+    // `diffAgainstDb` in the SAME request when its own preview warning already
+    // read the tier — lets this skip a second read of the same row. Absent (the
+    // pre-check branch that proved the cap couldn't matter without learning it,
+    // or any other caller of `applyImport`), `assertGuestCapacity` runs its own
+    // query — a missing cap is never a reason to skip the check. Step 7 reads
+    // the tier itself.
     const removedEventIds = new Set(plan.eventRemoves.map((er) => er.id));
-    const existingSlugRows =
-      plan.eventCreates.length > 0
-        ? yield* dbQuery(() =>
-            db
-              .select({ id: events.id, slug: events.slug })
-              .from(events)
-              .where(eq(events.weddingId, weddingId))
-              .all(),
-          )
-        : [];
+    const netGuestDelta = plan.guestCreates.length - plan.guestRemoves.length;
+    const [existingSlugRows] = yield* Effect.all(
+      [
+        plan.eventCreates.length > 0
+          ? dbQuery(() =>
+              db
+                .select({ id: events.id, slug: events.slug })
+                .from(events)
+                .where(eq(events.weddingId, weddingId))
+                .all(),
+            )
+          : Effect.succeed([]),
+        plan.guestCreates.length > 0
+          ? tierService.assertGuestCapacity(weddingId, netGuestDelta, plan.derivedCap)
+          : Effect.void,
+      ],
+      { concurrency: "unbounded" },
+    );
     const usedSlugs = new Set(
       existingSlugRows.filter((r) => !removedEventIds.has(r.id)).map((r) => r.slug),
     );
@@ -1144,6 +1311,10 @@ export function applyImport(
           timezone: ec.event.timezone,
           venueName: ec.event.venueName ?? null,
           address: ec.event.address,
+          gettingThere: ec.event.gettingThere ?? null,
+          childrenPolicy: ec.event.childrenPolicy ?? null,
+          plusOnePolicy: ec.event.plusOnePolicy ?? null,
+          guestPolicyNote: ec.event.guestPolicyNote ?? null,
           dressCodeDescription: ec.event.dressCodeDescription,
           dressCodePalette: JSON.stringify(ec.event.dressCodePalette),
           pinterestUrl: pinFor(ec.id, ec.event.pinterestUrl),
@@ -1175,8 +1346,28 @@ export function applyImport(
       // editor), so the stored values stay.
       if (eu.event.description !== undefined) set.description = eu.event.description;
       if (eu.event.venueName !== undefined) set.venueName = eu.event.venueName;
+      if (eu.event.gettingThere !== undefined) set.gettingThere = eu.event.gettingThere;
+      if (eu.event.childrenPolicy !== undefined) set.childrenPolicy = eu.event.childrenPolicy;
+      if (eu.event.plusOnePolicy !== undefined) set.plusOnePolicy = eu.event.plusOnePolicy;
+      if (eu.event.guestPolicyNote !== undefined) set.guestPolicyNote = eu.event.guestPolicyNote;
       statements.push(db.update(events).set(set).where(eq(events.id, eu.id)));
     }
+
+    // 3b. runs of show, after the events they belong to. A created event gets
+    // the list it states; an updated one has its list replaced only when the
+    // update states one, which the diff leaves out when it is unchanged.
+    const restated = plan.eventUpdates.filter((eu) => eu.event.runOfShow !== undefined);
+    statements.push(
+      ...runOfShowStatements(
+        db,
+        weddingId,
+        [
+          ...plan.eventCreates.map((ec) => ({ eventId: ec.id, items: ec.event.runOfShow ?? [] })),
+          ...restated.map((eu) => ({ eventId: eu.id, items: eu.event.runOfShow ?? [] })),
+        ],
+        restated.map((eu) => eu.id),
+      ),
+    );
 
     // 4. family removes (cascade guests, rsvps, sessions)
     for (const fr of plan.familyRemoves) {
@@ -1220,21 +1411,15 @@ export function applyImport(
       statements.push(db.delete(guests).where(eq(guests.id, gr.id)));
     }
 
-    // 7. guest creates
+    // 7. guest creates. The last guest insert of each D1 batch checks the cap,
+    // counting the batch's earlier guests (see insertGuest): nothing else
+    // writes inside a batch, so a batch commits only when it ends within the
+    // cap, whatever another writer committed after the check above. Every
+    // removal sits in steps 1-6, so the places it frees are already counted.
+    const lastGuestCreate = statements.length + plan.guestCreates.length - 1;
     for (const gc of plan.guestCreates) {
-      statements.push(
-        db.insert(guests).values({
-          id: gc.id,
-          familyId: gc.familyId,
-          firstName: gc.firstName,
-          lastName: gc.lastName,
-          nickname: gc.nickname,
-          sortOrder: gc.sortOrder,
-          source: gc.source ?? "import",
-          createdAt: now,
-          updatedAt: now,
-        }),
-      );
+      const checkCap = closesBatch(statements.length, lastGuestCreate);
+      statements.push(insertGuest(db, gc, weddingId, now, checkCap));
     }
 
     // 8. guest updates. `firstName` is set through only on an id-matched rename
@@ -1270,31 +1455,29 @@ export function applyImport(
       );
     }
 
-    // Capacity gate — enforce the wedding's tier guest ceiling on the NET new
-    // guests this plan introduces, before any write. Atomic: a breach fails the
-    // whole apply, nothing is committed. We pass the NET delta (creates minus
-    // removals) so a churn import that removes K guests and adds K guests at cap
-    // is correctly allowed: assertGuestCapacity does `current + incoming > cap`,
-    // and a negative or zero incoming can never exceed.
-    const netGuestDelta = plan.guestCreates.length - plan.guestRemoves.length;
-    if (netGuestDelta > 0) {
-      // `plan.derivedCap` — set by `diffAgainstDb` in the SAME request when its
-      // own preview warning already read the tier — lets this skip a second
-      // read of the same row. Absent (a plan built before
-      // this field existed, the pre-check branch that proved the cap
-      // couldn't matter without learning it, or any other caller of
-      // `applyImport`), `assertGuestCapacity` runs its own query and enforces
-      // exactly as it always has — a missing cap is never a reason to skip
-      // the check.
-      yield* tierService.assertGuestCapacity(weddingId, netGuestDelta, plan.derivedCap);
-    }
-
     statements.push(...finalize);
 
     yield* Effect.tryPromise({
       try: () => commitWriteSet(db, statements),
       catch: (cause) => new ImportError({ reason: "apply failed", cause }),
-    });
+    }).pipe(
+      // A guest insert found no room: a batch would have ended past the cap,
+      // and D1 rolled it back. Earlier batches stay committed.
+      Effect.catchTag("ImportError", (failure) =>
+        driverErrorText(failure.cause).includes(NO_ROOM_FOR_GUEST)
+          ? tierService.capacityRefusal(weddingId).pipe(
+              Effect.mapError(
+                (capacity) =>
+                  new ImportError({
+                    reason: "no room under the guest cap",
+                    cause: failure.cause,
+                    capacity,
+                  }),
+              ),
+            )
+          : Effect.fail(failure),
+      ),
+    );
 
     yield* Effect.logInfo(
       `import applied: families=${plan.familyCreates.length} guests=${plan.guestCreates.length} events=${plan.eventCreates.length}`,

@@ -18,8 +18,10 @@ export const EVENT_SHEET_REQUIRED_HEADERS = ["Event Name", "Start", "Timezone"] 
 
 /** Optional event columns, in template order. `End` may be blank (open-ended
  *  event, the `""` sentinel); `Location` is the venue's name, shown above the
- *  `Address`; `Description` is the event's About text. A sheet that leaves out
- *  `Location` or `Description` keeps what is stored for it. */
+ *  `Address`; `Description` is the event's About text. `Run of Show` holds one
+ *  `HH:MM label` line per item; `Children` and `Plus-Ones` hold a preset's
+ *  words. A sheet that leaves out `Location`, `Description` or any column from
+ *  `Run of Show` on keeps what is stored for it. */
 export const EVENT_SHEET_OPTIONAL_HEADERS = [
   "End",
   "Location",
@@ -29,6 +31,11 @@ export const EVENT_SHEET_OPTIONAL_HEADERS = [
   "Dress Code Palette",
   "Pinterest URL",
   "Maps URL",
+  "Run of Show",
+  "Getting There",
+  "Children",
+  "Plus-Ones",
+  "Guest Policy Note",
 ] as const;
 
 /** Full events header row = required, then optional. */

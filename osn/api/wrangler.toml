@@ -44,7 +44,7 @@ workers_dev = false
 [vars]
 OSN_ENV = "local"
 OSN_RP_ID = "localhost"
-OSN_RP_NAME = "OSN"
+OSN_RP_NAME = "Musubi"
 OSN_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322,http://localhost:5173,http://localhost:4326,http://localhost:4321"
 # 4000, not wrangler's default 8787. Every consumer's local expectation is
 # `http://localhost:4000` — cire's and pulse's wrangler dev blocks, all three
@@ -156,7 +156,7 @@ crons = ["0 */6 * * *"]
 [env.dev.vars]
 OSN_ENV = "dev"
 OSN_RP_ID = "dev.musubi.social"
-OSN_RP_NAME = "OSN (dev)"
+OSN_RP_NAME = "Musubi (dev)"
 OSN_ORIGIN = "https://dev.musubi.social"
 OSN_ISSUER_URL = "https://id.dev.musubi.social"
 # Same reasoning as production: the cire dev origins exchange OIDC codes
@@ -177,13 +177,17 @@ OSN_AUTHORIZE_UI_URL = "https://dev.musubi.social/authorize"
 # NOT the `musubi.social` parent — that would let dev and production overwrite
 # each other's marker in one browser profile.
 OSN_COOKIE_DOMAIN = "dev.musubi.social"
-# Resend has no verified musubi.social domain, so dev sends over the verified
-# cireweddings.com domain — but from its OWN address, never production's.
-# Verification is per-domain, so this needs no extra setup, and it buys two
-# things: a recipient can tell a dev OTP from a real one at a glance, and a dev
-# send loop that trips a spam complaint burns `dev@`'s reputation rather than
-# the address every live couple's guests receive their invites from.
-OSN_EMAIL_FROM = "dev@cireweddings.com"
+# Musubi's own sending domain, on dev ahead of production. Resend must have
+# musubi.social verified (its SPF and DKIM records, plus a DMARC record, in the
+# musubi.social zone) before this deploys: Resend refuses a sender on a domain
+# it has not verified, and every dev OTP and security email fails with it.
+# Steps: englishstreetventures/osn#1548.
+# Dev shares the address production will move to, by the owner's choice on
+# that issue: neither the address nor the display name marks a message as dev, and
+# spam complaints about dev mail count against that address. A separate
+# `Musubi (dev) <dev@musubi.social>` would keep both apart and needs no extra
+# Resend setup, since Resend verifies a whole domain.
+OSN_EMAIL_FROM = "Musubi <hello@musubi.social>"
 
 # Custom-domain route: serves osn-api-dev on id.dev.musubi.social. Two labels
 # deep is fine — a Workers Custom Domain provisions its own certificate for the
@@ -256,7 +260,7 @@ OSN_ENV = "staging"
 # deploy. OSN_RP_ID/OSN_ORIGIN need a real custom domain (workers.dev can't be a
 # WebAuthn RP ID across surfaces), so staging passkeys are deferred until then.
 OSN_RP_ID = "staging.osn.example"
-OSN_RP_NAME = "OSN (staging)"
+OSN_RP_NAME = "Musubi (staging)"
 OSN_ORIGIN = "https://staging.osn.example"
 OSN_ISSUER_URL = "https://api.staging.osn.example"
 OSN_CORS_ORIGIN = "https://staging.osn.example"
@@ -341,7 +345,7 @@ crons = ["0 */6 * * *"]
 [env.production.vars]
 OSN_ENV = "production"
 OSN_RP_ID = "musubi.social"
-OSN_RP_NAME = "OSN"
+OSN_RP_NAME = "Musubi"
 OSN_ORIGIN = "https://musubi.social"
 OSN_ISSUER_URL = "https://id.musubi.social"
 OSN_CORS_ORIGIN = "https://musubi.social"
