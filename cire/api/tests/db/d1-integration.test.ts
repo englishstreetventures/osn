@@ -141,6 +141,8 @@ const MIGRATION_0063 = "0063_invite_section_visibility.sql";
 const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
 const MIGRATION_0073 = "0073_wedding_tiers.sql";
 const MIGRATION_0076 = "0076_wedding_owners.sql";
+// A live migration, read from MIGRATIONS_DIR.
+const MIGRATION_0088 = "0088_task_assignees.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -3553,6 +3555,83 @@ describe("cire/api over real D1 (Miniflare)", () => {
           )
           .first<{ w: number; f: number; g: number }>();
         expect(left).toEqual({ w: 2, f: 1, g: 1 });
+      } finally {
+        await chainMf.dispose();
+      }
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "runs migration 0088 on D1's own SQLite: each assignee becomes a holder, the old column kept",
+    async () => {
+      // Its own instance, holding the live chain up to 0087 with tasks that
+      // 0087's single assignee already holds, so the copy runs over rows that
+      // exist before it. The live chain is one statement per chunk throughout.
+      const chainMf = new Miniflare({
+        modules: true,
+        script: "export default { fetch() { return new Response('ok'); } };",
+        d1Databases: { DB: ":memory:" },
+      });
+      try {
+        const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
+        const files = readdirSync(MIGRATIONS_DIR)
+          .filter((f) => f.endsWith(".sql"))
+          .toSorted();
+        const cut = files.indexOf(MIGRATION_0088);
+        expect(cut).toBeGreaterThan(0);
+        for (const file of files.slice(0, cut)) {
+          for (const stmt of migrationStatements(file, MIGRATIONS_DIR)) {
+            await chainD1.prepare(stmt).run();
+          }
+        }
+        // `tsk_stray` names the other wedding's seat, which 0087's key allowed.
+        for (const stmt of [
+          "INSERT INTO weddings (id, slug, display_name, created_at, updated_at) VALUES ('wed_h1', 'h1', 'H1', 1, 1), ('wed_h2', 'h2', 'H2', 1, 1)",
+          "INSERT INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, created_at) VALUES ('whost_h1_owner', 'wed_h1', 'usr_h1', 'usr_h1', 'owner', 1), ('whost_h1_ed', 'wed_h1', 'usr_ed', 'usr_h1', 'editor', 1), ('whost_h2_owner', 'wed_h2', 'usr_h2', 'usr_h2', 'owner', 1)",
+          "INSERT INTO tasks (id, wedding_id, title, timeframe_bucket, created_at, assigned_host_id) VALUES ('tsk_ed', 'wed_h1', 'Book the venue', '12m', 1, 'whost_h1_ed'), ('tsk_none', 'wed_h1', 'Send thanks', 'after', 1, NULL), ('tsk_stray', 'wed_h1', 'Order the cake', '3m', 1, 'whost_h2_owner'), ('tsk_h2', 'wed_h2', 'Pick the music', '6m', 1, 'whost_h2_owner')",
+        ]) {
+          await chainD1.prepare(stmt).run();
+        }
+        const tasksBefore = await chainD1.prepare("SELECT * FROM tasks ORDER BY id").all();
+
+        const before = Math.floor(Date.now() / 1000);
+        const statements = migrationStatements(MIGRATION_0088, MIGRATIONS_DIR);
+        expect(statements).toHaveLength(6);
+        for (const stmt of statements) await chainD1.prepare(stmt).run();
+
+        const holders = async () =>
+          (
+            await chainD1
+              .prepare(
+                "SELECT task_id, host_id, wedding_id, assigned_at FROM task_assignees ORDER BY task_id",
+              )
+              .all<{ task_id: string; host_id: string; wedding_id: string; assigned_at: number }>()
+          ).results;
+        const copied = await holders();
+        expect(copied.map((r) => [r.task_id, r.host_id, r.wedding_id])).toEqual([
+          ["tsk_ed", "whost_h1_ed", "wed_h1"],
+          ["tsk_h2", "whost_h2_owner", "wed_h2"],
+        ]);
+        for (const row of copied) {
+          expect(row.assigned_at).toBeGreaterThanOrEqual(before);
+          expect(row.assigned_at).toBeLessThan(before + 60);
+        }
+        // The Worker before 0088 still reads the column: every task, and every
+        // value in it, is as it was.
+        expect((await chainD1.prepare("SELECT * FROM tasks ORDER BY id").all()).results).toEqual(
+          tasksBefore.results,
+        );
+
+        // With foreign keys enforced, a removed seat takes its holder row and
+        // clears its old assignee, and the task stays.
+        await chainD1.prepare("DELETE FROM wedding_hosts WHERE id = 'whost_h1_ed'").run();
+        expect((await holders()).map((r) => r.task_id)).toEqual(["tsk_h2"]);
+        expect(
+          await chainD1
+            .prepare("SELECT id, assigned_host_id FROM tasks WHERE id = 'tsk_ed'")
+            .first(),
+        ).toEqual({ id: "tsk_ed", assigned_host_id: null });
       } finally {
         await chainMf.dispose();
       }

@@ -422,6 +422,14 @@ describe("the people holding a task", () => {
     const { task } = (await created.json()) as TaskBody;
     expect(task.assigneeHostIds).toEqual([]);
     expect(rowsFor(db, task.id)).toEqual([]);
+
+    // Nor into the single-assignee column the database still holds, which
+    // nothing reads.
+    expect(
+      db.$client
+        .query("SELECT id, assigned_host_id FROM tasks WHERE id IN (?, ?) ORDER BY id")
+        .all(...[id, task.id].toSorted()),
+    ).toEqual([id, task.id].toSorted().map((taskId) => ({ id: taskId, assigned_host_id: null })));
   });
 
   it("answers 500 and writes nothing when the database fails the write", async () => {

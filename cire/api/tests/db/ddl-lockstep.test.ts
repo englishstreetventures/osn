@@ -444,6 +444,28 @@ describe("T-S1 lockstep: setup.ts test DDL ↔ migrated D1 shape", () => {
   }
 });
 
+// Columns the database still holds that schema.ts deliberately does not
+// declare, so that no statement the app sends names them and a later migration
+// can drop them under a serving Worker. Each entry is excused from the Drizzle
+// comparison only — with the foreign keys and indexes that use it — and must
+// still exist after the chain, so the entry goes when its column does.
+const UNDECLARED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  // Dropped by englishstreetventures/osn#1636.
+  tasks: ["assigned_host_id"],
+};
+
+/** `shape` without the columns named in {@link UNDECLARED_COLUMNS} for `table`. */
+function withoutUndeclared(table: string, shape: TableShape): TableShape {
+  const gone = new Set(UNDECLARED_COLUMNS[table] ?? []);
+  const kept = (columns: readonly string[]) => !columns.some((c) => gone.has(c));
+  return {
+    columns: Object.fromEntries(Object.entries(shape.columns).filter(([c]) => !gone.has(c))),
+    foreignKeys: shape.foreignKeys.filter((fk) => kept(fk.columns)),
+    indexes: shape.indexes.filter((idx) => kept(idx.columns)),
+    checks: shape.checks,
+  };
+}
+
 describe("T-S1 lockstep: Drizzle schema.ts ↔ migrated D1 shape", () => {
   it("declares the same set of tables", () => {
     expect(drizzleTables.map((t) => getTableConfig(t).name).toSorted()).toEqual(
@@ -454,9 +476,25 @@ describe("T-S1 lockstep: Drizzle schema.ts ↔ migrated D1 shape", () => {
   for (const table of drizzleTables) {
     const { name, shape } = snapshotDrizzleTable(table);
     it(`mirrors "${name}" exactly`, () => {
-      expect({ table: name, ...shape }).toEqual({ table: name, ...migrated.tables[name] });
+      const expected = migrated.tables[name];
+      expect({ table: name, ...shape }).toEqual({
+        table: name,
+        ...(expected && withoutUndeclared(name, expected)),
+      });
     });
   }
+
+  it("excuses only columns the migrated database still holds", () => {
+    for (const [table, columns] of Object.entries(UNDECLARED_COLUMNS)) {
+      for (const column of columns) {
+        expect({
+          table,
+          column,
+          present: column in (migrated.tables[table]?.columns ?? {}),
+        }).toEqual({ table, column, present: true });
+      }
+    }
+  });
 });
 
 // ── Data migrations ──────────────────────────────────────────────────────────
