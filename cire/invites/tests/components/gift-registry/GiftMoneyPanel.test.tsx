@@ -332,7 +332,11 @@ describe("giving to a fund", () => {
     const chosen = (radio: HTMLInputElement) => [
       card(radio).classList.contains("border-gold"),
       card(radio).classList.contains("border-border"),
-      card(radio).querySelector("[data-gift-choice-mark]") !== null,
+      card(radio).querySelector("[data-gift-choice-mark]") !== null &&
+        (card(radio)
+          .querySelector("[data-gift-choice-mark]")
+          ?.parentElement?.classList.contains("border-gold-ink") ??
+          false),
     ];
 
     // Before any choice the money goes to the couple, and only that row says so.

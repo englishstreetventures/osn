@@ -8,7 +8,7 @@ import {
   registrySettings,
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect, Exit } from "effect";
 
 import { createApp } from "../../src/app";
@@ -477,6 +477,16 @@ describe("the guest registry is one 404, whatever the reason", () => {
 });
 
 describe("GET /api/invite/:slug/registry (sessionAuth)", () => {
+  it("answers a failed read with a plain 500, never a partial list", async () => {
+    const { app, db } = buildApp(TAKING_MONEY);
+    const cookie = await guestCookie(app);
+    // The items read fails after the gate passes: a defect, not a refusal.
+    db.run(sql`DROP TABLE registry_claims`);
+    const res = await appRequest(app, guestBase(), { headers: { Cookie: cookie } });
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+  });
+
   it("opens on Crimson as on Gold: a tier above Gold includes the registry", async () => {
     // The guest gate ranks the tier rather than matching one value, so the
     // top tier's couples publish a list their guests can read and claim from.

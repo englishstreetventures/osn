@@ -1407,6 +1407,50 @@ describe("RegistryView — cash funds", () => {
     );
   });
 
+  it("clears the picture once a fund is added, so the next one starts without it", async () => {
+    setCachedRegistry("wed_1", snapshot());
+    authFetch.mockImplementation((url: string | URL) => {
+      const u = String(url);
+      if (u.endsWith("/registry/image"))
+        return Promise.resolve(
+          new Response(JSON.stringify({ imageKey: "assets/wed_1/registry-f1", imageUrl: "/x" }), {
+            status: 200,
+          }),
+        );
+      if (u.includes("/registry/image/")) return Promise.resolve(new Response("bytes"));
+      return Promise.resolve(
+        new Response(JSON.stringify({ item: fund({ imageKey: "assets/wed_1/registry-f1" }) }), {
+          status: 200,
+        }),
+      );
+    });
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+    fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon in Kyoto" } });
+    fireEvent.click(screen.getByRole("button", { name: "Upload a photo" }));
+    const file = screen.getByLabelText("Photo to upload");
+    Object.defineProperty(file, "files", {
+      value: [new File(["png"], "kyoto.png", { type: "image/png" })],
+      configurable: true,
+    });
+    fireEvent.change(file);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Remove picture" })).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+    const isCreate = (call: unknown[]) => String(call[0]).endsWith("/registry/items");
+    await waitFor(() => expect(authFetch.mock.calls.some(isCreate)).toBe(true));
+    expect(JSON.parse(authFetch.mock.calls.find(isCreate)![1].body).imageKey).toBe(
+      "assets/wed_1/registry-f1",
+    );
+    // The add form is empty again, picture included.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Remove picture" })).toBeNull(),
+    );
+  });
+
   it("starts on a gift, and switching to a fund and back shows each kind's own fields", async () => {
     setCachedRegistry("wed_1", snapshot());
     authFetch.mockResolvedValueOnce(
@@ -1494,8 +1538,10 @@ describe("RegistryView — cash funds", () => {
     expect(fundRow.textContent).not.toMatch(/claimed/i);
     // A gift beside it keeps its claimed count.
     const panRow = rows.find((r) => r.textContent?.includes("Copper pan"))!;
-    expect(panRow.textContent).toMatch(/0 of 1 claimed/);
-    expect(panRow.textContent).not.toMatch(/all taken/);
+    const claimed = [...panRow.querySelectorAll("span")].find((span) =>
+      span.textContent?.includes("claimed"),
+    );
+    expect(claimed?.textContent?.trim()).toBe("0 of 1 claimed");
   });
 
   it("edits a fund's goal through the currency's exponent and sends no gift fields", async () => {
@@ -1542,11 +1588,10 @@ describe("RegistryView — cash funds", () => {
   });
 
   it("answers each refused write in the words for its kind and its code", async () => {
-    // A fund refused for some other reason (a name too long, a goal too big).
+    // A fund refused for some other reason (a name too long, a goal too big),
+    // here with a body that is not even JSON.
     setCachedRegistry("wed_1", snapshot());
-    authFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: "Missing or invalid fields" }), { status: 400 }),
-    );
+    authFetch.mockResolvedValueOnce(new Response("Bad Request", { status: 400 }));
     const first = render(() => (
       <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
     ));

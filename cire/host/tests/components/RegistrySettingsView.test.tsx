@@ -120,6 +120,15 @@ beforeEach(() => {
 });
 
 describe("publishing", () => {
+  it("opens on a first visit, before anything is cached", async () => {
+    // The settings tab can be the first registry view a session opens: its
+    // publish gate runs before the registry read has answered.
+    authFetch.mockResolvedValueOnce(json(snapshot({ items: [item()] })));
+    renderPanel();
+    const publish = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
+    expect(publish.disabled).toBe(false);
+  });
+
   it("is blocked while the list is empty, and says why", async () => {
     setCachedRegistry("wed_1", snapshot());
     renderPanel();

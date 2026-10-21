@@ -944,6 +944,33 @@ describe("gift log", () => {
     expect(gifts[0]!.amountMinor).toBe(4_000);
   });
 
+  it("still counts a gift's claims after an edit; only a fund skips the count", async () => {
+    const db = db0();
+    const [famA] = twoFamilies(db);
+    const pan = await ok(db, registryService.createItem(newItem({ quantityWanted: 2 })));
+    await ok(
+      db,
+      registryService.claim({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: pan.id,
+        familyId: famA,
+        quantity: 1,
+        status: "reserved",
+        note: null,
+        displayName: null,
+      }),
+    );
+    const edited = await ok(
+      db,
+      registryService.updateItem({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: pan.id,
+        patch: { title: "Copper saucepan" },
+      }),
+    );
+    expect(edited.quantityClaimed).toBe(1);
+  });
+
   it("edits a cash fund in one statement: a fund has no claims to count", async () => {
     const db = db0();
     const fund = await ok(
