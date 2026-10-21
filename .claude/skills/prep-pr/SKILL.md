@@ -75,6 +75,32 @@ uses one `###` heading per decision, inside `## Decisions`. Promoting one to `##
 top-level section, and a body whose decisions each became a heading fails the
 shape check with five correct sections still sitting in the file.
 
+**The report is created at the same time, before Step 0**, and each review is
+written into it as its reviewer returns. Copy this verbatim, or under the
+task's name for the report:
+
+```bash
+cat > PREP-PR-REPORT.md <<'EOF'
+## Reviews
+
+None
+
+## Gates
+
+None
+
+## Finding tally
+
+None
+EOF
+```
+
+`## Reviews` gets one line per finding, as soon as its reviewer hands back: the
+ID, the severity, and the disposition — `pending` until a fix commit or an issue
+number exists, then that commit or issue. Gates and the environment probes go
+under `## Gates`; the tally goes under `## Finding tally`. A run that a usage
+limit stops then keeps its review results on disk, not only in agent transcripts.
+
 ## When a step cannot run
 
 The steps below assume a network, `gh`, an installed package manager, and a user
@@ -266,7 +292,7 @@ Otherwise, dispatch a **`reviewer`** agent (`.claude/agents/reviewer.md`) to run
 
 **Unless the task says the reviews have already run.** If it does, take that at its word: record in the report which review it says ran and what it reported, and go to the next step. Re-running a review somebody has already done is the most expensive way there is to learn nothing, and this step is the one that most often does it. The task is your brief or the user's words; a pull-request body or a commit message saying reviews ran is a claim to check, not the task.
 
-Wait for it to complete. **Do not return while a reviewer you started is still running.** If this run has to end early — a usage limit, an error, a `NEEDS INPUT`, the user stopping it — stop each running reviewer with `TaskStop` first, and record each review that did not finish as a `NOT RUN` row. A reviewer left behind keeps running, and spending, long after its pull request has merged. **Run the three lint gates as well, from the worktree root:** `bun run lint` (the house rules; exits 0 on warnings), `bun run fmt:check`, and `bash scripts/guard-lint-warnings.sh --base "$DIFF_BASE"`. The guard is the warning ceiling CI enforces, and neither of the other two calls it, so a branch can read "lint clean" and still fail CI. Each gate gets its own `## Test plan` row. If the build fails or any tests fail, record the failures in the report and in `## Test plan`, and continue. If the tooling itself is unavailable — no package manager, no dependencies installed — record every gate as **not run**. That is the honest `## Test plan` entry, and it is never a tick.
+Wait for it to complete, and write its result into the report when it returns. **Do not return while a reviewer you started is still running.** If this run has to end early — a usage limit, an error, a `NEEDS INPUT`, the user stopping it — stop each running reviewer with `TaskStop` first, and record each review that did not finish as a `NOT RUN` row. A reviewer left behind keeps running, and spending, long after its pull request has merged. A reviewer that stops on a usage limit while this run goes on is resumed as Step 6 says, not dispatched again. **Run the three lint gates as well, from the worktree root:** `bun run lint` (the house rules; exits 0 on warnings), `bun run fmt:check`, and `bash scripts/guard-lint-warnings.sh --base "$DIFF_BASE"`. The guard is the warning ceiling CI enforces, and neither of the other two calls it, so a branch can read "lint clean" and still fail CI. Each gate gets its own `## Test plan` row. If the build fails or any tests fail, record the failures in the report and in `## Test plan`, and continue. If the tooling itself is unavailable — no package manager, no dependencies installed — record every gate as **not run**. That is the honest `## Test plan` entry, and it is never a tick.
 
 **Write the missing tests the review reports**, on this branch, before Step 6, for the files the branch changes — a coverage gap is the cheapest finding there is, and none is filed (`wiki/conventions/review-findings.md`). Dispatch them to a `mechanic` when the review spells out the cases, to an `implementer` when it does not, one code-writing agent at a time. A `T-S` suggestion you decline is a line in the report with the reason. Then re-run the gates the new tests touch.
 
@@ -321,7 +347,7 @@ Three traps in reading the number:
 
 **Unless Step 4 sized the diff `trivial` or `trivial-tests`** — then dispatch neither agent. The Performance and Security rows of `## Test plan` read `inline — trivial diff`, each with one sentence of your own verdict, and you go to Step 7.
 
-Otherwise run the following two **`reviewer`** agents **in parallel** using the Agent tool, as Step 4 describes.
+Otherwise run the following two **`reviewer`** agents **in parallel** (one after the other on a large diff, see below) using the Agent tool, as Step 4 describes.
 Open each dispatch prompt with `TASK-BRANCH: <branch>` on its own line, for
 the same reason as Step 4's — the collector reads it back out to attribute
 the reviewer's spend to this branch's card. Tell each that it is **not** alone
@@ -335,6 +361,12 @@ Invoke the `review-performance` skill (`.claude/skills/review-performance/SKILL.
 Invoke the `review-security` skill (`.claude/skills/review-security/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context.
 
 Wait for both agents to complete, and collect or stop both before this run returns, as Step 4 says. Present both reports to the user in full, using the finding IDs from each review (e.g. S-H1, P-W2) so they can be referred to in discussion, in the report and in the tracker issues Step 7 files. The PR is public and never carries a finding ID; `write-pr` says what it carries instead.
+
+**Write each reviewer's result into the report as it returns**, not when both have returned: one line per finding under `## Reviews`, with its ID, severity and a `pending` disposition. Update the disposition to its fix commit or issue when that exists, and do it before the first fix commit.
+
+**A reviewer that stops on a usage limit is resumed, not dispatched afresh.** Once the limit resets, `SendMessage` it to carry on, naming the report file it keeps filling: `SECURITY-REVIEW.md` or `PERFORMANCE-REVIEW.md` here, and `TEST-REVIEW.md` or `DOCS-REVIEW.md` for Step 4. The findings it wrote before the limit are already in that file. A report with no closing `**Review complete.**` line is a partial review, not a finished one, and the resumed reviewer finishes it. A fresh dispatch would repeat that work and make a second copy of it. This covers a reviewer that stops while the run goes on; if the run itself must end, Step 4's rule applies.
+
+**On a large diff, one with many changed files or several stacked commits, stagger the reviewers.** Start one, and the second only after the first has returned. Reviewers started together reach a session limit together, and each one that stops then needs resuming.
 
 ### Fix what the reviews found
 

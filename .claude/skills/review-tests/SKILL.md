@@ -66,8 +66,7 @@ became a heading fails the shape check with five correct sections still sitting
 in the file. The same goes for `## Summary`, `## Verdict` and anything else the
 audit suggests along the way.
 
-Every gap carries a `T-` ID in the four-field format. What each section holds is
-under **Report shape** at the end of this file.
+Every gap carries a `T-` ID in the four-field format. **Record each gap the moment you have it:** write it under `## Coverage gaps` before you read the next file, and fill `## Build`, `## Tests` and `## Files audited` as each one finishes, not in one pass at the end. A run that a usage limit or an error stops keeps what the file already holds, and a reviewer resumed later starts from that file, not from memory. What each section holds is under **Report shape** at the end of this file.
 
 ## When a step cannot run
 
@@ -267,6 +266,8 @@ Keep that. This section says what goes in each one.
 `## Not run` lists every gate that could not run and the reason. An empty section is the good case; an absent section reads as a claim that everything ran.
 
 ### Check the file before you finish
+
+Once every area is covered, end the file with one line that is not a heading: `**Review complete.** <n> gaps.` Neither count below depends on that line, so the counts pass on a partial file too. A file without the line is a partial review, and a resumed run finishes it.
 
 Run these two counts on the file you just wrote:
 
