@@ -1,5 +1,5 @@
 import { contrastRatio, WCAG_TEXT_MIN } from "@cire/theme";
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { cleanup, render, screen, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cdp, page, userEvent } from "vitest/browser";
 
@@ -114,7 +114,7 @@ async function renderTable() {
   render(() => <RsvpView weddingId="wed_1" />);
   // Every visible word, New included: it lands once the change feed has loaded.
   await vi.waitFor(() => {
-    for (const [word] of BADGES) expect(screen.getByText(word)).toBeTruthy();
+    for (const [word] of BADGES) expect(inTable().getByText(word)).toBeTruthy();
   });
   await document.fonts.ready;
 }
@@ -173,6 +173,10 @@ function composite(layers: readonly string[]): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
+/** The table's rows. The event's tab says "New" too, so a badge is looked for
+ *  among the rows only. */
+const inTable = () => within(document.querySelector<HTMLElement>("tbody")!);
+
 /** The open panel, if any. It is `aria-hidden`, so a role query skips it. */
 const panel = () => document.querySelector<HTMLElement>('[role="tooltip"]');
 
@@ -181,7 +185,7 @@ const panel = () => document.querySelector<HTMLElement>('[role="tooltip"]');
  * delay on a cold hover; at once within the skip window after another panel.
  */
 async function hoverBadge(word: string): Promise<HTMLElement> {
-  await userEvent.hover(screen.getByText(word));
+  await userEvent.hover(inTable().getByText(word));
   const open = await vi.waitFor(
     () => {
       const found = panel();
@@ -195,12 +199,11 @@ async function hoverBadge(word: string): Promise<HTMLElement> {
 }
 
 /**
- * Move the pointer onto the event's heading and wait for the panel to go, so
- * no open panel covers the next badge and none is left mounted for the next
- * test.
+ * Move the pointer onto the event's tab and wait for the panel to go, so no
+ * open panel covers the next badge and none is left mounted for the next test.
  */
 async function moveAway() {
-  await userEvent.hover(screen.getByRole("heading", { name: "Ceremony" }));
+  await userEvent.hover(screen.getByRole("tab", { name: /^Ceremony,/ }));
   await vi.waitFor(() => expect(panel()).toBeNull(), { timeout: 3000 });
 }
 
@@ -236,7 +239,7 @@ describe("the RSVP table's badge explanations", () => {
       // Nothing is mounted until a pointer asks for it.
       expect(panel()).toBeNull();
       for (const [word, explanation] of BADGES) {
-        const badge = screen.getByText(word);
+        const badge = inTable().getByText(word);
         // Hover only: a badge in every row must not add a tab stop to it.
         expect([word, badge.closest("td button, td a, td [tabindex]")]).toEqual([word, null]);
 

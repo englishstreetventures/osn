@@ -12,7 +12,7 @@ related:
   - "[[cire-invite-designs]]"
   - "[[cire-rsvp-changes]]"
   - "[[cire-landing]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 # Cire plus-ones
 
@@ -137,11 +137,12 @@ The switch is `@shared/ui`'s `Switch` ([[component-library]]).
 
 ## The RSVP table
 
-The organiser portal's **RSVPs** tab (`RsvpView`) lists a plus-one like any guest, with three additions:
+The organiser portal's **RSVPs** tab (`RsvpView`) lists a plus-one like any guest, with four additions:
 
 - **The marker.** Under the plus-one's name, on its own line, "Plus-one of <inviter's full name>" — the words the Households tab uses. It wraps rather than widening the fixed Guest column. When the API names no inviter (an older API, or none found) it reads "Plus-one of another guest".
 - **The provenance badge.** A reply the household gave for its plus-one (`inviter_attested`) is badged **Household-entered**, in muted ink, apart from the gold **Host-entered** of an organiser's reply. A guest's or household's reply whose status a host changed since also carries a gold **Host-updated** (the view's `statusRecordedByHost`). A guest's own reply carries no badge.
 - **Search.** The marker is part of what a word matches, so "plus-one" lists every plus-one and the inviter's name finds the guest they brought.
+- **Sort.** The API orders the replies and the guests still to answer as two lists, each with a plus-one straight after the guest who brought them, and the table shows the replies first. The Household sort keeps that order inside each household, so a plus-one follows their inviter when both have replied or neither has; when only one has, the reply comes first. Sorted by Guest, a plus-one files under their own surname, and the marker is what still names their inviter ([[cire-rsvp-table#Sorting]]).
 
 Recording a reply for a plus-one offers the same dietary picker and free text as for any guest, prefilled with the stored answer. Left as they are, the form says the stored requirements stay. Once the organiser edits them, an unticked box appears with the organiser's plus-one wording ("I confirm the plus-one consented…"), and the save carries that wording's version and the plus-one's full name. Under the box, and only on a plus-one's reply, a line asks the organiser to pass on the notice the plus-one may never see: "Share our privacy notice with them: cireweddings.com/privacy", linked to that page in a new tab; the page leads to the guests' notice ([[cire-landing#Privacy pages]]). The line is not part of the attested wording, so it carries no version.
 

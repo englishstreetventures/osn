@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   filterRows,
   mergeRows,
+  nextSort,
   plusOneMarker,
   type RsvpFilterEvent,
+  type RsvpFilterInvitedGuest,
   RSVP_FILTERS,
+  sortRows,
   statusCounts,
 } from "../../src/lib/rsvp-filter";
 
@@ -64,23 +67,6 @@ const CEREMONY: RsvpFilterEvent = {
       familyCode: "JONES-KITE-77Q2",
     },
   ],
-};
-
-const RECEPTION: RsvpFilterEvent = {
-  guests: [
-    {
-      guestId: "g1",
-      firstName: "Ada",
-      lastName: "Sharma",
-      familyName: "Sharma",
-      familyCode: "SHARMA-WIDGET-AB3K9",
-      status: "attending",
-      dietary: "",
-      dietaryPresets: ["gluten"],
-      consentSource: "guest",
-    },
-  ],
-  unresponded: [],
 };
 
 const ids = (rows: ReturnType<typeof mergeRows>) => rows.map((r) => r.guestId);
@@ -318,31 +304,27 @@ describe("filterRows", () => {
   it("returns nothing when nothing matches", () => {
     expect(filterRows(rows, "zzzz", "all")).toEqual([]);
   });
+
+  it("keeps the order it is given, so a sorted list stays sorted", () => {
+    const reversed = rows.toReversed();
+    expect(ids(filterRows(reversed, "jones", "all"))).toEqual(["g3", "g2"]);
+    expect(ids(filterRows(reversed, "", "all"))).toEqual(["g3", "g4", "g2", "g1"]);
+  });
 });
 
 describe("statusCounts", () => {
-  it("sums each status across every event, with 'all' as the total", () => {
-    expect(statusCounts([mergeRows(CEREMONY), mergeRows(RECEPTION)])).toEqual({
-      all: 5,
-      attending: 2,
+  it("counts each status in one event's rows, with 'all' as the total", () => {
+    expect(statusCounts(mergeRows(CEREMONY))).toEqual({
+      all: 4,
+      attending: 1,
       declined: 1,
       maybe: 1,
       none: 1,
     });
   });
 
-  it("counts nothing for a wedding with no events", () => {
+  it("counts nothing for an event with no rows", () => {
     expect(statusCounts([])).toEqual({ all: 0, attending: 0, declined: 0, maybe: 0, none: 0 });
-  });
-
-  it("counts the same rows the list renders, taking any iterable of groups", () => {
-    const groups = new Map([
-      ["evt_1", mergeRows(CEREMONY)],
-      ["evt_2", mergeRows(RECEPTION)],
-    ]);
-    expect(statusCounts(groups.values())).toEqual(
-      statusCounts([mergeRows(CEREMONY), mergeRows(RECEPTION)]),
-    );
   });
 
   it("names every filter the chips render", () => {
@@ -353,5 +335,194 @@ describe("statusCounts", () => {
       "maybe",
       "none",
     ]);
+  });
+});
+
+/**
+ * The two sortable columns. Guest sorts by surname, so a family reads together
+ * the way the Household column groups it; Household sorts whole households and
+ * leaves each one in the order the API gave it, which is the couple's own order
+ * with every plus-one after the guest who brought them.
+ */
+describe("sortRows", () => {
+  const invited = (
+    guestId: string,
+    firstName: string,
+    lastName: string,
+    familyName = lastName,
+    familyCode = `${familyName.toUpperCase()}-1`,
+  ): RsvpFilterInvitedGuest => ({ guestId, firstName, lastName, familyName, familyCode });
+  const rowsOf = (...guests: RsvpFilterInvitedGuest[]) =>
+    mergeRows({ guests: [], unresponded: guests });
+  const guestAsc = { key: "guest", direction: "ascending" } as const;
+  const guestDesc = { key: "guest", direction: "descending" } as const;
+  const householdAsc = { key: "household", direction: "ascending" } as const;
+  const householdDesc = { key: "household", direction: "descending" } as const;
+
+  it("sorts guests by surname, not by first name", () => {
+    const rows = rowsOf(invited("g1", "Ada", "Young"), invited("g2", "Zoe", "Adams"));
+    expect(ids(sortRows(rows, guestAsc))).toEqual(["g2", "g1"]);
+  });
+
+  it("breaks a shared surname by first name", () => {
+    const rows = rowsOf(invited("g1", "Mei", "Chen"), invited("g2", "Al", "Chen"));
+    expect(ids(sortRows(rows, guestAsc))).toEqual(["g2", "g1"]);
+  });
+
+  it("keeps the order it was given for two guests of the same name", () => {
+    const rows = rowsOf(
+      invited("g1", "Sam", "Lee", "Lee", "LEE-2"),
+      invited("g2", "Sam", "Lee", "Lee", "LEE-1"),
+    );
+    expect(ids(sortRows(rows, guestAsc))).toEqual(["g1", "g2"]);
+    expect(ids(sortRows(rows, guestDesc))).toEqual(["g1", "g2"]);
+  });
+
+  it("does not split a surname by case or accent", () => {
+    const rows = rowsOf(
+      invited("g1", "Bo", "de Vries"),
+      invited("g2", "Kai", "Park"),
+      invited("g3", "Al", "De Vries"),
+      invited("g4", "Niamh", "Ó Súilleabháin"),
+      invited("g5", "Ines", "Nguyen"),
+    );
+    // "de Vries" and "De Vries" are one surname, so first names order them;
+    // "Ó" files with the Os, between Nguyen and Park.
+    expect(ids(sortRows(rows, guestAsc))).toEqual(["g3", "g1", "g5", "g4", "g2"]);
+  });
+
+  it("puts a guest with no surname after every surname, in both directions", () => {
+    const rows = rowsOf(
+      invited("g1", "Mei", ""),
+      invited("g2", "Ada", "Young"),
+      invited("g3", "Kai", "  "),
+      invited("g4", "Zoe", "Adams"),
+    );
+    expect(ids(sortRows(rows, guestAsc))).toEqual(["g4", "g2", "g3", "g1"]);
+    expect(ids(sortRows(rows, guestDesc))).toEqual(["g2", "g4", "g1", "g3"]);
+  });
+
+  it("sorts a name stored with spaces round it as the name itself", () => {
+    // A space pasted in from a spreadsheet would otherwise rank before every
+    // letter and put " Zane" at the head of the list.
+    const guests = rowsOf(
+      invited("g1", "Ada", " Zane"),
+      invited("g2", "Bo", "Adams"),
+      invited("g3", "Cy", "Chen "),
+    );
+    expect(ids(sortRows(guests, guestAsc))).toEqual(["g2", "g3", "g1"]);
+    expect(ids(sortRows(guests, guestDesc))).toEqual(["g1", "g3", "g2"]);
+    const households = rowsOf(
+      invited("g1", "Ada", "Park", " Park"),
+      invited("g2", "Bo", "Adams", "Adams"),
+    );
+    expect(ids(sortRows(households, householdAsc))).toEqual(["g2", "g1"]);
+    expect(ids(sortRows(households, householdDesc))).toEqual(["g1", "g2"]);
+  });
+
+  it("reverses the order when descending", () => {
+    const rows = rowsOf(
+      invited("g1", "Ada", "Young"),
+      invited("g2", "Zoe", "Adams"),
+      invited("g3", "Al", "Chen"),
+      invited("g4", "Mei", "Chen"),
+    );
+    expect(ids(sortRows(rows, guestDesc))).toEqual(["g1", "g4", "g3", "g2"]);
+  });
+
+  it("sorts whole households by name, each kept in the order it was given", () => {
+    // Bo brought Sam, so the API put Sam straight after Bo. A surname sort
+    // inside the household would put Lee before Young and part them.
+    const rows = rowsOf(
+      invited("g1", "Bo", "Young", "Jones", "JONES-2"),
+      invited("g2", "Sam", "Lee", "Jones", "JONES-2"),
+      invited("g3", "Zoe", "Adams", "Adams", "ADAMS-1"),
+      invited("g4", "Al", "Jones", "Jones", "JONES-1"),
+    );
+    // Two households both called Jones stay apart, by their codes.
+    expect(ids(sortRows(rows, householdAsc))).toEqual(["g3", "g4", "g1", "g2"]);
+    expect(ids(sortRows(rows, householdDesc))).toEqual(["g1", "g2", "g4", "g3"]);
+  });
+
+  it("keeps a household's replies before its guests still to answer", () => {
+    // The API orders the replies and the silent guests as two lists, each by
+    // household with every plus-one after the guest who brought them, and the
+    // merge puts the replies first. Inside a household the sort keeps that, so
+    // a plus-one whose reply a host recorded comes before the silent guest
+    // who brought them.
+    const rows = mergeRows({
+      guests: [
+        {
+          guestId: "p1",
+          firstName: "Sam",
+          lastName: "Lee",
+          familyName: "Jones",
+          familyCode: "JONES-1",
+          plusOneOf: "g1",
+          plusOneOfName: "Bo Jones",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: [],
+          consentSource: "organiser_attested",
+        },
+      ],
+      unresponded: [
+        {
+          guestId: "g2",
+          firstName: "Zoe",
+          lastName: "Adams",
+          familyName: "Adams",
+          familyCode: "ADAMS-1",
+        },
+        {
+          guestId: "g1",
+          firstName: "Bo",
+          lastName: "Jones",
+          familyName: "Jones",
+          familyCode: "JONES-1",
+        },
+      ],
+    });
+    expect(ids(sortRows(rows, householdAsc))).toEqual(["g2", "p1", "g1"]);
+  });
+
+  it("puts a household with no name last, in both directions", () => {
+    const rows = rowsOf(
+      invited("g1", "Ada", "Young", "", "NONE-1"),
+      invited("g2", "Zoe", "Adams", "Adams"),
+      invited("g3", "Kai", "Park", "Park"),
+    );
+    expect(ids(sortRows(rows, householdAsc))).toEqual(["g2", "g3", "g1"]);
+    expect(ids(sortRows(rows, householdDesc))).toEqual(["g3", "g2", "g1"]);
+  });
+
+  it("leaves the rows it was given untouched", () => {
+    const rows = rowsOf(invited("g1", "Ada", "Young"), invited("g2", "Zoe", "Adams"));
+    const before = [...rows];
+    sortRows(rows, guestAsc);
+    expect(rows).toEqual(before);
+  });
+
+  it("returns the API's order when nothing is sorted", () => {
+    const rows = rowsOf(invited("g1", "Ada", "Young"), invited("g2", "Zoe", "Adams"));
+    expect(ids(sortRows(rows, null))).toEqual(["g1", "g2"]);
+  });
+});
+
+describe("nextSort", () => {
+  it("sorts a new column ascending, and reverses the column already sorted", () => {
+    expect(nextSort(null, "guest")).toEqual({ key: "guest", direction: "ascending" });
+    expect(nextSort({ key: "guest", direction: "ascending" }, "guest")).toEqual({
+      key: "guest",
+      direction: "descending",
+    });
+    expect(nextSort({ key: "guest", direction: "descending" }, "guest")).toEqual({
+      key: "guest",
+      direction: "ascending",
+    });
+    expect(nextSort({ key: "guest", direction: "descending" }, "household")).toEqual({
+      key: "household",
+      direction: "ascending",
+    });
   });
 });

@@ -12,6 +12,9 @@ import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Table, Td, Th } from "@shared/ui/ui/table";
 import { Tooltip } from "@shared/ui/ui/tooltip";
+import ArrowDown from "lucide-solid/icons/arrow-down";
+import ArrowUp from "lucide-solid/icons/arrow-up";
+import ChevronsUpDown from "lucide-solid/icons/chevrons-up-down";
 import {
   createEffect,
   createMemo,
@@ -19,9 +22,11 @@ import {
   createUniqueId,
   For,
   mapArray,
+  on,
   onCleanup,
   onMount,
   Show,
+  untrack,
 } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 
@@ -32,21 +37,31 @@ import { fetchRsvpChangeRows, markRsvpChangesSeen, newRowCheck } from "../lib/rs
 import {
   filterRows,
   mergeRows,
+  nextSort,
   plusOneMarker,
   RSVP_FILTERS,
   type RsvpFilterEvent,
   type RsvpFilterKey,
   type RsvpRow,
   type RsvpRowStatus,
+  type RsvpSort,
+  type RsvpSortKey,
   type RsvpStatus,
+  sortRows,
   statusCounts,
 } from "../lib/rsvp-filter";
 import { applySavedReply, isSavedReply } from "../lib/rsvp-save";
+import { createSlidingPill } from "../lib/sliding-pill";
 import SectionIntro from "./SectionIntro";
 interface RsvpViewProps {
   weddingId: string;
   /** Owner/editor may record RSVPs; a viewer sees the read-only summary only. */
   canEdit?: boolean;
+  /** The event to show, from the page address. Absent, or naming no event the
+   *  API returned: the first event. */
+  event?: string;
+  /** A host picked an event, reported so the address can name it. */
+  onEvent?: (eventId: string) => void;
 }
 
 interface RsvpViewEvent extends RsvpFilterEvent {
@@ -69,6 +84,14 @@ const STATUS_META = {
   maybe: { label: "Maybe", class: "border-gold/40 text-gold border" },
   none: { label: "No reply", class: "border-border text-text-muted border" },
 } satisfies Record<RsvpRowStatus, { label: string; class: string }>;
+
+/** The column head that sorts, by column. */
+const SORT_LABEL = {
+  guest: "Guest",
+  household: "Household",
+} satisfies Record<RsvpSortKey, string>;
+
+const SORT_ICON_CLASS = "size-3.5 shrink-0";
 
 const CHIP_CLASS =
   "border-border hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 " +
@@ -106,12 +129,14 @@ function attestationFor(target: EditTarget) {
 }
 
 /**
- * In-dashboard RSVP summary. Per event: a status tally and every guest invited
- * to it — those who replied, with status + dietary + a provenance badge
- * (organiser-entered, or household-entered for a plus-one, vs guest-submitted),
- * and those who have not, as "No reply" rows in the same list. A plus-one's row
- * names the guest who brought them. Above them sits one search box and one set
- * of status chips, applied to every event at once.
+ * In-dashboard RSVP summary, one event at a time. A tab list picks the event;
+ * its panel holds the event's status tally, a search box and status chips that
+ * act on that event, and every guest invited to it — those who replied, with
+ * status + dietary + a provenance badge (organiser-entered, or
+ * household-entered for a plus-one, vs guest-submitted), and those who have
+ * not, as "No reply" rows in the same list. A plus-one's row names the guest
+ * who brought them. The Guest and Household heads sort the list; the head row
+ * and the Guest column stay in view while the table scrolls in its own box.
  *
  * Editors get a "Record / Edit" button in each row to enter a phone/paper RSVP
  * on a guest's behalf — the API stamps such rows
@@ -129,9 +154,18 @@ export default function RsvpView(props: RsvpViewProps) {
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
 
-  // The control bar: a search box and one status chip, applied to every event.
+  // The control bar: a search box and one status chip, applied to every event:
+  // the table shows the one on screen, and each tab counts its own. Kept
+  // across a switch of event, as is the sort.
   const [query, setQuery] = createSignal("");
   const [filter, setFilter] = createSignal<RsvpFilterKey>("all");
+  const [sort, setSort] = createSignal<RsvpSort | null>(null);
+
+  // The event the host chose, seeded from the address and following it on
+  // Back/Forward. Written here on a click as well as reported up, so the view
+  // also works where nothing writes an address.
+  const [chosen, setChosen] = createSignal(untrack(() => props.event));
+  createEffect(on(() => props.event, setChosen, { defer: true }));
 
   // The open editor form (one at a time), plus its transient field state.
   const [edit, setEdit] = createSignal<EditTarget | null>(null);
@@ -188,29 +222,56 @@ export default function RsvpView(props: RsvpViewProps) {
   const hasEvents = () => state.events.length > 0;
 
   // A store, not a signal: reload writes patch each event's own fields in
-  // place, so an event nothing touched keeps its object identity and <For>
-  // leaves its <section> alone. That alone is not enough, though — a plain
-  // memo over the whole event list reads every event's guests, so it
-  // subscribes to all of them and re-merges every row when any one changes.
-  // `mapArray` is the fix: its callback runs once per event,
-  // cached by identity, so the per-event row memos below only re-run for the
-  // event whose own guests actually changed. Everything reads `sections()`.
+  // place, so an event nothing touched keeps its object identity. That alone
+  // is not enough, though — a plain memo over the whole event list reads every
+  // event's guests, so it subscribes to all of them and re-merges every row
+  // when any one changes. `mapArray` is the fix: its callback runs once per
+  // event, cached by identity, so the per-event row memos below only re-run
+  // for the event whose own guests actually changed. Everything reads
+  // `sections()`.
+  //
+  // Sorted before filtered, so a keystroke only filters: the sort runs again
+  // when the rows or the sort change, never while the host types. Every event
+  // is filtered, not only the one on screen, because each tab counts its own
+  // matches.
   const sections = createMemo(
     mapArray(
       () => state.events,
       (event) => {
         const rows = createMemo(() => mergeRows(event));
-        const visible = createMemo(() => filterRows(rows(), query(), filter()));
-        return { event, rows, visible };
+        const sorted = createMemo(() => sortRows(rows(), sort()));
+        const visible = createMemo(() => filterRows(sorted(), query(), filter()));
+        // Every row, whatever the filter: the mark says the event holds a
+        // change the host has not seen, which a search does not undo.
+        const hasNew = createMemo(() => {
+          const isNew = isNewRow();
+          return rows().some((row) => isNew(row.guestId, event.id));
+        });
+        return { event, rows, visible, hasNew };
       },
     ),
   );
 
-  const counts = createMemo(() => statusCounts(sections().map((section) => section.rows())));
-  const shownCount = createMemo(() =>
-    sections().reduce((total, section) => total + section.visible().length, 0),
-  );
+  // The event on screen: the one chosen, or the first when none is, or when
+  // the one named has gone (a stale link, a deleted event).
+  const selected = createMemo(() => {
+    const all = sections();
+    const id = chosen();
+    return all.find((section) => section.event.id === id) ?? all[0];
+  });
+  const selectedIndex = () => {
+    const current = selected();
+    return current ? sections().indexOf(current) : -1;
+  };
+
+  const counts = createMemo(() => statusCounts(selected()?.rows() ?? []));
+  const shownCount = () => selected()?.visible().length ?? 0;
   const filtering = () => query().trim().length > 0 || filter() !== "all";
+
+  const selectEvent = (eventId: string) => {
+    setChosen(eventId);
+    props.onEvent?.(eventId);
+  };
 
   const openEditor = (
     eventId: string,
@@ -271,7 +332,9 @@ export default function RsvpView(props: RsvpViewProps) {
 
   // A filter that hides the row an editor is open on would otherwise leave the
   // form floating under a row that is no longer there — and a Save would write
-  // an RSVP the host can't see. Close it instead.
+  // an RSVP the host can't see. Close it instead. A switch of event does not
+  // close it: the form belongs to its own event, is not drawn while another
+  // one shows, and comes back with what was typed when the host returns.
   createEffect(() => {
     const target = edit();
     if (!target) return;
@@ -287,10 +350,133 @@ export default function RsvpView(props: RsvpViewProps) {
   // because a sighted host reading a stale number is the worse failure.
   const [announcement, setAnnouncement] = createSignal("");
   createEffect(() => {
-    const message = filtering() ? `Showing ${shownCount()} of ${counts().all} guest rows.` : "";
+    const message = filtering() ? showing() : "";
     const timer = setTimeout(() => setAnnouncement(message), 450);
     onCleanup(() => clearTimeout(timer));
   });
+
+  /** The status line: how much of the event on screen the search and chip
+   *  leave, naming the event, since that is all they act on. */
+  function showing() {
+    return `Showing ${shownCount()} of ${counts().all} guests for ${selected()?.event.name ?? ""}.`;
+  }
+
+  // ── The event tabs ────────────────────────────────────────────────────────
+  // Ids carry a per-view prefix, so they can never meet the module shell's
+  // `subtab-*` / `subpanel-*` around this view.
+  const idPrefix = `rsvp-${createUniqueId()}`;
+  const panelId = `${idPrefix}-panel`;
+  const tabId = (index: number) => `${idPrefix}-tab-${index}`;
+
+  // Roving tabindex, as in the module shell's own strip: only the selected tab
+  // is a tab stop, and the arrow keys move focus between the rest.
+  const tabRefs: HTMLButtonElement[] = [];
+  const [strip, setStrip] = createSignal<HTMLElement>();
+  const pill = createSlidingPill(() => selected()?.event.id ?? "");
+
+  /**
+   * Scroll the strip, and only the strip, until a tab is wholly in it.
+   * `scrollIntoView` and a plain `focus()` would scroll the page too, which on
+   * a deep link means the page jumps as it loads.
+   */
+  function reveal(tab: HTMLElement | undefined) {
+    const track = strip();
+    if (!tab || !track) return;
+    // The tabs are laid out in the track (it is `relative`), so offsetLeft is
+    // in the track's scrolled coordinates. 4px is the track's padding.
+    const start = tab.offsetLeft - 4;
+    const end = tab.offsetLeft + tab.offsetWidth + 4;
+    if (start < track.scrollLeft) track.scrollLeft = start;
+    else if (end > track.scrollLeft + track.clientWidth) track.scrollLeft = end - track.clientWidth;
+  }
+
+  // The chosen tab in view whenever the choice changes, and once the strip
+  // first mounts — which is after the load, so a deep-linked tab far along the
+  // strip is shown rather than left past its edge.
+  createEffect(() => {
+    const index = selectedIndex();
+    if (strip()) reveal(tabRefs[index]);
+  });
+
+  function focusTab(index: number) {
+    const count = sections().length;
+    if (count === 0) return;
+    const tab = tabRefs[((index % count) + count) % count];
+    tab?.focus({ preventScroll: true });
+    reveal(tab);
+  }
+
+  function onTabKeyDown(event: KeyboardEvent, index: number) {
+    // Focus only — Enter and Space fall through to the button's native click,
+    // which is what selects. A big event is not drawn in an instant, and each
+    // selection writes the address, so passing over a tab must not choose it.
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      focusTab(index + 1);
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      focusTab(index - 1);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      focusTab(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      focusTab(sections().length - 1);
+    }
+  }
+
+  // The table keeps its box across a switch of event — only the rows change —
+  // so the box is put back to its top-left corner, or the next event would
+  // open part-way down. `Table` hands out no ref; the head's is enough.
+  let head: HTMLTableSectionElement | undefined;
+  createEffect(
+    on(
+      () => selected()?.event.id,
+      () => {
+        const box = head?.closest("section");
+        if (box) box.scrollTo(0, 0);
+      },
+      { defer: true },
+    ),
+  );
+
+  /** The sort a column head is showing, as `aria-sort` spells it. */
+  const ariaSort = (key: RsvpSortKey) => {
+    const current = sort();
+    return current?.key === key ? current.direction : undefined;
+  };
+
+  /** A sortable column head's control. A button inside the `<th>`, which
+   *  carries `aria-sort`, as the APG sortable table does. */
+  const sortButton = (key: RsvpSortKey) => (
+    <button
+      type="button"
+      onClick={() => setSort(nextSort(sort(), key))}
+      // `uppercase` again: a button does not inherit the head's transform.
+      class="hover:text-text -mx-1 inline-flex items-center gap-1.5 rounded-sm px-1 uppercase transition-colors duration-(--dur-fast) ease-(--ease-out)"
+    >
+      {SORT_LABEL[key]}
+      <Show
+        when={ariaSort(key)}
+        fallback={
+          <ChevronsUpDown
+            aria-hidden="true"
+            strokeWidth={1.75}
+            class={`${SORT_ICON_CLASS} opacity-50`}
+          />
+        }
+      >
+        {(direction) => (
+          <Show
+            when={direction() === "ascending"}
+            fallback={<ArrowDown aria-hidden="true" strokeWidth={1.75} class={SORT_ICON_CLASS} />}
+          >
+            <ArrowUp aria-hidden="true" strokeWidth={1.75} class={SORT_ICON_CLASS} />
+          </Show>
+        )}
+      </Show>
+    </button>
+  );
 
   const save = async () => {
     const target = edit();
@@ -387,7 +573,7 @@ export default function RsvpView(props: RsvpViewProps) {
         title="Replies at a glance"
         description={
           props.canEdit
-            ? "Who's coming to each event, with dietary notes and who still owes a reply. Search or filter to find a guest, then record a phone or paper reply on their behalf. Changing only the status keeps the dietary requirements already given; new dietary requirements replace them and are marked as host-entered."
+            ? "Who's coming to each event, with dietary notes and who still owes a reply. Pick an event, search or filter to find a guest, then record a phone or paper reply on their behalf. Changing only the status keeps the dietary requirements already given; new dietary requirements replace them and are marked as host-entered."
             : "Who's coming to each event, with dietary notes and who still owes a reply — updated as guests reply. Read-only; download the full sheet from the Guests tab."
         }
       />
@@ -412,84 +598,160 @@ export default function RsvpView(props: RsvpViewProps) {
       </Show>
 
       <Show when={!loading() && !error() && hasEvents()}>
-        {/* One bar for the whole page, not one per event: the question a host
-            asks — who still owes a reply, who has an allergy — is asked of the
-            wedding, and each section keeps its own tallies below regardless. */}
-        <div class="flex flex-col gap-2">
-          <div class="border-border bg-surface/20 flex flex-wrap items-center gap-3 rounded-sm border p-4">
-            <Field label="Search guests" labelHidden class="min-w-48 flex-1">
-              {(field) => (
-                <Input
-                  {...field}
-                  type="search"
-                  value={query()}
-                  onInput={(e) => setQuery(e.currentTarget.value)}
-                  placeholder="Search a name, household, code or dietary note…"
-                />
-              )}
-            </Field>
-            <div class="flex flex-wrap gap-2" role="group" aria-label="Filter by reply">
-              <For each={RSVP_FILTERS}>
-                {(chip) => (
+        <div class="flex flex-col gap-4">
+          {/* One event at a time. The strip scrolls sideways rather than
+            wrapping: a wedding with many events keeps one row of tabs. */}
+          <div
+            ref={(el) => {
+              setStrip(el);
+              pill.track(el);
+            }}
+            role="tablist"
+            aria-label="Events"
+            class="border-border bg-surface/30 relative flex max-w-full [scrollbar-width:thin] gap-1 self-start overflow-x-auto rounded-sm border p-1"
+          >
+            {/* The selection, as one box that travels — the module shell's
+              strip, reused. */}
+            <span
+              aria-hidden="true"
+              class="bg-gold/12 pointer-events-none absolute top-0 left-0 rounded-sm"
+              style={pill.style()}
+            />
+            <For each={sections()}>
+              {(section, index) => {
+                const isSelected = () => selected() === section;
+                const shown = () => section.visible().length;
+                // The tab's whole name, in sentence case. Chrome would carry
+                // the label's `uppercase` into a name read from the text, and
+                // put a space before each comma between the flex children.
+                const name = () =>
+                  `${section.event.name}, ${shown()} ${
+                    filtering() ? "matching" : shown() === 1 ? "guest" : "guests"
+                  }${section.hasNew() ? ", changed since you last looked" : ""}`;
+                return (
                   <button
+                    ref={(el) => {
+                      tabRefs[index()] = el;
+                      pill.item(section.event.id)(el);
+                    }}
                     type="button"
-                    class={CHIP_CLASS}
-                    aria-pressed={filter() === chip.key}
-                    onClick={() => setFilter(chip.key)}
+                    role="tab"
+                    id={tabId(index())}
+                    aria-controls={panelId}
+                    aria-selected={isSelected()}
+                    tabindex={isSelected() ? 0 : -1}
+                    aria-label={name()}
+                    onKeyDown={(event) => onTabKeyDown(event, index())}
+                    onClick={() => selectEvent(section.event.id)}
+                    class={`font-body text-ui-xs tracking-ui-wider relative flex shrink-0 items-center gap-2 rounded-sm px-3.5 py-1.5 whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
+                      isSelected()
+                        ? "text-gold"
+                        : "text-text-muted hover:text-text hover:bg-surface/60"
+                    }`}
                   >
-                    {chip.label}
-                    <span class="text-text text-ui-xs font-mono">{counts()[chip.key]}</span>
-                  </button>
-                )}
-              </For>
-            </div>
-          </div>
-          {/* Two readings of one fact: the printed count updates as you type,
-              the announced one waits for you to stop. */}
-          <p class="font-body text-text-muted text-ui-sm">
-            <Show when={filtering()}>
-              Showing {shownCount()} of {counts().all} guest rows.
-            </Show>
-          </p>
-          <p role="status" class="sr-only">
-            {announcement()}
-          </p>
-        </div>
-
-        <div class="flex flex-col gap-10">
-          <For each={sections()}>
-            {(section) => (
-              <section class="border-border bg-surface/30 flex flex-col gap-4 rounded-sm border p-5">
-                <header class="flex flex-wrap items-end justify-between gap-3">
-                  <h3 class="font-display text-text text-ui-lg leading-none font-light">
                     {section.event.name}
-                  </h3>
-                  <dl class="font-body text-text-muted text-ui-sm flex flex-wrap gap-x-4 gap-y-1">
-                    <div class="flex items-center gap-1.5">
-                      <dt class="text-gold tracking-ui-wider uppercase">Attending</dt>
-                      <dd class="text-text font-mono">{section.event.attending}</dd>
+                    {/* The rows this tab would show: the whole list, or what the
+                      search and chip leave of it — so a search run on one
+                      event still says which others it would find guests in. */}
+                    <span class="text-text font-mono tracking-normal">{shown()}</span>
+                    {/* Opening the table marks every event's changes seen, so an
+                      event not on screen says it holds some, in a word. */}
+                    <Show when={section.hasNew()}>
+                      <span class="bg-gold/15 text-gold tracking-ui-wider rounded-sm px-1.5 py-0.5">
+                        New
+                      </span>
+                    </Show>
+                  </button>
+                );
+              }}
+            </For>
+          </div>
+
+          <Show when={selected()}>
+            {(section) => (
+              <div
+                role="tabpanel"
+                id={panelId}
+                aria-labelledby={tabId(selectedIndex())}
+                class="flex flex-col gap-4"
+              >
+                {/* The API's own tallies for the event. Not the chip counts: those
+                  count the rows listed, and a guest taken off the event after
+                  replying keeps a row but is no longer invited. */}
+                <dl class="font-body text-text-muted text-ui-sm flex flex-wrap gap-x-4 gap-y-1">
+                  <div class="flex items-center gap-1.5">
+                    <dt class="text-gold tracking-ui-wider uppercase">Attending</dt>
+                    <dd class="text-text font-mono">{section().event.attending}</dd>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <dt class="tracking-ui-wider uppercase">Declined</dt>
+                    <dd class="text-text font-mono">{section().event.declined}</dd>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <dt class="tracking-ui-wider uppercase">Maybe</dt>
+                    <dd class="text-text font-mono">{section().event.maybe}</dd>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <dt class="tracking-ui-wider uppercase">No reply</dt>
+                    <dd class="text-text font-mono">{section().event.noResponse}</dd>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <dt class="tracking-ui-wider uppercase">Invited</dt>
+                    <dd class="text-text font-mono">{section().event.invited}</dd>
+                  </div>
+                </dl>
+
+                {/* The search and the chips act on this event only, which is why
+                  they sit inside its panel and name it. */}
+                <div class="flex flex-col gap-2">
+                  <div class="border-border bg-surface/20 flex flex-wrap items-center gap-3 rounded-sm border p-4">
+                    <Field
+                      label={`Search ${section().event.name} guests`}
+                      labelHidden
+                      class="min-w-48 flex-1"
+                    >
+                      {(field) => (
+                        <Input
+                          {...field}
+                          type="search"
+                          value={query()}
+                          onInput={(e) => setQuery(e.currentTarget.value)}
+                          placeholder={`Search ${section().event.name} by name, household, code or dietary note…`}
+                        />
+                      )}
+                    </Field>
+                    <div
+                      class="flex flex-wrap gap-2"
+                      role="group"
+                      aria-label={`Filter ${section().event.name} by reply`}
+                    >
+                      <For each={RSVP_FILTERS}>
+                        {(chip) => (
+                          <button
+                            type="button"
+                            class={CHIP_CLASS}
+                            aria-pressed={filter() === chip.key}
+                            onClick={() => setFilter(chip.key)}
+                          >
+                            {chip.label}
+                            <span class="text-text text-ui-xs font-mono">{counts()[chip.key]}</span>
+                          </button>
+                        )}
+                      </For>
                     </div>
-                    <div class="flex items-center gap-1.5">
-                      <dt class="tracking-ui-wider uppercase">Declined</dt>
-                      <dd class="text-text font-mono">{section.event.declined}</dd>
-                    </div>
-                    <div class="flex items-center gap-1.5">
-                      <dt class="tracking-ui-wider uppercase">Maybe</dt>
-                      <dd class="text-text font-mono">{section.event.maybe}</dd>
-                    </div>
-                    <div class="flex items-center gap-1.5">
-                      <dt class="tracking-ui-wider uppercase">No reply</dt>
-                      <dd class="text-text font-mono">{section.event.noResponse}</dd>
-                    </div>
-                    <div class="flex items-center gap-1.5">
-                      <dt class="tracking-ui-wider uppercase">Invited</dt>
-                      <dd class="text-text font-mono">{section.event.invited}</dd>
-                    </div>
-                  </dl>
-                </header>
+                  </div>
+                  {/* Two readings of one fact: the printed count updates as you
+                    type, the announced one waits for you to stop. */}
+                  <p class="font-body text-text-muted text-ui-sm">
+                    <Show when={filtering()}>{showing()}</Show>
+                  </p>
+                  <p role="status" class="sr-only">
+                    {announcement()}
+                  </p>
+                </div>
 
                 <Show
-                  when={section.rows().length > 0}
+                  when={section().rows().length > 0}
                   fallback={
                     <p class="font-body text-text-muted text-ui-sm italic">
                       No guests to show for this event.
@@ -497,7 +759,7 @@ export default function RsvpView(props: RsvpViewProps) {
                   }
                 >
                   <Show
-                    when={section.visible().length > 0}
+                    when={section().visible().length > 0}
                     fallback={
                       <p class="font-body text-text-muted text-ui-sm italic">
                         No guests match this filter.
@@ -505,23 +767,35 @@ export default function RsvpView(props: RsvpViewProps) {
                     }
                   >
                     {/* Fixed layout, so a search that removes rows never makes
-                        the browser measure every remaining cell to size the
-                        columns again — auto layout does exactly that on each
-                        keystroke. The widths below are what it reads instead:
-                        room for the widest badge, button and heading in each
-                        column, with Dietary taking what is left. The table's
-                        floor is their sum, so a phone scrolls the region
-                        sideways rather than crushing the columns. `class` lands
-                        on the scrolling <section>, hence the `[&>table]` reach. */}
+                      the browser measure every remaining cell to size the
+                      columns again — auto layout does exactly that on each
+                      keystroke. The widths below are what it reads instead:
+                      room for the widest badge, button and heading in each
+                      column, with Dietary taking what is left. The table's
+                      floor is their sum, so a phone scrolls the region
+                      sideways rather than crushing the columns. `class` lands
+                      on the scrolling <section>, hence the `[&>table]` reach.
+
+                      The box also scrolls down, in its own right: a pinned
+                      head can only stick inside the box that scrolls, and the
+                      sideways scroll makes this box that, on both axes. Its
+                      height leaves room under the top bar (3.5rem, 4rem when
+                      wide) so the whole box fits on screen at once. `isolate`
+                      keeps the pinned cells' layers inside the box;
+                      `relative` makes the box the home of the hidden text
+                      inside it. The scroll padding — the head row's height
+                      and a little, the Guest column's width and a little —
+                      is where the browser will not leave a focused control,
+                      so focus never lands under a pinned cell. */}
                     <Table
-                      label={`Replies for ${section.event.name}`}
+                      label={`Replies for ${section().event.name}`}
                       class={
                         props.canEdit
-                          ? "[&>table]:w-[max(100%,45rem)] [&>table]:table-fixed"
-                          : "[&>table]:w-[max(100%,37rem)] [&>table]:table-fixed"
+                          ? "relative isolate max-h-[calc(100svh-6rem)] scroll-ps-50 scroll-pt-12 overflow-y-auto [&>table]:w-[max(100%,45rem)] [&>table]:table-fixed"
+                          : "relative isolate max-h-[calc(100svh-6rem)] scroll-ps-50 scroll-pt-12 overflow-y-auto [&>table]:w-[max(100%,37rem)] [&>table]:table-fixed"
                       }
                     >
-                      <caption class="sr-only">RSVPs for {section.event.name}</caption>
+                      <caption class="sr-only">RSVPs for {section().event.name}</caption>
                       <colgroup>
                         <col class="w-48" />
                         <col class="w-36" />
@@ -531,21 +805,30 @@ export default function RsvpView(props: RsvpViewProps) {
                           <col class="w-32" />
                         </Show>
                       </colgroup>
-                      <thead>
+                      {/* The head row is pinned to the top of the box, and its
+                        first cell to the corner, over both the head row and
+                        the Guest column. Pinned cells paint the page's ground,
+                        which is what this table sits on, so the rows passing
+                        under them never show through. */}
+                      <thead ref={head}>
                         <tr>
-                          <Th>Guest</Th>
-                          <Th>Household</Th>
-                          <Th>Status</Th>
-                          <Th>Dietary</Th>
+                          <Th aria-sort={ariaSort("guest")} pin="top-start">
+                            {sortButton("guest")}
+                          </Th>
+                          <Th aria-sort={ariaSort("household")} pin="top">
+                            {sortButton("household")}
+                          </Th>
+                          <Th pin="top">Status</Th>
+                          <Th pin="top">Dietary</Th>
                           <Show when={props.canEdit}>
-                            <Th align="end">
+                            <Th align="end" pin="top">
                               <span class="sr-only">Actions</span>
                             </Th>
                           </Show>
                         </tr>
                       </thead>
                       <tbody>
-                        <For each={section.visible()}>
+                        <For each={section().visible()}>
                           {(row) => (
                             <>
                               <tr class="hover:[&>td]:bg-surface">
@@ -553,7 +836,24 @@ export default function RsvpView(props: RsvpViewProps) {
                                     fit: under fixed layout a long name no
                                     longer widens its column, it spills into the
                                     next one. */}
-                                <Td valign="middle" class="wrap-break-word">
+                                {/* Pinned to the start edge while the table
+                                    scrolls sideways; the row's hover fill
+                                    still reaches it. */}
+                                <Td
+                                  valign="middle"
+                                  pin="start"
+                                  // Pinned only while the table is wider than its
+                                  // box, below the panel width its columns need
+                                  // (45rem, 37rem for a viewer) plus borders and
+                                  // a scrollbar. Wider, the column cannot slide,
+                                  // and 900 pinned cells would only cost every
+                                  // scrolled frame.
+                                  class={
+                                    props.canEdit
+                                      ? "wrap-break-word @min-[47rem]/panel:static"
+                                      : "wrap-break-word @min-[39rem]/panel:static"
+                                  }
+                                >
                                   {row.firstName} {row.lastName}
                                   {/* Each badge explains itself through
                                       `Tooltip`: hidden text a screen reader
@@ -562,7 +862,7 @@ export default function RsvpView(props: RsvpViewProps) {
                                       text, Chrome would hand it to a screen
                                       reader a second time, as the badge's
                                       description. */}
-                                  <Show when={isNewRow()(row.guestId, section.event.id)}>
+                                  <Show when={isNewRow()(row.guestId, section().event.id)}>
                                     {" "}
                                     <Tooltip text="Changed by the guest since you last looked">
                                       <span class="bg-gold/15 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm px-1.5 py-0.5 uppercase">
@@ -654,7 +954,7 @@ export default function RsvpView(props: RsvpViewProps) {
                                       size="sm"
                                       type="button"
                                       aria-label={`${row.responded ? "Edit" : "Record"} reply for ${row.firstName} ${row.lastName}`}
-                                      onClick={() => openRow(section.event.id, row)}
+                                      onClick={() => openRow(section().event.id, row)}
                                     >
                                       {row.responded ? "Edit" : "Record"}
                                     </Button>
@@ -662,7 +962,7 @@ export default function RsvpView(props: RsvpViewProps) {
                                 </Show>
                               </tr>
                               <Show
-                                when={props.canEdit && isEditing(section.event.id, row.guestId)}
+                                when={props.canEdit && isEditing(section().event.id, row.guestId)}
                               >
                                 {renderEditorRow()}
                               </Show>
@@ -673,9 +973,9 @@ export default function RsvpView(props: RsvpViewProps) {
                     </Table>
                   </Show>
                 </Show>
-              </section>
+              </div>
             )}
-          </For>
+          </Show>
         </div>
       </Show>
     </div>
