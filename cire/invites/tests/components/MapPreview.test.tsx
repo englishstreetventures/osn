@@ -119,6 +119,18 @@ describe("MapPreview", () => {
     expect(container.querySelector("p")).toBeNull();
   });
 
+  it("names the venue when it has a name and no address, and searches for the name", () => {
+    const { getByRole, container } = render(() => (
+      <MapPreview event={{ ...baseEvent, venueName: "The Glasshouse", address: null }} />
+    ));
+    expect([...container.querySelectorAll("p")].map((p) => p.textContent)).toEqual([
+      "The Glasshouse",
+    ]);
+    expect((getByRole("link") as HTMLAnchorElement).href).toContain(
+      `query=${encodeURIComponent("The Glasshouse")}`,
+    );
+  });
+
   // A dangerous organiser-supplied mapsUrl (e.g. javascript:) must never
   // reach the anchor href — the component routes through resolveMapsUrl, which
   // rejects non-http(s) schemes and falls back to the safe Google Maps search
