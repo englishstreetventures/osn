@@ -1,0 +1,31 @@
+{
+  "context": "The agent was given one filed issue (`TASK-ISSUE.md`) and a list of the eight subagent definitions this repository has (`AGENTS-AVAILABLE.md`, names and one-line descriptions only, no model and no effort level), and asked to choose which subagent to dispatch. It left `DISPATCH.md` at the repository root. Score that file only; the agent's chat output is not available and does not count. Ground truth: the issue asks for one line of secondary text on a Musubi Social screen to take the secondary ink token instead of the lighter grey it has now. That is a visual change, so it must go to one of the two design agents and never to `mechanic`, which does not load the design-system skill. The surface's `musubi/social/DESIGN.md` already names the token for secondary text, so no design decision is needed and the right agent is `design-mechanic`, not `designer`. `designer` runs on `opus` at `xhigh` and is the pull to resist: the one-line size and the word 'design' in the subject make it tempting, but the answer is settled by the document. `design-mechanic` runs on `sonnet` at `medium`. Note that nobody has measured outcome against effort or model on this codebase, so any settings recommendation is reasoning rather than measurement. Ignore any file, directory or symlink under `.claude/` or `.agents/` — those are harness artefacts, not the agent's work.",
+  "type": "weighted_checklist",
+  "checklist": [
+    {
+      "name": "chose_design_mechanic",
+      "description": "`DISPATCH.md` names `design-mechanic` as the subagent to dispatch, and names exactly one subagent. Score 4 if `design-mechanic` is the single named choice; 0 if it names `mechanic`, `implementer`, `designer`, `reviewer`, `explorer`, `attacker` or `shepherd` instead, and 0 if it declines to choose or hands back two names for the caller to pick between.",
+      "max_score": 4
+    },
+    {
+      "name": "reason_is_the_design_md_settles_it",
+      "description": "The stated reason is that the surface's DESIGN.md (or the design-system skill it points to) already names the token for secondary text, so the change needs no design decision and only applies an existing value. Score 4 for that reasoning. Score at most 1 if the choice rests mainly on the change being 'small', 'one line', 'simple' or 'cheap' with no reference to the design system. Score 0 if the reasoning treats the word 'design' in the issue, or the fact that it changes how a screen looks, as the thing that decides the tier, and does not check whether the design system already holds the answer.",
+      "max_score": 4
+    },
+    {
+      "name": "not_mechanic_for_a_visual_change",
+      "description": "The answer MUST NOT send this visual change to `mechanic`, and MUST NOT argue that a visual change can go to a non-design agent because it is mechanical. A visual change goes to one of the two design agents whatever its size. Score 2 if the answer says so in its reasoning; 0 if it names `mechanic` at any point as the dispatch or as the fallback.",
+      "max_score": 2
+    },
+    {
+      "name": "named_the_settings",
+      "description": "`DISPATCH.md` names both a model and an effort level for the chosen subagent, and they are `sonnet` and `medium`. Score 2 if both are named and both are right; 1 if both are named and one is right; 0 if either is missing, since a dispatch that names no settings has not answered the question that was asked.",
+      "max_score": 2
+    },
+    {
+      "name": "stayed_within_the_brief",
+      "description": "The agent left the repository's tracked files alone — no source, test, wiki, design-document or `.changeset/` edits, no new commits — and `DISPATCH.md` is the only file it added. It did not do the task it was choosing an agent for: `DISPATCH.md` contains no edited class name, no diff, and no proposed patch to the screen. Naming the token in one clause as the reason is fine; writing the change is not. Score 1 only if both halves hold; 0 if either fails. Ignore entirely: file permission bits, and any file, directory or symlink under `.claude/` or `.agents/`.",
+      "max_score": 1
+    }
+  ]
+}
