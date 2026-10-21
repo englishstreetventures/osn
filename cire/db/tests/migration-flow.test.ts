@@ -63,12 +63,15 @@ function workspace(packageDir: string, copy: readonly string[], config: string) 
     return result.stdout.toString();
   };
 
-  /** `db:generate` in this package; it must leave its TMPDIR empty. */
-  const generate = (name: string, extra: string[] = []) => {
+  /**
+   * `db:generate` in this package, reached through `at` (the package's own
+   * path unless given); it must leave its TMPDIR empty.
+   */
+  const generate = (name: string, extra: string[] = [], at = pkg) => {
     const result = Bun.spawnSync(
-      [process.execPath, "run", GENERATE, pkg, "--name", name, ...extra],
+      [process.execPath, "run", GENERATE, at, "--name", name, ...extra],
       {
-        cwd: pkg,
+        cwd: at,
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
@@ -332,6 +335,44 @@ describe.skipIf(!FLOW)("db:generate on cire, parallel branches and the merge-que
       flow.uncommitted = { exitCode: refused.exitCode };
       cire.git("checkout", "-q", "-f", "main");
       cire.git("clean", "-qfd");
+    },
+    SLOW,
+  );
+});
+
+describe.skipIf(!FLOW)("db:generate on a package reached through a symlink", () => {
+  // git reports the repository root as a real path, and the migration must
+  // still land inside it. Under macOS's default TMPDIR (`/var` links to
+  // `/private/var`) every workspace in this file is reached through a link;
+  // this case reaches one through a link on every platform.
+  test(
+    "writes the migration and names it from the repository root",
+    () => {
+      const cire = workspace(
+        CIRE_DB,
+        ["src", "migrations"],
+        'export default { dialect: "sqlite", schema: "./src/schema.ts", out: "./migrations" };\n',
+      );
+      const link = `${cire.repo}-link`;
+      symlinkSync(cire.repo, link);
+      try {
+        addToTable(
+          join(cire.pkg, "src", "schema.ts"),
+          "weddings",
+          'flowLinked: text("flow_linked"),',
+        );
+        const made = cire.generate("flow_linked", [], join(link, "cire", "db"));
+        expect(made.exitCode).toBe(0);
+        const file = made.output.trim().split("\n").at(-1)!;
+        expect(file).toMatch(/^cire\/db\/migrations\/\d{14}_flow_linked\.sql$/);
+        expect(readFileSync(join(cire.repo, file), "utf8")).toBe(
+          "ALTER TABLE `weddings` ADD `flow_linked` text;",
+        );
+        flow.symlinked = { file: stable(file) };
+      } finally {
+        rmSync(link, { force: true });
+        rmSync(cire.repo, { recursive: true, force: true });
+      }
     },
     SLOW,
   );
