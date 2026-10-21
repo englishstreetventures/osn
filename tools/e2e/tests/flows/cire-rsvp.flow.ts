@@ -128,20 +128,37 @@ test("cire-rsvp", async ({ page, context, flow }) => {
 
   // The page behind the sheet is locked at the root: a drag that starts on
   // the sheet's chrome (outside its scrollport) or on the backdrop has
-  // nothing to scroll, and must not reach the invite underneath.
-  const pageStill = await flow.step("drag on the sheet's chrome and on the backdrop", async () => {
+  // nothing to scroll, and must not reach the invite underneath. A still page
+  // proves that only when the page had somewhere to go: an upward drag
+  // scrolls it down, so it needs room below it, and is moved up first when
+  // the sheet opened too near its foot.
+  const locked = await flow.step("drag on the sheet's chrome and on the backdrop", async () => {
+    const room = () =>
+      page.evaluate(
+        () => document.documentElement.scrollHeight - window.innerHeight - window.scrollY,
+      );
+    if ((await room()) < 200) {
+      await page.evaluate(() =>
+        window.scrollTo(
+          0,
+          Math.max(0, document.documentElement.scrollHeight - window.innerHeight - 400),
+        ),
+      );
+    }
+    const hadRoom = (await room()) >= 200;
     const before = await page.evaluate(() => window.scrollY);
     const chrome = (await panelSwitch.boundingBox())!;
     const onChrome = { x: chrome.x + chrome.width / 2, y: chrome.y + chrome.height / 2 };
     await swipe(page, onChrome, { x: onChrome.x, y: onChrome.y - 200 }, 400);
     await swipe(page, { x: PHONE.width / 2, y: 160 }, { x: PHONE.width / 2, y: 20 }, 400);
     await expect(sheet).toBeVisible();
-    return before === (await page.evaluate(() => window.scrollY));
+    return { hadRoom, still: before === (await page.evaluate(() => window.scrollY)) };
   });
+  flow.check("the page behind the sheet had room to scroll", true, locked.hadRoom);
   flow.check(
     "a drag on the sheet's chrome or backdrop leaves the page where it was",
     true,
-    pageStill,
+    locked.still,
   );
 
   await flow.step("scroll the details with a vertical drag", async () => {
