@@ -8,8 +8,8 @@ import { musubiDeclaration } from "../../../musubi/infra/src/declaration";
 import { osnSeedSql } from "../../../musubi/infra/src/seeds";
 import { cireDeclaration } from "../src/declaration";
 
-const cireApiIndex = readFileSync(
-  fileURLToPath(new URL("../../api/src/index.ts", import.meta.url)),
+const cireApiOidc = readFileSync(
+  fileURLToPath(new URL("../../api/src/lib/oidc.ts", import.meta.url)),
   "utf8",
 );
 
@@ -39,7 +39,7 @@ describe("the cire and musubi stacks together", () => {
         seed,
       )?.[1];
       // cire-api builds its redirect URI from CIRE_API_ORIGIN this way.
-      expect(cireApiIndex).toContain("redirectUri: `${apiOrigin}/api/auth/oidc/callback`");
+      expect(cireApiOidc).toContain("redirectUri: `${apiOrigin}/api/auth/oidc/callback`");
       expect(JSON.parse(redirectUris ?? "null")).toEqual([
         `${cire.CIRE_API_ORIGIN}/api/auth/oidc/callback`,
       ]);

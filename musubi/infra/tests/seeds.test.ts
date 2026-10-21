@@ -120,7 +120,7 @@ describe("osnSeedSql", () => {
   });
 
   test("S2: the redirect URI is the one cire-api builds from CIRE_API_ORIGIN", () => {
-    const cireApi = readRepo("cire/api/src/index.ts");
+    const cireApi = readRepo("cire/api/src/lib/oidc.ts");
     expect(cireApi).toMatch(/const apiOrigin = env\.CIRE_API_ORIGIN\b/);
     const path = /redirectUri: `\$\{apiOrigin\}([^`]+)`/.exec(cireApi)?.[1];
     expect(path).toBe("/api/auth/oidc/callback");
