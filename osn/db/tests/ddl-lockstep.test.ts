@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { listMigrations, migrationStatements } from "../../../scripts/migration-files";
 import { createSchemaSql } from "../src/testing";
 
 // Mechanical enforcement of the OSN DDL lockstep contract, ported from
@@ -73,21 +74,17 @@ interface TableShape {
   indexes: IndexShape[];
 }
 
+/** The chain in the order wrangler applies it. */
 function migrationFiles(): string[] {
-  return readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith(".sql"))
-    .toSorted();
+  return listMigrations(MIGRATIONS_DIR);
 }
 
 /** Apply the full migration chain to a fresh in-memory database. */
 function migratedDb(): Database {
   const db = new Database(":memory:");
   for (const file of migrationFiles()) {
-    const sql = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
-    // drizzle-kit separates statements with this marker.
-    for (const stmt of sql.split("--> statement-breakpoint")) {
-      const trimmed = stmt.trim();
-      if (trimmed) db.exec(trimmed);
+    for (const stmt of migrationStatements(readFileSync(join(MIGRATIONS_DIR, file), "utf8"))) {
+      db.exec(stmt);
     }
   }
   return db;
@@ -210,6 +207,16 @@ function snapshot(db: Database): Record<string, TableShape> {
 }
 
 describe("OSN DDL lockstep", () => {
+  // Wrangler applies every `*.sql` directly in the directory and nothing
+  // else, so anything beside them is a migration that would never run: a
+  // drizzle-kit folder, a `meta/` journal, a stray file.
+  it("holds flat .sql migrations and nothing wrangler would skip", () => {
+    const others = readdirSync(MIGRATIONS_DIR, { withFileTypes: true }).filter(
+      (entry) => !(entry.isFile() && entry.name.endsWith(".sql")),
+    );
+    expect(others.map((entry) => entry.name)).toEqual([]);
+  });
+
   const migrated = snapshot(migratedDb());
   const emitted = snapshot(emittedDb());
 

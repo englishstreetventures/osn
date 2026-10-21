@@ -1,7 +1,9 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { listMigrations, migrationStatements } from "../../../../scripts/migration-files";
 
 // Data proof for migration 0088, which adds `registry_contributions.item_title`
 // and copies the current title of the listing each gift names onto it. A gift
@@ -14,15 +16,16 @@ const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations
 const MIG_0088 = "0088_contribution_item_title.sql";
 
 function apply(db: Database, file: string): void {
-  db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
+  for (const statement of migrationStatements(readFileSync(join(MIGRATIONS_DIR, file), "utf8"))) {
+    db.exec(statement);
+  }
 }
 
 function databaseBefore0088(): Database {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
-  for (const file of readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith(".sql") && f < MIG_0088)
-    .toSorted()) {
+  const chain = listMigrations(MIGRATIONS_DIR);
+  for (const file of chain.slice(0, chain.indexOf(MIG_0088))) {
     apply(db, file);
   }
   return db;

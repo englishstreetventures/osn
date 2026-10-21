@@ -10,18 +10,22 @@
   // Solid transform (it resolves `targets` from it), and it too sits in no
   // package. `patches/**` holds the dependency patches `bun install` applies;
   // `bun.lock` records only their paths, so an edit to one changes no other
-  // input and would otherwise serve every cached test from before it.
-  "globalDependencies": ["shared/test-config/no-jest-dom.ts", ".browserslistrc", "patches/**"],
+  // input and would otherwise serve every cached test from before it. The
+  // migration scripts sit in no package either, and the db and cire/api test
+  // suites import them to replay and list migrations.
+  "globalDependencies": [
+    "shared/test-config/no-jest-dom.ts",
+    ".browserslistrc",
+    "patches/**",
+    "scripts/migration-files.ts",
+    "scripts/cire-db-migrate.ts",
+    "scripts/db-generate.ts",
+    "scripts/check-migration-orders.ts"
+  ],
   "tasks": {
     "build": {
-      "dependsOn": [
-        "^build"
-      ],
-      "outputs": [
-        "dist/**",
-        ".output/**",
-        "build/**"
-      ],
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".output/**", "build/**"],
       "env": ["PUBLIC_*", "VITE_*", "SITE"]
     },
     "dev": {
@@ -62,22 +66,12 @@
     // other way round: the worst a wrong exclusion does is re-run a suite that
     // did not need re-running.
     "test": {
-      "dependsOn": [
-        "^build"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!**/*.md"
-      ]
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
     },
     "test:d1": {
-      "dependsOn": [
-        "^build"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!**/*.md"
-      ]
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
     },
     // Serial, like `test:d1` above and for a neighbouring reason. Each project
     // in this task starts its own Vite server AND its own Chromium; six of them
@@ -88,13 +82,8 @@
     // test, and the concurrency lives in the root script because turbo has no
     // per-task setting for it.
     "test:browser": {
-      "dependsOn": [
-        "^build"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!**/*.md"
-      ],
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md"],
       "passThroughEnv": [
         "VITEST_BROWSER_EXECUTABLE_PATH",
         "PLAYWRIGHT_BROWSERS_PATH",
