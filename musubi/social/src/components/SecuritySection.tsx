@@ -2,6 +2,7 @@ import { PasskeysView } from "@osn/auth-ui/PasskeysView";
 import { RecoveryCodesView } from "@osn/auth-ui/RecoveryCodesView";
 import { TotpView } from "@osn/auth-ui/TotpView";
 
+import { PRODUCT_NAME } from "../lib/auth";
 import { passkeysClient, recoveryClient, stepUpClient, totpClient } from "../lib/authClients";
 import { runPasskeyCeremony } from "../lib/webauthn-ceremony";
 import { runPasskeyRegistration } from "../lib/webauthn-registration";
@@ -64,6 +65,7 @@ export default function SecuritySection(props: SecuritySectionProps) {
           accessToken={props.accessToken}
           runPasskeyCeremony={runPasskeyCeremony}
           totpClient={totpClient}
+          productName={PRODUCT_NAME}
         />
       </section>
     </div>

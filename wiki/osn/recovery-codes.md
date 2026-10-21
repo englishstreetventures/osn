@@ -13,7 +13,7 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/auth-ui"
-last-reviewed: 2026-09-14
+last-reviewed: 2026-10-17
 ---
 # Recovery Codes
 
@@ -264,15 +264,12 @@ await client.loginWithRecoveryCode({ identifier, code });  // → { session, pro
 - runs the step-up ceremony through `StepUpDialog` before generating, with `purpose="recovery_generate"`, and passes the minted token straight to generate;
 - confirms before rotating an existing set (the previous codes die immediately), and treats an **unreadable** count as "might have codes" so a failed status read never skips the warning (S-L1);
 - holds the generate button until the first status read settles — before that the view cannot tell a first set from a rotation — and **says so while it waits** (2026-07-30): a pulse skeleton reserves the status line's height so nothing shifts when the count lands, and the button reads "Checking…". Held-and-silent read as broken on a slow link, which is the opposite of what a panel about account recovery wants to convey;
-- shows the codes once with copy + `.txt` download, and gates the Done button on an explicit "I've saved these" checkbox;
+- shows the codes once with copy + `.txt` download, and gates the Done button on an explicit "I've saved these" checkbox. The file is named after the product the view is rendered for (`recoveryCodesFileName`: "Musubi" → `musubi-recovery-codes.txt`), so somebody who keeps codes for several services can tell the files apart;
 - fails soft on a status read error — the count goes unknown, generation still works.
 
-Props: `client`, `stepUpClient`, `accessToken`, plus optional `runPasskeyCeremony` (kept caller-side so `@osn/auth-ui` doesn't depend on `@simplewebauthn/browser`), `passkeyOnly`, `onSaved`.
+Props: `client`, `stepUpClient`, `accessToken`, `productName` (the name the download is filed under; `@osn/auth-ui` names no product of its own), plus optional `runPasskeyCeremony` (kept caller-side so `@osn/auth-ui` doesn't depend on `@simplewebauthn/browser`), `totpClient`, `passkeyOnly`, `onSaved`.
 
-Mounted in:
-
-- `musubi/social/src/components/SecuritySection.tsx` — Settings → Security, under the passkey list.
-- `cire/host/src/components/SecurityPanel.tsx` — same position, `passkeyOnly` forced (that deployment's OTP factor can't be relied on).
+Mounted in `musubi/social/src/components/SecuritySection.tsx` — Settings → Security, under the passkey list. cire's portal mounts none of the auth-ui views; its `SecurityPanel` links to Musubi instead.
 
 `RecoveryLoginForm` is the redemption side, mounted in `@osn/auth-ui/SignIn`.
 

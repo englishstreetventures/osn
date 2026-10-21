@@ -4,7 +4,7 @@ import type { AuthenticationResponseJSON } from "@simplewebauthn/browser";
 import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { RecoveryCodesView } from "../src/RecoveryCodesView";
+import { RecoveryCodesView, recoveryCodesFileName } from "../src/RecoveryCodesView";
 
 /**
  * Show-once recovery-code view. Tests cover:
@@ -95,6 +95,7 @@ function renderView(extra: Record<string, unknown> = {}) {
       accessToken="acc_live"
       runPasskeyCeremony={async () => assertion}
       passkeyOnly
+      productName="Musubi"
       {...extra}
     />
   ));
@@ -218,6 +219,25 @@ describe("RecoveryCodesView", () => {
     expect(done.disabled).toBe(false);
   });
 
+  it("names the downloaded file after the product it is rendered for", async () => {
+    stub.generateRecoveryCodes.mockResolvedValue({ codes: sampleCodes });
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:codes");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const saved: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+      function (this: HTMLAnchorElement) {
+        saved.push(this.download);
+      },
+    );
+    renderView({ productName: "Acme" });
+
+    await clickGenerate();
+    await waitFor(() => screen.getByText(sampleCodes[0]!));
+    fireEvent.click(screen.getByRole("button", { name: /Download \.txt/ }));
+
+    expect(saved).toEqual(["acme-recovery-codes.txt"]);
+  });
+
   it("clears the displayed codes and fires onSaved after acknowledge", async () => {
     stub.generateRecoveryCodes.mockResolvedValue({ codes: sampleCodes });
     const onSaved = vi.fn();
@@ -321,5 +341,21 @@ describe("RecoveryCodesView", () => {
     // Settled: the placeholder is gone and the button says what it will do.
     expect(screen.queryByTestId("recovery-status-skeleton")).toBeNull();
     expect(screen.getByRole("button", { name: /Generate recovery codes/i })).toBeTruthy();
+  });
+});
+
+describe("recoveryCodesFileName", () => {
+  it("joins the words of a name with hyphens, dropping punctuation", () => {
+    expect(recoveryCodesFileName("Acme Social!")).toBe("acme-social-recovery-codes.txt");
+  });
+
+  it("falls back to a bare name when the name has no ASCII letter or digit", () => {
+    expect(recoveryCodesFileName("結び")).toBe("recovery-codes.txt");
+  });
+
+  // The accent sits mid-word: a trailing one would hide a stray hyphen, since
+  // the ends of the name are trimmed.
+  it("keeps an accented letter as its plain form rather than splitting the word", () => {
+    expect(recoveryCodesFileName("Müller Café")).toBe("muller-cafe-recovery-codes.txt");
   });
 });

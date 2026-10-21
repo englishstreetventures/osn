@@ -24,7 +24,7 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-19
 ---
 
 # Email Transport
@@ -76,25 +76,31 @@ const email = yield* EmailService;
 yield* email.send({
   template: "otp-registration",
   to: normalisedEmail,
-  data: { code, ttlMinutes: otpTtl / 60 },
+  data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
 });
 ```
 
-The template catalogue is the complete list of emails OSN sends:
+These are the account emails osn-api sends. Each names the identity instance
+it comes from, and takes that name as `instanceName` in its data: osn-api fills
+it from `AuthConfig.instanceName`, set in `osn/api/src/build-deps.ts`, and
+`@shared/email` names no product of its own. The security notices go through
+`notifySecurityEventByAccountId`, which adds `instanceName` itself, so their
+callers pass only the rest of the data.
 
 | Template                 | Data shape                          | Call site |
 |--------------------------|-------------------------------------|-----------|
-| `otp-registration`       | `{ code, ttlMinutes }`              | `beginRegistration` |
-| `otp-step-up`            | `{ code, ttlMinutes }`              | `beginStepUpOtp` |
-| `otp-email-change`       | `{ code, ttlMinutes }`              | `beginEmailChange` |
-| `otp-recovery`           | `{ code, ttlMinutes }`              | `beginEmailRecovery` |
-| `recovery-generated`     | `{}`                                | `notifyRecovery("recovery_code_generate")` |
-| `recovery-consumed`      | `{}`                                | `notifyRecovery("recovery_code_consume")` |
-| `recovery-used`          | `{}`                                | `completeRecoveryFactor` (email + TOTP) |
-| `passkey-added`          | `{}`                                | `notifyPasskeyRegisteredByAccountId` |
-| `passkey-removed`        | `{}`                                | `notifyPasskeyDeletedByAccountId` |
-| `totp-enrolled`          | `{}`                                | `completeTotpEnrollment` |
-| `totp-disabled`          | `{}`                                | `disableTotp` |
+| `otp-registration`       | `{ code, ttlMinutes, instanceName }` | `beginRegistration` |
+| `otp-step-up`            | `{ code, ttlMinutes, instanceName }` | `beginStepUpOtp` |
+| `otp-email-change`       | `{ code, ttlMinutes, instanceName }` | `beginEmailChange` |
+| `otp-recovery`           | `{ code, ttlMinutes, instanceName }` | `beginEmailRecovery` |
+| `recovery-generated`     | `{ instanceName }`                  | `notifyRecovery("recovery_code_generate")` |
+| `recovery-consumed`      | `{ instanceName }`                  | `notifyRecovery("recovery_code_consume")` |
+| `recovery-used`          | `{ disownUrl, instanceName }`       | `completeRecoveryFactor` (email + TOTP) |
+| `passkey-added`          | `{ instanceName }`                  | `notifyPasskeyRegisteredByAccountId` |
+| `passkey-removed`        | `{ instanceName }`                  | `notifyPasskeyDeletedByAccountId` |
+| `totp-enrolled`          | `{ instanceName }`                  | `completeTotpEnrollment` |
+| `totp-disabled`          | `{ instanceName }`                  | `disableTotp` |
+| `cross-device-login`     | `{ instanceName }`                  | `notifyCrossDeviceLoginByAccountId` |
 
 cire-api sends from the same catalogue:
 
@@ -135,7 +141,7 @@ Content-Type: application/json
 {
   "from":    "hello@cireweddings.com",
   "to":      ["user@example.com"],
-  "subject": "Verify your OSN email",
+  "subject": "Verify your Musubi email",
   "html":    "...",
   "text":    "...",
   "headers": { "List-Unsubscribe": "<https://…>" }
@@ -153,7 +159,7 @@ Content-Type: application/json
 {
   "to":      [{ "email": "user@example.com" }],
   "from":    { "email": "noreply@osn.app" },
-  "subject": "Verify your OSN email",
+  "subject": "Verify your Musubi email",
   "text":    "...",
   "html":    "..."
 }
@@ -279,7 +285,7 @@ Environment variables for `@osn/api`:
 | `RESEND_API_KEY` | non-local (preferred) | Resend API key (bearer). Selects `ResendEmailLive`; wins over the Cloudflare vars. `wrangler secret put RESEND_API_KEY`. |
 | `CLOUDFLARE_ACCOUNT_ID` | optional / legacy | Cloudflare account ID (fallback transport) |
 | `CLOUDFLARE_EMAIL_API_TOKEN` | optional / legacy | API token with Email Send permission (fallback transport) |
-| `OSN_EMAIL_FROM` | optional | Verified sender address (default: `noreply@osn.local`; prod: `hello@cireweddings.com`) |
+| `OSN_EMAIL_FROM` | optional | Verified sender address (default: `noreply@osn.local`; dev: `Musubi <hello@musubi.social>`; prod: `hello@cireweddings.com`) |
 | `RESEND_API_URL` | local only | Origin of a local Resend emulator, e.g. `http://localhost:4008`. Unset ⇒ `https://api.resend.com`. Loopback origins only (a `*.localhost` name needs https). **Never set in a deployed tier**: osn-api refuses to boot with it, the production deploy refuses to run while it exists as a secret, and a test fails if `wrangler.toml` sets it. |
 
 cire-api reads `RESEND_API_KEY` and `RESEND_API_URL` under the same names and
@@ -288,15 +294,20 @@ a refused override leaves no Resend transport and logs `email disabled: Resend
 misconfigured` with the reason, and the Worker keeps serving. Its production
 deploy refuses to run while `RESEND_API_URL` exists as a secret.
 
-> **The sender stayed on `cireweddings.com` through the identity move.** osn-api
-> now serves `id.musubi.social`, but `cireweddings.com` is the only domain verified
-> in Resend, and Resend refuses to send from a domain it cannot authenticate — a
-> premature switch would fail closed and take **OTP step-up** with it. That is
-> exactly the wrong thing to lose right now: after the RP-ID flip invalidated
-> every passkey, the way back into an account is recovery-code login **followed
-> by an OTP step-up** to enroll a new passkey. Move `OSN_EMAIL_FROM` only after
-> verifying a musubi.social sender in Resend (steps 1–2 below, against the new
-> domain). See [[musubi-identity-migration]].
+> **Dev sends from `musubi.social`; production still sends from `cireweddings.com`.**
+> Resend refuses to send from a domain it cannot authenticate, so dev's
+> `Musubi <hello@musubi.social>` works only once `musubi.social` is verified in
+> Resend; until then every dev OTP and security email fails. A failed send takes
+> **OTP step-up** with it, which is the way back into an account after a
+> recovery-code login. Production moves to the same sender only after dev mail
+> from `musubi.social` is seen to arrive. The steps are on
+> englishstreetventures/osn#1548. See [[musubi-identity-migration]].
+>
+> Dev shares the address production will move to, by the owner's choice on
+> that issue. Neither the address nor the display name marks a message as dev,
+> and spam complaints about dev mail count against that address. A separate
+> `Musubi (dev) <dev@musubi.social>` would keep both apart, with no extra Resend
+> setup, since Resend verifies a whole domain.
 
 Before you deploy (Resend — the live path):
 

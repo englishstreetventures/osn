@@ -955,7 +955,7 @@ describe("LogEmailLive local-mode behaviour", () => {
       const emailLogs = logLines.filter((l) => l.includes("[email:log]"));
       expect(emailLogs.length).toBe(1);
       expect(emailLogs[0]).toContain("template=otp-registration");
-      expect(emailLogs[0]).toContain('subject="Verify your OSN email"');
+      expect(emailLogs[0]).toContain('subject="Verify your Musubi email"');
       expect(emailLogs[0]).toContain("to=dev@example.com");
       expect(emailLogs[0]).not.toMatch(/\d{6}/); // no OTP code in logs
       expect(emailLogs[0]).not.toContain("[REDACTED]");

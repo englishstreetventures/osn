@@ -39,7 +39,7 @@ Phase 1. Three surfaces run in production on Cloudflare; the rest run locally.
 | Identity & graph UI | `@musubi/social` | Live — Pages on the apex `musubi.social` (also serves the OIDC consent screen) |
 | Events (Pulse) | `@pulse/web`, `@pulse/api`, `@pulse/db` | Local only |
 | Messaging (Zap) | `@zap/api`, `@zap/db` | Worker on `zap.cireweddings.com` — M1 in flight, client app not started |
-| OSN / Pulse marketing sites | `@musubi/landing`, `@pulse/landing` | Built, not yet deployed |
+| Musubi / Pulse marketing sites | `@musubi/landing`, `@pulse/landing` | Built, not yet deployed |
 
 CI deploys the `osn-api`, `cire-api` and `zap-api` Workers, the guest site (Worker SSR) and the identity app, organiser, vendor and landing sites (Pages). A merge to `main` deploys the dev tier at once (zap-api has none); production ships in releases from `.github/workflows/production-release.yml`, once a day or by hand, one approval each. Each deploy applies its D1 migrations before the Worker. See `wiki/shared/production-deploy.md`.
 

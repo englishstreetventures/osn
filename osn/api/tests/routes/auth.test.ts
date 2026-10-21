@@ -344,7 +344,7 @@ describe("auth routes", () => {
       expect(res.status).toBe(422);
       const json = (await res.json()) as { error: string; message?: string };
       expect(json.error).toBe("age_restricted");
-      expect(json.message).toBe("OSN is for users 13 and older");
+      expect(json.message).toBe("You must be 13 or older to create an account");
       // No OTP was dispatched to the under-13 registrant.
       expect(capture.code()).toBeUndefined();
     });
