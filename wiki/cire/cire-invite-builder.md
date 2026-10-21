@@ -9,7 +9,7 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 # Cire invite builder
 
@@ -434,14 +434,23 @@ set (`REQUIRED_EVENT_COLUMNS` in `cire/api/src/services/spreadsheet.ts`,
   invite shows above the address and calendar entries put before it. A blank
   **Address** stays blank: Location never stands in for it.
 - **Description** fills `events.description`, the event's About text.
-- A sheet **without** a Location or Description column leaves what each event
-  already has; one that has the column but a blank cell clears it
+- **Run of Show** holds the event's timed list, one item per line in the cell,
+  each a 24-hour time and a name (`16:00 Tea is poured`); the lines' order is
+  the stored order. A line without a time, or a time with no name after it, is
+  refused with the row named. It fills `run_of_show_items`, a table of its own,
+  not a column on `events`.
+- **Getting There** fills `events.getting_there`; **Children** and
+  **Plus-Ones** take the preset words the drawer shows (`Adults only`,
+  `Children welcome`; `By invitation`, `Welcome`; blank or `Not stated` for
+  none), and **Guest Policy Note** fills `events.guest_policy_note`.
+- A sheet **without** one of these columns leaves what each event already has;
+  one that has the column but a blank cell clears it
   ([[cire-guest-event-editor#3.3 A column a change leaves out says nothing]]).
 
 The organiser-facing template mirror (`cire/host/src/lib/import-templates.ts`,
-`EVENT_REQUIRED_HEADERS` / `EVENT_OPTIONAL_HEADERS`) lists End, Location and
-Description under the **optional** chips, kept in lockstep with the parser by
-`import-templates.test.ts`.
+`EVENT_REQUIRED_HEADERS` / `EVENT_OPTIONAL_HEADERS`) lists every optional
+column, from End to Guest Policy Note, under the **optional** chips, kept in
+lockstep with the parser by `import-templates.test.ts`.
 
 ## Theme (fonts + a five-colour scheme)
 

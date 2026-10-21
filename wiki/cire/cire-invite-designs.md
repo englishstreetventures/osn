@@ -492,12 +492,36 @@ for after.
 | When | The day; the time range, naming both days when the event ends on a later day in its own zone ("Fri 6:00 pm – Sun 11:00 am"); the zone spelt out ("AEDT (Sydney time)"); "Your time: …" when the guest's own clock reads differently; Add to calendar | The start parses |
 | Where | The venue's name over its address (with no name, the address alone); a compact map — the consented Google embed, or a card drawn from the palette tokens; "Open in maps", a menu of Google Maps, Apple Maps and Waze, or a plain link when the organiser's own is the only place to go | Something can open a map (`hasVenue`: an address, a venue name or a maps link) |
 | Who's invited | "Invited: Alex and Sam" | Some member the couple invited is not invited to this event (`invitedNames`; plus-ones are named, never decide it) |
+| Guest policy | The presets in words on one line ("Adults only · Plus-ones by invitation"), the note under them in muted ink. The last of the facts, so the date and the venue keep a phone's first screen | A preset this build knows or a note (`guestPolicyLines`); "Plus-ones welcome" only for a household with a member invited to this event whose `plusOneAllowed` is true |
+| Run of show | Under its own hairline: the items in time order from the event's start, each a time on a 12-hour clock in a 4.75rem column ("4:00 pm") and its name; "Times are AEDT (Sydney time)." under them when the guest's own clock reads differently | Any item has a 24-hour time and a label (`runOfShowLines`, `hasRunOfShow`) |
 | Occasion | About, Dress Code, Inspiration, under one hairline, with no hairline between them | Any of the three has content |
+| Getting there | Under its own hairline, last: the organiser's notes, line breaks kept | The notes have text |
 
-The facts are a `<dl>`: each row's term ("When", "Where", "Who's invited")
-is for assistive technology, and a glyph in the metal says it on screen. The
-guest's own zone is read after mount, so the first render matches a server
-render wherever the server ran.
+The facts are a `<dl>`: each row's term ("When", "Where", "Who's invited",
+"Guest policy") is for assistive technology, and a glyph in the metal says it
+on screen. The guest's own zone is read after mount, so the first render
+matches a server render wherever the server ran.
+
+- **The run of show reads from the start.** The organiser keeps the items in
+  their own order; the sheet sorts them by their distance from the event's
+  start on its own clock, so a time earlier than the start comes last, as after
+  midnight — a reception's "12:30 am Carriages". Items at the same time keep
+  the organiser's order. The start's clock is read with `Intl` in the event's
+  zone, and from the stored value when the zone does not resolve, so a bad zone
+  never throws during a server render. The 12-hour clock is written out rather
+  than formatted, so a server render and the browser always agree. An item on
+  the second day of a multi-day event cannot be said; the times carry no date.
+- **The guest policy never contradicts the household.** The presets are
+  wording; who may bring a plus-one is each member's own permission
+  ([[cire-plus-ones]]). So the organiser's own Preview invite, a household with
+  no allowance, does not show "Plus-ones welcome" either. The claim payload
+  carries the preset as stored; the rule is the guest site's
+  (`guestPolicyLines`).
+- **A malformed value costs its own block.** The claim guard proves the notes
+  and the presets as strings when present; the run of show is read through
+  `runOfShowLines`, which keeps only well-formed items, and an unknown preset
+  reads as not stated, so a newer or broken API never sends a household back to
+  the code form through them.
 
 - **The venue reads as the day does.** With a name, the Where row's first line
   is the name, set as the When row's day is (`text-ui-md`, body ink, light,
@@ -532,9 +556,10 @@ render wherever the server ran.
   shows its first three lines and, on its venue line, the venue's name when
   there is one (the address otherwise); the whole of both is in the sheet.
   Organiser text here (the card's venue line and description, About, the
-  dress-code text, the Where row) is `wrap-anywhere`: a pasted link or a venue
-  named in one token has nowhere else to break, and would otherwise widen the
-  card past the screen or clip at the sheet's edge.
+  dress-code text, the Where row, the run of show's names, the policy note and
+  Getting there) is `wrap-anywhere`: a pasted link or a venue named in one
+  token has nowhere else to break, and would otherwise widen the card past the
+  screen or clip at the sheet's edge.
 - **Text actions, not boxes.** Add to calendar, Open in maps and Open on
   Pinterest are `@cire/ui`'s `touchLink` variant at a 44px target, so the
   sheet's switch stays the one way between the panels drawn as a control. `touchLink`
@@ -577,25 +602,33 @@ render wherever the server ran.
   under the finger that just pressed.
 
 Tests: `tests/components/DetailsPanel.test.tsx` (which rows and sections
-render, the words, the notice), `event-details.test.ts` and
-`invite-emptiness.test.ts` (the helpers, one case per failure mode),
+render, the words, the notice, and no run of show, policy or getting there
+when none has content), `event-details.test.ts` and
+`invite-emptiness.test.ts` (the helpers, one case per failure mode: the run
+of show's order across midnight, the stored-clock fallback and malformed
+items; the policy's plus-one rule), `utils.test.ts` (the claim guard),
 `calendar.test.ts` (the venue in the Google link), `MapPreview.test.tsx` (the
 maps menu's items, the organiser's link in its app's place, the plain link
 when it is alone, the refused `javascript:` link), `AddToCalendar.test.tsx`
 (the menu opened by a key on its first item, by a pointer on the menu), and
 `DetailsPanel.browser.test.tsx` (on every preset: each key fact at 4.5:1, the
-venue's name and its muted address included, and each swatch ring at 3:1 on the
+venue's name and its muted address, the policy, the run of show's times and
+names and Getting there included, and each swatch ring at 3:1 on the
 sheet; at 390px the date, the venue's name and its address on the first
-screen, every control 44px tall, every text action underlined at rest and a
-link in the description kept inside the sheet; the address under a name at
+screen, every control 44px tall, every text action underlined at rest, and a
+link in the description, a run-of-show name, the policy note and Getting
+there kept inside the sheet; the address under a name at
 the time line's weight and colour; the calendar menu's keys, its focus return
 and its placement, opened by a click on the menu with no item filled; the maps
 menu over the sheet, its item answering a hit test, with a screenshot at 390px; focus after "Show it here" and the switch-off's double-tap guard),
 and `EventCard.actions.browser.test.tsx` (the answer button inside the card
 beside a link in the description and a one-word venue name). The
-`cire-event-details` end-to-end flow sets a venue name and a description in
-the organiser's drawer and reads them in the preview's sheet, its claim
-response and its `.ics` file.
+`cire-event-details` end-to-end flow sets a venue name, a description, a run
+of show, getting-there notes and a guest policy in the organiser's drawer and
+reads them in the preview's sheet — the blocks in order, the run of show in
+time order, no "Plus-ones welcome" for the organiser's own household — its
+claim response and its `.ics` file, and in the sheet of a household allowed a
+plus-one, which is told plus-ones are welcome.
 
 ## Adding a design
 
