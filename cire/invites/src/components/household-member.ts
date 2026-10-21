@@ -1,6 +1,6 @@
 import { invitedMembers } from "./plus-one";
-import type { AccountLinkState, ClaimResult, FamilyMember } from "./types";
-import { readAccountLink, readMember } from "./utils";
+import type { AccountLinkState, ClaimResult, FamilyMember, MemberEmail } from "./types";
+import { readAccountLink, readEmail, readMember } from "./utils";
 
 // The household member step: a claim code proves a household, not a person,
 // so the invite asks which member is at the keyboard. Replies and the musubi
@@ -33,15 +33,28 @@ export function memberRequired(result: ClaimResult | null): boolean {
 }
 
 /**
- * The page's result once `POST /api/claim/member` answered: the member and
- * the account-link state the API computed for them.
+ * The page's result once `POST /api/claim/member` answered: the member, their
+ * own address when they have one, and the account-link state the API computed
+ * for them.
  */
 export function withChosenMember(
   result: ClaimResult,
   guestId: string,
   accountLink: unknown,
+  email: MemberEmail | null = null,
 ): ClaimResult {
-  return { ...result, member: { guestId }, accountLink: accountLink ?? result.accountLink };
+  return {
+    ...result,
+    member: email === null ? { guestId } : { guestId, email },
+    accountLink: accountLink ?? result.accountLink,
+  };
+}
+
+/** The page's result once the chosen member saved or removed their address. */
+export function withMemberEmail(result: ClaimResult, email: MemberEmail | null): ClaimResult {
+  const guestId = readMember(result)?.guestId ?? null;
+  if (guestId === null) return result;
+  return { ...result, member: email === null ? { guestId } : { guestId, email } };
 }
 
 /**
@@ -64,7 +77,7 @@ export function withoutMember(result: ClaimResult): ClaimResult {
 export async function chooseMember(
   apiUrl: string,
   guestId: string,
-): Promise<{ accountLink: unknown } | null> {
+): Promise<{ accountLink: unknown; email: MemberEmail | null } | null> {
   try {
     const res = await fetch(`${apiUrl}/api/claim/member`, {
       method: "POST",
@@ -74,11 +87,17 @@ export async function chooseMember(
     });
     if (!res.ok) return null;
     const body: unknown = await res.json().catch(() => null);
+    const member =
+      typeof body === "object" && body !== null && "member" in body ? body.member : undefined;
     return {
       accountLink:
         typeof body === "object" && body !== null && "accountLink" in body
           ? body.accountLink
           : undefined,
+      email:
+        typeof member === "object" && member !== null && "email" in member
+          ? readEmail(member.email)
+          : null,
     };
   } catch {
     return null;
