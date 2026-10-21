@@ -197,7 +197,7 @@ describe("ResendEmailLive.sendBatch", () => {
     const broken = {
       template: "otp-registration",
       to: "c@example.test",
-      data: { code: null as unknown as string, ttlMinutes: 10 },
+      data: { code: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
     } satisfies SendEmailInput;
     const result = await run([digest("a@example.test"), broken]);
     expect(Result.isFailure(result) && result.failure.reason).toBe("render_failed");

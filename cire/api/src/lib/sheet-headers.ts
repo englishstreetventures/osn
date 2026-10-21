@@ -17,12 +17,14 @@
 export const EVENT_SHEET_REQUIRED_HEADERS = ["Event Name", "Start", "Timezone"] as const;
 
 /** Optional event columns, in template order. `End` may be blank (open-ended
- *  event, the `""` sentinel); `Location` is a venue name that only fills in for
- *  a blank `Address` at import-write time. */
+ *  event, the `""` sentinel); `Location` is the venue's name, shown above the
+ *  `Address`; `Description` is the event's About text. A sheet that leaves out
+ *  `Location` or `Description` keeps what is stored for it. */
 export const EVENT_SHEET_OPTIONAL_HEADERS = [
   "End",
   "Location",
   "Address",
+  "Description",
   "Dress Code Description",
   "Dress Code Palette",
   "Pinterest URL",

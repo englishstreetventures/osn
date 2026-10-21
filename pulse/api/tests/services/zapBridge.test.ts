@@ -1,11 +1,9 @@
 import { Database } from "bun:sqlite";
 
 import { it } from "@effect/vitest";
-import * as pulseSchema from "@pulse/db/schema";
 import { events } from "@pulse/db/schema";
 import { Db as PulseDb } from "@pulse/db/service";
 import { applySchema as applyPulseSchema } from "@pulse/db/testing";
-import * as zapSchema from "@zap/db/schema";
 import { chatMembers } from "@zap/db/schema";
 import { Db as ZapDb } from "@zap/db/service";
 import { eq } from "drizzle-orm";
@@ -18,7 +16,7 @@ import { provisionEventChat, addEventChatMember } from "../../src/services/zapBr
 function createDualTestLayer() {
   const pulseSqlite = new Database(":memory:");
   applyPulseSchema(pulseSqlite);
-  const pulseDb = drizzle(pulseSqlite, { schema: pulseSchema });
+  const pulseDb = drizzle({ client: pulseSqlite });
 
   const zapSqlite = new Database(":memory:");
   zapSqlite.run(`
@@ -41,7 +39,7 @@ function createDualTestLayer() {
       created_at INTEGER NOT NULL, expires_at INTEGER
     )
   `);
-  const zapDb = drizzle(zapSqlite, { schema: zapSchema });
+  const zapDb = drizzle({ client: zapSqlite });
 
   const layer = Layer.mergeAll(
     Layer.succeed(PulseDb, { db: pulseDb }),

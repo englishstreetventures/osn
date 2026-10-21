@@ -6,13 +6,13 @@ related:
   - "[[github-issues-setup]]"
   - "[[cire-platform-plan]]"
   - "[[cire]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-21
 ---
 
 # Deferred decisions
 
 Open questions we have chosen not to answer yet, and the ones we have closed.
-Nothing here is tracked work — planned work lives in [GitHub Issues](https://github.com/englishstventures/osn/issues).
+Nothing here is tracked work — planned work lives in [GitHub Issues](https://github.com/englishstreetventures/osn/issues).
 A row graduates to an issue when its "Revisit When" lands.
 
 ## Open
@@ -56,7 +56,7 @@ A row graduates to an issue when its "Revisit When" lands.
 | Decision | Context | Revisit When |
 |----------|---------|--------------|
 | SSR the restored invite (widen `cire_session` to `Domain=cireweddings.com`)? | Today the session restore (`GET /api/claim/session`) is a client-side fetch on island mount, because the cookie is host-scoped to `api.cireweddings.com` and the guest-site Worker never receives it. Painting a returning household's events into the FIRST HTML byte would need `Domain=cireweddings.com`, which hands the household session to every subdomain (`host.`, `vendor.`, the apex) — against the standing audit in `cire/api/src/lib/cookie.ts`. Alternative: have the guest-site Worker mint its own same-origin cookie mirroring the session, which is a second session store to keep in sync. Current call: **keep host-scoping**; the client-side restore already removes the retyping, and one RTT after hydration is not worth widening a credential's blast radius. | If invite open-latency is measured and the post-hydration restore is the bottleneck, or if a same-origin API path (API behind `invite.cireweddings.com/api/*`) lands and makes the question moot. Raised 2026-08-02 (`claude/invite-code-gating-hints-g8nw0o`). |
-| A fourth tier for destination and very large weddings | Above the three tiers in [cire onboarding epic #1294](https://github.com/englishstventures/osn/issues/1294): weddings past 1,000 guests, or held away from home, with cire's own selected wedding planners attached. Open: self-serve or by enquiry, its guest and people limits, and how planners are chosen and paid. | When a couple asks for a wedding the Management tier cannot hold, or when cire has planners to offer. Raised 2026-10-01. |
+| A fourth tier for destination and very large weddings | Above the three tiers in [cire onboarding epic #1294](https://github.com/englishstreetventures/osn/issues/1294): weddings past 1,000 guests, or held away from home, with cire's own selected wedding planners attached. Open: self-serve or by enquiry, its guest and people limits, and how planners are chosen and paid. | When a couple asks for a wedding the Management tier cannot hold, or when cire has planners to offer. Raised 2026-10-01. |
 | Free trials for paid tiers | A couple uses cire for six to twelve months, so a trial may give away a large share of the paid period for little gain. Parked; in the meantime the paid tiers are unlocked by purchase or by an owner-minted unlock code. | Once paid tiers have real couples and a conversion figure to compare against. Raised 2026-10-01. |
 | Venue-discovery sets the event location | A wedding may have no venue yet; the couple browses the directory (Vendors S3) to choose one. A later flow can let "add a venue vendor" optionally set the event's `location`/coords from the chosen listing (ties into `events.venue_vendor_id`). | With S5 geo directory-search + the "Venue link" platform item. |
 | Event invitations per-family vs per-guest | Per-guest matches sheet exactly (current schema); per-family simpler but loses fidelity | After first import lands and real spreadsheet variation is observed |
@@ -69,7 +69,6 @@ A row graduates to an issue when its "Revisit When" lands.
 | Pricing baseline sourcing + regions | Hand-curated AU-first dataset vs licensed data | Phase 3 start — see [[cire-platform-plan]] §6 |
 | Multi-currency budget entries | v1 single-currency (all figures in the wedding's main `currency`, organiser converts on entry — decided) vs additive v2: display-only `original_currency` + `original_amount_minor` (+ entered rate) on `budget_items`/`payments` | Budget v1 build, or first real multi-country wedding asking for it — see [[cire-platform-plan]] §4.2 |
 | Guest email collection point (comms) | Guest-entered at RSVP vs organiser-entered vs both; consent design first | Comms build (Phase 4) — see [[cire-platform-plan]] §7 |
-| Wishing well | Payment processing (requires ABN) | After business is set up |
 | Guest photo sharing | R2 + moderation | Post-MVP |
 | iPhone AirDrop sharing | Web Share API + custom payload | After core invite is built |
 | Account-linking ARC key provisioning + rotation | Stable `CIRE_API_ARC_PRIVATE_KEY` secret pre-registered in osn-api `service_accounts` (shipped) vs. lazy self-registration per isolate vs. KV-persisted rotating key | Before production launch of linking — wire the secret + osn-side registration; decide rotation story (Workers have no startup hook) |
@@ -99,12 +98,12 @@ Folded in from the retired `cire/wiki/deferred.md` when the cire vault merged in
 
 | Question | Resolution | Resolved |
 |---|---|---|
-| Free (invites) vs paid (management platform) tiering | Three tiers per wedding, with no per-module packs: **Ivory** (free) holds the invite, guest list and RSVPs; **Gold** adds budget, checklist and registry, and the run sheet once it ships ([#1088](https://github.com/englishstventures/osn/issues/1088)); **Crimson** adds vendor management and premium templates. Guest caps are 100, 500 and 1,000; per-tier people limits are [#1301](https://github.com/englishstventures/osn/issues/1301). The onboarding flow is in [#1294](https://github.com/englishstventures/osn/issues/1294). How the tiers are stored, gated and sold: [[cire-entitlements]], [[cire-upgrades]]. | 2026-10-01 |
+| Free (invites) vs paid (management platform) tiering | Three tiers per wedding, with no per-module packs: **Ivory** (free) holds the invite, guest list and RSVPs; **Gold** adds budget, checklist and registry, and the run sheet once it ships ([#1088](https://github.com/englishstreetventures/osn/issues/1088)); **Crimson** adds vendor management and premium templates. Guest caps are 100, 500 and 1,000; per-tier people limits are [#1301](https://github.com/englishstreetventures/osn/issues/1301). The onboarding flow is in [#1294](https://github.com/englishstreetventures/osn/issues/1294). How the tiers are stored, gated and sold: [[cire-entitlements]], [[cire-upgrades]]. | 2026-10-01 |
 | Guest/event editor endpoint shape | **Batch draft-save (desired-state reconcile)**, not per-row `POST/PATCH/DELETE` — the editor submits a whole draft through the same preview → warnings → apply pipeline the import uses, with an ID-aware diff; per-row endpoints may land later as sugar over the same reconcile. Amends [[cire-platform-plan]] §3.3. See [[cire-guest-event-editor]] §3 + §11. | 2026-07-12 |
 | Editor checkpoint retention | **Keep the last 10 before-image snapshots** per wedding (R2 Free-tier cap); older change-history rows stay listed but lose revertability, marked in the UI. See [[cire-guest-event-editor]] §4. | 2026-07-12 |
 | Editor-created household code minting (pre-PR-4) | **Auto-mint claim codes**, exactly like the import, until platform PR 4 (code-less households) lands — then manual creation switches to code-less per the decided §3.2 model. See [[cire-guest-event-editor]] §11. | 2026-07-12 |
-| Geocoding wedding/vendor locations | **RETIRED 2026-07-16 (migration 0036).** The Phase-0 key-optional geocoding flow + the `pricing_region` it derived were removed — they only fed unbuilt Phase 3 features and the guest map never used them (it renders `address` alone). If Phase 2/3 ever needs a point, geocode `events.address` on-demand then. ~~Settings form geocoded the typed address server-side (Google Geocoding; no key ⇒ manual lat/lng fallback).~~ See [[cire-platform-plan]] §3.1. | 2026-07-16 |
-| Location scope: wedding vs event | **RESOLVED → then RETIRED 2026-07-16 (migration 0036): there is no stored event location at all.** An event's place is its free-text `address` (the sole location source). ~~Location is EVENT-scoped; `location_lat`/`location_lng` + `pricing_region` live on `events`~~ — those columns were dropped as a redundant, unbuilt-only config. See [[cire-platform-plan]] §3.1. | 2026-07-16 |
+| Geocoding wedding/vendor locations | **RETIRED 2026-07-16 (migration 0036).** The Phase-0 key-optional geocoding flow + the `pricing_region` it derived were removed — they only fed unbuilt Phase 3 features and the guest map never used them (it queries the address, else the venue name). If Phase 2/3 ever needs a point, geocode `events.address` on-demand then. ~~Settings form geocoded the typed address server-side (Google Geocoding; no key ⇒ manual lat/lng fallback).~~ See [[cire-platform-plan]] §3.1. | 2026-07-16 |
+| Location scope: wedding vs event | **RESOLVED → then RETIRED 2026-07-16 (migration 0036): there is no stored event location at all.** An event's place is its venue name and free-text `address`. ~~Location is EVENT-scoped; `location_lat`/`location_lng` + `pricing_region` live on `events`~~ — those columns were dropped as a redundant, unbuilt-only config. See [[cire-platform-plan]] §3.1. | 2026-07-16 |
 | Organiser route aliases during module move | **One-release alias layer.** Same factories mounted at old + new prefixes for one release, old prefix deleted next release — Worker/Pages deploys are non-atomic and cached portal bundles outlive the Worker flip, so lockstep-only guarantees a broken window. See [[cire-platform-plan]] §3.4. | 2026-07-08 |
 | Import code minting after invite decoupling | **Import keeps auto-minting** claim codes at apply time (sheet = invite list, current workflow preserved); only manually-created households start code-less. See [[cire-platform-plan]] §3.2. | 2026-07-08 |
 | Import diff vs manually-added rows | **Provenance column** — `source: 'import' \ | 'manual'` on families/guests; diff manages import-sourced rows only by default, explicit toggle to include manual rows. See [[cire-platform-plan]] §3.3. |
@@ -127,12 +126,11 @@ Folded in from the retired `cire/wiki/deferred.md` when the cire vault merged in
 Post-MVP ideas, too vague to be issues. Folded in from the retired `cire/wiki/future.md`.
 An idea graduates to a GitHub issue when someone can write its "done when".
 
-> **Promoted 2026-07-08:** "Platformise as multi-tenant SaaS" and "General wedding planning — guest list management, seating charts" graduated into the wedding-management platform build-out — architecture in [[cire-platform-plan]], phased work in GitHub Issues. Wishing well, guest photos, and Wallet passes stay here (referenced by the plan's Phase 4 as later work).
+> **Promoted 2026-07-08:** "Platformise as multi-tenant SaaS" and "General wedding planning — guest list management, seating charts" graduated into the wedding-management platform build-out — architecture in [[cire-platform-plan]], phased work in GitHub Issues. Guest photos and Wallet passes stay here (referenced by the plan's Phase 4 as later work); the wishing well is built as the gift registry's money gifts ([[cire-registry]]).
 
 - Astro → Solid Start migration for the guest-facing app (post-platformisation, only if SaaS path is taken)
 - Apple Wallet pass generation for each event
 - Physical + digital hybrid: QR codes on printed invites linking to digital counterparts
-- Wishing well with payment processing
 - Photo collection and guest photo uploads
 - iPhone tip-to-tip AirDrop invite sharing
 - White-label / custom domain support per wedding

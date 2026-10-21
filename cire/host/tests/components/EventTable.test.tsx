@@ -160,6 +160,42 @@ describe("EventTable dress-code swatches", () => {
   });
 });
 
+describe("EventTable venue and description", () => {
+  afterEach(() => {
+    cleanup();
+    __resetEventsCache();
+    resetOrganiserMocks();
+  });
+
+  it("shows the venue's name and the description with its line breaks", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json([
+        {
+          ...EVENT,
+          venueName: "The Glasshouse",
+          address: "124 Sample Avenue",
+          description: "Dinner at 7.\nDancing after.",
+        },
+      ]),
+    );
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+    await waitFor(() => screen.getByText("The Glasshouse"));
+
+    expect(screen.getByText("The Glasshouse").previousElementSibling?.textContent).toBe("Venue");
+    const description = screen.getByText(/Dinner at 7\./);
+    expect(description.previousElementSibling?.textContent).toBe("Description");
+    expect(description.textContent).toBe("Dinner at 7.\nDancing after.");
+    expect(description.className).toContain("whitespace-pre-line");
+  });
+
+  it("shows no Venue row for an event without a name, from an API that sends none", async () => {
+    authFetchMock.mockResolvedValueOnce(json([{ ...EVENT, address: "124 Sample Avenue" }]));
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+    await waitFor(() => screen.getByText("124 Sample Avenue"));
+    expect(screen.queryByText("Venue")).toBeNull();
+  });
+});
+
 /**
  * Events are cached per wedding (`../../src/lib/events-store`) so the dashboard tabs
  * unmounting/remounting EventTable on a Guests ↔ Events switch don't re-issue

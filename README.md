@@ -39,7 +39,7 @@ Phase 1. Three surfaces run in production on Cloudflare; the rest run locally.
 | Identity & graph UI | `@musubi/social` | Live — Pages on the apex `musubi.social` (also serves the OIDC consent screen) |
 | Events (Pulse) | `@pulse/web`, `@pulse/api`, `@pulse/db` | Local only |
 | Messaging (Zap) | `@zap/api`, `@zap/db` | Worker on `zap.cireweddings.com` — M1 in flight, client app not started |
-| OSN / Pulse marketing sites | `@musubi/landing`, `@pulse/landing` | Built, not yet deployed |
+| Musubi / Pulse marketing sites | `@musubi/landing`, `@pulse/landing` | Built, not yet deployed |
 
 CI deploys the `osn-api`, `cire-api` and `zap-api` Workers, the guest site (Worker SSR) and the identity app, organiser, vendor and landing sites (Pages). A merge to `main` deploys the dev tier at once (zap-api has none); production ships in releases from `.github/workflows/production-release.yml`, once a day or by hand, one approval each. Each deploy applies its D1 migrations before the Worker. See `wiki/shared/production-deploy.md`.
 
@@ -115,7 +115,7 @@ Secure, playful messaging that doubles as the ecosystem's support and announceme
 - **Organisation tooling** — dashboards for triage, agent assignment, analytics, SLA monitoring and audit.
 - **Locality and government channels** — users opt into a locality (home city, plus a temporary one while travelling) and get official notices — floods, evacuations, public safety. AI-assisted queries route people to authoritative answers ("where is the nearest relief centre?") in real time.
 
-`@zap/api` and `@zap/db` are scaffolded (M0 done, M1 in flight). `@zap/app`, the SolidJS client, has not started. See the open issues (`gh issue list --repo englishstventures/osn --label product:zap`) and `wiki/zap/zap.md`.
+`@zap/api` and `@zap/db` are scaffolded (M0 done, M1 in flight). `@zap/app`, the SolidJS client, has not started. See the open issues (`gh issue list --repo englishstreetventures/osn --label product:zap`) and `wiki/zap/zap.md`.
 
 ### Social media (spec only, deferred)
 
@@ -279,7 +279,7 @@ bun run fmt              # oxfmt
 Database work runs from the owning package:
 
 ```bash
-bun run --cwd cire/db db:migrate    # generate migrations
+bun run --cwd cire/db db:generate --name <snake_case>  # write the next migration (wiki/conventions/commands.md)
 bun run --cwd pulse/db db:studio    # Drizzle Studio
 bun run db:reset                    # reset every local database
 ```
@@ -353,7 +353,7 @@ Read next:
 
 - [`AGENTS.md`](AGENTS.md) — the entry point for coding agents: workflow, standing rules, commands
 - [`wiki/index.md`](wiki/index.md) — map of the knowledge base
-- [GitHub Issues](https://github.com/englishstventures/osn/issues) — planned work, open decisions; findings live in the private `englishstventures/osn-tracker`
+- [GitHub Issues](https://github.com/englishstreetventures/osn/issues) — planned work, open decisions; findings live in the private `englishstreetventures/osn-tracker`
 
 ## License
 

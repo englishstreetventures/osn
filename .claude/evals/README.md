@@ -34,7 +34,7 @@ pull request that touched it.
 
 **`tessl eval run` resolves the project from its scenarios argument, so that
 argument has to sit inside `.claude/`.** Point it anywhere else — a temp
-directory, the repository root, `$RUNNER_TEMP` — and it answers:
+directory, the repository root — and it answers:
 
 ```
 ✘ No Tessl project found. Run tessl init from your project root, then rerun this command.
@@ -42,7 +42,7 @@ directory, the repository root, `$RUNNER_TEMP` — and it answers:
 
 Do not run `tessl init`, whatever that message says: it would make a second
 project and split this suite's history across two scoreboards. Move the
-scenarios instead. `subset --out .claude/eval-subset`, then
+scenarios instead. `subset --skills <a,b> --out .claude/eval-subset`, then
 `cd .claude && tessl eval run eval-subset --context .`.
 
 > [!warning] The message names the wrong cause. Do not go looking at the link.
@@ -60,8 +60,8 @@ scenarios instead. `subset --out .claude/eval-subset`, then
 ## Running
 
 **Anything that submits a run goes from inside `.claude/`**, with its scenarios
-inside it too. `skill-eval.yml` does the same: `working-directory: .claude`, and
-`subset --out .claude/eval-subset`.
+inside it too: `subset --skills <a,b> --out .claude/eval-subset` puts a
+narrowed set there.
 
 ```bash
 cd .claude
@@ -77,7 +77,7 @@ solve, so do not loop it.
 
 ```bash
 tessl eval lint .claude                          # scenario shape; free
-tessl review run quality .claude/skills/<name>   # the deterministic gate — see below
+tessl review run quality .claude/skills/<name>   # the deterministic check — see below
 ```
 
 ## The inner loop
@@ -91,33 +91,27 @@ run 7 took 290 minutes for 19.4 agent-hours, and one straggler held its last
 hour on its own. Almost none of that work answers the question a skill edit
 asks.
 
-**Nothing in CI waits for it.** `skill-eval.yml` narrows the run to the skills
-the diff touched, submits it, leaves the run id in a pull-request comment and
-exits in a couple of minutes. `skill-eval-collect.yml` sweeps every 30 minutes,
-finds comments whose run has scored, and edits the table in. Holding a runner
-for the hour a run takes, to produce a number nothing is gated on, is the wrong
-trade — and an hour-long job is also the one a force-push cancels and bills
-twice.
+**Nothing in CI runs it.** A run takes an hour or more and its score gates
+nothing, so a person runs the loop by hand when a skill edit is worth
+measuring.
 
 Two signals come out of it, and they are deliberately different in kind:
 
-- **The quality score files an issue.** It is deterministic — the same
-  `SKILL.md` scores the same twice — so a five-point fall, or anything under
-  70, is real and can be acted on without a second run. One open issue is
-  reused rather than one filed per commit.
-- **A large eval fall labels the pull request `needs:decision` and files
-  nothing.** At `-n 1` there is no threshold that means significant: the same
-  skill text scored 3/3 and 0/3 on two scenarios of a single run. The label
-  asks a person to look, which is what the label is for. See **Making a run shorter** below for what the time is actually made of;
+- **A quality score can be acted on alone.** It is deterministic — the same
+  `SKILL.md` scores the same twice — so one run is enough. No file keeps past
+  scores: to see whether an edit lowered one, also score the skill as it stands
+  on `origin/main`, which spends a second review's credits.
+- **A large eval fall asks a person to look, and nothing more.** At `-n 1`
+  there is no threshold that means significant: the same skill text scored 3/3
+  and 0/3 on two scenarios of a single run. `compare` notes a fall of 25 points
+  or more under its table and still exits 0.
+
+See **Making a run shorter** below for what the time is actually made of;
 `bun scripts/skill-evals.ts plan` prints what a run right now would pay for
-before you submit one. The loop is three steps, and
-`.github/workflows/skill-eval.yml` runs all three on a pull request that touches
-`.claude/skills/`:
+before you submit one. The loop is three steps:
 
 1. **`tessl review run quality .claude/skills/<name>`** — deterministic, cached,
-   no agent solve. This is the gate: it fails the check. In CI it is
-   `tesslio/skill-review`, which reviews only the `SKILL.md` files the diff
-   touched and comments the scores.
+   no agent solve. Run it on each skill you edit.
 
    It runs validation before the judge, and a validation error means no score at
    all — `Review Score: N/A`, whatever the prose is worth. **The one that bites
@@ -133,20 +127,37 @@ before you submit one. The loop is three steps, and
    Every skill here avoids it with an em dash. The judge's own weakest item is
    worth reading too — it is usually `trigger_term_quality`, and the fix is
    naming the thing a person would actually type.
-2. **A narrowed eval.** `scripts/skill-evals.ts changed --base <ref>` names the
-   skills the branch touched, `subset` copies just their scenarios into a
-   directory, and the run is
-   `tessl eval run <dir> --context .claude --skip-baseline -n 1`.
-   `--skip-baseline` because the baseline cannot move when only a skill changed
-   and it is half the solves; `-n 1` because this is the inner loop.
-3. **`compare`** against `scores.json`, posted as a pull-request comment, and
-   `record` to write the new numbers back to the branch.
+2. **A narrowed eval.** `changed` names the skills the branch touched,
+   `subset` copies just their scenarios into `.claude/eval-subset`, and the run
+   goes from inside `.claude/`. `--skip-baseline` because the baseline cannot move
+   when only a skill changed and it is half the solves; `-n 1` because this is the
+   inner loop.
+3. **`compare`** against `scores.json`, which prints a markdown table to paste
+   into the pull request, and `record` to write the new numbers back to the
+   branch.
+
+The whole chain, from the repository root:
+
+```bash
+SKILLS=$(bun scripts/skill-evals.ts changed --base origin/main | paste -sd, -)
+bun scripts/skill-evals.ts subset --skills "$SKILLS" --out .claude/eval-subset
+(cd .claude && tessl eval run eval-subset --context . --skip-baseline -n 1)
+# wait, then fetch the run by the id `tessl eval run` printed
+(cd .claude && tessl eval view <run-id> --json) > /tmp/run.json
+bun scripts/skill-evals.ts ready   --run /tmp/run.json   # exits non-zero until every variant is scored
+bun scripts/skill-evals.ts compare --run /tmp/run.json
+bun scripts/skill-evals.ts record  --run /tmp/run.json   # then commit scores.json
+```
+
+`.claude/.tessl-plugin/plugin.json` names the Tessl workspace, `musubi`. Pass
+`--workspace musubi` to `tessl review run quality` if your login's default
+workspace is another one.
 
 Three things that loop gets right, each of which took a wrong run to learn:
 
-- **It never fails the check on a score.** At `-n 1` a scenario moves further
+- **It never fails on a score.** At `-n 1` a scenario moves further
   between identical runs than most real regressions do. The table is for a
-  person to read; the gate is step 1.
+  person to read; the deterministic check is step 1.
 - **A score is only comparable to a score of the same fixture.** `scores.json`
   carries a hash of each scenario's `scenario.json`, `task.md`, `criteria.json`
   and `setup.sh` — everything except the skill. Edit the skill and the hash
@@ -176,7 +187,7 @@ Three things that loop gets right, each of which took a wrong run to learn:
   with byte-identical scores, the same solution ids, the same tarball keys, and
   a solution `createdAt` belonging to the previous night's `-n 3` run. Nothing
   executed; the cache returned that run's last stored sample. This is right for
-  CI — a skill edit changes the context hash, so the loop re-runs what it must —
+  the inner loop — a skill edit changes the context hash, so the loop re-runs what it must —
   but it means a repeat run can never serve as a variance probe, and a number
   from one is not a new measurement. Change an input or read the old run.
 
@@ -196,20 +207,11 @@ Three things that loop gets right, each of which took a wrong run to learn:
   place? A `--skip-baseline` inner-loop run trades that away deliberately, which
   is why the column reads `— (skipped)` rather than going missing.
 
-`tesslio/skill-eval` exists and is not used here. It has no way to skip the
-baseline, no way to narrow a run to the changed skill's scenarios, and its
-regression gate compares against a baseline this loop deliberately does not run.
-`tesslio/setup-tessl` and `tesslio/skill-review` are used, pinned to a commit —
-neither is tagged, and neither is one of the well-known actions this repository
-takes on a version tag.
-
-Two consequences worth expecting. The first CI run after this lands will print
-*not comparable* for every scenario, because the seeded scores came from an
-`-n 3` run and the loop runs at `-n 1`. And a scenario directory must begin with
-the name of the skill that owns it — that prefix is the only mapping there is,
-since `scenario.json` rejects an extra field to hold one. `skill-evals.ts
-check-names` fails on a scenario no skill claims, because such a scenario simply
-stops running the moment CI narrows a run, and nothing else would say so.
+A scenario directory must begin with the name of the skill that owns it — that
+prefix is the only mapping there is, since `scenario.json` rejects an extra
+field to hold one. `skill-evals.ts check-names` fails on a scenario no skill
+claims, because `subset` never picks such a scenario, and nothing else would
+say so.
 
 Generated scenarios are a draft. Their rubrics do not know this repo's
 conventions — the `S-`/`P-`/`C-` tiers, the public/private repo split, the
@@ -254,7 +256,7 @@ put it. A scenario that changes code does not — the diff is the artefact.
 | `review-security-access-token-verifier` | `review-security` | `shared/osn-auth-client` as it was first written. `setup.sh` deletes the package on `main` and restores it on the branch, so the package *is* the diff. Two defects: a `jwtVerify` with no `requiredClaims: ["exp"]`, so a token with no expiry verifies for ever, and an `issuer` attached only `if (issuer)`, so a missing config value drops the check silently. |
 | `review-security-zap-chat-class-authz` | `review-security` | `zap/api` message routes. `sendMessage` and `listMessages` check membership but never `chats.class`; their `sendC2bMessage` and `listC2bMessages` siblings, 120 lines below in the same file, both open with `if (chat.class !== "c2b")`. `removeMember` in `services/chats.ts` has the same gap. The enforced sibling is the proof the check was meant to apply — a shape no single-handler read can see. |
 | `review-security-consent-hardened-restraint` | `review-security` | The same consent module one fix later, with the issue numbers stripped from its comments by `setup.sh` so the code has to be read. `cookie.ts` exports `PREFIXED_CONSENT_COOKIE_NAME`, `store.ts` reloads on granted→revoked. Half the rubric's points are for **not** reporting either as missing: a review skill that pattern-matches its own examples fails this and passes the one above. |
-| `prep-pr-finding-routing` | `prep-pr` | A guest-session TTL change with a correct `@cire/api` changeset, plus an untracked `review-findings.md` listing four findings that route four different ways — public repo, private tracker, `needs:decision`, and one already fixed on the branch. `englishstreetventures/osn` is public, so a finding's ID, title and `file:line` must not reach the PR body; a tracker issue appears there only as a bare reference. The bait is that they are right there in the file. |
+| `prep-pr-finding-routing` | `prep-pr` | A guest-session TTL change with a correct `@cire/api` changeset, plus an untracked `review-findings.md` listing six findings: one fixed on the branch, one in scope that the brief alone stops it fixing, one info, two small ones outside the branch's files that belong on one follow-up pull request (one of them high), and one larger piece of work that may stay open. Each issue is listed once in the body. `englishstreetventures/osn` is public, so a finding's ID, title and `file:line` must not reach the PR body; a tracker issue appears there only as a bare reference. The bait is that they are right there in the file. |
 
 | `review-performance-vendor-read-round-trips` | `review-performance` | The vendor read paths. Three pairs of single-row queries issued serially — the quote handler, `getLiveListingById`, `consumeClaim` — where the second never had to wait, because the key it is issued on was in hand before the first ran; plus a claimed listing handed back by `consumeClaim`, dropped by a full page navigation and refetched by the editor. Either fix is accepted (run the pair together, or fold where one statement serves both); what is scored is the diagnosis and picking one. |
 | `review-performance-entitlement-gate-fold` | `review-performance` | The organiser gates. `weddingEntitlement` issues a point lookup on a wedding the role gate in front of it has already queried. Half the rubric is the fix rather than the finding: here a fold is the right answer and running the pair together is not, because the gates are sequenced by middleware order — and the fold must not tax the many routes that mount a role gate and no entitlement gate, so the key has to be an optional parameter. Paired with the vendor scenario, the two score whether the reviewer can tell the two shapes apart. |
@@ -412,7 +414,7 @@ been shown to add to it.
 The lesson is not "stop trying". It is that this loop answers "is the skill
 earning its place" (yes, consistently, +15 points) and cannot answer "did this
 edit help" for an edit worth less than about 20 points. Reach for the
-deterministic gate — `tessl review run quality` — for the second question, and
+deterministic check — `tessl review run quality` — for the second question, and
 change several things at once when you do spend a run.
 
 ## A run can end `failed` with most of its work intact
@@ -557,7 +559,7 @@ scenario that is not discriminating:
   both variants: comparing four version ranges across `package.json` files is
   not something a skill has to teach.
 
-`review-deps` keeps its skill and its deterministic quality gate. Not every
+`review-deps` keeps its skill and its deterministic quality check. Not every
 skill needs a scenario, and one whose whole job is asking a registry what is
 published is a poor fit for a sandbox that may or may not have a registry.
 
@@ -832,32 +834,6 @@ a false positive this repo has a real control for (`minimumReleaseAge` in
 
 ## CI
 
-Not wired up yet — it needs a `TESSL_TOKEN` secret and a workspace, and each run
-costs a doubled agent run per scenario. When both exist, drop this in at
-`.github/workflows/skill-eval.yml`:
-
-```yaml
-name: Tessl Skill Eval
-on:
-  pull_request:
-    paths: ["**/SKILL.md", "**/evals/**"]
-  issue_comment:
-    types: [created]
-
-jobs:
-  eval:
-    if: github.event_name == 'pull_request' || github.event.issue.pull_request
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    permissions: { contents: write, issues: write, pull-requests: write }
-    steps:
-      - uses: actions/checkout@v4
-      - uses: tesslio/skill-eval@main
-        with:
-          eval-workspace: <workspace>
-          tessl-token: ${{ secrets.TESSL_TOKEN }}
-```
-
-Then `/tessl scenarios .claude` and `/tessl eval .claude` work as PR comments.
-Budget 120 minutes for the job: generation and evaluation each get their own
-timeout.
+Nothing in CI runs these evals or the quality review. Every command on this
+page is run by hand, and `scores.json` changes only when someone runs `record`
+and commits the result.

@@ -7,7 +7,7 @@
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/englishstventures/osn.git"
+    "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "scripts": {
     "e2e": "bun run src/launcher.ts",
@@ -19,7 +19,7 @@
     "@osn/db": "workspace:*",
     "@pulse/db": "workspace:*",
     "@shared/dev-urls": "workspace:*",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "1.0.0-rc.4"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",

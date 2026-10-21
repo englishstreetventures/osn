@@ -20,7 +20,6 @@
 import { Database } from "bun:sqlite";
 
 import { accounts, passkeys, sessions } from "@osn/db/schema";
-import * as schema from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { applySchema } from "@osn/db/testing";
 import { makeLogEmailLive, type RecordedEmail } from "@shared/email";
@@ -102,7 +101,7 @@ const json = (path: string, init: RequestInit = {}) =>
     headers: { "content-type": "application/json", ...init.headers },
   });
 
-type TestDb = ReturnType<typeof drizzle<typeof schema>>;
+type TestDb = ReturnType<typeof drizzle>;
 
 /**
  * `wrapDb` is how the database-failure tests reach the routes: the service the
@@ -112,7 +111,7 @@ type TestDb = ReturnType<typeof drizzle<typeof schema>>;
 function makeApp(overrides: Partial<AuthConfig> = {}, wrapDb: (db: TestDb) => TestDb = (d) => d) {
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
-  const db = drizzle(sqlite, { schema });
+  const db = drizzle({ client: sqlite });
   const recorder = makeLogEmailLive();
   const routeLayer = Layer.merge(Layer.succeed(Db, { db: wrapDb(db) }), recorder.layer);
   // The tests' own reads and seeds always go through the real handle, so a
@@ -1196,7 +1195,7 @@ describe("POST /recovery/disown — when the write fails", () => {
 });
 
 describe("the passkey ceiling, over the real recovery routes", () => {
-  // `englishstventures/osn#970`. The service tests in `tests/services/recovery-session.test.ts`
+  // `englishstreetventures/osn#970`. The service tests in `tests/services/recovery-session.test.ts`
   // pin the rule; this one proves the whole path a locked-out user actually
   // walks — `/login/recovery/email/begin`, `/complete`, then the two enrolment
   // routes — reaches it. Its red is a 400 from `/passkey/register/begin`, which

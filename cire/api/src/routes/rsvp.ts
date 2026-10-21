@@ -8,7 +8,7 @@ import { Elysia } from "elysia";
 
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
-import { type AccountLinking, isAccountLinkingOn } from "../lib/account-linking";
+import { type AccountLinking, isAccountLinkingOn, memberStepOn } from "../lib/account-linking";
 import { parseOrganiserSessionToken } from "../lib/cookie";
 import { getWaitUntil } from "../lib/execution-ctx";
 import { isRsvpClosed } from "../lib/rsvp-deadline";
@@ -74,9 +74,12 @@ export interface RsvpRouteOptions {
    */
   limiter: RateLimiterBackend;
   /**
-   * Decides whether the household member step is on for the household. On,
-   * a household of two or more choosable members must have chosen one, and
-   * each reply records who sent it. Absent ⇒ off.
+   * Decides whether a reply can be marked as sent through a linked musubi
+   * account (`submitted_via_link`): only while `cire.account-linking` is on
+   * for the household, like the link box. Absent ⇒ never. With the member
+   * step on (`memberStepOn`: every guest household, but in an excluded
+   * wedding only while the flag is), a household of two or more choosable
+   * members must have chosen one, and each reply records who sent it.
    */
   accountLinking?: AccountLinking;
 }
@@ -108,15 +111,18 @@ export const createRsvpRoutes = (
           }
         }
 
-        // The same answer the claim payload gave (stale-ok, via `waitUntil`),
-        // so the page and this write agree whenever the payload's flag read
-        // finished in time. When it did not, the page met no "Who are you?"
-        // step; the 409 below brings it up (`member_required`). Started here
-        // so it overlaps the body read and the Turnstile check.
-        const memberStepRead =
+        // Whether linking is on for the household, the stale-ok answer the
+        // claim payload gives (via `waitUntil`). It decides only whether the
+        // musubi sign-in may vouch for the reply. Started here so it overlaps
+        // the body read and the Turnstile check. A refusal can answer before
+        // it settles, so `waitUntil` holds it: a flag refresh it started is
+        // shared with the isolate's later requests. It never rejects.
+        const waitUntil = getWaitUntil(request);
+        const linkingRead =
           accountLinking === undefined
             ? Promise.resolve(false)
-            : isAccountLinkingOn(accountLinking, familyId, getWaitUntil(request));
+            : isAccountLinkingOn(accountLinking, familyId, waitUntil);
+        waitUntil?.(linkingRead);
 
         const raw: unknown = await request.json().catch(() => null);
 
@@ -129,7 +135,7 @@ export const createRsvpRoutes = (
           return { error: tsErr.error };
         }
 
-        const memberStep = await memberStepRead;
+        const linkingOn = await linkingRead;
 
         return runCire(
           Effect.gen(function* () {
@@ -150,18 +156,18 @@ export const createRsvpRoutes = (
             // covers the family/guest join's WHERE, and guest_events' primary key
             // (guest_id, event_id) covers the LEFT JOIN probe.
             // Whether this request also carries the musubi sign-in the
-            // chosen member is linked to. Needs nothing the reads below
-            // return, so it runs beside them.
-            // The member only ever names a non-plus-one of this household
-            // (`POST /api/claim/member` checks, and a deleted guest nulls it);
-            // the write checks again below rather than trust that.
-            const submittedByGuestId = memberStep ? memberGuestId : null;
+            // chosen member is linked to — asked only while linking is on for
+            // the household, since a link it can neither see nor manage must
+            // not vouch. Needs nothing the reads below return, so it runs
+            // beside them.
+            // With linking on the member step is on too (`memberStepOn`), so
+            // this reads the member the write stamps.
             const matchRead =
-              submittedByGuestId === null
+              memberGuestId === null || !linkingOn
                 ? Effect.succeed(false)
                 : accountLinkService
                     .memberMatch(
-                      submittedByGuestId,
+                      memberGuestId,
                       parseOrganiserSessionToken(request.headers.get("cookie")),
                       accountLinking?.resolveAccountIdFresh,
                     )
@@ -263,6 +269,19 @@ export const createRsvpRoutes = (
             // (a guest with no invitations still belongs to the family).
             const familyGuestIds = new Set(familyGuestEvents.map((row) => row.guestId));
 
+            // Every guest household has the member step, except in a wedding
+            // listed in `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS`, where it rides
+            // the linking flag: off, a reply needs no member and records none.
+            const memberStep = memberStepOn(
+              accountLinking?.memberStepExcludedWeddings,
+              family.weddingId,
+              linkingOn,
+            );
+            // The member only ever names a non-plus-one of this household
+            // (`POST /api/claim/member` checks, and a deleted guest nulls it);
+            // the check below repeats that rather than trust it.
+            const submittedByGuestId = memberStep ? memberGuestId : null;
+
             // A session member that is not one of this household's own
             // members is never stamped.
             if (
@@ -276,9 +295,23 @@ export const createRsvpRoutes = (
               return { error: "member_required" };
             }
 
-            // With the member step on, a household of two or more must say who
-            // is answering before it answers: each reply records its sender.
-            // A one-member household is chosen for on claim and restore.
+            // The reply is recorded under the session's member, so it must be
+            // the member the page showed: "Not you?" and a new choice in
+            // another tab would otherwise put this tab's answers under them.
+            // A page that names no member is taken as before.
+            if (
+              submittedByGuestId !== null &&
+              body.memberGuestId !== undefined &&
+              body.memberGuestId !== submittedByGuestId
+            ) {
+              set.status = 409;
+              yield* Effect.sync(() => metricRsvpBlocked("member_changed"));
+              return { error: "member_changed" };
+            }
+
+            // With the step on, a household of two or more must say who is
+            // answering before it answers: each reply records its sender. A
+            // one-member household is chosen for on claim and restore.
             if (memberStep && memberGuestId === null) {
               const choosable = new Set(
                 familyGuestEvents.filter((row) => row.plusOneOf === null).map((row) => row.guestId),
@@ -438,11 +471,8 @@ export const createRsvpRoutes = (
               }
             });
 
-            // "Answered by" rides the member step: off, the rows keep the
-            // shape they had before it.
-            return {
-              rsvps: memberStep ? updatedRsvps : updatedRsvps.map(withoutSubmitter),
-            };
+            // With the step on, each row carries its sender, for "Answered by".
+            return { rsvps: memberStep ? updatedRsvps : updatedRsvps.map(withoutSubmitter) };
           }).pipe(
             Effect.provideService(DbService, db),
             Effect.catchTag("SchemaError", () =>

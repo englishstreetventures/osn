@@ -1,0 +1,194 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1642,
+    "branch": "feat/cire-event-description-and-venue-name",
+    "base_sha": "ad5d69f70c2a380608cb41af0b6a4eceaa9be112",
+    "head_sha": "c0eb1df83a8d489323638cefab5a28395e738f97",
+    "generated_at": "2026-10-21T01:27:30.141Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1608,
+    "type": "Feature",
+    "labels": [
+      "product:cire",
+      "complexity:5"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "confirmed"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-20T09:15:50.953Z",
+    "last_ts": "2026-10-21T01:27:29.635Z",
+    "span_seconds": 58299,
+    "active_seconds": 8962,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 71.99623540000002,
+    "tokens": {
+      "input": 968,
+      "output": 27536,
+      "thinking": 5335,
+      "cache_write_5m": 2289549,
+      "cache_write_1h": 608081,
+      "cache_read": 137823126
+    },
+    "by_model": {
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 3
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 968,
+          "output": 27536,
+          "thinking": 5335,
+          "cache_write_5m": 2289549,
+          "cache_write_1h": 608081,
+          "cache_read": 137823126
+        },
+        "usd_equivalent": 71.99623540000002,
+        "messages": 464
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 166,
+          "output": 21010,
+          "thinking": 4761,
+          "cache_write_5m": 0,
+          "cache_write_1h": 608081,
+          "cache_read": 15837040
+        },
+        "usd_equivalent": 11.620328,
+        "messages": 69
+      },
+      "subagent": {
+        "tokens": {
+          "input": 802,
+          "output": 6526,
+          "thinking": 574,
+          "cache_write_5m": 2289549,
+          "cache_write_1h": 0,
+          "cache_read": 121986086
+        },
+        "usd_equivalent": 60.37590740000002,
+        "messages": 398
+      }
+    },
+    "effort": {
+      "medium": 66,
+      "xhigh": 398
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 31,
+      "docs": 9,
+      "config": 2,
+      "source": 38
+    },
+    "loc": {
+      "generated": {
+        "added": 49,
+        "deleted": 0
+      },
+      "test": {
+        "added": 1422,
+        "deleted": 93
+      },
+      "docs": {
+        "added": 98,
+        "deleted": 36
+      },
+      "config": {
+        "added": 4503,
+        "deleted": 0
+      },
+      "source": {
+        "added": 649,
+        "deleted": 184
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "cire/host",
+      "cire/invites",
+      "tools/e2e"
+    ],
+    "touches_migration": true,
+    "commits": 24
+  },
+  "interaction": {
+    "user_turns": 3,
+    "corrective_turns": 3,
+    "tokens_before_first_edit": 565738,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 325,
+      "Edit": 113,
+      "Read": 43,
+      "Skill": 15,
+      "mcp__github__pull_request_read": 11,
+      "ToolSearch": 10,
+      "mcp__claude-code-remote__list_events": 9,
+      "ReadNotifications": 6,
+      "Write": 5,
+      "mcp__claude-code-remote__get_session": 5,
+      "mcp__claude-code-remote__create_session": 4,
+      "SendMessage": 4,
+      "Grep": 3,
+      "mcp__github__issue_read": 3,
+      "mcp__claude-code-remote__subscribe_pr_activity": 2,
+      "Agent": 2,
+      "mcp__github__search_issues": 2,
+      "mcp__github__create_pull_request": 2,
+      "Workflow": 1,
+      "mcp__claude-code-remote__send_later": 1,
+      "mcp__claude-code-remote__delete_trigger": 1,
+      "mcp__github__list_pull_requests": 1,
+      "mcp__github__list_issues": 1,
+      "mcp__github__update_pull_request": 1,
+      "SubagentHandback": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 9,
+      "max_edits_one_file": 28
+    },
+    "skills": {
+      "design-system": 1,
+      "new-feat": 2,
+      "stress-plan": 1,
+      "write-wiki": 2,
+      "write-pr": 2,
+      "prep-pr": 1,
+      "review-security": 1,
+      "review-performance": 1,
+      "review-tests": 1,
+      "write-issue": 1,
+      "retro-v2": 2
+    },
+    "subagents": {
+      "designer": 1,
+      "implementer": 1
+    }
+  }
+}

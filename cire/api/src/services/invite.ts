@@ -144,12 +144,12 @@ export interface InviteCustomisation {
     message: string | null;
   };
   // Gift-registry section copy (migration 0057). Same nullable-means-built-in-
-  // default contract as `details` / `story`, and public for the same reason:
-  // it is section furniture on the invite shell, not household-addressed prose
-  // like the closing note. Whether the section RENDERS at all is decided by the
-  // registry's own endpoint (Gold tier + `published`), never by this copy —
-  // so a wedding that never opened a registry may still carry a heading here,
-  // and no guest ever sees it.
+  // default contract as `details` / `story`, and PUBLIC like them: this payload
+  // reaches anyone holding the link, and the gift page renders `eyebrow` and
+  // `heading` in its masthead for a visitor who has not claimed. Section
+  // furniture only, then; the couple's own words about their list travel with
+  // the gated list (`registry_settings.message`). The invite's gift band
+  // renders only once the gated list read answers, never because of this copy.
   registry: {
     eyebrow: string | null;
     heading: string | null;

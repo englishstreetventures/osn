@@ -34,7 +34,6 @@ const CEREMONY: ParsedEvent = {
   startAt: "2026-11-14T15:00:00+11:00",
   endAt: "",
   timezone: "Australia/Sydney",
-  location: null,
   address: null,
   dressCodeDescription: null,
   dressCodePalette: [],

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import type { D1Database as DrizzleD1 } from "@cloudflare/workers-types";
 import {
@@ -17,7 +17,6 @@ import {
   totpCredentials,
   users,
 } from "@osn/db/schema";
-import * as schema from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { createSchemaSql } from "@osn/db/testing";
 import {
@@ -27,7 +26,7 @@ import {
   generateArcKeyPair,
 } from "@shared/crypto";
 import { commitBatch, createD1Db, rowsChanged } from "@shared/db-utils";
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, count, eq, isNotNull, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
@@ -46,22 +45,72 @@ import { createRecommendationService } from "../../src/services/recommendations"
 // `commitBatch` → `db.batch([...])` branch of the account-erasure flows, which
 // the bun:sqlite unit suite never reaches. This is the only coverage of the D1
 // transaction-equivalent (batch) path for OSN core.
-//
-// NOTE: this proves the OSN *DB layer* runs on D1. Full Workers *hosting* of
-// osn-api additionally needs a Workers-compatible Redis (the current ioredis
-// rate-limiters / session stores don't run on Workers) — tracked as an open issue.
 
 /* eslint-disable no-await-in-loop */
 
 const ACCOUNT_ID = "acc_d1test";
 
+// Every hook and test in this file runs on this budget instead of bun's
+// 5 000 ms default; `setDefaultTimeout` sets it for this file only. When a
+// Miniflare-backed test outlives its budget, bun kills the file's workerd and
+// every later test fails on the dead runtime, so one late test on a slow
+// runner turns the whole file red. On a 4-core machine the slowest test takes
+// about 0.5 s idle, 1 s with every core busy and under 3 s with four busy
+// processes per core; the budget sits far above all three. The bulk seeds go
+// through `seedInWorkerd`, so no test's time grows with the number of rows it
+// seeds.
+const MF_TIMEOUT_MS = 30_000;
+setDefaultTimeout(MF_TIMEOUT_MS);
+
 let mf: Miniflare;
 let d1: DrizzleD1;
 let layer: Layer.Layer<Db>;
-let rawDb: ReturnType<typeof createD1Db<typeof schema>>;
+let rawDb: ReturnType<typeof createD1Db>;
 
 const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
   Effect.runPromise(eff.pipe(Effect.provide(layer)));
+
+/**
+ * The file's Worker. A POST carries `[{ sql, params }]`, and the Worker runs
+ * it as one D1 batch against its own binding: in order, all or nothing.
+ */
+const D1_WORKER = `
+export default {
+  async fetch(request, env) {
+    if (request.method !== "POST") return new Response("ok");
+    try {
+      const statements = await request.json();
+      await env.DB.batch(statements.map((s) => env.DB.prepare(s.sql).bind(...s.params)));
+      return Response.json({ ran: statements.length });
+    } catch (error) {
+      return new Response(String(error), { status: 500 });
+    }
+  },
+};
+`;
+
+/**
+ * Writes `queries` inside workerd, as one D1 batch, in one request.
+ *
+ * `mf.getD1Database()` hands back a proxy, and each `prepare` and `bind` on it
+ * is a synchronous round trip to workerd (Miniflare waits on it with
+ * `Atomics.wait` on this thread). A seed of hundreds of rows through it makes
+ * thousands of them, and each one slows down when the machine is busy. This
+ * sends the SQL and the driver-mapped parameters drizzle built for every
+ * statement in one `dispatchFetch` instead, and the Worker prepares and binds
+ * them itself. Each statement inserts one row, so it stays far under D1's 100
+ * bound parameters per statement.
+ */
+const seedInWorkerd = async (
+  queries: ReadonlyArray<{ toSQL(): { sql: string; params: unknown[] } }>,
+): Promise<void> => {
+  if (queries.length === 0) return;
+  const res = await mf.dispatchFetch("http://d1.test/", {
+    method: "POST",
+    body: JSON.stringify(queries.map((q) => q.toSQL())),
+  });
+  if (!res.ok) throw new Error(`seed batch failed: ${await res.text()}`);
+};
 
 /**
  * Wraps a D1 binding so every `SELECT` whose SQL text contains `tableHint`
@@ -131,13 +180,11 @@ function trackRowsRead(
  * `sqlHint` does not actually run against the database until `beforeQuery`
  * has resolved.
  *
- * This is the test seam for S-H1 — the race window opened once the FOF
- * query's seed subquery started reading `connections` live instead of off a
- * snapshot: the race it fixes needs a real write to land in the gap between
- * `suggestConnections`'s step 1 (`myEdgeRows`, a snapshot) and step 2 (the
- * FOF fan-out, whose seed subquery reads `connections` live) — a gap with a
- * genuine D1 round trip in it, not something a single in-process call can
- * reproduce by itself.
+ * This is the test seam for the race between `suggestConnections`'s step 1
+ * (`myEdgeRows`, a snapshot) and step 2 (the FOF fan-out, whose seed subquery
+ * reads `connections` live): a real write has to land in the gap between
+ * them, a gap with a genuine D1 round trip in it, which a single in-process
+ * call cannot reproduce by itself.
  * Racing two real overlapping HTTP requests against the same Miniflare
  * instance would depend on scheduler timing and be flaky by construction;
  * this instead hooks the exact D1 call boundary the race depends on and
@@ -206,14 +253,14 @@ const seedAccount = async (): Promise<void> => {
 beforeAll(async () => {
   mf = new Miniflare({
     modules: true,
-    script: "export default { fetch() { return new Response('ok'); } };",
+    script: D1_WORKER,
     d1Databases: { DB: ":memory:" },
   });
   d1 = (await mf.getD1Database("DB")) as unknown as DrizzleD1;
   for (const stmt of createSchemaSql()) {
     await d1.prepare(stmt).run();
   }
-  rawDb = createD1Db(d1, schema);
+  rawDb = createD1Db(d1);
   layer = Layer.succeed(Db, { db: rawDb });
 });
 
@@ -525,117 +572,96 @@ describe("osn/api recommendations co-member fan-out over real D1 (Miniflare)", (
     // row budget, rather than one global cap the caller's first (lowest-id)
     // organisation could fill entirely while every other organisation got
     // nothing. MAX_ORG_COMEMBER_ROWS (services/recommendations.ts) is 2 000,
-    // split evenly across the caller's organisations. Seeding a single
-    // organisation the caller belongs to gives that organisation the *whole*
-    // budget as its share, so proving the cap requires seeding upwards of
-    // 2 000 members regardless of fixture size — that was the original form
-    // of this test, and it cost ~4.8s, nearly all of it seeding 2 500 rows
-    // through three FK-linked tables (P-W1).
+    // split evenly across the caller's organisations, so a caller in one
+    // organisation gives it the whole budget and proving the cap would take
+    // more than 2 000 members.
     //
-    // Putting the caller in ORG_COUNT organisations instead shrinks each
-    // one's share to `MAX_ORG_COMEMBER_ROWS / ORG_COUNT`, so the same "far
-    // more members than its share" property needs far fewer seeded rows:
-    // with 10 organisations the share is 200, and 500 members in the one
-    // oversized organisation is already 2.5x its share — a clear violation
-    // for the fan-out to cap, at a fifth of the previous row count. The other
-    // nine organisations need no extra members; the caller's own membership
-    // row is enough to exercise their arm of the fan-out.
+    // Putting the caller in ORG_COUNT organisations shrinks each one's share
+    // to `MAX_ORG_COMEMBER_ROWS / ORG_COUNT`: with 10 organisations the share
+    // is 200, and 500 members in the one oversized organisation is 2.5 times
+    // its share, a clear excess for the fan-out to cap. The other nine
+    // organisations need no extra members; the caller's own membership row
+    // is enough to exercise their arm of the fan-out.
     const callerId = "usr_boundtest_caller";
     const callerAccountId = "acc_boundtest_caller";
     const ts = new Date();
-    await rawDb.insert(accounts).values({
-      id: callerAccountId,
-      email: "boundtest-caller@example.com",
-      passkeyUserId: crypto.randomUUID(),
-      createdAt: ts,
-      updatedAt: ts,
-    });
-    await rawDb.insert(users).values({
-      id: callerId,
-      accountId: callerAccountId,
-      handle: "boundtest_caller",
-      createdAt: ts,
-      updatedAt: ts,
-    });
-
     const ORG_COUNT = 10;
     const OVERSIZED_ORG_ID = "org_boundtest_0";
-    for (let i = 0; i < ORG_COUNT; i++) {
-      const organisationId = `org_boundtest_${i}`;
-      // eslint-disable-next-line no-await-in-loop -- sequential, FK-ordered seeding
-      await rawDb.insert(organisations).values({
-        id: organisationId,
-        handle: `boundtest${i}`,
-        name: `Bound Test Org ${i}`,
-        ownerId: callerId,
+    const MEMBER_COUNT = 500;
+    const memberIndices = Array.from({ length: MEMBER_COUNT }, (_, n) => n);
+
+    // 1 522 rows in FK order, in one request.
+    await seedInWorkerd([
+      rawDb.insert(accounts).values({
+        id: callerAccountId,
+        email: "boundtest-caller@example.com",
+        passkeyUserId: crypto.randomUUID(),
         createdAt: ts,
         updatedAt: ts,
-      });
-      // eslint-disable-next-line no-await-in-loop
-      await rawDb.insert(organisationMembers).values({
-        id: `orgm_boundtest_caller_${i}`,
-        organisationId,
-        profileId: callerId,
-        role: "admin",
+      }),
+      rawDb.insert(users).values({
+        id: callerId,
+        accountId: callerAccountId,
+        handle: "boundtest_caller",
         createdAt: ts,
-      });
-    }
+        updatedAt: ts,
+      }),
+      ...Array.from({ length: ORG_COUNT }, (_, i) => [
+        rawDb.insert(organisations).values({
+          id: `org_boundtest_${i}`,
+          handle: `boundtest${i}`,
+          name: `Bound Test Org ${i}`,
+          ownerId: callerId,
+          createdAt: ts,
+          updatedAt: ts,
+        }),
+        rawDb.insert(organisationMembers).values({
+          id: `orgm_boundtest_caller_${i}`,
+          organisationId: `org_boundtest_${i}`,
+          profileId: callerId,
+          role: "admin",
+          createdAt: ts,
+        }),
+      ]).flat(),
+      ...memberIndices.map((n) =>
+        rawDb.insert(accounts).values({
+          id: `acc_boundtest_m${n}`,
+          email: `boundtest-m${n}@example.com`,
+          passkeyUserId: crypto.randomUUID(),
+          createdAt: ts,
+          updatedAt: ts,
+        }),
+      ),
+      ...memberIndices.map((n) =>
+        rawDb.insert(users).values({
+          id: `usr_boundtest_m${n}`,
+          accountId: `acc_boundtest_m${n}`,
+          handle: `boundtestm${n}`,
+          createdAt: ts,
+          updatedAt: ts,
+        }),
+      ),
+      ...memberIndices.map((n) =>
+        rawDb.insert(organisationMembers).values({
+          id: `orgm_boundtest_m${n}`,
+          organisationId: OVERSIZED_ORG_ID,
+          profileId: `usr_boundtest_m${n}`,
+          role: "member" as const,
+          createdAt: ts,
+        }),
+      ),
+    ]);
 
-    // D1 caps bound parameters at 100 PER STATEMENT (see the FOF test below),
-    // so a multi-row `INSERT ... VALUES (...), (...), …` — one statement,
-    // many binds — hits that cap almost immediately at these row widths.
-    // `commitBatch` (already used above, `@shared/db-utils`) sends many
-    // single-row statements as one D1 `batch()` round trip instead: each
-    // statement stays far under the per-statement cap, and the batch itself
-    // is still one network hop.
-    const MEMBER_COUNT = 500;
-    const BATCH = 100;
-    for (let i = 0; i < MEMBER_COUNT; i += BATCH) {
-      const indices = Array.from({ length: Math.min(BATCH, MEMBER_COUNT - i) }, (_, j) => i + j);
-      // eslint-disable-next-line no-await-in-loop -- sequential batches; each
-      // depends on nothing but must land before the assertions below run.
-      await commitBatch(
-        rawDb,
-        indices.map((n) =>
-          rawDb.insert(accounts).values({
-            id: `acc_boundtest_m${n}`,
-            email: `boundtest-m${n}@example.com`,
-            passkeyUserId: crypto.randomUUID(),
-            createdAt: ts,
-            updatedAt: ts,
-          }),
-        ),
-      );
-      // eslint-disable-next-line no-await-in-loop
-      await commitBatch(
-        rawDb,
-        indices.map((n) =>
-          rawDb.insert(users).values({
-            id: `usr_boundtest_m${n}`,
-            accountId: `acc_boundtest_m${n}`,
-            handle: `boundtestm${n}`,
-            createdAt: ts,
-            updatedAt: ts,
-          }),
-        ),
-      );
-      // eslint-disable-next-line no-await-in-loop
-      await commitBatch(
-        rawDb,
-        indices.map((n) =>
-          rawDb.insert(organisationMembers).values({
-            id: `orgm_boundtest_m${n}`,
-            organisationId: OVERSIZED_ORG_ID,
-            profileId: `usr_boundtest_m${n}`,
-            role: "member" as const,
-            createdAt: ts,
-          }),
-        ),
-      );
-    }
+    // The bound below means something only while the oversized organisation
+    // really holds more than its share: its 500 members and the caller.
+    const [seeded] = await rawDb
+      .select({ members: count() })
+      .from(organisationMembers)
+      .where(eq(organisationMembers.organisationId, OVERSIZED_ORG_ID));
+    expect(seeded!.members).toBe(MEMBER_COUNT + 1);
 
     const { d1: trackedD1, total } = trackRowsRead(d1, "organisation_members");
-    const trackedLayer = Layer.succeed(Db, { db: createD1Db(trackedD1, schema) });
+    const trackedLayer = Layer.succeed(Db, { db: createD1Db(trackedD1) });
     const recs = createRecommendationService();
 
     const suggestions = await Effect.runPromise(
@@ -655,21 +681,16 @@ describe("osn/api recommendations co-member fan-out over real D1 (Miniflare)", (
     expect(rowsRead).toBeLessThanOrEqual(300);
   });
 
-  it("does not throw for a caller in 6 organisations — the exact arm count the removed comment claimed was safe", async () => {
-    // This guards against a regression in the compound-SELECT term cap
-    // below (P-C1). The co-member fan-out used to be one `UNION
-    // ALL` of one arm per organisation the caller belongs to, and a removed
-    // comment claimed that was safe because `MAX_MY_ORGANISATIONS` (50) sits
-    // "well under SQLite's 500-term compound-select limit". That figure is
-    // right for `bun:sqlite` and wrong for the engine this actually runs
-    // on: D1 runs on workerd's embedded SQLite, which caps a compound
-    // `SELECT` at 5 terms (`MAX_ORG_COMEMBER_ARMS_PER_QUERY`, see its
-    // comment in services/recommendations.ts) — so the single-statement
-    // form threw `D1_ERROR: too many terms in compound SELECT` for any
-    // caller in 6 or more organisations. This seeds exactly that caller —
-    // 6 organisations, one arm each — and asserts `suggestConnections`
-    // succeeds. Revert the batching in `services/recommendations.ts` and
-    // this test is the one that goes red.
+  it("does not throw for a caller in 6 organisations, one more than D1's compound SELECT allows", async () => {
+    // The co-member fan-out has one `UNION ALL` arm per organisation the
+    // caller belongs to. `bun:sqlite` allows 500 terms in a compound SELECT;
+    // D1 runs on workerd's embedded SQLite, which allows 5
+    // (`MAX_ORG_COMEMBER_ARMS_PER_QUERY`, see its comment in
+    // services/recommendations.ts), and a single statement for a caller in 6
+    // or more organisations fails with `D1_ERROR: too many terms in compound
+    // SELECT`. This seeds exactly that caller, 6 organisations with one arm
+    // each, and asserts `suggestConnections` succeeds: the batching in
+    // services/recommendations.ts is what keeps it green.
     const callerId = "usr_sixorg_caller";
     const callerAccountId = "acc_sixorg_caller";
     const ts = new Date();
@@ -746,116 +767,61 @@ describe("osn/api recommendations co-member fan-out over real D1 (Miniflare)", (
 });
 
 describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
-  it("suggestConnections succeeds well past the caller's accepted-connection count that used to push the FOF query over D1's 100-bound-parameter cap", async () => {
-    // Was: the FOF fan-out (services/recommendations.ts) bound
-    // `myConnectionIds` TWICE — once per edge direction, in
-    // `inArray(requesterId, ids) OR inArray(addresseeId, ids)`. D1's
-    // documented cap is 100 bound parameters per query
+  it("suggestConnections answers for a caller with 60 accepted connections, past D1's 100-bound-parameter cap at two binds per id", async () => {
+    // D1 caps a statement at 100 bound parameters, inside a batch as well
     // (developers.cloudflare.com/d1/platform/limits/: "Maximum bound
-    // parameters per query | 100", applying per statement including within a
-    // batch), so 51 accepted connections already produced 102 binds and threw
-    // `D1_ERROR: too many SQL variables` — a real production failure for any
-    // caller past 50 accepted connections, until the query was restructured
-    // (below) to stop scaling its bind count with the caller's connection
-    // count.
-    //
-    // Fixed by binding `profileId` instead of the id list: the FOF query now
-    // reads the caller's own accepted edges through a correlated `IN
-    // (<subquery>)` rather than pasting them in as literals, so its bind
-    // count is fixed regardless of how many connections the caller has — see
-    // the query in services/recommendations.ts for the full account,
-    // including why a correlated `EXISTS` (D1's plan showed a full table
-    // scan) was measured and rejected in favour of this shape.
-    //
-    // This test keeps the same 60-accepted-connection fixture the
-    // characterisation test used — well past the old 50-connection cliff,
-    // and confirmed empirically against this Miniflare version to still
-    // enforce D1's 100-bound-parameter cap the old shape blew through — and
-    // now asserts the call succeeds and returns real friend-of-friend
-    // suggestions, over real (Miniflare/workerd) D1.
+    // parameters per query | 100"). A FOF fan-out that bound the caller's
+    // connection ids once per edge direction, in
+    // `inArray(requesterId, ids) OR inArray(addresseeId, ids)`, would bind 120
+    // for this caller and fail with `D1_ERROR: too many SQL variables`. The
+    // query in services/recommendations.ts reads the caller's accepted edges
+    // through a correlated `IN (<subquery>)` bound by `profileId` alone, so its
+    // bind count does not grow with the caller's connections; its comment
+    // says why a correlated `EXISTS` was measured and not used. Miniflare
+    // enforces the same cap, so this proves the call succeeds over real D1 and
+    // returns real friend-of-friend suggestions.
     const callerId = "usr_bindtest_caller";
     const callerAccountId = "acc_bindtest_caller";
     const ts = new Date();
-    await rawDb.insert(accounts).values({
-      id: callerAccountId,
-      email: "bindtest-caller@example.com",
-      passkeyUserId: crypto.randomUUID(),
-      createdAt: ts,
-      updatedAt: ts,
-    });
-    await rawDb.insert(users).values({
-      id: callerId,
-      accountId: callerAccountId,
-      handle: "bindtest_caller",
-      createdAt: ts,
-      updatedAt: ts,
-    });
-
-    const FRIEND_COUNT = 60; // 2 x 60 = 120 binds under the old shape, over D1's 100-bind cap
-    for (let i = 0; i < FRIEND_COUNT; i++) {
-      const friendAccountId = `acc_bindtest_f${i}`;
-      const friendId = `usr_bindtest_f${i}`;
-      // eslint-disable-next-line no-await-in-loop -- sequential, FK-ordered seeding
-      await rawDb.insert(accounts).values({
-        id: friendAccountId,
-        email: `bindtest-f${i}@example.com`,
-        passkeyUserId: crypto.randomUUID(),
-        createdAt: ts,
-        updatedAt: ts,
-      });
-      // eslint-disable-next-line no-await-in-loop
-      await rawDb.insert(users).values({
-        id: friendId,
-        accountId: friendAccountId,
-        handle: `bindtestf${i}`,
-        createdAt: ts,
-        updatedAt: ts,
-      });
-      // eslint-disable-next-line no-await-in-loop
-      await rawDb.insert(connections).values({
-        id: `conn_bindtest_${i}`,
-        requesterId: callerId,
-        addresseeId: friendId,
-        status: "accepted",
-        createdAt: ts,
-        updatedAt: ts,
-      });
-    }
-
+    const FRIEND_COUNT = 60;
     // A handful of the caller's friends each have one connection of their
-    // own beyond the caller — real friend-of-friend candidates, so this
-    // proves the query returns *correct* suggestions past the old cliff, not
-    // merely that it avoids throwing.
+    // own beyond the caller: real friend-of-friend candidates, so this proves
+    // the query returns correct suggestions, not merely that it avoids
+    // throwing.
     const FOF_CANDIDATE_COUNT = 3;
-    for (let i = 0; i < FOF_CANDIDATE_COUNT; i++) {
-      const candidateAccountId = `acc_bindtest_fof${i}`;
-      const candidateId = `usr_bindtest_fof${i}`;
-      // eslint-disable-next-line no-await-in-loop -- sequential, FK-ordered seeding
-      await rawDb.insert(accounts).values({
-        id: candidateAccountId,
-        email: `bindtest-fof${i}@example.com`,
+    const person = (accountId: string, id: string, handle: string) => [
+      rawDb.insert(accounts).values({
+        id: accountId,
+        email: `${handle}@example.com`,
         passkeyUserId: crypto.randomUUID(),
         createdAt: ts,
         updatedAt: ts,
-      });
-      // eslint-disable-next-line no-await-in-loop
-      await rawDb.insert(users).values({
-        id: candidateId,
-        accountId: candidateAccountId,
-        handle: `bindtestfof${i}`,
-        createdAt: ts,
-        updatedAt: ts,
-      });
-      // eslint-disable-next-line no-await-in-loop
-      await rawDb.insert(connections).values({
-        id: `conn_bindtest_fof_${i}`,
-        requesterId: `usr_bindtest_f${i}`, // one of the caller's direct friends
-        addresseeId: candidateId,
+      }),
+      rawDb.insert(users).values({ id, accountId, handle, createdAt: ts, updatedAt: ts }),
+    ];
+    const accepted = (id: string, requesterId: string, addresseeId: string) =>
+      rawDb.insert(connections).values({
+        id,
+        requesterId,
+        addresseeId,
         status: "accepted",
         createdAt: ts,
         updatedAt: ts,
       });
-    }
+
+    // 191 rows in FK order, in one request.
+    await seedInWorkerd([
+      ...person(callerAccountId, callerId, "bindtest_caller"),
+      ...Array.from({ length: FRIEND_COUNT }, (_, i) => [
+        ...person(`acc_bindtest_f${i}`, `usr_bindtest_f${i}`, `bindtestf${i}`),
+        accepted(`conn_bindtest_${i}`, callerId, `usr_bindtest_f${i}`),
+      ]).flat(),
+      ...Array.from({ length: FOF_CANDIDATE_COUNT }, (_, i) => [
+        ...person(`acc_bindtest_fof${i}`, `usr_bindtest_fof${i}`, `bindtestfof${i}`),
+        // `usr_bindtest_f${i}` is one of the caller's direct friends.
+        accepted(`conn_bindtest_fof_${i}`, `usr_bindtest_f${i}`, `usr_bindtest_fof${i}`),
+      ]).flat(),
+    ]);
 
     const recs = createRecommendationService();
     const suggestions = await run(recs.suggestConnections(callerId, 50));
@@ -871,20 +837,17 @@ describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
     }
   });
 
-  it("does not suggest a connection the caller accepted, in a second in-flight request, between step 1 and the FOF fan-out (S-H1)", async () => {
-    // The FOF query's move to a live, correlated-subquery read (fixed above)
-    // leaves a narrow window open: `suggestConnections` reads the caller's
-    // own context in two separate, un-transacted D1 round trips: step 1
-    // (`myEdgeRows`, a snapshot) and step 2 (the FOF fan-out, whose seed
-    // subquery re-reads `connections` live). If the caller accepts a new
-    // connection in the gap between them — the same account, a second
-    // request in flight from another tab or device — that connection's id
-    // was never seen by step 1's snapshot, so it lands in neither
-    // `myConnectionIdSet` nor `excludeIds`, but the live seed subquery sees
-    // it. Before the fix, the fan-out row for that brand-new edge was
-    // misclassified as a candidate rather than a mutual connection, and
-    // nothing downstream re-checked it: the caller's own newest connection
-    // came back as "someone you may know."
+  it("does not suggest a connection the caller accepted, in a second in-flight request, between step 1 and the FOF fan-out", async () => {
+    // `suggestConnections` reads the caller's own context in two separate,
+    // un-transacted D1 round trips: step 1 (`myEdgeRows`, a snapshot) and
+    // step 2 (the FOF fan-out, whose seed subquery reads `connections` live,
+    // as the test above relies on). If the caller accepts a new connection in
+    // the gap between them — the same account, a second request in flight
+    // from another tab or device — step 1's snapshot never saw it, so it is
+    // in neither `myConnectionIdSet` nor `excludeIds`, but the live seed
+    // subquery sees it. The service must still not classify the fan-out row
+    // for that brand-new edge as a candidate: otherwise the caller's own
+    // newest connection comes back as "someone you may know."
     //
     // Reproducing the race with two real overlapping HTTP requests would
     // depend on scheduler timing and be flaky by construction. Instead this
@@ -977,7 +940,7 @@ describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
         });
       },
     );
-    const racedLayer = Layer.succeed(Db, { db: createD1Db(racedD1, schema) });
+    const racedLayer = Layer.succeed(Db, { db: createD1Db(racedD1) });
 
     const recs = createRecommendationService();
     const suggestions = await Effect.runPromise(
@@ -992,14 +955,14 @@ describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
     expect(lateEdge).toHaveLength(1);
 
     // The caller's own brand-new connection must never come back as
-    // "someone you may know" — that is the S-H1 fix.
+    // "someone you may know".
     const suggestedHandles = suggestions.map((s) => s.handle);
     expect(suggestedHandles).not.toContain("racetest_late");
   });
 });
 
 describe("recovery passkey reclaim over real D1 (Miniflare)", () => {
-  // `englishstventures/osn#970`. The reclaim deletes a credential and inserts its
+  // `englishstreetventures/osn#970`. The reclaim deletes a credential and inserts its
   // replacement in ONE `commitBatch`, and that is the only thing standing
   // between a recovering user and an account left a credential down.
   //
@@ -1087,24 +1050,24 @@ describe("recovery passkey reclaim over real D1 (Miniflare)", () => {
   });
 });
 
-/** `count` profiles on the seeded account, handles `<prefix>000`…, inserted one statement each. */
-const seedProfiles = async (prefix: string, count: number): Promise<string[]> => {
+/** `total` profiles on the seeded account, handles `<prefix>000`…, written in one request. */
+const seedProfiles = async (prefix: string, total: number): Promise<string[]> => {
   const ts = new Date();
-  const ids: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const id = `usr_${prefix}_${i}`;
-    ids.push(id);
-    await rawDb.insert(users).values({
-      id,
-      accountId: ACCOUNT_ID,
-      handle: `${prefix}${String(i).padStart(3, "0")}`,
-      displayName: null,
-      avatarUrl: null,
-      isDefault: false,
-      createdAt: ts,
-      updatedAt: ts,
-    });
-  }
+  const ids = Array.from({ length: total }, (_, i) => `usr_${prefix}_${i}`);
+  await seedInWorkerd(
+    ids.map((id, i) =>
+      rawDb.insert(users).values({
+        id,
+        accountId: ACCOUNT_ID,
+        handle: `${prefix}${String(i).padStart(3, "0")}`,
+        displayName: null,
+        avatarUrl: null,
+        isDefault: false,
+        createdAt: ts,
+        updatedAt: ts,
+      }),
+    ),
+  );
   return ids;
 };
 

@@ -664,7 +664,7 @@ describe("ImportPanel — download templates", () => {
     await waitFor(() => expect(createdBlobs.length).toBeGreaterThan(0));
     const text = await blobText(createdBlobs[0]!);
     expect(text.split("\r\n")[0]).toBe(
-      "Event Name,Start,Timezone,End,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
+      "Event Name,Start,Timezone,End,Location,Address,Description,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
     );
     expect(createdBlobs[0]!.type).toContain("text/csv");
   });

@@ -33,6 +33,8 @@ import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { listMigrations } from "./migration-files";
+
 /**
  * Rows written on D1 per schema write. The evidence puts it somewhere around
  * 22 to 27, and 27 is the top of it, which is the safe side. Changing it
@@ -241,9 +243,7 @@ function chargeFor(statement: string): Charge {
  * cannot build is a failure, not a cheap chain.
  */
 export function measureChain(dir: string): ChainCost {
-  const files = readdirSync(dir)
-    .filter((name) => name.endsWith(".sql"))
-    .sort();
+  const files = listMigrations(dir);
   if (files.length === 0) {
     throw new Error(`${dir} holds no .sql migrations — nothing was measured, which is not a pass.`);
   }
@@ -380,7 +380,7 @@ export function runGuard(chain: string, dir: string, budget: number, budgetsPath
         `${affordable} replays a day against the ${DAILY_ROWS_WRITTEN_CEILING} rows/day ` +
         `free-tier ceiling, down from ${rebuildsPerDay(budget)} at the budget. The chain has ` +
         `grown, which is what this guard watches: squash it into a fresh baseline the way ` +
-        `englishstventures/osn#984 did, or raise the budget deliberately with the reason in the commit.`,
+        `englishstreetventures/osn#984 did, or raise the budget deliberately with the reason in the commit.`,
     );
     return false;
   }

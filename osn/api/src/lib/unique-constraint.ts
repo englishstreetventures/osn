@@ -1,11 +1,12 @@
 /**
  * Shared narrowing for "was this write failure a uniqueness conflict?".
  *
- * Both `completeRegistration` and `completeEmailChange` write through
- * `commitBatch` (`@shared/db-utils`), and neither driver path wraps the
- * failure: D1's `db.batch(...)` and bun:sqlite's sequential fallback both
- * leave the raw SQLite text in `e.message` at the top level, so no `.cause`
- * walk is needed or wanted here.
+ * Test it against `driverErrorText(e)` (`@shared/db-utils`), never against
+ * `e.message`. A failed D1 `db.batch(...)` carries the SQLite text at the top
+ * level, but a failed single statement, on D1 or on bun:sqlite (including
+ * `commitBatch`'s sequential fallback), arrives as drizzle's
+ * `DrizzleQueryError`, whose message names only the statement and whose
+ * `cause` carries the reason.
  *
  * Only a uniqueness violation is a genuine caller-facing conflict (another
  * account already claimed the address/handle). NOT NULL / FOREIGN KEY /

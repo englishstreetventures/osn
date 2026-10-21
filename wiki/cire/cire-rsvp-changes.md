@@ -10,7 +10,7 @@ related:
   - "[[retention]]"
   - "[[free-tier-limits]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-20
 ---
 # RSVP changes
 
@@ -130,13 +130,13 @@ A run ends with one `rsvp digest run complete` log line carrying the counts — 
 
 The portal link is the tier's organiser origin (`organiserOriginFrom` in `cire/api/src/lib/organiser-origin.ts`: the second entry of `WEB_ORIGIN`) plus `#/w/<weddingId>/guests/rsvps`. The top-level local config lists one origin, so a local cron run would link to production; it never mails locally, because local dev has no Resend key.
 
-**What the email says.** Counts only — "4 households changed their RSVPs for Ama & Jonah since our last email", then "3 households replied", "1 household changed their reply" — the link, and how to turn it off. One household can make more than one kind of change, so the lead count is not the sum of the lines. No household or guest name, no attendance, no dietary data: those stay in the portal, on Cloudflare. Naming households is an open decision (englishstventures/osn#1259) that first needs the guest privacy notice, the guest-data DPIA and the Resend DPA to cover it.
+**What the email says.** Counts only — "4 households changed their RSVPs for Ama & Jonah since our last email", then "3 households replied", "1 household changed their reply" — the link, and how to turn it off. One household can make more than one kind of change, so the lead count is not the sum of the lines. No household or guest name, no attendance, no dietary data: those stay in the portal, on Cloudflare. Naming households is an open decision (englishstreetventures/osn#1259) that first needs the guest privacy notice, the guest-data DPIA and the Resend DPA to cover it.
 
 **The cursor is one counter for every wedding.** `seq` is a single AUTOINCREMENT, so the `markSeq` and `seenSeq` a member reads rise with RSVP changes on every wedding, and an organiser could estimate how busy cire is. That is accepted: it says nothing about any other wedding, its guests or its organisers, and a per-wedding cursor would need a second counter kept in step with every insert.
 
 ## Retention
 
-The guest privacy notice (`cire/invites/src/pages/privacy.astro`) names the record and its window. Change rows are deleted **90 days** after they are written (`rsvpChangeService.sweepExpired`, daily cron), and go with their household or wedding before that — so the 1-year guest-data sweep reaches them. Organiser status-save rows keep the same 90 days: the record of who set a status lasts 90 days, while `rsvps.recorded_by_osn_profile_id` keeps the latest organiser writer for as long as the reply. Notice rows go with the seat or the wedding. An OSN account deletion does not reach `wedding_hosts`, so a deleted account's notice row lasts as long as its seat. See [[retention]] and [[data-map]].
+The guest privacy notice (`cire/ui/src/guest-privacy-notice.astro`, on the guest site and cireweddings.com) names the record and its window. Change rows are deleted **90 days** after they are written (`rsvpChangeService.sweepExpired`, daily cron), and go with their household or wedding before that — so the 1-year guest-data sweep reaches them. Organiser status-save rows keep the same 90 days: the record of who set a status lasts 90 days, while `rsvps.recorded_by_osn_profile_id` keeps the latest organiser writer for as long as the reply. Notice rows go with the seat or the wedding. An OSN account deletion does not reach `wedding_hosts`, so a deleted account's notice row lasts as long as its seat. See [[retention]] and [[data-map]].
 
 ## Related
 

@@ -9,7 +9,8 @@
  * `tests/lib/tiers.contract.test.ts` reads both and fails when they differ.
  *
  * - `ivory` — free: the invite, the guest list, RSVPs and import.
- * - `gold` — adds the budget, the checklist and the gift registry.
+ * - `gold` — adds the budget, the checklist, the gift registry and the seating
+ *   chart.
  * - `crimson` — adds vendors (the CRM, the directory and enquiries) and every
  *   premium invite design.
  */
@@ -47,7 +48,7 @@ export function tierAtLeast(held: Tier, min: Tier): boolean {
  * applied to the stored rows: `vendors` or `capacity_1000` is Crimson,
  * `registry` or `capacity_500` is Gold, anything else Ivory.
  */
-// Removed by englishstventures/osn#1315, once every API this portal talks to sends `tier`.
+// Removed by englishstreetventures/osn#1315, once every API this portal talks to sends `tier`.
 export function legacyTierFromEntitlements(entitlements: readonly string[]): Tier {
   if (entitlements.includes("vendors") || entitlements.includes("capacity_1000")) {
     return "crimson";

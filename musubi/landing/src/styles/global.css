@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* OSN brand tokens — a refined, premium dark-grey palette with a calm electric
+/* Musubi brand tokens — a refined, premium dark-grey palette with a calm electric
    indigo accent. The visual thesis is "your social graph, your control": cool
    neutral greys, hairline borders, and dotted/network motifs. */
 @theme {
@@ -98,7 +98,7 @@
     transform: none;
   }
 
-  /* Reusable dotted-network backdrop — the signature OSN motif. Two radial-dot
+  /* Reusable dotted-network backdrop — the signature Musubi motif. Two radial-dot
      layers (a denser hairline grid + a sparser accent grid) for subtle depth.
      Apply to a section: `class="dot-grid"`. */
   .dot-grid {

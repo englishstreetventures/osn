@@ -9,6 +9,7 @@ import { useLocation, useNavigate } from "@solidjs/router";
 import { createMemo, lazy, Show, Suspense } from "solid-js";
 
 import { SectionTabs } from "../components/SectionTabs";
+import { PRODUCT_NAME } from "../lib/auth";
 import { registrationClient } from "../lib/authClients";
 import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
 
@@ -74,7 +75,9 @@ export function SettingsPage() {
     <main class="mx-auto w-full max-w-2xl px-4 py-6 md:px-8 md:py-8">
       <div class="mb-6">
         <h1 class="text-foreground text-display font-medium">Settings</h1>
-        <p class="text-muted-foreground text-body mt-1">Manage your OSN identity and account.</p>
+        <p class="text-muted-foreground text-body mt-1">
+          Manage your {PRODUCT_NAME} identity and account.
+        </p>
       </div>
 
       <Show

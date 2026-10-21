@@ -23,4 +23,4 @@ The originals moved to `cire/db/migrations-archive/`, outside `migrations_dir`,
 because six tests replay them to prove what they did to real rows. Those tests
 now read the archive. New migrations start at `0058`.
 
-englishstventures/osn#981.
+englishstreetventures/osn#981.

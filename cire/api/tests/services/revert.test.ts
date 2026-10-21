@@ -6,6 +6,7 @@ import { Effect, Layer } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
+import { serialiseCsv } from "../../src/lib/csv";
 import type { ParsedFamily } from "../../src/schemas/import";
 import { decodeChangeBody } from "../../src/services/changes";
 import { captureBeforeImage } from "../../src/services/checkpoint";
@@ -18,7 +19,7 @@ import {
   NoPriorImport,
   RevertParseError,
 } from "../../src/services/revert";
-import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
+import { parseCsv, parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
 import { stateExportService } from "../../src/services/state-export";
 import { recordStatements } from "../test-helpers";
 import { seedPlusOne } from "../test-helpers/plus-one";
@@ -1192,7 +1193,7 @@ describe("revertImport — scoped edge cases", () => {
     const { db, layer } = scopedLayer();
     await applyChange(layer, "c0", SEED, 1_000);
     // A value the events editor can store but an upload may not carry
-    // (englishstventures/osn#1220).
+    // (englishstreetventures/osn#1220).
     db.update(events).set({ timezone: "UTC+10" }).where(eq(events.name, "Mehndi")).run();
     const before = db.select().from(events).where(eq(events.name, "Mehndi")).all()[0]!;
     await applyChange(layer, "c1", { eventsCsv: EVENTS_V1 }, 2_000);
@@ -1224,6 +1225,68 @@ describe("revertImport — scoped edge cases", () => {
       db.select().from(events).where(eq(events.name, "Mehndi")).all()[0]!.dressCodeDescription,
     ).toBe(long);
     expect(db.select().from(families).all()).toHaveLength(2);
+  });
+
+  it("an events revert restores the description and venue name the before-image recorded", async () => {
+    const { db, layer } = scopedLayer();
+    await applyChange(layer, "c0", SEED, 1_000);
+    const sheet = (venue: string, description: string) =>
+      [
+        "Event Name,Start,End,Timezone,Location,Address,Description",
+        `Mehndi,2026-09-18T16:00,2026-09-18T22:00,Australia/Sydney,${venue},12 Banksia,"${description}"`,
+        "Wedding Ceremony,2026-09-20T16:00,2026-09-20T18:00,Australia/Sydney,,,",
+        "Reception,2026-09-20T19:00,2026-09-21T00:00,Australia/Sydney,,,",
+      ].join("\n");
+    await applyChange(
+      layer,
+      "c1",
+      { eventsCsv: sheet("The Glasshouse", "Henna at 4, dinner at 7.") },
+      2_000,
+    );
+    await applyChange(layer, "c2", { eventsCsv: sheet("Elsewhere", "Changed.") }, 3_000);
+
+    await revert(layer, "c2");
+
+    expect(db.select().from(events).where(eq(events.name, "Mehndi")).all()[0]).toMatchObject({
+      venueName: "The Glasshouse",
+      description: "Henna at 4, dinner at 7.",
+      address: "12 Banksia",
+    });
+  });
+
+  // A before-image written before the Description column existed has none,
+  // and a Location column that was always blank. Restoring it puts back no
+  // venue name — there was none before that change — and keeps descriptions,
+  // which it never recorded.
+  it("an events revert of a before-image with no Description column clears venue names and keeps descriptions", async () => {
+    const { db, r2, layer } = scopedLayer();
+    await applyChange(layer, "c0", SEED, 1_000);
+    await applyChange(layer, "c1", { eventsCsv: EVENTS_V1 }, 2_000);
+    const [row] = db.select().from(imports).where(eq(imports.id, "c1")).all();
+    const [header, ...rows] = parseCsv(await (await r2.get(row!.beforeEventsR2Key!))!.text());
+    const description = header!.indexOf("Description");
+    const location = header!.indexOf("Location");
+    expect(description).toBeGreaterThan(-1);
+    const drop = (cells: string[]) => cells.filter((_, i) => i !== description);
+    await r2.put(
+      row!.beforeEventsR2Key!,
+      serialiseCsv(
+        drop(header!),
+        rows.map((cells) => drop(cells.map((cell, i) => (i === location ? "" : cell)))),
+        { guard: false },
+      ),
+    );
+    db.update(events)
+      .set({ venueName: "The Glasshouse", description: "Set after the change." })
+      .where(eq(events.name, "Mehndi"))
+      .run();
+
+    await revert(layer, "c1");
+
+    expect(db.select().from(events).where(eq(events.name, "Mehndi")).all()[0]).toMatchObject({
+      venueName: null,
+      description: "Set after the change.",
+    });
   });
 
   it("an events revert of an old wall-clock snapshot still refuses a zone that does not resolve", async () => {

@@ -53,7 +53,7 @@ If a fixed finding has no issue, file one in the tracker before the PR opens (St
 Find its issue in the public repo and add it to the `Closes #N` list in Step 8. Same rule: no checkbox edits, no deletions.
 
 ```bash
-gh issue list --repo englishstventures/osn --search "<keywords>" --state open
+gh issue list --repo englishstreetventures/osn --search "<keywords>" --state open
 ```
 
 ### Up Next

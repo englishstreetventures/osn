@@ -19,7 +19,7 @@ related:
 packages:
   - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-19
 ---
 
 # Social Graph
@@ -150,14 +150,14 @@ No backfill: a dropped candidate is not replaced from the next rank down — tha
 
 Each suggestion carries a `reason` (`mutual_connections` | `shared_organisation`) naming the strongest signal, plus `sharedOrganisation` as card context when there is one. `reason` is what the Discover card turns into "3 mutual connections" or "Also in Acme Inc".
 
-`GET /recommendations/connections` also returns `generatedAt` (ISO 8601, set at request time) alongside `suggestions`, so a client can tell how fresh a list is (osn-tracker#311). The list itself is still never cached or stored server-side — a short-lived cache is the separate, not-yet-decided osn-tracker#588.
+`GET /recommendations/connections` also returns `generatedAt` (ISO 8601, set at request time) alongside `suggestions`, so a client can tell how fresh a list is. The list itself is never cached or stored server-side; whether to add a short-lived cache is not yet decided.
 
-Current shape prioritises correctness + bounded cost over peak throughput. Next steps are open issues in `englishstventures/osn`:
+Current shape prioritises correctness + bounded cost over peak throughput. Two costs are known and open:
 
-- **P-W6** — short-lived per-caller cache (5-15 min) so a Discover-page visit doesn't re-run the pipeline.
-- **P-W7** — push aggregation to SQL (`GROUP BY … ORDER BY … LIMIT`) is still open. This line used to also propose two compound indexes, `connections(status, requester_id)` / `connections(status, addressee_id)` — **don't add them.** Measured on real D1: the existing `connections_requester_idx` / `connections_addressee_idx` already give a MULTI-INDEX OR, and the proposed indexes cut rows_read only 120 → 112 (about 7%) — and on a fresh un-`ANALYZE`d database the planner instead picked `(status, addressee_id)` and scanned every accepted edge, a strict regression. `status` has two values; it is the worst possible leading column. The measurements are recorded on osn-tracker#312 and #278. If a real need is ever proven, the right shape is `(requester_id, status, addressee_id)` — the selective column first, not `status`.
+- The pipeline runs again on every request. A short-lived per-caller cache (5-15 min) would spare a Discover-page visit the rerun.
+- Aggregation runs in the Worker, not in SQL (`GROUP BY … ORDER BY … LIMIT`). Two compound indexes, `connections(status, requester_id)` / `connections(status, addressee_id)`, look like they would help — **don't add them.** Measured on real D1: the existing `connections_requester_idx` / `connections_addressee_idx` already give a MULTI-INDEX OR, and the proposed indexes cut rows_read only 120 → 112 (about 7%) — and on a fresh un-`ANALYZE`d database the planner instead picked `(status, addressee_id)` and scanned every accepted edge, a strict regression. `status` has two values; it is the worst possible leading column. If a real need is ever proven, the right shape is `(requester_id, status, addressee_id)` — the selective column first, not `status`.
 
-Privacy: the endpoint returns `mutualCount` alongside each suggestion. This leaks graph-inference signal — see `S-L4` in `englishstventures/osn-tracker` for the bucketing follow-up.
+Privacy: the endpoint returns `mutualCount` alongside each suggestion. This leaks graph-inference signal.
 
 Rate-limited at 20 req/user/min via `createRedisRecommendationRateLimiters().suggest` — see [[rate-limiting]].
 

@@ -1,5 +1,26 @@
 # @shared/toast
 
+## 0.3.7
+
+### Patch Changes
+
+- e5fc2a7: Centred toasts (`top-center`, `bottom-center`) can use the whole viewport width. The container was placed at `left: 50%`, which left it only half the screen, so on a phone a toast with an action squeezed its message to a letter per line. It is now centred with auto margins.
+
+## 0.3.6
+
+### Patch Changes
+
+- 5ab88f0: Build with vite 8.3.3 (range `^8.3.3`), which clears the advisory on vite 8.2.0
+  through 8.2.3.
+
+## 0.3.5
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
 ## 0.3.4
 
 ### Patch Changes

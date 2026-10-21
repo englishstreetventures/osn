@@ -9,7 +9,8 @@ related:
   - "[[bundle-size-guards]]"
   - "[[devloop-urls]]"
   - "[[browser-tests]]"
-last-reviewed: 2026-10-19
+  - "[[realtime]]"
+last-reviewed: 2026-10-21
 ---
 
 # Testing Patterns
@@ -20,7 +21,7 @@ Three rules decide what kind of test a change gets. They come before every patte
 
 1. **End-to-end tests first, and ideally only.** A complex feature is proved by an E2E test that drives the real stack the way a user or caller does: browser, API, database. Reach for nothing else unless the E2E test cannot reach the behaviour.
 2. **Every E2E test ends by producing an artifact.** It writes something a reviewer can check without rerunning the suite, and that comes out the same on every run: a Playwright trace, screenshots of the final state, or a JSON record of the requests and results. It runs against seeded data and a fixed clock, so a second run gives the same artifact. Name where the artifact lands in the PR test plan. The suite that does this, and how to add a flow to it, is [[#The end-to-end suite]].
-3. **Isolated tests are written failure-modes first.** When a system must be tested on its own (a parser, a crypto routine, a rate-limit window, a state machine an E2E test cannot steer into every state), first write down every way it can fail. Put that list in `NEW-FEAT.md`, before any code exists. Write one test per entry, then the code that makes them pass. A test that maps to no listed failure does not get written.
+3. **Isolated tests are written failure-modes first.** When a system must be tested on its own (a parser, a crypto routine, a rate-limit window, a state machine an E2E test cannot steer into every state), first write down every way it can fail. Put that list in `NEW-FEAT.md`, before any code exists. Write one test per entry, then the code that makes them pass. A test that maps to no listed failure does not get written. The list includes code the change does not touch but now reaches: when a client starts sending a field, or a write starts filling a column, every existing branch on that value was dead before and is live now, and mutation testing on the changed lines never mutates it. A gift-list change that sent `itemId` for the first time made the payment-page reuse lookup's `item_id` match decide where money went, and only a test review found it untested.
 
 **Never write unit tests after the code.** A unit test written to cover code that already works describes what the code does, not what it must do. It goes green on the first run and stays green through the bugs that matter. Those tests are the low-signal kind this repo has deleted: constants asserted against themselves, mock echoes, "renders without crashing", snapshots of static markup, framework behaviour, types the compiler already checks.
 
@@ -35,7 +36,7 @@ The bar for keeping any non-E2E test: **name the real bug it catches that no E2E
 1. Refuses to start if any of its ports is taken, and names the port. It never reuses a server it did not start. Stop your `bun run dev` first. A refused run leaves the previous run's artifacts where they are.
 2. Clears `e2e-artifacts/`, so nothing from an earlier run survives.
 3. Checks that the shared clock reaches a Bun child and a Node child: `Date.now()`, `new Date()` and `Date()` each.
-4. Builds fresh SQLite files from each package's `applySchema` and seeds fixed rows: Pulse is registered with osn-api as a first-party OIDC client. cire-api seeds its own file at boot (`CIRE_LOCAL_DB_PATH`).
+4. Builds fresh SQLite files from each package's `applySchema` and seeds fixed rows: Pulse and the cire organiser portal are registered with osn-api as first-party OIDC clients. cire-api seeds its own file at boot (`CIRE_LOCAL_DB_PATH`).
 5. Starts a stand-in for the Resend API (port 4590), then every app at once except pulse-api. pulse-api registers its service key with osn-api at boot, so it starts once osn-api answers, and counts as ready once its key is in osn-api's database.
 6. Runs Playwright, serially and with no retries.
 7. Stops every process group, the Playwright runner's included, whether the run passed, failed or was interrupted. A `SIGINT` or `SIGTERM` sent to the launcher alone stops them too.
@@ -48,10 +49,30 @@ The bar for keeping any non-E2E test: **name the real bug it catches that no E2E
 | Musubi | 1422 | `bun run dev:app` |
 | Pulse web | 1420 | `bun run dev:app` |
 | cire invites | 4321 | `bun run dev:app --ignore-lock` |
+| cire host (the organiser portal) | 4322 | `bun run dev:app --ignore-lock` |
+| cire landing | 4323 | `bun run dev:app --ignore-lock` |
+
+cire landing and cire host reach the internet as they start: their Astro font pipelines fetch Google Fonts (`fonts` in each package's `astro.config.mjs`) and cache them under the package's `.astro/`. With no network each logs `No data found for font family …` and serves pages in fallback faces, so the stack still boots. The portal runs under `astro dev`, which serves no Content Security Policy (the build writes it into `dist/_headers`), so the browser tier keeps the CSP checks.
+
+*Measured 2026-10-20 — `astro dev` for `@cire/landing` with `NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:9`: `/privacy` answered 200 after 4.2 s.*
+
+*Measured 2026-10-20 — `astro dev` for `@cire/host` with the same two variables, `PORT=4322`, in a sandbox whose egress proxy refused `fonts.google.com`: `/login` answered 200 after 8.9 s, its log saying `No data found for font family Schibsted Grotesk`.*
 
 The ports are the `PORTLESS=0` ones from `DEV_APPS` in `@shared/dev-urls`, and `tools/e2e/tests/config.test.ts` keeps the two lists equal. Children get an explicit environment, not your shell's: `PATH`, `HOME` and a few proxy and certificate variables, plus every sibling origin set by name. The APIs also start with `--no-env-file`, so neither a `.env` file nor your shell's `REDIS_URL`, `OSN_ENV` or Turnstile key reaches them. The frontends still read their own `.env*` files, as Vite and Astro always do. Every variable the suite relies on there (each API origin, the Turnstile site keys) is set in their environment, and that beats a `.env` value.
 
 **The clock.** Every server and every browser page starts at `2026-10-01T00:00:00Z` and then ticks in real time. The APIs load `tools/e2e/src/clock.mjs` with `--preload`. Vite and Astro load it through `NODE_OPTIONS`. Each page gets `page.clock.install`. The date is fixed so that seeded deadlines and "must be in the future" checks resolve the same way whatever the real date is. Time still moves so that debounces and timers in the UI still fire. Each flow checks that the rows it wrote carry a timestamp on the suite clock, so a server that missed the preload fails on the day it breaks, not on the day a seeded deadline passes.
+
+**A deadline the browser can pass.** cire-api's sample wedding carries the RSVP deadline `CIRE_RSVP_DEADLINE` (`2099-01-01`, from `tools/e2e/src/config.ts`), which `cire/api/src/local.ts` reads as `CIRE_E2E_RSVP_DEADLINE`. It is far past the suite clock, so the server takes replies on every run. A flow that needs the closed invite moves only its own page past it, with `page.clock.setSystemTime(Date.parse(CIRE_RSVP_CLOSED_ISO))` and a reload, as `cire-rsvp-after-deadline.flow.ts` does; the invite decides "closed" from the browser's clock. What the server refuses past a deadline is proven in cire-api's own tests, not here.
+
+**A gift list behind the claim code.** The stack starts cire-api with `CIRE_E2E_REGISTRY=1`, which `cire/api/src/local.ts` reads to add a second wedding, `gift-wedding`, on Gold with a published list and a cash fund, one household of one and the wedding's host preview household (`seedE2eGiftList` in `cire/api/src/db/setup.ts`; the values the flows check are written out again as `CIRE_GIFT_LIST` in `tools/e2e/src/config.ts`). The couple's settings take money, and the stack runs cire-api with no Stripe key, so `cire-registry-claimed` reads the fund and those settings from the database and then checks that neither the money form nor the fund reaches the guest. No flow pays: the stack has no stand-in for Stripe, so a gift to a fund is proven in cire-api's route tests (a stand-in is englishstreetventures/osn#1627). It is a wedding of its own so the gift band a published list puts on the invite never enters the other cire flows. `cire-registry-locked.flow.ts` proves a browser without a claim receives none of the list, and `cire-registry-claimed.flow.ts` proves the household's code opens it; the second checks visible every gift title, the headline and the message the first checks absent, and reads the cash fund's name and words from the database, since no guest is offered the fund on this stack, so a seed that drifts from the config fails a flow instead of passing one on nothing. `cire-registry-preview.flow.ts` opens the invitation at the preview code, as the organiser's **Preview invite** does, and proves the preview reads the list, every Reserve control is disabled, and a reservation sent anyway is refused `403`.
+
+**The guests' claim budget is spent.** cire-api allows five claims a minute per client address (`defaultClaimLimiter` in `cire/api/src/app.ts`), counted in one fixed window per address, and five flows claim a code from the suite's own address: `cire-member-step`, `cire-registry-claimed`, `cire-rsvp`, `cire-rsvp-after-deadline` and `cire-rsvp-partial-after-deadline`. They usually run inside one minute, so a sixth claim, or a wrong code typed anywhere in the run, is answered `429` and fails a flow whose own steps look fine, on a slow machine sooner than a fast one. A flow claims by pressing "Open Invitation" or by opening the invitation at a `code=` link, which claims on load. `tools/e2e/tests/flows.test.ts` counts both and fails above five, so the commit that adds a sixth goes red under `bun test` rather than on some CI runs. A new cire flow that needs a household reuses a claiming flow's journey instead of adding a claim.
+
+**An organiser, signed in.** cire-host signs in through cire-api's OIDC routes, and osn-api is the provider. The seed registers cire as a first-party client (`CIRE_OIDC` in `config.ts`, `seedOsn` in `src/seed.ts`), and the stack gives cire-api its id, secret, issuer and API origin, which `cire/api/src/local.ts` builds into the client config. The stack also starts osn-api with `DEV_LOGIN_SECRET`, which mounts `GET /dev/login` (`osn/api/src/routes/auth/dev-login.ts`, local and dev tiers only). That route signs in as the fixed dev principal, whose profile owns cire's sample wedding, and its `DEV_LOGIN_RETURN_ORIGINS` is the host's origin. A flow opens `/dev/login?…&return_to=<host>/login?returnTo=<hash route>`, waits for the login page's `GET /api/auth/session`, then presses "Continue with musubi". With a session and a first-party client, osn-api issues the code straight back to cire-api, so Musubi's `/authorize` page never loads. `cire-event-details.flow.ts` does this: the organiser edits an event in the drawer, saves, and previews the invitation. It edits Kitchen Tea, which no other flow reads.
+
+**Organiser flows on their own weddings.** The checklist and run-sheet flows sign in with `signInToCireHost(flow, page)` (`tools/e2e/tests/support/fixtures.ts`) instead. It takes the OSN session from `/dev/login` with the page's own request client, so the cookie lands in the browser's jar, then makes the sign-in a host makes from the portal's `/login`: "Continue with musubi", cire-api's `/api/auth/oidc/start`, osn-api's `/authorize` with no screen, and cire-api's callback, which sets `cire_org_session`. The portal then settles on `/#/weddings`. The fixture checks that Musubi's `/authorize` page never loads, that the cookie is HttpOnly, and that the dev profile, `usr_dev_bootstrap_owner`, holds one more `organiser_sessions` row. The stack starts cire-api with `CIRE_E2E_ORGANISER=1`, which adds three Gold weddings that profile owns (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`; the ids are written out again as `CIRE_ORGANISER` in `tools/e2e/src/config.ts`): one dated 2099-06-20 with an empty checklist (`cire-checklist-starter`), one with an open task, an editor and a viewer (`cire-checklist-holders`), and one with a helper (`cire-helper-scope`). The local cire-api resolves no OSN names, so co-hosts show, and are found, by profile id. A sign-in, through the fixture or a flow's own `/dev/login?…` link, spends two of cire-api's OIDC redirect legs (15 a minute per address), one `/dev/login` (10 a minute) and one osn-api `/authorize` (20 a minute, which the Pulse flow's two sign-ins share), so `flows.test.ts` counts both kinds and fails above five sign-ins in the run (four today).
+
+**The organiser claims from its own address.** A flow that previews calls `claimFromOrganiserAddress(context)` (`tools/e2e/tests/support/fixtures.ts`), which sends that context's claims with `cf-connecting-ip: ORGANISER_ADDRESS` (TEST-NET-1, from `config.ts`), as an organiser on their own network would. The route stays for the rest of the flow: while any route is installed Playwright pauses every request in the context, and removing it while the page still loads strands the request paused at that moment, so a module import the claim's reveal waits on never settles. The stack starts cire-api with `CIRE_E2E_CLIENT_ADDRESS=1`, the one case where the local server keeps a client address the request sends (`localClientAddress` in `cire/api/src/lib/local-client-address.ts`); any other local cire-api replaces it with the socket peer. Those claims count in the organiser's window, also at most five (two today: `cire-registry-preview` and `cire-event-details`), and such a flow may claim only through a `code=` link: a press in a second, unrouted context would spend the guests' window while being counted in the organiser's. A second test in `flows.test.ts` checks the stack sets the flag and `local.ts` reads it.
 
 ### Reading the artifact
 
@@ -79,9 +100,10 @@ Requests are kept only for osn-api, pulse-api and cire-api. Query strings are dr
 2. Import `test` and `expect` from `../support/fixtures`, and take the `flow` fixture.
 3. Wrap each user-visible action in `flow.step("…", …)`. Record every outcome a reviewer should see with `flow.check(name, expected, actual)`, which also asserts. Check the database row, not only the UI: `queryOne(DB_FILES.<db>, sql, …)` reads a stack database read-only. Join on seeded or fixed values, never on a generated id.
 4. For a second user, create a context with `browser.newContext()` and open pages with `flow.newPage(context)`, so they get the suite clock and their requests are recorded. Point `flow.finalPage` at the page whose end state the screenshot should show.
-5. To create an OSN account, register through the UI when registration is what the flow tests (`otpFor(email)` reads the one-time code). Otherwise call `registerThroughApi(flow, context.request, person)`. Fixed people and values go in `tools/e2e/src/config.ts`.
-6. Wait on state only: `expect(locator)`, `expect(page).toHaveURL`, `page.waitForResponse`. `tools/e2e/tests/flows.test.ts` fails on `waitForTimeout`, `setTimeout`, `networkidle` or `.only` in a flow.
-7. Run `bun run test:e2e:repro` and confirm the two runs match.
+5. To create an OSN account, register through the UI when registration is what the flow tests (`otpFor(email)` reads the one-time code, and `mailFor(email, until)` waits until a message matching `until` has reached the address, then returns every message sent to it so far, to check a subject or body). Otherwise call `registerThroughApi(flow, context.request, person)`. A flow on the cire organiser portal signs in with `signInToCireHost(flow, page)` instead, as the dev profile that owns the seeded organiser weddings. Fixed people and values go in `tools/e2e/src/config.ts`.
+6. Wait on state only: `expect(locator)`, `expect(page).toHaveURL`, `page.waitForResponse`. `tools/e2e/tests/flows.test.ts` fails on `waitForTimeout`, `setTimeout`, `networkidle` or `.only` in a flow. Arm a `waitForResponse` before the action that fires the request, and match the whole URL: `…/registry` is a prefix of `…/registry/mine`, and both fire on one mount. A field in a server-rendered island exists before the island hydrates, and text filled into it then never reaches the form, so its submit button stays disabled. A flow that waited for the consent prompt on that page has already waited long enough; otherwise fill inside `expect(async () => …).toPass({ timeout })` until the button enables, as `cire-registry-claimed.flow.ts` does.
+7. A step that ends on a server-rendered element leaves the page's islands still hydrating, and they keep running into the next step: `page.goto` replaces the page only when the next document answers. An island that reads a cookie or storage on mount, as the guest site's session restore reads `cire_claimed`, then sees whatever the next step set and sends requests the record keeps in one run and not the next, which the next step's `waitForResponse` can also take for its own. Before a step changes cookies or storage, leave the page with `page.goto("about:blank")`, as `cire-registry-locked.flow.ts` does before its return visit.
+8. Run `bun run test:e2e:repro` and confirm the two runs match.
 
 A new app in the stack goes in `appSpecs()` in `tools/e2e/src/stack.ts`, with its port in `config.ts`.
 
@@ -490,7 +512,16 @@ cire/dietary/src/index.ts:224:7
    that is overwritten on every path, a log message's wording). Leave it, and
    say why in the pull request; do not write a test that asserts a string only
    to kill a mutant.
-3. **`NoCoverage` is worse than a survivor.** No test even ran the line.
+3. **Or name the browser test that kills it.** The `@cire/host` and
+   `@cire/invites` runs leave the browser tier out (below), so a mutant a
+   `*.browser.test.tsx` already kills still reports as a survivor. Run that
+   test against the mutant once, then name it in the pull request beside the
+   survivor. Do not copy the browser test into jsdom to raise the score: that is
+   a unit test written after the code, and every later change to the component
+   then edits both. A jsdom test is the answer only where no browser test
+   reaches the behaviour: a path the browser tier's Chromium never takes, such
+   as a browser without the popover API.
+4. **`NoCoverage` is worse than a survivor.** No test even ran the line.
    In a vitest package, a run that stops with `No tests were executed` is the
    same verdict for a whole file: Stryker runs only the tests that import the
    mutated file, and none does (`cire/landing/src/lib/site.ts`, used only by
@@ -523,7 +554,7 @@ What the configs depend on, and what breaks without it:
   the tests to run per mutant by name, and Vitest 5 joins a test's suite chain
   with ` > ` where the runner joins it with a space, so unpatched every mutant
   runs no tests and survives. A run reporting `Ran 0.00 tests per mutant` is
-  that failure. Bounded until englishstventures/osn#1520 lands.
+  that failure. Bounded until englishstreetventures/osn#1520 lands.
 - **Every vitest config names `@stryker-mutator/vitest-runner` in `plugins`.**
   Bun's isolated install hides the runner from Stryker's plugin discovery, which
   fails with "Cannot find TestRunner plugin".
@@ -557,6 +588,12 @@ What the configs depend on, and what breaks without it:
   boots workerd; the command runner would run it once per mutant, several at a
   time. Keep `tests/db/` out of it: a Miniflare test that times out is counted as
   a kill.
+- **A Solid component's `ref` is a named function or a variable, never an
+  arrow written in the JSX.** The instrumenter wraps every arrow in a condition
+  that picks the mutant or the original, and Solid compiles a component's `ref`
+  expression as written, so a wrapped one is never called. The dry run then
+  fails on whatever the `ref` set up, though the plain suite passes.
+  `SeatingView`'s print-sheet portal takes `ref={markPrintSheet}` for this.
 
 ## Kobalte overlays and the tests after them
 
@@ -600,7 +637,7 @@ applySchema(sqlite);
 
 Adding a column is then a one-file change in `src/schema/`. The emitter carries column-level `.unique()` (via `col.isUnique`), partial-index `WHERE` clauses, and foreign-key `ON DELETE`/`ON UPDATE` actions — all three were silently dropped before 2026-08, so tests ran on a shape production D1 rejects. The emitted array is memoised and frozen: the schema is a static module import, so reflecting it per test database was pure recomputation.
 
-`osn/db/tests/ddl-lockstep.test.ts` diffs a normalised structural snapshot of the emitted schema against the full `osn/db/drizzle/*.sql` migration chain. It compares columns, types, defaults, nullability, indexes (**including column order within an index** — SQLite serves only a leading prefix), partial predicates, foreign keys and their referential actions, and pins CHECK/trigger/view sets as empty. It fails when a migration lands without a schema change, when a schema change lands without a migration, or when the emitter loses a constraint. `zap/db` has the same test; `cire/api/tests/db/ddl-lockstep.test.ts` covers cire's three-way mirror.
+`osn/db/tests/ddl-lockstep.test.ts` diffs a normalised structural snapshot of the emitted schema against the full `osn/db/drizzle/*.sql` migration chain. It compares columns, types, defaults, nullability, indexes (**including column order within an index** — SQLite serves only a leading prefix), partial predicates, foreign keys and their referential actions, and pins CHECK/trigger/view sets as empty. It fails when a migration lands without a schema change, when a schema change lands without a migration, when the emitter loses a constraint, or when the migrations directory holds anything wrangler would not apply (a folder, a `meta/` journal) — the chain is replayed through `scripts/migration-files.ts`, in wrangler's order. `zap/db` has the same test; `cire/api/tests/db/ddl-lockstep.test.ts` covers cire's three-way mirror.
 
 **If you extend one emitter, extend all three** — they are copies, and all three (`osn/db`, `pulse/db`, `zap/db`) now carry the lockstep test.
 
@@ -728,17 +765,19 @@ yet; their metric suites today assert only that a call does not throw.
 
 ## The D1 integration lane
 
-Each API package has a `tests/d1/d1-integration.test.ts` (cire's is `tests/db/d1-integration.test.ts`) that runs against a real workerd-backed D1 via Miniflare. They are the only coverage of the **asynchronous** D1 driver that dev/staging/prod actually use, as opposed to the synchronous `bun:sqlite` every other suite runs on.
+Each API package has a `tests/d1/d1-integration.test.ts` (cire's is `tests/db/d1-integration.test.ts`) that runs against a real workerd-backed D1 via Miniflare. They are the only coverage of the **asynchronous** D1 driver that dev/staging/prod actually use, as opposed to the synchronous `bun:sqlite` every other suite runs on. `shared/realtime` joins this lane too, though its `tests/d1/hub.test.ts` covers `TopicHub` on workerd rather than D1 — the hibernation API it exercises exists only in the runtime, so it needs the same Miniflare tier for the same reason.
 
-How the fast tier avoids them differs by runner, and the difference is worth knowing before you read a CI log:
+How the fast tier avoids these files differs by runner, and the difference is worth knowing before you read a CI log:
 
-| Package | Fast-tier runner | Does `bun run test` load the D1 file? |
+| Package | Fast-tier runner | Does `bun run test` load the D1/Miniflare file? |
 |---|---|---|
-| `osn/api`, `pulse/api`, `zap/api` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
+| `osn/api`, `pulse/api`, `zap/api`, `shared/realtime` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
 | `cire/api` | bare `bun test` | **Yes.** `bun test` discovers recursively and takes no exclude, so the Miniflare suite runs twice per CI run — once inside `@cire/api#test`, once under `test:d1`. A workerd failure reddens cire's fast tier too, and a workerd timeout can stop it outright: see [[#Miniflare in cire's fast tier]]. `tests/db/migrate-wrapper.test.ts`, which runs real wrangler, skips unless `CIRE_D1_TIER=1`, which only `test:d1` sets. |
 
+See [[realtime]] for what `hub.test.ts` covers.
+
 ```bash
-bun run test:d1            # all four packages, serially
+bun run test:d1            # every D1/Miniflare package, serially
 bun run --cwd zap/api test:d1
 ```
 
@@ -749,13 +788,29 @@ Run serially. Concurrent Miniflare workerd instances contend and fail spuriously
 `@cire/api#test` boots workerd in more files than the D1 suite: `tests/index.test.ts`, `tests/db/d1-session.test.ts`, `tests/db/query-error.test.ts` and `tests/services/r2-reconcile.test.ts` as well. Two things about them are easy to miss.
 
 - **Proxied reads block.** `mf.getD1Database()` and `mf.getR2Bucket()` return proxies. A property read on a proxied object, such as a listed R2 object's `key` or `uploaded`, or a D1 statement's `prepare` and `bind`, is a synchronous round trip to workerd: Miniflare makes it with `Atomics.wait` on the test's main thread. A test that makes thousands of them takes a second on a laptop and tens of seconds when CI runs every package's tests at once.
-- **A timeout is worse than a failure.** When a Miniflare-backed test outlives its budget, bun kills the file's workerd (the log says `killed 1 dangling process`), and the next proxied read waits forever. `bun test` never exits, and the CI job runs until its own timeout cancels it.
+- **A timeout is worse than a failure.** When a Miniflare-backed test outlives its budget, bun kills the file's workerd (the log says `killed 1 dangling process`), and the next proxied read waits forever. `bun test` never exits, and the CI job runs until its own timeout cancels it. Where the next read does return, it fails instead, and so does every later test in the file: osn/api's D1 file shows `The socket connection was closed unexpectedly` and `Attempted to use poisoned stub` after one timeout.
 
 So keep bulk reads and writes inside workerd. Give Miniflare a small Worker script that does the work against its own binding and answers with plain JSON, as [r2-reconcile.test.ts](../../cire/api/tests/services/r2-reconcile.test.ts) does. Give every Miniflare-backed test a budget well above its time in a cold run of the whole suite. A change to `bun.lock` makes every turbo task miss its cache, so the next CI run is that cold run.
 
 The R2 walk test read a thousand listed objects through the proxy and took 28–36 s against its 30 s budget in a cold run.
 
 *Measured 2026-10-07 — `bun run test` on ubuntu-latest with no turbo cache, n=3*
+
+### Seeding a Miniflare test
+
+Keeping bulk work inside workerd holds for every Miniflare-backed file, not only cire's fast tier.
+
+- **D1: send drizzle's SQL to the Worker.** Build the rows with drizzle as usual and call `toSQL()` on each insert: it returns the statement's text and its parameters already mapped to driver values. The file's Worker runs the list as one `env.DB.batch(...)` against its own binding, in order and all or nothing. `seedInWorkerd` in [osn/api's d1-integration.test.ts](../../osn/api/tests/d1/d1-integration.test.ts) does this. One row per statement keeps each under D1's 100 bound parameters ([[d1-limits]]). A test whose subject is drizzle's D1 write path still writes through `mf.getD1Database()`, since that path is what it proves.
+- **Keep each request short.** After one request keeps workerd busy for about ten seconds, the next request bun's fetch sends over the same keep-alive connection fails with `TypeError: The socket connection was closed unexpectedly`. A request that only waits that long does not do it. A seed that writes everything in one request is quick on an idle machine and crosses that line on a busy one, so send it in slices: [r2-reconcile.test.ts](../../cire/api/tests/services/r2-reconcile.test.ts) writes 100 keys per request.
+- **Set the budget once per file.** `setDefaultTimeout(ms)` from `bun:test`, called at the top of a file, gives every test and hook in that file the budget and reaches no other file in the same run. A third argument on each `it` does the same per test, as cire's D1 file does with `MF_TIMEOUT_MS`, but oxfmt then re-indents every test body that takes one.
+
+The osn co-member fan-out test seeded 1,522 rows with about 3,000 proxied `prepare` and `bind` calls and took 4.7 s of its 5 s budget on an idle machine. Seeded in one request, it takes 0.5 s idle and under 1 s with every core busy.
+
+*Measured 2026-10-21 — `bun test tests/d1/d1-integration.test.ts --reporter=junit` in `osn/api`, 4-core cloud container, idle and beside four `while :; do :; done` loops; n=1 before, n=5 after*
+
+One request writing 7,000 R2 objects (13–18 s) broke the request after it 4 times in 4. The same objects in 100-key requests did not, and neither did one request that slept for 16 s.
+
+*Measured 2026-10-21 — scratch Miniflare probe in `cire/api/tests`, 4-core cloud container, idle, n=4 each*
 
 ### D1's error shape in a bun test
 

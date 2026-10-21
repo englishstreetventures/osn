@@ -40,6 +40,7 @@ describe("appSpecs", () => {
     expect(byName["musubi"]?.["VITE_OSN_ISSUER_URL"]).toBe("http://localhost:4000");
     expect(byName["pulseWeb"]?.["VITE_API_URL"]).toBe("http://localhost:3001");
     expect(byName["cireInvites"]?.["PUBLIC_API_URL"]).toBe("http://localhost:8787");
+    expect(byName["cireHost"]?.["PUBLIC_CIRE_API_URL"]).toBe("http://localhost:8787");
   });
 
   test("osn-api comes up before pulse-api, which registers its key with it at boot", () => {

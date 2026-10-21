@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-17
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -91,7 +91,7 @@ along. If the user opens the link in a *different* browser, every call
 
 1. **Loading** — fetch context. 404 ⇒ *Expired* state.
 2. **Signed out** (`signedIn: false`, or arrived with `reason=login`) —
-   render the client card (name + logo + "wants to access your OSN
+   render the client card (name + logo + "wants to use your Musubi
    account") above the standard `<SignIn>` component, with a register
    link. On success, re-fetch context and continue. A sign-in performed
    here creates a fresh session, which by construction satisfies
@@ -217,7 +217,7 @@ screen shows even when consent is on record (pinned in
   The previous account's refresh session is left live server-side, and the
   whole browser, not only this request, is now signed in as the new account.
   Whether to call `POST /logout` before the switch is open:
-  englishstventures/osn#1344.
+  englishstreetventures/osn#1344.
 - A failed context read that is not terminal — a 429, a dropped connection —
   gets its own screen with the message and a retry, not an endless spinner.
 - The page runs **outside `AuthProvider`**. Mounting it calls `POST /token`,

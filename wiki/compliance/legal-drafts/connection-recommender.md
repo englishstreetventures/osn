@@ -6,7 +6,7 @@ related:
   - "[[dsa]]"
   - "[[social-graph]]"
   - "[[index]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-10-19
 ---
 
 # Connection Recommender — Main Parameters
@@ -103,8 +103,7 @@ rewrite before it ships.
 
 Each suggestion the endpoint returns carries a `mutualCount` — the exact
 number of mutual connections. This is itself a disclosure with a privacy
-cost tracked separately: see `S-L4` in `englishstventures/osn-tracker` and
-[[social-graph]] §Recommendations. It is noted here because "how many
+cost: see [[social-graph]] §Recommendations. It is noted here because "how many
 mutual connections you have with someone" is a fact about you the ranking
 parameters (§1) make visible, which Art. 27 disclosure should not omit.
 
@@ -113,8 +112,7 @@ parameters (§1) make visible, which Art. 27 disclosure should not omit.
 This page describes the recommender. **It is not a Terms of Service.**
 Publishing the actual DSA Art. 27 disclosure to end users — the ToS
 language, where it lives, how it is kept current — is
-`englishstventures/osn-tracker#373`, which carries `needs:decision` and is not
-resolved by this page. A ToS author can draw the four points above
+an owner decision that this page does not resolve. A ToS author can draw the four points above
 directly into ToS prose; this page is written so they can.
 
 ### Why the thresholds are not written out here
@@ -133,7 +131,7 @@ than to someone trying to understand it:
   organisation's real members out of a given recipient's suggestions.
 
 **This is not a secrecy measure and should not be mistaken for one.**
-`englishstventures/osn` is a public repository: every constant named above is
+`englishstreetventures/osn` is a public repository: every constant named above is
 readable in `recommendations.ts` by anyone who looks. What is being
 decided here is narrower — what a document intended as ToS source
 *commits to publishing as a parameter*, which is a different thing from
@@ -146,9 +144,9 @@ candidates come from, what is suppressed, that nothing commercial is an
 input — are the parameters; the constants are implementation.
 
 That reading is a judgment, not a rule, and it belongs to whoever owns
-`englishstventures/osn-tracker#373`. A regulator may read a qualitative range as
-evasive and want figures, which is defensible. Decide it there
-deliberately, rather than inheriting it from a page that happened to be
+the published disclosure. A regulator may read a qualitative range as
+evasive and want figures, which is defensible. Decide it with that
+disclosure, deliberately, rather than inheriting it from a page that happened to be
 written with `file:line` precision because it was verified against the
 source.
 

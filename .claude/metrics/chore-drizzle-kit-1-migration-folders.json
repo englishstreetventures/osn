@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1660,
+    "branch": "chore/drizzle-kit-1-migration-folders",
+    "base_sha": "91d42b7dba8048b92ab5c9bf227a0d6c92311279",
+    "head_sha": "3b4e77a5c4174e13948de5232a249fea87710fde",
+    "generated_at": "2026-10-21T10:14:54.385Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1650,
+    "type": "Task",
+    "labels": [
+      "product:shared",
+      "area:schema",
+      "complexity:8"
+    ]
+  },
+  "complexity": {
+    "declared": 8,
+    "method": "label"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-21T01:47:33.971Z",
+    "last_ts": "2026-10-21T10:14:53.612Z",
+    "span_seconds": 30440,
+    "active_seconds": 15923,
+    "compactions": 1
+  },
+  "spend": {
+    "usd_equivalent": 153.12579780000002,
+    "tokens": {
+      "input": 2301,
+      "output": 377306,
+      "thinking": 106910,
+      "cache_write_5m": 1856042,
+      "cache_write_1h": 1710922,
+      "cache_read": 306946830
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 2287,
+          "output": 377216,
+          "thinking": 106910,
+          "cache_write_5m": 1803836,
+          "cache_write_1h": 1710922,
+          "cache_read": 306724824
+        },
+        "usd_equivalent": 152.94995360000001,
+        "messages": 1133
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 14,
+          "output": 90,
+          "thinking": 0,
+          "cache_write_5m": 52206,
+          "cache_write_1h": 0,
+          "cache_read": 222006
+        },
+        "usd_equivalent": 0.1758442,
+        "messages": 7
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 883,
+          "output": 370475,
+          "thinking": 106910,
+          "cache_write_5m": 0,
+          "cache_write_1h": 1710922,
+          "cache_read": 185883772
+        },
+        "usd_equivalent": 95.45391680000002,
+        "messages": 431
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1418,
+          "output": 6831,
+          "thinking": 0,
+          "cache_write_5m": 1856042,
+          "cache_write_1h": 0,
+          "cache_read": 121063058
+        },
+        "usd_equivalent": 57.67188099999999,
+        "messages": 709
+      }
+    },
+    "effort": {
+      "medium": 431,
+      "xhigh": 393,
+      "high": 309,
+      "low": 7
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 22,
+      "test": 59,
+      "docs": 15,
+      "config": 28,
+      "source": 29
+    },
+    "loc": {
+      "generated": {
+        "added": 67,
+        "deleted": 19990
+      },
+      "test": {
+        "added": 1646,
+        "deleted": 399
+      },
+      "docs": {
+        "added": 124,
+        "deleted": 67
+      },
+      "config": {
+        "added": 216,
+        "deleted": 49313
+      },
+      "source": {
+        "added": 955,
+        "deleted": 176
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "osn/api",
+      "osn/db",
+      "pulse/api",
+      "pulse/db",
+      "shared/crypto",
+      "shared/db-utils",
+      "tools/e2e",
+      "zap/api",
+      "zap/db"
+    ],
+    "touches_migration": true,
+    "commits": 9
+  },
+  "interaction": {
+    "user_turns": 7,
+    "corrective_turns": 6,
+    "tokens_before_first_edit": 1385035,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 1089,
+      "mcp__github__issue_write": 15,
+      "Write": 15,
+      "WebSearch": 9,
+      "Skill": 8,
+      "Agent": 7,
+      "SubagentHandback": 7,
+      "ToolSearch": 6,
+      "WebFetch": 6,
+      "Edit": 6,
+      "Read": 5,
+      "mcp__github__pull_request_read": 3,
+      "AskUserQuestion": 3,
+      "mcp__github__search_pull_requests": 2,
+      "mcp__github__search_issues": 2,
+      "mcp__github__get_label": 2,
+      "mcp__claude-code-remote__add_repo": 1,
+      "mcp__github__list_issue_types": 1,
+      "mcp__github__add_issue_comment": 1,
+      "mcp__github__create_pull_request": 1,
+      "mcp__github__issue_read": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 4
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-security": 1,
+      "review-performance": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "explorer": 1,
+      "attacker": 3,
+      "reviewer": 3
+    }
+  }
+}

@@ -42,6 +42,9 @@ function buildApp(resolver: OsnAccountResolver | "disabled" = okResolver, linkin
   seedDb(db);
   const app = createApp(db, {
     claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+    // "Who are you?" spends the restore's budget; its default is one limiter
+    // shared by every app in the test process.
+    claimSessionLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
     accountLinkLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
     osnTestKey: auth.key,
     resolveOsnAccountId: resolver === "disabled" ? undefined : resolver,
@@ -542,8 +545,9 @@ describe("account-linking feature flag (cire.account-linking OFF)", () => {
     const { db, app } = buildApp(okResolver, false);
     const cookie = await claimCookie(app, SAMPLETON);
     const bearer = await auth.sign("usr_alice");
-    // With the flag off there is no member step either.
-    expect((await chooseMember(app, cookie, guestIdByName(db, "Bo"))).status).toBe(404);
+    // The member step is on whatever the flag says, so the household can say
+    // who it is; the link still cannot bind them.
+    expect((await chooseMember(app, cookie, guestIdByName(db, "Bo"))).status).toBe(200);
     const res = await postLink(app, { cookie, bearer });
     expect(res.status).toBe(503);
     // Nothing was written.

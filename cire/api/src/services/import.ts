@@ -1,4 +1,13 @@
-import { events, families, guests, guestEvents, rsvps, weddings } from "@cire/db";
+import {
+  events,
+  families,
+  guests,
+  guestEvents,
+  rsvps,
+  seatingAssignments,
+  seatingTables,
+  weddings,
+} from "@cire/db";
 import { formatDietaryCell, parsePresets } from "@cire/dietary";
 import { jsonEachIn } from "@shared/db-utils";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
@@ -29,6 +38,7 @@ import type {
 import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
 import { resolvePinUrl } from "./pinterest-resolve";
+import { seatingLoss, seatingLossWarning } from "./seating";
 import {
   BASE_GUEST_CAP,
   CapacityExceeded,
@@ -202,7 +212,9 @@ export interface DiffOptions {
    * The wedding's events as `{id, name}`, when the caller has already read
    * them for this change. The diff then skips its own read of `events`. It
    * must be the complete, current list for `weddingId`: every match and every
-   * event removal is decided against it.
+   * event removal is decided against it. It carries no {@link ExistingEvent}
+   * flags, so a diff given it never warns that an update clears a venue name
+   * or a description; its one caller, a guests revert, updates no event.
    */
   readonly existingEvents?: readonly { readonly id: string; readonly name: string }[];
   /**
@@ -212,6 +224,42 @@ export interface DiffOptions {
    * a before-image carries one) and otherwise `'import'`.
    */
   readonly createSource?: Provenance;
+  /**
+   * Whether to read what only the preview shows: the RSVPs a removed guest
+   * would lose and the seats and tables the change clears. `true` (default)
+   * for the preview, which reads the two together. The apply and every revert
+   * pass `false`: they never read `plan.warnings`, so those reads would be
+   * thrown away.
+   */
+  readonly warnings?: boolean;
+}
+
+/**
+ * A stored event as the diff reads it: `id` for matching and the op lists,
+ * `name` for the normalised-name map, and whether the row has a venue name and
+ * a description, so the preview can warn when an update would clear one.
+ * Flags rather than the text: a description can run to `MAX_CELL_LENGTH`.
+ */
+interface ExistingEvent {
+  readonly id: string;
+  readonly name: string;
+  readonly hasVenueName?: boolean;
+  readonly hasDescription?: boolean;
+}
+
+/**
+ * The warning for an update that clears what the stored event has, or null.
+ * A sheet whose Location or Description cell is blank clears on purpose
+ * (`sheetText` in `services/spreadsheet.ts`), but a download made before the
+ * venue name existed has a Location column that is always blank, and
+ * re-uploading one would otherwise clear every venue name set since unseen.
+ */
+function clearWarning(existing: ExistingEvent, parsed: ParsedEvent): string | null {
+  const lost = [
+    existing.hasVenueName === true && parsed.venueName === null ? "venue name" : null,
+    existing.hasDescription === true && parsed.description === "" ? "description" : null,
+  ].filter((field) => field !== null);
+  return lost.length === 0 ? null : `Event "${parsed.name}" would lose its ${lost.join(" and ")}.`;
 }
 
 export function diffAgainstDb(
@@ -260,15 +308,20 @@ export function diffAgainstDb(
     const codeStyle: CodeStyle = weddingRow?.codeStyle ?? "secure";
 
     // ── Events ──────────────────────────────────────────────────────────────
-    // Projected to the two columns the diff reads (`id` for matching + the op
-    // lists, `name` for the normalised-name map). The guests-only branch below
-    // exists purely to build that name → id map, so dragging full event rows —
-    // descriptions, palettes, URLs — across the D1 wire to do it is pure waste.
-    const existingEvents =
+    // Projected to what the diff reads ({@link ExistingEvent}). The guests-only
+    // branch below exists purely to build the name → id map, so dragging full
+    // event rows — descriptions, palettes, URLs — across the D1 wire to do it is
+    // pure waste.
+    const existingEvents: readonly ExistingEvent[] =
       options.existingEvents ??
       (yield* dbQuery(() =>
         db
-          .select({ id: events.id, name: events.name })
+          .select({
+            id: events.id,
+            name: events.name,
+            hasVenueName: sql<boolean>`${events.venueName} IS NOT NULL`.mapWith(Boolean),
+            hasDescription: sql<boolean>`${events.description} <> ''`.mapWith(Boolean),
+          })
           .from(events)
           .where(eq(events.weddingId, weddingId))
           .all(),
@@ -287,6 +340,8 @@ export function diffAgainstDb(
      *  no parsed event carries an id this set holds exactly the name-matched ids,
      *  so the removal list is identical to the pre-E2 name-only diff. */
     const matchedEventIds = new Set<string>();
+    /** One line per updated event that would lose its venue name or description. */
+    const clearWarnings: string[] = [];
 
     if (manageEvents) {
       for (const parsed of parsedEvents) {
@@ -303,6 +358,8 @@ export function diffAgainstDb(
           eventUpdates.push({ id: existing.id, event: parsed });
           eventIdByNorm.set(norm, existing.id);
           matchedEventIds.add(existing.id);
+          const cleared = clearWarning(existing, parsed);
+          if (cleared) clearWarnings.push(cleared);
         } else {
           const id = crypto.randomUUID();
           eventCreates.push({ id, event: parsed });
@@ -764,7 +821,7 @@ export function diffAgainstDb(
       }
     }
 
-    const warnings: string[] = [...plusOneWarnings];
+    const warnings: string[] = [...clearWarnings, ...plusOneWarnings];
 
     // ── Claim-code collisions on a CARRIED publicId ──────────────────────────
     // A create may carry its own code (the full-fidelity `Family Code` column, so
@@ -809,20 +866,34 @@ export function diffAgainstDb(
       }
     }
 
-    // ── Warnings: removed/renamed guests with non-pending RSVPs ─────────────
-    const guestsBeingLost = guestRemoves.map((g) => ({ id: g.id, firstName: g.firstName }));
-
-    if (guestsBeingLost.length > 0) {
-      const ids = guestsBeingLost.map((g) => g.id);
-      // The ids ride as ONE bound parameter (`json_each`): D1 allows 100 per
-      // statement, and a change that removes households with plus-ones lists
-      // two guests for each inviter.
-      const rsvpRows = yield* dbQuery(() =>
-        db
-          .select()
-          .from(rsvps)
-          .where(inArray(rsvps.guestId, jsonEachIn(ids)))
-          .all(),
+    // ── Warnings: RSVPs and seats this change loses ─────────────────────────
+    // A removed or renamed guest loses their RSVPs. A removed guest,
+    // invitation or event takes its seats with it (and an event its tables),
+    // and the before-image a revert restores holds no seating. Neither read
+    // depends on the other, so they run together; only the preview asks.
+    if (options.warnings ?? true) {
+      const guestsBeingLost = guestRemoves.map((g) => ({ id: g.id, firstName: g.firstName }));
+      const [rsvpRows, loss] = yield* Effect.all(
+        [
+          guestsBeingLost.length > 0
+            ? // The ids ride as ONE bound parameter (`json_each`): D1 allows
+              // 100 per statement, and a change that removes households with
+              // plus-ones lists two guests for each inviter.
+              dbQuery(() =>
+                db
+                  .select()
+                  .from(rsvps)
+                  .where(inArray(rsvps.guestId, jsonEachIn(guestsBeingLost.map((g) => g.id))))
+                  .all(),
+              )
+            : Effect.succeed([]),
+          seatingLoss(weddingId, {
+            guestIds: guestRemoves.map((g) => g.id),
+            eventIds: eventRemoves.map((e) => e.id),
+            links: eventLinkRemoves,
+          }),
+        ],
+        { concurrency: "unbounded" },
       );
       const lostFirst = new Map(guestsBeingLost.map((g) => [g.id, g.firstName]));
       // Every row here is an explicit response — `rsvps.status` is a required
@@ -835,6 +906,8 @@ export function diffAgainstDb(
           `Removing guest ${firstName} would lose their RSVP: status=${r.status}, dietary=${formatDietaryCell(parsePresets(r.dietaryPresets ?? ""), r.dietary ?? "")}`,
         );
       }
+      const seatingWarning = seatingLossWarning(loss);
+      if (seatingWarning) warnings.push(seatingWarning);
     }
 
     // ── Capacity preview warning (non-blocking) ──────────────────────────────
@@ -1074,7 +1147,30 @@ export function applyImport(
 
     // 1. event removes. The event_id FKs cascade since migration 0052, but the
     // child deletes stay explicit so this write set does not depend on cascade
-    // being enabled on every driver (same stance as the retention sweep).
+    // being enabled on every driver (same stance as the retention sweep). The
+    // removed events' seats, then their tables, go first, once for all of them.
+    if (plan.eventRemoves.length > 0) {
+      const removedEventIds = jsonEachIn(plan.eventRemoves.map((er) => er.id));
+      statements.push(
+        db.delete(seatingAssignments).where(
+          inArray(
+            seatingAssignments.eventId,
+            db
+              .select({ id: events.id })
+              .from(events)
+              .where(and(inArray(events.id, removedEventIds), eq(events.weddingId, weddingId))),
+          ),
+        ),
+        db
+          .delete(seatingTables)
+          .where(
+            and(
+              inArray(seatingTables.eventId, removedEventIds),
+              eq(seatingTables.weddingId, weddingId),
+            ),
+          ),
+      );
+    }
     for (const er of plan.eventRemoves) {
       statements.push(
         db.delete(rsvps).where(eq(rsvps.eventId, er.id)),
@@ -1135,14 +1231,14 @@ export function applyImport(
           weddingId,
           slug: mintUniqueEventSlug(ec.event.name, usedSlugs),
           name: ec.event.name,
-          description: "",
+          // Absent (a sheet without the column, an older editor) creates the
+          // event with neither, as the columns' defaults would.
+          description: ec.event.description ?? "",
           startAt: ec.event.startAt,
           endAt: ec.event.endAt,
           timezone: ec.event.timezone,
-          // The sheet's venue-name Location has no column of its own — it fills
-          // in for a blank Address so the value still reaches the invite's
-          // "Where" instead of being silently dropped.
-          address: ec.event.address ?? ec.event.location,
+          venueName: ec.event.venueName ?? null,
+          address: ec.event.address,
           dressCodeDescription: ec.event.dressCodeDescription,
           dressCodePalette: JSON.stringify(ec.event.dressCodePalette),
           pinterestUrl: pinFor(ec.id, ec.event.pinterestUrl),
@@ -1156,25 +1252,25 @@ export function applyImport(
 
     // 3. event updates
     for (const eu of plan.eventUpdates) {
-      statements.push(
-        db
-          .update(events)
-          .set({
-            name: eu.event.name,
-            startAt: eu.event.startAt,
-            endAt: eu.event.endAt,
-            timezone: eu.event.timezone,
-            // Same Location → Address fallback as the create path above.
-            address: eu.event.address ?? eu.event.location,
-            dressCodeDescription: eu.event.dressCodeDescription,
-            dressCodePalette: JSON.stringify(eu.event.dressCodePalette),
-            pinterestUrl: pinFor(eu.id, eu.event.pinterestUrl),
-            mapsUrl: eu.event.mapsUrl,
-            sortOrder: eu.event.sortOrder,
-            updatedAt: now,
-          })
-          .where(eq(events.id, eu.id)),
-      );
+      const set: Partial<typeof events.$inferInsert> = {
+        name: eu.event.name,
+        startAt: eu.event.startAt,
+        endAt: eu.event.endAt,
+        timezone: eu.event.timezone,
+        address: eu.event.address,
+        dressCodeDescription: eu.event.dressCodeDescription,
+        dressCodePalette: JSON.stringify(eu.event.dressCodePalette),
+        pinterestUrl: pinFor(eu.id, eu.event.pinterestUrl),
+        mapsUrl: eu.event.mapsUrl,
+        sortOrder: eu.event.sortOrder,
+        updatedAt: now,
+      };
+      // Written only when the desired event states them: absent means the
+      // change says nothing about them (a sheet without the column, an older
+      // editor), so the stored values stay.
+      if (eu.event.description !== undefined) set.description = eu.event.description;
+      if (eu.event.venueName !== undefined) set.venueName = eu.event.venueName;
+      statements.push(db.update(events).set(set).where(eq(events.id, eu.id)));
     }
 
     // 4. family removes (cascade guests, rsvps, sessions)
@@ -1303,7 +1399,6 @@ export function applyImport(
       guestsCreated: plan.guestCreates.length,
       guestsUpdated: plan.guestUpdates.length,
       guestsRemoved: plan.guestRemoves.length,
-      warnings: plan.warnings,
     };
   }).pipe(
     Effect.tap((summary) =>

@@ -1,5 +1,35 @@
 # @utils/db
 
+## 0.8.0
+
+### Minor Changes
+
+- 130d873: Move to drizzle-orm and drizzle-kit 1.0.0-rc.4, and make a database migration
+  one flat timestamped file.
+
+  `@shared/db-utils`: `Db` is `SQLiteAsyncDatabase<"sync" | "async", unknown>` and
+  takes no schema type; `createDrizzleClient`, `createD1Db`, `makeDbLive` and
+  `makeD1DbLive` no longer take a schema. `driverErrorText` reads a failed
+  query's reason through its whole `cause` chain, since drizzle 1.0 wraps a
+  failed statement in `DrizzleQueryError` on bun:sqlite as on D1.
+
+  `@osn/api`: the handle and email races read the database's reason through
+  `driverErrorText`, so a handle taken in a race answers "Handle already taken"
+  on D1 instead of a database error.
+
+  `@osn/db`, `@pulse/db`, `@zap/db`: `db:generate --name <snake_case>` writes the
+  next migration as `drizzle/<YYYYMMDDHHMMSS>_<name>.sql`; `db:migrate` runs it
+  too. `drizzle/meta/` is gone. `@osn/db` declares `users.handle` unique through
+  the `users_handle_unique` index the database already holds.
+
+## 0.7.6
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
 ## 0.7.5
 
 ### Patch Changes
@@ -39,7 +69,7 @@
 
 ### Patch Changes
 
-- 6474854: Fix every `house/no-stacked-doc-block` site in these packages (xchromo/osn#926).
+- 6474854: Fix every `house/no-stacked-doc-block` site in these packages (englishstreetventures/osn#926).
 
   A declaration with two or more leading doc blocks only has its last block attached — the earlier one silently documents nothing, and an editor hovering the declaration never shows it. Two shapes accounted for all 26 sites across these packages: a genuine module doc that had been placed after the file's `import` line rather than at line 1, which the rule's module-block exemption checks literally, and so read as stacked in front of whatever the doc block happened to precede — moved to line 1, restoring both blocks to their correct attachment; and two doc blocks that were both actually describing the same declaration, split apart for no good reason — merged into one, with content preserved and no duplication.
 

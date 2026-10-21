@@ -39,7 +39,7 @@ describe("NoopEmailLive", () => {
         yield* email.send({
           template: "otp-step-up",
           to: "alice@example.com",
-          data: { code: "424242", ttlMinutes: 10 },
+          data: { code: "424242", ttlMinutes: 10, instanceName: "Musubi" },
         });
       }).pipe(Effect.provide(makeNoopEmailLive())),
     );
@@ -55,7 +55,7 @@ describe("NoopEmailLive", () => {
         yield* email.send({
           template: "otp-email-change",
           to: "victim@secret-domain.example",
-          data: { code: "987654", ttlMinutes: 15 },
+          data: { code: "987654", ttlMinutes: 15, instanceName: "Musubi" },
         });
       }).pipe(
         Effect.provide(makeNoopEmailLive()),
@@ -83,7 +83,7 @@ describe("NoopEmailLive", () => {
         yield* email.send({
           template: "otp-registration",
           to: "alice@example.com",
-          data: { code: null as unknown as string, ttlMinutes: 10 },
+          data: { code: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
         });
       }).pipe(Effect.provide(makeNoopEmailLive())),
     );

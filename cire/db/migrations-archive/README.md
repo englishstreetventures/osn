@@ -30,8 +30,9 @@ this directory. A deployed database that applied them holds their names in its
 ## Rules
 
 - **Only a squash adds files here**, and it moves the whole live chain after
-  the baseline at once, keeping the numbers contiguous from `0001`. New
-  migrations go in `../migrations`, numbered after the highest number here.
+  the baseline at once, each file under the name a deployed ledger holds. New
+  migrations go in `../migrations`, one timestamped file each, written by
+  `db:generate`.
 - **Never edit one.** They ran against production; the record is what it is.
 - **Never delete one.** The ledger check and the baseline test both read the
   whole archive.

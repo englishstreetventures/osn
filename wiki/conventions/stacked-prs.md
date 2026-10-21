@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[review-findings]]"
   - "[[commands]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-21
 ---
 
 # Stacked PRs
@@ -101,6 +101,8 @@ gh api -X PATCH repos/englishstreetventures/osn/pulls/<number> -f base=<parent-b
 
 Same effect as changing the base in the web UI. Retargeting rewrites the diff; re-read it before asking for review.
 
+A pull request in a registered stack cannot be retargeted: GitHub answers `422` with "Cannot change the base branch because the pull request is part of a stack." Read the stack from the pull request (`gh api repos/englishstreetventures/osn/pulls/<number> --jq .stack`), remove it with `gh stack unstack <stack-number>`, which unstacks every pull request in it and leaves each base as it was, change the base, then link again whatever should stay stacked (`gh stack link <bottom> <top>`).
+
 ## Verify
 
 Never assume. Two checks, one per half:
@@ -120,7 +122,7 @@ GitHub reads closing keywords only on a pull request whose base is the default b
 
 ## Merge order
 
-Bottom up, one at a time. When PR 1 merges, GitHub automatically retargets PR 2 to `main` and drops PR 1's commits from its diff — no rebase, no force-push, provided PR 1 was merged rather than closed.
+With the `main` ruleset's merge queue on, `main` takes pull requests through it (`gh pr merge <n> --squash --auto`), testing each one on top of those ahead of it before it lands; [[commands#Migrations]] says why. A stack still merges bottom up, one at a time. When PR 1 merges, GitHub automatically retargets PR 2 to `main` and drops PR 1's commits from its diff — no rebase, no force-push, provided PR 1 was merged rather than closed.
 
 `gh stack merge <pr-number>` merges every PR up to that one as a single all-or-nothing operation. Convenient, and exactly what we do not want by default: each PR here is approved on its own. Use it only when the whole stack is already approved.
 

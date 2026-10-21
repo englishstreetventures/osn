@@ -57,6 +57,11 @@ function tree(answers: Partial<Record<Step, Answer>>, wrangler = true): string {
   const dir = mkdtempSync(join(root, "tree-"));
   mkdirSync(join(dir, "scripts"));
   copyFileSync(SCRIPT, join(dir, "scripts", "cire-db-migrate.ts"));
+  // The script reads the migration directories through this module.
+  copyFileSync(
+    join(SCRIPT, "..", "migration-files.ts"),
+    join(dir, "scripts", "migration-files.ts"),
+  );
   mkdirSync(join(dir, "cire", "db"), { recursive: true });
   symlinkSync(join(REAL_CIRE_DB, "migrations"), join(dir, "cire", "db", "migrations"));
   symlinkSync(

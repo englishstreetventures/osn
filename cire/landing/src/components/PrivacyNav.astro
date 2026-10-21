@@ -1,0 +1,92 @@
+---
+// The row of links across the top of every privacy page: the common page and
+// the three notices, each its own URL. Plain links, so it works with no
+// JavaScript and each page prints on its own; the current page carries
+// `aria-current="page"` and the gold underline.
+export type PrivacyPage = 'overview' | 'hosts' | 'guests' | 'vendors'
+
+interface Props {
+  readonly current: PrivacyPage
+}
+
+const { current } = Astro.props
+
+const pages: ReadonlyArray<{ readonly id: PrivacyPage; readonly label: string; readonly href: string }> = [
+  { id: 'overview', label: 'Overview', href: '/privacy' },
+  { id: 'hosts', label: 'Hosts', href: '/privacy/hosts' },
+  { id: 'guests', label: 'Guests', href: '/privacy/guests' },
+  { id: 'vendors', label: 'Vendors', href: '/privacy/vendors' },
+]
+---
+<nav class="privacy-nav" aria-label="Privacy notices">
+  <ul>
+    {pages.map((page) => (
+      <li>
+        <a href={page.href} aria-current={page.id === current ? 'page' : undefined}>{page.label}</a>
+      </li>
+    ))}
+  </ul>
+</nav>
+
+<style is:global>
+  /* A row of labels on a hairline, each as wide as its word, the current page
+     underlined in gold. Equal columns crowd "Overview" against "Hosts" at
+     390 px; a fixed gap fits all four with room to spare, and wraps if not. */
+  .legal .privacy-nav {
+    margin: 1.75rem 0 2.25rem;
+  }
+
+  .legal .privacy-nav ul {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 1.75rem;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .legal .privacy-nav li {
+    margin: 0;
+  }
+
+  /* The label in the voice of the page's "Back to Cire" link; one word each,
+     so uppercase does not reach a screen reader as a shouted sentence. */
+  .legal .privacy-nav a {
+    display: block;
+    padding: 0.75rem 0 0.875rem;
+    margin-bottom: -1px;
+    border-bottom: 2px solid transparent;
+    font-family: var(--font-body);
+    font-size: 0.8125rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    text-decoration: none;
+    transition:
+      color 0.2s var(--ease-out),
+      border-color 0.2s var(--ease-out);
+  }
+
+  .legal .privacy-nav a:hover {
+    color: var(--color-text);
+  }
+
+  .legal .privacy-nav a[aria-current='page'] {
+    color: var(--color-text);
+    border-bottom-color: var(--color-gold);
+  }
+
+  .legal .privacy-nav a:focus-visible {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 3px;
+    border-radius: 0.125rem;
+  }
+
+  /* On paper the page is the notice; the links lead nowhere. */
+  @media print {
+    .legal .privacy-nav {
+      display: none;
+    }
+  }
+</style>

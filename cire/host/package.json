@@ -6,7 +6,7 @@
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/englishstventures/osn.git"
+    "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "scripts": {
     "dev": "portless",
@@ -52,7 +52,7 @@
     "happy-dom": "^20.12.2",
     "playwright": "^1.62.1",
     "typescript": "^6.0.3",
-    "vite": "^8.2.2",
+    "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "5.0.3"
   },

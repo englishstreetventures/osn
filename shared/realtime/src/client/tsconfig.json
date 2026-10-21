@@ -1,0 +1,11 @@
+{
+  // Browser half: DOM + Solid. Never includes src/server — the DOM lib and
+  // the Workers types declare the same globals and cannot share a program.
+  // The lib is stated rather than inherited, at the browser floor the shared
+  // browser packages check at (`shared/toast/tsconfig.json`).
+  "extends": "@shared/typescript-config/solid.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["./**/*", "../protocol.ts"]
+}

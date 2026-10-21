@@ -8,7 +8,7 @@ import { buildSrcSet, variantSrc } from "./invite-images";
 const EVENT_DEFAULT_ASPECT = 4 / 3;
 import Button from "@cire/ui/button";
 
-import { formatEventDay, venueLine } from "./event-details";
+import { formatEventDay, venueLine, venueName } from "./event-details";
 import { TOTAL_DURATION_MS } from "./rsvp-responded";
 import type { EventSummary } from "./types";
 
@@ -28,26 +28,35 @@ interface EventCardProps {
    */
   orientation?: "norm" | "alt";
   /**
-   * The wedding's RSVP deadline has passed. "Respond" becomes an inert, plainly
-   * labelled "RSVPs closed" rather than disappearing — a missing button reads
-   * as a broken invite, and the events-section notice above says when it shut.
-   * Event details stay open; only the answer is locked.
+   * The wedding's RSVP deadline has passed. A badge beside the event name says
+   * so, and the answer button changes with what the household sent:
    *
-   * Marked `aria-disabled`, NOT `disabled` (C-M2): the native attribute takes
-   * the button out of the tab order, so the one per-card statement of why the
-   * action is gone becomes unreachable to a keyboard or screen-reader user —
-   * and because the deadline can pass on a live timer, a guest focused on
-   * Respond at that instant would lose focus to `<body>` mid-session.
-   * `aria-disabled` conveys the same "cannot activate" semantics while keeping
-   * the control focusable; the click handler enforces it.
+   * - a reply on file (`replied`, `responded`, or a mark already up) keeps the
+   *   button as "RSVP given", enabled, opening the sheet read-only — the guest
+   *   can look back at their answer, and the sheet itself refuses an edit;
+   * - no reply at all removes the button. There is nothing to answer and
+   *   nothing to look at, and an inert button would only be one more thing to
+   *   press. "Event Details" stays.
+   *
+   * The button can unmount while it holds focus (the deadline passes on a live
+   * timer), so focus moves to "Event Details" rather than falling to `<body>`.
    */
   rsvpClosed?: boolean;
   /**
    * Id of the events-section deadline notice, pointed at by `aria-describedby`
-   * once closed, so the button announces WHEN RSVPs shut and not just that they
-   * did. Optional — the button is still self-describing without it.
+   * on "RSVP given" once closed, so the button announces WHEN RSVPs shut. Optional
+   * — the badge already says that they did.
    */
   rsvpClosedNoticeId?: string;
+  /**
+   * True once ANY invited member of this household has a reply on file for
+   * this event (`hasAnyHouseholdReply`). Weaker than `responded`, which needs
+   * every member: after the deadline it is enough to keep the button, as
+   * "RSVP given" on plain gold, with no fill or tick — those still mean
+   * everyone answered. Before the deadline it changes nothing, since the rest
+   * of the household can still answer.
+   */
+  replied?: boolean;
   /**
    * True once this household's RSVP for this event is on file — driven by
    * data (`hasHouseholdResponded` in `rsvp-responded.ts`), not by anything
@@ -180,6 +189,45 @@ export function EventCard(props: EventCardProps) {
     ),
   );
 
+  // Anything on file for this event — a full reply, a part reply, or a mark a
+  // celebration already put up.
+  const answered = () => props.replied === true || props.responded === true || confirmed();
+  // Past the deadline the button stays only for a household with something to
+  // look back at; see `rsvpClosed`.
+  const rsvpShown = () => !props.rsvpClosed || answered();
+  const label = () => (confirmed() || (props.rsvpClosed && answered()) ? "RSVP given" : "Respond");
+
+  // The answer button can unmount while it holds focus, and the browser then
+  // drops focus to `<body>`. Two ways in, both rescued to "Event Details":
+  //
+  // - the deadline passes with the button focused;
+  // - the deadline passes while the sheet is open over this card. The dialog
+  //   holds focus then, so nothing moves; when it closes it returns focus to
+  //   its opener, which is gone, and focus lands on `<body>`. That is the
+  //   moment `covered` clears.
+  //
+  // Each acts only on that loss: focus resting on any real element is left
+  // where the guest put it.
+  let details: HTMLButtonElement | undefined;
+  function rescueFocus() {
+    if (rsvpShown() || !details) return;
+    const focused = document.activeElement;
+    if (!focused || focused === document.body) details.focus();
+  }
+  createEffect(
+    on(rsvpShown, (shown, wasShown) => {
+      if (wasShown && !shown) rescueFocus();
+    }),
+  );
+  createEffect(
+    on(
+      () => props.covered === true,
+      (isCovered, wasCovered) => {
+        if (wasCovered && !isCovered) rescueFocus();
+      },
+    ),
+  );
+
   return (
     <article class="border-border bg-surface-raised rounded-sm border px-6 py-7">
       {/*
@@ -199,19 +247,41 @@ export function EventCard(props: EventCardProps) {
       >
         {/* Text column — always first in the DOM. On `alt` rows it sits on the
             RIGHT on md+ (order-2); on `norm` rows it stays left (order-1). */}
-        <div classList={{ "md:order-2": isAlt(), "md:order-1": !isAlt() }}>
-          <h3 class="font-display text-text mb-2 text-2xl font-normal">{props.event.name}</h3>
+        <div class="min-w-0" classList={{ "md:order-2": isAlt(), "md:order-1": !isAlt() }}>
+          {/* The badge sits beside the heading, never inside it: inside, it
+              would rename the heading for anyone moving through the page by
+              headings. A plain span with no live region — the events-section
+              notice is already `role="status"` and says the same thing once.
+              It wears the closed notice's own treatment (`RsvpDeadlineNotice`):
+              a hairline and muted ink, no tint. */}
+          <div class="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h3 class="font-display text-text text-2xl font-normal">{props.event.name}</h3>
+            <Show when={props.rsvpClosed}>
+              <span class="font-body text-text-muted text-ui-xs tracking-ui-wider border-border rounded-sm border px-2 py-0.5 whitespace-nowrap uppercase">
+                RSVPs closed
+              </span>
+            </Show>
+          </div>
           {/* A date, set as a date — not as an uppercase micro-label. One of
               these per card was the page's largest source of eyebrow noise.
               `text-gold-ink`, not `text-gold`: at 0.92rem this is normal-size
               text (4.5:1), while the metal token is only held to the 3:1 UI
-              floor — which shipped this line at 3.58:1 on `chapel` and 3.91:1
-              on `garden` (C-M2). */}
+              floor, and measures 3.58:1 on `chapel` and 3.91:1 on `garden`. */}
           <p class="font-body text-gold-ink text-ui-base mb-1">{formatEventDay(props.event)}</p>
-          <Show when={venueLine(props.event)}>
-            {(venue) => <p class="font-body text-text-muted text-ui-base mb-3">{venue()}</p>}
+          {/* One line about the venue: its name when it has one, which is
+              what a guest recognises; the address is in the details. The
+              organiser's text here and below may hold a word with nowhere to
+              break (a pasted link, a venue named in one token), so
+              `wrap-anywhere` gives it somewhere rather than let it widen the
+              card and push the answer button off the screen. */}
+          <Show when={venueName(props.event) ?? venueLine(props.event)}>
+            {(venue) => (
+              <p class="font-body text-text-muted text-ui-base mb-3 wrap-anywhere">{venue()}</p>
+            )}
           </Show>
-          <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-5 font-light">
+          {/* A teaser: the organiser can write paragraphs, and the whole of
+              it, line breaks kept, is under About in the details. */}
+          <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-5 line-clamp-3 font-light wrap-anywhere whitespace-pre-line">
             {props.event.description}
           </p>
           {/* One act matters on this page: answering. So "Respond" is the only
@@ -224,41 +294,35 @@ export function EventCard(props: EventCardProps) {
             <Button
               variant="quiet"
               class="min-h-11 flex-1 sm:flex-none"
+              ref={details}
               onClick={() => props.onDetails(props.event)}
             >
               Event Details
             </Button>
-            {/* Closed, this drops to the SECONDARY outlined treatment rather
-                than dimming the filled button with an opacity: without the
-                native `disabled` attribute there is no WCAG 1.4.3
-                inactive-component exemption to lean on, and the outlined pair
-                beside it is a contrast combination this card already ships. */}
             {/* `overflow-clip`, not `overflow-hidden`. Both clip the fill layer
                 below to this button's rounded box, which is the whole reason
                 either is here — but `hidden` also makes the button a scroll
                 container, and a scroll container's automatic minimum size is
                 zero. As a `flex-1` item beside a `whitespace-nowrap` sibling
                 that is the difference between shrinking to a half-word at
-                320px and keeping the width of its own label. */}
-            <button
-              class="font-body text-ui-sm tracking-ui-wider relative min-h-11 flex-1 overflow-clip rounded-sm border px-5 py-3 uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"
-              classList={{
-                "bg-gold text-bg hover:bg-gold/85 border-transparent": !props.rsvpClosed,
-                "border-border text-text-muted cursor-not-allowed bg-transparent": props.rsvpClosed,
-              }}
-              onClick={() => {
-                // `aria-disabled` is advisory to AT — this guard is what makes
-                // it real for pointer and keyboard alike.
-                if (props.rsvpClosed) return;
-                props.onRespond(props.event);
-              }}
-              aria-disabled={props.rsvpClosed ? "true" : undefined}
-              aria-describedby={props.rsvpClosed ? props.rsvpClosedNoticeId : undefined}
-              // The confirmation state, readable from the DOM. Tailwind classes
-              // are an implementation detail of the fill; this is the fact.
-              data-rsvp-confirmed={confirmed() ? "true" : undefined}
-            >
-              {/* The confirmation fill. Always mounted, never conditionally
+                320px and keeping the width of its own label.
+
+                The label's ink follows the fill under it: the on-gold ink on
+                gold, the page colour on bloom. Both pairs are held to 4.5:1 by
+                `derivePalette`. Hover underlines the label rather than easing
+                the gold, since a translucent gold over the card is a fill
+                neither pair was measured against. */}
+            <Show when={rsvpShown()}>
+              <button
+                class="font-body text-ui-sm tracking-ui-wider bg-gold relative min-h-11 flex-1 overflow-clip rounded-sm border border-transparent px-5 py-3 uppercase underline-offset-4 transition-colors duration-200 hover:underline sm:flex-none sm:py-2.5"
+                classList={{ "text-bg": confirmed(), "text-on-gold": !confirmed() }}
+                onClick={() => props.onRespond(props.event)}
+                aria-describedby={props.rsvpClosed ? props.rsvpClosedNoticeId : undefined}
+                // The confirmation state, readable from the DOM. Tailwind classes
+                // are an implementation detail of the fill; this is the fact.
+                data-rsvp-confirmed={confirmed() ? "true" : undefined}
+              >
+                {/* The confirmation fill. Always mounted, never conditionally
                   rendered, because a CSS transition needs a painted starting
                   frame to travel from — an element created already in its end
                   state simply appears there. (A card that mounts already
@@ -278,41 +342,42 @@ export function EventCard(props: EventCardProps) {
                   Tailwind version bump away from a fill that never appeared,
                   with every class-presence test still green.
                   `EventCard.browser.test.tsx` measures the real thing. */}
-              <span
-                aria-hidden="true"
-                class="bg-bloom absolute inset-0 origin-left transition-transform duration-500 ease-out"
-                classList={{ "scale-x-100": confirmed(), "scale-x-0": !confirmed() }}
-              />
-              <span class="relative flex items-center justify-center gap-2">
-                {props.rsvpClosed ? "RSVPs closed" : "Respond"}
-                {/* Conditional, not merely invisible: a tick mounted for an
+                <span
+                  aria-hidden="true"
+                  class="bg-bloom absolute inset-0 origin-left transition-transform duration-500 ease-out"
+                  classList={{ "scale-x-100": confirmed(), "scale-x-0": !confirmed() }}
+                />
+                <span class="relative flex items-center justify-center gap-2">
+                  {label()}
+                  {/* Conditional, not merely invisible: a tick mounted for an
                     event nobody has answered would claim a reply that was
                     never sent. Gated on the SAME state as the fill, so the two
                     can never disagree — the tick always sits on bloom, which
                     is why `text-bg` is the only ink it needs. */}
-                <Show when={confirmed()}>
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 24 24"
-                    class="text-bg h-4 w-4 shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <Show when={drawing()} fallback={<path d="M5 13l4 4L19 7" />}>
-                      {/* `stroke-dasharray` of 20 slightly over-covers the
+                  <Show when={confirmed()}>
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      class="text-bg h-4 w-4 shrink-0"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <Show when={drawing()} fallback={<path d="M5 13l4 4L19 7" />}>
+                        {/* `stroke-dasharray` of 20 slightly over-covers the
                           ~19.8 path so it starts fully hidden; the keyframe
                           walks the offset back to 0 to draw it. Only during a
                           live celebration — a settled or preloaded tick is
                           simply drawn, not animated into being. */}
-                      <path d="M5 13l4 4L19 7" stroke-dasharray="20" class="animate-tick-draw" />
-                    </Show>
-                  </svg>
-                </Show>
-              </span>
-            </button>
+                        <path d="M5 13l4 4L19 7" stroke-dasharray="20" class="animate-tick-draw" />
+                      </Show>
+                    </svg>
+                  </Show>
+                </span>
+              </button>
+            </Show>
           </div>
         </div>
 

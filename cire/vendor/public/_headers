@@ -67,7 +67,7 @@
 # `AccountAvatar` shows the initial instead. OSN hosts no avatars yet (osn-api
 # writes `avatarUrl` null on registration and on erasure, and has no update
 # path), so nothing populates the claim. Add OSN's avatar host here when it
-# exists: englishstventures/osn#1207.
+# exists: englishstreetventures/osn#1207.
 #
 # The `/claim*` rule above only overrides `Referrer-Policy` (a claim token rides
 # in the URL); Cloudflare merges the rules, so that path keeps the CSP header.

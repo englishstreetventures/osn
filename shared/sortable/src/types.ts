@@ -60,3 +60,10 @@ export interface Sortable {
   /** True for the row currently being dragged. */
   isActiveDraggable: Accessor<boolean>;
 }
+
+export interface Droppable {
+  /** Registers the zone's node, to be measured when a free item is picked up. */
+  ref: (el: HTMLElement) => void;
+  /** True while a free item is dragged over this zone. */
+  isOver: Accessor<boolean>;
+}

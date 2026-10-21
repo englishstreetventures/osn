@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 
 import type { D1Database as DrizzleD1 } from "@cloudflare/workers-types";
-import * as schema from "@pulse/db/schema";
 import { events, pulseAccountPurges, pulseDeletionJobs } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { createSchemaSql } from "@pulse/db/testing";
@@ -25,7 +24,7 @@ import {
 
 let mf: Miniflare;
 let layer: Layer.Layer<Db>;
-let rawDb: ReturnType<typeof createD1Db<typeof schema>>;
+let rawDb: ReturnType<typeof createD1Db>;
 
 const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
   Effect.runPromise(eff.pipe(Effect.provide(layer)));
@@ -40,7 +39,7 @@ beforeAll(async () => {
   for (const stmt of createSchemaSql()) {
     await d1.prepare(stmt).run();
   }
-  rawDb = createD1Db(d1, schema);
+  rawDb = createD1Db(d1);
   layer = Layer.succeed(Db, { db: rawDb });
 });
 

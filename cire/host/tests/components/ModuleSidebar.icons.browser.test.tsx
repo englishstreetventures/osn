@@ -18,6 +18,7 @@ import "../../src/styles/global.css";
 vi.mock("../../src/lib/haptics", () => ({ haptic: () => {} }));
 
 import ModuleSidebar from "../../src/components/ModuleSidebar";
+import { MODULE_NAV } from "../../src/lib/module-nav";
 
 /** Mount inside a `shell` container of an explicit width, as `ModuleShell` does. */
 function mountAt(width: number) {
@@ -57,7 +58,7 @@ describe("module icons", () => {
     const { container } = mountAt(1200);
     const rail = container.querySelector("nav[aria-label='Wedding modules']")!;
     const icons = [...rail.querySelectorAll("svg")];
-    expect(icons).toHaveLength(9);
+    expect(icons).toHaveLength(MODULE_NAV.length);
     for (const icon of icons) {
       const box = icon.getBoundingClientRect();
       expect(box.width).toBe(18);

@@ -12,6 +12,7 @@ import {
   onCleanup,
   Show,
   For,
+  untrack,
   type Accessor,
 } from "solid-js";
 
@@ -35,12 +36,17 @@ export interface RsvpPanelProps {
   preview?: boolean;
   /**
    * The wedding's RSVP deadline has passed — the sheet becomes a read-only view
-   * of whatever this household already answered: every control is disabled and
-   * the submit button is gone, so there is nothing to send. The events section
-   * disables "Respond" and the details panel offers no way here once it has
-   * passed, so this normally can't be opened; it exists because the deadline
-   * can pass with the sheet ALREADY open, and because the server would refuse
-   * the write anyway (403 `rsvp_closed`).
+   * of whatever this household already answered: the submit button is gone, so
+   * there is nothing to send, and its title reads "Your RSVP" rather than
+   * "Respond". Each member's answer on file is written out ("Attending", "Not
+   * attending", "Not decided", "No reply") in place of the answer buttons, the
+   * dietary choices stay on show but disabled, and the consent boxes give way to
+   * a line saying dietary requirements on file are shared with the caterers.
+   *
+   * A household with a reply on file reaches it on purpose, from the event
+   * card's "RSVP given" or the sheet's "Your RSVP" segment. It is also
+   * what a sheet already open becomes when the deadline passes under it. The
+   * server refuses a write past the deadline regardless (403 `rsvp_closed`).
    */
   closed?: boolean;
   /** The deadline day in words, for the closed banner ("RSVPs closed on …"). */
@@ -58,10 +64,11 @@ export interface RsvpPanelProps {
   /** Receives the heading, which takes focus when the guest switches here. */
   headingRef?: (el: HTMLHeadingElement) => void;
   /**
-   * Moves the sheet to the event's details. Absent ⇒ no "View event details"
-   * button (a panel rendered on its own).
+   * Told whether the form is busy: a save in flight, or a saved reply the
+   * sheet is about to close on. While it is there is nothing to come back to,
+   * so the sheet offers no way to the details (`EventSheet`).
    */
-  onShowDetails?: () => void;
+  onBusyChange?: (busy: boolean) => void;
   onSubmitted?: (updated: RsvpSummary[]) => void;
   /**
    * Fired as this sheet closes itself after the save that CROSSES INTO a
@@ -102,14 +109,30 @@ export interface RsvpPanelProps {
    */
   memberRequired?: boolean;
   /**
-   * The server refused the save with 409 `member_required`: the page shows
-   * the member step. Only reached when the payload's flag read and the
-   * write's disagreed.
+   * The household member the page shows as answering ("Answering as …"), or
+   * null for none. Sent with the save, so the server records a reply only
+   * under the member the person at the keyboard saw.
+   */
+  answeringAs?: string | null;
+  /**
+   * The server refused the save with 409 `member_required` or
+   * `member_changed`: the page shows the member step. Reached when the
+   * session's member changed after the page read it ("Not you?", or a new
+   * choice, in another tab; or the organiser removed that guest), when the
+   * page was loaded before the API sent `member` at all, or, in a wedding
+   * excluded from the member step, when the payload's flag read timed out and
+   * the write's did not.
    */
   onMemberRequired?: () => void;
 }
 
 type Attending = "attending" | "declined" | null;
+
+/** The `POST /api/rsvp` body: the replies, and the member the page shows as answering. */
+interface RsvpSaveBody {
+  rsvps: readonly object[];
+  memberGuestId?: string;
+}
 
 /** What the sheet says while nobody has said who is answering. */
 const MEMBER_REQUIRED_COPY = "Choose who you are under the welcome above, then reply.";
@@ -251,6 +274,38 @@ export function RsvpPanel(props: RsvpPanelProps) {
   }
 
   const [responses, setResponses] = createSignal<Record<string, MemberState>>(initialResponses());
+
+  /** The member's reply on file for this event, if any. */
+  const rowOnFile = (guestId: string) =>
+    priorRsvps.find((r) => r.guestId === guestId && r.eventId === props.event.id);
+
+  /**
+   * Whether the member's dietary section is on show. Open, it follows the
+   * guest's answer. Closed, it follows the reply on file by the caterers'
+   * sheet's own rule: every reply but a decline carries its dietary data there.
+   */
+  function showsDietary(guestId: string): boolean {
+    if (!props.closed) return responses()[guestId]?.attending === "attending";
+    const row = rowOnFile(guestId);
+    return row !== undefined && row.status !== "declined";
+  }
+
+  /** Whether any reply on file shares dietary data with the caterers. */
+  const dietaryOnFile = () =>
+    eventMembers().some((m) => {
+      const row = rowOnFile(m.guestId);
+      if (!row || row.status === "declined") return false;
+      return row.dietary.trim().length > 0 || (row.dietaryPresets ?? []).length > 0;
+    });
+
+  /** The member's reply on file for this event, in words, for the read-only view. */
+  function answerOnFile(guestId: string): string {
+    const row = rowOnFile(guestId);
+    if (row?.status === "attending") return "Attending";
+    if (row?.status === "declined") return "Not attending";
+    if (row?.status === "maybe") return "Not decided";
+    return "No reply";
+  }
   /**
    * Which attending members are offering dietary data on this submission.
    *
@@ -298,6 +353,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
   // gold behind a drawn tick, and the sheet is counting down to closing itself.
   const [saved, setSaved] = createSignal(false);
   const titleId = props.titleId ?? createUniqueId();
+  createEffect(() => props.onBusyChange?.(loading() || saved()));
 
   // Abort the in-flight submit if the modal unmounts mid-request — keeps the
   // setError / setLoading writes from landing on a disposed instance.
@@ -384,7 +440,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
   // Save waits for "Who are you?"; preview never writes, so never waits.
   const blockedByMember = () => props.memberRequired === true && props.preview !== true;
 
-  // C-L2: the deadline can pass with this sheet open, and closing it unmounts
+  // The deadline focus rescue. The deadline can pass with this sheet open, and closing it unmounts
   // the submit button. If focus was ON that button, the browser drops focus to
   // `<body>` — outside an `aria-modal` dialog, with no keyboard way back in.
   //
@@ -404,7 +460,10 @@ export function RsvpPanel(props: RsvpPanelProps) {
     const nowClosed = props.closed ?? false;
     const justClosed = nowClosed && !wasClosed;
     wasClosed = nowClosed;
-    if (!justClosed || !dismissRef || props.active === false) return;
+    if (!justClosed) return;
+    // The closed view states what is on file, so edits nobody saved go.
+    setResponses(untrack(initialResponses));
+    if (!dismissRef || props.active === false) return;
     const active = document.activeElement;
     if (!active || active === document.body) dismissRef.focus();
   });
@@ -428,10 +487,11 @@ export function RsvpPanel(props: RsvpPanelProps) {
     // a second POST would rewrite the same rows. The Save button advertises
     // this with `aria-disabled` rather than `disabled`, precisely so it can
     // keep focus (disabling the focused control drops focus to `<body>`,
-    // outside this `aria-modal` dialog — the C-L2 failure below), which leaves
+    // outside this `aria-modal` dialog — the failure the deadline focus rescue
+    // above exists for), which leaves
     // the guard here as the thing that actually stops the resubmit.
     //
-    // `loading()` is guarded here too (S-L1), even though the button carries a
+    // `loading()` is guarded here too, even though the button carries a
     // real `disabled` in that state. The attribute only stops paths that route
     // through the button — a programmatic `form.requestSubmit()` or a dispatched
     // `submit` event reaches this handler regardless, and a second concurrent
@@ -510,7 +570,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
 
     setLoading(true);
 
-    const body = {
+    const body: RsvpSaveBody = {
       rsvps: answered.map((m) => {
         const state = current[m.guestId]!;
         const attending = state.attending === "attending";
@@ -547,6 +607,10 @@ export function RsvpPanel(props: RsvpPanelProps) {
       }),
     };
 
+    // The member the page shows as answering, so the server records the reply
+    // only under them.
+    if (props.answeringAs) body.memberGuestId = props.answeringAs;
+
     inFlight = new AbortController();
     try {
       const res = await fetch(`${props.apiUrl}/api/rsvp`, {
@@ -563,7 +627,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
         // which keeps the answers it already has until the next claim.
         const data: unknown = await res.json().catch(() => null);
         const rows = isValidRsvpSaveResponse(data) ? data.rsvps : null;
-        // All three writes in one `batch` (P-I1). We are past an `await`, so
+        // All three writes in one `batch`. We are past an `await`, so
         // without it each is its own synchronous graph walk: `locked()` is a
         // plain accessor rather than a memo, so every `disabled={locked()}`
         // site subscribes individually — both toggles per member, the dietary
@@ -574,7 +638,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
         // intermediate state, on the exact frame the button's label flips to
         // "Saved".
         //
-        // Order inside the batch is load-bearing (S-L2): `enterSavedState`
+        // Order inside the batch is load-bearing: `enterSavedState`
         // registers the dwell timer BEFORE `onSubmitted` hands rows to the
         // parent. A parent that responded by unmounting this sheet would
         // otherwise run `onCleanup` first and leave the timer to be registered
@@ -607,7 +671,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
         );
       } else if (res.status === 409) {
         const code = await failureCode(res);
-        if (code === "member_required") {
+        if (code === "member_required" || code === "member_changed") {
           setError(MEMBER_REQUIRED_COPY);
           props.onMemberRequired?.();
         } else if (code === "plus_one_changed") {
@@ -642,9 +706,11 @@ export function RsvpPanel(props: RsvpPanelProps) {
   }
 
   // The action bar at the foot of the form is a full-bleed sticky footer that
-  // owns the sheet's bottom edge (and its safe-area padding), so the sheet
-  // drops its own bottom padding while this panel shows (`EventSheet`'s
-  // `flushBottom`).
+  // owns the sheet's bottom edge (and its safe-area padding), so the sheet's
+  // scrollport has no bottom padding of its own (`EventSheet`'s
+  // `flushBottom`). The sheet keeps one height whatever the form holds, so the
+  // form grows to fill the column `EventSheet` lays this panel out in, and the
+  // bar sits at its foot: on the edge however short the form is.
   return (
     <>
       <header
@@ -656,8 +722,9 @@ export function RsvpPanel(props: RsvpPanelProps) {
         {/* The eyebrow is part of the heading, not a paragraph above it. The
             sheet moves focus here when the guest switches panels, and both
             panels' titles are the event's name — so "Respond" is what tells a
-            screen-reader user which panel they have arrived on. The comma is
-            for the ear only. */}
+            screen-reader user which panel they have arrived on. Past the
+            deadline there is nothing to respond to, so it names what the
+            panel shows instead. The comma is for the ear only. */}
         <h3
           id={titleId}
           ref={(el) => props.headingRef?.(el)}
@@ -665,31 +732,17 @@ export function RsvpPanel(props: RsvpPanelProps) {
           class="font-display text-text text-ui-xl font-light italic"
         >
           <span class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 block leading-normal [font-weight:var(--invite-body-weight,400)] uppercase [font-style:var(--invite-body-style,normal)]">
-            Respond
+            {props.closed ? "Your RSVP" : "Respond"}
             <span class="sr-only">,</span>
           </span>{" "}
           {props.event.name}
         </h3>
-        <Show when={props.onShowDetails}>
-          {(showDetails) => (
-            // Not while a save is in flight or the sheet is already closing
-            // itself on a saved reply: there is nothing to come back to.
-            <Button
-              variant="touchLink"
-              class="mt-1 min-h-11"
-              onClick={() => showDetails()()}
-              disabled={loading() || saved()}
-            >
-              <span aria-hidden="true">←</span>
-              View event details
-            </Button>
-          )}
-        </Show>
       </header>
 
       <Show when={props.closed}>
         <p
           class="border-border bg-surface-raised text-text-muted text-ui-xs mb-6 rounded-sm border px-3.5 py-2.5 leading-relaxed"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: that element is form-associated, and this is a notice about the wedding, not the result of anything the guest did.
           role="status"
         >
           {props.closedOn ? `RSVPs closed on ${props.closedOn}.` : "RSVPs have closed."} This is
@@ -701,13 +754,14 @@ export function RsvpPanel(props: RsvpPanelProps) {
       <Show when={props.preview}>
         <p
           class="border-gold/40 bg-gold/5 text-gold-ink text-ui-xs mb-6 rounded-sm border px-3.5 py-2.5 leading-relaxed"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: that element is form-associated, and this is a notice about the wedding, not the result of anything the guest did.
           role="status"
         >
           Preview — try the RSVP as a guest would. Nothing you send here is saved.
         </p>
       </Show>
 
-      <form class="flex flex-col gap-5" onSubmit={handleSubmit}>
+      <form class="flex grow flex-col gap-5" onSubmit={handleSubmit}>
         <For each={eventMembers()}>
           {(member) => {
             const guestId = member.guestId;
@@ -747,40 +801,55 @@ export function RsvpPanel(props: RsvpPanelProps) {
                   </Show>
                 </legend>
 
-                <div class="flex gap-2">
-                  <button
-                    type="button"
-                    class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
-                    classList={{
-                      "border-gold text-gold-ink bg-gold/8":
-                        responses()[guestId]?.attending === "attending",
-                      "border-border text-text-muted hover:border-gold-dim hover:text-text":
-                        responses()[guestId]?.attending !== "attending",
-                    }}
-                    aria-pressed={responses()[guestId]?.attending === "attending"}
-                    onClick={() => setAttending(guestId, "attending")}
-                    disabled={locked()}
-                  >
-                    Attending
-                  </button>
-                  <button
-                    type="button"
-                    class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
-                    classList={{
-                      "border-gold text-gold-ink bg-gold/8":
-                        responses()[guestId]?.attending === "declined",
-                      "border-border text-text-muted hover:border-gold-dim hover:text-text":
-                        responses()[guestId]?.attending !== "declined",
-                    }}
-                    aria-pressed={responses()[guestId]?.attending === "declined"}
-                    onClick={() => setAttending(guestId, "declined")}
-                    disabled={locked()}
-                  >
-                    Not attending
-                  </button>
-                </div>
+                {/* Past the deadline the pair can no longer be pressed, so
+                    which of two greyed buttons is lit would be the only sign
+                    of the answer — colour alone, and nothing at all for a
+                    stored "maybe", which the binary pair cannot show. The
+                    answer on file is written out instead, in the box the pair
+                    would fill. */}
+                <Show
+                  when={!props.closed}
+                  fallback={
+                    <p class="font-body text-ui-sm tracking-ui-wide border-border text-text rounded-sm border px-3 py-2.5 text-center uppercase">
+                      {answerOnFile(guestId)}
+                    </p>
+                  }
+                >
+                  <div class="flex gap-2">
+                    <button
+                      type="button"
+                      class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
+                      classList={{
+                        "border-gold text-gold-ink bg-gold/8":
+                          responses()[guestId]?.attending === "attending",
+                        "border-border text-text-muted hover:border-gold-dim hover:text-text":
+                          responses()[guestId]?.attending !== "attending",
+                      }}
+                      aria-pressed={responses()[guestId]?.attending === "attending"}
+                      onClick={() => setAttending(guestId, "attending")}
+                      disabled={locked()}
+                    >
+                      Attending
+                    </button>
+                    <button
+                      type="button"
+                      class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
+                      classList={{
+                        "border-gold text-gold-ink bg-gold/8":
+                          responses()[guestId]?.attending === "declined",
+                        "border-border text-text-muted hover:border-gold-dim hover:text-text":
+                          responses()[guestId]?.attending !== "declined",
+                      }}
+                      aria-pressed={responses()[guestId]?.attending === "declined"}
+                      onClick={() => setAttending(guestId, "declined")}
+                      disabled={locked()}
+                    >
+                      Not attending
+                    </button>
+                  </div>
+                </Show>
 
-                <Show when={responses()[guestId]?.attending === "attending"}>
+                <Show when={showsDietary(guestId)}>
                   <div class="mt-3">
                     {/* `wrap="md"`: the sheet keeps its 480px at every width,
                         so from `md:`, where it becomes a centred panel and a
@@ -845,8 +914,29 @@ export function RsvpPanel(props: RsvpPanelProps) {
             ticked unless every one of those people already has a stored
             consent record — see `createConsentBox`. Unticked by default, and
             the submit gate blocks on it. See
-            `wiki/compliance/dpia/cire-guest-data.md`. */}
-        <Show when={ownWithDietaryData().length > 0}>
+            `wiki/compliance/dpia/cire-guest-data.md`.
+
+            Only while RSVPs are open. Past the deadline a box cannot be
+            pressed, so it would read as the record — and its default state
+            does not record consent given on another basis (a row the couple
+            entered, an earlier wording), so an unticked "I agree" beside data
+            that is stored would misstate it. The line below says what is
+            stored instead. */}
+        <Show when={props.closed && dietaryOnFile()}>
+          <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+            Dietary requirements on file are shared with the caterers for this wedding. See our{" "}
+            <a
+              href="/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-gold-ink underline underline-offset-2"
+            >
+              privacy notice
+            </a>
+            .
+          </p>
+        </Show>
+        <Show when={!props.closed && ownWithDietaryData().length > 0}>
           <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
             <input
               type="checkbox"
@@ -876,7 +966,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
             because it says something different — not "I agree" but "they
             agreed" — and is stored under its own version. Same rules as the
             box above, over its own people. */}
-        <Show when={plusOnesWithDietaryData().length > 0}>
+        <Show when={!props.closed && plusOnesWithDietaryData().length > 0}>
           <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
             <input
               type="checkbox"
@@ -919,7 +1009,11 @@ export function RsvpPanel(props: RsvpPanelProps) {
             in a `<Show>`: assistive tech announces a CHANGE inside a live
             region it was already watching, and a region that springs into
             existence alongside its content is frequently missed. */}
-        <p class="sr-only" role="status">
+        <p
+          class="sr-only"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the same live region as the notices above; `<output>` would make this one line form-associated where they are not.
+          role="status"
+        >
           {saved() ? `Your RSVP for ${props.event.name} has been saved.` : ""}
         </p>
 
@@ -933,8 +1027,10 @@ export function RsvpPanel(props: RsvpPanelProps) {
             bottom padding (`flushBottom`) rather than this bar cancelling it
             with a negative margin: `bottom: 0` resolves against the scrollport,
             so a negative bottom margin lifts the bar up over the last card
-            instead of stretching it down into the padding. */}
-        <div class="border-border bg-surface sticky bottom-0 -mx-6 flex gap-3 border-t px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-4">
+            instead of stretching it down into the padding. `mt-auto` takes it
+            to the foot of a form shorter than the sheet; `sticky` holds it
+            there over a longer one. */}
+        <div class="border-border bg-surface sticky bottom-0 -mx-6 mt-auto flex gap-3 border-t px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-4">
           <Button
             variant="quiet"
             type="button"
@@ -945,15 +1041,16 @@ export function RsvpPanel(props: RsvpPanelProps) {
             // closing itself — and an early `onClose` here would race the
             // dwell timer for the same call.
             //
-            // `&& !props.closed` is load-bearing, not defensive (T-M2). Past the
-            // deadline this button relabels to "Close" and becomes the sheet's
-            // ONLY control — and it is the target of the C-L2 focus rescue
+            // `&& !props.closed` is load-bearing, not defensive. Past the
+            // deadline this button relabels to "Close" and becomes the form's
+            // ONLY control — and it is the target of the deadline focus rescue
             // above, which calls `.focus()` on it. `.focus()` is a no-op on a
             // disabled button. The deadline can flip INSIDE the dwell,
             // unmounting the focused submit button; without this clause the
             // rescue would fire into a disabled control and strand focus on
             // `<body>`, outside an `aria-modal` dialog with no keyboard way
-            // back in. That is exactly the failure C-L2 exists to prevent, so
+            // back in. That is exactly the failure the deadline focus rescue
+            // exists to prevent, so
             // the confirmed state must not be able to reintroduce it.
             disabled={(loading() || saved()) && !props.closed}
           >
@@ -980,7 +1077,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                 keyed on `loading()` instead, which is the state that earns it. */}
             <button
               type="submit"
-              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg disabled:hover:text-gold-ink text-ui-sm tracking-ui-wider flex-1 rounded-sm border bg-transparent px-4 py-3 uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold disabled:hover:text-gold-ink text-ui-sm tracking-ui-wider flex-1 rounded-sm border bg-transparent px-4 py-3 uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               classList={{
                 "opacity-40": loading() || blockedByMember(),
                 "cursor-pointer": !saved(),
@@ -994,7 +1091,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
               // Not `disabled`: this button holds keyboard focus at the moment
               // the reply lands, and disabling a focused control drops focus to
               // `<body>` — outside an `aria-modal` dialog, with no keyboard way
-              // back in (the same failure C-L2 documents below). `aria-disabled`
+              // back in (the failure the deadline focus rescue exists for). `aria-disabled`
               // states the same thing without moving focus; `handleSubmit`
               // enforces it.
               aria-disabled={saved() || blockedByMember() || undefined}

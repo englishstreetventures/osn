@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1659,
+    "branch": "fix/cire-event-sheet-scroll-lock-and-switcher",
+    "base_sha": "91d42b7dba8048b92ab5c9bf227a0d6c92311279",
+    "head_sha": "f91268916d3be9042313dd1318ac2cb88b6c8edf",
+    "generated_at": "2026-10-21T09:33:00.144Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1652,
+    "type": "Bug",
+    "labels": [
+      "product:cire",
+      "complexity:5",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-21T04:25:13.008Z",
+    "last_ts": "2026-10-21T09:32:59.601Z",
+    "span_seconds": 18467,
+    "active_seconds": 9274,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 73.13895960000002,
+    "tokens": {
+      "input": 1524,
+      "output": 84010,
+      "thinking": 15148,
+      "cache_write_5m": 2212176,
+      "cache_write_1h": 413247,
+      "cache_read": 142714519
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1524,
+          "output": 84010,
+          "thinking": 15148,
+          "cache_write_5m": 2212176,
+          "cache_write_1h": 413247,
+          "cache_read": 142714519
+        },
+        "usd_equivalent": 73.13895960000002,
+        "messages": 743
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 298,
+          "output": 77276,
+          "thinking": 15148,
+          "cache_write_5m": 0,
+          "cache_write_1h": 413247,
+          "cache_read": 30139154
+        },
+        "usd_equivalent": 16.9083496,
+        "messages": 132
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1226,
+          "output": 6734,
+          "thinking": 0,
+          "cache_write_5m": 2212176,
+          "cache_write_1h": 0,
+          "cache_read": 112575365
+        },
+        "usd_equivalent": 56.23060999999999,
+        "messages": 611
+      }
+    },
+    "effort": {
+      "medium": 132,
+      "high": 136,
+      "xhigh": 475
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 16,
+      "docs": 7,
+      "config": 0,
+      "source": 15
+    },
+    "loc": {
+      "generated": {
+        "added": 15,
+        "deleted": 0
+      },
+      "test": {
+        "added": 1335,
+        "deleted": 217
+      },
+      "docs": {
+        "added": 141,
+        "deleted": 62
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 927,
+        "deleted": 426
+      }
+    },
+    "packages": [
+      "cire/invites",
+      "cire/ui",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 16
+  },
+  "interaction": {
+    "user_turns": 1,
+    "corrective_turns": 1,
+    "tokens_before_first_edit": 129513,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 658,
+      "Read": 45,
+      "Edit": 23,
+      "Skill": 13,
+      "Write": 12,
+      "Agent": 8,
+      "SubagentHandback": 7,
+      "ToolSearch": 4,
+      "Monitor": 3,
+      "mcp__github__issue_write": 3,
+      "mcp__github__issue_read": 1,
+      "SendUserFile": 1,
+      "mcp__claude-code-remote__add_repo": 1,
+      "mcp__github__create_pull_request": 1,
+      "mcp__claude-code-remote__subscribe_pr_activity": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 8
+    },
+    "skills": {
+      "stress-plan": 1,
+      "design-system": 2,
+      "new-feat": 3,
+      "write-wiki": 2,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-performance": 1,
+      "review-security": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "attacker": 2,
+      "designer": 1,
+      "implementer": 2,
+      "reviewer": 3
+    }
+  }
+}

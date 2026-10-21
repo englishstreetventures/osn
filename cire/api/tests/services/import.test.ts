@@ -823,10 +823,10 @@ describe("applyImport: empty-DB insert end-to-end", () => {
   });
 });
 
-describe("applyImport: optional End + Location → Address fallback", () => {
-  // End and Location are optional in the events sheet: a blank End stores the
-  // "" no-stated-end sentinel, and a Location venue name fills in for a blank
-  // Address so the value reaches the invite's "Where" instead of being dropped.
+describe("applyImport: optional End, Location → venue name, Description", () => {
+  // End is optional in the events sheet: a blank End stores the "" no-stated-end
+  // sentinel. Location is the venue's name and fills `venue_name`; it no longer
+  // stands in for a blank Address, which stays NULL.
   const MINIMAL_EVENTS_CSV = [
     "Event Name,Start,Timezone,Location,Address",
     "Ceremony,2026-10-31T10:00:00+11:00,Australia/Sydney,Example Parish,",
@@ -834,55 +834,129 @@ describe("applyImport: optional End + Location → Address fallback", () => {
     "Afterparty,2026-11-01T00:00:00+11:00,Australia/Sydney,,",
   ].join("\n");
 
-  it("stores endAt '' and falls back Location → address only when Address is blank", async () => {
-    const ev = await Effect.runPromise(parseEventsCsv(MINIMAL_EVENTS_CSV));
-    const sharedDb = createDb(":memory:");
-    seedBootstrapWedding(sharedDb);
-    const sharedLayer = Layer.succeed(DbService, sharedDb);
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const plan = yield* diffAgainstDb(ev, [], BOOTSTRAP_WEDDING_ID);
-        yield* applyImport("imp-minimal", plan, BOOTSTRAP_WEDDING_ID);
-      }).pipe(Effect.provide(sharedLayer)),
-    );
-    const rows = sharedDb.select().from(events).all();
-    const ceremony = rows.find((r) => r.name === "Ceremony")!;
-    const reception = rows.find((r) => r.name === "Reception")!;
-    const afterparty = rows.find((r) => r.name === "Afterparty")!;
-    expect(ceremony.endAt).toBe("");
-    expect(ceremony.address).toBe("Example Parish");
-    expect(reception.address).toBe("126 Example Road");
-    // Neither Address nor Location ⇒ null (invite hides the "Where" affordances).
-    expect(afterparty.address).toBeNull();
+  /** One wedding with nothing in it, and a way to run against it. */
+  function emptyWedding() {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+    const run = <A, E>(effect: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(effect.pipe(Effect.provide(Layer.succeed(DbService, db))));
+    const row = (name: string) =>
+      db
+        .select()
+        .from(events)
+        .all()
+        .find((r) => r.name === name)!;
+    return { db, run, row };
+  }
+
+  /** Parse an events sheet and apply it, events only. */
+  const importEvents = (csv: string, id: string) =>
+    Effect.gen(function* () {
+      const parsed = yield* parseEventsCsv(csv);
+      const plan = yield* diffAgainstDb(parsed, [], BOOTSTRAP_WEDDING_ID);
+      yield* applyImport(id, plan, BOOTSTRAP_WEDDING_ID);
+    });
+
+  it("stores endAt '' and puts Location in venue_name, leaving a blank Address NULL", async () => {
+    const { run, row } = emptyWedding();
+    await run(importEvents(MINIMAL_EVENTS_CSV, "imp-minimal"));
+    expect(row("Ceremony").endAt).toBe("");
+    expect(row("Ceremony")).toMatchObject({ venueName: "Example Parish", address: null });
+    expect(row("Reception")).toMatchObject({
+      venueName: "Sample House",
+      address: "126 Example Road",
+    });
+    // Neither ⇒ both NULL (the invite hides the "Where" row).
+    expect(row("Afterparty")).toMatchObject({ venueName: null, address: null });
   });
 
-  it("update path applies the same fallback to an existing event", async () => {
-    const sharedDb = createDb(":memory:");
-    seedBootstrapWedding(sharedDb);
-    const sharedLayer = Layer.succeed(DbService, sharedDb);
-    await Effect.runPromise(
+  it("creates an event with no Description or Location column with '' and NULL", async () => {
+    const { run, row } = emptyWedding();
+    await run(
+      importEvents(
+        ["Event Name,Start,Timezone", "Ceremony,2026-10-31T10:00,Australia/Sydney"].join("\n"),
+        "imp-bare",
+      ),
+    );
+    expect(row("Ceremony")).toMatchObject({ description: "", venueName: null });
+  });
+
+  it("the update path writes Location to venue_name and leaves a blank Address NULL", async () => {
+    const { run, row } = emptyWedding();
+    await run(
       Effect.gen(function* () {
         const { ev, fam } = yield* Effect.promise(() => parsedFromCsv());
-        const seedPlan = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
-        yield* applyImport("imp-seed", seedPlan, BOOTSTRAP_WEDDING_ID);
+        yield* applyImport(
+          "imp-seed",
+          yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID),
+          BOOTSTRAP_WEDDING_ID,
+        );
         // Re-import the Catholic Ceremony with a blank Address but a Location.
-        const updated = yield* parseEventsCsv(
+        yield* importEvents(
           [
             "Event Name,Start,Timezone,Location,Address",
             "Catholic Ceremony,2026-10-31T10:00:00+11:00,Australia/Sydney,Example Parish,",
           ].join("\n"),
+          "imp-update",
         );
-        const plan2 = yield* diffAgainstDb(updated, [], BOOTSTRAP_WEDDING_ID);
-        yield* applyImport("imp-update", plan2, BOOTSTRAP_WEDDING_ID);
-      }).pipe(Effect.provide(sharedLayer)),
+      }),
     );
-    const row = sharedDb
-      .select()
-      .from(events)
-      .all()
-      .find((r) => r.name === "Catholic Ceremony")!;
-    expect(row.address).toBe("Example Parish");
-    expect(row.endAt).toBe("");
+    expect(row("Catholic Ceremony")).toMatchObject({
+      venueName: "Example Parish",
+      address: null,
+      endAt: "",
+    });
+  });
+
+  it("an update from a sheet with neither column keeps the stored description and venue name", async () => {
+    const { run, row } = emptyWedding();
+    await run(
+      importEvents(
+        [
+          "Event Name,Start,Timezone,Location,Description",
+          'Ceremony,2026-10-31T10:00,Australia/Sydney,Example Parish,"Mass at 10, morning tea after."',
+        ].join("\n"),
+        "imp-first",
+      ),
+    );
+    await run(
+      importEvents(
+        [
+          "Event Name,Start,Timezone,Address",
+          "Ceremony,2026-10-31T11:00,Australia/Sydney,12 Rd",
+        ].join("\n"),
+        "imp-second",
+      ),
+    );
+    expect(row("Ceremony")).toMatchObject({
+      description: "Mass at 10, morning tea after.",
+      venueName: "Example Parish",
+      address: "12 Rd",
+      startAt: "2026-10-31T11:00:00+11:00",
+    });
+  });
+
+  it("an update from a sheet whose columns are blank clears both", async () => {
+    const { run, row } = emptyWedding();
+    await run(
+      importEvents(
+        [
+          "Event Name,Start,Timezone,Location,Description",
+          "Ceremony,2026-10-31T10:00,Australia/Sydney,Example Parish,Mass at 10.",
+        ].join("\n"),
+        "imp-first",
+      ),
+    );
+    await run(
+      importEvents(
+        [
+          "Event Name,Start,Timezone,Location,Description",
+          "Ceremony,2026-10-31T10:00,Australia/Sydney,,",
+        ].join("\n"),
+        "imp-second",
+      ),
+    );
+    expect(row("Ceremony")).toMatchObject({ description: "", venueName: null });
   });
 });
 
@@ -1522,7 +1596,6 @@ describe("event slugs: tenant-scoped uniqueness (migration 0051)", () => {
             startAt: "2026-11-28T18:00:00+11:00",
             endAt: "",
             timezone: "Australia/Sydney",
-            location: null,
             address: null,
             dressCodeDescription: null,
             dressCodePalette: [],
@@ -1575,7 +1648,6 @@ describe("event slugs: tenant-scoped uniqueness (migration 0051)", () => {
             startAt: "2026-10-31T10:00:00+11:00",
             endAt: "",
             timezone: "Australia/Sydney",
-            location: null,
             address: null,
             dressCodeDescription: null,
             dressCodePalette: [],
@@ -1591,7 +1663,6 @@ describe("event slugs: tenant-scoped uniqueness (migration 0051)", () => {
             startAt: "2026-11-25T09:00:00+11:00",
             endAt: "",
             timezone: "Australia/Sydney",
-            location: null,
             address: null,
             dressCodeDescription: null,
             dressCodePalette: [],

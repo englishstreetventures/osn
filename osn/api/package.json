@@ -1,13 +1,13 @@
 {
   "name": "@osn/api",
-  "version": "3.29.5",
+  "version": "3.29.8",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/englishstventures/osn.git"
+    "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "scripts": {
     "dev": "portless",
@@ -40,7 +40,7 @@
     "@shared/redis": "workspace:*",
     "@shared/turnstile": "workspace:*",
     "@simplewebauthn/server": "^13.3.3",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "1.0.0-rc.4",
     "effect": "4.0.3",
     "elysia": "^1.4.30",
     "jose": "^6.2.12"

@@ -77,7 +77,7 @@
 #                               policy blocks and reports; `ProfileMenu` shows
 #                               the initial instead. OSN hosts no avatars yet, so
 #                               nothing populates it. Listing the avatar host is
-#                               englishstventures/osn#1207.
+#                               englishstreetventures/osn#1207.
 #   connect-src                 cire-api only. Sign-in is a TOP-LEVEL redirect
 #                               to musubi, not a fetch, and a navigation is not
 #                               a connect-src subject — so the OSN origin is

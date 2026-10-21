@@ -9,7 +9,7 @@ related:
   - "[[social]]"
   - "[[authorize-ui]]"
   - "[[component-library]]"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-17
 ---
 
 # Social — Mobile UX analysis & plan
@@ -168,7 +168,8 @@ mobile shell; at and above it, today's rail is unchanged.
   with 20 px icons + `text-meta` labels, ≥48 px item height plus `pb-safe`,
   active state = `text-foreground` vs `text-subtle`.
 - New `MobileTopBar.tsx`: slim sticky header (`md:hidden`) with the
-  OSN · Social wordmark, `ThemeToggle`, and the account control — avatar
+  Musubi wordmark (no "Social" tag — at 320 px the signed-out bar has no
+  room for it), `ThemeToggle`, and the account control — avatar
   opening the existing dropdown (switch profile / log out) when signed in,
   a pill "Sign in" button (opening the existing dialogs) when signed out.
 - `Sidebar.tsx` gets `hidden md:flex`; `Layout` renders both shells and gives

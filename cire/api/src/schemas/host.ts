@@ -31,3 +31,14 @@ export const UpdateHostRoleBody = Schema.Struct({
   role: HostRoleSchema,
 });
 export type UpdateHostRoleBody = Schema.Schema.Type<typeof UpdateHostRoleBody>;
+
+/** A helper's run-sheet scope as a client may write it — mirrors
+ *  `RunSheetScope` in `services/hosts.ts`, which the route proves by passing a
+ *  decoded `scope` straight into `hostsService.setRunSheetScope()`. */
+export const RunSheetScopeSchema = Schema.Literals(["own", "full"]);
+
+/** Body for `PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/run-sheet-scope`. */
+export const UpdateRunSheetScopeBody = Schema.Struct({
+  scope: RunSheetScopeSchema,
+});
+export type UpdateRunSheetScopeBody = Schema.Schema.Type<typeof UpdateRunSheetScopeBody>;

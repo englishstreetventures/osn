@@ -135,7 +135,7 @@ export function createRecoveryFactorsModule(
    * fragment is never sent to any server, so it also cannot reach a log.
    *
    * The page that turns this link into the POST lands with the UI phase of this
-   * epic, englishstventures/osn#953.
+   * epic, englishstreetventures/osn#953.
    */
   const disownUrl = (token: string): string => {
     const configured = config.authorizeUiUrl;
@@ -213,7 +213,7 @@ export function createRecoveryFactorsModule(
         .send({
           template: "otp-recovery",
           to: recipientEmail,
-          data: { code, ttlMinutes: otpTtlMinutes },
+          data: { code, ttlMinutes: otpTtlMinutes, instanceName: config.instanceName },
         })
         .pipe(
           Effect.mapError(

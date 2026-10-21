@@ -4,6 +4,8 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import { type AccountLinking, isAccountLinkingOn, memberStepOn } from "../lib/account-linking";
+import { getWaitUntil } from "../lib/execution-ctx";
 import { sessionAuth } from "../middleware/auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { runCire } from "../observability";
@@ -27,6 +29,31 @@ const GUEST_REFUSALS = {
 } as const;
 
 /**
+ * Whom the change log records as the actor of this request's change: the
+ * session's member, except in a wedding listed in
+ * `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` while linking is off for the
+ * household (`memberStepOn`), where it records none — a member chosen before
+ * the wedding was listed stays on the session but stamps nothing. The flag is
+ * read only when the answer can depend on it; `waitUntil` holds the read.
+ */
+async function actorFor(
+  linking: AccountLinking | undefined,
+  familyId: string,
+  memberGuestId: string | null,
+  request: Request,
+): Promise<(weddingId: string) => string | null> {
+  const excluded = linking?.memberStepExcludedWeddings;
+  if (memberGuestId === null || linking === undefined || !excluded || excluded.size === 0) {
+    return () => memberGuestId;
+  }
+  const waitUntil = getWaitUntil(request);
+  const read = isAccountLinkingOn(linking, familyId, waitUntil);
+  waitUntil?.(read);
+  const linkingOn = await read;
+  return (weddingId) => (memberStepOn(excluded, weddingId, linkingOn) ? memberGuestId : null);
+}
+
+/**
  * The household's plus-ones ([[wiki/cire/cire-plus-ones]]):
  *
  *   PUT    /api/plus-one/:guestId  { firstName, lastName }
@@ -43,7 +70,14 @@ const GUEST_REFUSALS = {
  * window, a guest outside the household, a plus-one bringing a plus-one, a
  * member without permission and a wedding at its guest cap.
  */
-export const createPlusOneRoutes = (db: Db, deps: { limiter: RateLimiterBackend }) =>
+export const createPlusOneRoutes = (
+  db: Db,
+  deps: {
+    limiter: RateLimiterBackend;
+    /** Decides, with the member-step exclusion, whom a change records. */
+    accountLinking?: AccountLinking;
+  },
+) =>
   new Elysia({ prefix: "/api/plus-one" })
     // Limiter first: a refused request answers 429 before the session lookup.
     .use(rateLimitMiddleware(deps.limiter))
@@ -61,10 +95,11 @@ export const createPlusOneRoutes = (db: Db, deps: { limiter: RateLimiterBackend 
           return { error: "Payload too large" };
         }
         const raw: unknown = await request.json().catch(() => null);
+        const actor = await actorFor(deps.accountLinking, familyId, memberGuestId, request);
         return runCire(
           Effect.gen(function* () {
             const body = yield* Schema.decodeUnknownEffect(PlusOneNameBody)(raw);
-            return yield* plusOneService.save(familyId, params.guestId, body, memberGuestId);
+            return yield* plusOneService.save(familyId, params.guestId, body, actor);
           }).pipe(
             Effect.provideService(DbService, db),
             Effect.catchTag("SchemaError", () =>
@@ -87,13 +122,14 @@ export const createPlusOneRoutes = (db: Db, deps: { limiter: RateLimiterBackend 
       // payload degrades to the schema's 400 instead of Elysia's parser error.
       { parse: () => ({}) },
     )
-    .delete("/:guestId", ({ params, familyId, memberGuestId, set }) => {
+    .delete("/:guestId", async ({ request, params, familyId, memberGuestId, set }) => {
       if (!familyId) {
         set.status = 401;
         return { error: "Unauthorized" };
       }
+      const actor = await actorFor(deps.accountLinking, familyId, memberGuestId, request);
       return runCire(
-        plusOneService.remove(familyId, params.guestId, memberGuestId).pipe(
+        plusOneService.remove(familyId, params.guestId, actor).pipe(
           Effect.provideService(DbService, db),
           Effect.catch((e) =>
             Effect.sync(() => {

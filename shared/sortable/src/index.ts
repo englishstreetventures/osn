@@ -1,4 +1,4 @@
-export { closestCenter } from "./collision";
+export { closestCenter, pointerWithin } from "./collision";
 export {
   ACTIVATION_DISTANCE,
   DragDropProvider,
@@ -14,5 +14,14 @@ export {
   type SortableItem,
   type SortableListOptions,
 } from "./list";
+export { createDraggable, createDroppable } from "./droppable";
 export { createSortable, maybeTransformStyle, SortableProvider } from "./sortable";
-export type { DragActivators, DragEvent, DragTarget, Id, Sortable, Transform } from "./types";
+export type {
+  DragActivators,
+  DragEvent,
+  DragTarget,
+  Droppable,
+  Id,
+  Sortable,
+  Transform,
+} from "./types";

@@ -30,6 +30,10 @@ export const EventSummary = Schema.Struct({
   startAt: Schema.String,
   endAt: Schema.String,
   timezone: Schema.String,
+  // The venue's name, shown above the address; null when the organiser gave
+  // none. Always sent; the guest site reads it as optional, because it can
+  // deploy before an API that sends it.
+  venueName: Schema.NullOr(Schema.String),
   address: Schema.NullOr(Schema.String),
   dressCodeDescription: Schema.NullOr(Schema.String),
   dressCodePalette: Schema.NullOr(Schema.Array(DressSwatch)),
@@ -173,9 +177,11 @@ export const ClaimResponse = Schema.Struct({
     entries: Schema.Array(Schema.Struct({ question: Schema.String, answer: Schema.String })),
   }),
   accountLink: AccountLinkState,
-  // Which household member this session says it is. Present only while the
-  // member step is on for the household (the `cire.account-linking` flag);
-  // `null` until chosen. Absent otherwise, so a flag-off payload is unchanged.
+  // Which household member this session says it is: present for every guest
+  // household, `null` until chosen. Absent on a host preview, which is not a
+  // guest seat, and for a household of a wedding in
+  // `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` while account linking is off for it
+  // (`memberStepOn`).
   member: Schema.optional(Schema.NullOr(Schema.Struct({ guestId: Schema.String }))),
 });
 export type ClaimResponse = Schema.Schema.Type<typeof ClaimResponse>;

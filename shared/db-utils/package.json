@@ -1,13 +1,13 @@
 {
   "name": "@shared/db-utils",
-  "version": "0.7.5",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/englishstventures/osn.git"
+    "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -19,7 +19,7 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "1.0.0-rc.4",
     "effect": "4.0.3"
   },
   "devDependencies": {

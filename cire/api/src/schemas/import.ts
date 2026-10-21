@@ -17,6 +17,25 @@ export const MAX_ROWS = 5000;
  */
 export const MAX_EVENTS = 200;
 
+/**
+ * The longest any one value may be, in characters: the sheet parser's cap on
+ * every cell once its formula guard is off (`services/spreadsheet.ts`), and the
+ * editor door's cap on every value it can store, so the two doors admit the
+ * same text.
+ */
+export const MAX_CELL_LENGTH = 10_000;
+
+/** A check that a string is at most {@link MAX_CELL_LENGTH} characters. */
+const withinCell = (field: string) =>
+  Schema.makeFilter((s: string) =>
+    s.length <= MAX_CELL_LENGTH
+      ? undefined
+      : `${field} must be at most ${MAX_CELL_LENGTH} characters`,
+  );
+
+/** A string of at most {@link MAX_CELL_LENGTH} characters. */
+const BoundedText = (field: string) => Schema.String.check(withinCell(field));
+
 // ── Parsed sheet shapes ───────────────────────────────────────────────────────
 
 /**
@@ -26,8 +45,9 @@ export const MAX_EVENTS = 200;
  * shorthand would fetch.
  */
 export const PaletteSwatch = Schema.Struct({
-  name: Schema.String,
+  name: BoundedText("swatch name"),
   color: Schema.String.check(
+    withinCell("swatch colour"),
     Schema.makeFilter((s) =>
       isSafeCssColor(s) ? undefined : "Invalid colour (use hex, rgb(a), hsl(a) or oklch)",
     ),
@@ -44,18 +64,36 @@ export const ParsedEvent = Schema.Struct({
    * update rather than remove+create.
    */
   id: Schema.optional(Schema.String),
-  name: Schema.String,
-  startAt: Schema.String,
+  name: BoundedText("name"),
+  startAt: BoundedText("startAt"),
   /** Optional in the sheet; "" ⇒ no stated end (matches the DB's "" sentinel). */
-  endAt: Schema.String,
-  timezone: Schema.String,
-  /** Optional venue name; only used as the address fallback at import-write time. */
-  location: Schema.NullOr(Schema.String),
-  address: Schema.NullOr(Schema.String),
-  dressCodeDescription: Schema.NullOr(Schema.String),
+  endAt: BoundedText("endAt"),
+  timezone: BoundedText("timezone"),
+  /**
+   * The event's description, shown under About on the invite and in calendar
+   * entries. Optional, and ABSENT is not empty: a sheet with no Description
+   * column, and an editor too old to send one, leave the stored description as
+   * it is; `""` clears it. A create with none stores `""`.
+   */
+  description: Schema.optional(BoundedText("description")),
+  /**
+   * The venue's name — the sheet's Location column, the editor's Venue name.
+   * Same absent-is-not-empty rule as `description`; `null` clears it. A create
+   * with none stores NULL.
+   */
+  venueName: Schema.optional(Schema.NullOr(BoundedText("venueName"))),
+  /**
+   * Always null when present, and read by nothing. The host still sends it,
+   * and the decoded value is what a preview stores for its apply, so keeping
+   * the key keeps a change previewed here applicable by a cire-api older than
+   * the venue name, which requires it, after a rollback.
+   */
+  location: Schema.optional(Schema.Null),
+  address: Schema.NullOr(BoundedText("address")),
+  dressCodeDescription: Schema.NullOr(BoundedText("dressCodeDescription")),
   dressCodePalette: Schema.Array(PaletteSwatch),
-  pinterestUrl: Schema.NullOr(Schema.String),
-  mapsUrl: Schema.NullOr(Schema.String),
+  pinterestUrl: Schema.NullOr(BoundedText("pinterestUrl")),
+  mapsUrl: Schema.NullOr(BoundedText("mapsUrl")),
   sortOrder: Schema.Number,
 });
 export type ParsedEvent = Schema.Schema.Type<typeof ParsedEvent>;
@@ -65,10 +103,10 @@ export const ParsedGuest = Schema.Struct({
    *  match by `(family, firstName)` as today; present ⇒ match by id, so a
    *  first-name fix is an update, not remove+create. */
   id: Schema.optional(Schema.String),
-  firstName: Schema.String,
-  lastName: Schema.String,
+  firstName: BoundedText("firstName"),
+  lastName: BoundedText("lastName"),
   /** Optional informal name for the single-guest greeting; null ⇒ use firstName. */
-  nickname: Schema.NullOr(Schema.String),
+  nickname: Schema.NullOr(BoundedText("nickname")),
   /** Names of events the guest is invited to. */
   eventNames: Schema.Array(Schema.String),
 });
@@ -82,7 +120,7 @@ export const ParsedFamily = Schema.Struct({
   /** Optional claim code / `publicId` from the `Family Code` fidelity column.
    *  Carried through so a full-fidelity round trip preserves invite codes; the
    *  households-always-coded model means every household has one. */
-  publicId: Schema.optional(Schema.String),
+  publicId: Schema.optional(BoundedText("publicId")),
   /** Non-blank, bounded (same 10k cell cap the CSV parser enforces). The CSV
    *  front door already guarantees both; this closes the DesiredState JSON
    *  front door, which previously accepted a blank or multi-hundred-KB name
@@ -90,9 +128,9 @@ export const ParsedFamily = Schema.Struct({
    *  trim transform, so the diff still compares the exact submitted value. */
   familyName: Schema.String.check(
     Schema.makeFilter((s) =>
-      s.trim().length > 0 && s.length <= 10_000
+      s.trim().length > 0 && s.length <= MAX_CELL_LENGTH
         ? undefined
-        : "familyName must be non-blank and at most 10000 characters",
+        : `familyName must be non-blank and at most ${MAX_CELL_LENGTH} characters`,
     ),
   ),
   guests: Schema.Array(ParsedGuest),
@@ -293,7 +331,6 @@ export const ImportSummary = Schema.Struct({
   guestsCreated: Schema.Number,
   guestsUpdated: Schema.Number,
   guestsRemoved: Schema.Number,
-  warnings: Schema.Array(Schema.String),
 });
 export type ImportSummary = Schema.Schema.Type<typeof ImportSummary>;
 

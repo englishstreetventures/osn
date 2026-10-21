@@ -81,10 +81,10 @@ const savedRow: RsvpSummary = {
   dietaryConsentCurrent: false,
 };
 
-/** The Respond button on the card — the control the confirmation plays on. */
+/** The card's answer button — "Respond", or "RSVP given" once the mark is up. */
 function respondButton(): HTMLButtonElement {
   return [...document.querySelectorAll("button")].find(
-    (b) => b.textContent === "Respond" || b.textContent === "RSVPs closed",
+    (b) => b.textContent === "Respond" || b.textContent === "RSVP given",
   ) as HTMLButtonElement;
 }
 

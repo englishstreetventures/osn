@@ -129,8 +129,10 @@ function reconcileToSnapshot(
     // re-attaches rows that were removed and re-created since. `orDie` states
     // that: if it ever fires it is a bug in the diff, not a revert the caller
     // could handle.
+    // A revert reads no preview warning: nothing here reads `plan.warnings`.
     const plan = yield* diffAgainstDb(desiredEvents, desiredFamilies, weddingId, {
       scope,
+      warnings: false,
     }).pipe(Effect.orDie);
     return yield* applyImport(targetImportId, plan, weddingId, finalize);
   });
@@ -402,6 +404,7 @@ function restoreBeforeImage(
         scope,
         existingEvents: liveEvents,
         removeManual: RESTORE_MANAGES_MANUAL,
+        warnings: false,
       }).pipe(Effect.orDie);
       plan = {
         ...diffed,
@@ -414,6 +417,7 @@ function restoreBeforeImage(
       const diffed = yield* diffAgainstDb(snapshotEvents, [], weddingId, {
         scope,
         removeManual: RESTORE_MANAGES_MANUAL,
+        warnings: false,
       }).pipe(Effect.orDie);
       const reinvites = yield* reinviteToRecreatedEvents(
         diffed,
@@ -436,6 +440,7 @@ function restoreBeforeImage(
       plan = yield* diffAgainstDb(snapshotEvents, snapshotFamilies, weddingId, {
         scope,
         removeManual: RESTORE_MANAGES_MANUAL,
+        warnings: false,
       }).pipe(Effect.orDie);
     }
     return yield* applyImport(changeId, plan, weddingId, finalize);
@@ -462,7 +467,7 @@ function restoreBeforeImage(
  *
  * Non-goals ([[guest-event-editor]] §4), true of BOTH paths and not claimed
  * otherwise: a revert does not restore cascade-deleted RSVPs, nor the
- * image/crop/location of a re-created event — an id-matched update leaves those
+ * image/crop of a re-created event — an id-matched update leaves those
  * columns untouched, and a recreate cannot recover them. The revert plan
  * therefore never asserts it restores them.
  *

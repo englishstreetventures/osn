@@ -20,10 +20,13 @@ import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { parseSessionToken } from "../../src/lib/cookie";
+import { setExecutionCtx } from "../../src/lib/execution-ctx";
+import { CIRE_METRICS } from "../../src/metrics";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import type { OsnAccountResolver } from "../../src/services/osn-bridge";
 import { rsvpService } from "../../src/services/rsvp";
 import { jsonBody } from "../test-helpers";
+import { counterValue } from "../test-helpers/metrics-harness";
 import { seedPlusOne } from "../test-helpers/plus-one";
 
 // Seeded families (cire/db/seed/data/guests.ts):
@@ -41,7 +44,11 @@ const ownAccount: OsnAccountResolver = async (profileId) => ({
   accountId: `acc_${profileId}`,
 });
 
-function buildApp(flagOn = true, resolver: OsnAccountResolver = ownAccount) {
+function buildApp(
+  flagOn = true,
+  resolver: OsnAccountResolver = ownAccount,
+  memberStepExcludedWeddings?: ReadonlySet<string>,
+) {
   const db = createDb(":memory:");
   seedDb(db);
   const limiter = () => createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 });
@@ -54,9 +61,13 @@ function buildApp(flagOn = true, resolver: OsnAccountResolver = ownAccount) {
     resolveOsnAccountId: resolver,
     osnIssuerUrl: "https://id.musubi.test",
     flags: createStaticFlags({ "cire.account-linking": flagOn }),
+    memberStepExcludedWeddings,
   });
   return { db, app };
 }
+
+/** The seeded wedding excluded from the member step, beside one that is not seeded. */
+const EXCLUDED = new Set(["wed_not_seeded", BOOTSTRAP_WEDDING_ID]);
 
 type App = ReturnType<typeof createApp>;
 
@@ -159,22 +170,26 @@ function linkRow(db: TestDb, guest: string, profileId: string) {
 }
 
 describe("claim payload", () => {
-  it("names no member for a household of several, and the one member of a household of one", async () => {
-    const { db, app } = buildApp();
-    const several = await claim(app, SAMPLETON);
-    expect((several.body as { member: unknown }).member).toBeNull();
-    const one = await claim(app, TESTFAMILY);
-    expect((one.body as { member: unknown }).member).toEqual({ guestId: guestId(db, "Ada") });
-    // The session starts with that member.
-    const rows = db.select({ member: sessions.memberGuestId }).from(sessions).all();
-    expect(rows.map((r) => r.member)).toContain(guestId(db, "Ada"));
-  });
-
-  it("leaves the payload as it was with the flag off", async () => {
-    const { app } = buildApp(false);
-    const { body } = await claim(app, TESTFAMILY);
-    expect(body).not.toHaveProperty("member");
-  });
+  // The member step is on for every guest household; the flag decides only
+  // the link box, even where the deployment could complete a link.
+  it.each([
+    ["on", true],
+    ["off", false],
+  ])(
+    "names no member for a household of several, and the one member of a household of one, with the flag %s",
+    async (_, flagOn) => {
+      const { db, app } = buildApp(flagOn);
+      const several = await claim(app, SAMPLETON);
+      const body = several.body as { member: unknown; accountLink: { enabled: boolean } };
+      expect(body.member).toBeNull();
+      expect(body.accountLink.enabled).toBe(flagOn);
+      const one = await claim(app, TESTFAMILY);
+      expect((one.body as { member: unknown }).member).toEqual({ guestId: guestId(db, "Ada") });
+      // The session starts with that member.
+      const rows = db.select({ member: sessions.memberGuestId }).from(sessions).all();
+      expect(rows.map((r) => r.member)).toContain(guestId(db, "Ada"));
+    },
+  );
 
   it("chooses the one member on restore when the session has none", async () => {
     const { db, app } = buildApp();
@@ -187,6 +202,24 @@ describe("claim payload", () => {
     expect(db.select({ member: sessions.memberGuestId }).from(sessions).get()?.member).toBe(
       guestId(db, "Ada"),
     );
+  });
+});
+
+describe("the restore's choice for a household of one, in a Worker", () => {
+  it("is written after the response, held by the request's waitUntil", async () => {
+    const { db, app } = buildApp(false);
+    const { cookie } = await claim(app, TESTFAMILY);
+    db.update(sessions).set({ memberGuestId: null }).run();
+    const request = new Request(`http://localhost/api/claim/session?slug=${SLUG}`, {
+      headers: { Cookie: cookie, "cf-connecting-ip": IP, Origin: ORIGIN },
+    });
+    const kept: Promise<unknown>[] = [];
+    setExecutionCtx(request, { waitUntil: (promise) => kept.push(promise) });
+    const res = await app.fetch(request);
+    const ada = guestId(db, "Ada");
+    expect(((await jsonBody(res)) as { member: unknown }).member).toEqual({ guestId: ada });
+    await Promise.all(kept);
+    expect(db.select({ member: sessions.memberGuestId }).from(sessions).get()?.member).toBe(ada);
   });
 });
 
@@ -219,6 +252,8 @@ describe("POST / DELETE /api/claim/member", () => {
     const plusOne = await call(app, "POST", "/api/claim/member", cookie, { guestId: sam });
     expect(plusOne.status).toBe(403);
     expect(await jsonBody(plusOne)).toEqual({ error: "plus_one_seat" });
+    // Neither refusal recorded a member.
+    expect(db.select({ member: sessions.memberGuestId }).from(sessions).get()?.member).toBeNull();
 
     const none = await call(app, "POST", "/api/claim/member", null, { guestId: guestId(db, "Bo") });
     expect(none.status).toBe(401);
@@ -254,13 +289,24 @@ describe("POST / DELETE /api/claim/member", () => {
     );
   });
 
-  it("answers 404 with the flag off", async () => {
+  it("records the member with the flag off, and names no musubi account while the box is off", async () => {
     const { db, app } = buildApp(false);
     const { cookie } = await claim(app, SAMPLETON);
-    const res = await call(app, "POST", "/api/claim/member", cookie, {
+    const org = await signIn(db, "usr_alice");
+    const res = await call(app, "POST", "/api/claim/member", `${cookie}; ${org}`, {
       guestId: guestId(db, "Bo"),
     });
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({
+      member: { guestId: guestId(db, "Bo") },
+      accountLink: { enabled: false },
+    });
+    const restored = (await jsonBody(await restore(app, `${cookie}; ${org}`))) as {
+      member: unknown;
+      accountLink: unknown;
+    };
+    expect(restored.member).toEqual({ guestId: guestId(db, "Bo") });
+    expect(restored.accountLink).toEqual({ enabled: false });
   });
 
   it("clears the choice, idempotently, and keeps the household claimed", async () => {
@@ -272,6 +318,37 @@ describe("POST / DELETE /api/claim/member", () => {
     const res = await restore(app, cookie);
     expect(res.status).toBe(200);
     expect(((await jsonBody(res)) as { member: unknown }).member).toBeNull();
+  });
+});
+
+describe("POST /api/claim/member when the write does not land", () => {
+  it("answers 500 when the write fails, and records no member", async () => {
+    const { db, app } = buildApp();
+    const { cookie } = await claim(app, SAMPLETON);
+    db.run(
+      sql`CREATE TRIGGER refuse_session_update BEFORE UPDATE ON sessions BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+    );
+    const res = await call(app, "POST", "/api/claim/member", cookie, {
+      guestId: guestId(db, "Bo"),
+    });
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Could not save your choice" });
+    expect(db.select({ member: sessions.memberGuestId }).from(sessions).get()?.member).toBeNull();
+  });
+
+  it("answers 401 when the session is gone by the time of the write", async () => {
+    const { db, app } = buildApp();
+    const { cookie } = await claim(app, SAMPLETON);
+    // The write finds no session row, as when it ends between its check and
+    // the write; the guest passes every other check.
+    db.run(
+      sql`CREATE TRIGGER skip_session_update BEFORE UPDATE ON sessions BEGIN SELECT RAISE(IGNORE); END`,
+    );
+    const res = await call(app, "POST", "/api/claim/member", cookie, {
+      guestId: guestId(db, "Bo"),
+    });
+    expect(res.status).toBe(401);
+    expect(await jsonBody(res)).toEqual({ error: "Unauthorized" });
   });
 });
 
@@ -311,6 +388,29 @@ describe("return visit: the account the box may show", () => {
       avatarUrl: "https://id.musubi.test/avatars/alice.png",
       matchesMember: false,
     });
+  });
+
+  it("shows it in the answer to the choice, and for the member a household of one is chosen for", async () => {
+    const { db, app } = buildApp();
+    const org = await signIn(db, "usr_alice");
+    const alice = {
+      displayName: "Alice A",
+      handle: "alice",
+      avatarUrl: "https://id.musubi.test/avatars/alice.png",
+      matchesMember: false,
+    };
+    const several = await claim(app, SAMPLETON);
+    const chosen = await call(app, "POST", "/api/claim/member", `${several.cookie}; ${org}`, {
+      guestId: guestId(db, "Bo"),
+    });
+    expect(((await jsonBody(chosen)) as { accountLink: Link }).accountLink.account).toEqual(alice);
+    // A restore whose session has no member chooses Ada after the link read.
+    const one = await claim(app, TESTFAMILY);
+    db.update(sessions)
+      .set({ memberGuestId: null })
+      .where(eq(sessions.familyId, familyOf(db, guestId(db, "Ada"))))
+      .run();
+    expect((await linkState(app, `${one.cookie}; ${org}`)).account).toEqual(alice);
   });
 
   it("drops a picture from any host but musubi's own", async () => {
@@ -443,15 +543,21 @@ describe("POST /api/rsvp and the member step", () => {
     ],
   });
 
-  it("refuses a household of several that has chosen no one (409 member_required)", async () => {
-    const { db, app } = buildApp();
-    const { cookie } = await claim(app, SAMPLETON);
-    const bo = guestId(db, "Bo");
-    const res = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo)));
-    expect(res.status).toBe(409);
-    expect(await jsonBody(res)).toEqual({ error: "member_required" });
-    expect(db.select().from(rsvps).all()).toHaveLength(0);
-  });
+  it.each([
+    ["on", true],
+    ["off", false],
+  ])(
+    "refuses a household of several that has chosen no one (409 member_required), with the flag %s",
+    async (_, flagOn) => {
+      const { db, app } = buildApp(flagOn);
+      const { cookie } = await claim(app, SAMPLETON);
+      const bo = guestId(db, "Bo");
+      const res = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo)));
+      expect(res.status).toBe(409);
+      expect(await jsonBody(res)).toEqual({ error: "member_required" });
+      expect(db.select().from(rsvps).all()).toHaveLength(0);
+    },
+  );
 
   it("asks no choice of one member who brought a plus-one", async () => {
     const { db, app } = buildApp();
@@ -522,15 +628,26 @@ describe("POST /api/rsvp and the member step", () => {
     expect(db.select().from(rsvps).get()?.submittedViaLink).toBe(false);
   });
 
-  it("asks for no member, and stamps none, with the flag off", async () => {
+  it("lets no link vouch for a reply with the flag off, though it stamps the sender", async () => {
+    // A link made while the flag was on stays in the table; with the box off
+    // the household can neither see nor manage it, so it claims nothing.
     const { db, app } = buildApp(false);
     const { cookie } = await claim(app, SAMPLETON);
     const bo = guestId(db, "Bo");
-    const res = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo)));
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: bo });
+    linkRow(db, bo, "usr_alice");
+    const org = await signIn(db, "usr_alice");
+    const res = await call(
+      app,
+      "POST",
+      "/api/rsvp",
+      `${cookie}; ${org}`,
+      reply(bo, firstEventOf(db, bo)),
+    );
     expect(res.status).toBe(200);
-    const body = (await jsonBody(res)) as { rsvps: object[] };
-    expect(body.rsvps[0]).not.toHaveProperty("submittedBy");
-    expect(db.select().from(rsvps).get()?.submittedByGuestId).toBeNull();
+    const row = db.select().from(rsvps).get();
+    expect(row?.submittedByGuestId).toBe(bo);
+    expect(row?.submittedViaLink).toBe(false);
   });
 
   it("lets an organiser's write replace a member's stamp", async () => {
@@ -600,5 +717,223 @@ describe("plus-one changes record their actor", () => {
     });
     expect(res.status).toBe(200);
     expect(db.select().from(rsvpChanges).get()?.actorGuestId).toBe(bo);
+  });
+});
+
+describe("a wedding excluded from the member step", () => {
+  const reply = (guest: string, eventId: string) => ({
+    rsvps: [
+      {
+        guestId: guest,
+        eventId,
+        status: "attending",
+        dietary: "",
+        dietaryPresets: [],
+        dietaryConsent: false,
+      },
+    ],
+  });
+
+  it("keeps the step off while the flag is off, and a list without the wedding does not", async () => {
+    const { app } = buildApp(false, ownAccount, EXCLUDED);
+    expect((await claim(app, SAMPLETON)).body).not.toHaveProperty("member");
+    expect((await claim(app, TESTFAMILY)).body).not.toHaveProperty("member");
+
+    const other = buildApp(false, ownAccount, new Set(["wed_not_seeded"]));
+    expect((await claim(other.app, SAMPLETON)).body).toHaveProperty("member", null);
+  });
+
+  it("refuses a member choice while the flag is off, and records none", async () => {
+    const { db, app } = buildApp(false, ownAccount, EXCLUDED);
+    const { cookie } = await claim(app, SAMPLETON);
+    const res = await call(app, "POST", "/api/claim/member", cookie, {
+      guestId: guestId(db, "Bo"),
+    });
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "Not found" });
+    expect(db.select({ member: sessions.memberGuestId }).from(sessions).get()?.member).toBeNull();
+  });
+
+  it("takes a household's reply with no member while the flag is off, and stamps no sender", async () => {
+    const { db, app } = buildApp(false, ownAccount, EXCLUDED);
+    const { cookie } = await claim(app, SAMPLETON);
+    const bo = guestId(db, "Bo");
+    const res = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo)));
+    expect(res.status).toBe(200);
+    const body = (await jsonBody(res)) as { rsvps: object[] };
+    expect(body.rsvps[0]).not.toHaveProperty("submittedBy");
+    expect(db.select().from(rsvps).get()?.submittedByGuestId).toBeNull();
+    const restored = (await jsonBody(await restore(app, cookie))) as { rsvps: object[] };
+    expect(restored).not.toHaveProperty("member");
+    expect(restored.rsvps[0]).not.toHaveProperty("submittedBy");
+  });
+
+  it("stamps no sender even for a session that chose a member while the flag was on", async () => {
+    const { db, app } = buildApp(false, ownAccount, EXCLUDED);
+    const { cookie } = await claim(app, SAMPLETON);
+    const bo = guestId(db, "Bo");
+    // The choice a flag-on visit left on the session.
+    db.update(sessions).set({ memberGuestId: bo }).run();
+    const res = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo)));
+    expect(res.status).toBe(200);
+    const body = (await jsonBody(res)) as { rsvps: object[] };
+    expect(body.rsvps[0]).not.toHaveProperty("submittedBy");
+    expect(db.select().from(rsvps).get()?.submittedByGuestId).toBeNull();
+    expect(db.select().from(rsvpChanges).get()?.actorGuestId).toBeNull();
+    expect((await jsonBody(await restore(app, cookie))) as object).not.toHaveProperty("member");
+  });
+
+  it("records no actor on a plus-one change from a session that chose a member earlier", async () => {
+    const { db, app } = buildApp(false, ownAccount, EXCLUDED);
+    const { cookie } = await claim(app, SAMPLETON);
+    const bo = guestId(db, "Bo");
+    db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, bo)).run();
+    db.update(sessions).set({ memberGuestId: bo }).run();
+    const res = await call(app, "PUT", `/api/plus-one/${bo}`, cookie, {
+      firstName: "Sam",
+      lastName: "Guest",
+    });
+    expect(res.status).toBe(200);
+    expect(db.select().from(rsvpChanges).get()?.actorGuestId).toBeNull();
+    const removed = await call(app, "DELETE", `/api/plus-one/${bo}`, cookie);
+    expect(removed.status).toBe(200);
+    expect(
+      db
+        .select({ actor: rsvpChanges.actorGuestId })
+        .from(rsvpChanges)
+        .all()
+        .map((r) => r.actor),
+    ).toEqual([null, null]);
+  });
+
+  it("gets the step while the flag is on, as every household does", async () => {
+    const { db, app } = buildApp(true, ownAccount, EXCLUDED);
+    const { cookie, body } = await claim(app, SAMPLETON);
+    expect(body).toHaveProperty("member", null);
+    const bo = guestId(db, "Bo");
+    const refused = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo)));
+    expect(refused.status).toBe(409);
+    const chosen = await call(app, "POST", "/api/claim/member", cookie, { guestId: bo });
+    expect(chosen.status).toBe(200);
+    const res = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo)));
+    expect(res.status).toBe(200);
+    expect(db.select().from(rsvps).get()?.submittedByGuestId).toBe(bo);
+    db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, bo)).run();
+    const named = await call(app, "PUT", `/api/plus-one/${bo}`, cookie, {
+      firstName: "Sam",
+      lastName: "Guest",
+    });
+    expect(named.status).toBe(200);
+    expect(
+      db
+        .select({ actor: rsvpChanges.actorGuestId })
+        .from(rsvpChanges)
+        .where(eq(rsvpChanges.kind, "plus_one_added"))
+        .get()?.actor,
+    ).toBe(bo);
+  });
+});
+
+describe("the member a reply is recorded under", () => {
+  const reply = (guest: string, eventId: string, memberGuestId?: string) => ({
+    rsvps: [
+      {
+        guestId: guest,
+        eventId,
+        status: "attending",
+        dietary: "",
+        dietaryPresets: [],
+        dietaryConsent: false,
+      },
+    ],
+    ...(memberGuestId === undefined ? {} : { memberGuestId }),
+  });
+
+  it("refuses a reply from a page showing a member the session no longer holds", async () => {
+    const { db, app } = buildApp(false);
+    const { cookie } = await claim(app, SAMPLETON);
+    const bo = guestId(db, "Bo");
+    const cleo = guestId(db, "Cleo");
+    // A page naming a member when the session holds none still meets the
+    // household's member step.
+    const unchosen = await call(
+      app,
+      "POST",
+      "/api/rsvp",
+      cookie,
+      reply(bo, firstEventOf(db, bo), cleo),
+    );
+    expect(await jsonBody(unchosen)).toEqual({ error: "member_required" });
+    // The page showed Cleo; another tab has since said Bo.
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: bo });
+    const before = await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "member_changed" });
+    const refused = await call(
+      app,
+      "POST",
+      "/api/rsvp",
+      cookie,
+      reply(bo, firstEventOf(db, bo), cleo),
+    );
+    expect(refused.status).toBe(409);
+    expect(await jsonBody(refused)).toEqual({ error: "member_changed" });
+    expect(await counterValue(CIRE_METRICS.rsvpBlocked, { reason: "member_changed" })).toBe(
+      before + 1,
+    );
+    expect(db.select().from(rsvps).all()).toHaveLength(0);
+
+    const taken = await call(app, "POST", "/api/rsvp", cookie, reply(bo, firstEventOf(db, bo), bo));
+    expect(taken.status).toBe(200);
+    expect(db.select().from(rsvps).get()?.submittedByGuestId).toBe(bo);
+  });
+});
+
+describe("unlinking with the flag off", () => {
+  let asked = 0;
+  const counting: OsnAccountResolver = async (profileId) => {
+    asked += 1;
+    return { ok: true, accountId: `acc_${profileId}` };
+  };
+
+  const unlink = (app: App, guest: string, cookie: string) =>
+    call(app, "DELETE", `/api/account/link/${guest}`, cookie);
+
+  it("answers one refusal for a linked and an unlinked seat, and asks osn-api nothing", async () => {
+    asked = 0;
+    const { db, app } = buildApp(false, counting);
+    const { cookie } = await claim(app, SAMPLETON);
+    const bo = guestId(db, "Bo");
+    const cleo = guestId(db, "Cleo");
+    linkRow(db, bo, "usr_alice");
+    const other = await signIn(db, "usr_bob");
+
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: bo });
+    const before = await counterValue(CIRE_METRICS.accountLinkUnlinks, { result: "error" });
+    for (const as of [cookie, `${cookie}; ${other}`]) {
+      const res = await unlink(app, bo, as);
+      expect(res.status).toBe(403);
+      expect(await jsonBody(res)).toEqual({ error: "not_your_seat" });
+    }
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: cleo });
+    const unlinked = await unlink(app, cleo, `${cookie}; ${other}`);
+    expect(unlinked.status).toBe(403);
+    expect(await jsonBody(unlinked)).toEqual({ error: "not_your_seat" });
+
+    expect(db.select().from(guestAccountLinks).all()).toHaveLength(1);
+    expect(asked).toBe(0);
+    expect(await counterValue(CIRE_METRICS.accountLinkUnlinks, { result: "error" })).toBe(
+      before + 3,
+    );
+  });
+
+  it("still lets the linked account withdraw its own link", async () => {
+    const { db, app } = buildApp(false, counting);
+    const { cookie } = await claim(app, SAMPLETON);
+    const bo = guestId(db, "Bo");
+    linkRow(db, bo, "usr_alice");
+    const alice = await signIn(db, "usr_alice");
+    await call(app, "POST", "/api/claim/member", cookie, { guestId: bo });
+    const res = await unlink(app, bo, `${cookie}; ${alice}`);
+    expect(res.status).toBe(200);
+    expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
   });
 });

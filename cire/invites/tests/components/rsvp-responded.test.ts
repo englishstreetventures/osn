@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  hasAnyHouseholdReply,
   hasHouseholdResponded,
   HOLD_MS,
   SWEEP_DURATION_MS,
@@ -183,6 +184,50 @@ describe("hasHouseholdResponded", () => {
     ];
     expect(
       hasHouseholdResponded(event, members, [{ guestId: "guest-sam", eventId: "event-1" }]),
+    ).toBe(false);
+  });
+});
+
+/**
+ * After the deadline any reply from the household makes the event viewable
+ * ("RSVP given"), where the tick still waits for everyone. Same row rule as
+ * `hasHouseholdResponded` — invited, not a plus-one, any status — with "some"
+ * in place of "every".
+ */
+describe("hasAnyHouseholdReply", () => {
+  const event = { id: "event-1" };
+  const members = [
+    { guestId: "guest-1", eventIds: ["event-1"], plusOneOf: null },
+    { guestId: "guest-2", eventIds: ["event-1"], plusOneOf: null },
+    { guestId: "guest-sam", eventIds: ["event-1"], plusOneOf: "guest-1" },
+  ];
+
+  it("is false with no rows", () => {
+    expect(hasAnyHouseholdReply(event, members, [])).toBe(false);
+  });
+
+  it("is true once one invited member has a row, before the rest", () => {
+    expect(hasAnyHouseholdReply(event, members, [{ guestId: "guest-2", eventId: "event-1" }])).toBe(
+      true,
+    );
+  });
+
+  it("does not count a plus-one's row alone", () => {
+    expect(
+      hasAnyHouseholdReply(event, members, [{ guestId: "guest-sam", eventId: "event-1" }]),
+    ).toBe(false);
+  });
+
+  it("ignores a row on another event", () => {
+    expect(hasAnyHouseholdReply(event, members, [{ guestId: "guest-1", eventId: "event-2" }])).toBe(
+      false,
+    );
+  });
+
+  it("ignores a stray row from a member not invited to the event", () => {
+    const uninvited = [{ guestId: "guest-9", eventIds: ["event-2"], plusOneOf: null }];
+    expect(
+      hasAnyHouseholdReply(event, uninvited, [{ guestId: "guest-9", eventId: "event-1" }]),
     ).toBe(false);
   });
 });

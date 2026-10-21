@@ -1,0 +1,11 @@
+{
+  // The browser half's tests, on the browser half's program.
+  "extends": "../../src/client/tsconfig.json",
+  "include": [
+    "./**/*",
+    "../support/fake-websocket.ts",
+    "../support/fake-visibility.ts",
+    "../../src/client/**/*",
+    "../../src/protocol.ts"
+  ]
+}

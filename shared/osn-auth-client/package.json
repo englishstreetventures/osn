@@ -1,13 +1,13 @@
 {
   "name": "@shared/osn-auth-client",
-  "version": "0.4.42",
+  "version": "0.4.44",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/englishstventures/osn.git"
+    "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "exports": {
     ".": "./src/index.ts",

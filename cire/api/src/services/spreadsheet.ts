@@ -13,7 +13,7 @@ import {
   GUEST_SOURCE_HEADER,
 } from "../lib/sheet-headers";
 import { bucketParseReason, metricImportParseRejected } from "../metrics";
-import { MAX_EVENTS, MAX_ROWS } from "../schemas/import";
+import { MAX_CELL_LENGTH, MAX_EVENTS, MAX_ROWS } from "../schemas/import";
 import type { DesiredFamily, DesiredGuest, ParsedEvent, Provenance } from "../schemas/import";
 import {
   isFormulaCell,
@@ -155,8 +155,6 @@ function withSheet(sheet: SheetKind) {
 
 // ── Hand-rolled RFC 4180 CSV parser ──────────────────────────────────────────
 
-const MAX_CELL_LENGTH = 10_000;
-
 /**
  * Strip a leading UTF-8 byte-order mark.
  *
@@ -267,9 +265,17 @@ const tooManyRows = (): CsvParseResult => ({ ok: false, reason: "too many rows" 
 const cellTooLarge = (): CsvParseResult => ({ ok: false, reason: "cell too large" });
 
 /**
+ * The longest a cell may be as uploaded: twice {@link MAX_CELL_LENGTH}. A
+ * download's formula guard puts at most one `'` before each character of a
+ * value, so a value at the cap can come back up to twice as long; the cap
+ * itself is checked once the guard is off ({@link withinCellCap}).
+ */
+const MAX_RAW_CELL_LENGTH = 2 * MAX_CELL_LENGTH;
+
+/**
  * Bounded CSV parser. Enforces:
  *  - total rows ≤ `MAX_ROWS`
- *  - any single cell length ≤ `MAX_CELL_LENGTH`
+ *  - any single cell length ≤ `MAX_RAW_CELL_LENGTH`
  *  - file does not end mid-quoted-cell (`"foo` with no closing quote)
  *
  * Returns a discriminated result instead of throwing so the Effect-shaped
@@ -285,7 +291,7 @@ export function parseCsvBounded(content: string): CsvParseResult {
   const n = text.length;
 
   while (i < n) {
-    if (cell.length > MAX_CELL_LENGTH) return cellTooLarge();
+    if (cell.length > MAX_RAW_CELL_LENGTH) return cellTooLarge();
     const ch = text[i]!;
     if (inQuotes) {
       if (ch === '"') {
@@ -309,14 +315,14 @@ export function parseCsvBounded(content: string): CsvParseResult {
       continue;
     }
     if (ch === ",") {
-      if (cell.length > MAX_CELL_LENGTH) return cellTooLarge();
+      if (cell.length > MAX_RAW_CELL_LENGTH) return cellTooLarge();
       row.push(cell);
       cell = "";
       i += 1;
       continue;
     }
     if (ch === "\r") {
-      if (cell.length > MAX_CELL_LENGTH) return cellTooLarge();
+      if (cell.length > MAX_RAW_CELL_LENGTH) return cellTooLarge();
       row.push(cell);
       rows.push(row);
       if (rows.length > MAX_ROWS) return tooManyRows();
@@ -326,7 +332,7 @@ export function parseCsvBounded(content: string): CsvParseResult {
       continue;
     }
     if (ch === "\n") {
-      if (cell.length > MAX_CELL_LENGTH) return cellTooLarge();
+      if (cell.length > MAX_RAW_CELL_LENGTH) return cellTooLarge();
       row.push(cell);
       rows.push(row);
       if (rows.length > MAX_ROWS) return tooManyRows();
@@ -344,7 +350,7 @@ export function parseCsvBounded(content: string): CsvParseResult {
     return { ok: false, reason: "unterminated quoted cell" };
   }
 
-  if (cell.length > MAX_CELL_LENGTH) return cellTooLarge();
+  if (cell.length > MAX_RAW_CELL_LENGTH) return cellTooLarge();
   if (cell.length > 0 || row.length > 0) {
     row.push(cell);
     rows.push(row);
@@ -391,17 +397,43 @@ function detectFormulaInjection(
 const unguardRows = (rows: readonly string[][]): string[][] =>
   rows.map((row) => row.map(unguardCsvCell));
 
+/**
+ * Whether every cell of an upload, its guard taken off, is within
+ * {@link MAX_CELL_LENGTH}: the cap is on the value the app would store, so a
+ * download of a value at the cap re-imports.
+ */
+const withinCellCap = (rows: readonly string[][]): boolean =>
+  rows.every((row) => row.every((cell) => cell.length <= MAX_CELL_LENGTH));
+
 // ── Parsers ──────────────────────────────────────────────────────────────────
 
 // Only Event Name / Start / Timezone are hard requirements — the minimum to
 // render and order an event on the invite. `End` is optional (column and cell):
 // an open-ended event stores `endAt: ""` (the DB column is NOT NULL with the ""
 // sentinel meaning "no stated end"; display + calendar + retention all handle
-// it). `Location` is optional too — the invite's "Where" + Open-in-Maps derive
-// from `Address` (see `cire/invites/src/components/event-details.ts`), and a
-// provided Location is only used as the address fallback at import-write time
-// when Address is blank (see `services/import.ts`).
+// it). `Location` (the venue's name) and `Description` are optional too, and a
+// sheet without one of those columns says nothing about it — see
+// {@link sheetText}.
 const REQUIRED_EVENT_COLUMNS = EVENT_SHEET_REQUIRED_HEADERS;
+
+/**
+ * The event's description and venue name as a sheet states them. A column
+ * the sheet does not carry leaves its field OUT, so the apply keeps what is
+ * stored: an organiser's own sheet that never had the column must not wipe a
+ * value the editor set. A column that is there is the whole truth, blank cells
+ * included: a blank Description is `""` and a blank Location is `null`, which
+ * clear on purpose. Both readers, the upload's and the before-image's, use it.
+ */
+function sheetText(
+  row: readonly string[],
+  idxDescription: number,
+  idxVenueName: number,
+): Pick<ParsedEvent, "description" | "venueName"> {
+  const out: Types.Mutable<Pick<ParsedEvent, "description" | "venueName">> = {};
+  if (idxDescription !== -1) out.description = nullableString(row[idxDescription] ?? "") ?? "";
+  if (idxVenueName !== -1) out.venueName = nullableString(row[idxVenueName] ?? "");
+  return out;
+}
 
 /** A stored Start/End that carries its own UTC offset (or `Z`). */
 const HAS_OFFSET_RE = /(?:Z|[+-]\d{2}:?\d{2})$/;
@@ -450,6 +482,9 @@ export function parseEventsCsv(
     }
     // A before-image is written without the guard, so it is read as written.
     const rows = snapshot ? result.rows : unguardRows(result.rows);
+    if (!snapshot && !withinCellCap(rows)) {
+      return yield* Effect.fail(new MalformedSpreadsheet({ reason: "cell too large" }));
+    }
 
     const header = rows[0]!.map((h) => h.trim());
     const headerNorm = header.map(normaliseName);
@@ -465,8 +500,9 @@ export function parseEventsCsv(
     const idxStart = indexOf("Start");
     const idxEnd = indexOf("End");
     const idxTz = indexOf("Timezone");
-    const idxLocation = indexOf("Location");
+    const idxVenueName = indexOf("Location");
     const idxAddress = indexOf("Address");
+    const idxDescription = indexOf("Description");
     const idxDressDesc = indexOf("Dress Code Description");
     const idxPalette = indexOf("Dress Code Palette");
     const idxPinterest = indexOf("Pinterest URL");
@@ -522,7 +558,7 @@ export function parseEventsCsv(
           startAt: zoneKnown ? stampEventOffset(startAt, timezone) : startAt,
           endAt: zoneKnown ? stampEventOffset(endAt, timezone) : endAt,
           timezone,
-          location: idxLocation === -1 ? null : nullableString(row[idxLocation] ?? ""),
+          ...sheetText(row, idxDescription, idxVenueName),
           address: idxAddress === -1 ? null : nullableString(row[idxAddress] ?? ""),
           dressCodeDescription:
             idxDressDesc === -1 ? null : nullableString(row[idxDressDesc] ?? ""),
@@ -631,7 +667,7 @@ export function parseEventsCsv(
         startAt: stampEventOffset(startAt, timezone),
         endAt: stampEventOffset(endAt, timezone),
         timezone,
-        location: idxLocation === -1 ? null : nullableString(row[idxLocation] ?? ""),
+        ...sheetText(row, idxDescription, idxVenueName),
         address: idxAddress === -1 ? null : nullableString(row[idxAddress] ?? ""),
         dressCodeDescription: idxDressDesc === -1 ? null : nullableString(row[idxDressDesc] ?? ""),
         dressCodePalette: idxPalette === -1 ? [] : parseDressCodePalette(row[idxPalette] ?? ""),
@@ -703,6 +739,9 @@ export function parseGuestsCsv(
     }
     // A before-image is written without the guard, so it is read as written.
     const rows = snapshot ? result.rows : unguardRows(result.rows);
+    if (!snapshot && !withinCellCap(rows)) {
+      return yield* Effect.fail(new MalformedSpreadsheet({ reason: "cell too large" }));
+    }
 
     const header = rows[0]!.map((h) => h.trim());
     const headerNorm = header.map(normaliseName);

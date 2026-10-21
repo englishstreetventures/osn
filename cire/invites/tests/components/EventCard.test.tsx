@@ -8,7 +8,7 @@ import type { EventSummary } from "../../src/components/types";
 
 function respondButton(container: HTMLElement) {
   return [...container.querySelectorAll("button")].find(
-    (b) => b.textContent === "Respond" || b.textContent === "RSVPs closed",
+    (b) => b.textContent === "Respond" || b.textContent === "RSVP given",
   ) as HTMLButtonElement;
 }
 
@@ -68,6 +68,30 @@ describe("EventCard", () => {
     const classes = getByText(/18 September 2026/).className.split(/\s+/);
     expect(classes).toContain("text-gold-ink");
     expect(classes).not.toContain("text-gold");
+  });
+
+  // The card has room for one line about the venue: its name when it has one,
+  // which is what a guest recognises; the address is in the details.
+  it("names the venue on its line when there is a venue name, and the address otherwise", () => {
+    const named = render(() => (
+      <EventCard
+        event={{ ...baseEvent, venueName: "The Glasshouse" }}
+        onRespond={noop}
+        onDetails={noop}
+      />
+    ));
+    expect(named.container.textContent).toContain("The Glasshouse");
+    expect(named.container.textContent).not.toContain("12 Banksia Lane");
+    cleanup();
+
+    const nameOnly = render(() => (
+      <EventCard
+        event={{ ...baseEvent, venueName: "The Glasshouse", address: null }}
+        onRespond={noop}
+        onDetails={noop}
+      />
+    ));
+    expect(nameOnly.container.textContent).toContain("The Glasshouse");
   });
 
   it("omits the venue line entirely when the event has no address", () => {
@@ -223,44 +247,185 @@ describe("EventCard", () => {
     expect(respond.disabled).toBe(false);
   });
 
-  it("locks Respond once the RSVP deadline has passed", () => {
-    const onRespond = vi.fn();
-    const { getByRole, queryByRole } = render(() => (
-      <EventCard event={baseEvent} rsvpClosed onRespond={onRespond} onDetails={noop} />
-    ));
+  describe("after the RSVP deadline", () => {
+    it("drops the answer button for an event nobody answered, and says RSVPs are closed", () => {
+      const { getAllByRole, getByText } = render(() => (
+        <EventCard event={baseEvent} rsvpClosed onRespond={noop} onDetails={noop} />
+      ));
+      // Nothing to answer and nothing to look back at, so no button at all —
+      // the badge beside the name says why, and is not a control.
+      expect(getAllByRole("button").map((b) => b.textContent)).toEqual(["Event Details"]);
+      expect(getByText("RSVPs closed").closest("button")).toBeNull();
+    });
 
-    // Relabelled rather than removed — a vanished button reads as a broken
-    // invite; this says what happened.
-    expect(queryByRole("button", { name: "Respond" })).toBeNull();
-    const closed = getByRole("button", { name: "RSVPs closed" }) as HTMLButtonElement;
-    expect(closed.getAttribute("aria-disabled")).toBe("true");
+    it("turns an answered event's button into an enabled “RSVP given” that opens the sheet", () => {
+      const onRespond = vi.fn();
+      const { getByRole } = render(() => (
+        <EventCard
+          event={baseEvent}
+          rsvpClosed
+          responded
+          rsvpClosedNoticeId="rsvp-deadline-notice"
+          onRespond={onRespond}
+          onDetails={noop}
+        />
+      ));
+      const given = getByRole("button", { name: "RSVP given" }) as HTMLButtonElement;
+      // A way back into the reply, not a locked control: no disabled state of
+      // either kind, and none of the muted outline the locked button wore.
+      expect(given.disabled).toBe(false);
+      expect(given.hasAttribute("aria-disabled")).toBe(false);
+      expect(given.className).not.toContain("text-text-muted");
+      expect(given.className).not.toContain("cursor-not-allowed");
+      // Still says when RSVPs shut, through the events-section notice.
+      expect(given.getAttribute("aria-describedby")).toBe("rsvp-deadline-notice");
 
-    fireEvent.click(closed);
-    expect(onRespond).not.toHaveBeenCalled();
-  });
+      fireEvent.click(given);
+      expect(onRespond).toHaveBeenCalledWith(baseEvent);
+    });
 
-  it("keeps the closed button focusable and described by the notice (C-M2)", () => {
-    const { getByRole } = render(() => (
-      <EventCard
-        event={baseEvent}
-        rsvpClosed
-        rsvpClosedNoticeId="rsvp-deadline-notice"
-        onRespond={noop}
-        onDetails={noop}
-      />
-    ));
-    const closed = getByRole("button", { name: "RSVPs closed" }) as HTMLButtonElement;
+    it("reads “RSVP given” for a household that answered only in part, without the fill or tick", () => {
+      // Some members replied, not all. After the deadline that reply is still
+      // worth showing, but the fill and tick mean "everyone answered", so they
+      // stay off: the button is plain gold with the new label.
+      const onRespond = vi.fn();
+      const { getByRole } = render(() => (
+        <EventCard event={baseEvent} rsvpClosed replied onRespond={onRespond} onDetails={noop} />
+      ));
+      const given = getByRole("button", { name: "RSVP given" });
+      expect(given.hasAttribute("data-rsvp-confirmed")).toBe(false);
+      expect(given.querySelector("svg")).toBeNull();
+      const fill = given.querySelector("span[aria-hidden='true']") as HTMLElement;
+      expect(fill.className).toContain("scale-x-0");
+      fireEvent.click(given);
+      expect(onRespond).toHaveBeenCalledWith(baseEvent);
+    });
 
-    // The native attribute would take it out of the tab order, making the one
-    // per-card explanation of why the action is gone unreachable by keyboard —
-    // and would drop focus to <body> if the deadline passed while it was
-    // focused. `aria-disabled` says the same thing and stays reachable.
-    expect(closed.hasAttribute("disabled")).toBe(false);
-    expect(closed.getAttribute("aria-disabled")).toBe("true");
-    expect(closed.getAttribute("aria-describedby")).toBe("rsvp-deadline-notice");
+    it("keeps “Respond” for a part-answered household while RSVPs are open", () => {
+      // Before the deadline the rest of the household can still answer, so the
+      // button still asks for it.
+      const { getByRole, queryByRole } = render(() => (
+        <EventCard event={baseEvent} replied onRespond={noop} onDetails={noop} />
+      ));
+      expect(getByRole("button", { name: "Respond" })).toBeTruthy();
+      expect(queryByRole("button", { name: "RSVP given" })).toBeNull();
+    });
 
-    closed.focus();
-    expect(document.activeElement).toBe(closed);
+    it("shows the badge only once RSVPs have closed", () => {
+      const { queryByText, unmount } = render(() => (
+        <EventCard
+          event={baseEvent}
+          rsvpClosedNoticeId="rsvp-deadline-notice"
+          onRespond={noop}
+          onDetails={noop}
+        />
+      ));
+      // Open with a deadline set, and open with none: no badge either way.
+      expect(queryByText("RSVPs closed")).toBeNull();
+      unmount();
+      const { queryByText: closedQuery } = render(() => (
+        <EventCard event={baseEvent} rsvpClosed={false} onRespond={noop} onDetails={noop} />
+      ));
+      expect(closedQuery("RSVPs closed")).toBeNull();
+    });
+
+    it("sets the badge beside the heading, never inside it", () => {
+      const { getByRole, getByText } = render(() => (
+        <EventCard event={baseEvent} rsvpClosed responded onRespond={noop} onDetails={noop} />
+      ));
+      // Inside the h3 it would rename the heading to "Mehndi RSVPs closed" for
+      // anyone navigating by headings.
+      const heading = getByRole("heading", { level: 3 });
+      expect(heading.textContent).toBe("Mehndi");
+      expect(getByRole("heading", { name: "Mehndi" })).toBe(heading);
+      const badge = getByText("RSVPs closed");
+      expect(heading.contains(badge)).toBe(false);
+      expect(badge.closest("button")).toBeNull();
+      // Beside the heading: they share a row.
+      expect(badge.parentElement).toBe(heading.parentElement);
+    });
+
+    it("moves focus to Event Details when the deadline removes a focused answer button", () => {
+      const [closed, setClosed] = createSignal(false);
+      const { getByRole } = render(() => (
+        <EventCard event={baseEvent} rsvpClosed={closed()} onRespond={noop} onDetails={noop} />
+      ));
+      getByRole("button", { name: "Respond" }).focus();
+
+      setClosed(true);
+
+      // Without the rescue the guest's focus would fall to <body> mid-page.
+      expect(document.activeElement).toBe(getByRole("button", { name: "Event Details" }));
+    });
+
+    it("rescues focus when the sheet closes after the deadline removed the button behind it", () => {
+      // The sheet's dialog holds focus while the deadline passes, so nothing
+      // may move it then. When the sheet closes it returns focus to its opener —
+      // the answer button, now gone — which leaves focus on <body>.
+      const [closed, setClosed] = createSignal(false);
+      const [covered, setCovered] = createSignal(true);
+      const dialogStandIn = document.createElement("button");
+      document.body.append(dialogStandIn);
+      try {
+        const { getByRole } = render(() => (
+          <EventCard
+            event={baseEvent}
+            rsvpClosed={closed()}
+            covered={covered()}
+            onRespond={noop}
+            onDetails={noop}
+          />
+        ));
+        dialogStandIn.focus();
+
+        setClosed(true);
+        expect(document.activeElement).toBe(dialogStandIn);
+
+        dialogStandIn.remove();
+        expect(document.activeElement).toBe(document.body);
+        setCovered(false);
+
+        expect(document.activeElement).toBe(getByRole("button", { name: "Event Details" }));
+      } finally {
+        dialogStandIn.remove();
+      }
+    });
+
+    it("takes no focus when a closed, unanswered card first renders", () => {
+      // A closed invite loads with no answer button on this card. Nothing was
+      // lost, so nothing is rescued: focus stays wherever the page put it.
+      const before = document.activeElement;
+      render(() => <EventCard event={baseEvent} rsvpClosed onRespond={noop} onDetails={noop} />);
+      expect(document.activeElement).toBe(before);
+    });
+
+    it("leaves focus to the sheet when it closes over an answer button that is still there", () => {
+      // The ordinary close: the dialog hands focus back to the button that
+      // opened it, so the card must not pull it to Event Details first.
+      const [covered, setCovered] = createSignal(true);
+      render(() => (
+        <EventCard event={baseEvent} covered={covered()} onRespond={noop} onDetails={noop} />
+      ));
+      expect(document.activeElement).toBe(document.body);
+      setCovered(false);
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it("leaves focus alone when the guest is somewhere else on the page", () => {
+      const [closed, setClosed] = createSignal(false);
+      const elsewhere = document.createElement("button");
+      document.body.append(elsewhere);
+      try {
+        render(() => (
+          <EventCard event={baseEvent} rsvpClosed={closed()} onRespond={noop} onDetails={noop} />
+        ));
+        elsewhere.focus();
+        setClosed(true);
+        expect(document.activeElement).toBe(elsewhere);
+      } finally {
+        elsewhere.remove();
+      }
+    });
   });
 
   it("carries no aria-disabled or describedby while RSVPs are open", () => {
@@ -344,7 +509,7 @@ describe("EventCard", () => {
       // "shows the tick only together with the fill" below.
     });
 
-    it("renders the tick after the Respond label, not before it", () => {
+    it("renders the tick after the RSVP given label, not before it", () => {
       // `textContent` and `querySelector` checks elsewhere in this file can't
       // distinguish tick-before-label from tick-after-label — the <svg>
       // contributes no text, so a DOM-order check is the one assertion shape
@@ -356,7 +521,7 @@ describe("EventCard", () => {
       const label = button.querySelector("span.relative") as HTMLElement;
       const svg = label.querySelector("svg") as SVGElement;
       const textNode = [...label.childNodes].find(
-        (n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim() === "Respond",
+        (n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim() === "RSVP given",
       );
       expect(textNode).toBeTruthy();
       expect(
@@ -516,9 +681,12 @@ describe("EventCard", () => {
         ));
         const button = respondButton(container);
         const fill = button.querySelector("span[aria-hidden='true']") as HTMLElement;
+        expect(button.textContent).toBe("Respond");
 
         setJustResponded(true);
         expect(fill.className).toContain("scale-x-100");
+        // The label follows the mark, not the data: preview never writes a row.
+        expect(button.textContent).toBe("RSVP given");
 
         // Long past every timer in `rsvp-responded.ts`.
         await vi.advanceTimersByTimeAsync(TOTAL_DURATION_MS * 5);
@@ -681,16 +849,18 @@ describe("EventCard", () => {
       }
     });
 
-    it("keeps the permanent fill and tick visible on the closed, outlined RSVPs-closed button too", () => {
+    it("keeps the permanent fill and tick on “RSVP given” after RSVPs close", () => {
       // The tick, the fill and `rsvpClosed` gate independent parts of the
-      // markup — a household that answered before the deadline should still
-      // see their fill and tick after RSVPs shut, on the relabelled
-      // secondary-styled button.
+      // markup — a household that answered before the deadline still sees
+      // its fill and tick after RSVPs shut, on the same button, not on a
+      // muted outline.
       const { container } = render(() => (
         <EventCard event={baseEvent} rsvpClosed responded onRespond={noop} onDetails={noop} />
       ));
       const button = respondButton(container);
-      expect(button.textContent).toBe("RSVPs closed");
+      expect(button.textContent).toBe("RSVP given");
+      expect(button.className).not.toContain("border-border");
+      expect(button.className).not.toContain("text-text-muted");
       const fill = button.querySelector("span[aria-hidden='true']") as HTMLElement;
       expect(fill.className).toContain("scale-x-100");
       expect(button.querySelector("svg path")).toBeTruthy();

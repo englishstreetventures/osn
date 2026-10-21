@@ -11,6 +11,7 @@
 -- across the batch: drop a parent early and the child's own drop fails.
 
 DROP TABLE IF EXISTS d1_migrations;
+DROP TABLE IF EXISTS seating_assignments;
 DROP TABLE IF EXISTS guest_account_links;
 DROP TABLE IF EXISTS guest_events;
 DROP TABLE IF EXISTS rsvps;
@@ -20,6 +21,8 @@ DROP TABLE IF EXISTS payments;
 DROP TABLE IF EXISTS registry_claims;
 DROP TABLE IF EXISTS registry_contributions;
 DROP TABLE IF EXISTS rsvp_changes;
+DROP TABLE IF EXISTS seating_tables;
+DROP TABLE IF EXISTS task_assignees;
 DROP TABLE IF EXISTS vendor_enquiries;
 DROP TABLE IF EXISTS budget_items;
 DROP TABLE IF EXISTS directory_vendor_categories;
@@ -29,6 +32,7 @@ DROP TABLE IF EXISTS host_rsvp_notices;
 DROP TABLE IF EXISTS imports;
 DROP TABLE IF EXISTS registry_items;
 DROP TABLE IF EXISTS registry_settings;
+DROP TABLE IF EXISTS task_template_dismissals;
 DROP TABLE IF EXISTS tasks;
 DROP TABLE IF EXISTS unlock_code_redemptions;
 DROP TABLE IF EXISTS vendor_claims;

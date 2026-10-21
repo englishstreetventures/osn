@@ -8,7 +8,7 @@ related:
   - "[[osn-and-musubi]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-20
 ---
 
 # OSN Wiki
@@ -40,6 +40,7 @@ Applies to every product: architecture, platform systems, observability, deploys
 - [[platform-limits]] — MAX_EVENT_GUESTS and other caps
 - [[redis]] — Redis-backed rate limiters + cluster-safe auth state stores
 - [[toast]] — `@shared/toast`, the `--toast-*` theming contract, and contrast on the surface a toast actually sits on
+- [[realtime]] — `@shared/realtime`: invalidation signals over WebSocket, the per-topic Durable Object hub, and how a product adopts it
 - [[database-environments]] — four DB environments (local bun:sqlite / dev·staging·prod D1), driver-agnostic Drizzle seam, D1 transaction caveat
 - [[dev-environment]] — the isolated cire + OSN dev tier: tier map, how a merge deploys dev, how a change reaches production, how to reset dev by hand
 - [[production-deploy]] — production runbook for osn-api + the cire stack (secret/var checklist, migrations, the daily production release and its one approval, smoke checks)
@@ -82,7 +83,7 @@ Our identity and social app, its consent screen and marketing site.
 - [[social]] — identity & social-graph management UI (`@musubi/social`)
 - [[social-mobile-ux]] — mobile UX audit + phased responsive-shell plan for `@musubi/social`
 - [[authorize-ui]] — the OIDC consent screen (`/authorize` in `@musubi/social`)
-- [[osn-landing]] — marketing site for OSN (`@musubi/landing`) — dark/dotted, connections-led
+- [[osn-landing]] — marketing site for Musubi (`@musubi/landing`) — dark/dotted, connections-led
 - [[musubi-identity-migration]] — moving osn-api to `id.musubi.social` and making musubi.social the OSN identity home (blockers, credential bridge, config inventory, cutover order)
 
 ## Pulse
@@ -110,6 +111,7 @@ Weddings: guest site, organiser portal, vendor portal, API.
 - [[cire-organiser]] — the cire organiser overview surface
 - [[cire-budget]] — cire budget lines and spend roll-ups
 - [[cire-checklist-tasks]] — the cire planning checklist / tasks module
+- [[cire-seating]] — the seating chart: tables per event, one seat per guest per event in the database, drag or keyboard seating, CSV and print
 - [[cire-entitlements]] — the plan tiers (Ivory, Gold, Crimson): what each opens, the tier gate, guest caps, changing a tier by hand
 - [[cire-upgrades]] — self-serve purchase of a plan tier: catalogue, platform Stripe checkout, the webhook that raises the tier
 - [[cire-invite-designs]] — the invite design selector
@@ -144,7 +146,7 @@ How we work: tests, comments, commands, pull requests, agent tooling.
 - [[contributing]] — PR workflow, changesets, branching
 - [[stacked-prs]] — basing one PR on another with the gh CLI, and merging the stack
 - [[component-lab]] — the in-repo Storybook replacement: prototyping components, three.js and canvas
-- [[bundle-size-guards]] — the two rules any guard that gates on a number obeys, and the guards that hold them: per-app Astro bundle size, the src/pages test-route check, D1 migration-cost, and the monorepo-wide lint-warning ceiling
+- [[bundle-size-guards]] — the two rules any guard with a threshold obeys, and the guards that hold them: per-app Astro bundle size (which warns) and the public source-map refusal beside it, the src/pages test-route check, D1 migration-cost, and the monorepo-wide lint-warning ceiling
 - [[wiki-search]] — the three ways to search this vault, which exist where, and the guard that stops a branch reading stale
 - [[house-lint-rules]] — the `house/*` oxlint rules this repo writes for itself, and the code rule each one enforces
 - [[agent-tooling]] — where agent sessions start, skills and their evals, third-party skills, subagent definitions, the vendored lint plugin
