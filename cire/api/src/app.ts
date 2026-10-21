@@ -898,9 +898,9 @@ export function createApp(db: Db, options: AppOptions = {}) {
     memberStepExcludedWeddings: options.memberStepExcludedWeddings,
   };
 
-  // One publisher for the co-host, checklist and settings writes. No hub
-  // bound ⇒ every signal is a counted no-op and the writes behave exactly as
-  // they did before push.
+  // One publisher for the co-host, checklist, schedule-change and settings
+  // writes. No hub bound ⇒ every signal is a counted no-op and the writes
+  // behave exactly as they did before push.
   const weddingSignals = createWeddingSignals(realtimeHub);
 
   // Capture the chain so we can conditionally mount the payment webhook below.
@@ -1121,7 +1121,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       )
       // General change API (guest+event editor E4). Both front doors
       // (DesiredState JSON + `{eventsCsv, guestsCsv}`) funnel into one pipeline.
-      .use(createOrganiserChangeRoutes(db, r2, osnAuthOptions))
+      .use(createOrganiserChangeRoutes(db, r2, osnAuthOptions, weddingSignals))
       // Wedding-profile Settings (platform Phase 0). Reads admit owner OR
       // co-host; the profile save is owner-only. No event location config —
       // an event's place is its venue name and free-text `address`.

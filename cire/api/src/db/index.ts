@@ -165,6 +165,17 @@ export async function commitBatchResults(
 export const MAX_STATEMENTS_PER_BATCH = 50;
 
 /**
+ * Whether a group of `size` statements starts a new chunk when the chunk being
+ * filled holds `fill`: it would push a non-empty chunk past
+ * `MAX_STATEMENTS_PER_BATCH`. The one packing rule {@link chunkGroups} follows,
+ * exported so a caller building a write set can tell which batch each of its
+ * statements will commit in.
+ */
+export function startsNewChunk(fill: number, size: number): boolean {
+  return fill > 0 && fill + size > MAX_STATEMENTS_PER_BATCH;
+}
+
+/**
  * Pack groups into chunks of at most `MAX_STATEMENTS_PER_BATCH` statements,
  * never splitting a group across two chunks. Shared by
  * {@link commitGroupedBatches} and {@link commitGroupedBatchesReturning} so the
@@ -178,7 +189,7 @@ function chunkGroups(groups: BatchItem<"sqlite">[][]): BatchItem<"sqlite">[][] {
   const chunks: BatchItem<"sqlite">[][] = [];
   let chunk: BatchItem<"sqlite">[] = [];
   for (const group of groups) {
-    if (chunk.length > 0 && chunk.length + group.length > MAX_STATEMENTS_PER_BATCH) {
+    if (startsNewChunk(chunk.length, group.length)) {
       chunks.push(chunk);
       chunk = [];
     }

@@ -1,5 +1,5 @@
 import { imports, weddings } from "@cire/db";
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, lt, sql } from "drizzle-orm";
 import { Effect, Option, Schema } from "effect";
 import { Elysia } from "elysia";
 
@@ -28,6 +28,7 @@ import { applyImport, diffAgainstDb } from "../services/import";
 import type { DeletableBucket } from "../services/r2-cleanup";
 import { R2Service, fetchUpload, storeUpload } from "../services/r2-imports";
 import type { R2Bucket } from "../services/r2-imports";
+import { createWeddingSignals, type WeddingSignals } from "../services/realtime";
 import { revertImport, revertScopeOf } from "../services/revert";
 import { parseEventsCsv, parseGuestsCsv } from "../services/spreadsheet";
 import type {
@@ -304,11 +305,24 @@ function desiredStateFromRow(
  *    `{summary, revision}`, `revision` being the head after this change.
  *  - `revert` — `{changeId}`. Before-image restore (E3).
  *  - `list` — paginated change history (imports + editor saves).
+ *
+ * A change that removes an event a checklist task is linked to: the preview's
+ * plan lists those tasks (`linkedTasks`), apply removes the ones named in
+ * `removeLinkedTasks` and keeps every other one, unlinked, at the time it last
+ * had, and the change's stored summary records how many of each
+ * (`linkedTasksKept` / `linkedTasksRemoved`), for the revert's confirmation.
+ *
+ * An apply or revert that created, updated or removed an event moves the times
+ * of the tasks linked to it, so it tells the wedding's open tabs
+ * (`signals.tasksChanged`) after it commits — and after one that failed part
+ * way, since some of it may have committed. A change to the guests alone tells
+ * nobody.
  */
 export const createOrganiserChangeRoutes = (
   db: Db,
   r2: R2Bucket | undefined,
   osnAuthOptions: OsnAuthOptions,
+  signals: WeddingSignals = createWeddingSignals(undefined),
 ) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
@@ -522,7 +536,7 @@ export const createOrganiserChangeRoutes = (
 
             return runCire(
               Effect.gen(function* () {
-                const { changeId, confirmClears } =
+                const { changeId, confirmClears, removeLinkedTasks } =
                   yield* Schema.decodeUnknownEffect(ApplyBody)(raw);
                 const dbService = yield* DbService;
 
@@ -676,6 +690,19 @@ export const createOrganiserChangeRoutes = (
                 // before-image over this one's.
                 const claim = yield* claimChanges(weddingId, baseRevision);
 
+                // The tasks linked to the events this change removes: how many
+                // go with them and how many stay, for the revert's warning.
+                const linked = plan.linkedTasks ?? [];
+                const chosen = new Set(removeLinkedTasks ?? []);
+                const linkedRemoved = linked.filter((t) => chosen.has(t.id)).length;
+                const linkedCounts =
+                  linked.length > 0
+                    ? sql`json_set(${imports.summary}, '$.linkedTasksKept', ${linked.length - linkedRemoved}, '$.linkedTasksRemoved', ${linkedRemoved})`
+                    : imports.summary;
+                const touchesSchedule =
+                  plan.eventCreates.length + plan.eventUpdates.length + plan.eventRemoves.length >
+                  0;
+
                 // E3 checkpoint: snapshot the pre-change state at full fidelity
                 // as this change's before-image, then apply, then prune. The
                 // head move, the claim's release and the status flip ride in
@@ -687,22 +714,37 @@ export const createOrganiserChangeRoutes = (
                   claim,
                   Effect.gen(function* () {
                     const before = yield* captureBeforeImage(changeId, weddingId);
-                    return yield* applyImport(changeId, plan, weddingId, [
-                      commitClaimStatement(dbService, claim),
-                      dbService
-                        .update(imports)
-                        .set({
-                          status: "applied",
-                          appliedAt: Date.now(),
-                          beforeEventsR2Key: before.eventsKey,
-                          beforeGuestsR2Key: before.guestsKey,
-                        })
-                        .where(and(eq(imports.id, changeId), eq(imports.status, "preview"))),
-                    ]);
+                    return yield* applyImport(
+                      changeId,
+                      plan,
+                      weddingId,
+                      [
+                        commitClaimStatement(dbService, claim),
+                        dbService
+                          .update(imports)
+                          .set({
+                            status: "applied",
+                            appliedAt: Date.now(),
+                            beforeEventsR2Key: before.eventsKey,
+                            beforeGuestsR2Key: before.guestsKey,
+                            summary: linkedCounts,
+                          })
+                          .where(and(eq(imports.id, changeId), eq(imports.status, "preview"))),
+                      ],
+                      { removeLinkedTasks },
+                    );
                   }),
                   // Both are raised before any data statement is sent.
                   (e) => e._tag === "R2Error" || e._tag === "CapacityExceeded",
+                ).pipe(
+                  // A failed write set may have committed its first batches.
+                  Effect.tapError((e) =>
+                    e._tag === "ImportError" && touchesSchedule
+                      ? signals.tasksChanged(weddingId, request)
+                      : Effect.void,
+                  ),
                 );
+                if (touchesSchedule) yield* signals.tasksChanged(weddingId, request);
 
                 yield* pruneBeforeImages(weddingId, r2 as DeletableBucket | undefined);
 
@@ -785,7 +827,18 @@ export const createOrganiserChangeRoutes = (
             return runCire(
               Effect.gen(function* () {
                 const { changeId } = yield* Schema.decodeUnknownEffect(RevertBody)(raw);
-                const summary = yield* revertImport(changeId, weddingId);
+                const summary = yield* revertImport(changeId, weddingId).pipe(
+                  // A failed revert may have committed its first batches, and
+                  // which halves they touched is not known here.
+                  Effect.tapError((e) =>
+                    e._tag === "ImportError"
+                      ? signals.tasksChanged(weddingId, request)
+                      : Effect.void,
+                  ),
+                );
+                if (summary.eventsCreated + summary.eventsUpdated + summary.eventsRemoved > 0) {
+                  yield* signals.tasksChanged(weddingId, request);
+                }
                 return { summary };
               }).pipe(
                 Effect.provideService(DbService, db),

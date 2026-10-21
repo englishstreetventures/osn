@@ -12,9 +12,11 @@ import {
   runOfShowItems,
   seatingAssignments,
   seatingTables,
+  tasks,
   weddingHosts,
   weddings,
 } from "@cire/db";
+import type { HubNamespace } from "@shared/realtime/server";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -4072,5 +4074,268 @@ describe("claimRefused", () => {
       error: "Another change is being saved — try again in a moment",
       reason: "change_in_progress",
     });
+  });
+});
+
+// ── Checklist tasks linked to the schedule ──────────────────────────────────
+
+describe("a schedule change and the checklist tasks linked to its events", () => {
+  type Published = { name: string; kind: unknown };
+
+  /** The bootstrap wedding with the two-event schedule applied, a recording
+   *  hub, and two tasks linked to the Reception (16:00 Sydney, +10:00). */
+  async function linkedWedding() {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+    const r2 = createR2Stub();
+    const publishes: Published[] = [];
+    let rejectNext = false;
+    const hub: HubNamespace = {
+      getByName: (name) => ({
+        publish: async (signal) => {
+          publishes.push({ name, kind: (signal as { kind: unknown }).kind });
+          if (rejectNext) throw new Error("hub down");
+          return 1;
+        },
+        fetch: async () => new Response(null, { status: 426 }),
+      }),
+    };
+    const app = createApp(db, { r2, osnTestKey: auth.key, realtimeHub: hub });
+    await seedSheets(app);
+    const reception = db.select().from(events).where(eq(events.name, "Reception")).get()!;
+    const now = new Date();
+    db.insert(tasks)
+      .values([
+        {
+          id: "tsk_cake",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title: "Set up the cake table",
+          timeframeBucket: "day_of",
+          createdAt: now,
+          eventId: reception.id,
+          runOffsetMinutes: -60,
+        },
+        {
+          id: "tsk_toast",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title: "Cue the toast",
+          timeframeBucket: "day_of",
+          createdAt: now,
+          eventId: reception.id,
+          runOffsetMinutes: 30,
+        },
+      ])
+      .run();
+    publishes.length = 0;
+    return { db, app, publishes, reception, failHub: () => (rejectNext = true) };
+  }
+
+  /** The schedule without the Reception: an events-only sheet. */
+  const WITHOUT_RECEPTION = EVENTS_CSV.split("\n").slice(0, 2).join("\n");
+
+  async function previewDropping(app: ReturnType<typeof buildApp>["app"]) {
+    const res = await ownerPost(app, `${CHANGES_BASE}/preview`, { eventsCsv: WITHOUT_RECEPTION });
+    expect(res.status).toBe(200);
+    return (await res.json()) as {
+      changeId: string;
+      plan: { linkedTasks?: Array<Record<string, unknown>> };
+    };
+  }
+
+  const task = (db: ReturnType<typeof buildApp>["db"], id: string) =>
+    db.select().from(tasks).where(eq(tasks.id, id)).get();
+
+  const listed = async (app: ReturnType<typeof buildApp>["app"]) =>
+    (
+      (await (await ownerGet(app, `${CHANGES_BASE}/list`)).json()) as {
+        imports: Array<{ id: string; summary: Record<string, unknown> }>;
+      }
+    ).imports;
+
+  it("lists the tasks linked to the event it removes, with the time each would keep", async () => {
+    const { app, reception } = await linkedWedding();
+    const preview = await previewDropping(app);
+    expect(preview.plan.linkedTasks).toEqual([
+      {
+        id: "tsk_cake",
+        title: "Set up the cake table",
+        eventId: reception.id,
+        offsetMinutes: -60,
+        frozenRunAt: "2026-09-20T15:00:00+10:00",
+        frozenTimezone: "Australia/Sydney",
+      },
+      {
+        id: "tsk_toast",
+        title: "Cue the toast",
+        eventId: reception.id,
+        offsetMinutes: 30,
+        frozenRunAt: "2026-09-20T16:30:00+10:00",
+        frozenTimezone: "Australia/Sydney",
+      },
+    ]);
+  });
+
+  it("removes the tasks the organiser chose, keeps the rest unlinked at their time, and records both counts", async () => {
+    const { db, app } = await linkedWedding();
+    const preview = await previewDropping(app);
+    const res = await ownerPost(app, `${CHANGES_BASE}/apply`, {
+      changeId: preview.changeId,
+      removeLinkedTasks: ["tsk_cake"],
+    });
+    expect(res.status).toBe(200);
+    expect(task(db, "tsk_cake")).toBeUndefined();
+    expect(task(db, "tsk_toast")).toMatchObject({
+      eventId: null,
+      runOffsetMinutes: null,
+      runAt: "2026-09-20T16:30:00+10:00",
+      runTimezone: "Australia/Sydney",
+    });
+    expect(task(db, "tsk_toast")?.eventRemovedAt).not.toBeNull();
+    const [change] = await listed(app);
+    expect(change).toMatchObject({
+      id: preview.changeId,
+      summary: { linkedTasksKept: 1, linkedTasksRemoved: 1 },
+    });
+  });
+
+  it("keeps every linked task for an apply that names none, as an older portal sends", async () => {
+    const { db, app } = await linkedWedding();
+    const preview = await previewDropping(app);
+    expect(
+      (await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: preview.changeId })).status,
+    ).toBe(200);
+    for (const id of ["tsk_cake", "tsk_toast"]) {
+      expect(task(db, id), id).toMatchObject({ eventId: null, runTimezone: "Australia/Sydney" });
+    }
+    const [change] = await listed(app);
+    expect(change?.summary).toMatchObject({ linkedTasksKept: 2, linkedTasksRemoved: 0 });
+  });
+
+  it("records no task counts for a change that met no linked task", async () => {
+    const { app } = buildApp();
+    await seedSheets(app);
+    const [change] = await listed(app);
+    expect(change?.summary).not.toHaveProperty("linkedTasksKept");
+  });
+
+  it("400s a removal list that is too long or names an empty id, and applies nothing", async () => {
+    const { db, app } = await linkedWedding();
+    const preview = await previewDropping(app);
+    for (const removeLinkedTasks of [
+      Array.from({ length: 501 }, (_, i) => `tsk_${i}`),
+      [""],
+      ["t".repeat(65)],
+      "tsk_cake",
+    ]) {
+      const res = await ownerPost(app, `${CHANGES_BASE}/apply`, {
+        changeId: preview.changeId,
+        removeLinkedTasks,
+      });
+      expect(res.status).toBe(400);
+    }
+    expect(db.select().from(events).where(eq(events.name, "Reception")).get()).toBeDefined();
+    expect(task(db, "tsk_cake")?.eventId).not.toBeNull();
+  });
+
+  it("tells the wedding's open tabs once a change that touched the schedule is applied, and once it is reverted", async () => {
+    const { app, publishes } = await linkedWedding();
+    const preview = await previewDropping(app);
+    expect(publishes).toEqual([]);
+    expect(
+      (await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: preview.changeId })).status,
+    ).toBe(200);
+    const topic = `cire:wedding:${BOOTSTRAP_WEDDING_ID}`;
+    expect(publishes).toEqual([{ name: topic, kind: "tasks-changed" }]);
+    expect(
+      (await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: preview.changeId })).status,
+    ).toBe(200);
+    expect(publishes).toEqual([
+      { name: topic, kind: "tasks-changed" },
+      { name: topic, kind: "tasks-changed" },
+    ]);
+  });
+
+  it("tells nobody about a change to the guests alone", async () => {
+    const { app, publishes } = await linkedWedding();
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      guestsCsv: `${GUESTS_CSV}\n3,Charlie,Cy,Charlie,yes,yes`,
+    });
+    const { changeId } = (await preview.json()) as { changeId: string };
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
+    expect((await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId })).status).toBe(200);
+    expect(publishes).toEqual([]);
+  });
+
+  it("tells the tabs after an apply that failed part way through the schedule", async () => {
+    const { db, app, publishes } = await linkedWedding();
+    const preview = await previewDropping(app);
+    // The tasks are frozen, then the event delete fails: some of the change
+    // committed, so a tab showing the tasks must read them again.
+    const failure = failStatements(db, (text) => text.startsWith('delete from "events"'));
+    const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: preview.changeId });
+    failure.restore();
+    expect(res.status).toBe(500);
+    expect(publishes.map((p) => p.kind)).toEqual(["tasks-changed"]);
+  });
+
+  it("does not fail an apply when the hub rejects the publish", async () => {
+    const { db, app, failHub } = await linkedWedding();
+    failHub();
+    const preview = await previewDropping(app);
+    expect(
+      (await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: preview.changeId })).status,
+    ).toBe(200);
+    expect(db.select().from(events).where(eq(events.name, "Reception")).get()).toBeUndefined();
+  });
+
+  it("leaves kept tasks unlinked when the change is reverted, and does not bring removed ones back", async () => {
+    const { db, app } = await linkedWedding();
+    const preview = await previewDropping(app);
+    expect(
+      (
+        await ownerPost(app, `${CHANGES_BASE}/apply`, {
+          changeId: preview.changeId,
+          removeLinkedTasks: ["tsk_cake"],
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: preview.changeId })).status,
+    ).toBe(200);
+
+    // The Reception is back (as a new row), and nothing links to it.
+    const back = db.select().from(events).where(eq(events.name, "Reception")).get();
+    expect(back).toBeDefined();
+    expect(db.select().from(tasks).where(eq(tasks.eventId, back!.id)).all()).toEqual([]);
+    expect(task(db, "tsk_cake")).toBeUndefined();
+    expect(task(db, "tsk_toast")).toMatchObject({
+      eventId: null,
+      runAt: "2026-09-20T16:30:00+10:00",
+    });
+    expect(task(db, "tsk_toast")?.eventRemovedAt).not.toBeNull();
+  });
+
+  it("keeps a task linked to an event a revert removes, unlinked at its time and marked", async () => {
+    const { db, app } = await linkedWedding();
+    const withSangeet = `${EVENTS_CSV}\nSangeet,2026-09-19T18:00:00+10:00,2026-09-19T23:00:00+10:00,Australia/Sydney,Hall,,Festive,,,`;
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, { eventsCsv: withSangeet });
+    const { changeId } = (await preview.json()) as { changeId: string };
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
+    const sangeet = db.select().from(events).where(eq(events.name, "Sangeet")).get()!;
+    db.update(tasks)
+      .set({ eventId: sangeet.id, runOffsetMinutes: -15 })
+      .where(eq(tasks.id, "tsk_toast"))
+      .run();
+
+    expect((await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId })).status).toBe(200);
+
+    expect(db.select().from(events).where(eq(events.name, "Sangeet")).get()).toBeUndefined();
+    expect(task(db, "tsk_toast")).toMatchObject({
+      eventId: null,
+      runOffsetMinutes: null,
+      runAt: "2026-09-19T17:45:00+10:00",
+      runTimezone: "Australia/Sydney",
+    });
+    expect(task(db, "tsk_toast")?.eventRemovedAt).not.toBeNull();
   });
 });
