@@ -96,8 +96,10 @@ A dispatch to one of these definitions passes neither. A `model` on the Agent
 call overrides the definition's `model:`, and the transcripts show it happening —
 `attacker` sent with another model, `mechanic` sent with `opus` — each one a
 silent departure from the setting the definition records. The Agent tool also
-takes `effort`, but a value there is the same kind of override; change the
-definition instead, so every dispatch picks the change up.
+takes `effort`, and a value there is the same kind of override, with one
+exception the owner has set: a double review passes `effort: xhigh` on its
+second `reviewer` pass (`prep-pr` Step 6, Agent 2). Every other dispatch passes
+neither, and a change to the level goes in the definition.
 
 Frontmatter `effort` overrides the session's effort level, but not the
 `CLAUDE_CODE_EFFORT_LEVEL` environment variable
