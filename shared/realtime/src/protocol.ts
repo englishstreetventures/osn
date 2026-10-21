@@ -8,8 +8,16 @@
 export const REALTIME_PRODUCTS = ["cire"] as const;
 export type RealtimeProduct = (typeof REALTIME_PRODUCTS)[number];
 
-/** What a signal can say. Closed: a new kind is a new member here. */
-export const SIGNAL_KINDS = ["members-changed"] as const;
+/**
+ * What a signal can say. Closed: a new kind is a new member here. A client
+ * built before a kind existed drops a frame carrying it (`isSignal`), so a new
+ * kind reaches an older tab as nothing rather than as another kind.
+ *
+ * - `members-changed` — who holds a place on the topic's entity, or what that
+ *   place lets them see, changed.
+ * - `tasks-changed` — the entity's tasks, or who holds them, changed.
+ */
+export const SIGNAL_KINDS = ["members-changed", "tasks-changed"] as const;
 export type SignalKind = (typeof SIGNAL_KINDS)[number];
 
 /** "Something about `topic` changed" — never the data itself. */
