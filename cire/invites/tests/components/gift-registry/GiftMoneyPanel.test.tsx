@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { resetToasts, Toaster } from "@shared/toast";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -19,7 +20,9 @@ import { formatGiftPrice, type GiftRegistryFund } from "../../../src/lib/gift-re
  *     currency's real exponent: a fixed ×100 is wrong by 100× in yen;
  *   - an amount the server would refuse cannot be submitted at all;
  *   - every refusal says something the guest can act on, and the one they CAN
- *     fix — a lapsed session — hands them the way back.
+ *     fix — a lapsed session — hands them the way back;
+ *   - a fund that closed under the guest is said in a toast whose Refresh reads
+ *     the list again, and only when the guest presses it.
  */
 
 const API = "https://api.test";
@@ -46,16 +49,24 @@ function stubFetch(response: Response) {
   return { mock, calls };
 }
 
+/** The page mounts the one `<Toaster>`, so a panel rendered alone needs its own. */
 function renderPanel(props: Partial<Parameters<typeof GiftMoneyPanel>[0]> = {}) {
   return render(() => (
-    <GiftMoneyPanel apiUrl={API} slug={SLUG} currency="AUD" inviteHref={INVITE_HREF} {...props} />
+    <>
+      <GiftMoneyPanel apiUrl={API} slug={SLUG} currency="AUD" inviteHref={INVITE_HREF} {...props} />
+      <Toaster />
+    </>
   ));
 }
+
+const FUND_CLOSED = "This fund is no longer available.";
 
 const realFetch = globalThis.fetch;
 
 afterEach(() => {
   cleanup();
+  // The toast queue is one per page, and a test file is one page.
+  resetToasts();
   globalThis.fetch = realFetch;
   vi.restoreAllMocks();
 });
@@ -196,13 +207,15 @@ describe("the amount a guest types", () => {
 describe("when it does not work", () => {
   it("says the couple are not taking money, without blaming the guest", async () => {
     stubFetch(json({ error: "cash_gifts_unavailable" }, 409));
-    const onFundClosed = vi.fn();
-    const { container } = renderPanel({ onFundClosed });
+    const refreshList = vi.fn();
+    const { container } = renderPanel({ refreshList });
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
     const said = await screen.findByText("The couple aren’t taking money gifts at the moment.");
     expect(said).toBeTruthy();
-    // Only a closed fund asks the page for a fresh list.
-    expect(onFundClosed).not.toHaveBeenCalled();
+    // Only a closed fund raises the toast and offers a fresh list.
+    expect(screen.queryByText(FUND_CLOSED)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+    expect(refreshList).not.toHaveBeenCalled();
   });
 
   it("hands back the way in when the session has lapsed", async () => {
@@ -367,12 +380,16 @@ describe("giving to a fund", () => {
     expect(choice.querySelector("img")).toBeNull();
   });
 
-  it("says a fund has closed even on a page that asked for no fresh list", async () => {
+  it("says a fund has closed even on a page that offers no fresh list", async () => {
     stubFetch(json({ error: "fund_unavailable" }, 409));
     const { container } = renderPanel({ funds: [HONEYMOON] });
     fireEvent.click(screen.getByRole("radio", { name: /Honeymoon in Kyoto/ }));
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
-    expect(await screen.findByText(giftMoneyMessage({ kind: "fund-closed" }))).toBeTruthy();
+    const toast = (await screen.findByText(FUND_CLOSED)).closest(".ui-toast") as HTMLElement;
+    // Nothing to press that would do nothing — but a way to close it, since it
+    // does not leave on its own.
+    expect(toast.querySelector(".ui-toast__action")).toBeNull();
+    expect(toast.querySelector(".ui-toast__close")).toBeTruthy();
   });
 
   it("offers no choice of fund when the couple have none", () => {
@@ -380,30 +397,43 @@ describe("giving to a fund", () => {
     expect(container.querySelector("[data-gift-money-funds]")).toBeNull();
   });
 
-  it("says a closed fund has closed, asks for a fresh list, and falls back to the couple", async () => {
-    const onFundClosed = vi.fn();
+  it("says a closed fund has closed in a toast, and reads the list again only on Refresh", async () => {
+    const refreshList = vi.fn();
     const assign = captureNavigation();
     const [funds, setFunds] = createSignal<readonly GiftRegistryFund[]>([HONEYMOON, HOUSE]);
     stubFetch(json({ error: "fund_unavailable" }, 409));
     const { container } = render(() => (
-      <GiftMoneyPanel
-        apiUrl={API}
-        slug={SLUG}
-        currency="AUD"
-        inviteHref={INVITE_HREF}
-        funds={funds()}
-        fundImageBase={fundImage}
-        onFundClosed={onFundClosed}
-        navigate={assign}
-      />
+      <>
+        <GiftMoneyPanel
+          apiUrl={API}
+          slug={SLUG}
+          currency="AUD"
+          inviteHref={INVITE_HREF}
+          funds={funds()}
+          fundImageBase={fundImage}
+          refreshList={refreshList}
+          navigate={assign}
+        />
+        <Toaster />
+      </>
     ));
 
     fireEvent.click(screen.getByRole("radio", { name: /Honeymoon in Kyoto/ }));
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
 
-    await screen.findByText(giftMoneyMessage({ kind: "fund-closed" }));
-    expect(onFundClosed).toHaveBeenCalledTimes(1);
+    const toast = (await screen.findByText(FUND_CLOSED)).closest(".ui-toast") as HTMLElement;
+    // An error, so it is heard at once; and said once — the panel's own
+    // status line does not repeat it.
+    expect(toast.getAttribute("role")).toBe("alert");
+    expect(container.querySelector("[data-gift-money-status]")?.textContent).toBe("");
     expect(assign).not.toHaveBeenCalled();
+    // The list is read again when the guest asks, not before.
+    expect(refreshList).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(refreshList).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByText(FUND_CLOSED)).toBeNull());
+
     // The fresh list no longer has it, so the choice goes back to the couple
     // rather than pointing at something that is not there.
     setFunds([HOUSE]);
@@ -414,11 +444,26 @@ describe("giving to a fund", () => {
     );
   });
 
+  it("takes the closed-fund toast away when the guest tries again", async () => {
+    const { mock } = stubFetch(json({ error: "fund_unavailable" }, 409));
+    const { container } = renderPanel({ funds: [HONEYMOON, HOUSE], refreshList: vi.fn() });
+    fireEvent.click(screen.getByRole("radio", { name: /Honeymoon in Kyoto/ }));
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+    await screen.findByText(FUND_CLOSED);
+
+    // The next try answers something else; the old notice must not sit over it.
+    mock.mockImplementation(async () => json({ error: "cash_gifts_unavailable" }, 409));
+    fireEvent.click(screen.getByRole("radio", { name: /Wherever they choose/ }));
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+    await screen.findByText("The couple aren’t taking money gifts at the moment.");
+    await waitFor(() => expect(screen.queryByText(FUND_CLOSED)).toBeNull());
+  });
+
   it("has words of its own for a fund that has closed, apart from money being off", () => {
+    expect(giftMoneyMessage({ kind: "fund-closed" })).toBe(FUND_CLOSED);
     expect(giftMoneyMessage({ kind: "fund-closed" })).not.toBe(
       giftMoneyMessage({ kind: "unavailable" }),
     );
-    expect(giftMoneyMessage({ kind: "fund-closed" })).toMatch(/fund/i);
   });
 });
 

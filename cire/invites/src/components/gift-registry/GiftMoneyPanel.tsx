@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { toast, type ToastOptions } from "@shared/toast";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
 import {
@@ -38,8 +39,8 @@ import { variantSrc } from "../invite-images";
  * amount: "wherever they choose" first and chosen, then each fund by its name,
  * picture and the couple's words. Nothing else about a fund is here, and
  * nothing else exists on the wire to show: its goal and what has come in are
- * the couple's. A fund that closed while the page was open is said so, and the
- * page is asked for a fresh list.
+ * the couple's. A fund that closed while the page was open is said in a toast,
+ * whose Refresh reads the list again.
  */
 
 export interface GiftMoneyPanelProps {
@@ -60,8 +61,11 @@ export interface GiftMoneyPanelProps {
   funds?: readonly GiftRegistryFund[];
   /** A fund's picture route, with no `?variant=` yet, or null for no picture. */
   fundImageBase?: (fund: GiftRegistryFund) => string | null;
-  /** The fund the guest chose has closed: the page should read the list again. */
-  onFundClosed?: () => void;
+  /**
+   * Read the gift list again. The toast for a fund that has closed offers it as
+   * Refresh; without it, the toast says so and offers nothing to press.
+   */
+  refreshList?: () => void;
   /**
    * How the guest is handed to Stripe. A seam, not a setting: the one line
    * that leaves the site is the one line a test cannot let run, and stubbing
@@ -79,7 +83,8 @@ export function giftMoneyMessage(result: GiftContributionResult): string {
     case "unavailable":
       return "The couple aren’t taking money gifts at the moment.";
     case "fund-closed":
-      return "That fund is no longer on the couple’s list. Choose another, or give to them directly.";
+      // Said in a toast, not the status line; see `showFundClosed`.
+      return "This fund is no longer available.";
     case "signed-out":
       return "Your invite session has ended. Enter your invite code again on the invitation.";
     case "rate-limited":
@@ -118,6 +123,12 @@ function ChoiceMark(props: { chosen: boolean }) {
   );
 }
 
+/**
+ * One id for the closed-fund toast, so a second refusal updates the one on
+ * screen rather than stacking a copy, and a new attempt can take it away.
+ */
+const FUND_CLOSED_TOAST = "gift-fund-closed";
+
 export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
   // `null` is the "Other" row: a preset is a number, and typing is its absence.
   const [preset, setPreset] = createSignal<number | null>(GIFT_AMOUNT_PRESETS_MINOR[0]);
@@ -146,12 +157,34 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
 
   const priceLabel = (minor: number) => formatGiftPrice(minor, props.currency) ?? String(minor);
 
+  /**
+   * The chosen fund has closed. Said in a toast with a Refresh that reads the
+   * list again; the fresh list drops the fund, and the effect above hands the
+   * choice back to the couple.
+   *
+   * Pinned, with a close button: the toast carries the way to a fresh list,
+   * and one that leaves on its own takes that way with it. The panel's status
+   * line stays empty, so the guest is told once.
+   */
+  function showFundClosed() {
+    const options: ToastOptions = {
+      id: FUND_CLOSED_TOAST,
+      duration: Number.POSITIVE_INFINITY,
+      dismissible: true,
+    };
+    const refresh = props.refreshList;
+    if (refresh) options.action = { label: "Refresh", onClick: refresh };
+    toast.error(giftMoneyMessage({ kind: "fund-closed" }), options);
+  }
+
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     const amount = amountMinor();
     if (amount === null || busy() || props.preview) return;
     setBusy(true);
     setStatus("");
+    // A new attempt has its own outcome; the last closed fund's toast goes.
+    toast.dismiss(FUND_CLOSED_TOAST);
     const trimmedName = displayName().trim();
     const trimmedMessage = message().trim();
     const result = await contributeGift(props.apiUrl, props.slug, {
@@ -169,8 +202,11 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
       return;
     }
     setBusy(false);
+    if (result.kind === "fund-closed") {
+      showFundClosed();
+      return;
+    }
     setStatus(giftMoneyMessage(result));
-    if (result.kind === "fund-closed") props.onFundClosed?.();
   }
 
   return (
