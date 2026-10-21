@@ -991,7 +991,7 @@ describe("OrganiserApp Dashboard", () => {
 
     it("opens a helper onto the run sheet, handed the wedding's tier and no editing", async () => {
       await helperSeat();
-      expect(screen.getByTestId("run-sheet").dataset).toMatchObject({
+      expect((await screen.findByTestId("run-sheet")).dataset).toMatchObject({
         wedding: "wed_a",
         tier: "gold",
         role: "helper",

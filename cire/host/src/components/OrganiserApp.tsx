@@ -61,7 +61,7 @@ import type { WeddingRole } from "../lib/wedding-roles";
 import type { DeletedWeddingSummary, WeddingSummary } from "./CreateWeddingForm";
 import LeaveWedding from "./LeaveWedding";
 import ModuleShell from "./ModuleShell";
-import RunSheetView from "./RunSheetView";
+import PanelLoading from "./PanelLoading";
 import SecurityPanel from "./SecurityPanel";
 import TopBar from "./TopBar";
 import WeddingList from "./WeddingList";
@@ -75,6 +75,11 @@ import WeddingList from "./WeddingList";
  * this chunk has arrived.
  */
 const CommandPalette = lazy(() => import("./CommandPalette"));
+
+/** The run sheet: a helper's whole seat, and the shell's Gold module, which
+ *  loads the same chunk. Split out so an organiser who never opens it never
+ *  pays for it. */
+const RunSheetView = lazy(() => import("./RunSheetView"));
 
 /**
  * How long after the last check the portal asks the API again, when the tab
@@ -271,12 +276,14 @@ function RunSheetSeat(props: { weddingId: string; wedding: WeddingSummary; onLef
           </div>
           <hr class="gilt-rule opacity-60" />
         </header>
-        <RunSheetView
-          weddingId={props.weddingId}
-          tier={tierOf(props.wedding)}
-          callerRole={props.wedding.role}
-          canEdit={false}
-        />
+        <Suspense fallback={<PanelLoading />}>
+          <RunSheetView
+            weddingId={props.weddingId}
+            tier={tierOf(props.wedding)}
+            callerRole={props.wedding.role}
+            canEdit={false}
+          />
+        </Suspense>
         {/* A helper never reaches the co-host panel, so their way out lives here. */}
         <LeaveWedding weddingId={props.weddingId} onLeft={props.onLeft} />
       </div>

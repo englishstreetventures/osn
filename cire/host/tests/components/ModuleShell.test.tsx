@@ -788,27 +788,28 @@ describe("ModuleShell", () => {
       },
     );
 
-    it.each(["checklist", "run-sheet", "budget"] as const)("renders %s on Gold", (id) => {
+    // The run sheet is its own chunk, so it may land after the first paint.
+    it.each(["checklist", "run-sheet", "budget"] as const)("renders %s on Gold", async (id) => {
       renderShell({ module: id, tier: "gold" });
-      expect(screen.getByTestId(id)).toBeTruthy();
+      expect(await screen.findByTestId(id)).toBeTruthy();
       expect(screen.queryByTestId("overview")).toBeNull();
     });
 
-    it("hands the run sheet the tier and role, and a way to the checklist only to an editor", () => {
+    it("hands the run sheet the tier and role, and a way to the checklist only to an editor", async () => {
       const editor = renderShell({
         module: "run-sheet",
         tier: "gold",
         canEdit: true,
         role: "editor",
       });
-      const view = screen.getByTestId("run-sheet");
+      const view = await screen.findByTestId("run-sheet");
       expect(view.dataset).toMatchObject({ tier: "gold", role: "editor", canEdit: "true" });
       fireEvent.click(screen.getByRole("button", { name: "open-checklist" }));
       expect(editor.onModule).toHaveBeenCalledWith("checklist");
       cleanup();
 
       renderShell({ module: "run-sheet", tier: "gold", canEdit: false, role: "viewer" });
-      expect(screen.getByTestId("run-sheet").dataset).toMatchObject({
+      expect((await screen.findByTestId("run-sheet")).dataset).toMatchObject({
         role: "viewer",
         canEdit: "false",
       });

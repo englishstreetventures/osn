@@ -33,7 +33,6 @@ import Overview from "./Overview";
 import PanelLoading from "./PanelLoading";
 import RemintPanel from "./RemintPanel";
 import RsvpView from "./RsvpView";
-import RunSheetView from "./RunSheetView";
 import SettingsPanel from "./SettingsPanel";
 
 /**
@@ -82,6 +81,10 @@ const loadEnquiries = () => import("./EnquiriesView");
 /** The seating chart, split out for the registry's reason: it is a Gold module,
  *  so an organiser whose tier does not include it never pays for it. */
 const loadSeating = () => import("./SeatingView");
+/** The run sheet, for the same reason. A helper's seat (`OrganiserApp`) loads
+ *  the same chunk, so its store stays the one the checklist marks stale. Like
+ *  the seating chart it has no sub-tabs, so nothing warms it ahead of a click. */
+const loadRunSheet = () => import("./RunSheetView");
 
 const EventsEditor = lazy(loadEventsEditor);
 const GuestsEditor = lazy(loadGuestsEditor);
@@ -92,6 +95,7 @@ const VendorsView = lazy(loadVendors);
 const DirectoryBrowseView = lazy(loadDirectoryBrowse);
 const EnquiriesView = lazy(loadEnquiries);
 const SeatingView = lazy(loadSeating);
+const RunSheetView = lazy(loadRunSheet);
 
 /**
  * What one of those chunks resolves to: a panel, default-exported.
@@ -572,13 +576,15 @@ export default function ModuleShell(props: ModuleShellProps) {
 
               {/* ── Run sheet: the day, read-only for every role ─────────────── */}
               <Show when={module() === "run-sheet"}>
-                <RunSheetView
-                  weddingId={props.weddingId}
-                  tier={props.tier}
-                  callerRole={props.callerRole}
-                  canEdit={props.canEdit}
-                  onOpenChecklist={props.canEdit ? () => props.onModule("checklist") : undefined}
-                />
+                <Suspense fallback={<PanelLoading />}>
+                  <RunSheetView
+                    weddingId={props.weddingId}
+                    tier={props.tier}
+                    callerRole={props.callerRole}
+                    canEdit={props.canEdit}
+                    onOpenChecklist={props.canEdit ? () => props.onModule("checklist") : undefined}
+                  />
+                </Suspense>
               </Show>
 
               {/* ── Budget: per-category items + payments ────────────────────── */}
