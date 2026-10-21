@@ -123,6 +123,10 @@ CREATE TABLE IF NOT EXISTS events (
   timezone TEXT NOT NULL,
   venue_name TEXT,
   address TEXT,
+  getting_there TEXT,
+  children_policy TEXT,
+  plus_one_policy TEXT,
+  guest_policy_note TEXT,
   dress_code_description TEXT,
   dress_code_palette TEXT,
   pinterest_url TEXT,
@@ -136,6 +140,16 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS events_wedding_id_sort_idx ON events(wedding_id, sort_order);
 CREATE UNIQUE INDEX IF NOT EXISTS events_wedding_slug_unique ON events(wedding_id, slug);
 CREATE UNIQUE INDEX IF NOT EXISTS events_id_wedding_uniq ON events(id, wedding_id);
+
+CREATE TABLE IF NOT EXISTS run_of_show_items (
+  event_id TEXT NOT NULL,
+  wedding_id TEXT NOT NULL,
+  sort_order INTEGER NOT NULL,
+  time TEXT NOT NULL,
+  label TEXT NOT NULL,
+  PRIMARY KEY (event_id, sort_order),
+  FOREIGN KEY (event_id, wedding_id) REFERENCES events(id, wedding_id) ON DELETE CASCADE
+);
 
 CREATE TABLE IF NOT EXISTS guest_events (
   guest_id TEXT NOT NULL REFERENCES guests(id) ON DELETE CASCADE,

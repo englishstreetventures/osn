@@ -1,6 +1,13 @@
 import { describe, it, expect } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  events,
+  families,
+  guestEvents,
+  guests,
+  runOfShowItems,
+} from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -30,8 +37,77 @@ describe("stateExportService.eventsCsv", () => {
         // Byte-for-byte lockstep with the organiser template + parser — a
         // rename in lib/sheet-headers.ts must fail here.
         expect(lines(csv)[0]).toBe(
-          "Event Name,Start,Timezone,End,Location,Address,Description,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
+          "Event Name,Start,Timezone,End,Location,Address,Description,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL,Run of Show,Getting There,Children,Plus-Ones,Guest Policy Note",
         );
+      }),
+    ),
+  );
+
+  it(
+    "writes the run of show, getting-there notes and guest policy, at every fidelity",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const [kitchenTea] = yield* dbQuery(() =>
+          db.select({ id: events.id }).from(events).where(eq(events.name, "Kitchen Tea")).all(),
+        );
+        yield* dbQuery(() =>
+          db
+            .update(events)
+            .set({
+              gettingThere: "Park on Sample Lane.",
+              childrenPolicy: "children_welcome",
+              plusOnePolicy: "by_invitation",
+              guestPolicyNote: "Hats encouraged.",
+            })
+            .where(eq(events.id, kitchenTea!.id))
+            .run(),
+        );
+        // Stored in the organiser's order, which is the order the sheet keeps.
+        yield* dbQuery(() =>
+          db
+            .insert(runOfShowItems)
+            .values([
+              {
+                eventId: kitchenTea!.id,
+                weddingId: BOOTSTRAP_WEDDING_ID,
+                sortOrder: 0,
+                time: "17:15",
+                label: "Speeches",
+              },
+              {
+                eventId: kitchenTea!.id,
+                weddingId: BOOTSTRAP_WEDDING_ID,
+                sortOrder: 1,
+                time: "16:00",
+                label: "Tea is poured",
+              },
+            ])
+            .run(),
+        );
+        for (const fidelity of ["import", "full", "snapshot"] as const) {
+          const [header, ...rows] = parseCsv(
+            yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, fidelity),
+          );
+          const cell = (name: string, column: string) =>
+            rows.find((cells) => cells[0] === name)![header!.indexOf(column)];
+          expect(cell("Kitchen Tea", "Run of Show")).toBe("17:15 Speeches\n16:00 Tea is poured");
+          expect(cell("Kitchen Tea", "Getting There")).toBe("Park on Sample Lane.");
+          expect(cell("Kitchen Tea", "Children")).toBe("Children welcome");
+          expect(cell("Kitchen Tea", "Plus-Ones")).toBe("By invitation");
+          expect(cell("Kitchen Tea", "Guest Policy Note")).toBe("Hats encouraged.");
+          // An event with none of them writes blank cells.
+          const other = rows.find((cells) => cells[0] !== "Kitchen Tea")![0]!;
+          for (const column of [
+            "Run of Show",
+            "Getting There",
+            "Children",
+            "Plus-Ones",
+            "Guest Policy Note",
+          ]) {
+            expect(cell(other, column)).toBe("");
+          }
+        }
       }),
     ),
   );
@@ -383,14 +459,46 @@ describe("round trip: export → parse → diff is a fixpoint", () => {
   const assertFixpoint = (fidelity: "import" | "full") =>
     withDb(
       Effect.gen(function* () {
-        // One event carries a venue name, so the fixpoint covers a set one and
-        // an unset one; the seed gives every event a description.
+        // One event carries a venue name, a run of show, getting-there notes
+        // and a guest policy, so the fixpoint covers a set one and an unset
+        // one; the seed gives every event a description. The marker after a
+        // `;` and the dash lines are what the download's guard quotes.
         const db = yield* DbService;
         yield* dbQuery(() =>
           db
             .update(events)
-            .set({ venueName: "The Glasshouse" })
+            .set({
+              venueName: "The Glasshouse",
+              gettingThere: "- park on Sample Lane\n- the gate is on the left",
+              childrenPolicy: "adults_only",
+              plusOnePolicy: "welcome",
+              guestPolicyNote: "Hats; -sunscreen",
+            })
             .where(eq(events.name, "Kitchen Tea"))
+            .run(),
+        );
+        const [kitchenTea] = yield* dbQuery(() =>
+          db.select({ id: events.id }).from(events).where(eq(events.name, "Kitchen Tea")).all(),
+        );
+        yield* dbQuery(() =>
+          db
+            .insert(runOfShowItems)
+            .values([
+              {
+                eventId: kitchenTea!.id,
+                weddingId: BOOTSTRAP_WEDDING_ID,
+                sortOrder: 0,
+                time: "17:15",
+                label: "Speeches; =toasts",
+              },
+              {
+                eventId: kitchenTea!.id,
+                weddingId: BOOTSTRAP_WEDDING_ID,
+                sortOrder: 1,
+                time: "16:00",
+                label: "Tea is poured",
+              },
+            ])
             .run(),
         );
         const eventsCsv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, fidelity);
@@ -434,6 +542,12 @@ describe("round trip: export → parse → diff is a fixpoint", () => {
           expect(eu.event.dressCodeDescription ?? null).toBe(row!.dressCodeDescription);
           expect(JSON.stringify(eu.event.dressCodePalette)).toBe(row!.dressCodePalette!);
           expect(eu.event.sortOrder).toBe(row!.sortOrder);
+          expect(eu.event.gettingThere).toBe(row!.gettingThere);
+          expect(eu.event.childrenPolicy).toBe(row!.childrenPolicy);
+          expect(eu.event.plusOnePolicy).toBe(row!.plusOnePolicy);
+          expect(eu.event.guestPolicyNote).toBe(row!.guestPolicyNote);
+          // Every run of show comes back as stored, so none is written again.
+          expect(eu.event).not.toHaveProperty("runOfShow");
         }
       }),
     );
@@ -738,6 +852,26 @@ describe("round trip: values the formula guard changes", () => {
         expect(eventsCsv).toContain("\n'- bring a hat\n'- bring a hat");
         const parsed = yield* parseEventsCsv(eventsCsv);
         expect(parsed.find((e) => e.name === "Kitchen Tea")?.description).toBe(description);
+      }),
+    ),
+  );
+
+  it(
+    "re-imports getting-there notes and a guest policy note at the cap written as dash lists",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const notes = "- park on the lane\n".repeat(560).slice(0, 10_000);
+        db.update(events)
+          .set({ gettingThere: notes, guestPolicyNote: notes })
+          .where(eq(events.name, "Kitchen Tea"))
+          .run();
+
+        const eventsCsv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "import");
+        const parsed = yield* parseEventsCsv(eventsCsv);
+        const kitchenTea = parsed.find((e) => e.name === "Kitchen Tea");
+        expect(kitchenTea?.gettingThere).toBe(notes);
+        expect(kitchenTea?.guestPolicyNote).toBe(notes);
       }),
     ),
   );

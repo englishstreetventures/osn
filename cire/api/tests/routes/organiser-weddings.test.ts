@@ -2290,7 +2290,7 @@ describe("GET /api/organiser/weddings/:weddingId/export/{events,guests}.csv", ()
     expect(res.headers.get("cache-control")).toContain("no-store");
     const body = await res.text();
     expect(body.split("\r\n")[0]).toBe(
-      "Event Name,Start,Timezone,End,Location,Address,Description,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
+      "Event Name,Start,Timezone,End,Location,Address,Description,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL,Run of Show,Getting There,Children,Plus-Ones,Guest Policy Note",
     );
     // Scoped to THIS wedding only.
     expect(body).not.toContain("Other Party");

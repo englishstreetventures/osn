@@ -1,6 +1,14 @@
 import { describe, it, expect } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests, imports } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  events,
+  families,
+  guestEvents,
+  guests,
+  imports,
+  runOfShowItems,
+} from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 
@@ -207,9 +215,8 @@ describe("revertImport — before-image path (E3)", () => {
 
     // Change 2 is an editor-style IN-PLACE rename: an id-carrying desired state
     // diffed with the editor's options, producing a familyUpdates-only plan —
-    // the op this fix introduced. Before it existed the rename never applied,
-    // so no revert could meaningfully exercise restoring FROM one.
-    await Effect.runPromise(
+    // so the revert below restores FROM an in-place update.
+    const applied = await Effect.runPromise(
       Effect.gen(function* () {
         const eventsCsv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "full");
         const guestsCsv = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "full");
@@ -243,12 +250,11 @@ describe("revertImport — before-image path (E3)", () => {
           .run();
         return summary;
       }).pipe(Effect.provide(layer)),
-    ).then((summary) => {
-      // The rename applied in place — one family updated, nothing else touched.
-      expect(summary.familiesUpdated).toBe(1);
-      expect(summary.familiesCreated).toBe(0);
-      expect(summary.familiesRemoved).toBe(0);
-    });
+    );
+    // The rename applied in place — one family updated, nothing else touched.
+    expect(applied.familiesUpdated).toBe(1);
+    expect(applied.familiesCreated).toBe(0);
+    expect(applied.familiesRemoved).toBe(0);
     const [famRenamed] = db
       .select({ name: families.familyName })
       .from(families)
@@ -1287,6 +1293,120 @@ describe("revertImport — scoped edge cases", () => {
       venueName: null,
       description: "Set after the change.",
     });
+  });
+
+  /** A three-event sheet whose Mehndi carries the given run of show, notes and policy. */
+  const detailsSheet = (mehndi: string, reception = true) =>
+    [
+      "Event Name,Start,End,Timezone,Run of Show,Getting There,Children,Plus-Ones,Guest Policy Note",
+      `Mehndi,2026-09-18T16:00,2026-09-18T22:00,Australia/Sydney,${mehndi}`,
+      "Wedding Ceremony,2026-09-20T16:00,2026-09-20T18:00,Australia/Sydney,,,,,",
+      ...(reception
+        ? [
+            'Reception,2026-09-20T19:00,2026-09-21T00:00,Australia/Sydney,"19:00 Doors\n23:30 Carriages",,,,',
+          ]
+        : []),
+    ].join("\n");
+  const itemsOf = (db: ReturnType<typeof createDb>, name: string) =>
+    db
+      .select({ time: runOfShowItems.time, label: runOfShowItems.label })
+      .from(runOfShowItems)
+      .innerJoin(events, eq(events.id, runOfShowItems.eventId))
+      .where(eq(events.name, name))
+      .orderBy(runOfShowItems.sortOrder)
+      .all();
+
+  it("an events revert restores the run of show, getting-there notes and guest policy the before-image recorded", async () => {
+    const { db, layer } = scopedLayer();
+    await applyChange(layer, "c0", SEED, 1_000);
+    await applyChange(
+      layer,
+      "c1",
+      {
+        eventsCsv: detailsSheet(
+          '"17:00 Dinner\n16:00 Henna",Park on Banksia Lane.,Children welcome,By invitation,Bring a shawl.',
+        ),
+      },
+      2_000,
+    );
+    await applyChange(
+      layer,
+      "c2",
+      { eventsCsv: detailsSheet('"16:30 Henna",Changed.,Adults only,Welcome,') },
+      3_000,
+    );
+
+    await revert(layer, "c2");
+
+    expect(db.select().from(events).where(eq(events.name, "Mehndi")).all()[0]).toMatchObject({
+      gettingThere: "Park on Banksia Lane.",
+      childrenPolicy: "children_welcome",
+      plusOnePolicy: "by_invitation",
+      guestPolicyNote: "Bring a shawl.",
+    });
+    expect(itemsOf(db, "Mehndi")).toEqual([
+      { time: "17:00", label: "Dinner" },
+      { time: "16:00", label: "Henna" },
+    ]);
+  });
+
+  // An event the change deleted comes back with the run of show it had.
+  it("an events revert re-creates a deleted event with its run of show", async () => {
+    const { db, layer } = scopedLayer();
+    await applyChange(layer, "c0", SEED, 1_000);
+    await applyChange(layer, "c1", { eventsCsv: detailsSheet(",,,,") }, 2_000);
+    await applyChange(layer, "c2", { eventsCsv: detailsSheet(",,,,", false) }, 3_000);
+    expect(itemsOf(db, "Reception")).toEqual([]);
+
+    await revert(layer, "c2");
+
+    expect(itemsOf(db, "Reception")).toEqual([
+      { time: "19:00", label: "Doors" },
+      { time: "23:30", label: "Carriages" },
+    ]);
+  });
+
+  // A before-image written before these columns existed records none of
+  // them. Restoring it leaves what each event has now.
+  it("an events revert of a before-image without the columns leaves them as they are", async () => {
+    const { db, r2, layer } = scopedLayer();
+    await applyChange(layer, "c0", SEED, 1_000);
+    await applyChange(layer, "c1", { eventsCsv: EVENTS_V1 }, 2_000);
+    const [row] = db.select().from(imports).where(eq(imports.id, "c1")).all();
+    const [header, ...rows] = parseCsv(await (await r2.get(row!.beforeEventsR2Key!))!.text());
+    const added = new Set(
+      ["Run of Show", "Getting There", "Children", "Plus-Ones", "Guest Policy Note"].map((h) =>
+        header!.indexOf(h),
+      ),
+    );
+    expect(added.has(-1)).toBe(false);
+    const drop = (cells: string[]) => cells.filter((_, i) => !added.has(i));
+    await r2.put(
+      row!.beforeEventsR2Key!,
+      serialiseCsv(drop(header!), rows.map(drop), { guard: false }),
+    );
+    const [mehndi] = db.select().from(events).where(eq(events.name, "Mehndi")).all();
+    db.update(events)
+      .set({ gettingThere: "Set after the change.", plusOnePolicy: "welcome" })
+      .where(eq(events.id, mehndi!.id))
+      .run();
+    db.insert(runOfShowItems)
+      .values({
+        eventId: mehndi!.id,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        sortOrder: 0,
+        time: "16:00",
+        label: "Henna",
+      })
+      .run();
+
+    await revert(layer, "c1");
+
+    expect(db.select().from(events).where(eq(events.name, "Mehndi")).all()[0]).toMatchObject({
+      gettingThere: "Set after the change.",
+      plusOnePolicy: "welcome",
+    });
+    expect(itemsOf(db, "Mehndi")).toEqual([{ time: "16:00", label: "Henna" }]);
   });
 
   it("an events revert of an old wall-clock snapshot still refuses a zone that does not resolve", async () => {

@@ -10,7 +10,7 @@ import {
 import { parsePresets } from "@cire/dietary";
 import { isSafeCssColor } from "@cire/theme";
 import { jsonEachIn } from "@shared/db-utils";
-import { eq, and, asc, count, inArray, ne, isNull } from "drizzle-orm";
+import { eq, and, asc, count, getTableColumns, inArray, ne, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Effect, Data } from "effect";
 
@@ -31,12 +31,14 @@ import type {
   OrganiserHouseholdRow,
   DressSwatch,
 } from "../schemas/claim";
+import type { ChildrenPolicy, PlusOnePolicy, RunOfShowItem } from "../schemas/import";
 import { decodeCrop, type ImageCrop } from "../schemas/invite";
 import { type LinkFacts, linkStateFor, readLinkFacts } from "./account-link";
 import { eventImagePath, versionFromKey } from "./event-image";
 import { inviteFaqService } from "./invite-faq";
 import type { OsnAccountResolver } from "./osn-bridge";
 import { isDietaryConsentCurrent, withoutSubmitter } from "./rsvp";
+import { runOfShowColumn, runOfShowFrom } from "./run-of-show";
 
 export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
 
@@ -112,7 +114,7 @@ export function decodePalette(raw: string | null): DecodedPalette {
  * Public path to an event's image, or null when it has none. The version is
  * derived SERVER-SIDE from the stored R2 key (events have no `updated_at`), so a
  * re-upload mints a fresh key ⇒ a fresh version ⇒ the new image is never served
- * stale, while the client `?v=` is never trusted for cache keying (S-M1). The
+ * stale, while the client `?v=` is never trusted for cache keying. The
  * slug scopes the path to this wedding; the guest site prepends its API origin.
  */
 function eventImageUrl(slug: string, eventId: string, key: string | null): string | null {
@@ -476,16 +478,28 @@ function buildInvite(
       }
     }
 
+    // The household's events, each with its run of show folded in, held to
+    // the household's own wedding as well as to its invitations.
     const eventRows =
       eventIds.size === 0
         ? []
         : yield* dbQuery(() =>
             db
-              .select()
+              .select({ ...getTableColumns(events), runOfShow: runOfShowColumn })
               .from(events)
-              .where(inArray(events.id, jsonEachIn([...eventIds])))
+              .where(
+                and(
+                  inArray(events.id, jsonEachIn([...eventIds])),
+                  eq(events.weddingId, family.weddingId),
+                ),
+              )
               .all(),
           );
+    // The events a member who may bring a plus-one is invited to: "welcome" is
+    // sent for those alone, and is null for every other household.
+    const plusOneEvents = new Set(
+      [...memberMap.values()].filter((m) => m.plusOneAllowed).flatMap((m) => m.eventIds),
+    );
 
     const eventList: Array<ClaimResponse["events"][number]> = [];
     for (const e of eventRows) {
@@ -502,6 +516,14 @@ function buildInvite(
         timezone: e.timezone,
         venueName: e.venueName ?? null,
         address: e.address ?? null,
+        runOfShow: runOfShowFrom(e.runOfShow),
+        gettingThere: e.gettingThere ?? null,
+        childrenPolicy: e.childrenPolicy ?? null,
+        plusOnePolicy:
+          e.plusOnePolicy === "welcome" && !plusOneEvents.has(e.id)
+            ? null
+            : (e.plusOnePolicy ?? null),
+        guestPolicyNote: e.guestPolicyNote ?? null,
         dressCodeDescription: e.dressCodeDescription ?? null,
         dressCodePalette: palette,
         pinterestUrl: safeHttpUrl(e.pinterestUrl),
@@ -519,8 +541,8 @@ function buildInvite(
     // stay out of the page. The stored content is untouched.
     const closingVisible = closing?.visible ?? true;
     const closingContent = closingVisible ? closing : undefined;
-    // The image URL's `?v=` is derived from the closing image's own R2 key
-    // (WT-P-I1 / P-I1) — a digest of the key, not the row's `updatedAt` — so
+    // The image URL's `?v=` is derived from the closing image's own R2 key —
+    // a digest of the key, not the row's `updatedAt` — so
     // bumping the hero or story slot never busts this one, and a byte-neutral
     // crop save (same key) never busts it either.
     const closingImageUrl = closingContent?.imageKey
@@ -737,6 +759,11 @@ export const claimService = {
       venueName: string | null;
       address: string | null;
       description: string;
+      runOfShow: readonly RunOfShowItem[];
+      gettingThere: string | null;
+      childrenPolicy: ChildrenPolicy | null;
+      plusOnePolicy: PlusOnePolicy | null;
+      guestPolicyNote: string | null;
       dressCodeDescription: string | null;
       dressCodePalette: readonly DressSwatch[] | null;
       pinterestUrl: string | null;
@@ -751,7 +778,7 @@ export const claimService = {
       const db = yield* DbService;
       const rows = yield* dbQuery(() =>
         db
-          .select()
+          .select({ ...getTableColumns(events), runOfShow: runOfShowColumn })
           .from(events)
           .where(eq(events.weddingId, weddingId))
           .orderBy(asc(events.sortOrder))
@@ -770,6 +797,11 @@ export const claimService = {
           venueName: row.venueName,
           address: row.address,
           description: row.description,
+          runOfShow: runOfShowFrom(row.runOfShow),
+          gettingThere: row.gettingThere,
+          childrenPolicy: row.childrenPolicy,
+          plusOnePolicy: row.plusOnePolicy,
+          guestPolicyNote: row.guestPolicyNote,
           dressCodeDescription: row.dressCodeDescription,
           dressCodePalette: palette,
           pinterestUrl: safeHttpUrl(row.pinterestUrl),

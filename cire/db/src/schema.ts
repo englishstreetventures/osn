@@ -381,6 +381,17 @@ export const events = sqliteTable(
     // the address (if any) stands alone. Migration 0090; no back-fill.
     venueName: text("venue_name"),
     address: text("address"),
+    // Free-text parking, transport and accessibility notes, shown last on the
+    // event's details sheet under "Getting there". NULL ⇒ none. Migration
+    // 20261021132850_event_run_of_show.
+    gettingThere: text("getting_there"),
+    // The guest policy: two presets and a note, wording only. The RSVP form and
+    // each guest's `plus_one_allowed` stay the source of truth; the guest site
+    // never shows a plus-one line that contradicts the household's own
+    // permission. NULL ⇒ not stated. Migration 20261021132850_event_run_of_show.
+    childrenPolicy: text("children_policy", { enum: ["adults_only", "children_welcome"] }),
+    plusOnePolicy: text("plus_one_policy", { enum: ["by_invitation", "welcome"] }),
+    guestPolicyNote: text("guest_policy_note"),
     dressCodeDescription: text("dress_code_description"),
     // JSON-encoded `Array<{name: string, color: string}>` — decoded by the
     // claim service before serialising the response.
@@ -432,6 +443,39 @@ export const events = sqliteTable(
     // key. A rebuild of `events` that drops it makes every seating-table write
     // and every event delete fail with "foreign key mismatch".
     uniqueIndex("events_id_wedding_uniq").on(t.id, t.weddingId),
+  ],
+);
+
+// An event's run of show (migration 20261021132850_event_run_of_show): the
+// timed list a guest reads on the event's details sheet ("4:00 pm Ceremony").
+// Organiser-written, edited and reordered in the event drawer or the events
+// sheet's Run of Show column.
+//
+// `time` is a 24-hour wall clock, `HH:MM`, in the event's own zone: no date and
+// no offset, so moving the event carries its run of show with it. `sort_order`
+// is the organiser's order; the guest sheet reads the list in time order from
+// the event's start. Every write replaces an event's whole list, so the row's
+// place in it is its identity and there is no id.
+//
+// `wedding_id` repeats the event's, held equal to it by the `(event_id,
+// wedding_id)` foreign key onto `events_id_wedding_uniq`, as `seating_tables`
+// does. The rows go with their event, and so with the wedding. No index leads
+// with `wedding_id`: a wedding's rows are read through its events.
+export const runOfShowItems = sqliteTable(
+  "run_of_show_items",
+  {
+    eventId: text("event_id").notNull(),
+    weddingId: text("wedding_id").notNull(),
+    sortOrder: integer("sort_order").notNull(),
+    time: text("time").notNull(),
+    label: text("label").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.eventId, t.sortOrder] }),
+    foreignKey({
+      columns: [t.eventId, t.weddingId],
+      foreignColumns: [events.id, events.weddingId],
+    }).onDelete("cascade"),
   ],
 );
 

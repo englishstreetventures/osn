@@ -23,10 +23,17 @@
 // Effect is deliberately NOT imported — this is frontend code (cire CLAUDE.md:
 // "Effect is backend + DB only — never import it in cire/invites or cire/host").
 // Plain Solid primitives + a structural clone, matching events-/guests-store.
-import { createMemo, createSignal } from "solid-js";
+import { batch, createMemo, createSignal } from "solid-js";
 import { createStore, produce, reconcile, unwrap } from "solid-js/store";
 
 import { isDateOnly } from "./event-datetime";
+import {
+  type ChildrenPolicy,
+  isClockTime,
+  MAX_RUN_OF_SHOW_ITEMS,
+  MAX_RUN_OF_SHOW_LABEL,
+  type PlusOnePolicy,
+} from "./event-guest-details";
 import type { EventRow } from "./events-store";
 import {
   isBlankName,
@@ -50,6 +57,15 @@ import { browserTimeZone } from "./timezones";
 let keySeq = 0;
 const nextKey = () => `new-${++keySeq}`;
 
+/** One item of an event's run of show, as the drawer edits it. */
+export interface DraftRunOfShowItem {
+  /** Stable `<For>` key (client-only; never sent). */
+  readonly key: string;
+  /** A 24-hour `HH:MM` in the event's zone, or `""` while not yet set. */
+  time: string;
+  label: string;
+}
+
 export interface DraftEvent {
   /** Stable `<For>` key (client-only; never sent). */
   readonly key: string;
@@ -66,6 +82,14 @@ export interface DraftEvent {
   /** The venue's name, shown above the address; null when it has none. */
   venueName: string | null;
   address: string | null;
+  /** The run of show in the organiser's order; the guest reads it in time order. */
+  runOfShow: DraftRunOfShowItem[];
+  /** Parking, transport and accessibility notes; null when there are none. */
+  gettingThere: string | null;
+  /** The guest policy: two presets (null ⇒ not stated) and a note. */
+  childrenPolicy: ChildrenPolicy | null;
+  plusOnePolicy: PlusOnePolicy | null;
+  guestPolicyNote: string | null;
   dressCodeDescription: string | null;
   dressCodePalette: { name: string; color: string }[];
   pinterestUrl: string | null;
@@ -86,12 +110,22 @@ export type EventPatch = Partial<
     | "description"
     | "venueName"
     | "address"
+    | "runOfShow"
+    | "gettingThere"
+    | "childrenPolicy"
+    | "plusOnePolicy"
+    | "guestPolicyNote"
     | "dressCodeDescription"
     | "dressCodePalette"
     | "pinterestUrl"
     | "mapsUrl"
   >
 >;
+
+/** A fresh run-of-show item with its own `<For>` key. */
+export function runOfShowItem(time = "", label = ""): DraftRunOfShowItem {
+  return { key: nextKey(), time, label };
+}
 
 export interface DraftGuest {
   readonly key: string;
@@ -153,6 +187,11 @@ interface WireEvent {
    *  stored value. */
   description?: string;
   venueName?: string | null;
+  runOfShow?: { time: string; label: string }[];
+  gettingThere?: string | null;
+  childrenPolicy?: ChildrenPolicy | null;
+  plusOnePolicy?: PlusOnePolicy | null;
+  guestPolicyNote?: string | null;
   address: string | null;
   dressCodeDescription: string | null;
   dressCodePalette: { name: string; color: string }[];
@@ -166,6 +205,17 @@ export interface DesiredStateWire {
 }
 
 // ── Load: server rows → draft ─────────────────────────────────────────────────
+
+/**
+ * Whether the API these rows came from reads an event's run of show, notes and
+ * guest policy: it sends `runOfShow` on every event. One older than them sends
+ * none, and drops them from a save unstored, so the drawer hides them and the
+ * save leaves them out. With no events there is nothing to tell by; the API is
+ * taken to be current, the one a deploy order of API first gives.
+ */
+export function readsEventDetails(events: readonly EventRow[]): boolean {
+  return events.every((e) => "runOfShow" in e);
+}
 
 /**
  * Build a draft from the cached server reads. Events come from the shared events
@@ -201,6 +251,12 @@ function buildDraft(
       // Absent from an API older than the column: no name.
       venueName: e.venueName ?? null,
       address: e.address,
+      // Absent from an API older than them: none of each.
+      runOfShow: (e.runOfShow ?? []).map((item) => runOfShowItem(item.time, item.label)),
+      gettingThere: e.gettingThere ?? null,
+      childrenPolicy: e.childrenPolicy ?? null,
+      plusOnePolicy: e.plusOnePolicy ?? null,
+      guestPolicyNote: e.guestPolicyNote ?? null,
       dressCodeDescription: e.dressCodeDescription,
       dressCodePalette: (e.dressCodePalette ?? []).map((s) => ({ name: s.name, color: s.color })),
       pinterestUrl: e.pinterestUrl,
@@ -256,6 +312,12 @@ function buildDraft(
 
 // ── Serialise: draft → DesiredState wire ──────────────────────────────────────
 
+/** The text trimmed, or null when nothing is left. */
+function trimmedOrNull(value: string | null): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 /**
  * Serialise the draft into the DesiredState the editor front door POSTs. Existing
  * rows send their `id` (rename-safe update); new rows omit it (server mints).
@@ -266,10 +328,15 @@ function buildDraft(
  * `scope` is the save's: a `"guests"` save governs no event, so its events
  * leave out the description and venue name, which can run long and which the
  * server would only store with the change; absent means "leave as stored".
+ *
+ * `eventDetails` says whether the API reads an event's run of show, notes and
+ * guest policy ({@link readsEventDetails}). When it does not, they are left out
+ * too, so nothing is sent that would be dropped unstored.
  */
 export function toDesiredState(
   draft: DraftState,
   scope: "events" | "guests" | "both" = "both",
+  eventDetails = true,
 ): DesiredStateWire {
   const eventNameByKey = new Map(draft.events.map((e) => [e.key, e.name]));
 
@@ -295,6 +362,15 @@ export function toDesiredState(
     if (scope !== "guests") {
       wire.description = e.description;
       wire.venueName = e.venueName;
+    }
+    if (scope !== "guests" && eventDetails) {
+      // Trimmed, and blank notes are none, so what is stored is what a
+      // download writes and a re-upload of it reads back unchanged.
+      wire.runOfShow = e.runOfShow.map((item) => ({ time: item.time, label: item.label.trim() }));
+      wire.gettingThere = trimmedOrNull(e.gettingThere);
+      wire.childrenPolicy = e.childrenPolicy;
+      wire.plusOnePolicy = e.plusOnePolicy;
+      wire.guestPolicyNote = trimmedOrNull(e.guestPolicyNote);
     }
     if (e.id) wire.id = e.id;
     return wire;
@@ -337,6 +413,11 @@ const EVENT_FIELDS = [
   "description",
   "venueName",
   "address",
+  "runOfShow",
+  "gettingThere",
+  "childrenPolicy",
+  "plusOnePolicy",
+  "guestPolicyNote",
   "dressCodeDescription",
   "dressCodePalette",
   "pinterestUrl",
@@ -345,7 +426,11 @@ const EVENT_FIELDS = [
 
 const GUEST_FIELDS = ["firstName", "lastName", "nickname"] as const;
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/** Equal as values. A run of show's client keys are not part of its value:
+ *  the fresh rows carry new ones for the same items. */
+const same = (a: unknown, b: unknown) =>
+  JSON.stringify(a, (k, v: unknown) => (k === "key" ? undefined : v)) ===
+  JSON.stringify(b, (k, v: unknown) => (k === "key" ? undefined : v));
 const quoted = (name: string) => `“${name.trim() || "Untitled"}”`;
 
 /** What {@link replayDraft} made of the organiser's edits. */
@@ -585,6 +670,10 @@ export interface FieldError {
   /** Draft key of the offending row (family or guest). */
   key: string;
   message: string;
+  /** For a run-of-show item's own error, that item's draft key and the field
+   *  it is about: the drawer shows it under that field, not above the form. */
+  item?: string;
+  field?: "time" | "label";
 }
 
 /**
@@ -686,6 +775,31 @@ export function validateDraft(draft: DraftState): FieldError[] {
         errors.push({ key: evt.key, message: "A palette colour isn't an allowed colour value." });
       }
     }
+
+    // The run of show: the cap is the list's, and each item's own errors name
+    // it by the number its fields are labelled with, so the drawer can show
+    // them under the item.
+    if (evt.runOfShow.length > MAX_RUN_OF_SHOW_ITEMS) {
+      errors.push({
+        key: evt.key,
+        message: `A run of show holds at most ${MAX_RUN_OF_SHOW_ITEMS} items.`,
+      });
+    }
+    for (const [i, item] of evt.runOfShow.entries()) {
+      const at = (field: "time" | "label", message: string) =>
+        errors.push({ key: evt.key, item: item.key, field, message });
+      if (!isClockTime(item.time)) at("time", `Item ${i + 1} needs a time.`);
+      if (isBlankName(item.label)) at("label", `Item ${i + 1} needs a name.`);
+      else if (item.label.trim().length > MAX_RUN_OF_SHOW_LABEL) {
+        at("label", `Item ${i + 1} is longer than ${MAX_RUN_OF_SHOW_LABEL} characters.`);
+      }
+    }
+    if (evt.gettingThere && tooLong(evt.gettingThere.trim())) {
+      errors.push({ key: evt.key, message: "Getting-there notes are too long." });
+    }
+    if (evt.guestPolicyNote && tooLong(evt.guestPolicyNote.trim())) {
+      errors.push({ key: evt.key, message: "The guest policy note is too long." });
+    }
   }
 
   // ── Guests ──
@@ -783,6 +897,9 @@ export interface GuestEventDraft {
   /** Drop the draft entirely — nothing loaded, nothing dirty, nothing to save.
    *  For when the draft can no longer be trusted and must be re-seeded. */
   reset: () => void;
+  /** Whether the API the draft was loaded from reads an event's run of show,
+   *  notes and guest policy ({@link readsEventDetails}). */
+  readonly eventDetails: () => boolean;
 
   // Events-tab mutations (each records an undo checkpoint first). A new event's
   // `sortOrder` lands at the end; reorder rewrites every event's `sortOrder` to
@@ -832,6 +949,7 @@ export function createGuestEventDraft(): GuestEventDraft {
   const [draft, setDraft] = createStore<DraftState>({ events: [], families: [] });
   const [loaded, setLoaded] = createSignal(false);
   const [baseRevision, setBaseRevision] = createSignal<string | null>(null);
+  const [eventDetails, setEventDetails] = createSignal(true);
   const [baseline, setBaseline] = createSignal<string>("");
   // The loaded state itself, kept alongside its fingerprint so "discard" can
   // restore it directly. The undo stack can NOT stand in for it: it is bounded,
@@ -866,6 +984,7 @@ export function createGuestEventDraft(): GuestEventDraft {
     revision: string,
   ) {
     const built = buildDraft(events, guests, households);
+    setEventDetails(readsEventDetails(events));
     setDraft(reconcile(built, { key: "key" }));
     setBaseline(fingerprint(built));
     setBaselineDraft(structuredClone(built));
@@ -881,6 +1000,7 @@ export function createGuestEventDraft(): GuestEventDraft {
     revision: string,
   ): string[] {
     const fresh = buildDraft(events, guests, households);
+    setEventDetails(readsEventDetails(events));
     // `replayDraft` copies what it takes from the live draft and from `fresh`,
     // so neither needs a copy of its own here.
     const { draft: replayed, notes } = replayDraft(baselineDraft(), unwrap(draft), fresh);
@@ -903,6 +1023,7 @@ export function createGuestEventDraft(): GuestEventDraft {
     setBaselineDraft(structuredClone(empty));
     setUndoStack([]);
     setBaseRevision(null);
+    setEventDetails(true);
   }
 
   function eventIndex(key: string) {
@@ -943,6 +1064,11 @@ export function createGuestEventDraft(): GuestEventDraft {
           description: "",
           venueName: null,
           address: null,
+          runOfShow: [],
+          gettingThere: null,
+          childrenPolicy: null,
+          plusOnePolicy: null,
+          guestPolicyNote: null,
           dressCodeDescription: null,
           dressCodePalette: [],
           pinterestUrl: null,
@@ -958,7 +1084,14 @@ export function createGuestEventDraft(): GuestEventDraft {
     const ei = eventIndex(key);
     if (ei === -1) return;
     checkpoint();
-    setDraft("events", ei, patch);
+    const { runOfShow, ...rest } = patch;
+    // A run of show is merged by item key, so an item that is only edited
+    // keeps its identity: `<For>` keeps its row, and the input being typed in
+    // keeps the focus. One batch, so the draft's memos recompute once.
+    batch(() => {
+      setDraft("events", ei, rest);
+      if (runOfShow) setDraft("events", ei, "runOfShow", reconcile(runOfShow, { key: "key" }));
+    });
   }
 
   function removeEvent(key: string) {
@@ -1129,6 +1262,7 @@ export function createGuestEventDraft(): GuestEventDraft {
     undo,
     discard,
     commit,
-    toWire: (scope) => toDesiredState(draft, scope),
+    eventDetails,
+    toWire: (scope) => toDesiredState(draft, scope, eventDetails()),
   };
 }

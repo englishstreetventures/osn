@@ -52,6 +52,18 @@ const event: EventSummary = {
   mapsUrl: "https://maps.app.goo.gl/example",
   sortOrder: 0,
   imageUrl: null,
+  // The run of show runs past midnight; the guest policy and the notes are at
+  // the lengths an organiser writes them.
+  runOfShow: [
+    { time: "17:30", label: "Welcome drinks on the lawn" },
+    { time: "19:00", label: "Performances from both families" },
+    { time: "00:30", label: "Carriages" },
+  ],
+  childrenPolicy: "adults_only",
+  plusOnePolicy: "by_invitation",
+  guestPolicyNote: "Babes in arms are welcome.",
+  gettingThere:
+    "Free parking on Huntley Street from 5 pm. The nearest station is Green Square, a ten-minute walk.",
 };
 
 const priya: FamilyMember = {
@@ -209,12 +221,20 @@ describe.each(PALETTE_PRESET_KEYS)("on the %s scheme", (palettePreset) => {
 
     const facts = [
       line("Saturday 14 November 2026"),
-      line(/AEDT \(Sydney time\)/),
+      line(/–.*AEDT \(Sydney time\)/),
       line(/^Your time:/),
       within(dialog()).getByRole("button", { name: "Add to calendar" }),
       line(/The Grounds of Alexandria/),
       line(/7a\/2 Huntley Street/),
       within(dialog()).getByRole("button", { name: "Open in maps" }),
+      // The guest policy, the run of show's times and names, the zone line
+      // under it, and the getting-there notes.
+      line(/^Adults only/),
+      line("Babes in arms are welcome."),
+      line("5:30 pm"),
+      line("Welcome drinks on the lawn"),
+      line(/^Times are AEDT/),
+      line(/^Free parking on Huntley Street/),
     ];
     for (const el of facts) {
       const measured = ratio(getComputedStyle(el).color, backdropOf(el));
@@ -232,7 +252,9 @@ describe.each(PALETTE_PRESET_KEYS)("on the %s scheme", (palettePreset) => {
 
     const circles = within(dialog())
       .getAllByRole("listitem")
-      .map((item) => item.querySelector<HTMLElement>('[aria-hidden="true"]')!);
+      // The swatch list's items, each with its circle; the run of show's have none.
+      .map((item) => item.querySelector<HTMLElement>('[aria-hidden="true"]'))
+      .filter((circle) => circle !== null);
     expect(circles).toHaveLength(3);
     for (const circle of circles) {
       const style = getComputedStyle(circle);
@@ -322,6 +344,34 @@ describe("on a phone", () => {
     expect(about.scrollWidth).toBeLessThanOrEqual(about.clientWidth);
     expect(scroller().scrollWidth).toBeLessThanOrEqual(scroller().clientWidth);
   });
+
+  // The same for the run of show's longest name, a policy note and a link in
+  // the getting-there notes; and the times keep one line in their column.
+  it("keeps a long run-of-show name, a policy note and a link in getting there inside the sheet", async () => {
+    await page.viewport(...PHONE);
+    const link = "https://maps.app.goo.gl/q4Zt9XaBcDeFgHiJkLmNoPqRsTuVwXyZ12345";
+    await openSheet({
+      ...event,
+      runOfShow: [
+        { time: "12:30", label: `Shuttle from ${link}` },
+        { time: "17:30", label: "x".repeat(200) },
+      ],
+      guestPolicyNote: `Plus-ones: ${link}`,
+      gettingThere: `Shuttle times: ${link}\nSee you there!`,
+    });
+
+    for (const el of [
+      line(/^Shuttle from/),
+      line(/^Plus-ones: /),
+      line(/^Shuttle times:/),
+      line(/^x+$/),
+    ]) {
+      expect(el.scrollWidth).toBeLessThanOrEqual(el.clientWidth);
+    }
+    expect(scroller().scrollWidth).toBeLessThanOrEqual(scroller().clientWidth);
+    const time = line("12:30 pm");
+    expect(time.getClientRects()).toHaveLength(1);
+  });
 });
 
 describe("the venue row", () => {
@@ -332,7 +382,7 @@ describe("the venue row", () => {
     await openSheet();
 
     const address = getComputedStyle(line(/7a\/2 Huntley Street/));
-    const time = getComputedStyle(line(/AEDT \(Sydney time\)/));
+    const time = getComputedStyle(line(/–.*AEDT \(Sydney time\)/));
     expect(address.fontWeight).toBe(time.fontWeight);
     expect(address.color).toBe(time.color);
   });

@@ -393,6 +393,67 @@ a list in it follows its highlight by setting its own `scrollTop`, never with
 page's top left and moves it beside its trigger a frame later, and anything that
 scrolls toward the panel before then jumps the page up to that corner.
 
+### A list inside a form: the event drawer's run of show
+
+The event drawer holds one list a host builds item by item: the run of show
+(`RunOfShowField` in `EventsEditor.tsx`). What it settles, for any later list
+of short rows inside a drawer:
+
+- **One row per item, in the house reorder pattern.** The grip, Arrow keys from
+  it and the `sr-only` move buttons come from `createSortableList`, as on the
+  events list itself, so the two lists in one editor move the same way. The
+  grip leads the row; Remove (`bareDanger`, a ✕ with an `aria-label` naming the
+  item) ends it. All four visible controls clear 24px. An item with no name yet
+  is "item N" everywhere it is named: the grip's label, the move announcement
+  and Remove.
+- **The row wraps, and the fields keep a floor.** The time is a native
+  `type="time"` input at a fixed 8.5rem; the name takes the rest with an 8rem
+  floor, and drops under the time when there is no room for both. The fields
+  together never shrink below 8.5rem, and the row itself wraps, so a move
+  button revealed on focus, wider than the room beside the grip on a phone,
+  pushes the fields and Remove onto the next line instead of sitting over
+  them. At 390px a row at rest stays on one line; nothing scrolls sideways.
+- **The labels are hidden, the fieldset is not.** Each control's label is
+  "Time of item N" / "Item N", visually hidden, under a visible "Run of show
+  (optional)" legend and one muted line naming the zone the times are in.
+- **A consequence the host cannot see is said on the row.** The guest reads the
+  list in time order from the event's start, so an item earlier on the clock
+  than the start gets a muted line under it — it reads as after midnight — and
+  the line is in its time input's `aria-describedby`. Muted ink, not warn: it
+  is a fact about the list, and often the intended one.
+- **Focus goes somewhere on purpose.** Add item is an `outline` button under
+  the list, never inside it; a new item starts at the last item's time and
+  focus moves to its name. Remove takes its own button with it, so focus moves
+  to the next item's grip, else the previous item's, else Add item. The dress
+  code's swatch Remove does the same with the swatch names and Add swatch.
+- **An item's errors are said under it, once it is left.** "Item 4 needs a
+  name." goes under that item's field, which `Field` marks `aria-invalid` and
+  describes by it, not in the list of errors above the form. A new item's
+  errors wait until focus leaves its row, so a row is not called wrong while it
+  is being filled in; Save stays blocked meanwhile.
+- **Two presets side by side, then a note.** The guest policy is two native
+  `Select`s at 11rem minimum each: they share a row in the drawer at 1280px and
+  stack on a phone, then a note. "Not stated" is the first option of each, not
+  a blank one, because saying nothing is a choice the host makes.
+- **The list's changes merge by item key.** Each edit patches the whole list;
+  the draft reconciles it by key, so the row being typed in keeps its node and
+  its focus.
+- **Shown only to an API that stores it.** When the events read carries no run
+  of show (an API older than it), the drawer leaves out the run of show,
+  getting there and guest policy, rather than take what a save would drop.
+
+The Events list (`EventTable`) shows the run of show as guests read it, by time
+from the start, an item after midnight last and marked "(after midnight)"; the
+drawer keeps the organiser's order. Its detail values wrap anywhere, so a link
+in organiser text stays inside the card.
+
+`EventsEditor.drawer.browser.test.tsx` measures the row at 390px and 1280px:
+every control inside the drawer and at least 24px, no two controls overlapping
+while a move button is focused, the after-midnight line on the right item and
+describing its time, focus after Add and Remove, an item's error under it, and
+the selects stacking on a phone. `EventTable.browser.test.tsx` keeps a long link
+inside its card.
+
 ### Two rules that apply to all of them
 
 **Anything spread onto an element takes `SafeProps`.** Solid's `HTMLAttributes`

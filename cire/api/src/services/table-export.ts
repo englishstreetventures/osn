@@ -7,6 +7,12 @@ import { serialiseCsv } from "../lib/csv";
 import { compareEventsByStart } from "../lib/event-order";
 import { formatWallTime } from "../lib/event-time";
 import { decodePalette, safeHttpUrl, withPlusOnesAfterInviters } from "./claim";
+import {
+  CHILDREN_POLICY_LABEL,
+  PLUS_ONE_POLICY_LABEL,
+  runOfShowCell,
+} from "./guest-event-validation";
+import { runOfShowColumn, runOfShowFrom } from "./run-of-show";
 
 /**
  * Invited-guest count per event for one wedding, aggregated IN SQL (`GROUP BY`
@@ -213,12 +219,17 @@ export const tableExportService = {
                 timezone: events.timezone,
                 venueName: events.venueName,
                 address: events.address,
+                gettingThere: events.gettingThere,
+                childrenPolicy: events.childrenPolicy,
+                plusOnePolicy: events.plusOnePolicy,
+                guestPolicyNote: events.guestPolicyNote,
                 description: events.description,
                 dressCodeDescription: events.dressCodeDescription,
                 dressCodePalette: events.dressCodePalette,
                 pinterestUrl: events.pinterestUrl,
                 mapsUrl: events.mapsUrl,
                 sortOrder: events.sortOrder,
+                runOfShow: runOfShowColumn,
               })
               .from(events)
               .where(eq(events.weddingId, weddingId))
@@ -243,6 +254,11 @@ export const tableExportService = {
         "Dress Code Palette",
         "Pinterest URL",
         "Maps URL",
+        "Run of Show",
+        "Getting There",
+        "Children",
+        "Plus-Ones",
+        "Guest Policy Note",
         "Invited Guests",
       ];
       const rows = orderedEvents.map((e) => {
@@ -262,6 +278,12 @@ export const tableExportService = {
           (palette ?? []).map((s) => `${s.name} (${s.color})`).join("; "),
           safeHttpUrl(e.pinterestUrl) ?? "",
           safeHttpUrl(e.mapsUrl) ?? "",
+          // In the organiser's order, as the re-importable download writes it.
+          runOfShowCell(runOfShowFrom(e.runOfShow)),
+          e.gettingThere ?? "",
+          e.childrenPolicy ? CHILDREN_POLICY_LABEL[e.childrenPolicy] : "",
+          e.plusOnePolicy ? PLUS_ONE_POLICY_LABEL[e.plusOnePolicy] : "",
+          e.guestPolicyNote ?? "",
           String(invitedByEvent.get(e.id) ?? 0),
         ];
       });

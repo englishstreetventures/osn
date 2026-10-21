@@ -20,7 +20,14 @@
 
 import { isSafeCssColor } from "@cire/theme";
 
-import type { PaletteSwatch } from "../schemas/import";
+import {
+  MAX_RUN_OF_SHOW_LABEL,
+  type ChildrenPolicy,
+  type PaletteSwatch,
+  type ParsedEvent,
+  type PlusOnePolicy,
+  type RunOfShowItem,
+} from "../schemas/import";
 
 // ── Formula-injection markers ─────────────────────────────────────────────────
 
@@ -123,6 +130,120 @@ export function parseDressCodePalette(raw: string): PaletteSwatch[] {
     out.push({ name, color });
   }
   return out;
+}
+
+// ── An event's run of show and guest policy ──────────────────────────────────
+
+/**
+ * One line of a Run of Show cell: an hour of one or two digits, a colon, two
+ * minute digits, then the label after whitespace. The time must stand alone
+ * (`16:00Tea` has no label), so a label is never glued to its time.
+ */
+const RUN_OF_SHOW_LINE_RE = /^(\d{1,2}):(\d{2})(?:\s+([\s\S]*))?$/;
+
+/**
+ * A line that starts with a 12-hour time: `4:00 pm`, `12:30 a.m.`, `4pm`. Read
+ * as 24-hour, every afternoon item would land twelve hours early. An hour over
+ * 12 cannot be on a 12-hour clock, so `16:00 PM speech` is a time and a label.
+ */
+const TWELVE_HOUR_RE = /^(\d{1,2})(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)(?=\s|$)/i;
+
+/** Whether a Run of Show line starts with a 12-hour time, which the sheet refuses. */
+export function startsWithTwelveHourTime(line: string): boolean {
+  const m = TWELVE_HOUR_RE.exec(line.trim());
+  return m !== null && Number(m[1]) <= 12;
+}
+
+/** What one Run of Show line holds, or which rule it breaks. */
+export type RunOfShowLine =
+  | { readonly ok: true; readonly item: RunOfShowItem }
+  | { readonly ok: false; readonly problem: "time" | "label" | "long" };
+
+/**
+ * Read one line of a Run of Show cell. The time is normalised to `HH:MM`, so
+ * `4:05` is `04:05`; a reading the clock does not have (`25:00`, `16:75`) is
+ * not a time. The label is trimmed and held to {@link MAX_RUN_OF_SHOW_LABEL}.
+ * The caller skips blank lines.
+ */
+export function parseRunOfShowLine(line: string): RunOfShowLine {
+  const m = RUN_OF_SHOW_LINE_RE.exec(line.trim());
+  if (!m) return { ok: false, problem: "time" };
+  const hours = Number(m[1]);
+  const minutes = Number(m[2]);
+  if (hours > 23 || minutes > 59) return { ok: false, problem: "time" };
+  const label = (m[3] ?? "").trim();
+  if (label.length === 0) return { ok: false, problem: "label" };
+  if (label.length > MAX_RUN_OF_SHOW_LABEL) return { ok: false, problem: "long" };
+  return {
+    ok: true,
+    item: { time: `${String(hours).padStart(2, "0")}:${m[2]}`, label },
+  };
+}
+
+/** A run of show as one sheet cell: one `HH:MM label` line per item, in order. */
+export function runOfShowCell(items: readonly RunOfShowItem[]): string {
+  return items.map((item) => `${item.time} ${item.label}`).join("\n");
+}
+
+/** Whether two runs of show hold the same items in the same order. */
+export function sameRunOfShow(a: readonly RunOfShowItem[], b: readonly RunOfShowItem[]): boolean {
+  return (
+    a.length === b.length && a.every((x, i) => x.time === b[i]!.time && x.label === b[i]!.label)
+  );
+}
+
+/**
+ * An editor-door event with its text held to the sheet door's rules: the
+ * description and each run-of-show label trimmed, and a blank venue name,
+ * getting-there note or policy note null. So a download of what an editor
+ * save stored re-imports without a change or a warning. Absent fields stay
+ * absent.
+ */
+export function tidyEditorEvent(event: ParsedEvent): ParsedEvent {
+  /** A note as the sheet reads one: trimmed, and blank is none. */
+  const note = (text: string | null | undefined) => (text == null ? text : nullableString(text));
+  return {
+    ...event,
+    ...(event.description !== undefined && { description: event.description.trim() }),
+    ...(event.venueName !== undefined && { venueName: note(event.venueName) }),
+    ...(event.gettingThere !== undefined && { gettingThere: note(event.gettingThere) }),
+    ...(event.guestPolicyNote !== undefined && { guestPolicyNote: note(event.guestPolicyNote) }),
+    ...(event.runOfShow !== undefined && {
+      runOfShow: event.runOfShow.map((item) => ({ time: item.time, label: item.label.trim() })),
+    }),
+  };
+}
+
+/** The words the events sheet uses for each children preset. */
+export const CHILDREN_POLICY_LABEL = {
+  adults_only: "Adults only",
+  children_welcome: "Children welcome",
+} as const satisfies Record<ChildrenPolicy, string>;
+
+/** The words the events sheet uses for each plus-one preset. */
+export const PLUS_ONE_POLICY_LABEL = {
+  by_invitation: "By invitation",
+  welcome: "Welcome",
+} as const satisfies Record<PlusOnePolicy, string>;
+
+/** The cell a sheet may hold for a preset nobody stated, beside a blank one. */
+const NOT_STATED = "not stated";
+
+/**
+ * Read a Children or Plus-Ones cell: the preset whose words it holds (case and
+ * spacing aside), `null` for a blank cell or "Not stated", and `undefined` for
+ * anything else, which the caller refuses with the cell's position.
+ */
+export function presetFromCell<P extends string>(
+  cell: string,
+  labels: Readonly<Record<P, string>>,
+): P | null | undefined {
+  const norm = normaliseName(cell);
+  if (norm.length === 0 || norm === NOT_STATED) return null;
+  for (const [preset, label] of Object.entries(labels) as [P, string][]) {
+    if (normaliseName(label) === norm) return preset;
+  }
+  return undefined;
 }
 
 // ── Required-field predicates ─────────────────────────────────────────────────

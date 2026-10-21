@@ -21,6 +21,7 @@ DROP TABLE IF EXISTS payments;
 DROP TABLE IF EXISTS registry_claims;
 DROP TABLE IF EXISTS registry_contributions;
 DROP TABLE IF EXISTS rsvp_changes;
+DROP TABLE IF EXISTS run_of_show_items;
 DROP TABLE IF EXISTS seating_tables;
 DROP TABLE IF EXISTS task_assignees;
 DROP TABLE IF EXISTS vendor_enquiries;
