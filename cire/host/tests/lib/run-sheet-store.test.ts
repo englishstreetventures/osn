@@ -279,16 +279,16 @@ describe("readRunSheet", () => {
         "junk",
         null,
       ],
-      people: [{ hostId: "whost_me", osnProfileId: "usr_me", handle: "me" }, { hostId: 3 }],
+      people: [{ hostId: "whost_me", handle: "me" }, { hostId: 3 }],
     });
     expect(read.scope).toBe("own");
     expect(read.viewerHostId).toBe("whost_me");
     expect(read.items.map((i) => i.id)).toEqual(["evt_1", "tsk_1"]);
     expect(read.items[1]).toMatchObject({ status: "done", anchored: true, runOffsetMinutes: -30 });
-    expect(read.people).toEqual([{ hostId: "whost_me", osnProfileId: "usr_me", handle: "me" }]);
+    expect(read.people).toEqual([{ hostId: "whost_me", handle: "me" }]);
   });
 
-  it("drops an event or a task missing what its row shows, and a person missing a seat or a profile", () => {
+  it("drops an event or a task missing what its row shows, and a person missing a seat", () => {
     const event = { kind: "event", startAt: "2099-06-20T15:00:00+10:00", timezone: "UTC" };
     const read = readRunSheet({
       scope: "full",
@@ -306,9 +306,10 @@ describe("readRunSheet", () => {
       people: [
         null,
         "whost_me",
-        { hostId: "whost_me", osnProfileId: "usr_me", avatarUrl: "https://photos.example/me.png" },
-        { hostId: "whost_no_profile" },
-        { osnProfileId: "usr_no_seat" },
+        { hostId: "whost_me", avatarUrl: "https://photos.example/me.png" },
+        // A seat OSN could not name: kept, with nothing but its seat.
+        { hostId: "whost_nameless", osnProfileId: "usr_from_an_older_api" },
+        { handle: "no_seat" },
       ],
     });
     expect(read.scope).toBe("full");
@@ -316,9 +317,11 @@ describe("readRunSheet", () => {
     // An event that states no end reads as one with none.
     expect(read.items[0]).toMatchObject({ endAt: "" });
     expect(read.items[1]).toMatchObject({ assigneeHostIds: ["whost_me"] });
-    // Only what the answer gave: no handle or name that was not sent.
+    // Only what the answer gave, and no profile id an older API sends: no
+    // handle or name that was not sent.
     expect(read.people).toEqual([
-      { hostId: "whost_me", osnProfileId: "usr_me", avatarUrl: "https://photos.example/me.png" },
+      { hostId: "whost_me", avatarUrl: "https://photos.example/me.png" },
+      { hostId: "whost_nameless" },
     ]);
   });
 

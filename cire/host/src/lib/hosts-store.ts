@@ -26,16 +26,17 @@ export interface HostSeat {
   role: WeddingRole;
 }
 
-/** A seat as a face and a name: everything but the role. What the run sheet
- *  gives a reader about the people holding its tasks, and all a name needs. */
-export type SeatFace = Omit<HostSeat, "role">;
+/** A seat as a face and a name: everything but the role. The run sheet gives
+ *  a reader no profile id for the people holding its tasks, and draws a face
+ *  with a name only for a person OSN named. */
+export type SeatFace = Omit<HostSeat, "role" | "osnProfileId"> & { osnProfileId?: string };
 
 /** What a seat is called on screen: the person's name, then their handle, and
  *  the profile id only when OSN could resolve neither. */
 export function seatName(seat: SeatFace): string {
   if (seat.displayName) return seat.displayName;
   if (seat.handle) return `@${seat.handle}`;
-  return seat.osnProfileId;
+  return seat.osnProfileId ?? "";
 }
 
 interface CacheEntry {

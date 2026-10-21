@@ -447,7 +447,7 @@ test("cire-helper-scope", async ({ page, flow }) => {
     scope: string;
     viewerHostId: string;
     items: Item[];
-    people: { hostId: string }[];
+    people: ({ hostId: string } & Record<string, unknown>)[];
   };
   const ofKind = (kind: string) =>
     answer.items
@@ -479,6 +479,11 @@ test("cire-helper-scope", async ({ page, flow }) => {
     "helper: only themselves among the people",
     RSH.seatId,
     answer.people.map((p) => p.hostId).join(" "),
+  );
+  flow.check(
+    "helper: a person comes with no OSN profile id",
+    false,
+    answer.people.some((p) => "osnProfileId" in p),
   );
   flow.check(
     "helper: nothing of the co-host's task, its event or its run of show",

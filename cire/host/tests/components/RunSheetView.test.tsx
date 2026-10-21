@@ -133,8 +133,8 @@ const DAY: RunSheet = {
     task({ id: "kit", title: "Pack the emergency kit", status: "done" }),
   ],
   people: [
-    { hostId: "whost_me", osnProfileId: "usr_me", displayName: "Me Myself" },
-    { hostId: "whost_gus", osnProfileId: "usr_gus", handle: "gus" },
+    { hostId: "whost_me", displayName: "Me Myself" },
+    { hostId: "whost_gus", handle: "gus" },
   ],
 };
 
@@ -339,6 +339,29 @@ describe.skipIf(!DESIGNED)("RunSheetView", () => {
     view();
     await waitFor(() => expect(rowOf("rings")).toBeTruthy());
     expect(rowOf("rings")!.textContent).toMatch(/Me Myself.*@gus/);
+  });
+
+  it("draws a holder OSN gave no name as a face, and counts them rather than naming them", async () => {
+    authFetchMock.mockResolvedValue(
+      json({
+        ...DAY,
+        items: [
+          task({
+            id: "rings",
+            title: "Mind the rings",
+            runAt: "2099-06-20T14:30:00+10:00",
+            assigneeHostIds: ["whost_me", "whost_nameless"],
+          }),
+        ],
+        people: [...DAY.people, { hostId: "whost_nameless" }],
+      }),
+    );
+    view();
+    await waitFor(() => expect(rowOf("rings")).toBeTruthy());
+    expect(rowOf("rings")!.querySelectorAll("[data-holder]")).toHaveLength(2);
+    expect(rowOf("rings")!.querySelector('[data-holder="whost_nameless"]')).toBeTruthy();
+    expect(rowOf("rings")!.textContent).toContain("Held by 2 people");
+    expect(rowOf("rings")!.textContent).not.toContain("whost_nameless");
   });
 
   it("reads the run sheet again when the tasks or the seats change", async () => {

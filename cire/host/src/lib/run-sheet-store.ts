@@ -57,10 +57,10 @@ export interface RunSheetTaskItem {
 
 export type RunSheetItem = RunSheetEventItem | RunSheetTaskItem;
 
-/** A person holding one of the run sheet's tasks. No role. */
+/** A person holding one of the run sheet's tasks: their seat, and their name
+ *  and photo when OSN gave them. No role, and no OSN profile id. */
 export interface RunSheetPerson {
   hostId: string;
-  osnProfileId: string;
   handle?: string;
   displayName?: string;
   avatarUrl?: string;
@@ -147,7 +147,6 @@ interface ItemWire {
 /** A person as they arrive: every field unchecked. */
 interface PersonWire {
   hostId?: unknown;
-  osnProfileId?: unknown;
   handle?: unknown;
   displayName?: unknown;
   avatarUrl?: unknown;
@@ -223,9 +222,8 @@ function readPerson(person: unknown): RunSheetPerson | null {
   if (typeof person !== "object" || person === null) return null;
   const value = person as PersonWire;
   const hostId = text(value.hostId);
-  const osnProfileId = text(value.osnProfileId);
-  if (hostId === null || osnProfileId === null) return null;
-  const read: RunSheetPerson = { hostId, osnProfileId };
+  if (hostId === null) return null;
+  const read: RunSheetPerson = { hostId };
   const handle = text(value.handle);
   const displayName = text(value.displayName);
   const avatarUrl = text(value.avatarUrl);

@@ -487,12 +487,14 @@ function TaskRow(props: TaskRowProps) {
     const name = props.eventNames.get(eventId);
     return name === undefined ? null : offsetPhrase(runOffsetMinutes, name);
   };
-  // The holders the run sheet names, the reader first. A seat the answer does
-  // not name is left out rather than shown as a face with no name.
+  // The holders, the reader first. A person OSN named is a face and a name; one
+  // it could not name is a face alone, and the holders' text counts them
+  // rather than naming anyone. A seat the answer does not carry is left out.
   const holders = createMemo((): Holder[] =>
     readerFirst(props.task.assigneeHostIds, props.viewerHostId).flatMap((hostId) => {
-      const seat = props.people.get(hostId);
-      return seat ? [{ hostId, seat }] : [];
+      const person = props.people.get(hostId);
+      if (!person) return [];
+      return [person.handle || person.displayName ? { hostId, seat: person } : { hostId }];
     }),
   );
 

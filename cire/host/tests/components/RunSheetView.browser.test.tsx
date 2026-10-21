@@ -77,7 +77,6 @@ const event = (
 const photo = (name: string) => `https://photos.example/${name}.png`;
 const person = (key: string, more: Partial<RunSheetPerson> = {}): RunSheetPerson => ({
   hostId: `whost_${key}`,
-  osnProfileId: `usr_${key}`,
   handle: key,
   ...more,
 });
