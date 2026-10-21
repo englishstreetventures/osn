@@ -310,121 +310,120 @@ INSERT OR IGNORE INTO payments (
 
 -- `timeframe_bucket` is a key from cire/api/src/lib/checklist-buckets.ts.
 -- `sort_order` restarts at 0 in each bucket — it orders within a bucket, and
--- the reorder endpoint rewrites exactly that run. `assigned_host_id` names a
--- seat from the block above, so this block must follow it.
+-- the reorder endpoint rewrites exactly that run.
 INSERT OR IGNORE INTO tasks (
   id, wedding_id, title, notes,
   timeframe_bucket, due_at, status, sort_order,
-  created_at, completed_at, assigned_host_id
+  created_at, completed_at
 ) VALUES
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000001', 'wed_bootstrap', 'Set the date and the guest-count ceiling', NULL,
     '12m', NULL, 'done', 0,
-    unixepoch(), unixepoch() - 20736000,
-    NULL
+    unixepoch(), unixepoch() - 20736000
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000002', 'wed_bootstrap', 'Book the reception venue', 'Deposit paid — see the Venue line in Budget.',
     '12m', NULL, 'done', 1,
-    unixepoch(), unixepoch() - 18144000,
-    NULL
+    unixepoch(), unixepoch() - 18144000
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000003', 'wed_bootstrap', 'Book the celebrant', NULL,
     '12m', NULL, 'done', 2,
-    unixepoch(), unixepoch() - 17280000,
-    NULL
+    unixepoch(), unixepoch() - 17280000
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000004', 'wed_bootstrap', 'Book the photographer', NULL,
     '9m', NULL, 'done', 0,
-    unixepoch(), unixepoch() - 12960000,
-    NULL
+    unixepoch(), unixepoch() - 12960000
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000005', 'wed_bootstrap', 'Choose a videographer', 'Two quotes still outstanding.',
     '9m', NULL, 'open', 1,
-    unixepoch(), NULL,
-    NULL
+    unixepoch(), NULL
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000006', 'wed_bootstrap', 'Send the invitations', NULL,
     '6m', '2026-08-30', 'open', 0,
-    unixepoch(), NULL,
-    NULL
+    unixepoch(), NULL
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000007', 'wed_bootstrap', 'Book hair and makeup trials', NULL,
     '6m', NULL, 'done', 1,
-    unixepoch(), unixepoch() - 1728000,
-    NULL
+    unixepoch(), unixepoch() - 1728000
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000008', 'wed_bootstrap', 'Open the gift registry', NULL,
     '6m', NULL, 'done', 2,
-    unixepoch(), unixepoch() - 2419200,
-    NULL
+    unixepoch(), unixepoch() - 2419200
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000009', 'wed_bootstrap', 'Confirm the catering menu', 'Final head count goes with the balance payment.',
     '3m', '2026-09-15', 'open', 0,
-    unixepoch(), NULL,
-    NULL
+    unixepoch(), NULL
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000010', 'wed_bootstrap', 'Order the cake', NULL,
     '3m', NULL, 'open', 1,
-    unixepoch(), NULL,
-    NULL
+    unixepoch(), NULL
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000011', 'wed_bootstrap', 'Chase the households who haven''t replied', NULL,
     '1m', '2026-10-25', 'open', 0,
-    unixepoch(), NULL,
-    NULL
+    unixepoch(), NULL
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000012', 'wed_bootstrap', 'Book the guest coaches', NULL,
     '1m', NULL, 'open', 1,
-    unixepoch(), NULL,
-    NULL
+    unixepoch(), NULL
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000013', 'wed_bootstrap', 'Send the run sheet to every supplier', NULL,
     '2w', '2026-11-11', 'open', 0,
-    unixepoch(), NULL,
-    NULL
+    unixepoch(), NULL
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000014', 'wed_bootstrap', 'Pay the outstanding balances', 'Venue, catering and the celebrant — all in Budget.',
     '2w', '2026-11-10', 'open', 1,
-    unixepoch(), NULL,
-    NULL
+    unixepoch(), NULL
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000015', 'wed_bootstrap', 'Final head count to the caterer', NULL,
     'week_of', '2026-11-20', 'open', 0,
-    unixepoch(), NULL,
-    NULL
+    unixepoch(), NULL
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000016', 'wed_bootstrap', 'Print the seating chart and the signage', NULL,
     'week_of', NULL, 'open', 1,
-    unixepoch(), NULL,
-    NULL
+    unixepoch(), NULL
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000017', 'wed_bootstrap', 'Hand the rings to the best man', NULL,
     'day_of', NULL, 'open', 0,
-    unixepoch(), NULL,
-    'whost_d1f0c4a2-0000-4000-8000-000000000001'
+    unixepoch(), NULL
   ),
   (
     'tsk_f7d3b1e0-0000-4000-8000-000000000018', 'wed_bootstrap', 'Pack the emergency kit', 'Safety pins, plasters, a phone charger, painkillers.',
     'day_of', NULL, 'open', 1,
-    unixepoch(), NULL,
-    'whost_d1f0c4a2-0000-4000-8000-000000000002'
+    unixepoch(), NULL
   );
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Checklist task holders (8)
+-- ────────────────────────────────────────────────────────────────────────────
+
+-- Each row pairs a task with a seat of the same wedding; both foreign keys
+-- carry `wedding_id`, so a row naming another wedding's task or seat fails.
+-- One second for every row: a task's holders read back by `assigned_at`, then
+-- rowid, so the order here is the order the checklist shows them in.
+INSERT OR IGNORE INTO task_assignees (task_id, host_id, wedding_id, assigned_at) VALUES
+  ('tsk_f7d3b1e0-0000-4000-8000-000000000004', 'whost_d1f0c4a2-0000-4000-8000-000000000001', 'wed_bootstrap', unixepoch()),
+  ('tsk_f7d3b1e0-0000-4000-8000-000000000013', 'whost_d1f0c4a2-0000-4000-8000-000000000002', 'wed_bootstrap', unixepoch()),
+  ('tsk_f7d3b1e0-0000-4000-8000-000000000013', 'whost_d1f0c4a2-0000-4000-8000-000000000000', 'wed_bootstrap', unixepoch()),
+  ('tsk_f7d3b1e0-0000-4000-8000-000000000013', 'whost_d1f0c4a2-0000-4000-8000-000000000001', 'wed_bootstrap', unixepoch()),
+  ('tsk_f7d3b1e0-0000-4000-8000-000000000013', 'whost_d1f0c4a2-0000-4000-8000-000000000003', 'wed_bootstrap', unixepoch()),
+  ('tsk_f7d3b1e0-0000-4000-8000-000000000017', 'whost_d1f0c4a2-0000-4000-8000-000000000001', 'wed_bootstrap', unixepoch()),
+  ('tsk_f7d3b1e0-0000-4000-8000-000000000017', 'whost_d1f0c4a2-0000-4000-8000-000000000002', 'wed_bootstrap', unixepoch()),
+  ('tsk_f7d3b1e0-0000-4000-8000-000000000018', 'whost_d1f0c4a2-0000-4000-8000-000000000002', 'wed_bootstrap', unixepoch());
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- Invite FAQ (3) — shown under the events once a household claims

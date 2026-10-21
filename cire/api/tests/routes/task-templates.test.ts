@@ -52,6 +52,7 @@ interface Task {
   templateId: string | null;
   templateItem: string | null;
   dueSource: "manual" | "template";
+  assigneeHostIds: string[];
 }
 
 interface PreviewItem {
@@ -274,6 +275,38 @@ describe("applying the starter checklist", () => {
     expect([typed.templateId, typed.templateItem, typed.dueSource]).toEqual([null, null, "manual"]);
     const fromStarter = seeded(rows, "agree-budget");
     expect([fromStarter.templateId, fromStarter.dueSource]).toEqual(["starter", "template"]);
+  });
+
+  // The portal replaces its checklist with the answer, so an answer missing
+  // the holders would empty every row's stack until the next read.
+  it("answers with the holders of the tasks already on the checklist, and none on the new ones", async () => {
+    const { app } = build();
+    const created = await req(app, "POST", `${weddingBase(BOOTSTRAP_WEDDING_ID)}/tasks`, EDITOR, {
+      title: "Typed by hand",
+      timeframeBucket: "1m",
+    });
+    const typedId = ((await created.json()) as { task: Task }).task.id;
+    const first = await apply(app, ["agree-budget"]);
+    const seededId = seeded(first.tasks, "agree-budget").id;
+    for (const [taskId, seat] of [
+      [typedId, "whost_viewer"],
+      [typedId, "whost_editor"],
+      [seededId, "whost_editor"],
+    ] as const) {
+      const res = await req(
+        app,
+        "PUT",
+        `${weddingBase(BOOTSTRAP_WEDDING_ID)}/tasks/${taskId}/assignees/${seat}`,
+        EDITOR,
+      );
+      expect(res.status).toBe(200);
+    }
+
+    const { tasks: rows } = await apply(app, ["draft-guest-list"]);
+    const holders = (id: string) => rows.find((t) => t.id === id)?.assigneeHostIds;
+    expect(holders(typedId)).toEqual(["whost_viewer", "whost_editor"]);
+    expect(holders(seededId)).toEqual(["whost_editor"]);
+    expect(seeded(rows, "draft-guest-list").assigneeHostIds).toEqual([]);
   });
 });
 

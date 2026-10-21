@@ -3,16 +3,19 @@ import { describe, expect, it, beforeEach } from "vitest";
 
 import {
   __resetTasksCache,
+  dropTasks,
   ensureTasksLoaded,
   hasCachedTasks,
   invalidateTasks,
   openTaskCount,
   peekCachedTasks,
+  readTaskList,
   setCachedTasks,
   setFreshTasks,
   taskCounts,
   type TaskRow,
   tasksAccessor,
+  viewerHostIdOf,
 } from "../../src/lib/tasks-store";
 import { __resetWeddingScope, closeWeddingScope } from "../../src/lib/wedding-scope";
 
@@ -27,7 +30,7 @@ const row = (over: Partial<TaskRow>): TaskRow => ({
   sortOrder: 0,
   createdAt: 1,
   completedAt: null,
-  assignedHostId: null,
+  assigneeHostIds: [],
   ...over,
 });
 
@@ -321,5 +324,39 @@ describe("tasks-store", () => {
 
     expect(tasksAccessor("wed_1")()?.map((t) => t.id)).toEqual(["seed"]);
     expect(hasCachedTasks("wed_1")).toBe(false);
+  });
+
+  describe("the reader's own seat", () => {
+    it("keeps the seat a task read names, for any view of the wedding, and hands back the rows", () => {
+      const seen: (string | null)[] = [];
+      const dispose = createRoot((d) => {
+        createEffect(() => seen.push(viewerHostIdOf("wed_1")));
+        return d;
+      });
+      const rows = readTaskList("wed_1", { tasks: [row({ id: "a" })], viewerHostId: "whost_me" });
+      expect(rows.map((t) => t.id)).toEqual(["a"]);
+      expect(seen).toEqual([null, "whost_me"]);
+      dispose();
+      expect(viewerHostIdOf("wed_2")).toBeNull();
+    });
+
+    it("reads an answer without the field as no seat", () => {
+      readTaskList("wed_1", { tasks: [], viewerHostId: "whost_me" });
+      readTaskList("wed_1", { tasks: [] });
+      expect(viewerHostIdOf("wed_1")).toBeNull();
+    });
+
+    it("forgets the seat with the wedding", () => {
+      readTaskList("wed_1", { tasks: [], viewerHostId: "whost_me" });
+      dropTasks("wed_1");
+      expect(viewerHostIdOf("wed_1")).toBeNull();
+    });
+
+    it("keeps no seat for a wedding the organiser has left", () => {
+      closeWeddingScope("wed_1");
+      const rows = readTaskList("wed_1", { tasks: [row({ id: "a" })], viewerHostId: "whost_me" });
+      expect(rows.map((t) => t.id)).toEqual(["a"]);
+      expect(viewerHostIdOf("wed_1")).toBeNull();
+    });
   });
 });

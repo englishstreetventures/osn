@@ -584,7 +584,7 @@ jobs:
         run: git diff --exit-code shared/openapi/
 
   # The end-to-end suite (`tools/e2e`): boots osn-api, pulse-api, cire-api and
-  # four frontends on their PORTLESS=0 ports, drives Chromium through each
+  # five frontends on their PORTLESS=0 ports, drives Chromium through each
   # product's flows, and runs the whole thing twice so a results.json that
   # differs between runs fails here rather than in someone's review. Not in the
   # `ci` aggregator's `needs` yet, so it reports without gating merges while it

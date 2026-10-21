@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { resetToasts } from "@shared/toast";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -148,6 +149,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  resetToasts();
   window.history.replaceState({}, "", "/anita-and-ben/registry");
   document.cookie = "cire_claimed=; Path=/; Max-Age=0";
   globalThis.fetch = realFetch;
@@ -357,7 +359,7 @@ describe("the couple's cash funds", () => {
     expect(container.textContent).not.toContain("haven’t added any gifts");
   });
 
-  it("reads the list again when the fund a guest chose has closed", async () => {
+  it("says a closed fund in a toast, and its Refresh reads the list again", async () => {
     const { calls } = routedFetch({
       list: [
         json(registry({ cashGiftsEnabled: true, funds: [HONEYMOON] })),
@@ -371,17 +373,22 @@ describe("the couple's cash funds", () => {
     fireEvent.click(choice);
     fireEvent.submit(container.querySelector("[data-gift-money] form") as HTMLFormElement);
 
-    // The fresh list has no such fund, and the panel says why it went.
+    // The page mounts the toaster: the toast is on screen, not only queued.
+    await screen.findByText("This fund is no longer available.");
+    const listReads = () =>
+      calls.filter((c) => c.method === "GET" && c.url === `${API}/api/invite/${SLUG}/registry`);
+    expect(listReads()).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    // The fresh list has no such fund, so the picker drops it.
     await waitFor(() =>
       expect(container.querySelector("[data-gift-money]")?.textContent).not.toContain(
         "Honeymoon in Kyoto",
       ),
     );
-    expect(container.querySelector("[data-gift-money-status]")?.textContent).toMatch(/fund/i);
-    const listReads = calls.filter(
-      (c) => c.method === "GET" && c.url === `${API}/api/invite/${SLUG}/registry`,
-    );
-    expect(listReads).toHaveLength(2);
+    expect(listReads()).toHaveLength(2);
+    await waitFor(() => expect(screen.queryByText("This fund is no longer available.")).toBeNull());
   });
 });
 

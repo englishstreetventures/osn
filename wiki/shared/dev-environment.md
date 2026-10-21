@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-20
 ---
 
 # Dev environment (cire + OSN identity)
@@ -814,8 +814,9 @@ machine checks.
    # missing and the deployed-tier guard failed closed.
 
    curl -s -o /dev/null -w '%{http_code}\n' https://api.dev.cireweddings.com/api/auth/oidc/start
-   # 400 — the handler ran and rejected the empty body. A 503 means one of
-   # OSN_ISSUER_URL / CIRE_API_ORIGIN / CIRE_OIDC_CLIENT_ID / _SECRET is unset.
+   # 400 — the handler ran and refused the missing return_to. A 302 to
+   # /login?auth_error=sign_in_unavailable means one of OSN_ISSUER_URL /
+   # OSN_JWKS_URL / CIRE_API_ORIGIN / CIRE_OIDC_CLIENT_ID / _SECRET is unset.
 
    bunx wrangler tail cire-api-dev   # tier logs as `dev`, not `local`
    ```

@@ -68,9 +68,11 @@ describe("origin guard (C5 / S-L3)", () => {
   const organiserWrites = [
     ["PATCH", "/api/organiser/weddings/w1/tasks/reorder"],
     ["PATCH", "/api/organiser/weddings/w1/tasks/t1"],
-    ["PUT", "/api/organiser/weddings/w1/tasks/t1/assignee"],
+    ["PUT", "/api/organiser/weddings/w1/tasks/t1/assignees/h1"],
+    ["DELETE", "/api/organiser/weddings/w1/tasks/t1/assignees/h1"],
     ["DELETE", "/api/organiser/weddings/w1/tasks/t1"],
     ["PUT", "/api/organiser/weddings/w1/settings"],
+    ["PUT", "/api/organiser/weddings/w1/hosts/p1/run-sheet-scope"],
   ] as const;
 
   it.each(organiserWrites)("403s a %s to %s with a mismatched Origin", async (method, path) => {

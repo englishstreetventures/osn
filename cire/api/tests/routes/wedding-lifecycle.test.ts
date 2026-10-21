@@ -648,7 +648,7 @@ describe("the delete notice", () => {
       resolveOsnProfileDisplays: async (ids) =>
         new Map(
           ids.includes(CREATOR)
-            ? [[CREATOR, { handle: "creator", displayName: "Cee Reator" }]]
+            ? [[CREATOR, { handle: "creator", displayName: "Cee Reator", avatarUrl: null }]]
             : [],
         ),
     });

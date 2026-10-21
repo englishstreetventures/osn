@@ -1,5 +1,11 @@
 # @shared/toast
 
+## 0.3.7
+
+### Patch Changes
+
+- e5fc2a7: Centred toasts (`top-center`, `bottom-center`) can use the whole viewport width. The container was placed at `left: 50%`, which left it only half the screen, so on a phone a toast with an action squeezed its message to a letter per line. It is now centred with auto margins.
+
 ## 0.3.6
 
 ### Patch Changes

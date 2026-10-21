@@ -163,6 +163,34 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   per-wedding seat cap, and a wedding never loses its last owner. Mail about the wedding's data — the
   RSVP digest and the retention sweep's parting gift summary — goes to every
   owner. See [[cire-auth]].
+- **A helper's run-sheet scope (2026-10-20).** A `helper` seat reads none of
+  the guest data above — no guest list, dietary field, claim codes or replies
+  — and an owner may now set how much of the day's run sheet that helper is
+  shown: `own`, the tasks they hold, or `full`, every task and who is
+  doing each one (`PUT …/hosts/:osnProfileId/run-sheet-scope`, owner only).
+  Every new helper starts at `own`, any role change but helper to helper
+  resets the scope to `own`, and the portal asks before it is widened, saying the helper will see who
+  else is doing what. A `full` helper therefore receives the other seat
+  holders' names against their tasks, and the tasks' free-text titles and
+  notes, which an organiser may use to name a guest. **Those titles and notes
+  may also carry a guest's dietary or health detail** ("table 4: Sam's nut
+  allergy"), special-category data under Art. 9 that no guest-list gate
+  covers once an organiser has written it into a task, which a `full` helper
+  will receive with every task from englishstreetventures/osn#1396 (an `own`
+  helper only with the tasks they hold); it is mitigated by widening being an
+  owner's alone, behind a confirmation saying the helper will see every task,
+  and by every helper starting at `own` and returning to it on a role
+  change, and it is **accepted**, because the owner chose names readable to
+  every helper and widening needs an owner's confirmation. **The owner chose
+  (2026-10-20) that the names of the people the run sheet assigns are readable
+  to every helper, `own` helpers included**, so this is a deliberate
+  disclosure within the wedding team, not a leak to guard against. **The
+  disclosure begins when the run-sheet view ships**
+  (englishstreetventures/osn#1396): until then no route serves a helper any
+  task, so a scope set today discloses nothing. Assessed as acceptable: only
+  an owner widens it, behind a confirmation; it never opens the guest list;
+  and a helper's own-scope response is narrowed on the server, not in the
+  page. See [[cire-auth#The run-sheet scope]].
 - **Granularity (2026-08-01).** The field is stored per **(guest, event)** — a
   guest answers once per event they are invited to — and `GET …/rsvps.csv` now
   discloses it that way, one dietary column per event. It previously collapsed

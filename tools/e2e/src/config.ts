@@ -141,9 +141,47 @@ export const CIRE_OIDC = {
 /**
  * osn-api's dev sign-in (`GET /dev/login`, local and dev tiers only, mounted
  * when this is set). It signs in as the fixed dev principal, whose profile id
- * owns cire's sample wedding (`DEV_OWNER_PROFILE_ID`). Local only.
+ * owns cire's sample wedding (`DEV_OWNER_PROFILE_ID`) and the `CIRE_ORGANISER`
+ * weddings below. Local only.
  */
 export const DEV_LOGIN_SECRET = "e2e-dev-login-secret-not-a-real-secret";
+
+/**
+ * The organiser weddings cire-api adds when the stack sets
+ * `CIRE_E2E_ORGANISER=1` (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`,
+ * which these values copy). All three are on Gold and owned by `profileId`,
+ * the profile osn-api's `/dev/login` signs in as. The co-hosts are bare
+ * profile ids: the local cire-api resolves no names, so the portal shows the
+ * ids, and a flow finds each person by theirs.
+ */
+export const CIRE_ORGANISER = {
+  profileId: "usr_dev_bootstrap_owner",
+  /** A wedding date and an empty checklist, for the starter checklist. */
+  checklist: {
+    weddingId: "wed_e2e_checklist",
+    weddingDate: "2099-06-20",
+    /** The starter's first item, due a year before the wedding date. */
+    firstItem: {
+      key: "agree-budget",
+      title: "Agree on an overall budget",
+      timeframeBucket: "12m",
+      dueAt: "2098-06-20",
+    },
+  },
+  /** One open task nobody holds, an editor and a viewer. */
+  holders: {
+    weddingId: "wed_e2e_holders",
+    taskId: "tsk_e2e_holders_venue",
+    taskTitle: "Book the venue",
+    editor: { hostId: "whost_e2e_bea", profileId: "usr_e2e_bea" },
+    viewer: { hostId: "whost_e2e_cal", profileId: "usr_e2e_cal" },
+  },
+  /** A helper who sees their own tasks on the run sheet. */
+  scope: {
+    weddingId: "wed_e2e_scope",
+    helper: { hostId: "whost_e2e_dee", profileId: "usr_e2e_dee" },
+  },
+} as const;
 
 /**
  * The organiser's edit in `cire-event-details`: the sample wedding's Kitchen
