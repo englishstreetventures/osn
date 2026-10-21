@@ -19,6 +19,7 @@ describe("the guest sheet, in a real engine", () => {
   afterEach(() => {
     cleanup();
     document.body.style.overflow = "";
+    document.documentElement.style.overflow = "";
   });
 
   /**
@@ -118,5 +119,37 @@ describe("the guest sheet, in a real engine", () => {
     // rendered width, because the viewport the test runs in may be narrower than
     // the cap — the cap is what is being asserted, not the layout under it.
     expect(getComputedStyle(getByRole("dialog")).maxWidth).toBe("480px");
+  });
+  /**
+   * The invite's root carries `overflow-x: clip`, so the root's overflow is
+   * not `visible` and a `<body>` value never reaches the viewport. The lock
+   * has to be on the root itself, or a wheel or a touch on the sheet's
+   * chrome or backdrop scrolls the invite behind it.
+   */
+  it("keeps the page behind it still while the sheet is open, and lets it scroll again after", async () => {
+    const tall = document.createElement("div");
+    tall.style.height = "4000px";
+    document.body.append(tall);
+    try {
+      window.scrollTo(0, 0);
+      const { getByRole, unmount } = render(() => (
+        <AnimatedModal onClose={() => {}} label="Event details">
+          <p>body</p>
+        </AnimatedModal>
+      ));
+
+      await userEvent.wheel(getByRole("button", { name: "Close" }), { delta: { y: 600 } });
+      await userEvent.wheel(getByRole("dialog"), { delta: { y: 600 } });
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      expect(window.scrollY).toBe(0);
+
+      unmount();
+      await userEvent.wheel(tall, { delta: { y: 600 } });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(window.scrollY).toBeGreaterThan(0);
+    } finally {
+      tall.remove();
+      window.scrollTo(0, 0);
+    }
   });
 });
