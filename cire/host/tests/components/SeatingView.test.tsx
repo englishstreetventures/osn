@@ -390,6 +390,20 @@ describe("SeatingView — guest menus", () => {
     expect(await screen.findByRole("menu")).toBeTruthy();
   });
 
+  it("stays open through the click that follows a mouse press, after first use too", async () => {
+    fakeApi();
+    await renderView();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Seat Ada Alpha" }), { button: 0 });
+    fireEvent.keyDown(await screen.findByRole("menu"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    const trigger = document.querySelector<HTMLButtonElement>("button[data-closed]")!;
+    fireEvent.pointerDown(trigger, { button: 0, pointerType: "mouse" });
+    fireEvent.click(trigger, { detail: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.queryByRole("menu")).not.toBeNull();
+  });
+
   it("opens nothing unasked when an editor's role comes back", async () => {
     fakeApi();
     const [canEdit, setCanEdit] = createSignal(true);

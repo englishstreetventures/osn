@@ -302,6 +302,15 @@ describe("SeatingView in Chromium", () => {
     await page.screenshot({ path: `${ARTIFACTS}/menu-open.png` });
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    // Pressed again, the menu's own trigger now takes the press and its click.
+    await mouse("mousePressed", ada);
+    await mouse("mouseReleased", ada);
+    await screen.findByRole("menu");
+    await aFrame();
+    await aFrame();
+    expect(screen.queryByRole("menu")).not.toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
     // A tap.
     const cy = centre(await waitFor(() => screen.getByRole("button", { name: "Seat Cy Charlie" })));

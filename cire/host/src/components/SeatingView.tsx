@@ -827,14 +827,9 @@ function GuestMenu(props: {
   const label = () => `${action()} ${guestName(props.guest)}`;
   const choices = () => (props.guest.withdrawn ? [] : props.tables);
   const [opener, setOpener] = createSignal<MenuOpener | null>(null);
-  let pointerType = "";
   const replay = (handOver: MenuOpener) => setOpener(() => handOver);
-  // What a tap and a press-less click hand over: Kobalte opens on the click of
-  // a press it was told was a touch.
-  const tap: MenuOpener = (trigger) => {
-    trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }));
-    trigger.click();
-  };
+  // A click no press came before; the trigger below opens on one.
+  const click: MenuOpener = (trigger) => trigger.click();
   return (
     <Show
       when={opener()}
@@ -846,7 +841,6 @@ function GuestMenu(props: {
           aria-label={label()}
           class={menuTriggerClass}
           onPointerDown={(e) => {
-            pointerType = e.pointerType;
             if (e.pointerType === "touch" || e.button !== 0) return;
             // Kobalte opens on a press of anything but a touch.
             replay((trigger) =>
@@ -855,9 +849,9 @@ function GuestMenu(props: {
               ),
             );
           }}
-          onClick={(e) => {
-            if (pointerType === "touch" || e.detail === 0) replay(tap);
-          }}
+          // A mouse press has already swapped this button out by its click, so
+          // a click that reaches it is a tap's or one no press came before.
+          onClick={() => replay(click)}
           onKeyDown={(e) => {
             if (!MENU_OPEN_KEYS.has(e.key)) return;
             e.preventDefault();
