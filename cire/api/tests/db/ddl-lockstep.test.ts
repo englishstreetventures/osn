@@ -484,14 +484,19 @@ describe("T-S1 lockstep: Drizzle schema.ts ↔ migrated D1 shape", () => {
     });
   }
 
-  it("excuses only columns the migrated database still holds", () => {
+  // An insert from the app leaves an undeclared column out, so SQLite fills it
+  // with NULL or its default; a NOT NULL column with neither refuses every
+  // insert, and cannot be retired by leaving it out of schema.ts.
+  it("excuses only columns the migrated database still holds, each nullable or with a default", () => {
     for (const [table, columns] of Object.entries(UNDECLARED_COLUMNS)) {
       for (const column of columns) {
+        const shape = migrated.tables[table]?.columns[column];
         expect({
           table,
           column,
-          present: column in (migrated.tables[table]?.columns ?? {}),
-        }).toEqual({ table, column, present: true });
+          present: shape !== undefined,
+          insertableWithout: shape !== undefined && (!shape.notNull || shape.default !== null),
+        }).toEqual({ table, column, present: true, insertableWithout: true });
       }
     }
   });
