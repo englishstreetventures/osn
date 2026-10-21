@@ -37,6 +37,10 @@ vi.mock("../../src/components/UpgradeDialog", () => ({
   ),
 }));
 
+// The tap each outcome gives is pinned where a test names it; nothing buzzes.
+const { haptic } = vi.hoisted(() => ({ haptic: vi.fn() }));
+vi.mock("../../src/lib/haptics", () => ({ haptic }));
+
 import HostsPanel from "../../src/components/HostsPanel";
 import {
   __resetHostsCache,
@@ -87,6 +91,7 @@ describe("HostsPanel", () => {
   afterEach(() => {
     cleanup();
     resetOrganiserMocks();
+    haptic.mockReset();
   });
 
   it("loads and lists existing hosts", async () => {
@@ -741,6 +746,426 @@ describe("HostsPanel", () => {
       fireEvent.click(screen.getByRole("button", { name: /Remove/i }));
       await waitFor(() => expect(screen.queryByText("@bob")).toBeNull());
       expect(hasCachedTasks("wed_a")).toBe(false);
+    });
+  });
+
+  describe("a helper's run-sheet scope", () => {
+    const HELPER = {
+      hostId: "whost_bob",
+      osnProfileId: "usr_bob",
+      handle: "bob",
+      role: "helper",
+      createdAt: 1,
+      runSheetScope: "own",
+    };
+    /** A second helper, opened to the whole run sheet: what one row's write
+     *  must leave alone. */
+    const OTHER_HELPER = {
+      hostId: "whost_cy",
+      osnProfileId: "usr_cy",
+      handle: "cy",
+      role: "helper",
+      createdAt: 2,
+      runSheetScope: "full",
+    };
+    const scopePath = "https://api.test/api/organiser/weddings/wed_a/hosts/usr_bob/run-sheet-scope";
+
+    /** A helper row's scope dropdown, by the person it belongs to. */
+    function scopeSelect(name: string) {
+      return screen.getByRole("combobox", {
+        name: new RegExp(`What ${name} sees on the run sheet`, "i"),
+      }) as HTMLSelectElement;
+    }
+
+    function pick(name: string, scope: string) {
+      fireEvent.change(scopeSelect(name), { target: { value: scope } });
+    }
+
+    beforeEach(() => {
+      __resetTasksCache();
+      __resetHostsCache();
+    });
+
+    it("offers an owner the scope on a helper's row and on no other", async () => {
+      authFetchMock.mockResolvedValueOnce(
+        json({
+          hosts: [
+            {
+              hostId: "whost_amy",
+              osnProfileId: "usr_amy",
+              handle: "amy",
+              role: "owner",
+              createdAt: 0,
+            },
+            HELPER,
+            {
+              hostId: "whost_cy",
+              osnProfileId: "usr_cy",
+              handle: "cy",
+              role: "editor",
+              createdAt: 2,
+            },
+            {
+              hostId: "whost_di",
+              osnProfileId: "usr_di",
+              handle: "di",
+              role: "viewer",
+              createdAt: 3,
+            },
+          ],
+        }),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      expect(scopeSelect("@bob").value).toBe("own");
+      expect(
+        within(scopeSelect("@bob"))
+          .getAllByRole("option")
+          .map((o) => o.textContent),
+      ).toEqual(["Their own tasks", "The whole run sheet"]);
+      expect(screen.getAllByRole("combobox", { name: /sees on the run sheet/i })).toHaveLength(1);
+      // Nor is the scope named anywhere else: it is not a setting of theirs.
+      expect(screen.getAllByText(/Sees:/)).toHaveLength(1);
+    });
+
+    it("reads a helper row the API sent no scope for as their own tasks", async () => {
+      authFetchMock.mockResolvedValueOnce(
+        json({ hosts: [{ ...HELPER, runSheetScope: undefined }] }),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+      expect(scopeSelect("@bob").value).toBe("own");
+    });
+
+    it("reads a helper row's unknown scope as their own tasks", async () => {
+      // A word the portal does not know, and a value that is no word at all.
+      for (const runSheetScope of ["most", ["full"]]) {
+        authFetchMock.mockResolvedValueOnce(json({ hosts: [{ ...HELPER, runSheetScope }] }));
+        render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);
+        await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+        expect(
+          within(screen.getByRole("listitem")).getByText("Sees: their own tasks"),
+        ).toBeTruthy();
+        cleanup();
+      }
+    });
+
+    it("shows an editor and a viewer what a helper sees, with nothing to change it", async () => {
+      for (const callerRole of ["editor", "viewer"] as const) {
+        authFetchMock.mockResolvedValueOnce(
+          json({
+            hosts: [
+              { ...HELPER, runSheetScope: "full" },
+              {
+                hostId: "whost_cy",
+                osnProfileId: "usr_cy",
+                handle: "cy",
+                role: "helper",
+                createdAt: 2,
+              },
+              {
+                hostId: "whost_di",
+                osnProfileId: "usr_di",
+                handle: "di",
+                role: "viewer",
+                createdAt: 3,
+              },
+            ],
+          }),
+        );
+        render(() => <HostsPanel weddingId="wed_a" callerRole={callerRole} />);
+        await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+        const [bob, cy, di] = screen.getAllByRole("listitem");
+        expect(within(bob!).getByText("Sees: the whole run sheet")).toBeTruthy();
+        expect(within(cy!).getByText("Sees: their own tasks")).toBeTruthy();
+        expect(within(di!).queryByText(/Sees:/)).toBeNull();
+        expect(screen.queryByRole("combobox", { name: /sees on the run sheet/i })).toBeNull();
+        cleanup();
+      }
+    });
+
+    it("narrows a helper's run sheet at once, without asking", async () => {
+      authFetchMock.mockResolvedValueOnce(
+        json({ hosts: [{ ...HELPER, runSheetScope: "full" }, OTHER_HELPER] }),
+      );
+      authFetchMock.mockResolvedValueOnce(
+        json({ host: { osnProfileId: "usr_bob", role: "helper", runSheetScope: "own" } }),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      pick("@bob", "own");
+
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+      const [url, init] = authFetchMock.mock.calls[1]!;
+      expect(String(url)).toBe(scopePath);
+      expect((init as RequestInit).method).toBe("PUT");
+      expect(new Headers((init as RequestInit).headers).get("Content-Type")).toBe(
+        "application/json",
+      );
+      expect(JSON.parse(String((init as RequestInit).body))).toEqual({ scope: "own" });
+      expect(screen.queryByRole("dialog")).toBeNull();
+      await waitFor(() =>
+        expect(toastSuccess).toHaveBeenCalledWith("@bob now sees their own tasks."),
+      );
+      expect(haptic).toHaveBeenLastCalledWith("commit");
+      expect(scopeSelect("@bob").value).toBe("own");
+      // Only the row it was set on.
+      expect(scopeSelect("@cy").value).toBe("full");
+    });
+
+    it("asks before opening the whole run sheet, and sends nothing until it is answered", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [HELPER] }));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      pick("@bob", "full");
+
+      expect(screen.getByText(/Show @bob the whole run sheet\?/i)).toBeTruthy();
+      // The thing being handed over is other people's names against their jobs.
+      expect(screen.getByText(/who is doing each one/i)).toBeTruthy();
+      expect(authFetchMock).toHaveBeenCalledTimes(1);
+      // The select shows the pick while the question is open.
+      expect(scopeSelect("@bob").value).toBe("full");
+    });
+
+    it("opens the whole run sheet once that is confirmed", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [HELPER] }));
+      authFetchMock.mockResolvedValueOnce(
+        json({ host: { osnProfileId: "usr_bob", role: "helper", runSheetScope: "full" } }),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      pick("@bob", "full");
+      fireEvent.click(screen.getByRole("button", { name: /Yes, show the whole run sheet/i }));
+
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+      const [url, init] = authFetchMock.mock.calls[1]!;
+      expect(String(url)).toBe(scopePath);
+      expect(JSON.parse(String((init as RequestInit).body))).toEqual({ scope: "full" });
+      await waitFor(() =>
+        expect(toastSuccess).toHaveBeenCalledWith("@bob now sees the whole run sheet."),
+      );
+      expect(haptic).toHaveBeenLastCalledWith("commit");
+      expect(scopeSelect("@bob").value).toBe("full");
+      // Saying yes puts the question away.
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    });
+
+    it("sends nothing and puts the select back when the question is dismissed, by Cancel or Escape", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [HELPER] }));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      pick("@bob", "full");
+      fireEvent.click(screen.getByRole("button", { name: /^Cancel$/i }));
+
+      expect(authFetchMock).toHaveBeenCalledTimes(1);
+      expect(scopeSelect("@bob").value).toBe("own");
+
+      // Escape closes the dialog from the platform, which reports it as a close.
+      pick("@bob", "full");
+      screen
+        .getByRole("dialog", { name: /Confirm showing the whole run sheet/i })
+        .dispatchEvent(new Event("close"));
+
+      await waitFor(() => expect(scopeSelect("@bob").value).toBe("own"));
+      expect(authFetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("puts the select back and says why when the seat is no longer a helper's (409)", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [{ ...HELPER, runSheetScope: "full" }] }));
+      authFetchMock.mockResolvedValueOnce(json({ error: "not_a_helper" }, 409));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      pick("@bob", "own");
+
+      await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+      expect(String(toastError.mock.calls[0]![0])).toMatch(/aren't a helper any more/i);
+      expect(haptic).toHaveBeenLastCalledWith("reject");
+      expect(scopeSelect("@bob").value).toBe("full");
+      expect(toastSuccess).not.toHaveBeenCalled();
+    });
+
+    it("puts the select back on any other refusal, with a plain retry", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [{ ...HELPER, runSheetScope: "full" }] }));
+      authFetchMock.mockResolvedValueOnce(json({ error: "Could not change what they see" }, 500));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      pick("@bob", "own");
+
+      await waitFor(() =>
+        expect(toastError).toHaveBeenCalledWith(
+          "Could not change what they see. Please try again.",
+        ),
+      );
+      expect(haptic).toHaveBeenLastCalledWith("reject");
+      expect(scopeSelect("@bob").value).toBe("full");
+    });
+
+    it("puts the select back when the request never reaches the API", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [{ ...HELPER, runSheetScope: "full" }] }));
+      authFetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      pick("@bob", "own");
+
+      await waitFor(() =>
+        expect(toastError).toHaveBeenCalledWith(
+          "Could not change what they see. Is the API running?",
+        ),
+      );
+      expect(haptic).toHaveBeenLastCalledWith("reject");
+      expect(scopeSelect("@bob").value).toBe("full");
+    });
+
+    it("holds the select busy, not disabled, while the write is in flight, and ignores a pick then", async () => {
+      authFetchMock.mockResolvedValueOnce(
+        json({ hosts: [{ ...HELPER, runSheetScope: "full" }, OTHER_HELPER] }),
+      );
+      let answer: (res: Response) => void = () => {};
+      authFetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answer = resolve)));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+      const select = scopeSelect("@bob");
+
+      pick("@bob", "own");
+      await waitFor(() => expect(select.getAttribute("aria-busy")).toBe("true"));
+      // Disabled, it would drop the focus of an owner on the keyboard.
+      expect(select.disabled).toBe(false);
+      // Only the row being written is busy.
+      expect(scopeSelect("@cy").hasAttribute("aria-busy")).toBe(false);
+
+      // A second pick goes nowhere: no request, no question, and the select
+      // stays on what is being written.
+      pick("@bob", "full");
+      expect(select.value).toBe("own");
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(authFetchMock).toHaveBeenCalledTimes(2);
+
+      answer(json({ host: { osnProfileId: "usr_bob", role: "helper", runSheetScope: "own" } }));
+      await waitFor(() => expect(select.hasAttribute("aria-busy")).toBe(false));
+      // The same select: the row was not rebuilt under it.
+      expect(scopeSelect("@bob")).toBe(select);
+      expect(select.value).toBe("own");
+    });
+
+    it("sends a signed-out organiser to sign in, and an expired session too", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [{ ...HELPER, runSheetScope: "full" }] }));
+      authFetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+      authFetchMock.mockRejectedValueOnce(new Error("AuthExpiredError"));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      pick("@bob", "own");
+      await waitFor(() => expect(redirectSpy).toHaveBeenCalledTimes(1));
+      pick("@bob", "own");
+      await waitFor(() => expect(redirectSpy).toHaveBeenCalledTimes(2));
+      expect(toastError).not.toHaveBeenCalled();
+    });
+
+    it("leaves the checklist's seats fresh: the checklist reads no scope", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [HELPER] }));
+      authFetchMock.mockResolvedValueOnce(
+        json({ host: { osnProfileId: "usr_bob", role: "helper", runSheetScope: "full" } }),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+      expect(hasCachedHosts("wed_a")).toBe(true);
+
+      pick("@bob", "full");
+      fireEvent.click(screen.getByRole("button", { name: /Yes, show the whole run sheet/i }));
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+      expect(hasCachedHosts("wed_a")).toBe(true);
+    });
+
+    it("shows the scope the role change answers with, not the one it guessed", async () => {
+      // This list read @bob as a viewer; another owner has since made them a
+      // helper and opened their run sheet. Picking helper here is helper to
+      // helper on the server, which keeps the scope and says so.
+      authFetchMock.mockResolvedValueOnce(
+        json({
+          hosts: [
+            {
+              hostId: "whost_bob",
+              osnProfileId: "usr_bob",
+              handle: "bob",
+              role: "viewer",
+              createdAt: 1,
+            },
+          ],
+        }),
+      );
+      authFetchMock.mockResolvedValueOnce(
+        json({
+          host: { osnProfileId: "usr_bob", role: "helper", createdAt: 1, runSheetScope: "full" },
+        }),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      fireEvent.change(roleSelect("@bob"), { target: { value: "helper" } });
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(1));
+      expect(scopeSelect("@bob").value).toBe("full");
+    });
+
+    it("lands a role change whose answer has no body, or names no seat, at their own tasks", async () => {
+      const viewer = (handle: string, createdAt: number) => ({
+        hostId: `whost_${handle}`,
+        osnProfileId: `usr_${handle}`,
+        handle,
+        role: "viewer",
+        createdAt,
+      });
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [viewer("bob", 1), viewer("cy", 2)] }));
+      authFetchMock.mockResolvedValueOnce(new Response(null, { status: 200 }));
+      authFetchMock.mockResolvedValueOnce(json({}));
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      fireEvent.change(roleSelect("@bob"), { target: { value: "helper" } });
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(1));
+      fireEvent.change(roleSelect("@cy"), { target: { value: "helper" } });
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(2));
+
+      expect(toastError).not.toHaveBeenCalled();
+      expect(scopeSelect("@bob").value).toBe("own");
+      expect(scopeSelect("@cy").value).toBe("own");
+    });
+
+    it("brings a helper opened to the whole run sheet back at their own tasks after a role change", async () => {
+      // The API resets the scope on every role change but helper to helper.
+      authFetchMock.mockResolvedValueOnce(
+        json({ hosts: [{ ...HELPER, runSheetScope: "full" }, OTHER_HELPER] }),
+      );
+      authFetchMock.mockResolvedValueOnce(
+        json({ host: { osnProfileId: "usr_bob", role: "viewer", createdAt: 1 } }),
+      );
+      render(() => <HostsPanel weddingId="wed_a" callerRole="owner" />);
+      await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+      fireEvent.change(roleSelect("@bob"), { target: { value: "viewer" } });
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(1));
+      expect(
+        screen.queryByRole("combobox", { name: /What @bob sees on the run sheet/i }),
+      ).toBeNull();
+      // The other helper keeps their role and what they see.
+      expect((roleSelect("@cy") as HTMLSelectElement).value).toBe("helper");
+      expect(scopeSelect("@cy").value).toBe("full");
+
+      authFetchMock.mockResolvedValueOnce(
+        json({
+          host: { osnProfileId: "usr_bob", role: "helper", createdAt: 1, runSheetScope: "own" },
+        }),
+      );
+      fireEvent.change(roleSelect("@bob"), { target: { value: "helper" } });
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(2));
+      expect(scopeSelect("@bob").value).toBe("own");
     });
   });
 

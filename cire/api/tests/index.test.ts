@@ -373,6 +373,78 @@ describe("CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS", () => {
   });
 });
 
+describe("organiser sign-in config on the Worker", () => {
+  const OIDC = {
+    CIRE_API_ORIGIN: "https://api.example.com",
+    CIRE_OIDC_CLIENT_ID: "cid_cire",
+    CIRE_OIDC_CLIENT_SECRET: "not-a-real-secret",
+  };
+
+  /**
+   * The OIDC start leg's answer and the log lines of a Worker built for
+   * `extra`, on a binding it has not seen (the app is cached per D1 binding).
+   */
+  async function startSignIn(
+    extra: Record<string, unknown>,
+    returnTo: string,
+  ): Promise<{ res: Response; logs: string }> {
+    const freshBinding = {
+      prepare: (query: string) => DB.prepare(query),
+      batch: (statements: D1PreparedStatement[]) => DB.batch(statements),
+      withSession: (constraint: string) => DB.withSession(constraint),
+    };
+    const env = { ...BASE_ENV, ...extra, DB: freshBinding } as unknown as Parameters<
+      NonNullable<typeof handler.fetch>
+    >[1];
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await handler.fetch!(
+        new Request(
+          `https://api.example.com/api/auth/oidc/start?return_to=${encodeURIComponent(returnTo)}`,
+          { headers: { "cf-connecting-ip": "203.0.113.63" } },
+        ) as unknown as Parameters<NonNullable<typeof handler.fetch>>[0],
+        env,
+        ctx,
+      );
+    });
+    return { res: res!, logs };
+  }
+
+  it("refuses to start a sign-in, and says why, while a deployed tier lacks a sign-in value", async () => {
+    // The issuer and its JWKS URL are required by the boot guard above every
+    // route; the three sign-in values are not, and each one missing leaves the
+    // rest of the Worker serving.
+    for (const missing of Object.keys(OIDC)) {
+      const { res, logs } = await startSignIn(
+        { ...OIDC, [missing]: undefined },
+        "https://app.example.com/",
+      );
+      expect(res.status).toBe(302);
+      const location = new URL(res.headers.get("location") ?? "");
+      expect(location.pathname).toBe("/login");
+      expect(location.searchParams.get("auth_error")).toBe("sign_in_unavailable");
+      expect(logs).toContain("OIDC client config incomplete");
+      expect(logs).toContain("OSN_JWKS_URL");
+    }
+  });
+
+  it("sends the organiser to the issuer with the tier's own callback, and only back to its own origins", async () => {
+    const { res, logs } = await startSignIn(OIDC, "https://app.example.com/");
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.get("location") ?? "");
+    expect(`${location.origin}${location.pathname}`).toBe("https://id.example.com/authorize");
+    expect(location.searchParams.get("client_id")).toBe("cid_cire");
+    expect(location.searchParams.get("redirect_uri")).toBe(
+      "https://api.example.com/api/auth/oidc/callback",
+    );
+    expect(logs).not.toContain("OIDC client config incomplete");
+
+    const elsewhere = await startSignIn(OIDC, "https://attacker.example/");
+    expect(elsewhere.res.status).toBe(400);
+    expect(await jsonBody(elsewhere.res)).toEqual({ error: "invalid_return_to" });
+  });
+});
+
 describe("D1 session routing at the entry points", () => {
   /**
    * A D1 binding that records what it was asked for, delegating to the real

@@ -4,12 +4,14 @@ import { Effect } from "effect";
 import { createApp } from "./app";
 import {
   applyE2eGiftList,
+  applyE2eOrganiser,
   applyE2eRsvpDeadline,
   createDb,
   repointDevOwnerSeat,
   seedDb,
 } from "./db/setup";
 import { localClientAddress } from "./lib/local-client-address";
+import { oidcConfigFromEnv } from "./lib/oidc";
 import { localResendConfig } from "./lib/resend-email";
 import { siteOriginOptions } from "./lib/web-origin";
 import { runCireSync } from "./observability";
@@ -29,11 +31,14 @@ const db = createDb(process.env.CIRE_LOCAL_DB_PATH || ":memory:");
 // here rather than booting a server with no deadline.
 //
 // The seed has no gift list. `CIRE_E2E_REGISTRY=1` (the E2E suite) adds a
-// second wedding on Gold with a published one, for the gift-list flows.
+// second wedding on Gold with a published one, for the gift-list flows, and
+// `CIRE_E2E_ORGANISER=1` three Gold weddings the dev profile owns, for the
+// organiser portal's flows.
 db.$client.transaction(() => {
   seedDb(db);
   applyE2eRsvpDeadline(db, process.env);
   applyE2eGiftList(db, process.env);
+  applyE2eOrganiser(db, process.env);
 })();
 
 // Dev convenience: the in-memory seed gives the sample wedding's owner seat to
@@ -98,6 +103,20 @@ const appOptions: Parameters<typeof createApp>[1] = {
   osnJwksUrl: process.env.OSN_JWKS_URL,
   osnIssuerUrl: process.env.OSN_ISSUER_URL,
   osnAudience: process.env.OSN_AUDIENCE,
+  // Organiser sign-in, built as the Worker builds it: all five values or none,
+  // and none (no issuer) is the usual local state. Named one by one: Bun types
+  // `process.env` with no property in common with the env interface, which
+  // TypeScript refuses as a weak type.
+  oidc: oidcConfigFromEnv(
+    {
+      OSN_ISSUER_URL: process.env.OSN_ISSUER_URL,
+      OSN_JWKS_URL: process.env.OSN_JWKS_URL,
+      CIRE_API_ORIGIN: process.env.CIRE_API_ORIGIN,
+      CIRE_OIDC_CLIENT_ID: process.env.CIRE_OIDC_CLIENT_ID,
+      CIRE_OIDC_CLIENT_SECRET: process.env.CIRE_OIDC_CLIENT_SECRET,
+    },
+    origins,
+  ),
   stripe,
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? null,
   stripePlatformWebhookSecret: process.env.STRIPE_PLATFORM_WEBHOOK_SECRET ?? null,

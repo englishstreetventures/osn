@@ -4,6 +4,7 @@ import { hostRsvpNotices, weddingHosts } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
+import { Elysia } from "elysia";
 
 import { createApp } from "../../src/app";
 import type { AppOptions } from "../../src/app";
@@ -11,6 +12,7 @@ import type { Db } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import { setExecutionCtx } from "../../src/lib/execution-ctx";
 import { CIRE_METRICS } from "../../src/metrics";
+import { weddingRunSheet } from "../../src/middleware/wedding-run-sheet";
 import { MAX_HOSTS_PER_WEDDING } from "../../src/services/hosts";
 import type { AssignableHostRole } from "../../src/services/hosts";
 import type {
@@ -411,14 +413,21 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     expect(row!.role).toBe("viewer");
   });
 
-  it("persists an explicit helper role on add", async () => {
+  it("persists an explicit helper role on add, seeing only their own tasks whatever the body asks", async () => {
+    // A new helper always starts narrow: the scope is widened afterwards, from
+    // their row, behind its own confirmation — never in the add.
     const { db, app } = buildApp();
-    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob", role: "helper" });
+    const res = await req(app, "POST", hostsPath, OWNER, {
+      handle: "bob",
+      role: "helper",
+      runSheetScope: "full",
+    });
     expect(res.status).toBe(201);
     const body = (await res.json()) as { host: { role: string } };
     expect(body.host.role).toBe("helper");
     const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
     expect(row!.role).toBe("helper");
+    expect(row!.runSheetScope).toBe("own");
   });
 
   it("persists an explicit viewer role on add", async () => {
@@ -575,6 +584,34 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     expect(body.hosts).toContainEqual(
       expect.objectContaining({ osnProfileId: COHOST, role: "helper" }),
     );
+  });
+
+  it("names each helper's run-sheet scope, and no other seat's", async () => {
+    // The column means something for a helper alone, so the list carries it
+    // there and nowhere else — an editor's stored value is not a setting.
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "helper");
+    seedHostSeat(db, "usr_full_helper", "helper");
+    seedHostSeat(db, "usr_editor", "editor");
+    db.update(weddingHosts)
+      .set({ runSheetScope: "full" })
+      .where(eq(weddingHosts.osnProfileId, "usr_full_helper"))
+      .run();
+    db.update(weddingHosts)
+      .set({ runSheetScope: "full" })
+      .where(eq(weddingHosts.osnProfileId, "usr_editor"))
+      .run();
+    const res = await req(app, "GET", hostsPath, "usr_editor");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hosts: Record<string, unknown>[] };
+    const byProfile = new Map(body.hosts.map((h) => [h.osnProfileId, h]));
+    expect(byProfile.get(COHOST)).toMatchObject({ role: "helper", runSheetScope: "own" });
+    expect(byProfile.get("usr_full_helper")).toMatchObject({
+      role: "helper",
+      runSheetScope: "full",
+    });
+    expect(byProfile.get("usr_editor")).not.toHaveProperty("runSheetScope");
+    expect(byProfile.get(OWNER)).not.toHaveProperty("runSheetScope");
   });
 
   it("lists every seat for a CO-HOST too (member read)", async () => {
@@ -1088,16 +1125,89 @@ describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/role", () =
     expect(row!.role).toBe("helper");
   });
 
-  it("raises a helper back up to editor, leaving the stored run-sheet scope alone", async () => {
-    // `run_sheet_scope` means nothing for an editor — `runSheetScopeFor()`
-    // answers `full` for one whatever the column says — so a promotion has no
-    // business rewriting it, and a later demotion finds it as the host left it.
+  it("raises a helper opened to the whole run sheet up to editor, closing it back to own", async () => {
+    // Any move away from helper resets the scope: left alone, a helper made an
+    // editor and later moved back down would come back seeing the whole run
+    // sheet — a grant nobody made of the seat as it now is.
     const { db, app } = buildApp();
     seedCohost(db, "helper");
+    db.update(weddingHosts)
+      .set({ runSheetScope: "full" })
+      .where(eq(weddingHosts.osnProfileId, COHOST))
+      .run();
     const res = await req(app, "PUT", rolePath, OWNER, { role: "editor" });
     expect(res.status).toBe(200);
     const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
     expect(row!.role).toBe("editor");
+    expect(row!.runSheetScope).toBe("own");
+  });
+
+  it("brings a full helper moved to viewer and back again in at own", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db, "helper");
+    expect(
+      (await req(app, "PUT", `${hostsPath}/${COHOST}/run-sheet-scope`, OWNER, { scope: "full" }))
+        .status,
+    ).toBe(200);
+    expect((await req(app, "PUT", rolePath, OWNER, { role: "viewer" })).status).toBe(200);
+    const back = await req(app, "PUT", rolePath, OWNER, { role: "helper" });
+    expect(back.status).toBe(200);
+    expect(((await back.json()) as { host: unknown }).host).toMatchObject({
+      role: "helper",
+      runSheetScope: "own",
+    });
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
+    expect(row!.runSheetScope).toBe("own");
+  });
+
+  it("keeps a helper's scope when the role written is helper again", async () => {
+    // Setting the role a seat already has is a no-op, and must stay one: an
+    // owner re-saving a helper's row has not narrowed what they see.
+    const { db, app } = buildApp();
+    seedCohost(db, "helper");
+    db.update(weddingHosts)
+      .set({ runSheetScope: "full" })
+      .where(eq(weddingHosts.osnProfileId, COHOST))
+      .run();
+    const res = await req(app, "PUT", rolePath, OWNER, { role: "helper" });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { host: unknown }).host).toMatchObject({
+      role: "helper",
+      runSheetScope: "full",
+    });
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
+    expect(row!.runSheetScope).toBe("full");
+  });
+
+  it("names the run-sheet scope in its answer for a helper seat only", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db, "viewer");
+    const helper = await req(app, "PUT", rolePath, OWNER, { role: "helper" });
+    expect(((await helper.json()) as { host: unknown }).host).toMatchObject({
+      role: "helper",
+      runSheetScope: "own",
+    });
+    const editor = await req(app, "PUT", rolePath, OWNER, { role: "editor" });
+    expect(((await editor.json()) as { host: unknown }).host).not.toHaveProperty("runSheetScope");
+  });
+
+  it("starts a seat moved onto helper at own, whatever the seat stored before", async () => {
+    // An editor's stored scope is no setting of theirs, so it must not carry
+    // over: an editor stored `full` and made a helper would otherwise be shown
+    // every task and every other helper's name without an owner choosing it.
+    const { db, app } = buildApp();
+    seedCohost(db, "editor");
+    db.update(weddingHosts)
+      .set({ runSheetScope: "full" })
+      .where(eq(weddingHosts.osnProfileId, COHOST))
+      .run();
+    const res = await req(app, "PUT", rolePath, OWNER, { role: "helper" });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { host: unknown }).host).toMatchObject({
+      role: "helper",
+      runSheetScope: "own",
+    });
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
     expect(row!.runSheetScope).toBe("own");
   });
 
@@ -1186,6 +1296,271 @@ describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/role", () =
       const res = await req(app, "PUT", rolePath, OWNER, { role });
       expect(res.status).toBe(400);
     }
+  });
+});
+
+describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/run-sheet-scope", () => {
+  const scopePath = (profile: string = COHOST) => `${hostsPath}/${profile}/run-sheet-scope`;
+
+  /** The column as stored, read straight off the row. */
+  const storedScope = async (db: Db, profile: string = COHOST) =>
+    (
+      await db
+        .select({ scope: weddingHosts.runSheetScope })
+        .from(weddingHosts)
+        .where(eq(weddingHosts.osnProfileId, profile))
+        .all()
+    ).map((r) => r.scope);
+
+  const scopeChanged = (result: string, scope: string) =>
+    counterValue(CIRE_METRICS.hostRunSheetScopeChanged, { result, scope });
+
+  it("returns 401 without a token, writing nothing", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "helper");
+    const res = await req(app, "PUT", scopePath(), undefined, { scope: "full" });
+    expect(res.status).toBe(401);
+    expect(await storedScope(db)).toEqual(["own"]);
+  });
+
+  it("refuses a stranger, an editor and a viewer with 403 forbidden, writing nothing", async () => {
+    // Setting the scope is an owner's call: who sees which tasks on the day is
+    // part of who helps, and every one of those writes is `weddingOwner()`.
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "helper");
+    seedHostSeat(db, "usr_editor", "editor");
+    seedHostSeat(db, "usr_viewer", "viewer");
+    for (const caller of [STRANGER, "usr_editor", "usr_viewer"]) {
+      const res = await req(app, "PUT", scopePath(), caller, { scope: "full" });
+      expect(res.status, caller).toBe(403);
+      expect(await jsonBody(res)).toEqual({ error: "forbidden" });
+    }
+    expect(await storedScope(db)).toEqual(["own"]);
+  });
+
+  it("refuses a helper widening any helper's scope, their own included, with 403 forbidden", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "helper");
+    seedHostSeat(db, "usr_other_helper", "helper");
+    for (const target of [COHOST, "usr_other_helper"]) {
+      const res = await req(app, "PUT", scopePath(target), COHOST, { scope: "full" });
+      expect(res.status, target).toBe(403);
+      expect(await jsonBody(res)).toEqual({ error: "forbidden" });
+    }
+    expect(await storedScope(db)).toEqual(["own"]);
+    expect(await storedScope(db, "usr_other_helper")).toEqual(["own"]);
+  });
+
+  it("returns 404 host_not_found for a profile that holds no seat, and counts it", async () => {
+    const { app } = buildApp();
+    const before = await scopeChanged("not_found", "full");
+    const res = await req(app, "PUT", scopePath("usr_ghost"), OWNER, { scope: "full" });
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "host_not_found" });
+    expect(await scopeChanged("not_found", "full")).toBe(before + 1);
+  });
+
+  it("returns 404 for a helper seated on another wedding, and leaves that seat alone", async () => {
+    // The owner gate proves the caller owns THIS wedding; the write must not
+    // reach a seat the same profile holds anywhere else.
+    const { db, app } = buildApp();
+    const now = new Date();
+    insertWedding(db, {
+      id: "wed_other",
+      slug: "other-wedding",
+      displayName: "Other Wedding",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_other_owner"],
+    });
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_elsewhere",
+        weddingId: "wed_other",
+        osnProfileId: COHOST,
+        addedByOsnProfileId: "usr_other_owner",
+        role: "helper",
+        createdAt: now,
+      })
+      .run();
+    const res = await req(app, "PUT", scopePath(), OWNER, { scope: "full" });
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "host_not_found" });
+    expect(await storedScope(db)).toEqual(["own"]);
+  });
+
+  it("returns 409 not_a_helper for an owner, editor or viewer seat, a legacy `host` one included, writing nothing", async () => {
+    // The column means nothing for these roles — `runSheetScopeFor()` answers
+    // `full` for them whatever it holds — so a write there would only be a
+    // value waiting for a later demotion to make it mean something. `host`,
+    // the role column's default, reads as an editor's seat, so it is refused
+    // too, though no test of a role names it.
+    const { db, app } = buildApp();
+    seedHostSeat(db, "usr_second_owner", "owner");
+    seedHostSeat(db, "usr_editor", "editor");
+    seedHostSeat(db, "usr_viewer", "viewer");
+    db.$client.exec(
+      `INSERT INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, run_sheet_scope, created_at) VALUES ('whost_legacy', '${WEDDING_ID}', 'usr_legacy', '${OWNER}', 'host', 'own', 0)`,
+    );
+    const before = await scopeChanged("not_a_helper", "full");
+    const targets = [OWNER, "usr_second_owner", "usr_editor", "usr_viewer", "usr_legacy"];
+    for (const target of targets) {
+      const res = await req(app, "PUT", scopePath(target), OWNER, { scope: "full" });
+      expect(res.status, target).toBe(409);
+      expect(await jsonBody(res)).toEqual({ error: "not_a_helper" });
+      expect(await storedScope(db, target)).toEqual(["own"]);
+    }
+    expect(await scopeChanged("not_a_helper", "full")).toBe(before + targets.length);
+  });
+
+  it("returns 400 for a body with no scope, an unknown scope or no JSON, writing nothing", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "helper");
+    const before = await scopeChanged("error", "none");
+    for (const body of [{}, { scope: "all" }, { scope: "FULL" }, { role: "helper" }]) {
+      const res = await req(app, "PUT", scopePath(), OWNER, body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
+    }
+    expect(await scopeChanged("error", "none")).toBe(before + 4);
+    const garbled = await appRequest(app, scopePath(), {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${await auth.sign(OWNER)}`,
+        "Content-Type": "application/json",
+      },
+      body: "{scope: full",
+    });
+    expect(garbled.status).toBe(400);
+    expect(await storedScope(db)).toEqual(["own"]);
+  });
+
+  it("refuses a dead session cookie and writes on a live one", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "helper");
+    const put = (cookie: string) =>
+      appRequest(app, scopePath(), {
+        method: "PUT",
+        headers: { cookie, "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: "full" }),
+      });
+    expect((await put("cire_org_session=not-a-live-session-token")).status).toBe(401);
+    expect(await storedScope(db)).toEqual(["own"]);
+
+    const token = await seedOrganiserSession(db, OWNER);
+    expect((await put(`cire_org_session=${token}`)).status).toBe(200);
+    expect(await storedScope(db)).toEqual(["full"]);
+  });
+
+  it("is rate limited per user with the other host-management writes", async () => {
+    const { db, app } = buildApp({
+      hostLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    });
+    seedHostSeat(db, COHOST, "helper");
+    expect((await req(app, "PUT", scopePath(), OWNER, { scope: "full" })).status).toBe(200);
+    expect((await req(app, "PUT", scopePath(), OWNER, { scope: "own" })).status).toBe(429);
+    expect(await storedScope(db)).toEqual(["full"]);
+  });
+
+  it("answers a failed write with 500 and counts it", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "helper");
+    // The owner gate only reads `wedding_hosts`; a trigger refusing every
+    // UPDATE of it fails the write inside the service and nothing else.
+    db.$client.exec(
+      "CREATE TRIGGER refuse_seat_update BEFORE UPDATE ON wedding_hosts BEGIN SELECT RAISE(ABORT, 'refused'); END",
+    );
+    const before = await scopeChanged("error", "full");
+    const res = await req(app, "PUT", scopePath(), OWNER, { scope: "full" });
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Could not change what they see" });
+    expect(await scopeChanged("error", "full")).toBe(before + 1);
+    expect(await storedScope(db)).toEqual(["own"]);
+  });
+
+  it("opens the whole run sheet to a helper and narrows it again, answering the seat", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "helper");
+    const okFull = await scopeChanged("ok", "full");
+    const okOwn = await scopeChanged("ok", "own");
+
+    const widened = await req(app, "PUT", scopePath(), OWNER, { scope: "full" });
+    expect(widened.status).toBe(200);
+    expect(await jsonBody(widened)).toEqual({
+      host: { osnProfileId: COHOST, role: "helper", runSheetScope: "full" },
+    });
+    expect(await storedScope(db)).toEqual(["full"]);
+    expect(await scopeChanged("ok", "full")).toBe(okFull + 1);
+
+    const narrowed = await req(app, "PUT", scopePath(), OWNER, { scope: "own" });
+    expect(narrowed.status).toBe(200);
+    expect(await jsonBody(narrowed)).toEqual({
+      host: { osnProfileId: COHOST, role: "helper", runSheetScope: "own" },
+    });
+    expect(await storedScope(db)).toEqual(["own"]);
+    expect(await scopeChanged("ok", "own")).toBe(okOwn + 1);
+  });
+
+  it("lets a second owner set it too, and setting the scope a seat already has succeeds", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, "usr_second_owner", "owner");
+    seedHostSeat(db, COHOST, "helper");
+    for (let i = 0; i < 2; i += 1) {
+      const res = await req(app, "PUT", scopePath(), "usr_second_owner", { scope: "full" });
+      expect(res.status).toBe(200);
+    }
+    expect(await storedScope(db)).toEqual(["full"]);
+  });
+
+  it("writes a seat whose stored role is one the API does not know, as the helper it reads as", async () => {
+    // An unrecognised stored role degrades to helper everywhere it is read, so
+    // its holder reaches the run sheet as a helper; the scope write has to
+    // reach the same seats the run-sheet gate treats as helpers, or that seat's
+    // scope could never be set.
+    const { db, app } = buildApp();
+    db.$client.exec(
+      `INSERT INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, run_sheet_scope, created_at) VALUES ('whost_bob', '${WEDDING_ID}', '${COHOST}', '${OWNER}', 'planner', 'own', 0)`,
+    );
+    const res = await req(app, "PUT", scopePath(), OWNER, { scope: "full" });
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({
+      host: { osnProfileId: COHOST, role: "helper", runSheetScope: "full" },
+    });
+    expect(await storedScope(db)).toEqual(["full"]);
+  });
+
+  it("is what the run-sheet gate resolves on the helper's next read: full, then own", async () => {
+    // No route serves a helper the run sheet yet; this mounts the real gate
+    // over the same database, so what the write stored is proved to be what
+    // the next read is scoped by.
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "helper");
+    const probe = new Elysia({ aot: false })
+      .resolve(() => ({ osnProfileId: COHOST }))
+      .group("/weddings/:weddingId", (group) =>
+        group
+          .use(weddingRunSheet(db))
+          .get("/probe", ({ weddingRunSheetScope }) => ({ weddingRunSheetScope })),
+      );
+    const scopeSeen = async () =>
+      jsonBody(await appRequest(probe, `/weddings/${WEDDING_ID}/probe`));
+
+    expect(await scopeSeen()).toEqual({ weddingRunSheetScope: "own" });
+    expect((await req(app, "PUT", scopePath(), OWNER, { scope: "full" })).status).toBe(200);
+    expect(await scopeSeen()).toEqual({ weddingRunSheetScope: "full" });
+    expect((await req(app, "PUT", scopePath(), OWNER, { scope: "own" })).status).toBe(200);
+    expect(await scopeSeen()).toEqual({ weddingRunSheetScope: "own" });
+  });
+
+  it("still refuses a helper opened to the whole run sheet the guest list", async () => {
+    // The scope widens the run sheet and nothing else: the guest list stays
+    // behind the member gate, which a helper never passes.
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "helper");
+    expect((await req(app, "PUT", scopePath(), OWNER, { scope: "full" })).status).toBe(200);
+    const res = await req(app, "GET", `/api/organiser/weddings/${WEDDING_ID}/guests`, COHOST);
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "forbidden" });
   });
 });
 

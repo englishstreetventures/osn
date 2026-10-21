@@ -17,9 +17,9 @@ describe("seedOsn", () => {
     const db = new Database(path, { readonly: true });
     const row = db
       .query(
-        "SELECT client_id, redirect_uris, client_secret_hash, is_first_party, sector_identifier FROM oauth_clients",
+        "SELECT client_id, redirect_uris, client_secret_hash, is_first_party, sector_identifier FROM oauth_clients WHERE client_id = ?",
       )
-      .get() as Record<string, unknown>;
+      .get(PULSE_OIDC.clientId) as Record<string, unknown>;
     db.close();
     expect(row).toEqual({
       client_id: PULSE_OIDC.clientId,

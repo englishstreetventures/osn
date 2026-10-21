@@ -937,3 +937,114 @@ export function applyE2eGiftList(
 ): void {
   if (env.CIRE_E2E_REGISTRY === "1") seedE2eGiftList(db);
 }
+
+/** An owner seat for the dev profile on one of the E2E organiser weddings. */
+function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date): void {
+  db.insert(schema.weddingHosts)
+    .values({
+      id: seatId,
+      weddingId,
+      osnProfileId: DEV_OWNER_PROFILE_ID,
+      addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+      role: "owner",
+      createdAt: now,
+    })
+    .run();
+}
+
+/**
+ * Three weddings for the E2E suite's organiser flows, each on Gold and owned by
+ * the dev profile, which osn-api's `/dev/login` signs in as:
+ *
+ * - `wed_e2e_checklist`: a wedding date (2099-06-20) and an empty checklist,
+ *   for the starter checklist.
+ * - `wed_e2e_holders`: one open task nobody holds, an editor and a viewer, for
+ *   putting people on a task and removing one from the wedding.
+ * - `wed_e2e_scope`: a helper seeing their own tasks, for widening, narrowing
+ *   and resetting what a helper sees on the run sheet.
+ *
+ * The co-hosts are bare profile ids with no OSN account behind them; the local
+ * server resolves no names, so the portal shows the ids. Every id and value a
+ * flow checks is written out again as `CIRE_ORGANISER` in
+ * `tools/e2e/src/config.ts`; a change here goes there too.
+ */
+export function seedE2eOrganiser(db: TestDb): void {
+  const now = new Date();
+  const wedding = (id: string, slug: string, displayName: string, weddingDate?: string) =>
+    db
+      .insert(schema.weddings)
+      .values({
+        id,
+        slug,
+        displayName,
+        tier: "gold",
+        weddingDate: weddingDate ?? null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+  wedding("wed_e2e_checklist", "checklist-wedding", "Checklist Wedding", "2099-06-20");
+  seatDevOwner(db, "wed_e2e_checklist", "whost_e2e_checklist_owner", now);
+
+  wedding("wed_e2e_holders", "holders-wedding", "Holders Wedding");
+  seatDevOwner(db, "wed_e2e_holders", "whost_e2e_holders_owner", now);
+  db.insert(schema.weddingHosts)
+    .values([
+      {
+        id: "whost_e2e_bea",
+        weddingId: "wed_e2e_holders",
+        osnProfileId: "usr_e2e_bea",
+        addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+        role: "editor",
+        createdAt: now,
+      },
+      {
+        id: "whost_e2e_cal",
+        weddingId: "wed_e2e_holders",
+        osnProfileId: "usr_e2e_cal",
+        addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+        role: "viewer",
+        createdAt: now,
+      },
+    ])
+    .run();
+  db.insert(schema.tasks)
+    .values({
+      id: "tsk_e2e_holders_venue",
+      weddingId: "wed_e2e_holders",
+      title: "Book the venue",
+      timeframeBucket: "12m",
+      status: "open",
+      sortOrder: 0,
+      createdAt: now,
+    })
+    .run();
+
+  wedding("wed_e2e_scope", "scope-wedding", "Scope Wedding");
+  seatDevOwner(db, "wed_e2e_scope", "whost_e2e_scope_owner", now);
+  db.insert(schema.weddingHosts)
+    .values({
+      id: "whost_e2e_dee",
+      weddingId: "wed_e2e_scope",
+      osnProfileId: "usr_e2e_dee",
+      addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+      role: "helper",
+      runSheetScope: "own",
+      createdAt: now,
+    })
+    .run();
+}
+
+/**
+ * The local dev server's reading of `CIRE_E2E_ORGANISER`: `"1"` adds the
+ * organiser weddings (`seedE2eOrganiser`); anything else, unset included,
+ * leaves the seed as it is, which is what every `bun run dev` without the E2E
+ * suite gets.
+ */
+export function applyE2eOrganiser(
+  db: TestDb,
+  env: Readonly<Record<string, string | undefined>>,
+): void {
+  if (env.CIRE_E2E_ORGANISER === "1") seedE2eOrganiser(db);
+}

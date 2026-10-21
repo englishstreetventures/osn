@@ -31,7 +31,7 @@ import type { Result } from "@shared/observability/metrics";
 import { Effect } from "effect";
 
 import type { ChecklistTemplateId } from "./lib/checklist-templates";
-import type { WeddingRole } from "./services/hosts";
+import type { RunSheetScope, WeddingRole } from "./services/hosts";
 import type { ImageVariant, OutputFormat } from "./services/invite-image-transform";
 import type { PaidTier, Tier } from "./services/tiers";
 
@@ -162,6 +162,8 @@ export const CIRE_METRICS = {
   hostRemoved: "cire.host.removed",
   // Co-host role changes (owner flips a host between editor and viewer).
   hostRoleChanged: "cire.host.role_changed",
+  // An owner opening a helper's run sheet to every task, or narrowing it back.
+  hostRunSheetScopeChanged: "cire.host.run_sheet_scope.changed",
   // S2S osn-api handle→profile resolve latency (the ARC call for add-host).
   hostResolveDuration: "cire.host.resolve.duration",
   // CSP violation reports posted to the public collector (`POST /api/csp-report`)
@@ -340,6 +342,15 @@ export type HostRoleChangeResult =
  *  wedding roles, or `none` before a request body named one. Bounded by the
  *  column's enum. */
 export type HostMetricRole = WeddingRole | "none";
+
+/** Outcome of setting a helper's run-sheet scope. `not_a_helper` — refused,
+ *  the seat holds another role, for which the scope means nothing; `error` — a
+ *  malformed body or a failed write. */
+export type HostRunSheetScopeResult = "ok" | "not_found" | "not_a_helper" | "error";
+
+/** The scope a write asked for, as a metric attribute: `own`, `full`, or
+ *  `none` before a request body named one. Bounded by the column's enum. */
+export type HostMetricRunSheetScope = RunSheetScope | "none";
 
 /**
  * The CSP directive a violation report names, reduced to a BOUNDED label so it
@@ -698,6 +709,10 @@ type WeddingSettingsSavedAttrs = { result: WeddingSettingsSavedResult };
 type HostAddedAttrs = { result: HostAddResult; role: HostMetricRole };
 type HostRemovedAttrs = { result: HostRemoveResult; actor: HostRemoveActor };
 type HostRoleChangedAttrs = { result: HostRoleChangeResult; role: HostMetricRole };
+type HostRunSheetScopeChangedAttrs = {
+  result: HostRunSheetScopeResult;
+  scope: HostMetricRunSheetScope;
+};
 type HostResolveDurationAttrs = { result: ResolveResult };
 export type CspReportAttrs = {
   effectiveDirective: CspDirective;
@@ -1172,6 +1187,12 @@ const hostRoleChanged = createCounter<HostRoleChangedAttrs>({
   unit: "{host}",
 });
 
+const hostRunSheetScopeChanged = createCounter<HostRunSheetScopeChangedAttrs>({
+  name: CIRE_METRICS.hostRunSheetScopeChanged,
+  description: "Helper run-sheet scope writes, by outcome and the scope asked for",
+  unit: "{host}",
+});
+
 const hostResolveDuration = createHistogram<HostResolveDurationAttrs>({
   name: CIRE_METRICS.hostResolveDuration,
   description: "S2S osn-api handle→profile resolve latency (the ARC call for add-host)",
@@ -1497,6 +1518,11 @@ export const metricHostRoleChanged = (
   result: HostRoleChangeResult,
   role: HostMetricRole = "none",
 ): void => hostRoleChanged.inc({ result, role });
+
+export const metricHostRunSheetScopeChanged = (
+  result: HostRunSheetScopeResult,
+  scope: HostMetricRunSheetScope = "none",
+): void => hostRunSheetScopeChanged.inc({ result, scope });
 
 /** The bounded CSP directive labels, as a runtime Set for `bucketCspDirective`. */
 const CSP_DIRECTIVE_LABELS = new Set<CspDirective>([

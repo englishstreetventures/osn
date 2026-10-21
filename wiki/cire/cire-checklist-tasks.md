@@ -342,6 +342,13 @@ removal marks the tasks stale too when a cached task names the removed seat
 among its holders, or when the seat was added on this visit and the panel never
 saw its id.
 
+The E2E flow `tools/e2e/tests/flows/cire-checklist-holders.flow.ts` drives
+this in the portal against the real cire-api: it puts two people on a task
+from the popover and takes one off, checks the stack of faces against the
+`task_assignees` rows, then removes the remaining holder on the co-host panel
+and checks their row went with the seat while the task stayed
+([[testing-patterns#The end-to-end suite]]).
+
 ## Starter checklist
 
 A short, neutral list of planning tasks a couple can seed their checklist from,
@@ -455,6 +462,11 @@ state; an apply that fails after the dialog closed says so in a toast.
 
 The portal has no due-date editor, so a couple cannot yet move a seeded task's
 date by hand there: englishstreetventures/osn#1590.
+
+`tools/e2e/tests/flows/cire-checklist-starter.flow.ts` previews and applies the
+starter on a Gold wedding dated 2099-06-20, in the portal against the real
+cire-api, and checks the `tasks` rows it wrote: one per ticked item, seeded from
+the template, the first due a year before the wedding date.
 
 ## Tasks store (organiser client)
 

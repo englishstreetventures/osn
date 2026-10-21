@@ -19,7 +19,7 @@ import { applySchema as applyOsnSchema } from "@osn/db/testing";
 import { applySchema as applyPulseSchema } from "@pulse/db/testing";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { CLOCK_T0, PULSE_OIDC } from "./config";
+import { CIRE_OIDC, CLOCK_T0, PULSE_OIDC } from "./config";
 
 function freshDatabase(path: string): Database {
   if (existsSync(path)) {
@@ -30,7 +30,26 @@ function freshDatabase(path: string): Database {
   return sqlite;
 }
 
-/** osn-api: the schema, plus Pulse registered as a first-party OIDC client. */
+/** A first-party relying party, as osn-api stores one: the secret only as its SHA-256. */
+function firstPartyClient(
+  name: string,
+  client: { rowId: string; clientId: string; secret: string; redirectUri: string },
+): typeof oauthClients.$inferInsert {
+  return {
+    id: client.rowId,
+    clientId: client.clientId,
+    name,
+    redirectUris: [client.redirectUri],
+    clientSecretHash: createHash("sha256").update(client.secret).digest("hex"),
+    sectorIdentifier: new URL(client.redirectUri).host,
+    // First-party skips consent and puts `osn_profile_id` in the ID token,
+    // which is what Pulse and cire key their sessions on.
+    isFirstParty: true,
+    createdAt: Math.floor(CLOCK_T0 / 1000),
+  };
+}
+
+/** osn-api: the schema, plus Pulse and cire's organiser portal as first-party OIDC clients. */
 export function seedOsn(path: string): void {
   const sqlite = freshDatabase(path);
   try {
@@ -39,18 +58,7 @@ export function seedOsn(path: string): void {
       applyOsnSchema(sqlite);
       drizzle(sqlite)
         .insert(oauthClients)
-        .values({
-          id: PULSE_OIDC.rowId,
-          clientId: PULSE_OIDC.clientId,
-          name: "Pulse",
-          redirectUris: [PULSE_OIDC.redirectUri],
-          clientSecretHash: createHash("sha256").update(PULSE_OIDC.secret).digest("hex"),
-          sectorIdentifier: new URL(PULSE_OIDC.redirectUri).host,
-          // First-party skips consent and puts `osn_profile_id` in the ID token,
-          // which is what Pulse keys its session on.
-          isFirstParty: true,
-          createdAt: Math.floor(CLOCK_T0 / 1000),
-        })
+        .values([firstPartyClient("Pulse", PULSE_OIDC), firstPartyClient("Cire", CIRE_OIDC)])
         .run();
     })();
   } finally {
