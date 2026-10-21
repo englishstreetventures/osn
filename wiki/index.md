@@ -8,7 +8,7 @@ related:
   - "[[osn-and-musubi]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 
 # OSN Wiki
@@ -143,7 +143,7 @@ How we work: tests, comments, commands, pull requests, agent tooling.
 - [[browser-tests]] — the real-Chromium Vitest project: what belongs in it and why jsdom can't cover it
 - [[commands]] — CLI commands reference
 - [[devloop-urls]] — named HTTPS hosts per app, one dev stack per worktree
-- [[review-findings]] — finding ID format (S-H1, P-W2, T-M1)
+- [[review-findings]] — finding ID format
 - [[code-comments]] — what a comment is for, the four references that rot, the TSDoc tags to use
 - [[contributing]] — PR workflow, changesets, branching
 - [[stacked-prs]] — basing one PR on another with the gh CLI, and merging the stack

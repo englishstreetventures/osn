@@ -12,7 +12,7 @@ related:
   - "[[subprocessors]]"
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 
 # Access Control
@@ -160,7 +160,6 @@ must be:
 4. **Reviewable** — quarterly sample by a second reviewer.
 
 This is informal today; the `admin_actions` table is on the backlog.
-ID: **C-M16**.
 
 ## Service-account hygiene (ARC)
 
@@ -170,7 +169,7 @@ ARC tokens are S2S only; no human ever holds one. Rotation is automatic
 - One private key ever in use; rotated every 24 h with overlap window.
 - Public keys distributed via JWKS or `service_account_keys` table.
 - `allowedScopes` enforced at issuer + verifier sides.
-- Revocation via `evictPublicKeyCacheEntry(kid)` is immediate (resolves S-H100).
+- Revocation via `evictPublicKeyCacheEntry(kid)` is immediate.
 
 ## Cire access expectations
 
@@ -180,11 +179,10 @@ including special-category dietary free-text (see [[data-map]]). They are a
 grant in the matrix above. Expectations:
 
 - **No standing access.** Operators query cire D1 / R2 only for support,
-  security, or a manual DSAR (cire has no DSAR endpoint yet — see [[dsar]]
-  C-M1); each access is necessary, logged, attributable, and reviewable per
+  security, or a manual DSAR (cire has no DSAR endpoint yet — see [[dsar]]); each access is necessary, logged, attributable, and reviewable per
   "Internal admin actions on user data" above.
 - **Guest claim codes are credentials.** `families.public_id` is treated as
-  a secret (redacted in logs, C-M2), not a public identifier — do not paste
+  a secret, not a public identifier — do not paste
   codes into tickets or logs.
 - **The wedding owner is not an operator.** Organiser access to their own
   wedding is in-product authz (OSN JWT → the `weddingOwner()` /
@@ -226,11 +224,11 @@ grant in the matrix above. Expectations:
 
 Tracked with `C-` IDs:
 
-1. **Quarterly access matrix** — first cycle: 2026-Q3. ID: **C-M5** (also in [[soc2]]).
-2. **Quarterly access review** — first cycle: 2026-Q3. ID: **C-L3**.
-3. **`admin_actions` audit log** — append-only constraint + Grafana mirror. ID: **C-M16**.
+1. **Quarterly access matrix** — first cycle: 2026-Q3.
+2. **Quarterly access review** — first cycle: 2026-Q3.
+3. **`admin_actions` audit log** — append-only constraint + Grafana mirror.
 4. **GitHub org hardening** — required hardware-key MFA, signed commits, branch
-   protection, codeowners on prod paths. ID: **C-L4**. **Partly done (2026-08-30):**
+   protection, codeowners on prod paths. **Partly done (2026-08-30):**
    `.github/CODEOWNERS` now names an owner for the paths that decide whether a
    guard runs at all — `/.github/`, `scripts/`, `bunfig.toml` and
    `package.json` (all three unanchored, so a `scripts/` directory, a
@@ -251,5 +249,5 @@ Tracked with `C-` IDs:
    same un-enforced review; required hardware-key MFA and required signed
    commits are org-level settings and are not set. Both of those, and turning
    code-owner review back on, land when a second maintainer does.
-5. **Tailscale or equivalent bastion** — for direct DB access; no public DB endpoint. ID: **C-L21** (decision: bastion vs read-replica vs CLI proxy).
-6. **Departure runbook** — checklist above formalised. ID: **C-L22**.
+5. **Tailscale or equivalent bastion** — for direct DB access; no public DB endpoint. (decision: bastion vs read-replica vs CLI proxy).
+6. **Departure runbook** — checklist above formalised.

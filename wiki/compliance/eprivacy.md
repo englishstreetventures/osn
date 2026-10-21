@@ -8,7 +8,7 @@ related:
   - "[[sessions]]"
   - "[[cire-auth]]"
   - "[[cire-consent]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-22
 ---
 
 # EU ePrivacy Directive (Cookie Law)
@@ -67,7 +67,7 @@ Per the EDPB Guidelines 2/2023:
 
 Tracked with `C-` IDs:
 
-1. **Cookie + storage inventory** in the privacy notice — the table above, in plain language. **Partly done (C-H4, PR #124):** the cire guest site publishes a `/privacy` notice built from its consent vendor registry ([[cire-consent]]). The musubi landing site's notice still has no inventory of the table's OSN rows. ID: rolled into **C-H4**.
-2. **Lint rule against new third-party scripts** — pre-commit hook fails if any HTML / Astro template references a script tag with a non-OSN origin. Forces explicit decision. ID: **C-L18**.
-3. **CSP `connect-src` audit** — moot: this tracked a transitional `https:` entry in Pulse's native-shell CSP config (S-L3-follow-up); that shell is removed, so the config no longer exists. ID: rolled into existing S-L3, closed.
-4. **Banner scaffold** in `@musubi/landing` — built but not mounted; mounting requires a code change + DPO sign-off. Forces a deliberate decision the day someone wants to add an analytics tag. ID: **C-L19**.
+1. **Cookie + storage inventory** in the privacy notice — the table above, in plain language. **Partly done:** the cire guest site publishes a `/privacy` notice built from its consent vendor registry ([[cire-consent]]). The musubi landing site's notice still has no inventory of the table's OSN rows.
+2. **Lint rule against new third-party scripts** — pre-commit hook fails if any HTML / Astro template references a script tag with a non-OSN origin. Forces explicit decision.
+3. **CSP `connect-src` audit** — moot: this tracked a transitional `https:` entry in Pulse's native-shell CSP config; that shell is removed, so the config no longer exists. Closed.
+4. **Banner scaffold** in `@musubi/landing` — built but not mounted; mounting requires a code change + DPO sign-off. Forces a deliberate decision the day someone wants to add an analytics tag.

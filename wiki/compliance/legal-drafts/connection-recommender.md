@@ -6,7 +6,7 @@ related:
   - "[[dsa]]"
   - "[[social-graph]]"
   - "[[index]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-22
 ---
 
 # Connection Recommender — Main Parameters
@@ -20,7 +20,7 @@ ToS itself.
 
 Everything on this page is verified against
 `osn/api/src/services/recommendations.ts` as of 2026-08-31 (the
-`perf/osn-recommender-fanout` change, osn-tracker#574). **If that function
+`perf/osn-recommender-fanout` change). **If that function
 changes, this page is stale until someone checks it again** — a disclosure
 describing an old ranker is worse than no disclosure, because it is
 actively misleading. Re-verify it against the source alongside
@@ -150,7 +150,7 @@ disclosure, deliberately, rather than inheriting it from a page that happened to
 written with `file:line` precision because it was verified against the
 source.
 
-See [[dsa]] §Project changes required, item 6 (`C-L8`) for the
+See [[dsa]] §Project changes required, item 6 for the
 tracker-level entry this page fulfils, and the same item for the other two
 recommenders in scope (Pulse discovery, OSN people/organisation search) —
 neither is described by this page.

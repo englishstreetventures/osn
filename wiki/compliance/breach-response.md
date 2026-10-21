@@ -7,7 +7,7 @@ related:
   - "[[soc2]]"
   - "[[subprocessors]]"
   - "[[auth-failure]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-10-22
 ---
 
 # Breach Response
@@ -22,7 +22,7 @@ What to do when a personal-data breach happens. Required by GDPR Arts.
 |---|---|
 | OTel anomaly alerts | Grafana on-call rotation (planned) |
 | Vendor breach notification | DPA-mandated channel from each processor |
-| Researcher disclosure | `security@osn.example` + `/.well-known/security.txt` (planned C-M8) |
+| Researcher disclosure | `security@osn.example` + `/.well-known/security.txt` |
 | User report | `dsar@osn.example` mentioning "breach" |
 | Internal discovery | Engineering team `#sev` channel |
 
@@ -153,9 +153,9 @@ last-reviewed: 2026-09-09
 
 Tracked with `C-` IDs:
 
-1. **DPO designation** + named on `@musubi/landing/legal/contact`. ID: **C-L2** (also in [[gdpr]]).
-2. **`security.txt` + VDP** for researcher disclosure. ID: **C-M8** (also in [[soc2]]).
+1. **DPO designation** + named on `@musubi/landing/legal/contact`.
+2. **`security.txt` + VDP** for researcher disclosure.
 3. **Lead supervisory authority decision** — determined by where we are established. Document on this page once known.
-4. **Cyber insurance** — claim contact must be listed in this runbook. ID: **C-L6**.
+4. **Cyber insurance** — claim contact must be listed in this runbook.
 5. **Tabletop drill** — annual; document under `wiki/compliance/incidents/drills/`.
 6. **Vendor notification SLA tracking** — verify each DPA (per [[subprocessors]]) commits to ≤24 h breach notification to us; chase any that don't.

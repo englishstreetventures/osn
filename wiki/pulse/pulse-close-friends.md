@@ -18,7 +18,7 @@ packages:
   - "@pulse/db"
   - "@pulse/api"
   - "@pulse/web"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-22
 ---
 
 # Pulse Close Friends
@@ -53,7 +53,7 @@ Close friends is a **personal signal**, not an audience for restricting event vi
 
 1. **Feed boost.** `events.listEvents` re-ranks results so that events whose organiser is in the viewer's close-friends list rank above other events. Stable partition: chronological order is preserved within each bucket.
 2. **Hosting affordances.**
-   - The RSVP avatar ring (`isCloseFriend: boolean`) on the event-detail page is driven by the local `pulse_close_friends` table — the row is set when an attendee marks the *viewer* as a close friend (this is the original close-friends S-M27 directionality fix, preserved when we moved the table from OSN to Pulse).
+   - The RSVP avatar ring (`isCloseFriend: boolean`) on the event-detail page is driven by the local `pulse_close_friends` table — the row is set when an attendee marks the *viewer* as a close friend (this is the original close-friends directionality fix, preserved when we moved the table from OSN to Pulse).
    - The Pulse-app `Close friends` page (`/close-friends`) lets the user browse their connections and add/remove close friends.
 
 There is **no** `guestListVisibility = "close_friends"` bucket. Close friends never gates access to events; it only re-ranks discovery and drives display signals.

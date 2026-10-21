@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 
 # DSAR Runbook
@@ -22,8 +22,8 @@ runbook, two regimes, because the operational steps overlap.
 
 | Channel | Who uses it | Where it lands | SLA |
 |---|---|---|---|
-| `GET /account/export` (**shipped** C-H1) | The account holder, self-service | `@osn/api` — streams NDJSON | Immediate |
-| `DELETE /account` (osn-api, C-H2) | The account holder, self-service | `@osn/api` — soft delete, then hard delete in 7 d | 7 d |
+| `GET /account/export` | The account holder, self-service | `@osn/api` — streams NDJSON | Immediate |
+| `DELETE /account` | The account holder, self-service | `@osn/api` — soft delete, then hard delete in 7 d | 7 d |
 | `DELETE /account` (pulse-api, Flow B) | Leave Pulse without losing OSN | `@pulse/api` — soft delete + hosted-event 14-day cancellation window | 7 d (account) / 14 d (events) |
 | `dsar@osn.example` (planned, alias on landing) | Anyone via email | Identity team inbox | 30 d (GDPR) / 45 d (CCPA) |
 | Postal address (planned, on landing) | Anyone via mail | Identity team inbox | Same |
@@ -47,7 +47,7 @@ runbook, two regimes, because the operational steps overlap.
 
 ### Art. 15 — Right of access
 
-Status: **shipped** (C-H1, 2026-07-07). `GET /account/export` — bearer +
+Status: **shipped**. `GET /account/export` — bearer +
 `x-step-up-token` (purpose `account_export`) gated, 1 export / 24 h / account,
 streams the NDJSON bundle below. Implementation: `osn/api/src/routes/account-export.ts`
 + `osn/api/src/services/account-export.ts`; the `pulse.*` / `zap.*` sections are
@@ -65,7 +65,7 @@ Use `GET /account/export`. The endpoint returns a JSON bundle:
 - `security_events[]` — kind, metadata, created_at, acknowledged_at.
 - `recovery_codes` — `total`, `used` (counts only; never the hashes).
 - `email_changes[]` — old / new email, timestamp.
-- `oidc_consents[]` — the apps this account authorised via the OIDC provider (C-M1 oidc, added 2026-07-24): `clientId`, `clientName` (null if the client row was hand-deleted), `profileId`, `scope`, `grantedAt`, `revokedAt`. Revoked grants are **included** — the withdrawal itself is the person's record. Never the internal `accountId`.
+- `oidc_consents[]` — the apps this account authorised via the OIDC provider: `clientId`, `clientName` (null if the client row was hand-deleted), `profileId`, `scope`, `grantedAt`, `revokedAt`. Revoked grants are **included** — the withdrawal itself is the person's record. Never the internal `accountId`.
 - `oidc_clients_owned[]` — the relying parties this account registered via `POST /oidc/clients` (added 2026-07-24): `clientId`, `name`, `redirectUris`, `sectorIdentifier`, `createdAt`, `disabledAt`. **Never** the secret hash, never the internal `accountId`.
 - `connections[]` — requester / addressee handles + status + timestamps.
 - `blocks[]` — blocked handles + timestamps.
@@ -74,14 +74,14 @@ Use `GET /account/export`. The endpoint returns a JSON bundle:
 - `pulse.events_hosted[]` — events created by the account's profiles.
 - `pulse.close_friends[]`.
 - `zap.chats[]` — chat ids, role, joined-at. **Message content is excluded** because it is E2E-encrypted and we cannot decrypt; the user's local Zap client can export the decrypted history separately.
-- `consents[]` — once consent records ship (C-L1).
+- `consents[]` — once consent records ship.
 - `dsar_requests[]` — prior requests for this user.
 
-**Wire format (locked before C-H1 implementation starts):**
+**Wire format:**
 
 - **NDJSON envelope** — one JSON object per line, prefixed by a header line `{"version":1,"sections":[...]}` and terminated by `{"end":true}`. This lets the response stream via `ReadableStream` without ever holding the full bundle in memory.
 - **Per-section keyset pagination** — every multi-row section (`security_events`, `sessions`, `connections`, `pulse.rsvps`, `pulse.events_hosted`, `zap.chats`) is fetched in batches of `LIMIT 500` ordered by `id` with `WHERE id > :cursor`. No `OFFSET` (degrades on large tables).
-- **ARC fan-out sub-bundles streamed** — `pulse.*` and `zap.*` sections are fetched via ARC and re-serialised line-by-line into the outer NDJSON; the bridge call uses chunked transfer too (see P-W2 below).
+- **ARC fan-out sub-bundles streamed** — `pulse.*` and `zap.*` sections are fetched via ARC and re-serialised line-by-line into the outer NDJSON; the bridge call uses chunked transfer too.
 - **Memory budget** — ≤32 MB resident per export. A run that exceeds the budget logs a warning + truncates with a tombstone record, so the user gets a partial bundle + a notice rather than an OOM.
 
 Auth: bearer access token + step-up token. Rate-limit: 1 export per 24 h per account.
@@ -92,7 +92,7 @@ Most fields are user-editable in `@musubi/social` (handle change, displayName, a
 
 ### Art. 17 — Right of erasure
 
-Status: **shipped** (C-H2). Two flows:
+Status: **shipped**. Two flows:
 
 - **Flow A — full OSN account delete.** `DELETE /account` on osn-api. Soft-deletes the account, fans out to currently-enrolled apps via ARC, hard-deletes after the 7-day grace window via `account-erasure.runHardDeleteSweep`.
 - **Flow B — per-app delete (leave Pulse).** `DELETE /account` on pulse-api. Soft-deletes the user's Pulse-scoped data; hosted public events get a 14-day public-cancellation window (audience-commitment, independent of the account grace) before being hard-deleted. Pulse calls back to osn-api `/internal/app-enrollment/leave` to flip `app_enrollments.left_at`. The OSN account stays alive — the user can keep using Zap / OSN identity.
@@ -108,16 +108,16 @@ Use `DELETE /account`. Two-phase:
 
 Tombstone (deletion sentinel) retained 30 days then purged.
 
-**Fan-out reliability (locked before C-H2 implementation starts):**
+**Fan-out reliability:**
 
 - **`deletion_jobs` table** — one row per soft-delete, with columns `account_id`, `soft_deleted_at`, `pulse_done_at`, `zap_done_at`, `hard_delete_at` (= `soft_deleted_at + 7 d`). The hard-delete sweeper refuses to fire until both `*_done_at` columns are non-null.
-- **Idempotent per-bridge** — `@pulse/api/internal/account-deleted` and `@zap/api/internal/account-deleted` accept the same `accountId` repeatedly; second call is a no-op. The C-M15 sweeper retries failed bridges every cycle until the row clears.
+- **Idempotent per-bridge** — `@pulse/api/internal/account-deleted` and `@zap/api/internal/account-deleted` accept the same `accountId` repeatedly; second call is a no-op. The sweeper retries failed bridges every cycle until the row clears.
 - **Parallel fan-out** — `Effect.all([pulseCall, zapCall], { concurrency: "unbounded" })` with a per-bridge timeout of 10 s. A failing bridge does not block the soft-delete (which already returned 202); it just leaves the job row partially complete for the sweeper to retry.
 - **Per-bridge ARC rate-limit budget** — the deletion endpoints must be exempted from the standard ARC rate limit, OR sized to absorb a mass-deletion event without throttling. Pre-merge: agree on a 100 req/s ceiling per bridge with ARC token tagged `scope: "account-deletion"`.
 
 The export path uses the same `Effect.all` parallelism + 10 s per-bridge timeout. A failing bridge during export emits a partial bundle with a `{"degraded":"pulse|zap","reason":"..."}` line so the user can see the gap and re-request later.
 
-#### Cire (wedding-invite) data — cross-DB, no fan-out yet (C-M1)
+#### Cire (wedding-invite) data — cross-DB, no fan-out yet
 
 Cire runs its **own** Cloudflare D1 + R2, separate from `osn/db` (see
 [[cire]], [[cire-auth]]). The wedding and its guest data are linked to the
@@ -205,7 +205,7 @@ owners, each with an `owner` seat. Two consequences:
   identifies a co-host (Art. 15(4)). An erasure that nulls the note leaves the
   pair in place; with no text they say nothing about the guest.
   The registry comes with the Gold plan tier, which is sold self-serve, so
-  production can hold these rows. Tracked under C-M1 alongside the rest of the missing cire ARC bridge.
+  production can hold these rows. Tracked alongside the rest of the missing cire ARC bridge.
 - **The gift record kept after the sweep.** A year after the last event the
   sweep deletes the gift rows but keeps, on
   `registry_settings.gift_summary_json`, each money gift's amount, currency
@@ -304,7 +304,7 @@ owners, each with an `owner` seat. Two consequences:
 
 **Cross-DB deletion orphan — decision: orphan-tolerance (for now).** Nothing
 fans OSN-account deletion out into cire. `DELETE /account` and
-`GET /account/export` are live on osn-api (C-H2), but they fan out only to
+`GET /account/export` are live on osn-api, but they fan out only to
 Pulse and Zap over ARC; cire/api exposes no `internal/account-deleted`, so
 erasing an OSN account today **orphans** the wedding + guest data in cire's
 D1/R2. We had two options: (a) build the ARC fan-out into cire now, or (b)
@@ -328,11 +328,10 @@ the orphan-tolerance framing is defensible on the merits:
   deletion, as an organiser's erasure request does today.
 
 **Recorded decision.** Orphan-tolerance is the interim position. Its revisit
-trigger — `DELETE /account` landing (C-H2) — **has now fired**, so the choice is
+trigger — `DELETE /account` landing — **has now fired**, so the choice is
 live: either (i) add a cire ARC bridge so deletion fans out, or (ii) re-affirm
 orphan-tolerance with a privacy-notice disclosure that wedding/guest records
-persist independently of the organiser's OSN account. Tracked as **C-M1**
-(below).
+persist independently of the organiser's OSN account. It is tracked in the list below.
 
 **Refusals permitted** under Art. 17(3):
 
@@ -393,7 +392,7 @@ Default position: do the work. Refusals are exceptional and have to survive a DP
 
 ## Project changes required
 
-Tracked with `C-` IDs, all rolled up under **C-M1** (DSAR runbook):
+Tracked with `C-` IDs, all rolled up under  (DSAR runbook):
 
 1. `dsar_requests` table for audit log.
 2. `dsar@osn.example` email alias + automated acknowledgement.
@@ -405,4 +404,4 @@ Tracked with `C-` IDs, all rolled up under **C-M1** (DSAR runbook):
    pulse/zap `internal/account-deleted` + export pattern. Until built, cire
    DSARs are manual. **Decision: orphan-tolerance** for OSN-account deletion
    (see "Cire data" above) — the revisit is now due, because `DELETE /account`
-   (C-H2) has landed.
+   has landed.

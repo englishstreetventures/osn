@@ -9,7 +9,7 @@ related:
   - "[[step-up]]"
   - "[[sessions]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-08-06
+last-reviewed: 2026-10-22
 ---
 
 # Auth Flow Failure Runbook
@@ -41,7 +41,7 @@ Primary login is **passkey-only**. OTP and magic link are step-up / verification
 flowchart TD
   start([Auth failing]) --> rl{HTTP 429?}
   rl -- yes --> ratelimited[See &#91;&#91;rate-limit-incident&#93;&#93;]
-  rl -- no --> origin{Origin header rejected?<br/>S-M1 guard}
+  rl -- no --> origin{Origin header rejected?<br/>origin guard}
   origin -- yes --> originfix[Allowlist the calling origin<br/>or check the cookie path]
   origin -- no --> flow{Which flow?}
   flow -- "/login/passkey" --> passkey[Step 1: Passkey checks]
@@ -55,17 +55,17 @@ flowchart TD
 
 | Symptom | Likely cause | Action |
 |---|---|---|
-| `400 invalid_request` on `/login/passkey/complete` | Challenge expired or never persisted | Call `/begin` again. Check that the request does not hit the unknown-identifier branch (S-M1 enumeration safety returns synthetic options) |
+| `400 invalid_request` on `/login/passkey/complete` | Challenge expired or never persisted | Call `/begin` again. Check that the request does not hit the unknown-identifier branch (enumeration safety returns synthetic options) |
 | Repeated 401 on first ceremony after enrollment | Counter mismatch / signing key replaced | Inspect `passkeys` table, confirm the `credentialId` registered matches the one being asserted |
 | `400 invalid_request` for known-good identifier | Account has 0 passkeys (legacy / corrupt) | Recover the account with recovery-code login. Then enroll a passkey again |
 
-Discoverable login (no `identifier`) returns identical-shape options for unknown and known accounts, so nobody can probe the namespace — see the "Enumeration safety (S-M1)" section in [[passkey-primary]].
+Discoverable login (no `identifier`) returns identical-shape options for unknown and known accounts, so nobody can probe the namespace — see the "Enumeration safety" section in [[passkey-primary]].
 
 ## 2. Recovery-code login
 
 | Symptom | Likely cause | Action |
 |---|---|---|
-| `400 invalid_request` for valid-looking code | Code already consumed, or wrong identifier | Codes are single-use. Check `recovery_codes.used_at`. The failure surface is uniform by design (S-M2 timing parity) |
+| `400 invalid_request` for valid-looking code | Code already consumed, or wrong identifier | Codes are single-use. Check `recovery_codes.used_at`. The failure surface is uniform by design |
 | `429` after a few attempts | 5/hour/IP cap (recoveryComplete) | Wait the window or unblock at the proxy |
 | Login succeeds but other devices stay signed in | Expected | Recovery login revokes all sessions in the same transaction (`security_invalidation{trigger=recovery_code_consume}`) — only the new session survives |
 
@@ -74,17 +74,17 @@ Discoverable login (no `identifier`) returns identical-shape options for unknown
 | Symptom | Likely cause | Action |
 |---|---|---|
 | `/register/complete` succeeds but UI refuses to dismiss | `/passkey/register/complete` did not run | This is by design — the account-level invariant is "≥1 passkey at all times". Send the user back into the registration flow |
-| `/passkey/register/begin` returns 401 with `step_up_required` | Account already has ≥1 passkey (S-H1) | Caller must present a fresh `X-Step-Up-Token` (passkey or otp amr) — bootstrap path is only for the very first passkey |
+| `/passkey/register/begin` returns 401 with `step_up_required` | Account already has ≥1 passkey | Caller must present a fresh `X-Step-Up-Token` (passkey or otp amr) — bootstrap path is only for the very first passkey |
 | `409 handle_taken` on `/register/begin` | Handle namespace clash with users **or** organisations | Prompt for a new handle |
 
 ## 4. Refresh / `/token`
 
 | Symptom | Likely cause | Action |
 |---|---|---|
-| 401 with `missing_refresh_token` | Cookie not sent | Confirm the client uses `credentials: "include"`. The cookie name is `__Host-osn_session` (non-local) or `osn_session` (local). We removed the body fallback on purpose (S-M1) |
+| 401 with `missing_refresh_token` | Cookie not sent | Confirm the client uses `credentials: "include"`. The cookie name is `__Host-osn_session` (non-local) or `osn_session` (local). We removed the body fallback on purpose |
 | 401 with `family_revoked` | Reuse detection (C2) tripped | An old/leaked refresh token replayed; the entire family is revoked. The user must sign in again |
 | 401 with `expired` on a token <30 days old | Sliding window not extending | Check the rotated-session store metric `osn.auth.session.rotated_store.operations{result=error}` — a Redis outage degrades reuse detection but should not block valid tokens |
-| Access token rejected with `aud_mismatch` | Token issued by a different audience | Verify the caller is using the JWKS at `/.well-known/jwks.json` and asserting `aud: "osn-access"` (S-M2) |
+| Access token rejected with `aud_mismatch` | Token issued by a different audience | Verify the caller is using the JWKS at `/.well-known/jwks.json` and asserting `aud: "osn-access"` |
 | **Client logged out on every reload** (>5 min after sign-in) | The client treats the stale cached access token as the source of truth and never reads the refresh cookie | Client-side bug, not server. `@osn/client` `loadSession` must rehydrate from the cookie when the cached access token is expired but `hasSession === true` (see [[identity-model]] "Session load on mount"). Confirm `POST /token` fires on reload with `credentials: "include"`. Fixed in `feat/organiser-session-refresh`. |
 | Reload logout only under load / on first request to a cold isolate | Single `/token` with no retry; a transient `5xx`/`429`/network blip read as logged-out | `fetchTokenGrant` now retries transient failures with bounded backoff and only treats a **4xx `invalid_grant`** as terminal. Check `/token` 5xx/429 rates if it recurs. |
 

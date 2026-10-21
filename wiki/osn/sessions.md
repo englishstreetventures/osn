@@ -7,7 +7,7 @@ related:
   - "[[passkey-primary]]"
   - "[[oidc-provider]]"
   - "[[account-recovery-factors]]"
-last-reviewed: 2026-09-10
+last-reviewed: 2026-10-22
 ---
 
 # Session introspection + revocation
@@ -59,14 +59,14 @@ Design points worth keeping:
 
 - **The server sets it, not the client.** It stays atomic with the cookie it describes, and it carries the right `Domain` — `id.musubi.social` issues, `musubi.social` reads, so a host-only marker would be invisible. The session cookie stays `__Host-` (a prefix forbids `Domain=`); the marker takes no prefix for the same reason.
 - **It holds no secret.** A forged marker buys one 400. It is advisory only: no server-side decision may branch on it, and none does — the API reads it nowhere, it is write-only from the issuer's side.
-- **The server retracts it only when the failure proves the cookie is dead** (S-M2). The `/token` 400 paths are not equal: no cookie sent at all retracts; a rejected grant retracts only if the rejection was a real verification failure. A `DatabaseError` and the benign concurrent-rotation race (`ROTATION_RACE_MESSAGE`, see PR #289) both arrive with a live cookie, and retracting on either would strand a cold-start browser — the exact population the marker serves — signed out until the user signs in by hand. The predicate is `sessionStatusUnknown` in `osn/api/src/lib/grant-failure.ts`; it fails *toward* retraction on anything unrecognised, and the response-header contract is pinned in `tests/routes/token-marker-retraction.test.ts`. The client can't delete the marker itself: from the apex it can't reproduce the `Domain` attribute, so a JS delete would only shadow it with a host-only cookie.
+- **The server retracts it only when the failure proves the cookie is dead**. The `/token` 400 paths are not equal: no cookie sent at all retracts; a rejected grant retracts only if the rejection was a real verification failure. A `DatabaseError` and the benign concurrent-rotation race (`ROTATION_RACE_MESSAGE`, see PR #289) both arrive with a live cookie, and retracting on either would strand a cold-start browser — the exact population the marker serves — signed out until the user signs in by hand. The predicate is `sessionStatusUnknown` in `osn/api/src/lib/grant-failure.ts`; it fails *toward* retraction on anything unrecognised, and the response-header contract is pinned in `tests/routes/token-marker-retraction.test.ts`. The client can't delete the marker itself: from the apex it can't reproduce the `Domain` attribute, so a JS delete would only shadow it with a host-only cookie.
 - **A rejected grant never clears the session cookie.** That branch also covers a storage blip; clearing would harden a transient failure into a permanent logout. A client that still holds local account state retries the grant without consulting the marker, which is the way back from a false negative.
 - **No `document` ⇒ no gate.** iOS (Keychain transport) and SSR keep the old behaviour.
 - **One-off migration cost:** a user holding a live cookie but no local account at deploy time is bounced to sign-in once, since no marker exists yet.
 
-Local dev leaves `OSN_COOKIE_DOMAIN` unset — localhost is one host, so a host-only marker works. Dev sets `dev.musubi.social`, not the `musubi.social` parent: a marker set by the dev issuer must not reach production hosts. The value is validated against a bare-hostname pattern before it reaches the header (S-L2) and drops to host-only if it fails, so a bad var costs a cold-start sign-in rather than a spliced `Set-Cookie`.
+Local dev leaves `OSN_COOKIE_DOMAIN` unset — localhost is one host, so a host-only marker works. Dev sets `dev.musubi.social`, not the `musubi.social` parent: a marker set by the dev issuer must not reach production hosts. The value is validated against a bare-hostname pattern before it reaches the header and drops to host-only if it fails, so a bad var costs a cold-start sign-in rather than a spliced `Set-Cookie`.
 
-**Standing constraint (S-L1):** the marker is readable by every host under `OSN_COOKIE_DOMAIN`. That is accepted — the bit is not a secret — but it means a `*.musubi.social` subdomain must never be delegated to a party that shouldn't learn whether a visitor holds an OSN session. Keep subdomain delegation in-house.
+**Standing constraint:** the marker is readable by every host under `OSN_COOKIE_DOMAIN`. That is accepted — the bit is not a secret — but it means a `*.musubi.social` subdomain must never be delegated to a party that shouldn't learn whether a visitor holds an OSN session. Keep subdomain delegation in-house.
 
 Per-account hard cap: `MAX_SESSIONS_PER_ACCOUNT = 50`. `issueTokens` LRU-evicts the oldest rows once the cap is reached so an attacker can't inflate the revocation surface. The public revocation handle (first 16 hex of the SHA-256) is collision-safe inside that bounded population.
 
@@ -122,7 +122,7 @@ The server re-scans its sessions table by accountId and finds the row whose hash
 
 ## Access-token session binding (`osn_sid`)
 
-Some endpoints must revoke every session on the account *except the caller's own* — passkey add (H1) and passkey delete (S-L3) both do. Until now the caller's own session was read only from the HttpOnly cookie. A request that authenticated with a Bearer access token but carried no cookie — a cross-origin call, a proxy that strips cookies, a native client — looked sessionless, so both paths took the "there is no self to preserve" branch and deleted **every** session on the account. Removing a passkey signed you out of every device, including the one you were on.
+Some endpoints must revoke every session on the account *except the caller's own* — passkey add (H1) and passkey delete both do. Until now the caller's own session was read only from the HttpOnly cookie. A request that authenticated with a Bearer access token but carried no cookie — a cross-origin call, a proxy that strips cookies, a native client — looked sessionless, so both paths took the "there is no self to preserve" branch and deleted **every** session on the account. Removing a passkey signed you out of every device, including the one you were on.
 
 Access tokens now carry `osn_sid`: `sha256(session_hash + ":" + profile_id)` truncated to the first 32 hex chars (128 bits). Two properties matter:
 
@@ -205,7 +205,7 @@ Rotation is single-use, but legitimate clients produce concurrent or retried gra
 
 The client complements this with a shared single-flight (`osn/client`): the bootstrap and refresh paths dedupe the `/token` grant against each other so a bootstrap racing a refresh in one tab fires `/token` once. Cross-*tab* coordination (a Web Locks guard) is a possible follow-up; the server grace already prevents cross-tab races from revoking the family.
 
-## Cluster-safe reuse detection (S-H1 session)
+## Cluster-safe reuse detection
 
 The C2 reuse detector needs to remember, for up to `refreshTokenTtl` (30 days), which session hashes have been rotated out. Originally this lived as an in-process `Map<hash, { familyId, rotatedAt }>` inside `createAuthService` — correct for single-process dev but silently partitioned in multi-pod deployments: a rotation recorded on pod A was invisible to pod B, so replays hitting B passed without triggering family revocation.
 

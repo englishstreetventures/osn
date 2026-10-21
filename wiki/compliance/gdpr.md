@@ -11,7 +11,7 @@ related:
   - "[[subprocessors]]"
   - "[[identity-model]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-22
 ---
 
 # GDPR + UK GDPR
@@ -26,14 +26,14 @@ becomes the controller; we process on its instruction).
 
 | Article | Obligation | OSN status | Page that implements it |
 |---|---|---|---|
-| Art. 5(1)(a) — Lawfulness, fairness, transparency | Tell users what we collect and why, before collecting | **Partial** — cire guest site ships `/privacy` + `/terms` with a site-wide footer (PR #124, C-H4); OSN landing-side notice still not built | [[data-map]] is the source; cire notice published, landing-side notice pending |
+| Art. 5(1)(a) — Lawfulness, fairness, transparency | Tell users what we collect and why, before collecting | **Partial** — cire guest site ships `/privacy` + `/terms` with a site-wide footer; OSN landing-side notice still not built | [[data-map]] is the source; cire notice published, landing-side notice pending |
 | Art. 5(1)(b) — Purpose limitation | Use data only for the declared purpose | OK in code; not documented | [[data-map]] |
 | Art. 5(1)(c) — Data minimisation | Collect only what is needed | OK — no email duplication, accountId never leaves auth boundary, IPs are HMAC-peppered hashes, metric attrs bounded; cire's guest invite and gift pages send `X-Robots-Tag: noindex, nofollow`, so a couple's names and photo stay out of search indexes | [[identity-model]], [[sessions]], [[shared/observability/overview]], [[cire-invite-builder]] |
 | Art. 5(1)(d) — Accuracy | Let users correct their data | Profile rename + handle update in `@musubi/social`; email change ceremony in `@osn/api`. **Gap** — no rectification API for non-self-service fields | [[identity-model]] |
 | Art. 5(1)(e) — Storage limitation | Don't keep data forever | **Gap** — no documented retention schedule | [[retention]] |
 | Art. 5(1)(f) — Integrity + confidentiality | Encryption, access control, hashing, redaction | Strong: passkey-primary, ES256 access tokens, SHA-256 hashed sessions / OTP / recovery codes / CDL secrets, Argon2 not in scope (no passwords), TLS at edge, log redaction deny-list, CSP, CORS, Origin guard | Most `wiki/systems/` pages |
 | Art. 6 — Lawful basis | Document the basis for each purpose | **Gap** — not documented per purpose | [[data-map]] |
-| Art. 7 — Conditions for consent | Where consent is the basis (cookies, marketing, geocoder), record it and let users withdraw | **Gap** — Photon geocoder sends keystrokes without consent (S-M13) | Fix S-M13; add consent-record table when first consent surface ships |
+| Art. 7 — Conditions for consent | Where consent is the basis (cookies, marketing, geocoder), record it and let users withdraw | **Gap** — Photon geocoder sends keystrokes without consent | Fix the geocoder leak; add consent-record table when first consent surface ships |
 | Art. 9 — Special-category data | Extra protections for health / orientation / political views / etc. | **Indirect risk** — Pulse events can reveal these (Pride parade, AA meeting). Treat all event metadata as special-category in privacy notice. | [[event-access]] |
 | Art. 12–15 — Right of access | Let users see what we hold | **Gap** — no `GET /account/export` | [[dsar]] |
 | Art. 16 — Right of rectification | Edit incorrect data | Partial — see Art. 5(1)(d) | [[identity-model]] |
@@ -49,7 +49,7 @@ becomes the controller; we process on its instruction).
 | Art. 32 — Security of processing | Technical + organisational measures | Strong codified in skills | `.claude/skills/review-security/SKILL.md` |
 | Art. 33 — Notification of breach to DPA | 72 hours | **Gap** — no runbook | [[breach-response]] |
 | Art. 34 — Communication to data subject | Without undue delay if high risk | **Gap** — no template / channel | [[breach-response]] |
-| Art. 35 — DPIA | For high-risk processing | **Required** for Pulse special-category event surfacing, Zap M3 customer-support transcripts, Zap M4 locality / government channels, AI surfaces, and **cire guest dietary special-category data (filed: [[dpia/cire-guest-data]]; gating consent mitigation C-H2 (cire dietary) RESOLVED PR #123, sign-off now pending only the residual C-H1 retention items)** | One DPIA per feature, filed under `wiki/compliance/dpia/` |
+| Art. 35 — DPIA | For high-risk processing | **Required** for Pulse special-category event surfacing, Zap M3 customer-support transcripts, Zap M4 locality / government channels, AI surfaces, and **cire guest dietary special-category data (filed: [[dpia/cire-guest-data]]; gating consent mitigation resolved in PR #123, sign-off now pending only the residual retention items)** | One DPIA per feature, filed under `wiki/compliance/dpia/` |
 | Art. 37 — DPO | Mandatory if core activities involve large-scale monitoring or special-category | **Probably** required once we cross EU user threshold + Pulse event special-category exposure. Designate before public launch. | This page |
 | Art. 44–49 — International transfers | SCCs / adequacy / DTIA for non-EU recipients | **Gap** — Cloudflare (US), Grafana Cloud (US), planned Supabase (US/EU choice) all need SCCs + DTIAs | [[subprocessors]] |
 
@@ -58,25 +58,25 @@ becomes the controller; we process on its instruction).
 Tracked with `C-` IDs in `englishstreetventures/osn-tracker` under `area:compliance`. The
 high-impact ones, in priority order:
 
-1. **Account-level data export endpoint** — `GET /account/export` (auth + step-up gated). JSON bundle including: account row, all profiles, social-graph edges, blocks, RSVPs (via Pulse ARC fan-out), chat membership (via Zap ARC fan-out), security events, sessions metadata, recovery-code usage history. Streaming JSON (multi-MB plausible). Rate-limited 1/day/account. ID: **C-H1**. Owner: Identity team.
+1. **Account-level data export endpoint** — `GET /account/export` (auth + step-up gated). JSON bundle including: account row, all profiles, social-graph edges, blocks, RSVPs (via Pulse ARC fan-out), chat membership (via Zap ARC fan-out), security events, sessions metadata, recovery-code usage history. Streaming JSON (multi-MB plausible). Rate-limited 1/day/account. Owner: Identity team.
 
-2. **Account-level erasure endpoint** — `DELETE /account` (auth + step-up gated, second confirmation, 7-day soft-delete window, then hard delete). Cascades via ARC to Pulse + Zap. Replaces user-visible profile rows with a deletion tombstone (`deleted_account_<id>` placeholder so RSVP histories remain queryable for the host without naming the deleted user). ID: **C-H2**.
+2. **Account-level erasure endpoint** — `DELETE /account` (auth + step-up gated, second confirmation, 7-day soft-delete window, then hard delete). Cascades via ARC to Pulse + Zap. Replaces user-visible profile rows with a deletion tombstone (`deleted_account_<id>` placeholder so RSVP histories remain queryable for the host without naming the deleted user).
 
-3. **Photon geocoder keystroke leak (S-M13)** — proxy through `@pulse/api` so Photon never sees the user IP, debounce server-side, and add a one-time consent dialog on first use ("Location lookups are sent to Photon, an open-source geocoder, to convert what you type into coordinates"). ID: **C-H3**.
+3. **Photon geocoder keystroke leak** — proxy through `@pulse/api` so Photon never sees the user IP, debounce server-side, and add a one-time consent dialog on first use ("Location lookups are sent to Photon, an open-source geocoder, to convert what you type into coordinates").
 
-4. **Privacy notice + ToS** — public, plain-language, version-stamped, backlinked from every collection point. **RESOLVED for cire (PR #124, C-H4):** the guest site publishes `/privacy` + `/terms` with a site-wide footer — Australia/APP framing, the controller and DSAR contact both taken from `@shared/legal` rather than written into the page, 1-year retention basis, processors (Cloudflare), guest rights, and dietary/access free-text flagged as Art. 9 special-category collected under explicit consent. The parallel `@musubi/landing` notice now ships too, and so do Pulse's and the two app frontends' — thirteen pages across `<app>/src/pages/{privacy,terms}.astro`, `musubi/social/src/pages/` and `pulse/web/src/routes/`. There is no drafts directory: the operator's identity comes from `@shared/legal`, and every page gates a draft banner on `draftPending()` so it cannot publish an unfilled detail silently. What is left of C-H4 is filling the remaining fields (legal entity, postal address, merchant of record, retention sentence), not writing more copy. ID: **C-H4**.
+4. **Privacy notice + ToS** — public, plain-language, version-stamped, backlinked from every collection point. **RESOLVED for cire:** the guest site publishes `/privacy` + `/terms` with a site-wide footer — Australia/APP framing, the controller and DSAR contact both taken from `@shared/legal` rather than written into the page, 1-year retention basis, processors (Cloudflare), guest rights, and dietary/access free-text flagged as Art. 9 special-category collected under explicit consent. The parallel `@musubi/landing` notice now ships too, and so do Pulse's and the two app frontends' — thirteen pages across `<app>/src/pages/{privacy,terms}.astro`, `musubi/social/src/pages/` and `pulse/web/src/routes/`. There is no drafts directory: the operator's identity comes from `@shared/legal`, and every page gates a draft banner on `draftPending()` so it cannot publish an unfilled detail silently. What is left is filling the remaining fields (legal entity, postal address, merchant of record, retention sentence), not writing more copy.
 
-5. **DPA + SCC pack for processors** — sign the Cloudflare DPA template, the Grafana Labs DPA + SCCs, the chosen Redis provider's DPA, and Photon's DPA-equivalent (Komoot). File under `wiki/compliance/dpa/<vendor>.md` with execution date + scope. ID: **C-H5**.
+5. **DPA + SCC pack for processors** — sign the Cloudflare DPA template, the Grafana Labs DPA + SCCs, the chosen Redis provider's DPA, and Photon's DPA-equivalent (Komoot). File under `wiki/compliance/dpa/<vendor>.md` with execution date + scope.
 
-6. **DSAR runbook** — an operational doc that covers ID verification, the 30-day clock, the unverified-request response, the "manifestly unfounded" denial path, and where to log requests for audit. ID: **C-M1**. See [[dsar]].
+6. **DSAR runbook** — an operational doc that covers ID verification, the 30-day clock, the unverified-request response, the "manifestly unfounded" denial path, and where to log requests for audit. See [[dsar]].
 
-7. **Retention enforcement** — schedule documented + tested deletes for: dev OTP/magic store sweep (P-W4), security_events older than 12 months, sessions older than 30 days (already auto-expire), Grafana logs (already 50 GB rolling), Pulse RSVPs of cancelled events, deletion tombstones older than 30 days. Cron job in `osn/api` or sidecar. ID: **C-M2**. See [[retention]].
+7. **Retention enforcement** — schedule documented + tested deletes for: dev OTP/magic store sweep, security_events older than 12 months, sessions older than 30 days (already auto-expire), Grafana logs (already 50 GB rolling), Pulse RSVPs of cancelled events, deletion tombstones older than 30 days. Cron job in `osn/api` or sidecar. See [[retention]].
 
-8. **DPIA template + filings** — one for Pulse event special-category exposure, one for Zap M3 org-chat transcripts (before M3 ships), one for Zap M4 locality channels (before M4 ships), and the **cire guest-data DPIA** ([[dpia/cire-guest-data]]) **filed with the cire merge — the gating dietary-consent affordance (C-H2 (cire dietary)) shipped PR #123; sign-off now turns only on the residual C-H1 retention items**. ID: **C-M3**.
+8. **DPIA template + filings** — one for Pulse event special-category exposure, one for Zap M3 org-chat transcripts (before M3 ships), one for Zap M4 locality channels (before M4 ships), and the **cire guest-data DPIA** ([[dpia/cire-guest-data]]) **filed with the cire merge — the gating dietary-consent affordance (the dietary consent gate) shipped PR #123; sign-off now turns only on the residual retention items**.
 
-9. **Consent-record table** — `consents (id, account_id, purpose, given_at, withdrawn_at, evidence)` for OSN-side consent purposes. Required once we have a consent-based OSN purpose (geocoder, marketing email, analytics). cire's `rsvps.dietary` Art. 9(2)(a) explicit consent is **already captured** via dedicated columns on the `rsvps` row (`dietary_consent_at` / `dietary_consent_version`, C-H2 (cire dietary), PR #123) rather than this shared table. ID: **C-L1**.
+9. **Consent-record table** — `consents (id, account_id, purpose, given_at, withdrawn_at, evidence)` for OSN-side consent purposes. Required once we have a consent-based OSN purpose (geocoder, marketing email, analytics). cire's `rsvps.dietary` Art. 9(2)(a) explicit consent is **already captured** via dedicated columns on the `rsvps` row (`dietary_consent_at` / `dietary_consent_version`, PR #123) rather than this shared table.
 
-10. **DPO designation + public contact** — even if not strictly required, naming a DPO simplifies enterprise-customer DPAs. Email alias + named human responsible. ID: **C-L2**.
+10. **DPO designation + public contact** — even if not strictly required, naming a DPO simplifies enterprise-customer DPAs. Email alias + named human responsible.
 
 ## Daily habits this introduces
 

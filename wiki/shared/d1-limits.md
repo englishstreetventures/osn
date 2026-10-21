@@ -23,7 +23,7 @@ packages:
   - "@pulse/api"
   - "@cire/api"
   - "@zap/api"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-22
 ---
 
 # D1 Limits
@@ -147,17 +147,17 @@ shows you. Cutting the count is one half; [[d1-read-replication]] is the other.
 
 ## History
 
-| Finding | Where | Cliff |
-|---|---|---|
-| osn-tracker#589 | `osn/api` FOF fan-out, list bound twice | 51 connections |
-| osn-tracker#594 | `pulse/api` series materialisation, 31-col insert | 4 instances |
-| osn-tracker#595 | `pulse/api` GDPR erasure, atomic batch | 101 hosted events |
-| osn-tracker#590 | `pulse/api` guest invite, insert | ~17 guests |
-| osn-tracker#591 | `pulse/api` RSVP list, two queries | 101 attendees |
-| osn-tracker#592 | `pulse/api` friends-only discovery, bound twice | ~50 connections |
-| osn-tracker#593 | `osn/api` graph-internal batch route | 101 ids (schema says 200) |
-| osn-tracker#596 | `zap`/`pulse` export caps | 100 ids binds 102 |
-| P-C1 on PR #853 | `osn/api` co-member fan-out, `UNION ALL` arms | 6 organisations |
-| P-C1 on PR #1377 | `cire/api` guest-data retention sweep, ten `IN` lists | 101 weddings or households |
-| First run of `house/no-unbounded-in-array` | `osn/api` profile search probes, list bound twice; organisation search | a page limit of 17 on a common handle prefix; 101 candidates |
-| First run of `house/no-unbounded-in-array` | `cire/api` premium-template read, invite events, import carried codes | 101 weddings, events or households |
+| Where | Cliff |
+| --- | --- |
+| `osn/api` FOF fan-out, list bound twice | 51 connections |
+| `pulse/api` series materialisation, 31-col insert | 4 instances |
+| `pulse/api` GDPR erasure, atomic batch | 101 hosted events |
+| `pulse/api` guest invite, insert | ~17 guests |
+| `pulse/api` RSVP list, two queries | 101 attendees |
+| `pulse/api` friends-only discovery, bound twice | ~50 connections |
+| `osn/api` graph-internal batch route | 101 ids (schema says 200) |
+| `zap`/`pulse` export caps | 100 ids binds 102 |
+| `osn/api` co-member fan-out, `UNION ALL` arms | 6 organisations |
+| `cire/api` guest-data retention sweep, ten `IN` lists | 101 weddings or households |
+| `osn/api` profile search probes, list bound twice; organisation search | a page limit of 17 on a common handle prefix; 101 candidates |
+| `cire/api` premium-template read, invite events, import carried codes | 101 weddings, events or households |

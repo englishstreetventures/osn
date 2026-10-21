@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -87,7 +87,7 @@ marked **TBD** blocks the deploy.
 | `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `hello@cireweddings.com`** (Resend sender domain `cireweddings.com` verified — §1.1). **Deliberately not moved to musubi.social**: no verified musubi.social sender exists, and Resend fails closed on an unauthenticated domain — which would take OTP step-up down, the exact path back in after a recovery-code login. See [[email]]. |
 | `RESEND_API_KEY` (live email transport) | osn-api | **DONE** — set on the production Worker; delivering since 2026-06-18 (§1.1) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | optional / **legacy** (Cloudflare-email fallback transport; not used now Resend is the live path — §1.1) |
-| `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | osn-api | **provision** (section 1) — region locked to **`ap-southeast-2` (Sydney)** (C-M18 resolved) |
+| `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | osn-api | **provision** (section 1) — region locked to **`ap-southeast-2` (Sydney)** |
 | `INTERNAL_SERVICE_SECRET` (S2S register-service) | osn-api | optional — only to register cire's ARC key (§6.2) |
 | `TRUSTED_PROXY_COUNT` (proxy hops in front of osn-api) | osn-api rate limits | optional — CF sets `cf-connecting-ip`, usually unneeded on Workers |
 | osn D1 `database_id` per env | osn-api wrangler.toml | **DONE** — dev `a1dfceb8-2e7a-48eb-a161-ad428f3ddff5`, staging `eb71428e-8540-4a30-815f-fb9cd4ae97ea`, prod `767a9ac1-129b-4efa-9fcf-f68ed7a48c38` |
@@ -214,7 +214,7 @@ Set **both** secrets:
 - `UPSTASH_REDIS_REST_URL`
 - `UPSTASH_REDIS_REST_TOKEN`
 
-> ✅ **C-M18 resolved — Upstash region = `ap-southeast-2` (Sydney).** Create the
+> ✅ **Upstash region = `ap-southeast-2` (Sydney).** Create the
 > Upstash database in **`ap-southeast-2`** — co-located with the D1 databases (all in
 > `oc` / Sydney) and the Australian edge traffic for low RSVP/auth-write latency (the
 > project is AU-centric). Provision the database in that region, mint a REST token, and
@@ -380,7 +380,7 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 | `OSN_EMAIL_FROM` | `[env.<env>.vars]` (or secret) | **Yes (prod)** | Verified sender address. Prod = **`hello@cireweddings.com`** (set in `wrangler.toml`). Resend-verified domain from §1.1. |
 | `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). osn-api refuses to boot with it in any non-local tier (503 on every route), and the production deploy job refuses to run while it exists as a secret. |
 | `UPSTASH_REDIS_REST_URL` | `wrangler secret put` | **Yes** | Upstash REST URL. Worker refuses to boot in non-local without it + the token (`index.ts:92-96`). §1.4 |
-| `UPSTASH_REDIS_REST_TOKEN` | `wrangler secret put` | **Yes** | Upstash REST token. §1.4 (region `ap-southeast-2` / Sydney — C-M18 resolved) |
+| `UPSTASH_REDIS_REST_TOKEN` | `wrangler secret put` | **Yes** | Upstash REST token. §1.4 (region `ap-southeast-2` / Sydney) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `[env.<env>.vars]` | Recommended | Grafana OTLP gateway. Metric/trace **export is deferred on workerd** — the redacting logger is active, recording call-sites are no-ops until an exporter is attached. [[observability-setup]] |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `wrangler secret put` | Recommended | `Authorization=Basic <base64(instance:token)>`. [[observability-setup]] |
 | `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Conditional** | Bearer secret guarding `POST /graph/internal/register-service` (`routes/graph-internal.ts`). Needed **only** to register cire-api's ARC public key (§6.2). Endpoint returns 501 when unset. |
@@ -436,7 +436,7 @@ quietly accepting tokens from anywhere.
 | `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). In a deployed tier cire-api refuses it: no mail is sent, and `email disabled: Resend misconfigured` is logged. The production deploy job refuses to run while it exists as a secret. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | `wrangler secret put` | Recommended | Worker observability. [[observability-setup]] |
 | `TURNSTILE_SECRET_KEY` | `wrangler secret put TURNSTILE_SECRET_KEY` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, the guest **`/api/claim`** + **`/api/rsvp`** endpoints require a valid Turnstile token and **fail-closed** (403 on missing/invalid/duplicate). Unset ⇒ those gates are skipped (guest flow unchanged). Same widget/secret as osn-api — the widget's domains must cover every gated origin. **Currently unset** on `cire-api-production`: a mismatched secret rejected every guest claim on 2026-07-20 and was deleted, which reverts the gate to a no-op. Create the widget in §3.4. (`src/index.ts` → `createTurnstileVerifier`). |
-| `GOOGLE_GEOCODING_API_KEY` | `wrangler secret put GOOGLE_GEOCODING_API_KEY` | **Optional (key-optional, fail-soft)** | Google Geocoding API key for the organiser per-event venue lookup (`POST /api/organiser/weddings/:id/settings/geocode`, driven from the Events tab's location editor). Unset ⇒ the endpoint answers `unavailable` and the editor falls back to manual lat/lng entry — nothing is ever sent to Google. **Before setting in prod: sign the Google Cloud DPA + confirm the EU→US transfer basis** (see `[[compliance/subprocessors]]`), restrict the key to the Geocoding API, **and set a daily quota cap** in the Google console — the per-IP edge limiter bounds each caller, but only a Google-side cap bounds aggregate spend across many IPs/accounts (S-L2). (`src/index.ts` → `createGoogleGeocoder`.) |
+| `GOOGLE_GEOCODING_API_KEY` | `wrangler secret put GOOGLE_GEOCODING_API_KEY` | **Optional (key-optional, fail-soft)** | Google Geocoding API key for the organiser per-event venue lookup (`POST /api/organiser/weddings/:id/settings/geocode`, driven from the Events tab's location editor). Unset ⇒ the endpoint answers `unavailable` and the editor falls back to manual lat/lng entry — nothing is ever sent to Google. **Before setting in prod: sign the Google Cloud DPA + confirm the EU→US transfer basis** (see `[[compliance/subprocessors]]`), restrict the key to the Geocoding API, **and set a daily quota cap** in the Google console — the per-IP edge limiter bounds each caller, but only a Google-side cap bounds aggregate spend across many IPs/accounts. (`src/index.ts` → `createGoogleGeocoder`.) |
 
 > ⚠️ **cire `wrangler.toml` env nuance:** always pass `--env production`. A bare
 > `wrangler deploy` targets the **top-level** config — the local devloop's — not
@@ -1270,11 +1270,11 @@ OSN account. It is **additive and opt-in**; skip this section for the minimal la
   under serviceId `cire-api` with scopes `graph:read,graph:resolve-account`, so osn-api
   can verify cire's ARC token on `GET /graph/internal/profile-account`
   (`services/osn-bridge.ts`). The `graph:resolve-account` scope is the dedicated gate
-  on that endpoint (S-M1 pulse-onboarding) — a `graph:read`-only registration gets 401
+  on that endpoint — a `graph:read`-only registration gets 401
   on account resolution. If cire-api was registered before this scope existed, re-run
   §6.2 with the widened `allowedScopes` (the endpoint upserts).
 
-> ⚠ **Deploy order for the `graph:resolve-account` rollout (S-L2).** There is no
+> ⚠ **Deploy order for the `graph:resolve-account` rollout.** There is no
 > order that avoids a brief account-linking outage without the manual step: new
 > cire-api mints `graph:resolve-account` (old osn-api's registry rejects it), and new
 > osn-api rejects old cire-api's `graph:read` on `/profile-account`. One release ships

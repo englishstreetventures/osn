@@ -7,7 +7,7 @@ related:
   - "[[rate-limiting]]"
   - "[[redis]]"
   - "[[osn-core]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-10-22
 ---
 
 # Rate Limit Incident Runbook
@@ -43,11 +43,11 @@ Current limits (defined in `osn/api/src/routes/auth/limiters.ts`, mapped to nati
 | `GET /passkeys` | 30 / min | Settings listing — cheap reads |
 | `/login/recovery/complete` | 5 / IP / hour | Brute-force defence on the lost-device escape hatch |
 | `/account/email/begin` | hourly window | Caps email-change OTPs |
-| `POST /recovery/generate` | 1 / day (recoveryGenerate) | Stop-gap for S-M1 |
+| `POST /recovery/generate` | 1 / day (recoveryGenerate) | Stop-gap for the recovery-generation abuse |
 
 The 60-second per-IP windows run on **native Workers rate-limit bindings** in the deployed tiers. The hour- and day-window limiters stay on Upstash, because the native binding supports only a 10- or 60-second `period`.
 
-### 3. Check Client-IP Trust Policy (S-M34)
+### 3. Check Client-IP Trust Policy
 
 The rate limiter resolves the keying IP with `getClientIp(headers, clientIpConfig)` under a **fail-closed** trust policy (see [[rate-limiting]] → Client-IP Trust Policy). Which branch applies depends on the runtime:
 
@@ -76,7 +76,7 @@ If many IPs are hitting rate limits simultaneously:
 | Cause | Signs | Resolution |
 |-------|-------|------------|
 | Shared IP (NAT/corporate) | Single IP, many legitimate users | Consider user-ID-based limiting for authenticated endpoints; accept the trade-off for unauthenticated endpoints |
-| Mis-set proxy trust (S-M34) | Mass 429s; on Workers a missing `cf-connecting-ip`; on the Bun dev server the startup warning `TRUSTED_PROXY_COUNT is unset`, or an N that doesn't match the real hop count | Behind Cloudflare, confirm traffic reaches the Worker through the CF edge. On the Bun dev server, set `TRUSTED_PROXY_COUNT` to the actual number of trusted proxies and verify the proxy emits `X-Forwarded-For` |
+| Mis-set proxy trust | Mass 429s; on Workers a missing `cf-connecting-ip`; on the Bun dev server the startup warning `TRUSTED_PROXY_COUNT is unset`, or an N that doesn't match the real hop count | Behind Cloudflare, confirm traffic reaches the Worker through the CF edge. On the Bun dev server, set `TRUSTED_PROXY_COUNT` to the actual number of trusted proxies and verify the proxy emits `X-Forwarded-For` |
 | Upstash outage (fail-closed) | Spike of 429s correlated with `redis.command.errors` | Do **not** flip individual checks to fail-open. Restore Upstash |
 | Aggressive client retry | Single user hits limits fast | Check client-side retry logic. Add exponential backoff |
 | Fixed-window boundary burst | Brief spike of 2x normal rate at window boundary | Known limit of the fixed-window algorithm. No action unless we move to a sliding window |
@@ -97,12 +97,12 @@ If many IPs are hitting rate limits simultaneously:
 
 ### Long-term
 
-- **S-M34 (done)**: `getClientIp` now takes a fail-closed `ClientIpOptions` trust policy; `@osn/api` sets `trustCloudflare` in every deployed tier and consults `TRUSTED_PROXY_COUNT` only on the Bun dev path. Pulse/Zap/Cire adopt the options in their own workstreams.
+- `getClientIp` now takes a fail-closed `ClientIpOptions` trust policy; `@osn/api` sets `trustCloudflare` in every deployed tier and consults `TRUSTED_PROXY_COUNT` only on the Bun dev path. Pulse/Zap/Cire adopt the options in their own workstreams.
 - Consider a sliding-window algorithm if boundary bursts become a problem
 
 ## Known Limitations
 
-- **`X-Forwarded-For` trust is policy-gated** (S-M34, fixed): trust is opt-in through `ClientIpOptions` and fails closed. The remaining caveat is operational — each service must declare its topology (`trustCloudflare` on Workers, `TRUSTED_PROXY_COUNT` on the Bun dev path) or fall back to socket-peer / unresolved-deny.
+- **`X-Forwarded-For` trust is policy-gated**: trust is opt-in through `ClientIpOptions` and fails closed. The remaining caveat is operational — each service must declare its topology (`trustCloudflare` on Workers, `TRUSTED_PROXY_COUNT` on the Bun dev path) or fall back to socket-peer / unresolved-deny.
 - **Fixed window**: a burst at the window boundary can allow 2x the configured limit
 - **Per-colo counting**: native binding limits are counted per colo, not globally — accepted, see [[rate-limiting]]
 - **In-memory fallback**: with no native binding and no `REDIS_URL`, state is process-local and resets on restart — by design for local dev

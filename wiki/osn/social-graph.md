@@ -19,7 +19,7 @@ related:
 packages:
   - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-22
 ---
 
 # Social Graph
@@ -59,11 +59,11 @@ direction — no new endpoint needed for cancel).
 ### Blocks (unidirectional)
 
 A block is a one-way action. When A blocks B:
-- The block removes any existing connection between A and B (wrapped in a DB transaction after P-W17)
+- The block removes any existing connection between A and B (wrapped in a DB transaction)
 - B cannot send connection requests to A
 - Blocks are global across all OSN apps today (per-app blocking is a deferred decision)
 
-The `is-blocked` route only checks whether the caller has blocked the target (`isBlocked(caller, target)`) -- it does not reveal whether the target has blocked the caller (S-M15).
+The `is-blocked` route only checks whether the caller has blocked the target (`isBlocked(caller, target)`) -- it does not reveal whether the target has blocked the caller.
 
 ## Architecture
 
@@ -89,7 +89,7 @@ Tests covering services and routes. Test areas include:
 
 ## Rate Limiting
 
-All graph write endpoints are rate-limited at 60 requests per user per minute (S-M16). Graph routes accept injected rate-limiter instances -- part of the [[redis]] migration Phase 1 abstraction work.
+All graph write endpoints are rate-limited at 60 requests per user per minute. Graph routes accept injected rate-limiter instances -- part of the [[redis]] migration Phase 1 abstraction work.
 
 ## Cross-Package Access
 
@@ -102,7 +102,7 @@ Apps that own a close-friends-style list (e.g. Pulse — see [[pulse-close-frien
 
 ## Error Handling
 
-Graph routes use `safeError` (built via `makeSafeError` in `osn/api/src/lib/safe-error.ts`) so that only `GraphError` and `NotFoundError` messages reach clients (S-M17). Raw DB/Effect errors never leave the server. Error objects logged via `Effect.logError` go through `safeErrorSummary()` which extracts only `_tag` + `message` (S-L9).
+Graph routes use `safeError` (built via `makeSafeError` in `osn/api/src/lib/safe-error.ts`) so that only `GraphError` and `NotFoundError` messages reach clients. Raw DB/Effect errors never leave the server. Error objects logged via `Effect.logError` go through `safeErrorSummary()` which extracts only `_tag` + `message`.
 
 `makeSafeError` is `FiberFailure`-aware: handlers run service effects through `ManagedRuntime.runPromise` (see `makeAppRunner`), which rejects with a `FiberFailure` wrapping the typed failure — never the tagged error itself. The earlier per-route `safeError` copies checked `_tag` on the caught value directly, so the check never matched and every business-rule failure ("Connection already exists", "Cannot connect to yourself", …) reached clients as the generic "Request failed" — surfacing in `@musubi/social` as an unexplained "Request failed" toast on Connect. The helper unwraps the cause first (`Runtime.isFiberFailure` → `Cause.failureOption`), then applies the tag allowlist. The organisation routes share the same helper with `OrgError`/`NotFoundError`. Regression tests: `tests/lib/safe-error.test.ts`, `tests/routes/graph-error-messages.test.ts`, `tests/routes/organisation-error-messages.test.ts`.
 
@@ -113,14 +113,14 @@ Two properties of the allowlist are deliberate:
 
 ## Input Validation
 
-The `:handle` route parameter uses TypeBox `HandleParam` with regex + length bounds (S-M18). This prevents injection and ensures handles conform to the reservation rules.
+The `:handle` route parameter uses TypeBox `HandleParam` with regex + length bounds. This prevents injection and ensures handles conform to the reservation rules.
 
 ## Performance Notes
 
-- N+1 queries in graph list functions replaced with `inArray` batch fetches (P-W6)
-- `eitherBlocked` collapsed from two sequential `isBlocked` calls to a single OR query (P-W7)
-- `blockProfile` replaced SELECT-then-DELETE with direct `DELETE WHERE OR` (P-W8)
-- `removeConnection` and `blockProfile` wrapped in DB transactions (P-W17)
+- N+1 queries in graph list functions replaced with `inArray` batch fetches
+- `eitherBlocked` collapsed from two sequential `isBlocked` calls to a single OR query
+- `blockProfile` replaced SELECT-then-DELETE with direct `DELETE WHERE OR`
+- `removeConnection` and `blockProfile` wrapped in DB transactions
 
 ## Recommendations (contact suggestions)
 
@@ -130,15 +130,15 @@ The `:handle` route parameter uses TypeBox `HandleParam` with regex + length bou
 2. Build the exclusion set: self, every counterpart on an existing edge, and everyone blocked either way. Pending edges count, so a request already in flight never resurfaces as a suggestion whose Connect button would fail with "Connection already exists".
 3. Fan out twice, each branch skipped when its seed set is empty:
    - **Friends-of-friends** — accepted connections of the caller's first 500 accepted connections, capped at **10 000 rows**. The query reads that seed set through a correlated `IN (<subquery>)` rather than binding the 500 ids as literals — see **D1's bound-parameter cap**, below, for why.
-   - **Organisation co-members** — members of the caller's organisations, capped at **2 000 rows total**, split evenly across the caller's organisations (`MAX_ORG_COMEMBER_ROWS` divided by how many organisations the caller belongs to) so one organisation can no longer absorb the whole budget and starve the rest (osn-tracker#574).
+   - **Organisation co-members** — members of the caller's organisations, capped at **2 000 rows total**, split evenly across the caller's organisations (`MAX_ORG_COMEMBER_ROWS` divided by how many organisations the caller belongs to) so one organisation can no longer absorb the whole budget and starve the rest.
 4. Tally `mutualCount` and shared organisations per candidate in JS with an O(1) `Set` on the caller's direct connections.
 5. Rank by mutual count desc, then shared-organisation count desc, then profile ID (stable ties). Slice to `limit` (bounded `[1, 50]` at the HTTP boundary).
-6. Re-check the survivors, fresh, against `connections` and `blocks` — dropping anyone now actually connected, pending, or blocked — before hydrating (osn-tracker#589 follow-up, S-H1; see below).
+6. Re-check the survivors, fresh, against `connections` and `blocks` — dropping anyone now actually connected, pending, or blocked — before hydrating (see below).
 7. Hydrate the survivors via `users ⋈ accounts WHERE deleted_at IS NULL`, so a tombstoned account is never suggested.
 
-### The fresh re-check before hydration (S-H1)
+### The fresh re-check before hydration
 
-Steps 1 and 2 are two separate, un-transacted D1 round trips — nothing joins them in a `db.batch`/`db.transaction`. Step 1 snapshots the caller's own edges; step 2's friends-of-friends seed subquery re-reads `connections` live, at whatever the table holds when step 2 actually runs. The `IN (<subquery>)` rewrite above closed osn-tracker#589's bind-cap crash, but it opened a window the old, single-snapshot query structurally could not have: if the caller accepts a new connection between step 1 and step 2 — the same account, a second request in flight from another tab or device — that connection's id was never seen by the step-1 snapshot, so it is in neither the caller's own-connections set nor the exclusion set, yet it is inside the live seed subquery's result. The fan-out row for that brand-new edge was misclassified as a candidate rather than a mutual connection, and nothing downstream re-checked it: the caller's own newest connection could come back as "someone you may know." `profileId` is always the caller's own, so the blast radius is one account's freshest edge against itself — never another account's connection or block state.
+Steps 1 and 2 are two separate, un-transacted D1 round trips — nothing joins them in a `db.batch`/`db.transaction`. Step 1 snapshots the caller's own edges; step 2's friends-of-friends seed subquery re-reads `connections` live, at whatever the table holds when step 2 actually runs. The `IN (<subquery>)` rewrite above closed the bind-cap crash, but it opened a window the old, single-snapshot query structurally could not have: if the caller accepts a new connection between step 1 and step 2 — the same account, a second request in flight from another tab or device — that connection's id was never seen by the step-1 snapshot, so it is in neither the caller's own-connections set nor the exclusion set, yet it is inside the live seed subquery's result. The fan-out row for that brand-new edge was misclassified as a candidate rather than a mutual connection, and nothing downstream re-checked it: the caller's own newest connection could come back as "someone you may know." `profileId` is always the caller's own, so the blast radius is one account's freshest edge against itself — never another account's connection or block state.
 
 Fixed by re-checking, fresh, immediately before hydration, for just the ids that survived ranking (step 5's `sorted`, at most `safeLimit` ≤ 50) — small enough that this cannot reopen the 100-bound cap. That safety is measured, not assumed: naively filtering with `or(inArray(requesterId, ids), inArray(addresseeId, ids))` binds the id list twice, the same mistake #589 fixed, and at the 50-id ceiling that is 102 params (`.toSQL()` against the real query shape: 2 profile-id equality binds + 2 × 50-id `inArray`s) — over D1's cap. The re-check queries instead run the id filter once each, against a subquery that projects the counterpart id, so the list is bound once: 4 binds in the subquery (one profile id in a `CASE`, two in its `WHERE`, one for its `LIMIT`) + up to 50 for the single `inArray` = 54 params.
 
@@ -163,7 +163,7 @@ Rate-limited at 20 req/user/min via `createRedisRecommendationRateLimiters().sug
 
 ### D1's bound-parameter cap (standing constraint)
 
-D1 caps a query at **100 bound parameters** (developers.cloudflare.com/d1/platform/limits/, applied per statement, including inside a `batch()`). `bun:sqlite` — what the rest of the OSN test suite runs on — enforces no such cap, so a query that binds a caller-controlled list can pass every unit test and still fail in production. This bit the FOF fan-out directly: `inArray(requesterId, myConnectionIds) OR inArray(addresseeId, myConnectionIds)` bound `myConnectionIds` twice, so 51 accepted connections already produced 102 binds, and `GET /recommendations/connections` threw `D1_ERROR: too many SQL variables` for any caller past 50 (osn-tracker#589).
+D1 caps a query at **100 bound parameters** (developers.cloudflare.com/d1/platform/limits/, applied per statement, including inside a `batch()`). `bun:sqlite` — what the rest of the OSN test suite runs on — enforces no such cap, so a query that binds a caller-controlled list can pass every unit test and still fail in production. This bit the FOF fan-out directly: `inArray(requesterId, myConnectionIds) OR inArray(addresseeId, myConnectionIds)` bound `myConnectionIds` twice, so 51 accepted connections already produced 102 binds, and `GET /recommendations/connections` threw `D1_ERROR: too many SQL variables` for any caller past 50.
 
 The fix: bind `profileId`, not the list. The FOF query now reads the caller's own accepted edges through a correlated `IN (<subquery>)` — the subquery re-reads them inside the database, so the outer query's bind count is fixed regardless of how many connections the caller has. A correlated `EXISTS` (the more obvious rewrite) was measured and rejected: on real (Miniflare/workerd) D1, `EXPLAIN QUERY PLAN` showed it planning as `SCAN c` with a `CORRELATED SCALAR SUBQUERY` evaluated once per row of the *whole* `connections` table — cost that scales with the size of the table, not with the caller's own graph. The `IN (<subquery>)` shape gets flattened by SQLite into a `LIST SUBQUERY` — one indexed pass to build a Bloom filter, then the same `MULTI-INDEX OR` seek over `connections_requester_idx` / `connections_addressee_idx` the original query got. Measured on a caller with 40 accepted connections: 484 rows read against the two-`inArray` shape's 400, for an identical result set — the cost of materialising the seed set once rather than pasting it in as literals.
 
@@ -184,9 +184,9 @@ The user-facing sibling of the ARC-gated `/graph/internal/profile-search`. The t
 - **Normalisation** — trim, strip a leading `@`, lowercase, then **tokenise**. `users.handle` is stored lowercase, so `@Alice` and `alice` are the same search. LIKE wildcards in the typed query are escaped so a typed `_` or `%` matches literally — and the tokeniser deliberately keeps **every LIKE metacharacter** (`%`, `_`, `\`) inside the token for exactly that reason: `escapeLike` can only neutralise a character that survives tokenisation, so treating `%` as a separator would turn `"a%b"` into `a` + `b` and convert the one wildcard the escape exists to defuse back into a wildcard. Ordinary punctuation *does* split (`"Smith, John"` has to tokenise the way a person reads it) — it is not a metacharacter, so dropping it cannot widen a pattern; it only shortens the token, which is why every length gate is computed from the tokens.
 - **A query is three things**, computed once per request: the `phrase` (verbatim), its `tokens` (`"john smith"` → `["john", "smith"]`), and the `handleQuery` those tokens spell (`"johnsmith"`). The rejoin matters: a space cannot prefix a handle, so before it a multi-word query skipped the index seek entirely and found `@johnsmith` only if the infix scan happened to run.
 - **Query length gates scope, not access** — the floor is now **1 character**, but what a character *reaches* widens in three steps: 1 char searches only the caller's own edges, 2 unlocks the global handle seek, 3 unlocks the name scan. The old flat minimum of 2 existed to stop one keystroke walking the handle namespace; scoping the first keystroke to a set the caller can already enumerate (`GET /graph/connections`) achieves that without costing the answer.
-- **Each gate measures the thing it gates, never the raw query** (S-M1, caught in prep-pr review of this change). The prefix pass compares `MIN_GLOBAL_QUERY_LENGTH` against `handleQuery` — the string actually bound into the range — and the infix pass compares `MIN_INFIX_QUERY_LENGTH` against the **longest token**. Measuring `phrase.length` instead is a bypass, because tokenisation drops separators: `"a."` is two characters of phrase carrying a one-character prefix, and `"a a"` three carrying a one-character infix, so a phrase-length gate opens exactly the one-character global reads the tiering exists to prevent. Per token rather than over the whole query, because an `AND` of `LIKE` patterns is only as selective as its most selective conjunct — `"a b c"` must not scan, `"j smith"` must.
+- **Each gate measures the thing it gates, never the raw query** (caught in prep-pr review of this change). The prefix pass compares `MIN_GLOBAL_QUERY_LENGTH` against `handleQuery` — the string actually bound into the range — and the infix pass compares `MIN_INFIX_QUERY_LENGTH` against the **longest token**. Measuring `phrase.length` instead is a bypass, because tokenisation drops separators: `"a."` is two characters of phrase carrying a one-character prefix, and `"a a"` three carrying a one-character infix, so a phrase-length gate opens exactly the one-character global reads the tiering exists to prevent. Per token rather than over the whole query, because an `AND` of `LIKE` patterns is only as selective as its most selective conjunct — `"a b c"` must not scan, `"j smith"` must.
 - **The infix threshold is script-aware** (`hasScanworthyToken`). A minimum-*length* gate is a proxy for a minimum-*selectivity* gate, and character count is only a good proxy inside one alphabet: two Han characters pick a name out of a very large space where two Latin letters barely narrow anything. A flat three-character rule made `"日本 太郎"` — a complete name whose every token is two characters — unsearchable, so tokens in Han, Hiragana, Katakana or Hangul clear the gate at two. Diacritics do **not** qualify: `"mü"` narrows about as much as `"mu"`. This was caught by writing the non-ASCII test the review asked for, and it was a regression *introduced* by keying the gate on token length — the previous phrase-length gate happened to let CJK through for the wrong reason.
-- **Token count is capped** at `MAX_QUERY_TOKENS` (6) before any SQL is built (S-M2). Each token emits its own ANDed pair of `LIKE` predicates, and `q`'s 64-character bound admits 32 single-character tokens — 64 pattern evaluations per scanned row, on a conjunction that matches nothing so `LIMIT` never short-circuits. Four tokens spells "maria del carmen rodriguez"; the cap is invisible to real queries.
+- **Token count is capped** at `MAX_QUERY_TOKENS` (6) before any SQL is built. Each token emits its own ANDed pair of `LIKE` predicates, and `q`'s 64-character bound admits 32 single-character tokens — 64 pattern evaluations per scanned row, on a conjunction that matches nothing so `LIMIT` never short-circuits. Four tokens spells "maria del carmen rodriguez"; the cap is invisible to real queries.
 - **Why a range and not `LIKE 'q%'`** — because `LIKE` does not use the index. SQLite's LIKE-prefix optimisation needs the indexed column's collation to match LIKE's case sensitivity; `case_sensitive_like` is off by default (D1 runs stock defaults) and both `users_handle_idx` and the implicit unique index on `organisations.handle` are BINARY, so the planner degrades to a full traversal. Measured with `EXPLAIN QUERY PLAN`:
 
   ```
@@ -223,10 +223,10 @@ Ties break on text score alone, then handle, so the order is total and stable be
 
 **Why summed rather than lexicographic.** Neither pure ordering is right. Text-first buries the caller's own connections under strangers with a marginally better prefix — the thing typeahead most needs to avoid. Proximity-first lets a connection matched on a name infix outrank a stranger whose handle the caller typed in full. Summing lets each outweigh the other where it should: an exact handle (100) beats a connected handle prefix (60 + 40) on the text tie-break, while a connected name-token match (50 + 40) beats a stranger's handle prefix (60).
 
-**Why no friends-of-friends**, though it is the strongest signal Facebook's own ranking uses. Nothing in OSN exposes another profile's connection list, so a mutual-connection boost would make result *ordering* an oracle for "is this arbitrary handle a friend-of-a-friend?" — the same disclosure that keeps `mutualCount` out of the payload (S-L4). Ordering leaks as readily as a field does. The two signals that *are* used both describe things the caller can already read directly: connection state ships in the response already, and shared organisations are only ever counted for organisations the caller belongs to, whose member list is visible to members.
+**Why no friends-of-friends**, though it is the strongest signal Facebook's own ranking uses. Nothing in OSN exposes another profile's connection list, so a mutual-connection boost would make result *ordering* an oracle for "is this arbitrary handle a friend-of-a-friend?" — the same disclosure that keeps `mutualCount` out of the payload. Ordering leaks as readily as a field does. The two signals that *are* used both describe things the caller can already read directly: connection state ships in the response already, and shared organisations are only ever counted for organisations the caller belongs to, whose member list is visible to members.
 - **Exclusions** — self, tombstoned accounts (`accounts.deleted_at IS NULL` join), and anyone blocked in either direction. The block check is a **bounded probe against the candidate ids**, not a wholesale read of the caller's blocks: an unbounded read scales with how many people the caller has blocked rather than with anything the request needs, and both `blocks_blocker_idx` and `blocks_blocked_idx` serve the probe. Filtering still happens in application code (over an over-fetched candidate set) so the page stays full.
 - **Connection state** — each result carries the caller's own state with it (`none` / `pending_sent` / `pending_received` / `connected`), batched in one query for the whole page, so the UI renders Connect / Accept / Requested / Connected without a request per row. This is the same fact `GET /graph/connections/:handle` already reports per handle — no new disclosure, just fewer round trips.
-- **No mutual counts.** Deliberate: suggestions describe profiles already adjacent to the caller's graph, but search takes an *arbitrary* handle, and answering "how many mutuals" for arbitrary handles is a graph-inference oracle (cf. S-L4).
+- **No mutual counts.** Deliberate: suggestions describe profiles already adjacent to the caller's graph, but search takes an *arbitrary* handle, and answering "how many mutuals" for arbitrary handles is a graph-inference oracle.
 
 ### Organisations (`searchOrganisations`)
 

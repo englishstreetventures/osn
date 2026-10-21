@@ -5,7 +5,7 @@ related:
   - "[[review-findings]]"
   - "[[agent-tooling]]"
   - "[[index]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-22
 ---
 
 # GitHub Issues setup
@@ -23,7 +23,7 @@ Two repos and one Project:
 
 Findings are split off because `englishstreetventures/osn` is public and an open finding is a
 disclosure. A public issue or pull request carries a tracker issue only as a
-bare `englishstreetventures/osn-tracker#<n>` reference — see
+bare reference to a private tracker issue — see
 [[review-findings#Where a finding ID may appear]].
 
 ## 1. Token scopes

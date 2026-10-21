@@ -17,7 +17,7 @@ packages:
   - "@cire/api"
   - "@cire/invites"
   - "@cire/host"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-10-22
 ---
 # Turnstile bot protection
 
@@ -73,7 +73,7 @@ Safety properties baked into the primitive:
 
 - **Never throws.** Network error, abort, malformed JSON → `{ ok: false }`. A
   slow or failing Cloudflare therefore ends in a reject, never a hang.
-- **5s timeout** (`AbortSignal.timeout(5_000)`, S-L2) so a hung `siteverify`
+- **5s timeout** (`AbortSignal.timeout(5_000)`) so a hung `siteverify`
   can't tie up the Worker isolate.
 - **Secret never logged, never echoed.** The code deliberately drops the thrown
   cause from `siteverify` (it could embed the request body, which contains the

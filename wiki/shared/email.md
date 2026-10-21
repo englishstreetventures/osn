@@ -24,7 +24,7 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-22
 ---
 
 # Email Transport
@@ -223,7 +223,7 @@ Content-Type: application/json
 > staging/production. This makes email-OTP dev flows testable without a real
 > inbox. See `osn/api/src/services/auth/helpers.ts`.
 >
-> **S-L4, fixed 2026-07-30:** the line used to interpolate the **recipient
+> **Fixed 2026-07-30:** the line used to interpolate the **recipient
 > address** too. A free-text message is not annotation-shaped, so the
 > key-based deny-list in `@shared/observability` never saw it — the env gate
 > was the only thing between an OTP recipient and the log sink, and the
@@ -394,7 +394,7 @@ through Resend itself whenever the key is set.
   backstops accidental annotations of the `accessToken` / `cookie` /
   `email` keys, but the primary protection is the call-site contract.
 - **Phishing resistance**: email-change uses the "somebody asked for
-  this on your account" framing (S-L5) so a misdirected message is
+  this on your account" framing so a misdirected message is
   clearly junk and useless as a phishing template. Live in
   `shared/email/src/templates/otp.ts → renderEmailChangeOtp`.
 

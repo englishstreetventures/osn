@@ -8,7 +8,7 @@ related:
   - "[[tracing]]"
   - "[[metrics]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 
 # Logging
@@ -118,7 +118,7 @@ Redaction matches keys, so it cannot clean a value that is already inside an err
 
 ## Dev-mode OTP logging
 
-Dev-mode step-up OTP logging uses `Effect.logDebug` gated on `OSN_ENV` being unset or `"dev"` (S-L2). The guard excludes both staging and production. It gives defence in depth alongside the log-level minimum. The log interpolates the OTP code into the message string, not into annotations, so the redacting logger does not scrub it — the dev log exists to show the value to the developer. In production these branches never run because `config.sendEmail` is wired up.
+Dev-mode step-up OTP logging uses `Effect.logDebug` gated on `OSN_ENV` being unset or `"dev"`. The guard excludes both staging and production. It gives defence in depth alongside the log-level minimum. The log interpolates the OTP code into the message string, not into annotations, so the redacting logger does not scrub it — the dev log exists to show the value to the developer. In production these branches never run because `config.sendEmail` is wired up.
 
 ## Route-level logger wiring
 
