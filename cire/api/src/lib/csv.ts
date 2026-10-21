@@ -1,7 +1,7 @@
 /**
  * Shared CSV serialisation for every organiser download (`rsvps.csv`,
- * `guests.csv`, `events.csv`, `gifts.csv`, `budget.csv`, `tasks.csv` and the
- * round-trip `export/*.csv`): one formula-injection guard, one RFC 4180
+ * `guests.csv`, `events.csv`, `gifts.csv`, `budget.csv`, `tasks.csv`,
+ * `seating.csv` and the round-trip `export/*.csv`): one formula-injection guard, one RFC 4180
  * serialiser, and the guard's exact inverse for the import that reads a
  * round-trip file back (`services/spreadsheet.ts`).
  */

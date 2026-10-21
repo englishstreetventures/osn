@@ -94,7 +94,7 @@ const CARD_CONTROLS = "button:not(:disabled), a[href]";
  * card's first control comes back to the row, and Tab on its last control goes
  * to the row and lets the browser's own Tab carry on from there, to the next
  * row. That last step relies on a locked row never being the nav's last row —
- * Guests, Invite and Settings end `MODULE_NAV` and no tier locks them.
+ * Invite and Settings end `MODULE_NAV` and no tier locks them.
  *
  * The lock, and the tier that lifts it, are announced in the accessible name,
  * not only in the card, so a screen-reader user hears both while tabbing.

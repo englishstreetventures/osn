@@ -81,6 +81,7 @@ import {
 import { createRegistryStripeRoutes } from "./routes/registry-stripe";
 import { createRsvpRoutes } from "./routes/rsvp";
 import { createRsvpDigestStopRoutes } from "./routes/rsvp-digest-stop";
+import { createSeatingRoutes } from "./routes/seating";
 import { createStripePlatformWebhookRoutes } from "./routes/stripe-platform-webhook";
 import { createStripeWebhookRoutes } from "./routes/stripe-webhook";
 import { createTaskReadRoutes, createTaskWriteRoutes } from "./routes/tasks";
@@ -1221,6 +1222,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // accumulated route-type surface here caps the depth; it's runtime-inert
   // (`.use()` only needs an Elysia instance) and scoped to this final mount.
   const rootApp: AnyElysia = app;
+  // The seating chart. `.use()` registers on the instance itself, so this mounts it.
+  rootApp.use(createSeatingRoutes(db, osnAuthOptions));
   // The portal's read of the invite images. The organiser-facing customisation
   // links the closing image here, because the public route keeps it for claimed
   // households. A sibling of the invite builder's writes, with no limiter — see

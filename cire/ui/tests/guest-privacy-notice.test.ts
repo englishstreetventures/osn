@@ -170,6 +170,16 @@ describe("guest privacy notice", () => {
     expect(body).not.toMatch(/through this site/);
   });
 
+  /**
+   * Hosts on Gold can seat guests at tables, which shows who sits beside whom
+   * to the hosts and, on paper, to the venue. The notice names it among what is
+   * held, and who sees it.
+   */
+  it("names where a guest sits among what is held, and that other guests never see it", () => {
+    expect(body).toMatch(phrase("Where you sit, if your hosts plan seating"));
+    expect(body).toMatch(phrase("may print it or send it to the venue; other guests never do."));
+  });
+
   it("publishes no notes addressed to the site owner", () => {
     expect(body).not.toContain("Note for the site owner");
     expect(body).not.toContain("owner-note");

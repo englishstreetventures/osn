@@ -194,6 +194,25 @@ vi.mock("../../src/components/ChecklistView", () => ({
 vi.mock("../../src/components/BudgetView", () => ({
   default: (p: { weddingId: string }) => <div data-testid="budget">{p.weddingId}</div>,
 }));
+vi.mock("../../src/components/SeatingView", () => ({
+  // Surfaces the two role flags: the shell is the one place a role becomes
+  // them, and a swapped pair would show a viewer the write controls.
+  default: (p: {
+    weddingId: string;
+    weddingSlug: string;
+    canEdit: boolean;
+    canManage: boolean;
+  }) => (
+    <div
+      data-testid="seating"
+      data-slug={p.weddingSlug}
+      data-can-edit={String(p.canEdit)}
+      data-can-manage={String(p.canManage)}
+    >
+      {p.weddingId}
+    </div>
+  ),
+}));
 vi.mock("../../src/components/EnquiriesView", () => ({
   default: (p: { weddingId: string }) => <div data-testid="enquiries-view">{p.weddingId}</div>,
 }));
@@ -600,6 +619,37 @@ describe("ModuleShell", () => {
       // on the page the coercion sends you to.
       renderShell({ module: "overview", tier: "gold" });
       expect(screen.getByTestId("overview").getAttribute("data-tier")).toBe("gold");
+    });
+  });
+
+  describe("tier gating — seating module (Gold)", () => {
+    it("renders Overview instead on Ivory, and never asks for the chunk", () => {
+      renderShell({ module: "seating", sub: "index", tier: "ivory" });
+      expect(screen.getByTestId("overview")).toBeTruthy();
+      expect(screen.queryByTestId("seating")).toBeNull();
+    });
+
+    it("hands each role its own write and download flags on Gold", async () => {
+      for (const [canEdit, canManage] of [
+        [false, false],
+        [true, false],
+        [true, true],
+      ] as const) {
+        const { unmount } = renderShell({
+          module: "seating",
+          sub: "index",
+          tier: "gold",
+          canEdit,
+          canManage,
+        });
+        const view = await screen.findByTestId("seating");
+        expect({
+          edit: view.getAttribute("data-can-edit"),
+          manage: view.getAttribute("data-can-manage"),
+          slug: view.getAttribute("data-slug"),
+        }).toEqual({ edit: String(canEdit), manage: String(canManage), slug: "r-and-v" });
+        unmount();
+      }
     });
   });
 

@@ -140,6 +140,16 @@ view just never leaves its loading state. Build the value first and pass the
 variable — `const store = createStore(); return <Inbox store={store} />;` — as
 `VendorApp` does with its enquiry inbox holder (`cire/vendor`).
 
+### A `<select>` over a list that can refresh marks each option `selected`
+
+Solid sets a `<select>`'s `value` prop when the value changes, not when its
+options do. A `<For>` over rows that can be replaced (the cached event list,
+refreshed by another view) rebuilds every `<option>`, and the browser then
+shows the first one while the signal still holds another: the picker says
+Reception over the Ceremony's chart. Put `selected={row.id === chosen()}` on
+each option instead of `value` on the select, as `SeatingView`'s event picker
+does (`cire/host`). A fixed list of options is unaffected.
+
 ### `createMemo` runs eagerly, so declare memos below their dependencies
 
 Unlike a plain accessor, a memo's computation runs at creation. A memo declared

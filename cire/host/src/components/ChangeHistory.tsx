@@ -75,11 +75,11 @@ const KIND_LABEL = {
  * decides them from the change's scope: `revertImport` in cire-api).
  */
 const REVERT_CONFIRM = {
-  both: "Revert this change? Guests, households and events are restored to exactly the state before it was applied. RSVPs discarded by the change are not restored.",
+  both: "Revert this change? Guests, households and events are restored to exactly the state before it was applied. RSVPs and seating-chart seats discarded by the change are not restored.",
   events:
-    "Revert this change? Events are restored to exactly the state before it was applied: events added since are removed, with their invitations and RSVPs, and guests who were invited to an event it brings back are invited again. No household or guest is added, removed or changed. RSVPs discarded by the change are not restored.",
+    "Revert this change? Events are restored to exactly the state before it was applied: events added since are removed, with their invitations, RSVPs and seating tables, and guests who were invited to an event it brings back are invited again. No household or guest is added, removed or changed. RSVPs and seating-chart seats discarded by the change are not restored.",
   guests:
-    "Revert this change? Households, guests and their invitations are restored to exactly the state before it was applied. Events are not changed: invitations to an event deleted since are not restored, and invitations to an event added since are kept. RSVPs discarded by the change are not restored.",
+    "Revert this change? Households, guests and their invitations are restored to exactly the state before it was applied. Events are not changed: invitations to an event deleted since are not restored, and invitations to an event added since are kept. RSVPs and seating-chart seats discarded by the change are not restored.",
 } satisfies Record<ChangeScope, string>;
 
 function formatDate(ms: number): string {

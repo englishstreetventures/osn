@@ -680,7 +680,7 @@ describe("ModuleSidebar", () => {
         unmount();
         return locked;
       };
-      expect(lockedOn("ivory")).toEqual(["Checklist", "Budget", "Vendors", "Registry"]);
+      expect(lockedOn("ivory")).toEqual(["Checklist", "Budget", "Vendors", "Registry", "Seating"]);
       expect(lockedOn("gold")).toEqual(["Vendors"]);
       expect(lockedOn("crimson")).toEqual([]);
     });

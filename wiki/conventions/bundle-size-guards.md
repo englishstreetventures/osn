@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Guards with a threshold
@@ -209,15 +209,18 @@ the guard's warning regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 176733 B | 188433 B *(re-baselined, englishstreetventures/osn#1325 — see below)* |
-| cire/host | static | 268459 B | 280159 B *(re-baselined, englishstreetventures/osn#1304 — see below)* |
-| cire/vendor | static | 69961 B | 81644 B |
-| cire/landing | static | 177641 B | 189324 B |
-| musubi/landing | static | 15182 B | 26865 B |
+| cire/host | static | 288927 B | 300627 B *(re-baselined, englishstreetventures/osn#479 — see below)* |
+| cire/vendor | static | 77305 B | 81644 B |
+| cire/landing | static | 164847 B | 176547 B |
+| musubi/landing | static | 15206 B | 26865 B |
 | pulse/landing | static | 16683 B | 28366 B |
 
 *Measured 2026-09-06 — clean `bun run build` at the worktree root with no
 `PUBLIC_*` vars set, then `scripts/guard-bundle-size.sh --all`, which prints
-each app's gzip total. `scripts/bundle-size-budgets.txt` is still the file the
+each app's gzip total. Each row now mirrors its `# measured` comment in
+`scripts/bundle-size-budgets.txt`, which moves with the threshold: the raises
+below carry their own measurements, and cire/vendor's and cire/landing's moved
+with the changes that file's comment names. That file is still the one the
 guard reads; this table only mirrors it.*
 
 `cire/landing` ships a Three.js scene by design (the wax-seal hero) — its
@@ -284,6 +287,22 @@ delete dialog in Settings and the "Recently deleted" list with Restore came to
 `cire/host`, then `scripts/guard-bundle-size.sh .`, on
 `claude/trusting-dijkstra-1eji1a` and on `origin/main`, reading the total the
 guard prints.*
+
+The seating chart (englishstreetventures/osn#479) raised it again, on the same
+trade as the vendors split. `main` measured **279974 B** across 54 files, 185 B
+under the 280159 B threshold. With the Seating module, loaded on demand like the
+registry, it came to **288927 B** across 61 files: **+8953 B**. Loading it
+eagerly instead put `OrganiserApp`'s chunk at **79585 B** against **63737 B**
+on demand: Seating is a Gold module, and its view, the sortable package's drop
+zones and the menu it shares with other on-demand panels would otherwise land on
+every organiser's first load, about 15.8 KB of it. The threshold moved to
+measured + ~11.7 KB, **300627 B**. No dependency was added.
+
+*Measured 2026-10-21 — `bun run --cwd cire/host build`, which ends with
+`../../scripts/guard-bundle-size.sh .`, on `feat/cire-seating` rebased onto
+`main` 0619a7dfd and on a clean checkout of 0619a7dfd. The chunk sizes are from
+2026-10-20, on the branch before that rebase, with `ModuleShell`'s `lazy()` for
+`SeatingView` replaced by a static import; `gzip -c <chunk> | wc -c`.*
 
 ### `cire/invites` went up for the household member step
 

@@ -19,6 +19,8 @@ import {
   registrySettings,
   rsvpChanges,
   rsvps,
+  seatingAssignments,
+  seatingTables,
   taskTemplateDismissals,
   tasks,
   unlockCodeRedemptions,
@@ -98,6 +100,12 @@ import {
 import { rsvpService } from "../../src/services/rsvp";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import { rsvpDigestService } from "../../src/services/rsvp-digest";
+import {
+  SeatingEventNotFound,
+  SeatingTableFull,
+  seatingLoss,
+  seatingService,
+} from "../../src/services/seating";
 import {
   SHEET_LIST_LIMITS,
   sheetReconcileService,
@@ -341,6 +349,8 @@ beforeEach(async () => {
     rsvpChanges,
     hostRsvpNotices,
     rsvps,
+    seatingAssignments,
+    seatingTables,
     guestEvents,
     guests,
     families,
@@ -3999,7 +4009,14 @@ describe("cire/api over real D1 (Miniflare)", () => {
       // The cascade ran on D1's enforced foreign keys: no table keeps a row
       // naming the purged wedding, and the live one is whole.
       for (const table of WEDDING_CHILD_TABLES) {
-        const direct = ["guests", "guest_events", "rsvps", "sessions", "payments"].includes(table);
+        const direct = [
+          "guests",
+          "guest_events",
+          "rsvps",
+          "sessions",
+          "payments",
+          "seating_assignments",
+        ].includes(table);
         if (direct) continue;
         const [row] = await db.all<{ n: number }>(
           sql.raw(`SELECT count(*) AS n FROM ${table} WHERE wedding_id = '${gone}'`),
@@ -4014,6 +4031,18 @@ describe("cire/api over real D1 (Miniflare)", () => {
         sql.raw(`SELECT count(*) AS n FROM guests WHERE family_id = 'fam_${gone}'`),
       );
       expect(orphans!.n).toBe(0);
+      // A seat names no wedding: it hangs off a table and an invitation, and
+      // goes with whichever cascade reaches it first.
+      const seatCount = async (weddingId: string) =>
+        (
+          await db.all<{ n: number }>(
+            sql.raw(
+              `SELECT count(*) AS n FROM seating_assignments WHERE guest_id = 'gst_${weddingId}'`,
+            ),
+          )
+        )[0]!.n;
+      expect(await seatCount(gone)).toBe(0);
+      expect(await seatCount(live)).toBe(1);
       const [sales] = await db.all<{ n: number }>(
         sql.raw(
           `SELECT count(*) AS n FROM platform_sales WHERE purchase_id IN ('upg_${gone}', 'upg_${live}')`,
@@ -4609,4 +4638,163 @@ describe("cire/api over real D1 (Miniflare)", () => {
       MF_TIMEOUT_MS,
     );
   });
+});
+
+describe("seating over real D1 (Miniflare)", () => {
+  const table = async (id: string, eventId: string, capacity: number) => {
+    const now = new Date();
+    await db.insert(seatingTables).values({
+      id,
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      eventId,
+      name: id,
+      capacity,
+      createdAt: now,
+      updatedAt: now,
+    });
+  };
+  const seatsAt = async (eventId: string) =>
+    (
+      await db
+        .select({ tableId: seatingAssignments.tableId, guestId: seatingAssignments.guestId })
+        .from(seatingAssignments)
+        .where(eq(seatingAssignments.eventId, eventId))
+    ).toSorted((a, b) => a.guestId.localeCompare(b.guestId));
+  const seat = (eventId: string, guestId: string, tableId: string | null) =>
+    seatingService.seat({ weddingId: BOOTSTRAP_WEDDING_ID, eventId, guestId, tableId });
+
+  it(
+    "refuses, in the database, a second seat for one guest at one event, a seat at another event's table, and an uninvited guest",
+    async () => {
+      await table("stb_a1", EVENT_A, 8);
+      await table("stb_a2", EVENT_A, 8);
+      await table("stb_b1", EVENT_B, 8);
+      const now = new Date();
+      await db
+        .insert(seatingAssignments)
+        .values({ tableId: "stb_a1", eventId: EVENT_A, guestId: GUEST_1, createdAt: now });
+      const refusal = async (values: typeof seatingAssignments.$inferInsert) => {
+        try {
+          await db.insert(seatingAssignments).values(values);
+          return "accepted";
+        } catch (error) {
+          return String((error as { cause?: unknown }).cause ?? error);
+        }
+      };
+      expect(
+        await refusal({ tableId: "stb_a2", eventId: EVENT_A, guestId: GUEST_1, createdAt: now }),
+      ).toContain(
+        "UNIQUE constraint failed: seating_assignments.event_id, seating_assignments.guest_id",
+      );
+      expect(
+        await refusal({ tableId: "stb_b1", eventId: EVENT_A, guestId: GUEST_2, createdAt: now }),
+      ).toContain("FOREIGN KEY constraint failed");
+      // GUEST_2 is not invited to EVENT_B.
+      expect(
+        await refusal({ tableId: "stb_b1", eventId: EVENT_B, guestId: GUEST_2, createdAt: now }),
+      ).toContain("FOREIGN KEY constraint failed");
+      expect(await seatsAt(EVENT_A)).toEqual([{ tableId: "stb_a1", guestId: GUEST_1 }]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "seats and moves through one batch, and a refused move keeps the old seat",
+    async () => {
+      await table("stb_small", EVENT_A, 1);
+      await table("stb_big", EVENT_A, 8);
+      // A success is read back from the batch's last element — the rows array.
+      expect(await run(seat(EVENT_A, GUEST_1, "stb_small"))).toEqual({
+        guestId: GUEST_1,
+        tableId: "stb_small",
+      });
+      expect(await run(seat(EVENT_A, GUEST_2, "stb_big"))).toEqual({
+        guestId: GUEST_2,
+        tableId: "stb_big",
+      });
+      const refused = await Effect.runPromiseExit(
+        seat(EVENT_A, GUEST_2, "stb_small").pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(refused) && Cause.squash(refused.cause)).toBeInstanceOf(
+        SeatingTableFull,
+      );
+      expect(await seatsAt(EVENT_A)).toEqual([
+        { tableId: "stb_small", guestId: GUEST_1 },
+        { tableId: "stb_big", guestId: GUEST_2 },
+      ]);
+      // A move to a table with room lands, and leaves one seat.
+      await run(seat(EVENT_A, GUEST_1, "stb_big"));
+      expect(await seatsAt(EVENT_A)).toEqual([
+        { tableId: "stb_big", guestId: GUEST_1 },
+        { tableId: "stb_big", guestId: GUEST_2 },
+      ]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "seats only one of two guests racing for a table's last place",
+    async () => {
+      await table("stb_one", EVENT_A, 1);
+      const results = await Promise.all(
+        [GUEST_1, GUEST_2].map((guestId) =>
+          Effect.runPromiseExit(
+            seat(EVENT_A, guestId, "stb_one").pipe(Effect.provideService(DbService, db)),
+          ),
+        ),
+      );
+      expect(results.filter(Exit.isSuccess)).toHaveLength(1);
+      expect(await seatsAt(EVENT_A)).toHaveLength(1);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "reads the chart's three batched reads apart, and unseats, on D1",
+    async () => {
+      await table("stb_a1", EVENT_A, 8);
+      await run(seat(EVENT_A, GUEST_1, "stb_a1"));
+      await db.insert(rsvps).values({
+        id: "rsvp_d1",
+        guestId: GUEST_2,
+        eventId: EVENT_A,
+        status: "declined",
+        createdAt: new Date(),
+      });
+      const chart = await run(seatingService.chart(BOOTSTRAP_WEDDING_ID, EVENT_A));
+      expect(chart.event).toEqual({ id: EVENT_A, name: "Ceremony" });
+      expect(chart.tables.map((t) => [t.id, t.capacity])).toEqual([["stb_a1", 8]]);
+      expect(chart.guests.map((g) => [g.id, g.firstName, g.rsvp, g.tableId])).toEqual([
+        [GUEST_1, "Alice", null, "stb_a1"],
+        [GUEST_2, "Bob", "declined", null],
+      ]);
+
+      expect(await run(seat(EVENT_A, GUEST_1, null))).toEqual({ guestId: GUEST_1, tableId: null });
+      expect(await seatsAt(EVENT_A)).toEqual([]);
+      const unknown = await Effect.runPromiseExit(
+        seat("evt_nope", GUEST_1, null).pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(unknown) && Cause.squash(unknown.cause)).toBeInstanceOf(
+        SeatingEventNotFound,
+      );
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "counts the seats a change removes with more than a hundred pairs in one statement",
+    async () => {
+      await table("stb_a1", EVENT_A, 8);
+      await run(seat(EVENT_A, GUEST_1, "stb_a1"));
+      // D1 allows 100 bound parameters; 150 pairs ride as one.
+      const links = [
+        { guestId: GUEST_1, eventId: EVENT_A },
+        ...Array.from({ length: 149 }, (_, i) => ({ guestId: `g_none_${i}`, eventId: EVENT_B })),
+      ];
+      expect(
+        await run(seatingLoss(BOOTSTRAP_WEDDING_ID, { guestIds: [], eventIds: [], links })),
+      ).toEqual({ seats: 1, tables: 0 });
+    },
+    MF_TIMEOUT_MS,
+  );
 });
