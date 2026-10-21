@@ -1,4 +1,5 @@
 import { families, guests } from "@cire/db";
+import { GUEST_EMAIL_CONSENT, parseGuestEmail } from "@cire/guest-email";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import type { TurnstileVerifier } from "@shared/turnstile";
 import { and, eq } from "drizzle-orm";
@@ -15,14 +16,30 @@ import {
   parseSessionToken,
 } from "../lib/cookie";
 import { getWaitUntil } from "../lib/execution-ctx";
-import { metricHouseholdMemberChosen, metricHouseholdMemberCleared } from "../metrics";
+import {
+  metricGuestEmailBlocked,
+  metricHouseholdMemberChosen,
+  metricHouseholdMemberCleared,
+} from "../metrics";
 import { sessionAuth } from "../middleware/auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
-import { type AccountLinkState, ChooseMemberBody, ClaimBody } from "../schemas/claim";
+import {
+  type AccountLinkState,
+  ChooseMemberBody,
+  ClaimBody,
+  GuestEmailBody,
+  GuestEmailRemoveBody,
+} from "../schemas/claim";
 import { accountLinkService } from "../services/account-link";
 import { type AccountLinkGate, claimService } from "../services/claim";
+import {
+  GuestEmailSeatRefused,
+  guestEmailService,
+  type SeatRefusal,
+  type SeatRequest,
+} from "../services/guest-email";
 import { inviteService } from "../services/invite";
 import { sessionService } from "../services/session";
 
@@ -361,6 +378,86 @@ export interface ClaimMemberRouteOptions {
 
 const LINKING_OFF: AccountLinkState = { enabled: false };
 
+/**
+ * The weddings kept out of the member step for this household right now: the
+ * excluded list while account linking is off for it, else none. Reads the
+ * flag only when the list is not empty, as `POST /member` does.
+ */
+async function memberStepOffFor(
+  linking: AccountLinking,
+  familyId: string,
+  request: Request,
+): Promise<ReadonlySet<string>> {
+  const excluded = linking.memberStepExcludedWeddings ?? new Set<string>();
+  if (excluded.size === 0) return excluded;
+  const waitUntil = getWaitUntil(request);
+  const on = isAccountLinkingOn(linking, familyId, waitUntil);
+  waitUntil?.(on);
+  return (await on) ? new Set<string>() : excluded;
+}
+
+/** The status and body a refused seat answers with. */
+function seatRefusal(
+  reason: SeatRefusal,
+  set: { status?: number | string },
+): Effect.Effect<{ error: string }> {
+  return Effect.logWarning("guest email refused", { reason }).pipe(
+    Effect.andThen(
+      Effect.sync(() => {
+        metricGuestEmailBlocked(reason);
+        switch (reason) {
+          case "not_a_guest":
+            set.status = 403;
+            return { error: "not_a_guest" };
+          case "member_step_off":
+            // As `POST /member` answers in such a wedding: the step does not exist.
+            set.status = 404;
+            return { error: "Not found" };
+          case "member_required":
+          case "member_changed":
+            set.status = 409;
+            return { error: reason };
+        }
+      }),
+    ),
+  );
+}
+
+/** A refused address: the bounded reason is logged and counted, never the address. */
+function addressRefusal(
+  reason: "invalid" | "consent_outdated",
+  set: { status?: number | string },
+): Effect.Effect<{ error: string }> {
+  return Effect.logWarning("guest email refused", { reason }).pipe(
+    Effect.andThen(
+      Effect.sync(() => {
+        metricGuestEmailBlocked(reason);
+        if (reason === "invalid") {
+          set.status = 400;
+          return { error: "invalid_email" };
+        }
+        set.status = 422;
+        return { error: "email_consent_outdated" };
+      }),
+    ),
+  );
+}
+
+/** A write that did not commit. */
+function writeFailed(
+  message: string,
+  set: { status?: number | string },
+): Effect.Effect<{ error: string }> {
+  return Effect.logError("guest email write failed").pipe(
+    Effect.andThen(
+      Effect.sync(() => {
+        set.status = 500;
+        return { error: message };
+      }),
+    ),
+  );
+}
+
 /** The guest named is not a member of the session's household. */
 class NotHouseholdMember extends Data.TaggedError("NotHouseholdMember") {}
 /** The guest named is a plus-one, whose row another guest typed in. */
@@ -453,10 +550,16 @@ export const createClaimMemberRoutes = (
                   : Effect.succeed(LINKING_OFF),
               ),
             );
-            // The checked write and the link state for the new member need
-            // nothing from each other, so they run together.
-            const [written, accountLink] = yield* Effect.all(
-              [sessionService.chooseMember(token, familyId, guestId, keptOut), linkState],
+            // The checked write, the link state for the new member and their
+            // own address need nothing from each other, so they run together.
+            // The address is read for the household's own guest only and
+            // returned only once the write has accepted the choice.
+            const [written, accountLink, email] = yield* Effect.all(
+              [
+                sessionService.chooseMember(token, familyId, guestId, keptOut),
+                linkState,
+                guestEmailService.memberEmail(familyId, guestId),
+              ],
               { concurrency: "unbounded" },
             );
             if (!written) {
@@ -483,7 +586,7 @@ export const createClaimMemberRoutes = (
               return yield* Effect.fail(new SessionGone());
             }
             yield* Effect.sync(() => metricHouseholdMemberChosen("picked"));
-            return { member: { guestId }, accountLink };
+            return { member: email ? { guestId, email } : { guestId }, accountLink };
           }).pipe(
             Effect.provideService(DbService, db),
             Effect.withSpan("cire.claim.chooseMember"),
@@ -548,4 +651,93 @@ export const createClaimMemberRoutes = (
       }
       set.status = 204;
       return null;
-    });
+    })
+    /**
+     * `PUT` / `DELETE /api/claim/member/email` — the chosen member's own
+     * address. `PUT { memberGuestId, email, consentVersion }` stores it under
+     * the guest's consent; `DELETE { memberGuestId }` removes it and records the
+     * member's opt-out, so the wedding never mails it again until this seat
+     * gives it back. Refused, in this order: a host preview (403), a wedding
+     * without the member step (404), no member chosen or a page showing another
+     * member (409), then for `PUT` an address that is not one (400) and consent
+     * to words the page did not show (422). Never logs the address.
+     */
+    .put(
+      "/member/email",
+      async ({ familyId, memberGuestId, request, set }) => {
+        if (!familyId) {
+          set.status = 401;
+          return { error: "Unauthorized" };
+        }
+        const raw: unknown = await request.json().catch(() => null);
+        const memberStepOff = await memberStepOffFor(accountLinking, familyId, request);
+        return runCire(
+          Effect.gen(function* () {
+            const body = yield* Schema.decodeUnknownEffect(GuestEmailBody)(raw);
+            const seat: SeatRequest = {
+              familyId,
+              sessionMember: memberGuestId,
+              bodyMember: body.memberGuestId,
+              memberStepOff,
+            };
+            // The seat is checked before the address, so a refused seat learns
+            // nothing about the address rule.
+            yield* guestEmailService.checkSeat(seat);
+            const address = parseGuestEmail(body.email);
+            if (address === null) return yield* addressRefusal("invalid", set);
+            if (body.consentVersion !== GUEST_EMAIL_CONSENT.version) {
+              return yield* addressRefusal("consent_outdated", set);
+            }
+            const email = yield* guestEmailService.setOwn(seat, address);
+            return { email };
+          }).pipe(
+            Effect.provideService(DbService, db),
+            Effect.catchTags({
+              SchemaError: () =>
+                Effect.sync(() => {
+                  set.status = 400;
+                  return { error: "Missing or invalid fields" };
+                }),
+              GuestEmailSeatRefused: (e: GuestEmailSeatRefused) => seatRefusal(e.reason, set),
+              GuestEmailWriteError: () => writeFailed("Could not save your email", set),
+            }),
+          ),
+        );
+      },
+      { parse: () => ({}) },
+    )
+    .delete(
+      "/member/email",
+      async ({ familyId, memberGuestId, request, set }) => {
+        if (!familyId) {
+          set.status = 401;
+          return { error: "Unauthorized" };
+        }
+        const raw: unknown = await request.json().catch(() => null);
+        const memberStepOff = await memberStepOffFor(accountLinking, familyId, request);
+        return runCire(
+          Effect.gen(function* () {
+            const body = yield* Schema.decodeUnknownEffect(GuestEmailRemoveBody)(raw);
+            yield* guestEmailService.removeOwn({
+              familyId,
+              sessionMember: memberGuestId,
+              bodyMember: body.memberGuestId,
+              memberStepOff,
+            });
+            return { email: null };
+          }).pipe(
+            Effect.provideService(DbService, db),
+            Effect.catchTags({
+              SchemaError: () =>
+                Effect.sync(() => {
+                  set.status = 400;
+                  return { error: "Missing or invalid fields" };
+                }),
+              GuestEmailSeatRefused: (e: GuestEmailSeatRefused) => seatRefusal(e.reason, set),
+              GuestEmailWriteError: () => writeFailed("Could not remove your email", set),
+            }),
+          ),
+        );
+      },
+      { parse: () => ({}) },
+    );
