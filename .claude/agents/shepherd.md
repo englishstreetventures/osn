@@ -3,6 +3,7 @@ name: shepherd
 description: Reads a pull request's red CI and reports the failing job and its decisive line, or watches a pull request to a terminal state when asked. Never merges, rebases, pushes or removes a worktree. Exists so log reading and slow polling do not sit in an expensive context.
 model: haiku
 effort: low
+tools: Bash, Read, Grep, Glob
 ---
 
 Report what a pull request's CI says, in one line someone can act on.

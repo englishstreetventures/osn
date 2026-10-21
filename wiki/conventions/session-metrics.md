@@ -14,7 +14,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-22
 ---
 
 # Session Metrics
@@ -375,6 +375,8 @@ Two things worth keeping in mind:
 | `interaction.sessions_with_observed_edit` | How many sessions contributed to that figure, so a partial reading reads as partial |
 | `interaction.edit_churn` | `files_edited_3plus`, `max_edits_one_file` |
 | `interaction.skills`, `interaction.subagents`, `interaction.tool_calls` | Histograms |
+| `interaction.requests` | Model calls: `main`, `subagent`, `with_tools`, `with_one_tool`, and the nearest-rank `context_median` and `context_p90` of input plus cache read plus cache write per call. Absent on older cards |
+| `review` | Whether review findings led to a change — see [[#Review findings acted on]]. `null` when no report was read; absent on older cards |
 
 ### On `usd_equivalent`
 
@@ -420,6 +422,69 @@ which you are looking at:
 > In practice the backfill below is the easier path: it rewrites every merged
 > pull request it has transcripts for in one pass, so the `at-merge` set can be
 > brought up to date periodically instead of per-merge.
+
+## Model calls
+
+Cache reads are most of what a session costs, and each call re-reads the
+whole context, so cost is roughly calls times context. `interaction.requests`
+records both. A response split over several records sharing a `requestId` is
+one call; the harness's `<synthetic>` records are none. `with_one_tool`
+against `with_tools` says how often a call ran one tool when it could have run
+several in parallel.
+
+## Review findings acted on
+
+`card` reads the review reports at the checkout root (`TEST-REVIEW.md`,
+`DOCS-REVIEW.md`, `PERFORMANCE-REVIEW.md`, `SECURITY-REVIEW.md`, or the files
+`--review-reports` names) and asks of each finding: did a commit after the
+review change the line it cites?
+
+| Field | Meaning |
+|---|---|
+| `reports` | Reports read |
+| `findings` | `T-` and `D-` findings in them |
+| `located` | Those whose **Issue** line names a `path:line` inside a file that existed when the review ran |
+| `acted_on` | Located findings where a line within 3 of the cited one changed afterwards |
+| `paired` | Located findings with room for a control line 35 lines away in the same file |
+| `acted_on_paired`, `control_changed` | Of the paired, how many cited lines changed, and how many control lines did |
+
+`control_changed / paired` is the rate at which lines change anyway; read
+`acted_on_paired / paired` against it, never alone.
+
+> [!important] Only tests and docs findings are counted.
+> The card is public. `S-`, `P-` and `C-` findings live in the private tracker,
+> and a count of those left unchanged would describe an unpatched defect in
+> public. The card holds counts only — no ID, lens, severity or path.
+
+How the reviewed commit is found: the newest commit on this branch (first
+parent, after the merge base) whose **author** time is no later than the
+report's mtime. Author time survives a rebase; committer time does not. A
+report older than every commit on the branch, or left by another branch, is
+not read.
+
+What the figure cannot say:
+
+- **It is a snapshot.** The reports are gitignored scratch and go with the
+  worktree, so the first run that reads them is the record. A later run keeps
+  it unless it passes `--review-reports`, and `backfill` copies it.
+- **It measures what changed, not how good a finding was.** `prep-pr` fixes
+  every in-scope finding, so a weak finding is changed as surely as a strong
+  one. A finding moved to a follow-up pull request reads as not acted on.
+- **Most findings are unlocated.** `review-tests` names a file and an export,
+  not a line, so `located` is mostly docs findings.
+
+## Comparing before and after a change
+
+```bash
+bun run --cwd tools/pr-metrics report -- --split-at <commit>
+```
+
+Splits the cards by whether all their sessions ran before the commit landed
+(its committer time) or all after, and compares cost per declared point
+(confirmed ratings only), model calls, cache-write share and the review rates.
+A card with sessions on both sides is excluded and counted. By time, not
+ancestry: most cards carry a `base_sha` no local clone still holds. Change one
+thing at a time, so the split names one change.
 
 ## Backfilling
 
@@ -558,11 +623,11 @@ The committed files *are* the datalake. DuckDB reads them where they sit, so
 there is no service to run and no free-tier cap to watch:
 
 **`bun run --cwd tools/pr-metrics report` is the normal way in.** It computes
-the seven analyses over the same cards, in TypeScript, and needs nothing
+the nine analyses over the same cards, in TypeScript, and needs nothing
 installed:
 
 ```bash
-bun run --cwd tools/pr-metrics report               # all seven
+bun run --cwd tools/pr-metrics report               # all nine
 bun run --cwd tools/pr-metrics report -- --waste    # just one
 bun run --cwd tools/pr-metrics report -- --json     # structured, for an agent
 ```
@@ -572,15 +637,15 @@ not decoration — it holds the exclusions, and a consumer that reads only rows
 will state a ranking's conclusion without its "18 cards excluded" qualifier.
 
 The **`analyse-sessions` skill** is the way in for an agent: it runs the report,
-reads coverage before anything else, and carries the four traps that have
-already produced two wrong findings from this data.
+reads coverage before anything else, and carries six traps, among them the
+two behind wrong findings already drawn from this data.
 
 That matters because **DuckDB does not exist in a remote session.** None of the
 `duckdb` npm packages ship a binary — they are all libraries — so `bunx` is no
 help and there is no `brew` in a cloud container. A report that only runs on one
 laptop cannot tell you how the fleet is doing.
 
-`queries.sql` is the same seven in SQL, and it is the better tool for a question
+`queries.sql` is the same nine in SQL, and it is the better tool for a question
 nobody anticipated. It is the optional local power tool, not the interface:
 
 ```bash
@@ -590,11 +655,11 @@ duckdb -init tools/pr-metrics/queries.sql     # local only; brew install duckdb
 The two carry the same ratio definitions, duplicated on purpose. Change one,
 change the other.
 
-It defines `cards` (everything), `merged` (`at-merge` only) and `metrics` (the
+It defines `cards` (everything), `merged` (merged pull requests, by merge status) and `metrics` (the
 shared ratios), then answers: where agents cost too much for the job; which
 packages need a skill or a wiki page; whether briefs are getting clearer;
 whether the context surface is bloating; cost per unit of declared difficulty;
-whether delegation is paying off; and — run this one first — how much of the
+whether delegation is paying off; model calls and their context; review findings acted on; and — run this one first — how much of the
 history can be trusted at all.
 
 Every per-pull-request distribution is summarised with a **median, never a

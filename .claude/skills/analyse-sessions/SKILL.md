@@ -53,7 +53,7 @@ though they were the whole picture is how a partial view becomes a wrong one.
 ## Step 1 — Run what you need, not everything
 
 ```bash
-bun run --cwd tools/pr-metrics report                  # all seven analyses
+bun run --cwd tools/pr-metrics report                  # all nine analyses
 bun run --cwd tools/pr-metrics report -- --waste       # one of them
 bun run --cwd tools/pr-metrics report -- --json        # structured, for an agent
 ```
@@ -63,11 +63,11 @@ decoration** — it holds the exclusions. A consumer that reads only rows will
 state a ranking's conclusion without its "18 cards excluded" qualifier, which
 is precisely the `cire/host` failure repeated by a different route.
 
-For a question the seven do not cover, `tools/pr-metrics/queries.sql` is the
+For a question the nine do not cover, `tools/pr-metrics/queries.sql` is the
 same data in SQL — but DuckDB is local-only, so never assume it in a remote
 session.
 
-## The four traps
+## The six traps
 
 **1. Never call spend "waste" without the declared complexity.** These two look
 identical in every column except one:
@@ -103,6 +103,19 @@ perfectly (1–2 sessions ≈ $3 per pull request, 5–7 ≈ $32). Harder work a
 takes more sessions, so the number alone does not say restarts are wasteful.
 Look for the discriminator — here, how many hit a compaction: if few did, most
 restarts were not forced by context exhaustion, and *that* is the finding.
+
+**5. A before-and-after split is not an experiment.** `report -- --split-at
+<commit>` compares cards whose sessions all ran before a commit landed with
+those all after. Everything else that changed in that window changed too: the
+mix of work, the models, the person briefing. Name the other commits to
+`.claude/agents` and `.claude/skills` in the window, and say the result is
+suggestive unless the change was the only one.
+
+**6. The review acted-on rate measures what changed, not finding quality.**
+`prep-pr` fixes every in-scope finding, so a weak finding is changed as surely
+as a strong one. Read `acted_on_paired` against `control_changed`, never
+alone; only tests and docs findings are counted, and `review` is `null` on
+every card written before the field existed.
 
 ## Step 2 — Report
 

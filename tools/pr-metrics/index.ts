@@ -664,6 +664,79 @@ export interface InteractionSummary {
   edit_churn: { files_edited_3plus: number; max_edits_one_file: number };
   skills: Record<string, number>;
   subagents: Record<string, number>;
+  /** Absent on cards written before the field existed. */
+  requests?: RequestSummary;
+}
+
+/**
+ * Model calls, and the context each one carried.
+ *
+ * Cache reads are most of what a session costs, and each call re-reads the
+ * whole context, so cost grows with calls times context. `with_one_tool`
+ * against `with_tools` says how often a call did one thing when it could have
+ * done several in parallel — the cheapest lever on the call count.
+ */
+export interface RequestSummary {
+  main: number;
+  subagent: number;
+  with_tools: number;
+  with_one_tool: number;
+  /** Input plus cache read plus cache write, per call. Nearest-rank. */
+  context_median: number;
+  context_p90: number;
+}
+
+/** Nearest-rank percentile of an unsorted list; 0 for an empty one. */
+function nearestRank(values: number[], p: number): number {
+  if (values.length === 0) return 0;
+
+  const sorted = values.toSorted((a, b) => a - b);
+
+  return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)];
+}
+
+/**
+ * One entry per model response. A response is split over several records that
+ * share a `requestId`, each carrying the same usage and some of the tool
+ * calls, so records are grouped before anything is counted. `<synthetic>`
+ * records are the harness's own, not a call, and would pull the median context
+ * toward zero.
+ */
+export function aggregateRequests(records: SessionRecord[]): RequestSummary {
+  const calls = new Map<string, { sidechain: boolean; tools: number; context: number }>();
+  let unkeyed = 0;
+
+  for (const record of records) {
+    if (record.type !== "assistant" || record.message?.model === "<synthetic>") continue;
+
+    const key = typeof record.requestId === "string" ? record.requestId : `\u0000${unkeyed++}`;
+    const tools = toolUses(record).length;
+    const call = calls.get(key);
+
+    if (call) {
+      call.tools += tools;
+      continue;
+    }
+
+    const usage = readUsage(record.message?.usage);
+    calls.set(key, {
+      sidechain: record.isSidechain === true,
+      tools,
+      context: usage.input + usage.cache_read + usage.cache_write_5m + usage.cache_write_1h,
+    });
+  }
+
+  const all = [...calls.values()];
+  const contexts = all.map((call) => call.context);
+
+  return {
+    main: all.filter((call) => !call.sidechain).length,
+    subagent: all.filter((call) => call.sidechain).length,
+    with_tools: all.filter((call) => call.tools > 0).length,
+    with_one_tool: all.filter((call) => call.tools === 1).length,
+    context_median: nearestRank(contexts, 0.5),
+    context_p90: nearestRank(contexts, 0.9),
+  };
 }
 
 /**
@@ -808,6 +881,7 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
     },
     skills,
     subagents,
+    requests: aggregateRequests(records),
   };
 }
 
@@ -966,6 +1040,124 @@ interface IssueReference {
   repository: { name: string; owner: { login: string } };
 }
 
+/**
+ * Whether the review findings on a branch led to a change, counted the way an
+ * author's next push is read: did the flagged line change after the review?
+ *
+ * Counts only, and only for `T-` and `D-` findings. The card is committed to a
+ * public repository, and `S-`, `P-` and `C-` findings live in the private
+ * tracker — a count of those left unchanged would describe an unpatched defect
+ * in public. No ID, lens, severity or path is recorded for any finding.
+ *
+ * The control is a line 30 to 40 lines away in the same file, tested the same
+ * way: the rate at which lines change anyway. `acted_on_paired` against
+ * `control_changed` compares the same findings; `acted_on` includes findings
+ * with no room for a control.
+ */
+export interface ReviewSummary {
+  reports: number;
+  findings: number;
+  located: number;
+  acted_on: number;
+  paired: number;
+  acted_on_paired: number;
+  control_changed: number;
+}
+
+/** The review report files `prep-pr` and the review skills leave at the root. */
+export const DEFAULT_REVIEW_REPORTS = [
+  "TEST-REVIEW.md",
+  "DOCS-REVIEW.md",
+  "PERFORMANCE-REVIEW.md",
+  "SECURITY-REVIEW.md",
+];
+
+/** Finding kinds that may be counted on a public card. */
+const PUBLIC_FINDING_KINDS = new Set(["T", "D"]);
+
+const FINDING_LABEL = /^\*\*([A-Z])-[A-Z]\d+\*\*/;
+const LOCATION = /([A-Za-z0-9_@./-]+\.[A-Za-z0-9]+):(\d+)/g;
+
+/** A fix often edits a neighbouring line rather than the one cited; the
+ * control uses the same window, so the choice cancels out of the comparison. */
+export const FINDING_WINDOW = 3;
+const CONTROL_OFFSET = 35;
+
+/**
+ * Each counted finding's `**Issue:**` line, or `null` where it has none.
+ *
+ * A finding runs from its bold label to the next label or the next `## `
+ * heading. The sections after the findings (`## Coverage`, `## Files audited`)
+ * cite `path:line` freely and are no finding's location.
+ */
+export function parseFindings(text: string): (string | null)[] {
+  const issues: (string | null)[] = [];
+  let open = false;
+
+  for (const line of text.split("\n")) {
+    const label = FINDING_LABEL.exec(line);
+    if (label) {
+      open = PUBLIC_FINDING_KINDS.has(label[1]);
+      if (open) issues.push(null);
+      continue;
+    }
+
+    if (line.startsWith("## ")) {
+      open = false;
+      continue;
+    }
+
+    if (open && issues[issues.length - 1] === null && line.startsWith("**Issue:**")) {
+      issues[issues.length - 1] = line;
+    }
+  }
+
+  return issues;
+}
+
+/** Every `path:line` an Issue line names, in order, with a leading repository
+ * root stripped so an absolute path matches the tree. */
+export function locationsIn(issue: string, root: string): { path: string; line: number }[] {
+  const prefix = `${root.replace(/\/+$/, "")}/`;
+
+  return [...issue.matchAll(LOCATION)].map((match) => {
+    let path = match[1];
+    if (path.startsWith(prefix)) path = path.slice(prefix.length);
+    else if (path.startsWith("./")) path = path.slice(2);
+
+    return { path, line: Number.parseInt(match[2], 10) };
+  });
+}
+
+/** Old-side line ranges from `git diff -U0`. A count git omits is 1; a count
+ * of 0 is an insertion after line `a`, which touches `a`. */
+export function changedRanges(diff: string): [number, number][] {
+  const ranges: [number, number][] = [];
+
+  for (const match of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? /gm)) {
+    const start = Number.parseInt(match[1], 10);
+    const count = match[2] === undefined ? 1 : Number.parseInt(match[2], 10);
+    ranges.push(count === 0 ? [start, start] : [start, start + count - 1]);
+  }
+
+  return ranges;
+}
+
+export function windowTouched(ranges: [number, number][], line: number): boolean {
+  const low = line - FINDING_WINDOW;
+  const high = line + FINDING_WINDOW;
+
+  return ranges.some(([start, end]) => start <= high && end >= low);
+}
+
+/** The control line for a finding, or `null` where the file has no room. */
+export function controlLine(line: number, length: number): number | null {
+  if (line + CONTROL_OFFSET + FINDING_WINDOW <= length) return line + CONTROL_OFFSET;
+  if (line - CONTROL_OFFSET - FINDING_WINDOW >= 1) return line - CONTROL_OFFSET;
+
+  return null;
+}
+
 export interface Card {
   schema_version: number;
   pr: {
@@ -983,6 +1175,8 @@ export interface Card {
   spend: SpendSummary;
   diff: DiffSummary;
   interaction: InteractionSummary;
+  /** `null` when no review report was read; absent on older cards. */
+  review?: ReviewSummary | null;
 }
 
 export interface CardContext {
@@ -998,6 +1192,7 @@ export interface CardContext {
   mergedAt: string | null;
   phase: "at-open" | "at-merge";
   generatedAt: string;
+  review?: ReviewSummary | null;
 }
 
 export function buildCard(records: SessionRecord[], diff: DiffSummary, context: CardContext): Card {
@@ -1025,6 +1220,7 @@ export function buildCard(records: SessionRecord[], diff: DiffSummary, context: 
     spend: aggregateSpend(records),
     diff,
     interaction: aggregateInteraction(records),
+    review: context.review ?? null,
   };
 }
 
@@ -1128,6 +1324,22 @@ export function renderDetails(card: Card, file = `${branchSlug(card.pr.branch)}.
             )} (${share(spend.by_actor.subagent.usd_equivalent, spend.usd_equivalent)} of spend)`,
     ],
   ];
+
+  if (interaction.requests !== undefined) {
+    const calls = interaction.requests;
+    rows.push([
+      "Model calls",
+      `${calls.main + calls.subagent} · ${share(calls.with_one_tool, calls.with_tools)} of those using tools used one · median context ${compactTokens(calls.context_median)}`,
+    ]);
+  }
+
+  if (card.review) {
+    const { paired, acted_on_paired, control_changed } = card.review;
+    rows.push([
+      "Review (tests and docs lenses)",
+      `${acted_on_paired} of ${paired} paired findings changed · control ${control_changed} of ${paired}`,
+    ]);
+  }
 
   const summary =
     `Session metrics — $${spend.usd_equivalent.toFixed(2)} · ${compactTokens(total)} tok · ` +
@@ -1989,6 +2201,146 @@ function git(args: string[]): string {
   return out;
 }
 
+/**
+ * A git call's exit code and stdout, run at the repository root.
+ *
+ * Separate from `git()` because the questions here are answered by the exit
+ * code — `cat-file -e` prints nothing either way — and `git()` maps every
+ * failure to "" and memoises it. `-C <root>` because `retro` runs this script
+ * from `tools/pr-metrics`, where a pathspec would resolve inside the package.
+ */
+interface GitAnswer {
+  ok: boolean;
+  out: string;
+}
+
+function gitStatus(root: string, args: string[]): GitAnswer {
+  const result = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+
+  return { ok: result.success, out: result.success ? result.stdout.toString() : "" };
+}
+
+/**
+ * Read the review reports and count, for each counted finding, whether its line
+ * changed after the review ran. `null` when no report could be placed.
+ *
+ * The baseline — the commit the review read — is the newest commit on this
+ * branch whose **author** time is no later than the report's mtime. Author
+ * time, because a rebase between the review and this run resets every
+ * committer time. On this branch only (first parent, after the merge base),
+ * because a report left by another branch, or older than this branch's first
+ * commit, describes code this branch never had; such a report is not read.
+ */
+export function summariseReviews(
+  root: string,
+  base: string,
+  files: string[],
+): ReviewSummary | null {
+  const fs = require("node:fs") as typeof import("node:fs");
+
+  const forkPoint = gitStatus(root, ["merge-base", base, "HEAD"]);
+  if (!forkPoint.ok) return null;
+
+  const commits = gitStatus(root, [
+    "log",
+    "--first-parent",
+    "--format=%H %at",
+    `${forkPoint.out.trim()}..HEAD`,
+  ])
+    .out.split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [sha, at] = line.split(" ");
+
+      return { sha, at: Number.parseInt(at, 10) };
+    });
+
+  const lengths = new Map<string, number | null>();
+  const fileLength = (sha: string, path: string): number | null => {
+    const key = `${sha}:${path}`;
+    if (!lengths.has(key)) {
+      const shown = gitStatus(root, ["show", `${sha}:${path}`]);
+      lengths.set(
+        key,
+        shown.ok ? shown.out.split("\n").length - (shown.out.endsWith("\n") ? 1 : 0) : null,
+      );
+    }
+
+    return lengths.get(key) ?? null;
+  };
+
+  const diffs = new Map<string, [number, number][]>();
+  const rangesFor = (sha: string, path: string): [number, number][] => {
+    const key = `${sha}:${path}`;
+    if (!diffs.has(key)) {
+      const diff = gitStatus(root, [
+        "diff",
+        "-U0",
+        "--no-renames",
+        sha,
+        "HEAD",
+        "--",
+        `:(top)${path}`,
+      ]);
+      diffs.set(key, changedRanges(diff.out));
+    }
+
+    return diffs.get(key) ?? [];
+  };
+
+  const summary: ReviewSummary = {
+    reports: 0,
+    findings: 0,
+    located: 0,
+    acted_on: 0,
+    paired: 0,
+    acted_on_paired: 0,
+    control_changed: 0,
+  };
+
+  for (const file of files) {
+    let text: string;
+    let written: number;
+    try {
+      text = fs.readFileSync(file, "utf8");
+      written = Math.floor(fs.statSync(file).mtimeMs / 1000);
+    } catch {
+      continue;
+    }
+
+    const baseline = commits.find((commit) => commit.at <= written);
+    if (baseline === undefined) continue;
+
+    summary.reports += 1;
+
+    for (const issue of parseFindings(text)) {
+      summary.findings += 1;
+      if (issue === null) continue;
+
+      const location = locationsIn(issue, root).find(({ path, line }) => {
+        const length = fileLength(baseline.sha, path);
+
+        return length !== null && line >= 1 && line <= length;
+      });
+      if (location === undefined) continue;
+
+      summary.located += 1;
+      const ranges = rangesFor(baseline.sha, location.path);
+      const acted = windowTouched(ranges, location.line);
+      if (acted) summary.acted_on += 1;
+
+      const control = controlLine(location.line, fileLength(baseline.sha, location.path) ?? 0);
+      if (control === null) continue;
+
+      summary.paired += 1;
+      if (acted) summary.acted_on_paired += 1;
+      if (windowTouched(ranges, control)) summary.control_changed += 1;
+    }
+  }
+
+  return summary.reports > 0 ? summary : null;
+}
+
 /** One `gh` invocation's stdout, or `null` where `gh` is missing, unauthenticated
  * or simply had nothing to say. Never throws: every caller here is a best-effort
  * lookup on a path that must still produce a card without it. */
@@ -2307,6 +2659,18 @@ if (import.meta.main) {
   const commits = git(["rev-list", "--count", `${base}..HEAD`]);
   const diff = parseNumstat(numstat, Number.parseInt(commits, 10) || 0);
 
+  // The reports are gitignored scratch, gone once the worktree is, so the
+  // first run that reads them is the record: a later refresh finds none, or a
+  // report rewritten since, and must not replace that record. Only a run that
+  // names its reports explicitly does.
+  const namedReports = flag("review-reports");
+  const root = repoRoot();
+  const reportFiles = (namedReports?.split(",").filter(Boolean) ?? DEFAULT_REVIEW_REPORTS).map(
+    (file) => (file.startsWith("/") ? file : `${root}/${file}`),
+  );
+  const freshReview = summariseReviews(root, base, reportFiles);
+  const review = namedReports !== null ? freshReview : (existing?.review ?? freshReview);
+
   const card = buildCard(records, diff, {
     branch,
     prNumber,
@@ -2325,6 +2689,7 @@ if (import.meta.main) {
     mergedAt: selfMergedAt,
     phase: flag("phase") === "at-merge" ? "at-merge" : "at-open",
     generatedAt: new Date().toISOString(),
+    review,
   });
 
   // `--format markdown` prints the `<details>` block on stdout and writes

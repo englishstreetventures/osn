@@ -14,6 +14,7 @@ bun run --cwd tools/pr-metrics backfill -- --dry-run         # merged PRs, retro
 bun run --cwd tools/pr-metrics report                        # read the cards back
 bun run --cwd tools/pr-metrics report -- --waste             # just one analysis
 bun run --cwd tools/pr-metrics report -- --json              # structured, for an agent
+bun run --cwd tools/pr-metrics report -- --split-at <commit>  # cards before and after a change
 ```
 
 `report` needs nothing installed and runs in every environment, including a
@@ -30,6 +31,7 @@ questions.
 | `--pr`, `--issue`, `--issue-type`, `--issue-labels` | Unset                          |
 | `--complexity`, `--complexity-method`               | Unset                          |
 | `--phase`                                           | `at-open`                      |
+| `--review-reports`                                  | The four `*-REVIEW.md` at root |
 | `--if-absent`                                       | Off — see below                |
 
 ## Who writes a card
@@ -99,19 +101,19 @@ right-skewed — median 3.6M tokens against a mean of 15.4M and a maximum of
 
 ## Layout
 
-| Path                           | What                                                                                          |
-| ------------------------------ | --------------------------------------------------------------------------------------------- |
-| `index.ts`                     | Pure aggregation functions, the `<details>` renderer, and the CLI under `import.meta.main`    |
-| `format.ts`                    | `compactTokens` and `humanDuration`. Imports nothing, so a browser can reach it — `index.ts` cannot be imported from one, because its `node:fs` throws under Vite |
-| `report.ts`                    | The `report` subcommand's analyses. Reaches no Node builtin at module scope, so a browser can import it: `node:fs` and the one value it needs from `index.ts` are both `require`d lazily, inside the functions that use them |
-| `backfill.ts`                  | Cards for pull requests that merged before cards existed                                      |
-| `queries.sql`                  | The seven DuckDB queries worth having                                                         |
-| `tests/render.test.ts`         | The `<details>` block — including that it contributes no `##` heading                         |
-| `tests/pr-metrics.test.ts`     | The pure functions, against synthetic records                                                 |
-| `tests/pr-metrics.cli.test.ts` | The real script as a subprocess, against a throwaway git repo and a fake `~/.claude/projects` |
-| `tests/dispatch-branch.test.ts` | `TASK-BRANCH:` marker resolution, the readers that consult it, and the dedupe |
-| `tests/backfill.test.ts`       | `backfill.ts` as a subprocess, against a stubbed `gh` on `PATH` |
-| `tests/report.test.ts`         | The `report` subcommand's analyses |
+| Path                            | What                                                                                                                                                                                                                         |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`                      | Pure aggregation functions, the `<details>` renderer, and the CLI under `import.meta.main`                                                                                                                                   |
+| `format.ts`                     | `compactTokens` and `humanDuration`. Imports nothing, so a browser can reach it — `index.ts` cannot be imported from one, because its `node:fs` throws under Vite                                                            |
+| `report.ts`                     | The `report` subcommand's analyses. Reaches no Node builtin at module scope, so a browser can import it: `node:fs` and the one value it needs from `index.ts` are both `require`d lazily, inside the functions that use them |
+| `backfill.ts`                   | Cards for pull requests that merged before cards existed                                                                                                                                                                     |
+| `queries.sql`                   | The nine DuckDB queries worth having                                                                                                                                                                                         |
+| `tests/render.test.ts`          | The `<details>` block — including that it contributes no `##` heading                                                                                                                                                        |
+| `tests/pr-metrics.test.ts`      | The pure functions, against synthetic records                                                                                                                                                                                |
+| `tests/pr-metrics.cli.test.ts`  | The real script as a subprocess, against a throwaway git repo and a fake `~/.claude/projects`                                                                                                                                |
+| `tests/dispatch-branch.test.ts` | `TASK-BRANCH:` marker resolution, the readers that consult it, and the dedupe                                                                                                                                                |
+| `tests/backfill.test.ts`        | `backfill.ts` as a subprocess, against a stubbed `gh` on `PATH`                                                                                                                                                              |
+| `tests/report.test.ts`          | The `report` subcommand's analyses                                                                                                                                                                                           |
 
 The CLI test earns its keep: subagent spend lives in a
 `<session-id>/subagents/*.jsonl` sibling of the main transcript, and a collector
