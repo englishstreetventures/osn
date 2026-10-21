@@ -31,9 +31,9 @@ import { createRsvpChangesResource } from "../lib/rsvp-changes";
 import { useTasksChanged } from "../lib/tasks-changed";
 import {
   ensureTasksLoaded,
-  invalidateTasks,
   peekCachedTasks,
   readTaskList,
+  rereadTasks,
   type TaskList,
   taskCounts,
 } from "../lib/tasks-store";
@@ -196,15 +196,15 @@ export default function Overview(props: {
   };
 
   // The open wedding's socket says the tasks changed: the checklist card reads
-  // them again. Never while the module is locked, where the read would be
+  // them again, one read for however many signals land while a read is out
+  // (`rereadTasks`). Never while the module is locked, where the read would be
   // refused and nothing shows it.
   createEffect(
     on(
       useTasksChanged(),
       () => {
         if (checklistLocked()) return;
-        invalidateTasks(props.weddingId);
-        ensureTasksLoaded(props.weddingId, loadTasks).catch((err: unknown) => {
+        rereadTasks(props.weddingId, loadTasks).catch((err: unknown) => {
           if (isAuthExpired(err)) redirectToLogin();
         });
       },

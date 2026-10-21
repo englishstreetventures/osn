@@ -38,7 +38,7 @@ import { MembersChangedContext } from "../lib/members-changed";
 import { CIRE_API_URL } from "../lib/osn";
 import { reportRealtimeFallback, weddingTopicUrl } from "../lib/realtime";
 import { TasksChangedContext } from "../lib/tasks-changed";
-import { invalidateTasks } from "../lib/tasks-store";
+import { markTasksStale } from "../lib/tasks-store";
 import { initTheme } from "../lib/theme";
 import { TIER_LABEL, tierOf } from "../lib/tiers";
 import type { PaidTier } from "../lib/tiers";
@@ -579,9 +579,10 @@ function Dashboard() {
   // scope moved, the wedding deleted — re-reads the wedding list, so a role
   // that lost the dashboard drops its rows and one that gained it opens it.
   // It also marks the seat cache stale and tells the views that show seats
-  // (`MembersChangedContext`). `tasks-changed` marks the task cache stale and
-  // tells the views that show tasks (`TasksChangedContext`); it leaves the
-  // wedding list alone, since no task changes who may open the wedding.
+  // (`MembersChangedContext`). `tasks-changed` marks the task cache stale,
+  // leaving a read in flight to land so signals coalesce, and tells the views
+  // that show tasks (`TasksChangedContext`); it leaves the wedding list alone,
+  // since no task changes who may open the wedding.
   //
   // A message, a reconnect and a stop each pass the time they arrived, so one
   // that lands after a re-read started sends a fresh one. A dropped socket
@@ -597,7 +598,7 @@ function Dashboard() {
     setMembersChanged((count) => count + 1);
   };
   const checklistChanged = (wedding: WeddingSummary | null) => {
-    if (wedding && surfacesFor(wedding.role).canOpenDashboard) invalidateTasks(wedding.id);
+    if (wedding && surfacesFor(wedding.role).canOpenDashboard) markTasksStale(wedding.id);
     setTasksChanged((count) => count + 1);
   };
   const onWeddingSignal = (event: SignalEvent) => {

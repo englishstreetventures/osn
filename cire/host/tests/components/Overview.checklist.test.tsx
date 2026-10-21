@@ -190,6 +190,51 @@ describe("Overview checklist widget — the open wedding's signals", () => {
     }
   });
 
+  it("sends one more read, not one per signal, for a burst that lands while a read is out", async () => {
+    const answer = authFetch.getMockImplementation()!;
+    let reads = 0;
+    let answerHeld!: (res: Response) => void;
+    const tasks = (done: number, more: TaskRow[] = []) =>
+      json({
+        tasks: [
+          row({ id: "a", status: done > 1 ? "done" : "open" }),
+          row({ id: "b", status: "done" }),
+          row({ id: "c", status: "open" }),
+          ...more,
+        ],
+      });
+    authFetch.mockImplementation(async (url: string) => {
+      if (!url.endsWith("/tasks")) return answer(url);
+      reads += 1;
+      if (reads === 2) {
+        return new Promise<Response>((resolve) => {
+          answerHeld = resolve;
+        });
+      }
+      return reads === 1 ? tasks(1) : tasks(2, [row({ id: "d", status: "open" })]);
+    });
+    try {
+      const tasksChanged = renderWithSignal("crimson");
+      expect(await screen.findByText(/1 of 3 done/i)).toBeInTheDocument();
+
+      tasksChanged();
+      await waitFor(() => expect(tasksCalls()).toHaveLength(2));
+      tasksChanged();
+      tasksChanged();
+      tasksChanged();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(tasksCalls()).toHaveLength(2);
+
+      answerHeld(tasks(2));
+
+      expect(await screen.findByText(/2 of 4 done/i)).toBeInTheDocument();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(tasksCalls()).toHaveLength(3);
+    } finally {
+      authFetch.mockImplementation(answer);
+    }
+  });
+
   it("sends an expired session to sign in when the re-read finds it", async () => {
     const answer = authFetch.getMockImplementation()!;
     let reads = 0;

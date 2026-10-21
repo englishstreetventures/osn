@@ -37,6 +37,7 @@ import {
   peekCachedTasks,
   readTaskList,
   readTaskRow,
+  rereadTasks,
   setCachedTasks,
   type TaskList,
   type TaskRow,
@@ -200,23 +201,34 @@ export default function ChecklistView(props: ChecklistViewProps) {
     });
   };
 
-  // Refetch from the server and repopulate the cache (used after a write
-  // fails, and when the wedding's socket says the tasks changed).
-  const reload = async () => {
-    invalidateTasks(props.weddingId);
+  /** Wait for a refetch and say so if it failed. */
+  const refreshed = async (read: Promise<boolean>) => {
     try {
-      await ensureTasksLoaded(props.weddingId, load);
+      await read;
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setError("Couldn't refresh your checklist.");
     }
   };
 
+  // Refetch from the server and repopulate the cache after a write fails: the
+  // read in flight predates the failure, so it is thrown away.
+  const reload = () => {
+    invalidateTasks(props.weddingId);
+    return refreshed(ensureTasksLoaded(props.weddingId, load));
+  };
+
   // The open wedding's socket: someone changed the tasks, or the socket came
-  // back and may have missed it. A re-read that lands while one of this view's
-  // own writes is out is dropped (`beginTaskWrite`), and the write's own signal
-  // asks again, so a re-read never undoes what the organiser just did.
-  createEffect(on(useTasksChanged(), () => void reload(), { defer: true }));
+  // back and may have missed it. The re-read waits while a read is in flight
+  // or one of this view's own writes is out, and goes once both are over
+  // (`rereadTasks`), so a burst of signals costs two reads, a re-read never
+  // undoes what the organiser just did, and the one after their write always
+  // goes, whichever reached the tab first, the write's answer or its signal.
+  createEffect(
+    on(useTasksChanged(), () => void refreshed(rereadTasks(props.weddingId, load)), {
+      defer: true,
+    }),
+  );
   // Someone's seat changed. The holder stacks name seats, so a view that has
   // read them reads them again; one that never needed them asks for nothing.
   createEffect(

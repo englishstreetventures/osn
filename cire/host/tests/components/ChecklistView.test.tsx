@@ -241,17 +241,27 @@ describe("ChecklistView — the open wedding's signals", () => {
     expect(calls("/tasks")).toHaveLength(1);
   });
 
-  it("never lets a re-read undo the organiser's own tick", async () => {
+  // The tick's own signal can reach the tab before the tick's answer. The read
+  // it asks for waits for the answer, so it can neither undo the tick nor be
+  // lost: it goes once the tick is over, and shows what a co-host did meanwhile.
+  it("reads once the organiser's own tick has answered, never over it, when its signal lands first", async () => {
     setCachedTasks("wed_1", [row({ id: "a", status: "open" })]);
     let answerTick!: (res: Response) => void;
+    let committed = false;
     authFetch.mockImplementation(async (_url: string, init?: RequestInit) => {
       if (init?.method === "PATCH") {
         return new Promise<Response>((resolve) => {
           answerTick = resolve;
         });
       }
-      // Read before the tick committed: the task is still open.
-      return json({ tasks: [row({ id: "a", status: "open" })] });
+      return committed
+        ? json({
+            tasks: [
+              row({ id: "a", status: "done", completedAt: 2 }),
+              row({ id: "b", title: "Order flowers", sortOrder: 1 }),
+            ],
+          })
+        : json({ tasks: [row({ id: "a", status: "open" })] });
     });
     const signals = renderWithSignals();
     // Asked afresh each time: a row may be rebuilt when its task changes.
@@ -262,13 +272,59 @@ describe("ChecklistView — the open wedding's signals", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /book venue/i }));
     await waitFor(() => expect(ticked()).toBe(true));
     signals.tasksChanged();
-    await waitFor(() => expect(calls("/tasks")).toHaveLength(1));
     await new Promise((resolve) => setTimeout(resolve, 10));
+    // Nothing is read while the tick is out.
+    expect(calls("/tasks")).toHaveLength(0);
     expect(ticked()).toBe(true);
 
+    committed = true;
     answerTick(json({ task: row({ id: "a", status: "done", completedAt: 2 }) }));
-    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(await screen.findByText("Order flowers")).toBeInTheDocument();
+    expect(calls("/tasks")).toHaveLength(1);
     expect(ticked()).toBe(true);
+  });
+
+  it("sends one more read, not one per signal, for a burst that lands while a read is out", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    let answerFirst!: (res: Response) => void;
+    let reads = 0;
+    authFetch.mockImplementation(async () => {
+      reads += 1;
+      if (reads === 1) {
+        return new Promise<Response>((resolve) => {
+          answerFirst = resolve;
+        });
+      }
+      return json({ tasks: [row({ id: "a", title: "Book the hall" })] });
+    });
+    const signals = renderWithSignals();
+    await screen.findByText("Book venue");
+
+    signals.tasksChanged();
+    await waitFor(() => expect(calls("/tasks")).toHaveLength(1));
+    signals.tasksChanged();
+    signals.tasksChanged();
+    signals.tasksChanged();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(calls("/tasks")).toHaveLength(1);
+
+    answerFirst(json({ tasks: [row({ id: "a", title: "Book a band" })] }));
+
+    expect(await screen.findByText("Book the hall")).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(calls("/tasks")).toHaveLength(2);
+  });
+
+  it("says the checklist could not refresh when a signal's re-read is refused", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    authFetch.mockImplementation(async () => new Response(null, { status: 500 }));
+    const signals = renderWithSignals();
+    await screen.findByText("Book venue");
+
+    signals.tasksChanged();
+
+    expect(await screen.findByText("Couldn't refresh your checklist.")).toBeInTheDocument();
   });
 
   /** The organiser's own writes, each on the cached list of two 12-month tasks. */
