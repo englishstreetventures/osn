@@ -3,25 +3,25 @@ import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// Data proof for migration 0086, which adds `registry_contributions.item_title`
+// Data proof for migration 0088, which adds `registry_contributions.item_title`
 // and copies the current title of the listing each gift names onto it. A gift
 // to no listing, and one whose listing is already gone, stay NULL, and nothing
 // else about any gift changes.
 //
-// 0086 is a live migration, so the chain before it is the live directory: the
+// 0088 is a live migration, so the chain before it is the live directory: the
 // baseline and everything after it, in name order, as wrangler runs them.
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
-const MIG_0086 = "0086_contribution_item_title.sql";
+const MIG_0088 = "0088_contribution_item_title.sql";
 
 function apply(db: Database, file: string): void {
   db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
 }
 
-function databaseBefore0086(): Database {
+function databaseBefore0088(): Database {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   for (const file of readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith(".sql") && f < MIG_0086)
+    .filter((f) => f.endsWith(".sql") && f < MIG_0088)
     .toSorted()) {
     apply(db, file);
   }
@@ -29,7 +29,7 @@ function databaseBefore0086(): Database {
 }
 
 function seeded(): Database {
-  const db = databaseBefore0086();
+  const db = databaseBefore0088();
   db.exec(`
     INSERT INTO weddings (id, slug, display_name, created_at, updated_at) VALUES
       ('wed_a', 'a', 'A', 1, 1), ('wed_b', 'b', 'B', 1, 1);
@@ -39,7 +39,7 @@ function seeded(): Database {
     INSERT INTO registry_items (id, wedding_id, kind, title, created_at, updated_at) VALUES
       ('it_fund', 'wed_a', 'cash_fund', 'Honeymoon', 1, 1),
       ('it_pan', 'wed_a', 'product', 'Copper pan', 1, 1),
-      ('it_gone', 'wed_a', 'cash_fund', 'Deleted before 0086', 1, 1),
+      ('it_gone', 'wed_a', 'cash_fund', 'Deleted before 0088', 1, 1),
       ('it_b', 'wed_b', 'cash_fund', 'House deposit', 1, 1);
     INSERT INTO registry_contributions
       (id, wedding_id, item_id, family_id, status, amount_minor, currency, message, created_at, updated_at)
@@ -74,10 +74,10 @@ function gifts(db: Database, withTitle = true): Map<string, Row> {
   return new Map(rows.map((row) => [row.id, row]));
 }
 
-describe("migration 0086 — a money gift keeps the name of what it was given to", () => {
+describe("migration 0088 — a money gift keeps the name of what it was given to", () => {
   it("copies each listing's title onto the gifts that name it, on every wedding", () => {
     const db = seeded();
-    apply(db, MIG_0086);
+    apply(db, MIG_0088);
     const after = gifts(db);
     expect(after.get("rct_fund")?.item_title).toBe("Honeymoon");
     expect(after.get("rct_pan")?.item_title).toBe("Copper pan");
@@ -86,7 +86,7 @@ describe("migration 0086 — a money gift keeps the name of what it was given to
 
   it("leaves a gift to no listing, and one whose listing is gone, without a name", () => {
     const db = seeded();
-    apply(db, MIG_0086);
+    apply(db, MIG_0088);
     const after = gifts(db);
     expect(after.get("rct_general")?.item_title).toBeNull();
     // SET NULL already cleared the id when the listing went; its name is lost.
@@ -97,7 +97,7 @@ describe("migration 0086 — a money gift keeps the name of what it was given to
   it("changes nothing else about any gift, and deletes none", () => {
     const db = seeded();
     const before = gifts(db, false);
-    apply(db, MIG_0086);
+    apply(db, MIG_0088);
     const after = gifts(db, false);
     expect(after).toEqual(before);
   });

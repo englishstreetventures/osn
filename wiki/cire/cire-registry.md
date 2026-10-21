@@ -87,7 +87,7 @@ Two covering indexes carry the hot reads. `(item_id, status, family_id, quantity
 
 One row per Stripe Checkout Session. `stripe_checkout_session_id` is **unique**, and that uniqueness is the webhook idempotency anchor — the same role `checkout_session_id` plays for upgrade purchases ([[cire-upgrades]]). A replayed `checkout.session.completed` conflicts there instead of writing a second gift.
 
-`item_id` is the cash fund the gift was given to, NULL for a gift to no fund. It is `ON DELETE SET NULL`, not cascade: removing a listing must never erase the record of money someone actually sent. `item_title` (migration 0086) is that fund's name as the guest saw it, written with the row; the gift log and `gifts.csv` read the name from here, so a fund renamed or deleted afterwards does not change what the couple's record says the money was for. Migration 0086 copied the current title onto every gift that still named a listing.
+`item_id` is the cash fund the gift was given to, NULL for a gift to no fund. It is `ON DELETE SET NULL`, not cascade: removing a listing must never erase the record of money someone actually sent. `item_title` (migration 0088) is that fund's name as the guest saw it, written with the row; the gift log and `gifts.csv` read the name from here, so a fund renamed or deleted afterwards does not change what the couple's record says the money was for. Migration 0088 copied the current title onto every gift that still named a listing.
 
 The guest's words are in `message`, and `note_hidden_at` / `note_hidden_by_osn_profile_id` (migration 0062) hide them from the couple's log the same way as on a claim — see [Hiding a note](#hiding-a-note).
 
