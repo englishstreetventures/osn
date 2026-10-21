@@ -661,6 +661,44 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
     ).toEqual([]);
   });
 
+  // A change states a run of show per event: an event it leaves out keeps
+  // its stored list, and one it states unchanged is not written again.
+  it("reads the stored lists when any event states one, and keeps an event's it leaves out", async () => {
+    const { app, db } = buildApp();
+    await previewAndApply(app, [
+      editorEvent(DETAILS),
+      editorEvent({
+        name: "Reception",
+        sortOrder: 1,
+        runOfShow: [{ time: "18:00", label: "Doors" }],
+      }),
+    ]);
+    const ids = db.select({ id: events.id, name: events.name }).from(events).all();
+    const idOf = (name: string) => ids.find((e) => e.name === name)!.id;
+    const reception = editorEvent({
+      id: idOf("Reception"),
+      name: "Reception",
+      sortOrder: 1,
+    }) as Record<string, unknown>;
+    delete reception.description;
+    delete reception.venueName;
+    const mixed = await preview(app, [
+      editorEvent({ ...DETAILS, id: idOf("Kitchen Tea") }),
+      reception,
+    ]);
+    expect(mixed.warnings).toEqual([]);
+    const recorded = recordStatements(db);
+    const apply = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: mixed.changeId });
+    expect(apply.status).toBe(200);
+    expect(
+      recorded.filter((s) => /^\s*(insert|delete)\b[^;]*run_of_show_items/i.test(s.sql)),
+    ).toEqual([]);
+    expect(items(db).map((i) => i.label)).toEqual(
+      expect.arrayContaining([...RUN.map((i) => i.label), "Doors"]),
+    );
+    expect(items(db)).toHaveLength(RUN.length + 1);
+  });
+
   // An event the editor removes takes its run of show with it.
   it("removes an event's run of show with the event", async () => {
     const { app, db } = buildApp();
@@ -691,6 +729,8 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
       ["a time past the clock", { runOfShow: [{ time: "24:00", label: "Late" }] }],
       ["a 12-hour time", { runOfShow: [{ time: "4:00 pm", label: "Tea" }] }],
       ["a time without its leading zero", { runOfShow: [{ time: "4:00", label: "Tea" }] }],
+      ["text before the time", { runOfShow: [{ time: "x16:00", label: "Tea" }] }],
+      ["a third minute digit", { runOfShow: [{ time: "16:000", label: "Tea" }] }],
       ["a blank label", { runOfShow: [{ time: "16:00", label: "   " }] }],
       ["a label over 200 characters", { runOfShow: [{ time: "16:00", label: "x".repeat(201) }] }],
       [

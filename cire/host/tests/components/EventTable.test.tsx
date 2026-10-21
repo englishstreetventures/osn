@@ -211,6 +211,25 @@ describe("EventTable venue and description", () => {
     );
   });
 
+  // The policy reads as the guest's sheet words it: the presets, then the note.
+  it("shows the guest policy's presets and note, one to a line", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json([
+        {
+          ...EVENT,
+          childrenPolicy: "adults_only",
+          plusOnePolicy: "by_invitation",
+          guestPolicyNote: "Babes in arms are welcome.",
+        },
+      ]),
+    );
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+    const term = await screen.findByText("Guest policy");
+    expect(term.nextElementSibling?.textContent).toBe(
+      "Adults only\nPlus-ones by invitation\nBabes in arms are welcome.",
+    );
+  });
+
   it("shows no Venue row for an event without a name, from an API that sends none", async () => {
     authFetchMock.mockResolvedValueOnce(json([{ ...EVENT, address: "124 Sample Avenue" }]));
     render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);

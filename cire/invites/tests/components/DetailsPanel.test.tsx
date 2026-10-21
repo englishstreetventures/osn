@@ -105,6 +105,25 @@ describe("DetailsPanel", () => {
     expect(container.querySelector(".border-t")).toBeNull();
   });
 
+  // Filled, each shows: the policy as the last fact, the run of show and the
+  // getting-there notes under their own headings.
+  it("shows the run of show, guest policy and getting there when each has content", () => {
+    const { container, getByText } = renderPanel({
+      ...baseEvent,
+      runOfShow: [{ time: "18:00", label: "Doors" }],
+      gettingThere: "Park on the lane.",
+      childrenPolicy: "adults_only",
+      plusOnePolicy: null,
+      guestPolicyNote: null,
+    });
+    expect([...container.querySelectorAll("dt")].at(-1)?.textContent).toBe("Guest policy");
+    expect(container.textContent).toContain("Adults only");
+    expect(getByText("Run of show")).toBeTruthy();
+    expect(getByText("Doors")).toBeTruthy();
+    expect(getByText("Getting there")).toBeTruthy();
+    expect(getByText("Park on the lane.")).toBeTruthy();
+  });
+
   it("shows no About for a description of only spaces", () => {
     const { queryByText } = renderPanel({ ...baseEvent, description: "   \n " });
     expect(queryByText("About")).toBeNull();

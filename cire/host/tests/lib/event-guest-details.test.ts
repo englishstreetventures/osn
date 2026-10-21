@@ -122,6 +122,13 @@ describe("guestOrder", () => {
         { time: "18:00", label: "Canapés" },
       ]),
     ).toEqual(["18:00 Canapés", "21:00 Speeches", "00:30 Carriages (after midnight)"]);
+    // An hour before the start is nearly a day after it.
+    expect(
+      order([
+        { time: "17:00", label: "Last orders" },
+        { time: "19:00", label: "Dinner" },
+      ]),
+    ).toEqual(["19:00 Dinner", "17:00 Last orders (after midnight)"]);
   });
 
   it("keeps the organiser's order at the same time, and leaves out what a guest is not shown", () => {

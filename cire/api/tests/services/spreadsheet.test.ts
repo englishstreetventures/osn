@@ -1271,6 +1271,8 @@ describe("parseEventsCsv — run of show, getting there and guest policy", () =>
     ["a time after midnight on a 12-hour clock", '"12:30 am Carriages"', TWELVE_HOUR],
     ["a 12-hour time in capitals", '"4:00 PM Tea"', TWELVE_HOUR],
     ["a 12-hour time with stops", '"4:00 p.m. Tea"', TWELVE_HOUR],
+    ["a 12-hour time with nothing after it", '"4:00 pm"', TWELVE_HOUR],
+    ["a 12-hour time after spaces", '"   4:00 pm Tea"', TWELVE_HOUR],
     ["a 12-hour time on a later line", '"16:00 Tea\n5:30 pm Speeches"', TWELVE_HOUR],
     ["a time with no label", '"16:00   "', "Run of Show lines need a label after the time"],
     [
@@ -1292,10 +1294,13 @@ describe("parseEventsCsv — run of show, getting there and guest policy", () =>
 
   // An hour past 12 is on no 12-hour clock, so what follows it is the label.
   it("reads a label that starts with PM after an hour past 12", async () => {
-    const [event] = await parse(row('"16:00 PM speech\n17:00 pmb drinks",,,,'));
+    const [event] = await parse(
+      row('"16:00 PM speech\n17:00 pmb drinks\n18:00 Doors open, bar from 7 pm",,,,'),
+    );
     expect(event!.runOfShow).toEqual([
       { time: "16:00", label: "PM speech" },
       { time: "17:00", label: "pmb drinks" },
+      { time: "18:00", label: "Doors open, bar from 7 pm" },
     ]);
   });
 

@@ -690,8 +690,14 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
   // leaves them out. With no events there is nothing to tell by.
   it("leaves them out of a save to an API whose events read carries none of them", () => {
     createRoot((dispose) => {
+      // Nothing loaded, or the draft dropped: no API has said otherwise yet.
+      const unloaded = createGuestEventDraft();
+      expect(unloaded.eventDetails()).toBe(true);
       const store = loaded();
       expect(store.eventDetails()).toBe(false);
+      store.reset();
+      expect(store.eventDetails()).toBe(true);
+      store.load(EVENTS, GUESTS, [], REVISION);
       store.updateEvent(store.draft.events[0]!.key, { description: "Mass at 3." });
       const [event] = store.toWire("events").events;
       expect(event).toMatchObject({ description: "Mass at 3." });
@@ -736,8 +742,15 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
       ]);
       // "Add item" opens an empty row.
       expect(runOfShowItem()).toMatchObject({ time: "", label: "" });
-      expect(messagesFor({ runOfShow: [runOfShowItem("16:00", "x".repeat(201))] })).toEqual([
-        "Item 1 is longer than 200 characters.",
+      const long = runOfShowItem("16:00", "x".repeat(201));
+      store.updateEvent(key, { runOfShow: [long] });
+      expect(validateDraft(store.draft)).toEqual([
+        {
+          key,
+          item: long.key,
+          field: "label",
+          message: "Item 1 is longer than 200 characters.",
+        },
       ]);
       expect(
         messagesFor({ runOfShow: Array.from({ length: 41 }, () => runOfShowItem("16:00", "Tea")) }),
