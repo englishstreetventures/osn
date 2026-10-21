@@ -568,9 +568,9 @@ the portal, and holds back the next release behind it.
 
 ## Guest-site SSR bundle size
 
-Tracker #619 generalised this guard out of cire/invites: it is now
-`scripts/guard-bundle-size.sh` (repo root, `worker` mode for this app), shared
-with a `static`-mode measurement for the five non-SSR Astro apps. The
+This guard is `scripts/guard-bundle-size.sh` (repo root, `worker` mode for
+this app), shared with a `static`-mode measurement for the five non-SSR Astro
+apps. The
 cross-app mechanism — where it runs, why it runs twice, every app's current
 threshold — lives in [[bundle-size-guards]]. What stays here is what is
 genuinely cire/invites-only: WHY its bundle is shaped the way it is.
@@ -580,9 +580,11 @@ In `worker` mode the script sums the gzip size of each file under
 chunk as its own module. It leaves out only the adapter's top-level
 `wrangler.json` and real source maps — a `.map` beside the chunk it is named
 after that parses as a source map. Any other `.map`-named file is counted, so
-the total can run above what wrangler uploads but never below it. It also
-fails if any `.map` file turns up under `dist/client`, which is served
-publicly as Static Assets — see the source-map warning below.
+the total can run above what wrangler uploads but never below it. A total
+over the app's budget is a warning, not a failure ([[bundle-size-guards]]). It
+fails if a source map turns up under `dist/client`, which is served publicly
+as Static Assets: a `.map` file, or a script or stylesheet carrying an inline
+`sourceMappingURL=data:` map. See the source-map warning below.
 
 `cire/invites/package.json`'s `build` script chains it on
 (`… && ../../scripts/guard-bundle-size.sh .`), so it fires wherever the build
@@ -604,10 +606,10 @@ bytes, motion's cost back when the build was unminified. The arithmetic is
 spelled out in the comment above `threshold=` so the next reader can check it
 without rebuilding.
 
-Three tracker follow-ups (#618, #616, #617) to the original size audit
-(#287) cut the bundle from 285 KB to 163 KB gzip:
+Three choices keep the bundle small; together they took it from 285 KB to
+163 KB gzip:
 
-- **Sessions off (#618).** Astro's session config accepts `session: false`
+- **Sessions off.** Astro's session config accepts `session: false`
   (`astro/dist/core/session/config.js`), and `@astrojs/cloudflare`'s
   KV-binding auto-provisioning is gated on that same literal
   (`@astrojs/cloudflare/dist/index.js`, `if (session !== false && ...)`), so
@@ -615,7 +617,7 @@ Three tracker follow-ups (#618, #616, #617) to the original size audit
   drops the session runtime and `unstorage` from `dist/server` with no KV
   binding required. Safe here because the guest site never reads or writes
   `Astro.session`.
-- **SSR minification (#616).** `vite: { build: { minify: true } }` in
+- **SSR minification.** `vite: { build: { minify: true } }` in
   `astro.config.mjs` does nothing for the server build: Astro's
   `createViteBuildConfig` (`astro/dist/core/build/vite-build-config.js`)
   spreads the user's `vite.build` and then hard-sets `minify: false`
@@ -649,10 +651,10 @@ Three tracker follow-ups (#618, #616, #617) to the original size audit
   > `"assets": { "directory": "../client" }` into the generated wrangler
   > config) and Cloudflare serves everything in it verbatim, so those maps
   > publish the guest site's unminified source at `/_astro/<chunk>.js.map` to
-  > anyone who asks. The plain form was written that way first and caught in
-  > review; `guard-bundle-size.sh` now fails the build if any `.map` file appears
-  > under `dist/client`.
-- **`zod` stays (#617).** Traced to Astro's own actions request handler
+  > anyone who asks. `guard-bundle-size.sh` fails the build if a source map
+  > appears under `dist/client`, as a `.map` file or inlined into a script or
+  > stylesheet.
+- **`zod` stays.** Traced to Astro's own actions request handler
   (`actions/handler.js` → `actions/runtime/server.js`, top-level
   `import * as z from "zod/v4/core"`), which `core/routing/handler.js` calls
   on every non-prerendered request whether or not the app defines any
