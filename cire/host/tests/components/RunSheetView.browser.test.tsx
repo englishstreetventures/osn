@@ -368,9 +368,11 @@ function expectLaidOut(width: number) {
       const timeEnd = li.querySelector("time")?.getBoundingClientRect().right ?? row.left;
       // An event's run of show hangs in its words' column, inside its band.
       for (const item of li.querySelectorAll<HTMLElement>("[data-run-of-show-item]")) {
-        const box = item.getBoundingClientRect();
-        expect(contains(row, box), `${what}: "${item.textContent}" inside its band`).toBe(true);
-        expect(box.left, `${what}: "${item.textContent}" past the thread`).toBeGreaterThan(threadX);
+        const line = item.getBoundingClientRect();
+        expect(contains(row, line), `${what}: "${item.textContent}" inside its band`).toBe(true);
+        expect(line.left, `${what}: "${item.textContent}" past the thread`).toBeGreaterThan(
+          threadX,
+        );
       }
       expect(timeEnd, `${what}'s time before the thread`).toBeLessThan(threadX);
       expect(title.getBoundingClientRect().left).toBeGreaterThan(threadX);

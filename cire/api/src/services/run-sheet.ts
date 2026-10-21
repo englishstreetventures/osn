@@ -99,9 +99,21 @@ export const runSheetService = {
         ]),
       );
 
-      const weddingEvents: RunSheetEventRow[] = (
+      // Each event's run of show arrives as one JSON column; parsed here, in
+      // the organiser's order.
+      const weddingEvents = (
         eventRows as Array<Omit<RunSheetEventRow, "runOfShow"> & { runOfShow: string | null }>
-      ).map((row) => ({ ...row, runOfShow: runOfShowFrom(row.runOfShow) }));
+      ).map((row): RunSheetEventRow => ({
+        id: row.id,
+        name: row.name,
+        startAt: row.startAt,
+        endAt: row.endAt,
+        timezone: row.timezone,
+        venueName: row.venueName,
+        address: row.address,
+        sortOrder: row.sortOrder,
+        runOfShow: runOfShowFrom(row.runOfShow),
+      }));
       const listed = withAssignees(
         taskRows as TaskRow[],
         assigned as AssigneeRow[],
