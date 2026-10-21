@@ -26,13 +26,14 @@
 
 import { existsSync, readFileSync } from "node:fs";
 
-import type { BranchPull, Card } from "./index.ts";
+import type { BranchPull, Card, SessionsRoots } from "./index.ts";
 import {
   branchCards,
   buildCard,
   cardFileName,
   declaredFromLabels,
   defaultMetricsDir,
+  defaultSessionsRoots,
   otherPullRequest,
   parseNumstat,
   recordsByBranch,
@@ -307,7 +308,7 @@ if (import.meta.main) {
   const repo = flag("repo") ?? "englishstreetventures/osn";
   const limit = flag("limit") ?? "100";
   const outDir = flag("out-dir") ?? defaultMetricsDir();
-  const sessionsDir = flag("sessions-dir") ?? `${process.env.HOME}/.claude/projects`;
+  const sessionsDir: SessionsRoots = flag("sessions-dir") ?? defaultSessionsRoots();
   const dryRun = Bun.argv.includes("--dry-run");
 
   const listed = sh([
@@ -370,7 +371,11 @@ if (import.meta.main) {
   const localIssueRefs = new Map<number, IssueRef>();
   for (const pull of carded) {
     const ref = pull.closingIssuesReferences[0];
-    if (ref && ref.repository.owner.login === repoOwner && ref.repository.name === repoName) {
+    if (
+      ref &&
+      ref.repository.owner.login.toLowerCase() === repoOwner?.toLowerCase() &&
+      ref.repository.name.toLowerCase() === repoName?.toLowerCase()
+    ) {
       localIssueRefs.set(pull.number, ref);
     }
   }
