@@ -27,6 +27,7 @@ import type { AccountLinkMatchResult } from "../metrics";
 import type {
   AccountLinkState,
   ClaimResponse,
+  MemberEmail,
   OrganiserGuestRow,
   OrganiserHouseholdRow,
   DressSwatch,
@@ -273,7 +274,7 @@ function buildClaimResponse(
   return Effect.all([buildInvite(family), accountLinkState(family, gate)], {
     concurrency: "unbounded",
   }).pipe(
-    Effect.flatMap(([invite, { state: linkState, facts }]) =>
+    Effect.flatMap(([{ invite, emails }, { state: linkState, facts }]) =>
       Effect.gen(function* () {
         // No member step, and no "Answered by" on the replies shown: a host
         // preview is not a guest seat, and an excluded wedding's household
@@ -308,10 +309,13 @@ function buildClaimResponse(
         }
         if (state.match) metricAccountLinkMatch(state.match);
         const { match: _match, ...accountLink } = state;
+        // The chosen member's own address rides with them; another member's
+        // never does.
+        const email = member === null ? undefined : emails.get(member);
         return {
           ...invite,
           accountLink,
-          member: member === null ? null : { guestId: member },
+          member: member === null ? null : email ? { guestId: member, email } : { guestId: member },
         };
       }),
     ),
@@ -337,10 +341,19 @@ export function singleChoosableMember(
   return choosable.length === 1 ? (choosable[0]?.guestId ?? null) : null;
 }
 
-/** Everything in the claim payload except the account-link state. Pure read. */
-function buildInvite(
-  family: FamilyRow,
-): Effect.Effect<Omit<ClaimResponse, "accountLink">, never, DbService> {
+/**
+ * Everything in the claim payload except the account-link state, and beside
+ * it each member's stored address, which the payload carries only for the
+ * member the session chose. Pure read.
+ */
+function buildInvite(family: FamilyRow): Effect.Effect<
+  {
+    invite: Omit<ClaimResponse, "accountLink">;
+    emails: ReadonlyMap<string, MemberEmail>;
+  },
+  never,
+  DbService
+> {
   return Effect.gen(function* () {
     const db = yield* DbService;
 
@@ -412,6 +425,8 @@ function buildInvite(
               sortOrder: guests.sortOrder,
               plusOneAllowed: guests.plusOneAllowed,
               plusOneOf: guests.plusOneOfGuestId,
+              email: guests.email,
+              emailSource: guests.emailSource,
               eventId: guestEvents.eventId,
             })
             .from(guests)
@@ -458,9 +473,13 @@ function buildInvite(
       }
     >();
     const eventIds = new Set<string>();
+    const emails = new Map<string, MemberEmail>();
     for (const row of guestRows) {
       let member = memberMap.get(row.guestId);
       if (!member) {
+        if (row.email !== null && row.emailSource !== null) {
+          emails.set(row.guestId, { address: row.email, source: row.emailSource });
+        }
         member = {
           guestId: row.guestId,
           firstName: row.firstName,
@@ -548,7 +567,7 @@ function buildInvite(
     const closingImageUrl = closingContent?.imageKey
       ? `/api/invite/${encodeURIComponent(slug)}/image/footer?v=${versionFromKey(closingContent.imageKey)}`
       : null;
-    return {
+    const invite = {
       familyId: family.id,
       publicId: family.publicId,
       familyName: family.familyName,
@@ -612,6 +631,7 @@ function buildInvite(
         entries: faqEntries,
       },
     };
+    return { invite, emails };
   });
 }
 
