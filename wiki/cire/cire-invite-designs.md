@@ -14,7 +14,6 @@ related:
   - "[[component-library]]"
 last-reviewed: 2026-10-21
 ---
-
 # Invite design selector
 
 A wedding's invite renders as one of several full template packs. The design id
@@ -56,10 +55,10 @@ Every pack draws the claim and welcome panel through one component,
 [`LoginSection`](../../cire/invites/src/components/LoginSection.tsx). A pack
 passes its data and a `layout`; it draws none of the panel's markup.
 
-| `layout`         | Pack    | Shape                                                                                  | Paints the welcome tone on |
-| ---------------- | ------- | -------------------------------------------------------------------------------------- | -------------------------- |
-| `band` (default) | classic | full-bleed section, centred column                                                     | the whole section          |
-| `panel`          | gala    | 400px bordered card, centred on phones, flush with the page's left gutter from `md` up | the card only              |
+| `layout` | Pack | Shape | Paints the welcome tone on |
+|---|---|---|---|
+| `band` (default) | classic | full-bleed section, centred column | the whole section |
+| `panel` | gala | 400px bordered card, centred on phones, flush with the page's left gutter from `md` up | the card only |
 
 The two words are the ones the organiser preview uses for the same section
 (`welcome` in `design-layout.ts`, see [[cire-invite-builder]]). A layout chooses
@@ -127,11 +126,11 @@ every request held unanswered and fails if the box waits on one.
 A household that has replied before, fully or in part, is greeted as returning.
 The copy is the owner's, word for word:
 
-| Where                                        | First visit                                         | Returning                                                                                       |
-| -------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Panel heading                                | "Welcome, the {familyName} Family" or "Dear {name}" | "Welcome back to your invite, the {familyName} Family" or "Welcome back to your invite, {name}" |
-| Line under the heading                       | none                                                | "You still have replies to give", while replies are owed                                        |
-| Hero title, only when the organiser set none | "You're Invited"                                    | "Welcome back to your invite"                                                                   |
+| Where | First visit | Returning |
+|---|---|---|
+| Panel heading | "Welcome, the {familyName} Family" or "Dear {name}" | "Welcome back to your invite, the {familyName} Family" or "Welcome back to your invite, {name}" |
+| Line under the heading | none | "You still have replies to give", while replies are owed |
+| Hero title, only when the organiser set none | "You're Invited" | "Welcome back to your invite" |
 
 The organiser's own hero title is never replaced, and neither is their welcome
 message, which still follows the heading. The tab `<title>`
@@ -200,12 +199,12 @@ its title block: classic centres it, gala sets it on the cell's foot against the
 subtitle. The cost falls on a first visit, whose title-less hero holds the room
 the welcome-back title needs:
 
-| Pack    | Phone (320 and 390px) | Desktop (1024 and 1440px)      |
-| ------- | --------------------- | ------------------------------ |
-| classic | one line more         | none: both titles fit one line |
-| gala    | one line more         | one line more                  |
+| Pack | Phone (320 and 390px) | Desktop (1024 and 1440px) |
+|---|---|---|
+| classic | one line more | none: both titles fit one line |
+| gala | one line more | one line more |
 
-_Measured 2026-10-09 — line heights of both strings in real Chromium at the default heading scale, `bun run --cwd cire/invites test:browser` with a probe mounting each pack's header._
+*Measured 2026-10-09 — line heights of both strings in real Chromium at the default heading scale, `bun run --cwd cire/invites test:browser` with a probe mounting each pack's header.*
 
 The welcome-back title is a first paint when it appears, so on a hero with no
 image it is a new Largest Contentful Paint entry at the moment the session
@@ -215,7 +214,7 @@ moment either way; only the metric moves. A hero with an image keeps the image
 as its largest paint, and a hero with a couple title, the usual case, draws
 neither string.
 
-_Measured 2026-10-09 — `largest-contentful-paint` observer in real Chromium at 1440x900, classic pack, `bun run --cwd cire/invites test:browser` with a probe: entries 37,606 then 75,574 px² across the swap; a single span whose text is rewritten keeps one entry._
+*Measured 2026-10-09 — `largest-contentful-paint` observer in real Chromium at 1440x900, classic pack, `bun run --cwd cire/invites test:browser` with a probe: entries 37,606 then 75,574 px² across the swap; a single span whose text is rewritten keeps one entry.*
 
 Tests: in `@cire/api`, `tests/services/claim.test.ts` ("householdReplied in the
 claim payload"). In `@cire/invites`, `tests/components/invite-progress.test.ts`,
@@ -238,10 +237,10 @@ chevron at the hero's foot,
 the guest the page carries on. A pack renders it as the last child of its hero
 `<section>` and passes an `align`:
 
-| `align`            | Pack    | Sits                                                                                 |
-| ------------------ | ------- | ------------------------------------------------------------------------------------ |
-| `center` (default) | classic | centred under the centred title                                                      |
-| `end`              | gala    | in the inline-end corner on the hero's 1.5rem gutter, opposite the bottom-left title |
+| `align` | Pack | Sits |
+|---|---|---|
+| `center` (default) | classic | centred under the centred title |
+| `end` | gala | in the inline-end corner on the hero's 1.5rem gutter, opposite the bottom-left title |
 
 - **A hint, not a control.** `aria-hidden` and `pointer-events-none`; a tap
   goes to the hero beneath it.
@@ -289,12 +288,12 @@ presence follow the household's replies and the RSVP deadline
 least one has, `hasAnyHouseholdReply`; plus-ones excluded, any status) and
 `rsvpClosed`.
 
-| State                                           | Answer button | Label      | Fill and tick    | Label ink              |
-| ----------------------------------------------- | ------------- | ---------- | ---------------- | ---------------------- |
-| Open, no complete reply (a part reply included) | shown         | Respond    | none             | `text-on-gold` on gold |
-| Every member answered, open or closed           | shown         | RSVP given | bloom fill, tick | `text-bg` on bloom     |
-| Closed, part reply                              | shown         | RSVP given | none             | `text-on-gold` on gold |
-| Closed, no reply                                | none          | —          | —                | —                      |
+| State | Answer button | Label | Fill and tick | Label ink |
+|---|---|---|---|---|
+| Open, no complete reply (a part reply included) | shown | Respond | none | `text-on-gold` on gold |
+| Every member answered, open or closed | shown | RSVP given | bloom fill, tick | `text-bg` on bloom |
+| Closed, part reply | shown | RSVP given | none | `text-on-gold` on gold |
+| Closed, no reply | none | — | — | — |
 
 - **The fill and tick mean everyone answered.** A part reply after the
   deadline gets the label, so the guest can look back at it, and not the mark.
@@ -363,8 +362,7 @@ event and the panel to open on.
     On the 75% frost the title holds 4.5:1, and the cross 3:1, over pure
     black and pure white on every built-in scheme.
 
-    _Measured 2026-10-21 — a temporary probe in Chromium 1194 compositing each preset's `--color-surface` at 80–100% over #000 and #fff and reading `--color-gold-ink` against it; the 75% figures are `EventSheet.browser.test.tsx` "frosts the bar"_
-
+    *Measured 2026-10-21 — a temporary probe in Chromium 1194 compositing each preset's `--color-surface` at 80–100% over #000 and #fff and reading `--color-gold-ink` against it; the 75% figures are `EventSheet.browser.test.tsx` "frosts the bar"*
   - **The title** is the event's name in the display face (`text-ui-lg`,
     light italic), whole: it wraps onto as many lines as it needs in the room
     the badge and the cross leave it, with `wrap-anywhere` breaking a word too
@@ -373,8 +371,7 @@ event and the panel to open on.
     lines beside "Give RSVP →", and "Mehndi" one beside "View your RSVP →";
     the badge and the cross never shrink.
 
-    _Measured 2026-10-21 — `EventSheet.browser.test.tsx` "shows the whole of …" screenshots at 320×568 and 390×844, Chromium 1194_
-
+    *Measured 2026-10-21 — `EventSheet.browser.test.tsx` "shows the whole of …" screenshots at 320×568 and 390×844, Chromium 1194*
   - **Nothing hides under it.** The bar takes its own height in flow, so the
     content starts below it, and the scrollport's `scroll-padding-top` is that
     same height, whatever the title's lines make it: a `ResizeObserver` on the
@@ -390,10 +387,10 @@ event and the panel to open on.
   dialog: "Give RSVP →" on the details, "← See details" on the form ("View
   your RSVP →" on the details past the deadline, for a household with a reply
   on file), each arrow pointing the way the guest can also swipe. It is one
-  `Button` of `@cire/ui`'s `chip` variant ([[component-library]], cire's `Button`): a
-  pill matching the round close button, `rounded-full`, an accent hairline,
-  the opaque surface fill, the `text-ui-xs` tracked uppercase of the invite's
-  labels in the prose gold, 44px tall (`min-h-11`).
+  `Button` of `@cire/ui`'s `chip` variant ([[component-library]], cire's
+  `Button`): a pill matching the round close button, `rounded-full`, an accent
+  hairline, the opaque surface fill, the `text-ui-xs` tracked uppercase of the
+  invite's labels in the prose gold, 44px tall (`min-h-11`).
   - **Two labels in one button.** Both labels sit stacked in one grid cell,
     so the badge is always as wide as the wider of them ("← See details" on
     an open invite, "View your RSVP →" past the deadline) and never changes
@@ -444,8 +441,7 @@ event and the panel to open on.
   the screen (× at 262px on 390×844, 179px on 320×568), and in landscape,
   which takes the `md` rule, it sits 182px in from each side.
 
-  _Measured 2026-10-21 — temporary probe tests in Chromium 1194 at 390×844, 375×667, 320×568 and 1280×800: the sheet's and the ×'s rects, the details' `dl` bottom to the scrollport's bottom for a sparse event, and the form's needed height as the scrollport's `scrollHeight` with the dialog forced to 100px; the 182px is from the candidate-height probe at 844×390_
-
+  *Measured 2026-10-21 — temporary probe tests in Chromium 1194 at 390×844, 375×667, 320×568 and 1280×800: the sheet's and the ×'s rects, the details' `dl` bottom to the scrollport's bottom for a sparse event, and the form's needed height as the scrollport's `scrollHeight` with the dialog forced to 100px; the 182px is from the candidate-height probe at 844×390*
 - **A swipe does the same.** On a touch screen the panel on screen follows a
   sideways drag toward the other panel — the details sit on the start side,
   the form on the end side — with the other panel drawn beside it, `inert`
@@ -497,7 +493,7 @@ event and the panel to open on.
   the sheet's own scroll neither chains into the invite nor rubber-bands it;
   both are put back on close, with the scrollbar gutter that stands in for a
   classic scrollbar while it holds (`AnimatedModal`).
-  _Unverified on iOS_ — whether a touch drag on WebKit can still move the
+  *Unverified on iOS* — whether a touch drag on WebKit can still move the
   page behind; the browser tier is Chromium only, and the footer's version
   ([[cire-invite-builder#The footer's version]]) is how a report from a phone
   names its build.
@@ -565,16 +561,16 @@ trip in each pack, ending with focus on Event Details).
 It leads with the plan — what a guest opens it for — and keeps the occasion
 for after.
 
-| Part          | What it holds                                                                                                                                                                                                                                                                          | Shown when                                                                                                                                                                                                                                  |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Header        | The closed notice (the closed treatment of `RsvpDeadlineNotice`: a hairline box, muted ink) inside an always-mounted `role="status"` region, which takes no room while it is empty. The title and the way to the form are the sheet's bar's, not the panel's                           | Always; the notice once RSVPs close                                                                                                                                                                                                         |
-| When          | The day; the time range, naming both days when the event ends on a later day in its own zone ("Fri 6:00 pm – Sun 11:00 am"); the zone spelt out ("AEDT (Sydney time)"); "Your time: …" when the guest's own clock reads differently; Add to calendar                                   | The start parses                                                                                                                                                                                                                            |
-| Where         | The venue's name over its address (with no name, the address alone); a compact map — the consented Google embed, or a card drawn from the palette tokens; "Open in maps", a menu of Google Maps, Apple Maps and Waze, or a plain link when the organiser's own is the only place to go | Something can open a map (`hasVenue`: an address, a venue name or a maps link)                                                                                                                                                              |
-| Who's invited | "Invited: Alex and Sam"                                                                                                                                                                                                                                                                | Some member the couple invited is not invited to this event (`invitedNames`; plus-ones are named, never decide it)                                                                                                                          |
-| Guest policy  | The presets in words on one line ("Adults only · Plus-ones by invitation"), the note under them in muted ink. The last of the facts, so the date and the venue keep a phone's first screen                                                                                             | A preset this build knows or a note (`hasGuestPolicy`, then `guestPolicyLines`); "Plus-ones welcome" only for a household with a member invited to this event whose `plusOneAllowed` is true, which the claim also sends `welcome` to alone |
-| Run of show   | Under its own hairline: the items in time order from the event's start, each a time on a 12-hour clock in a 4.75rem column ("4:00 pm") and its name; "Times are AEDT (Sydney time)." under them when the guest's own clock reads differently                                           | Any item has a 24-hour time and a label (`hasRunOfShow`, then `runOfShowLines`)                                                                                                                                                             |
-| Occasion      | About, Dress Code, Inspiration, under one hairline, with no hairline between them                                                                                                                                                                                                      | Any of the three has content                                                                                                                                                                                                                |
-| Getting there | Under its own hairline, last: the organiser's notes, line breaks kept                                                                                                                                                                                                                  | The notes have text                                                                                                                                                                                                                         |
+| Part | What it holds | Shown when |
+|---|---|---|
+| Header | The closed notice (the closed treatment of `RsvpDeadlineNotice`: a hairline box, muted ink) inside an always-mounted `role="status"` region, which takes no room while it is empty. The title and the way to the form are the sheet's bar's, not the panel's | Always; the notice once RSVPs close |
+| When | The day; the time range, naming both days when the event ends on a later day in its own zone ("Fri 6:00 pm – Sun 11:00 am"); the zone spelt out ("AEDT (Sydney time)"); "Your time: …" when the guest's own clock reads differently; Add to calendar | The start parses |
+| Where | The venue's name over its address (with no name, the address alone); a compact map — the consented Google embed, or a card drawn from the palette tokens; "Open in maps", a menu of Google Maps, Apple Maps and Waze, or a plain link when the organiser's own is the only place to go | Something can open a map (`hasVenue`: an address, a venue name or a maps link) |
+| Who's invited | "Invited: Alex and Sam" | Some member the couple invited is not invited to this event (`invitedNames`; plus-ones are named, never decide it) |
+| Guest policy | The presets in words on one line ("Adults only · Plus-ones by invitation"), the note under them in muted ink. The last of the facts, so the date and the venue keep a phone's first screen | A preset this build knows or a note (`hasGuestPolicy`, then `guestPolicyLines`); "Plus-ones welcome" only for a household with a member invited to this event whose `plusOneAllowed` is true, which the claim also sends `welcome` to alone |
+| Run of show | Under its own hairline: the items in time order from the event's start, each a time on a 12-hour clock in a 4.75rem column ("4:00 pm") and its name; "Times are AEDT (Sydney time)." under them when the guest's own clock reads differently | Any item has a 24-hour time and a label (`hasRunOfShow`, then `runOfShowLines`) |
+| Occasion | About, Dress Code, Inspiration, under one hairline, with no hairline between them | Any of the three has content |
+| Getting there | Under its own hairline, last: the organiser's notes, line breaks kept | The notes have text |
 
 The facts are a `<dl>`: each row's term ("When", "Where", "Who's invited",
 "Guest policy") is for assistive technology, and a glyph in the metal says it

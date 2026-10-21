@@ -41,7 +41,7 @@ Visual treatments that appear in more than one component live in `pulse/web/src/
 ### Current Tokens
 
 ```typescript
-CLOSE_FRIEND_RING_CLASS; // green outline on attendees who are close friends
+CLOSE_FRIEND_RING_CLASS  // green outline on attendees who are close friends
 ```
 
 ### How They Flow
@@ -58,7 +58,6 @@ lib/ui.ts (CLOSE_FRIEND_RING_CLASS)
 ### The Rule
 
 When you copy the same Tailwind class list into a second component, do one of these:
-
 1. **Use a Zaidan component** if the pattern is a standard UI primitive (button, card, input) — see [[component-library]]
 2. **Lift a token into `lib/ui.ts`** if the pattern is app-specific visual treatment (close-friend ring, status colours)
 
@@ -101,9 +100,9 @@ guest site imports, see [[cire-development#The guest site's packages]]), or pin
 
 What holds each kind of app to the floor:
 
-| Apps                                                                                                 | Syntax                                                  | Library methods (`toSorted`, …)                                                                               |
-| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Plain Vite: `musubi/social`, `pulse/web`, `tools/lab`, `tools/metrics`                               | Lowered to the floor by Vite's build target             | Not checked: these apps type-check at `lib` ES2023                                                            |
+| Apps | Syntax | Library methods (`toSorted`, …) |
+|---|---|---|
+| Plain Vite: `musubi/social`, `pulse/web`, `tools/lab`, `tools/metrics` | Lowered to the floor by Vite's build target | Not checked: these apps type-check at `lib` ES2023 |
 | Astro: `cire/host`, `cire/invites`, `cire/landing`, `cire/vendor`, `musubi/landing`, `pulse/landing` | Not lowered: Astro builds the client bundle at `esnext` | `cire/invites` and every workspace package it imports type-check at `lib` ES2022; the rest at their own `lib` |
 
 Nothing polyfills. Babel core finds the file when it resolves `targets` for the
@@ -134,7 +133,7 @@ agree. `SECTION_MENU_COLUMNS` (`cire/host` `invite/InviteBuilder.tsx`) and the
 
 ### A component prop is a getter, so a call written in the JSX runs on every read
 
-Solid compiles `<Inbox store={createStore()} />` to a prop _getter_: each
+Solid compiles `<Inbox store={createStore()} />` to a prop *getter*: each
 `props.store` inside the component calls `createStore()` again, so `onMount`
 fills one store and the render reads another, empty one. Nothing errors; the
 view just never leaves its loading state. Build the value first and pass the
@@ -226,7 +225,7 @@ never arrives still reveals the page.
 
 Not against its parent's content box — so the usual "cancel the container's padding
 with a negative margin" trick inverts on a sticky element: a negative bottom margin
-_hoists it up_ over the content instead of stretching it down into the padding.
+*hoists it up* over the content instead of stretching it down into the padding.
 
 A full-bleed sticky action bar must instead have the scroll container drop its own
 bottom padding and let the bar own the edge, plus its `env(safe-area-inset-bottom)`
@@ -287,7 +286,7 @@ each measured on cire's RSVP table ([[cire-rsvp-table]]):
 A `<dialog>` opened with `showModal()` paints above every stacking context in the
 document by definition, so nothing outside the top layer can be raised over it at
 any number — and a modal dialog additionally makes every node outside itself
-inert, so a popover or toast shown out there is _visible and dead_. Both halves
+inert, so a popover or toast shown out there is *visible and dead*. Both halves
 matter the moment an app adopts `@shared/ui`'s `Modal`, and the second one is the
 half a `z-index` guard cannot see. The mechanism, the two doors into the top
 layer, and what it means for a menu opened from inside a sheet are in
@@ -322,7 +321,7 @@ the caller's.
 
 Tailwind's `sr-only` hides a control by taking it out of flow — 1x1px,
 `clip-path: inset(50%)`, and **`position: absolute`**. An absolutely positioned
-box resolves against the nearest _positioned_ ancestor, so a visually hidden
+box resolves against the nearest *positioned* ancestor, so a visually hidden
 `<input>` inside a static `<label>` inside a scrolling track does not belong to
 the track at all: it belongs to whatever box is positioned further up, and it
 does not travel when the track scrolls.
@@ -338,7 +337,7 @@ no way back.
 it looks, and the scroll the browser performs is zero.
 
 **Second-order cost, and it is not optional.** Positioning the label promotes it
-past every _non_-positioned box, so anything relying on being an
+past every *non*-positioned box, so anything relying on being an
 earlier-in-tree positioned sibling — a close chip pinned over a scroller, say —
 now paints underneath. Give that element an explicit `z-index` in the same
 change, and hit-test it: `document.elementFromPoint` at the chip's own centre
@@ -346,7 +345,7 @@ answers the chip when it is right and the pill when it is not.
 
 **Testing it:** assert the containing block directly — `input.offsetParent`
 is the label — rather than only the symptom. A scroll-offset assertion passes as
-soon as _any_ fix is in place, including a `clip` on an ancestor, so it cannot
+soon as *any* fix is in place, including a `clip` on an ancestor, so it cannot
 tell you the cause came back.
 
 ### Chrome exposes a `title` as a description, and carries `text-transform` into the text
@@ -363,7 +362,7 @@ Three facts decide how a short badge explains itself:
 - `aria-describedby` does the same. Kobalte's tooltip trigger points it at the
   open panel, and Chrome exposes a node referenced that way as a description
   even when the node is `aria-hidden`. So a panel that repeats the hidden text
-  must be `aria-hidden` _and_ unreferenced. `@shared/ui`'s `Tooltip` is both,
+  must be `aria-hidden` *and* unreferenced. `@shared/ui`'s `Tooltip` is both,
   and builds the hidden text and the panel from one string
   ([[component-library]] §`Tooltip`). It shows the panel on mouse hover only:
   sighted keyboard and touch users still see only the badge's word, so an
@@ -379,8 +378,8 @@ Three facts decide how a short badge explains itself:
   read from their text also gains a space before each comma between flex items
   (`cire/host/tests/components/RsvpView.events.browser.test.tsx`).
 
-  _Unverified — no screen reader was run; what was measured is the text in
-  Chrome's accessibility tree._
+  *Unverified — no screen reader was run; what was measured is the text in
+  Chrome's accessibility tree.*
 
 The hidden text is not focusable, so the focus scroll in the section above
 cannot fire, and the badge needs no `relative`.
@@ -420,7 +419,7 @@ consequences, both of which bit:
   to invent a from-state — which then also fires on the very first paint, so a
   field that was already open before the sheet opened animates in behind the
   sheet's own entry.
-- An _exit_ transition means holding the content in the document while the box
+- An *exit* transition means holding the content in the document while the box
   collapses. For a form that is a focusable input inside a box of zero height:
   reachable by keyboard, invisible to the eye.
 
