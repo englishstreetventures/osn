@@ -131,23 +131,6 @@ describe("AnimatedModal", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
-  it.each([
-    [false, true],
-    [true, false],
-  ])("with holdOpen %s, a backdrop tap closes it: %s", async (holdOpen, closes) => {
-    const onClose = vi.fn();
-    const { getByRole } = render(() => (
-      <AnimatedModal onClose={onClose} label="Event details" holdOpen={holdOpen}>
-        <p>body</p>
-      </AnimatedModal>
-    ));
-    // jsdom lays nothing out, so the dialog's box is a point at the origin and
-    // any click away from it is the backdrop's.
-    fireEvent.click(getByRole("dialog"), { clientX: 50, clientY: 50 });
-    await Promise.resolve();
-    expect(onClose.mock.calls.length > 0).toBe(closes);
-  });
-
   it("locks body scroll while open and restores it on close", async () => {
     const { unmount } = render(() => (
       <AnimatedModal onClose={() => {}} label="Event details">

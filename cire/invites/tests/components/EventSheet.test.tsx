@@ -12,12 +12,7 @@ import { render, cleanup, fireEvent, waitFor, within } from "@solidjs/testing-li
 import { createSignal } from "solid-js";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
-import {
-  cssTimeMs,
-  EventSheet,
-  firstOfCssList,
-  type EventPanel,
-} from "../../src/components/EventSheet";
+import { cssTimeMs, EventSheet, type EventPanel } from "../../src/components/EventSheet";
 import type { EventSummary, FamilyMember } from "../../src/components/types";
 
 vi.mock("motion", () => ({
@@ -82,17 +77,7 @@ function fieldsetFor(name: string): HTMLElement {
   throw new Error(`fieldset for ${name} not found`);
 }
 
-describe("the slide's timing, read back from the computed style", () => {
-  it("keeps a cubic-bezier whole — its own commas are not list separators", () => {
-    // The sheet's resize takes its curve from here. Split naively, this
-    // handed `animate()` "cubic-bezier(0.22", which it refuses with a throw.
-    expect(firstOfCssList("cubic-bezier(0.22, 1, 0.36, 1)")).toBe("cubic-bezier(0.22, 1, 0.36, 1)");
-    expect(firstOfCssList("cubic-bezier(0.22, 1, 0.36, 1), ease")).toBe(
-      "cubic-bezier(0.22, 1, 0.36, 1)",
-    );
-    expect(firstOfCssList("ease-out, linear")).toBe("ease-out");
-  });
-
+describe("the settle's timing, read back from the computed style", () => {
   it("reads a duration in seconds or milliseconds, and the clamped one too", () => {
     expect(cssTimeMs("0.28s")).toBe(280);
     expect(cssTimeMs("280ms")).toBe(280);
@@ -220,15 +205,6 @@ describe("EventSheet", () => {
     // form from the end — and the class stays, so every later show replays it.
     fireEvent.click(getByRole("button", { name: "See details" }));
     expect(panelOf("details")!.className).toContain("animate-panel-from-start");
-  });
-
-  it("drops the sheet's bottom padding only while the RSVP form, with its sticky bar, shows", () => {
-    const { getByRole } = open("details");
-    expect(scroller().className).toContain("pb-[max(2.5rem,env(safe-area-inset-bottom))]");
-
-    fireEvent.click(getByRole("button", { name: "Give RSVP" }));
-    expect(scroller().className).toContain("pb-0");
-    expect(scroller().className).not.toContain("pb-[max(2.5rem");
   });
 
   it("closes the whole sheet from either panel", async () => {

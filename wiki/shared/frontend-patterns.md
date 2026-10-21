@@ -219,8 +219,17 @@ with a negative margin" trick inverts on a sticky element: a negative bottom mar
 
 A full-bleed sticky action bar must instead have the scroll container drop its own
 bottom padding and let the bar own the edge, plus its `env(safe-area-inset-bottom)`
-— the `flushBottom` prop on `AnimatedModal`, which cire's `EventSheet` sets while
-its RSVP form (`RsvpPanel`) is the panel on screen.
+— the `flushBottom` prop on `AnimatedModal`. A sticky box keeps inside its
+scrollport's padding, so the padding has to be gone whenever the bar is drawn,
+not only while its panel is the one on screen: cire's `EventSheet` sets
+`flushBottom` for both of its panels, because a swipe draws the RSVP form
+(`RsvpPanel`) in beside the details, and the details carry their bottom padding
+on their own wrapper instead.
+
+In a sheet of fixed height a short form would leave the bar under its last field,
+since `sticky` only ever moves a box to keep it in view. The bar needs a column
+that fills the scrollport and `mt-auto` to reach its foot: the scrollport, the
+wrapper around the panel and the form are each a flex column that grows.
 
 For that to work the panel around the scrollport must not itself scroll, which is
 `Modal`'s `frame` — see [[wiki/shared/component-library]] §Overlays, which
@@ -380,16 +389,17 @@ Reading an animation's timing back from `getComputedStyle` — to run a Web
 Animations API tween in step with a CSS animation — gives a comma-separated
 list, one entry per animation. Split on `,`, the value
 `cubic-bezier(0.22, 1, 0.36, 1)` becomes `cubic-bezier(0.22`, and
-`element.animate()` throws on it. Take the first entry at top level only
-(`firstOfCssList` in cire's `components/EventSheet.tsx`).
+`element.animate()` throws on it. Take the first entry at top level only. A
+duration list has no parentheses, so a plain split is exact there.
 
-Read the duration back the same way rather than writing it twice. The
-reduced-motion clamp in a stylesheet does not reach a WAAPI animation, but a
-duration read from the clamped CSS animation carries the clamp's 0.01ms with it.
+Read the duration back rather than writing it twice. The reduced-motion clamp
+in a stylesheet does not reach a WAAPI animation or a script's timer, but a
+duration read from the clamped CSS carries the clamp's 0.01ms with it: cire's
+`EventSheet` reads its swipe-settle transition's duration (`cssTimeMs`) for the
+fallback timer that ends a settle which fires no `transitionend`.
 
 The fast tier cannot see either: jsdom computes no animation, so the value is
-empty and no tween runs. `EventSheet.browser.test.tsx` caught the split, where
-the throw also left the arriving panel taking no pointer input.
+empty and no tween runs.
 
 ## Server-rendered islands
 

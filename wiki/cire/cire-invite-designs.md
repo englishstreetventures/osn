@@ -349,10 +349,32 @@ event and the panel to open on.
   sheet's content starts below the row (`toolbar` on `AnimatedModal`). On the
   form it is disabled while a save is in flight and while the sheet closes
   itself on a saved reply. A tap on it while a slide or swipe is still running
-  is ignored, and so is a tap on the backdrop: the badge sits in the same
-  corner on both panels and the sheet changes height under the finger, so the
-  second tap of a double tap would otherwise go straight back or close the
-  sheet.
+  is ignored: the badge sits in the same corner on both panels, so the second
+  tap of a double tap would otherwise go straight back.
+- **One height.** The sheet keeps one height whichever panel shows: 70% of a
+  phone's screen (`70dvh`), and from `md` 85% of the window (`85vh`, the
+  presentation's own cap) up to 640px (`AnimatedModal`). Its edge does not move on a badge press or a
+  swipe, in either direction, nor when the form grows as the guest answers: a
+  panel taller than the sheet scrolls inside it. Nothing is measured, so
+  neither panel loads anything for the other's sake. A sparse event leaves
+  empty sheet under its details; the form fills the sheet with its action bar
+  on the bottom edge however short it is, and a form a swipe draws in is drawn
+  at the sheet's full height, so its bar does not drop when it lands. The
+  scrollport has no bottom padding for either panel (the bar is `sticky`, and
+  a sticky box keeps inside its scrollport's padding); the details carry that
+  padding on their own wrapper. The values are the owner's request for less
+  empty sheet under a sparse event, settled by rendering. At 390×844 the
+  sheet is 591px, and a sparse event's details leave 323px of it empty
+  (about 450px at 85%); a household of one answering "Attending" needs 410px, so its
+  whole reply shows, as it still does at 375×667. At 1280×800 the sheet is
+  640px, and the same reply shows every diet and allergy choice above its
+  bar, with only "Other" below (722px needed); 600px would put an allergy row
+  under the bar. The chrome is clear of every safe area: on a phone the
+  sheet's top is at 30% of the screen (× at 262px on 390×844, 179px on
+  320×568), and in landscape, which takes the `md` rule, it sits 182px in from
+  each side.
+
+  *Measured 2026-10-21 — a temporary probe test forcing candidate heights on `EventSheet` (65, 70, 75dvh; 600, 640, 680px) at 390×844, 375×667, 320×568, 844×390 and 1280×800, Chromium 1194; the 722px and 410px are the content-sized sheet on main (364cabde)*
 - **A swipe does the same.** On a touch screen the panel on screen follows a
   sideways drag toward the other panel — the details sit on the start side,
   the form on the end side — with the other panel drawn beside it, `inert`
@@ -386,14 +408,12 @@ event and the panel to open on.
   arrives with the sheet, and one that arrived by a swipe does not slide
   again: it eases from where the finger let go to rest on
   `transition-panel-settle`, the slide's own 280ms and curve, before the
-  switch. The sheet's height eases from one panel's to the
-  other's over the same time, through the Web Animations API, timed from the
-  panel's computed animation. Until the slide ends the arriving panel takes no
+  switch. Until the slide ends the arriving panel takes no
   pointer input, so the second tap of a double tap cannot land on a control it
   has not shown yet, and the panels' wrapper clips sideways overflow, which
   the sliding form's full-bleed action bar would otherwise cause. Outside a
   switch nothing is clipped. Under reduced motion the global clamp makes the
-  switch instant, the resize included.
+  switch instant.
 - **Past the RSVP deadline** the form is read-only: each member's answer on
   file is written out in place of the answer pair, and one line about stored
   dietary data takes the consent boxes' place ([[cire-rsvp-deadline]]). The
@@ -410,7 +430,10 @@ event and the panel to open on.
 Tests: `tests/components/EventSheet.test.tsx` (what mounts, hides, names and
 takes focus; the badge; the deadline), `sheet-swipe.test.ts` (the swipe's
 thresholds), `EventSheet.browser.test.tsx` (in Chromium, see
-[[browser-tests]]; the swipes are real touches sent through `cdp()`), the
+[[browser-tests]]; the swipes are real touches sent through `cdp()`; the
+sheet's height read on every frame of a journey by badge and by swipe, for a
+sparse event and a full one; a full event's panels scrolled to their ends;
+with screenshots of each panel under `__screenshots__/`), the
 `cire-rsvp` end-to-end flow (a phone-sized round trip by swipe and badge,
 with screenshots of both panels), both packs' `InvitePage.test.tsx` (which panel each button
 opens, on every open) and `InvitePage.browser.test.tsx` (the round trip in each

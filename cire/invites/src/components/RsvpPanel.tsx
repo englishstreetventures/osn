@@ -705,9 +705,11 @@ export function RsvpPanel(props: RsvpPanelProps) {
   }
 
   // The action bar at the foot of the form is a full-bleed sticky footer that
-  // owns the sheet's bottom edge (and its safe-area padding), so the sheet
-  // drops its own bottom padding while this panel shows (`EventSheet`'s
-  // `flushBottom`).
+  // owns the sheet's bottom edge (and its safe-area padding), so the sheet's
+  // scrollport has no bottom padding of its own (`EventSheet`'s
+  // `flushBottom`). The sheet keeps one height whatever the form holds, so the
+  // form grows to fill the column `EventSheet` lays this panel out in, and the
+  // bar sits at its foot: on the edge however short the form is.
   return (
     <>
       <header
@@ -756,7 +758,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
         </p>
       </Show>
 
-      <form class="flex flex-col gap-5" onSubmit={handleSubmit}>
+      <form class="flex grow flex-col gap-5" onSubmit={handleSubmit}>
         <For each={eventMembers()}>
           {(member) => {
             const guestId = member.guestId;
@@ -1018,8 +1020,10 @@ export function RsvpPanel(props: RsvpPanelProps) {
             bottom padding (`flushBottom`) rather than this bar cancelling it
             with a negative margin: `bottom: 0` resolves against the scrollport,
             so a negative bottom margin lifts the bar up over the last card
-            instead of stretching it down into the padding. */}
-        <div class="border-border bg-surface sticky bottom-0 -mx-6 flex gap-3 border-t px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-4">
+            instead of stretching it down into the padding. `mt-auto` takes it
+            to the foot of a form shorter than the sheet; `sticky` holds it
+            there over a longer one. */}
+        <div class="border-border bg-surface sticky bottom-0 -mx-6 mt-auto flex gap-3 border-t px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-4">
           <Button
             variant="quiet"
             type="button"
