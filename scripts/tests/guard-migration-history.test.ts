@@ -150,10 +150,10 @@ test("the label never lets a migration with no statement through", () => {
 
 // ── reading git ──────────────────────────────────────────────────────────────
 
-test("parseNameStatus reads adds, edits, deletes and renames", () => {
+test("parseNameStatus reads adds, edits, deletes and renames from NUL-separated output", () => {
   expect(
     parseNameStatus(
-      "A\tcire/db/migrations/20261021031500_add_bio.sql\nM\tREADME.md\nD\tx.sql\nR100\ta.sql\tb.sql\n",
+      "A\0cire/db/migrations/20261021031500_add_bio.sql\0M\0README.md\0D\0x.sql\0R100\0a.sql\0b.sql\0",
     ),
   ).toEqual([
     { status: "A", path: "cire/db/migrations/20261021031500_add_bio.sql" },
@@ -214,4 +214,14 @@ test("the command lets an edit through with --allow-rewrite", () => {
     ["--allow-rewrite"],
   );
   expect(edited.exitCode).toBe(0);
+});
+
+test("the command checks an added file whose name git would quote, not skip it", () => {
+  // Without NUL-separated output git writes this path quoted, with escapes, and
+  // it would match no migration directory: every added-file rule skipped.
+  const quoted = runOnCommit((root) =>
+    writeFileSync(join(root, "cire/db/migrations/20261021031500_café.sql"), "-- nothing to run\n"),
+  );
+  expect(quoted.exitCode).toBe(1);
+  expect(quoted.output).toContain("20261021031500_café.sql");
 });

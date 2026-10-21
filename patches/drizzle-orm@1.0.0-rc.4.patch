@@ -1,3 +1,37 @@
+diff --git a/effect-core/errors.cjs b/effect-core/errors.cjs
+index 9ec5bab6a265fbdb694e4fffa639ebea7be3a6cc..36ed2cb87c1bca3349a371a972c66e5a68019f70 100644
+--- a/effect-core/errors.cjs
++++ b/effect-core/errors.cjs
+@@ -18,10 +18,11 @@ var EffectDrizzleQueryError = class EffectDrizzleQueryError extends effect_Schem
+ }) {
+ 	static [__entity_ts.entityKind] = "EffectDrizzleQueryError";
+ 	get message() {
+-		return `Failed query: ${this.query}\nparams: ${this.params}`;
++		return `Failed query: ${this.query}`;
+ 	}
+ 	constructor(params) {
+ 		super(params);
++		Object.defineProperty(this, "params", { value: this.params, enumerable: false, writable: true, configurable: true });
+ 		Error.captureStackTrace(this, EffectDrizzleQueryError);
+ 	}
+ };
+diff --git a/effect-core/errors.js b/effect-core/errors.js
+index 290da3a291c8919c16f1092c74e0a7f4a5feaf53..6092e38d17775553f2b579f0a5beb52424f16f2b 100644
+--- a/effect-core/errors.js
++++ b/effect-core/errors.js
+@@ -15,10 +15,11 @@ var EffectDrizzleQueryError = class EffectDrizzleQueryError extends Schema$1.Tag
+ }) {
+ 	static [entityKind] = "EffectDrizzleQueryError";
+ 	get message() {
+-		return `Failed query: ${this.query}\nparams: ${this.params}`;
++		return `Failed query: ${this.query}`;
+ 	}
+ 	constructor(params) {
+ 		super(params);
++		Object.defineProperty(this, "params", { value: this.params, enumerable: false, writable: true, configurable: true });
+ 		Error.captureStackTrace(this, EffectDrizzleQueryError);
+ 	}
+ };
 diff --git a/errors.cjs b/errors.cjs
 index 46d7733d38c2d9a31b8a0c39d778634d2bf4b140..deb09bbbdce589ced21458c1ed0ed96933bfd3a8 100644
 --- a/errors.cjs
@@ -30,3 +64,49 @@ index d9eda4a86439ecfec167d5fd4f554e3a1dc39067..2b61cfe6b90ade8620a21b3be92ace95
  		this.cause = cause;
  		this.name = "DrizzleQueryError";
  		Error.captureStackTrace(this, DrizzleQueryError);
+diff --git a/logger.cjs b/logger.cjs
+index 3ae6933a1d1ae8bf745b073e693750a918bf47c6..3b45a6532302a829dc60d56a24820d3ddf4ac1e8 100644
+--- a/logger.cjs
++++ b/logger.cjs
+@@ -15,16 +15,8 @@ var DefaultLogger = class {
+ 	constructor(config) {
+ 		this.writer = config?.writer ?? new ConsoleLogWriter();
+ 	}
+-	logQuery(query, params) {
+-		const stringifiedParams = params.map((p) => {
+-			try {
+-				return JSON.stringify(p);
+-			} catch {
+-				return String(p);
+-			}
+-		});
+-		const paramsStr = stringifiedParams.length ? ` -- params: [${stringifiedParams.join(", ")}]` : "";
+-		this.writer.write(`Query: ${query}${paramsStr}`);
++	logQuery(query, _params) {
++		this.writer.write(`Query: ${query}`);
+ 	}
+ };
+ var NoopLogger = class {
+diff --git a/logger.js b/logger.js
+index 841f6cfde3bd0c849a76ca104d32a0cdb3484be3..f05416afc8a6caefce11a51467eda8cac15b0653 100644
+--- a/logger.js
++++ b/logger.js
+@@ -13,16 +13,8 @@ var DefaultLogger = class {
+ 	constructor(config) {
+ 		this.writer = config?.writer ?? new ConsoleLogWriter();
+ 	}
+-	logQuery(query, params) {
+-		const stringifiedParams = params.map((p) => {
+-			try {
+-				return JSON.stringify(p);
+-			} catch {
+-				return String(p);
+-			}
+-		});
+-		const paramsStr = stringifiedParams.length ? ` -- params: [${stringifiedParams.join(", ")}]` : "";
+-		this.writer.write(`Query: ${query}${paramsStr}`);
++	logQuery(query, _params) {
++		this.writer.write(`Query: ${query}`);
+ 	}
+ };
+ var NoopLogger = class {

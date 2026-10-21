@@ -51,22 +51,31 @@ export type Change =
   | { readonly status: "A" | "M" | "D" | "T"; readonly path: string }
   | { readonly status: "R" | "C"; readonly from: string; readonly path: string };
 
-/** `git diff --name-status` output, renames and copies included. */
+/**
+ * `git diff -z --name-status` output, renames and copies included. NUL-separated
+ * because the default output quotes a path holding a tab, a quote or a byte
+ * above 0x7F, and a quoted path would match no migration directory.
+ */
 export function parseNameStatus(output: string): Change[] {
-  return output
-    .split("\n")
-    .filter((line) => line.trim() !== "")
-    .map((line): Change => {
-      const [code = "", first = "", second] = line.split("\t");
-      const status = code[0];
-      if ((status === "R" || status === "C") && second !== undefined) {
-        return { status, from: first, path: second };
-      }
-      if (status === "A" || status === "M" || status === "D" || status === "T") {
-        return { status, path: first };
-      }
-      throw new Error(`unreadable git diff line: ${line}`);
-    });
+  const fields = output.split("\0").filter((field) => field !== "");
+  const lines: string[] = [];
+  for (let i = 0; i < fields.length;) {
+    const code = fields[i]!;
+    const paths = code.startsWith("R") || code.startsWith("C") ? 2 : 1;
+    lines.push([code, ...fields.slice(i + 1, i + 1 + paths)].join("\t"));
+    i += 1 + paths;
+  }
+  return lines.map((line): Change => {
+    const [code = "", first = "", second] = line.split("\t");
+    const status = code[0];
+    if ((status === "R" || status === "C") && second !== undefined) {
+      return { status, from: first, path: second };
+    }
+    if (status === "A" || status === "M" || status === "D" || status === "T") {
+      return { status, path: first };
+    }
+    throw new Error(`unreadable git diff line: ${line}`);
+  });
 }
 
 /** The migration directory `path` sits under, and the part of it below that. */
@@ -149,9 +158,13 @@ export function refusals(
 
 if (import.meta.main) {
   const allowRewrite = Bun.argv.slice(2).includes("--allow-rewrite");
-  const diff = spawnSync("git", ["diff", "--name-status", "--find-renames", "HEAD^1", "HEAD"], {
-    encoding: "utf8",
-  });
+  const diff = spawnSync(
+    "git",
+    ["diff", "-z", "--name-status", "--find-renames", "HEAD^1", "HEAD"],
+    {
+      encoding: "utf8",
+    },
+  );
   if (diff.status !== 0) {
     process.stderr.write(
       `::error::guard-migration-history: git diff HEAD^1 HEAD failed; the checkout needs fetch-depth: 2. ${diff.stderr.trim()}\n`,

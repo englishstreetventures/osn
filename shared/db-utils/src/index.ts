@@ -176,8 +176,12 @@ export async function commitBatch(db: Db, statements: BatchItem<"sqlite">[]): Pr
  * bun:sqlite, reaches the caller as drizzle's `DrizzleQueryError`, whose
  * message names only the statement (`Failed query: …`) and whose `cause`
  * carries `UNIQUE constraint failed: …`. Reading `error.message` alone misses
- * that case. The repository's drizzle-orm patch keeps bound values out of every
- * message here, so the text is safe to log.
+ * that case.
+ *
+ * For matching only: never log it or put it in a response. The `cause`
+ * messages are the driver's own, and a D1 bind error names the value it could
+ * not bind. Log `String(error)`, which the repository's drizzle-orm patch keeps
+ * free of bound values.
  */
 export function driverErrorText(error: unknown): string {
   const lines: string[] = [];
