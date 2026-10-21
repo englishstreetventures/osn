@@ -526,6 +526,21 @@ describe("EventSheet — the badge", () => {
     );
   });
 
+  it("brightens its hairline under a hovering pointer", async () => {
+    // On a desktop the badge answers a pointer over it, as every bordered
+    // control here does: its accent hairline goes from 40% to full strength.
+    await openOn("details");
+    const give = badge("Give RSVP");
+    const atRest = getComputedStyle(give).borderTopColor;
+    expect(alphaOf(atRest)).toBeLessThan(255);
+    await userEvent.hover(give);
+    // Past the base's 100ms colour transition.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const hovered = getComputedStyle(give).borderTopColor;
+    expect(hovered).not.toBe(atRest);
+    expect(alphaOf(hovered)).toBe(255);
+  });
+
   it("starts the content below the bar on a 320px phone", async () => {
     await page.viewport(320, 640);
     render(() => <Harness />);
