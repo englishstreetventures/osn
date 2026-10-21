@@ -80,6 +80,12 @@ test("cire-registry-locked", async ({ page, context, flow }) => {
   flow.check("gift data on the invitation", "none", giftListTextIn(await page.content()));
 
   const stale = await flow.step("come back with a stale hint and a dead session", async () => {
+    // Leave the invitation before the cookies change. Its islands hydrate on
+    // their own schedule and `page.goto` replaces it only once the next page
+    // answers, so an island mounting after the hint is set would send its own
+    // session restore and list read: requests from a page this step is not
+    // about, which the waits below could take for the gift page's.
+    await page.goto("about:blank");
     await context.addCookies([
       { name: "cire_claimed", value: "1", url: ORIGINS.cireInvites },
       // 64 hex characters, the shape of a real token, which the API never issued.
