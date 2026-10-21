@@ -8,6 +8,7 @@ import { createSignal, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
+import { invalidateTasks } from "../lib/tasks-store";
 import { TIER_LABEL } from "../lib/tiers";
 import type { PaidTier, Tier } from "../lib/tiers";
 import { browserTimeZone, describeTimeZone } from "../lib/timezones";
@@ -120,6 +121,10 @@ export default function SettingsPanel(props: SettingsPanelProps) {
   // guard below judges the CHANGE, not the value — otherwise a wedding whose
   // RSVP date has passed could never save this panel again.
   const [seededRsvpDeadline, setSeededRsvpDeadline] = createSignal("");
+  // The wedding date as the server last gave it. Checklist tasks seeded from
+  // the starter take their due dates from it, so a save that moves it has
+  // re-dated them, and the cached checklist has to be read again.
+  let seededWeddingDate: string | null = null;
 
   const [saving, setSaving] = createSignal(false);
 
@@ -136,6 +141,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
     setDisplayName(profile.displayName);
     setSlug(profile.slug);
     setWeddingDate(profile.weddingDate ?? "");
+    seededWeddingDate = profile.weddingDate;
     setGuestCount(profile.guestCountEstimate === null ? "" : String(profile.guestCountEstimate));
     setCurrency(profile.currency);
     setRsvpDeadline(profile.rsvpDeadline ?? "");
@@ -278,6 +284,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
         return;
       }
       const body = (await res.json()) as { wedding: WeddingProfile };
+      if (body.wedding.weddingDate !== seededWeddingDate) invalidateTasks(props.weddingId);
       seed(body.wedding);
       props.onWeddingUpdated?.({
         displayName: body.wedding.displayName,

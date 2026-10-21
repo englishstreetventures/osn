@@ -32,7 +32,7 @@
     "happy-dom": "^20.12.2",
     "miniflare": "^4.20260730.0",
     "solid-js": "^1.9.15",
-    "vite": "^8.2.2",
+    "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "5.0.3"
   },

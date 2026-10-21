@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f10ad273-0065-48a4-abb6-7a26fa4a28ba",
+  "id": "983e4c15-e3fb-40fb-91d5-6df07a9410b1",
   "prevId": "d3890306-b3f2-46ef-b3d2-f16dbe7b7ebb",
   "tables": {
     "budget_items": {
@@ -409,13 +409,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "venue_name": {
-          "name": "venue_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "address": {
@@ -2697,6 +2690,67 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "task_template_dismissals": {
+      "name": "task_template_dismissals",
+      "columns": {
+        "wedding_id": {
+          "name": "wedding_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "template_id": {
+          "name": "template_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "template_item": {
+          "name": "template_item",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "dismissed_at": {
+          "name": "dismissed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "task_template_dismissals_wedding_id_weddings_id_fk": {
+          "name": "task_template_dismissals_wedding_id_weddings_id_fk",
+          "tableFrom": "task_template_dismissals",
+          "tableTo": "weddings",
+          "columnsFrom": [
+            "wedding_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "task_template_dismissals_wedding_id_template_id_template_item_pk": {
+          "columns": [
+            "wedding_id",
+            "template_id",
+            "template_item"
+          ],
+          "name": "task_template_dismissals_wedding_id_template_id_template_item_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "tasks": {
       "name": "tasks",
       "columns": {
@@ -2771,6 +2825,35 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "template_id": {
+          "name": "template_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "template_item": {
+          "name": "template_item",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "due_offset_days": {
+          "name": "due_offset_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "due_source": {
+          "name": "due_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'manual'"
         }
       },
       "indexes": {
@@ -2782,6 +2865,16 @@
             "sort_order"
           ],
           "isUnique": false
+        },
+        "tasks_wedding_template_item_unique": {
+          "name": "tasks_wedding_template_item_unique",
+          "columns": [
+            "wedding_id",
+            "template_id",
+            "template_item"
+          ],
+          "isUnique": true,
+          "where": "template_id IS NOT NULL"
         }
       },
       "foreignKeys": {

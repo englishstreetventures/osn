@@ -635,6 +635,14 @@ covers every browser:
 An unmount never fires `onClose` (the listener is removed first), so closing
 the dialog by answering it cannot trigger the reopen.
 
+**`onClose` always sets `open` back to false.** Escape and the back gesture
+close the element before `onClose` runs, so a guard that returns early — "not
+while saving" — leaves `open` true against a closed dialog, and the next
+`open={true}` changes nothing: the dialog cannot be opened again until a
+reload. A dialog that must stay up takes the four props above; work that ends
+after its dialog closed reports through a toast
+(`cire/host/src/components/ChecklistStarter.tsx` does both halves).
+
 #### What has to sit above a modal — and why a `z-index` will not do it
 
 The top layer is the reason to use `Modal`, and it is also the trap. It paints

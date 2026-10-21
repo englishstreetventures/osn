@@ -554,7 +554,11 @@ export default function ModuleShell(props: ModuleShellProps) {
 
               {/* ── Checklist: freeform tasks by lead-time bucket ────────────── */}
               <Show when={module() === "checklist"}>
-                <ChecklistView weddingId={props.weddingId} canEdit={props.canEdit} />
+                <ChecklistView
+                  weddingId={props.weddingId}
+                  canEdit={props.canEdit}
+                  canManage={props.canManage}
+                />
               </Show>
 
               {/* ── Budget: per-category items + payments ────────────────────── */}

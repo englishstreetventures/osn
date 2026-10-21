@@ -2,10 +2,11 @@ import { registrySettings, weddings } from "@cire/db";
 import { and, eq, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { DbService, dbQuery, outerColumn } from "../db";
+import { commitBatchResults, DbService, dbQuery, outerColumn } from "../db";
 import { isRsvpClosed } from "../lib/rsvp-deadline";
 import { metricWeddingSettingsSaved } from "../metrics";
 import type { UpdateSettingsBody } from "../schemas/settings";
+import { reanchorTemplateDueDates } from "./tasks";
 
 /** The wedding profile as the Settings surface reads/writes it. Superset of
  *  `WeddingSummary` (the list shape) — everything an organiser edits here.
@@ -207,16 +208,24 @@ export const weddingSettingsService = {
         ? sql`not exists (select 1 from ${registrySettings} where ${registrySettings.weddingId} = ${outerColumn(weddings.id)} and ${registrySettings.cashGiftsEnabled} = 1 and ${registrySettings.stripeAccountId} is not null and (${registrySettings.stripeDefaultCurrency} is null or upper(${registrySettings.stripeDefaultCurrency}) <> ${patch.currency}))`
         : undefined;
 
+      const write = db
+        .update(weddings)
+        .set({ ...changes, updatedByOsnProfileId, updatedAt: new Date() })
+        .where(and(eq(weddings.id, weddingId), unlocked))
+        .returning({ id: weddings.id });
+
+      // A save that carries the wedding date re-dates the checklist tasks that
+      // follow it, in the same batch. The re-dating reads the date as STORED
+      // once the UPDATE has run, so a refused save moves nothing, and a save
+      // whose date matches the one read above still catches tasks up with a
+      // date another tab stored meanwhile.
       const written = yield* Effect.tryPromise({
-        try: () =>
-          Promise.resolve(
-            db
-              .update(weddings)
-              .set({ ...changes, updatedByOsnProfileId, updatedAt: new Date() })
-              .where(and(eq(weddings.id, weddingId), unlocked))
-              .returning({ id: weddings.id })
-              .all(),
-          ),
+        try: async () =>
+          patch.weddingDate === undefined
+            ? await Promise.resolve(write.all())
+            : ((
+                await commitBatchResults(db, [write, reanchorTemplateDueDates(db, weddingId)])
+              )[0] as { id: string }[]),
         catch: (cause) => new SettingsWriteError({ reason: "update", cause }),
       });
       if (written.length === 0) {

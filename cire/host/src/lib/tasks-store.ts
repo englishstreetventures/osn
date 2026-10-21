@@ -18,6 +18,8 @@ export interface TaskRow {
   sortOrder: number;
   createdAt: number;
   completedAt: number | null;
+  /** The seat (`hostId` in `GET …/hosts`) holding the task, or null for nobody. */
+  assignedHostId: string | null;
 }
 
 interface CacheEntry {
@@ -51,6 +53,19 @@ export function hasCachedTasks(weddingId: string): boolean {
 export function setCachedTasks(weddingId: string, tasks: TaskRow[]): void {
   if (isWeddingClosed(weddingId)) return;
   entryFor(weddingId).setTasks(tasks);
+}
+
+/**
+ * Replace the list with the whole list a write just answered with. It is the
+ * newest read there is, so the wedding is fresh again, and the generation moves
+ * on so a load already in flight — started before the write — discards what it
+ * fetches instead of landing on top.
+ */
+export function setFreshTasks(weddingId: string, tasks: TaskRow[]): void {
+  if (isWeddingClosed(weddingId)) return;
+  generation.set(weddingId, generationOf(weddingId) + 1);
+  entryFor(weddingId).setTasks(tasks);
+  stale.delete(weddingId);
 }
 
 /** Subscribes only when the entry already exists — a read from a cold cache

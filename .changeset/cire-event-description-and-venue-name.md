@@ -13,7 +13,7 @@ Organisers can give an event a description and a venue name, and guests see both
   characters, as the server caps it.
 - **The events spreadsheet** gains a **Description** column. Its **Location**
   column is now the venue's name and fills the new `events.venue_name` column
-  (migration `0086_event_venue_name.sql`). It no longer stands in for a blank
+  (migration `0088_event_venue_name.sql`). It no longer stands in for a blank
   Address, which stays blank. A sheet without a Location or Description column
   leaves what each event already has; a blank cell in one clears it, and the
   preview warns, per event, before a save clears a venue name or a

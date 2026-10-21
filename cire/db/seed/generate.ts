@@ -35,6 +35,7 @@ import {
   type SeedBudgetItem,
   type SeedFamily,
   type SeedRsvp,
+  type SeedTask,
 } from "./data";
 
 // SQL single-quote escaping: double any embedded apostrophe.
@@ -462,21 +463,23 @@ ${rows.join(",\n")};`,
 
 function tasksBlock(): string {
   const rows = tasks.map(
-    (t) => `  (
+    (t: SeedTask) => `  (
     ${sql(t.id)}, ${sql(bootstrapWedding.id)}, ${sql(t.title)}, ${sqlOrNull(t.notes)},
     ${sql(t.timeframeBucket)}, ${sqlOrNull(t.dueAt)}, ${sql(t.status)}, ${t.sortOrder},
-    unixepoch(), ${t.completedDaysAgo === null ? "NULL" : daysAgo(t.completedDaysAgo)}
+    unixepoch(), ${t.completedDaysAgo === null ? "NULL" : daysAgo(t.completedDaysAgo)},
+    ${sqlOrNull(t.assignedHostId ?? null)}
   )`,
   );
   return section(
     `Checklist tasks (${rows.length}) — across every lead-time bucket`,
     `-- \`timeframe_bucket\` is a key from cire/api/src/lib/checklist-buckets.ts.
 -- \`sort_order\` restarts at 0 in each bucket — it orders within a bucket, and
--- the reorder endpoint rewrites exactly that run.
+-- the reorder endpoint rewrites exactly that run. \`assigned_host_id\` names a
+-- seat from the block above, so this block must follow it.
 INSERT OR IGNORE INTO tasks (
   id, wedding_id, title, notes,
   timeframe_bucket, due_at, status, sort_order,
-  created_at, completed_at
+  created_at, completed_at, assigned_host_id
 ) VALUES
 ${rows.join(",\n")};`,
   );

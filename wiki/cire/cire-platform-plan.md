@@ -125,11 +125,11 @@ PRs 0–2 can run in parallel. The IA shell deliberately lands **early** (not la
 ```
 tasks: id, wedding_id FK↘, title, notes, category (service-category enum + 'general'),
        due_at (nullable), timeframe_bucket ('12m'|'9m'|'6m'|'3m'|'1m'|'2w'|'week_of'|'day_of'),
-       status ('open'|'done'|'skipped'), assignee_osn_profile_id (nullable, opaque usr_*),
+       status ('open'|'done'|'skipped'), assigned_host_id (nullable FK → wedding_hosts, a seat),
        vendor_id (nullable FK, Phase 2), sort_order, created_at, completed_at
 ```
 
-Seed from a versioned template (`cire/api/src/lib/checklist-template.ts`) resolved against `wedding_date` — "book your venue" lands at 12 months out, "final head-count to caterer" at 2 weeks. Re-anchoring when the date changes shifts *incomplete* seeded tasks only. Day-of tasks link to Schedule events → the day-of run-sheet view falls out of Schedule + `day_of` tasks.
+Seed from the starter template (`cire/api/src/lib/checklist-starter.ts`, registered in `cire/api/src/lib/checklist-templates.ts`) resolved against `wedding_date` — "visit and book your venues" lands at 12 months out, "confirm timings with every supplier" at 2 weeks. Re-anchoring when the date changes shifts *open* seeded tasks whose date the couple has not set. Built: [[cire-checklist-tasks#Starter checklist]]. The assignee is a seat of the wedding, not a profile id, so the helper run sheet can filter on it; built: [[cire-checklist-tasks#Assignee]]. Day-of tasks link to Schedule events → the day-of run-sheet view falls out of Schedule + `day_of` tasks.
 
 ### 4.2 Budget v1
 
@@ -282,7 +282,7 @@ the phase's epic in GitHub Issues + the phase's section above; skim the rest.
 ### Per-phase entry points
 
 - **Phase 0** — start from §3.6's PR table. PR 0/1/2 are independent; PR 4 (the `families` rebuild) is the only risky migration — read §3.2's mechanics note first. The roles PR extends `middleware/wedding-member.ts` + `wedding_hosts.role` (no CHECK constraint — data UPDATE + Drizzle enum widening only). The IA PR restructures `OrganiserApp.tsx`/`DashboardTabs.tsx` + `dashboard-route.ts` and must fold in the P-I3 fetch-lift (root TODO, Performance Backlog).
-- **Phase 1** — greenfield tables (`tasks`, `budget_items`, `payments`) + the shared category enum (`cire/api/src/lib/service-categories.ts`, mirror the pulse `shareSource` single-source-of-truth pattern). No auth changes; everything rides `weddingMember()`/`weddingEditor()`. Checklist template is a versioned TS module resolved against `weddings.wedding_date` (nullable — seed only when set, re-anchor incomplete seeded tasks on change).
+- **Phase 1** — greenfield tables (`tasks`, `budget_items`, `payments`) + the shared category enum (`cire/api/src/lib/service-categories.ts`, mirror the pulse `shareSource` single-source-of-truth pattern). No auth changes; everything rides `weddingMember()`/`weddingEditor()`. Checklist template is a TS module resolved against `weddings.wedding_date` (nullable — without it the seeded tasks have no due date until the date is set; re-anchor open seeded tasks on change).
 - **Phase 2** — CRM first (`vendors`, wedding-scoped, §5.1) — it is deliberately shippable without the directory. Directory (§5.2) introduces the third principal (vendor = OSN account + `directory_vendors.owner_osn_profile_id` authz) and the D1 geo query (bounding-box prefilter on indexed lat/lng, haversine order). The event point this searches around is **no longer stored** (the `events` location columns were retired by 0036) — geocode `events.address` on-demand at search time. Check [[decisions/deferred-decisions]] for the open vendor-identity decision before building self-serve.
 - **Phase 3** — pure-function engine (`services/pricing.ts`) over a versioned dataset (`lib/pricing-baselines.ts`). The old Phase 0 `pricing_region` column + its geocoding flow were **retired by migration 0036** (redundant, unbuilt-only); when this phase is built, **geocode `events.address` on-demand** to derive the region then (no stored copy). v2 (directory quote blending) needs the k-anonymity floor from §6 — do not ship aggregates without it.
 - **Phase 4** — seating consumes Guests + RSVPs (watch the host-family and `""`-endAt invariants); comms is **blocked** on guest email columns (consent decision in [[decisions/deferred-decisions]]) and prod email being enabled (root TODO "Re-enable email later") — build key-optional/fail-soft regardless.
