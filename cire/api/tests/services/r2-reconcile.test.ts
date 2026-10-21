@@ -1313,7 +1313,8 @@ describe("r2PositionStore", () => {
 /**
  * A Worker that runs one R2 call per request against its own binding and
  * answers with plain JSON. `{ bucket, op, args }` names the binding, the call
- * and its arguments; `seed` writes every key it is given, in one request.
+ * and its arguments; `seed` writes every key it is given, one after another,
+ * in one request, so the test sends it at most `SEED_BATCH` keys at a time.
  */
 const R2_WORKER = `
 export default {
@@ -1422,7 +1423,20 @@ describe("reconcileOrphanObjects against workerd's R2", () => {
     },
   });
 
-  const seed = (bucket: string, keys: ReadonlyArray<string>) => call(bucket, "seed", keys);
+  // After a request that keeps workerd busy for about ten seconds, the next
+  // request bun's fetch sends over the same keep-alive connection fails with
+  // "The socket connection was closed unexpectedly". A request that only
+  // waits that long does not do it. Writing 1 005 objects in one request
+  // takes about 2 s on an idle 4-core machine and up to 17 s with sixteen
+  // busy processes beside it, and the request after the seed is the walk's
+  // stop check. So the seed goes in requests of `SEED_BATCH` keys, about half
+  // a second each even with twenty-four busy processes beside it.
+  const SEED_BATCH = 100;
+  const seed = async (bucket: string, keys: ReadonlyArray<string>) => {
+    for (let i = 0; i < keys.length; i += SEED_BATCH) {
+      await call(bucket, "seed", keys.slice(i, i + SEED_BATCH));
+    }
+  };
 
   beforeAll(async () => {
     mf = new Miniflare({

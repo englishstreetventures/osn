@@ -776,13 +776,29 @@ Run serially. Concurrent Miniflare workerd instances contend and fail spuriously
 `@cire/api#test` boots workerd in more files than the D1 suite: `tests/index.test.ts`, `tests/db/d1-session.test.ts`, `tests/db/query-error.test.ts` and `tests/services/r2-reconcile.test.ts` as well. Two things about them are easy to miss.
 
 - **Proxied reads block.** `mf.getD1Database()` and `mf.getR2Bucket()` return proxies. A property read on a proxied object, such as a listed R2 object's `key` or `uploaded`, or a D1 statement's `prepare` and `bind`, is a synchronous round trip to workerd: Miniflare makes it with `Atomics.wait` on the test's main thread. A test that makes thousands of them takes a second on a laptop and tens of seconds when CI runs every package's tests at once.
-- **A timeout is worse than a failure.** When a Miniflare-backed test outlives its budget, bun kills the file's workerd (the log says `killed 1 dangling process`), and the next proxied read waits forever. `bun test` never exits, and the CI job runs until its own timeout cancels it.
+- **A timeout is worse than a failure.** When a Miniflare-backed test outlives its budget, bun kills the file's workerd (the log says `killed 1 dangling process`), and the next proxied read waits forever. `bun test` never exits, and the CI job runs until its own timeout cancels it. Where the next read does return, it fails instead, and so does every later test in the file: osn/api's D1 file shows `The socket connection was closed unexpectedly` and `Attempted to use poisoned stub` after one timeout.
 
 So keep bulk reads and writes inside workerd. Give Miniflare a small Worker script that does the work against its own binding and answers with plain JSON, as [r2-reconcile.test.ts](../../cire/api/tests/services/r2-reconcile.test.ts) does. Give every Miniflare-backed test a budget well above its time in a cold run of the whole suite. A change to `bun.lock` makes every turbo task miss its cache, so the next CI run is that cold run.
 
 The R2 walk test read a thousand listed objects through the proxy and took 28–36 s against its 30 s budget in a cold run.
 
 *Measured 2026-10-07 — `bun run test` on ubuntu-latest with no turbo cache, n=3*
+
+### Seeding a Miniflare test
+
+Keeping bulk work inside workerd holds for every Miniflare-backed file, not only cire's fast tier.
+
+- **D1: send drizzle's SQL to the Worker.** Build the rows with drizzle as usual and call `toSQL()` on each insert: it returns the statement's text and its parameters already mapped to driver values. The file's Worker runs the list as one `env.DB.batch(...)` against its own binding, in order and all or nothing. `seedInWorkerd` in [osn/api's d1-integration.test.ts](../../osn/api/tests/d1/d1-integration.test.ts) does this. One row per statement keeps each under D1's 100 bound parameters ([[d1-limits]]). A test whose subject is drizzle's D1 write path still writes through `mf.getD1Database()`, since that path is what it proves.
+- **Keep each request short.** After one request keeps workerd busy for about ten seconds, the next request bun's fetch sends over the same keep-alive connection fails with `TypeError: The socket connection was closed unexpectedly`. A request that only waits that long does not do it. A seed that writes everything in one request is quick on an idle machine and crosses that line on a busy one, so send it in slices: [r2-reconcile.test.ts](../../cire/api/tests/services/r2-reconcile.test.ts) writes 100 keys per request.
+- **Set the budget once per file.** `setDefaultTimeout(ms)` from `bun:test`, called at the top of a file, gives every test and hook in that file the budget and reaches no other file in the same run. A third argument on each `it` does the same per test, as cire's D1 file does with `MF_TIMEOUT_MS`, but oxfmt then re-indents every test body that takes one.
+
+The osn co-member fan-out test seeded 1,522 rows with about 3,000 proxied `prepare` and `bind` calls and took 4.7 s of its 5 s budget on an idle machine. Seeded in one request, it takes 0.5 s idle and under 1 s with every core busy.
+
+*Measured 2026-10-21 — `bun test tests/d1/d1-integration.test.ts --reporter=junit` in `osn/api`, 4-core cloud container, idle and beside four `while :; do :; done` loops; n=1 before, n=5 after*
+
+One request writing 7,000 R2 objects (13–18 s) broke the request after it 4 times in 4. The same objects in 100-key requests did not, and neither did one request that slept for 16 s.
+
+*Measured 2026-10-21 — scratch Miniflare probe in `cire/api/tests`, 4-core cloud container, idle, n=4 each*
 
 ### D1's error shape in a bun test
 

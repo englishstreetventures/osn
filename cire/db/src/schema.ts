@@ -1116,7 +1116,7 @@ export const rsvps = sqliteTable(
     // safe half of this pair.
     dietaryPresets: text("dietary_presets").notNull().default(""),
     // Explicit Art. 9(2)(a) consent record for the special-category `dietary`
-    // free-text (see [[wiki/compliance/dpia/cire-guest-data]] → C-H2). Captured
+    // free-text (see [[wiki/compliance/dpia/cire-guest-data]] §4). Captured
     // here, 1:1 with the RSVP, because consent authorises exactly this row's
     // dietary data and the `(guest_id, event_id)` upsert already keys it — a
     // separate table would duplicate that key and add a join for no gain. Both
@@ -1127,7 +1127,7 @@ export const rsvps = sqliteTable(
     dietaryConsentVersion: text("dietary_consent_version"),
     // WHO recorded this reply AND on whose consent authority the dietary
     // free-text is held (migration 0037; see [[wiki/compliance/dpia/cire-guest-data]]
-    // → C-H2 organiser-attested variant). `'guest'` — the guest RSVP'd
+    // §4, the organiser-attested variant). `'guest'` — the guest RSVP'd
     // themselves and gave their own Art. 9(2)(a) consent. `'organiser_attested'`
     // — an organiser recorded a phone/paper RSVP on the guest's behalf and
     // *attests* the guest consented to storing dietary requirements.
@@ -1596,7 +1596,7 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   // The guest IMAGE cache version (migration 0029) — bumped ONLY by image
   // upload/remove/crop and a hero-blur change, never by copy/theme-colour
-  // saves, so those stay image-cache-neutral (WT-P-I1). NULL (a row that has
+  // saves, so those stay image-cache-neutral. NULL (a row that has
   // only ever seen copy saves) coalesces to `updated_at` at read time.
   imagesUpdatedAt: integer("images_updated_at", { mode: "timestamp" }),
 });
@@ -1670,7 +1670,7 @@ export const imports = sqliteTable(
     beforeGuestsR2Key: text("before_guests_r2_key"),
   },
   (t) => [
-    // P-W1: import-list pagination is `WHERE wedding_id = ? [AND uploaded_at <
+    // Import-list pagination is `WHERE wedding_id = ? [AND uploaded_at <
     // cursor] ORDER BY uploaded_at DESC`. This composite covers the scope +
     // cursor/order in one b-tree (and also serves revert.ts's
     // `wedding_id = ? AND status = 'applied' ORDER BY uploaded_at DESC` with
