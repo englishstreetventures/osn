@@ -1,5 +1,12 @@
 # @osn/ui
 
+## 3.0.15
+
+### Patch Changes
+
+- Updated dependencies [e5fc2a7]
+  - @shared/toast@0.3.7
+
 ## 3.0.14
 
 ### Patch Changes

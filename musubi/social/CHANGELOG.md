@@ -1,5 +1,13 @@
 # @osn/social
 
+## 0.18.10
+
+### Patch Changes
+
+- Updated dependencies [e5fc2a7]
+  - @shared/toast@0.3.7
+  - @osn/auth-ui@3.0.15
+
 ## 0.18.9
 
 ### Patch Changes
