@@ -4,7 +4,7 @@ import { realtimeSubscribeBudget, weddingHosts, weddings } from "@cire/db";
 import { hashToken } from "@shared/crypto/tokens";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { HubNamespace } from "@shared/realtime/server";
-import { DrizzleQueryError, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { Elysia } from "elysia";
 
@@ -357,22 +357,23 @@ describe("createRealtimeRoute — refused", () => {
 });
 
 /**
- * Make every statement that names `table` fail as Drizzle's D1 driver does:
- * with a `DrizzleQueryError` whose message ends in the bound params. The
- * bun:sqlite driver throws its own error, which names no params, so a dropped
- * table could not show what a failed D1 lookup would put in the log.
+ * Make every statement that names `table`, and opens with `verb` when one is
+ * given, fail when it runs, with a driver error that names the bound params,
+ * as a D1 bind error can; drizzle wraps it in a `DrizzleQueryError`, as it
+ * does on D1. A dropped table fails before any value is bound, so it could not
+ * show what a failed lookup would put in the log. Drizzle's bun:sqlite session
+ * gets each statement through `client.query`, so that is what is shadowed.
  */
-function failLikeD1(db: ReturnType<typeof createDb>, table: string) {
+function failLikeD1(db: ReturnType<typeof createDb>, table: string, verb = "") {
   const client = db.$client;
   const prepare = client.prepare.bind(client);
-  // Drizzle's bun:sqlite session gets every statement through `client.query`.
   Object.defineProperty(client, "query", {
     configurable: true,
     value: (sql: string) => {
       const statement = prepare(sql);
-      if (!sql.includes(`"${table}"`)) return statement;
+      if (!sql.startsWith(verb) || !sql.includes(`"${table}"`)) return statement;
       const fail = (...params: unknown[]) => {
-        throw new DrizzleQueryError(sql, params, new Error("D1_ERROR"));
+        throw new Error(`D1_ERROR: ${sql}\nparams: ${params.join(", ")}`);
       };
       return new Proxy(statement, {
         get: (target, key) =>
@@ -434,7 +435,9 @@ describe("createRealtimeRoute — a lookup that fails", () => {
   it("503s when the daily budget cannot be read, and logs no profile id", async () => {
     const { db, route, hub } = setup();
     const headers = await bearer(OWNER);
-    failLikeD1(db, "realtime_subscribe_budget");
+    // The insert binds the profile id; the prune that runs before it binds
+    // only the day, so failing the prune would leave nothing to leak.
+    failLikeD1(db, "realtime_subscribe_budget", "insert");
     let status = 0;
     const out = await captureLogs(async () => {
       status = (await upgrade(route, headers)).status;
