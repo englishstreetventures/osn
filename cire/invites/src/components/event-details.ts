@@ -217,14 +217,22 @@ export function formatTimeRange(
 }
 
 /**
+ * The start of a Google Maps search URL, completed by an
+ * `encodeURIComponent`-escaped query: the one way both {@link resolveMapsUrl}
+ * and the venue row's Google Maps entry (`maps-destinations.ts`) search.
+ */
+export const GOOGLE_MAPS_SEARCH = "https://www.google.com/maps/search/?api=1&query=";
+
+/**
  * Resolve a safe, always-working "open in maps" URL.
  *
  * Prefers the organiser-supplied `mapsUrl` when it is a valid http(s) link;
  * otherwise derives a Google Maps *search* URL from {@link venueQuery}. Returns
  * null only when neither a usable link nor anything to search for is
  * available, so the caller can hide the affordance rather than render a dead
- * button. What the venue row offers is {@link mapsDestinations}, which has
- * something in it exactly when this is not null.
+ * button. What the venue row offers is `mapsDestinations`
+ * (`maps-destinations.ts`), which has something in it exactly when this is not
+ * null.
  */
 export function resolveMapsUrl(
   event: Pick<EventSummary, "mapsUrl" | "address" | "venueName">,
@@ -234,11 +242,17 @@ export function resolveMapsUrl(
 
   const venue = venueQuery(event);
   if (!venue) return null;
-  return searchUrl("google", venue);
+  return `${GOOGLE_MAPS_SEARCH}${encodeURIComponent(venue)}`;
 }
 
-/** The organiser's `mapsUrl`, trimmed and parsed, when it is an http(s) link. */
-function organiserMapsUrl(event: Pick<EventSummary, "mapsUrl">): { text: string; url: URL } | null {
+/**
+ * The organiser's `mapsUrl`, trimmed and parsed, when it is an http(s) link:
+ * the one parse {@link resolveMapsUrl} and `mapsDestinations` both read, so the
+ * venue row and what it offers cannot disagree about whether there is one.
+ */
+export function organiserMapsUrl(
+  event: Pick<EventSummary, "mapsUrl">,
+): { text: string; url: URL } | null {
   const written = event.mapsUrl?.trim();
   if (!written) return null;
   try {
@@ -247,90 +261,6 @@ function organiserMapsUrl(event: Pick<EventSummary, "mapsUrl">): { text: string;
   } catch {
     return null;
   }
-}
-
-/** The map apps "Open in maps" offers, in the order it offers them. */
-const MAPS_PROVIDERS = ["google", "apple", "waze"] as const;
-type MapsProvider = (typeof MAPS_PROVIDERS)[number];
-
-const PROVIDER_LABEL = {
-  google: "Google Maps",
-  apple: "Apple Maps",
-  waze: "Waze",
-} as const satisfies Record<MapsProvider, string>;
-
-/** A provider's search for `query`, which is `encodeURIComponent`-escaped. */
-function searchUrl(provider: MapsProvider, query: string): string {
-  const q = encodeURIComponent(query);
-  switch (provider) {
-    case "google":
-      return `https://www.google.com/maps/search/?api=1&query=${q}`;
-    case "apple":
-      return `https://maps.apple.com/?q=${q}`;
-    case "waze":
-      return `https://waze.com/ul?q=${q}&navigate=yes`;
-  }
-}
-
-/**
- * Google's own hosts: `google.com`, a country's `google.<cc>`, `google.co.<cc>`
- * or `google.com.<cc>`, bare or under `www.` or `maps.`. A hand-written set
- * rather than the public suffix list: it only has to name the hosts an
- * organiser pastes from a maps app's share button.
- */
-const GOOGLE_HOST = /^(?:(www|maps)\.)?google\.(?:com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/;
-
-/**
- * Which map app an organiser's link opens, or null for any other site. A
- * Google host counts only under `/maps` (or on `maps.`), since the same hosts
- * serve search; `goo.gl` only under `/maps/`, since it shortened every kind
- * of link. A miss costs the link its label, not its safety: the organiser
- * wrote it, and it is shown as the venue's own map.
- */
-function providerOf(url: URL): MapsProvider | null {
-  const host = url.hostname;
-  const google = GOOGLE_HOST.exec(host);
-  if (google) return google[1] === "maps" || url.pathname.startsWith("/maps") ? "google" : null;
-  if (host === "maps.app.goo.gl" || host === "g.page") return "google";
-  if (host === "goo.gl") return url.pathname.startsWith("/maps/") ? "google" : null;
-  if (host === "maps.apple.com" || host.endsWith(".maps.apple.com") || host === "maps.apple") {
-    return "apple";
-  }
-  if (host === "waze.com" || host.endsWith(".waze.com")) return "waze";
-  return null;
-}
-
-/** One way to open the venue in a map: its words, and where it goes. */
-export interface MapsDestination {
-  label: string;
-  href: string;
-}
-
-/**
- * Every map "Open in maps" offers for the venue: Google Maps, Apple Maps and
- * Waze, each searching for {@link venueQuery}, `encodeURIComponent`-escaped.
- *
- * The organiser's own http(s) `mapsUrl` — a pinned entrance or car park —
- * takes the place of the provider whose link it is ({@link providerOf}); a
- * link to any other site leads the list as "Venue map". With nothing to search
- * for, the organiser's link is the whole list, and with neither the list is
- * empty. So it has something in it exactly when {@link resolveMapsUrl} does,
- * which is what `hasVenue` and the venue row ask.
- */
-export function mapsDestinations(
-  event: Pick<EventSummary, "mapsUrl" | "address" | "venueName">,
-): MapsDestination[] {
-  const direct = organiserMapsUrl(event);
-  const own = direct ? providerOf(direct.url) : null;
-  const query = venueQuery(event);
-  const out: MapsDestination[] = [];
-  if (direct && !own) out.push({ label: "Venue map", href: direct.text });
-  for (const provider of MAPS_PROVIDERS) {
-    if (direct && provider === own)
-      out.push({ label: PROVIDER_LABEL[provider], href: direct.text });
-    else if (query) out.push({ label: PROVIDER_LABEL[provider], href: searchUrl(provider, query) });
-  }
-  return out;
 }
 
 /**

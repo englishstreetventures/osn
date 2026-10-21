@@ -4,13 +4,13 @@ import { createMemo, Show } from "solid-js";
 import { ConsentGate } from "./consent/ConsentGate";
 import {
   addressRepeatsName,
-  mapsDestinations,
   resolveMapsEmbedUrl,
   resolveMapsUrl,
   venueLine,
   venueName,
 } from "./event-details";
 import { LinkMenu } from "./LinkMenu";
+import { mapsDestinations } from "./maps-destinations";
 import type { EventSummary } from "./types";
 
 interface MapPreviewProps {

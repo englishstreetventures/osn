@@ -511,14 +511,19 @@ render wherever the server ran.
   ("The Glasshouse, 124 Sample Avenue"), leaving it off by the same rule
   (`venueLocation`).
 - **Open in maps offers the guest's own map app**
-  (`mapsDestinations` in `event-details.ts`): Google Maps, Apple Maps and
-  Waze, in that order, each searching for the address (else the name),
-  escaped. The organiser's own http(s) link takes the place of the app whose
-  link it is, read from its host — Google's `google.<tld>` hosts under
-  `/maps` or on `maps.`, `maps.app.goo.gl`, `goo.gl/maps/…` and `g.page`;
-  `maps.apple.com` and `maps.apple`; `waze.com` — and a link to any other
-  site leads the list as "Venue map". A host it does not recognise costs the
-  link its label, not its place. With more than one destination it is a link
+  (`mapsDestinations` in `maps-destinations.ts`, which only the event sheet
+  loads): Google Maps, Apple Maps and Waze, in that order, each searching for
+  the address (else the name), escaped once for all three. The organiser's
+  own http(s) link takes the place of the app whose link it is, read from its
+  host — a closed list of Google's domains (`google.com` and the country
+  domains it names, such as `google.co.uk`, `google.com.au` and `google.de`,
+  each bare or under `www.` or `maps.`) under `/maps` or on `maps.`, plus
+  `maps.app.goo.gl`, `goo.gl/maps/…` and `g.page`; `maps.apple.com` and
+  `maps.apple`; `waze.com` — and a link to any other site leads the list as
+  "Venue map". The Google list is closed rather than a pattern because under
+  a country whose registry runs no `co.` or `com.` (`.de`), `google.com.de`
+  is anyone's to register. A host it does not recognise costs the link its
+  label, not its place. With more than one destination it is a link
   menu (see the link menus below); with one — the
   organiser's link and nothing to search for — a plain link marked ↗. The row
   shows exactly when `resolveMapsUrl` has somewhere to go, which is exactly
