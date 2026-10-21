@@ -6,7 +6,7 @@
 
 The day-of run sheet. A checklist task can be given a time on the day: a fixed
 time in a zone, or a link to an event counted in minutes from its start, which
-follows the event wherever it moves (migration 0093, `PATCH …/tasks/:taskId`
+follows the event wherever it moves (migration `20261021153838_task_run_time`, `PATCH …/tasks/:taskId`
 `runTime`; every task answer carries the derived time). `GET …/run-sheet` lists
 the wedding's events with every timed or day-of task, by instant, narrowed on
 the server to a helper's scope, Gold and 120 a minute per organiser. A schedule

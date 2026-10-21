@@ -24,7 +24,7 @@ event — or sits in the `day_of` bucket. Done tasks stay, marked done.
 
 ## A task's time
 
-Migration `0093_task_run_time.sql` adds five nullable columns to `tasks`
+Migration `20261021153838_task_run_time.sql` adds five nullable columns to `tasks`
 ([[cire-checklist-tasks]]), with `ALTER TABLE ADD` and no
 rebuild. Only the task service and the schedule change write them, all five
 together, so a task is always in one of four states. No CHECK constraint holds
@@ -284,7 +284,7 @@ titles and notes are sensitive).
 - `cire/api/tests/services/import-linked-tasks.test.ts` and
   `tests/routes/organiser-changes.test.ts` — the preview list, keep and remove,
   races, dismissals, one batch per removed event, revert, publishes, counts.
-- `cire/api/tests/db/migration-0093.test.ts`, `tasks-event-index.test.ts`,
+- `cire/api/tests/db/migration-20261021153838.test.ts`, `tasks-event-index.test.ts`,
   `d1-integration.test.ts` — the migration keeps every row, the SET NULL, the
   index.
 - `cire/host/tests/lib/run-sheet-store.test.ts`, `run-sheet.test.ts`,

@@ -3,8 +3,8 @@
  * reads it.
  *
  * A task is in one of four states (the columns are `tasks.run_*`, migration
- * 0093; only `services/tasks.ts` and the schedule change in
- * `services/import.ts` write them):
+ * 20261021153838_task_run_time; only `services/tasks.ts` and the schedule
+ * change in `services/import.ts` write them):
  *  - untimed;
  *  - fixed: a stored instant and the zone it was set in;
  *  - linked: an event and an offset in minutes from the event's START, so the
