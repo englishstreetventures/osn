@@ -4,5 +4,10 @@
 export { MAX_FALLBACK_BEACON_BYTES, readFallbackOutcome, recordClientFallback } from "./fallback";
 export type { CloseTargets, HubNamespace, HubStub } from "./hub-namespace";
 export { REALTIME_METRICS, type PublishResult, type SubscribeOutcome } from "./metrics";
-export { publish, PUBLISH_TIMEOUT_MS, type PublishOptions } from "./publish";
+export {
+  publish,
+  PUBLISH_TIMEOUT_MS,
+  REVOKE_RETRY_DELAYS_MS,
+  type PublishOptions,
+} from "./publish";
 export { subscribe, type SubscribeOptions } from "./subscribe";
