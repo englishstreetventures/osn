@@ -115,18 +115,15 @@ test("cire-rsvp-partial-after-deadline", async ({ page, flow }) => {
   );
   flow.check("part reply shows no tick", 0, await given.locator("svg").count());
 
+  const yourRsvp = sheet.getByRole("button", { name: "Your RSVP", exact: true });
   await flow.step("Event Details offers the reply", async () => {
     await hindu.getByRole("button", { name: "Event Details" }).click();
-    await expect(sheet.getByRole("button", { name: "View your RSVP" })).toBeVisible();
+    await expect(yourRsvp).toBeVisible();
   });
-  flow.check(
-    "details offer View your RSVP",
-    1,
-    await sheet.getByRole("button", { name: "View your RSVP" }).count(),
-  );
+  flow.check("details offer Your RSVP", 1, await yourRsvp.count());
 
   await flow.step("open the reply read-only", async () => {
-    await sheet.getByRole("button", { name: "View your RSVP" }).click();
+    await yourRsvp.click();
     await expect(
       member(CIRE_PART_GUEST.answering).getByText("Attending", { exact: true }),
     ).toBeVisible();

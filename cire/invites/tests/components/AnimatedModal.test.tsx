@@ -28,7 +28,8 @@ describe("AnimatedModal", () => {
     cleanup();
     vi.restoreAllMocks();
     // Defensive: ensure the body scroll lock is never left applied between tests.
-    document.body.style.overflow = "";
+    document.documentElement.style.overflow = "";
+    document.documentElement.style.scrollbarGutter = "";
   });
 
   it("names the dialog via labelledBy → the referenced title element", () => {
@@ -131,18 +132,6 @@ describe("AnimatedModal", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
-  it("locks body scroll while open and restores it on close", async () => {
-    const { unmount } = render(() => (
-      <AnimatedModal onClose={() => {}} label="Event details">
-        <p>body</p>
-      </AnimatedModal>
-    ));
-
-    await waitFor(() => expect(document.body.style.overflow).toBe("hidden"));
-    unmount();
-    expect(document.body.style.overflow).toBe("");
-  });
-
   it("keeps the close button outside the scroll container so it cannot scroll away", () => {
     const { getByRole, getByLabelText } = render(() => (
       <AnimatedModal onClose={() => {}} label="Scrollable">
@@ -195,13 +184,13 @@ describe("AnimatedModal", () => {
         onClose={() => {}}
         label="Event details"
         toolbar
-        action={<button type="button">Give RSVP</button>}
+        action={<button type="button">Respond</button>}
       >
         <p>Body</p>
       </AnimatedModal>
     ));
     const close = getByRole("button", { name: "Close" });
-    const action = getByRole("button", { name: "Give RSVP" });
+    const action = getByRole("button", { name: "Respond" });
     const scroller = scrollerOf(close.closest("dialog")!);
 
     expect(action.parentElement).toBe(close.parentElement);

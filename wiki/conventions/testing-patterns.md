@@ -512,7 +512,16 @@ cire/dietary/src/index.ts:224:7
    that is overwritten on every path, a log message's wording). Leave it, and
    say why in the pull request; do not write a test that asserts a string only
    to kill a mutant.
-3. **`NoCoverage` is worse than a survivor.** No test even ran the line.
+3. **Or name the browser test that kills it.** The `@cire/host` and
+   `@cire/invites` runs leave the browser tier out (below), so a mutant a
+   `*.browser.test.tsx` already kills still reports as a survivor. Run that
+   test against the mutant once, then name it in the pull request beside the
+   survivor. Do not copy the browser test into jsdom to raise the score: that is
+   a unit test written after the code, and every later change to the component
+   then edits both. A jsdom test is the answer only where no browser test
+   reaches the behaviour: a path the browser tier's Chromium never takes, such
+   as a browser without the popover API.
+4. **`NoCoverage` is worse than a survivor.** No test even ran the line.
    In a vitest package, a run that stops with `No tests were executed` is the
    same verdict for a whole file: Stryker runs only the tests that import the
    mutated file, and none does (`cire/landing/src/lib/site.ts`, used only by

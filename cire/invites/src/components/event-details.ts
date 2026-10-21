@@ -217,31 +217,49 @@ export function formatTimeRange(
 }
 
 /**
+ * The start of a Google Maps search URL, completed by an
+ * `encodeURIComponent`-escaped query: the one way both {@link resolveMapsUrl}
+ * and the venue row's Google Maps entry (`maps-destinations.ts`) search.
+ */
+export const GOOGLE_MAPS_SEARCH = "https://www.google.com/maps/search/?api=1&query=";
+
+/**
  * Resolve a safe, always-working "open in maps" URL.
  *
  * Prefers the organiser-supplied `mapsUrl` when it is a valid http(s) link;
  * otherwise derives a Google Maps *search* URL from {@link venueQuery}. Returns
  * null only when neither a usable link nor anything to search for is
  * available, so the caller can hide the affordance rather than render a dead
- * button.
+ * button. What the venue row offers is `mapsDestinations`
+ * (`maps-destinations.ts`), which has something in it exactly when this is not
+ * null.
  */
 export function resolveMapsUrl(
   event: Pick<EventSummary, "mapsUrl" | "address" | "venueName">,
 ): string | null {
-  const direct = event.mapsUrl?.trim();
-  if (direct && isHttpUrl(direct)) return direct;
+  const direct = organiserMapsUrl(event);
+  if (direct) return direct.text;
 
   const venue = venueQuery(event);
   if (!venue) return null;
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(venue)}`;
+  return `${GOOGLE_MAPS_SEARCH}${encodeURIComponent(venue)}`;
 }
 
-function isHttpUrl(s: string): boolean {
+/**
+ * The organiser's `mapsUrl`, trimmed and parsed, when it is an http(s) link:
+ * the one parse {@link resolveMapsUrl} and `mapsDestinations` both read, so the
+ * venue row and what it offers cannot disagree about whether there is one.
+ */
+export function organiserMapsUrl(
+  event: Pick<EventSummary, "mapsUrl">,
+): { text: string; url: URL } | null {
+  const written = event.mapsUrl?.trim();
+  if (!written) return null;
   try {
-    const u = new URL(s);
-    return u.protocol === "http:" || u.protocol === "https:";
+    const url = new URL(written);
+    return url.protocol === "http:" || url.protocol === "https:" ? { text: written, url } : null;
   } catch {
-    return false;
+    return null;
   }
 }
 

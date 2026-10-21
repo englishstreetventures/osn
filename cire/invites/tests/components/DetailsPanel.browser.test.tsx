@@ -187,7 +187,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   unpinZone();
-  document.body.style.overflow = "";
+  document.documentElement.style.overflow = "";
+  document.documentElement.style.scrollbarGutter = "";
   applyPaletteToRoot(null);
   const root = document.documentElement;
   for (const name of Array.from(root.style)) {
@@ -213,7 +214,7 @@ describe.each(PALETTE_PRESET_KEYS)("on the %s scheme", (palettePreset) => {
       within(dialog()).getByRole("button", { name: "Add to calendar" }),
       line(/The Grounds of Alexandria/),
       line(/7a\/2 Huntley Street/),
-      within(dialog()).getByRole("link", { name: "Open in maps" }),
+      within(dialog()).getByRole("button", { name: "Open in maps" }),
     ];
     for (const el of facts) {
       const measured = ratio(getComputedStyle(el).color, backdropOf(el));
@@ -298,9 +299,9 @@ describe("on a phone", () => {
     const controls = [
       ...dialog().querySelectorAll<HTMLElement>("a[href], button, [role='menuitem']"),
     ].filter((el) => el.getClientRects().length > 0);
-    // The close button, the badge to the RSVP form, Add to calendar, its two
+    // The close button, the switch's two segments, Add to calendar, its two
     // items, Open in maps, Open on Pinterest and Show it here.
-    expect(controls.length).toBeGreaterThanOrEqual(8);
+    expect(controls.length).toBeGreaterThanOrEqual(9);
     const short = controls
       .map((el) => ({ name: el.textContent?.trim(), height: el.getBoundingClientRect().height }))
       .filter((c) => c.height < 44);
@@ -344,7 +345,7 @@ describe("the text actions", () => {
 
     const actions = [
       within(dialog()).getByRole("button", { name: "Add to calendar" }),
-      within(dialog()).getByRole("link", { name: "Open in maps" }),
+      within(dialog()).getByRole("button", { name: "Open in maps" }),
       within(dialog()).getByRole("link", { name: "Open on Pinterest" }),
     ];
     for (const el of actions) {
@@ -441,10 +442,13 @@ describe("the calendar menu", () => {
   it("moves focus with the arrows, wrapping, and with Home and End, and keeps each key to itself", async () => {
     await page.viewport(...PHONE);
     await openSheet();
-    await userEvent.click(trigger());
+    trigger().focus();
+    await userEvent.keyboard("{Enter}");
     await calendarMenu();
     const [google, ics] = items();
     expect(document.activeElement).toBe(google);
+    // Reached by keyboard, so the item shows it: filled gold.
+    expect(alphaOf(getComputedStyle(google!).backgroundColor)).toBe(255);
 
     // Each key's default is cancelled: the menu sits inside the sheet's
     // focusable scrollport, where an unclaimed arrow, Home or End scrolls the
@@ -470,6 +474,49 @@ describe("the calendar menu", () => {
       window.removeEventListener("keydown", record);
     }
     expect(unclaimed).toEqual([]);
+  });
+
+  it("opens on the menu itself after a tap or click, with no item filled and no ring", async () => {
+    // A guest who taps "Add to calendar" has chosen nothing yet; an item
+    // filled gold the moment the menu opens reads as already chosen.
+    await page.viewport(...PHONE);
+    await openSheet();
+    await userEvent.click(trigger());
+    const menu = await calendarMenu();
+
+    expect(document.activeElement).toBe(menu);
+    expect(menu.hasAttribute("data-quiet-focus")).toBe(true);
+
+    // Nor is an item a pointer focuses — a tap lands focus on the link it
+    // presses. The fill follows keyboard focus (`focus-visible:`), not focus.
+    const [first] = items();
+    first!.focus();
+    expect(alphaOf(getComputedStyle(first!).backgroundColor)).toBe(0);
+
+    // The arrows still reach the items from the menu.
+    menu.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(items()[0]);
+  });
+
+  it("draws no ring on the menu while it is marked quiet, where a key press would draw one", async () => {
+    // Chromium never matches `:focus-visible` on a script's focus after a
+    // click, so the ring is asked for here the way an engine that does
+    // (iOS Safari after a tap) would show it: focus moved by script after a
+    // key press.
+    await page.viewport(...PHONE);
+    await openSheet();
+    trigger().focus();
+    await userEvent.keyboard("{Enter}");
+    const menu = await calendarMenu();
+
+    menu.setAttribute("data-quiet-focus", "");
+    menu.focus();
+    expect(getComputedStyle(menu).outlineStyle).toBe("none");
+
+    // Unmarked, the same focus draws the ring.
+    menu.removeAttribute("data-quiet-focus");
+    expect(getComputedStyle(menu).outlineStyle).toBe("solid");
   });
 
   it("opens from the trigger on the arrows, on the first item or the last", async () => {
@@ -536,7 +583,7 @@ describe("the calendar menu", () => {
 
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(
-      within(dialog()).getByRole("link", { name: "Open in maps" }),
+      within(dialog()).getByRole("button", { name: "Open in maps" }),
     );
   });
 
@@ -591,5 +638,82 @@ describe("the calendar menu", () => {
     expect(menuBox.left).toBeLessThan(button.getBoundingClientRect().left);
     expect(menuBox.right).toBeLessThanOrEqual(window.innerWidth - 8 + 0.5);
     expect(menuBox.left).toBeGreaterThanOrEqual(8 - 0.5);
+  });
+});
+
+describe("the maps menu", () => {
+  const trigger = () => within(dialog()).getByRole("button", { name: "Open in maps" });
+
+  it("offers the organiser's pin and the other map apps, over the sheet, at 390px", async () => {
+    // The fixture's link is a Google share link, so it stands in for Google
+    // Maps; Apple Maps and Waze search for the address.
+    await page.viewport(...PHONE);
+    await openSheet();
+    trigger().scrollIntoView({ block: "center" });
+    await userEvent.click(trigger());
+    const menu = await calendarMenu();
+    const items = within(menu).getAllByRole("menuitem") as HTMLAnchorElement[];
+    expect(items.map((item) => item.textContent)).toEqual(["Google Maps", "Apple Maps", "Waze"]);
+    expect(items[0]!.href).toBe(event.mapsUrl);
+
+    // In the top layer: the item, not the sheet under it, answers a hit test.
+    const waze = items[2]!;
+    const box = waze.getBoundingClientRect();
+    expect(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)).toBe(
+      waze,
+    );
+    expect(menu.matches(":popover-open")).toBe(true);
+    for (const item of items)
+      expect(item.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({
+      path: "__screenshots__/DetailsPanel.browser.test.tsx/maps-menu-open.png",
+    });
+  });
+
+  it("opens on its last item for ArrowUp, walks its three items both ways round, and claims every key", async () => {
+    // Three items, where the calendar's two cannot tell one step back from
+    // one step on, or ArrowUp's open from an open on the second item.
+    await page.viewport(...PHONE);
+    await openSheet();
+    const unclaimed: string[] = [];
+    const record = (e: KeyboardEvent) => {
+      if (!e.defaultPrevented) unclaimed.push(e.key);
+    };
+    window.addEventListener("keydown", record);
+    try {
+      trigger().focus();
+      await userEvent.keyboard("{ArrowUp}");
+      await calendarMenu();
+      const at = () => document.activeElement?.textContent;
+      const walk = [at()];
+      for (const key of [
+        "{ArrowUp}",
+        "{ArrowUp}",
+        "{ArrowUp}",
+        "{ArrowDown}",
+        "{ArrowDown}",
+        "{ArrowDown}",
+        "{Home}",
+        "{End}",
+      ]) {
+        await userEvent.keyboard(key);
+        walk.push(at());
+      }
+      expect(walk).toEqual([
+        "Waze",
+        "Apple Maps",
+        "Google Maps",
+        "Waze",
+        "Google Maps",
+        "Apple Maps",
+        "Waze",
+        "Google Maps",
+        "Waze",
+      ]);
+    } finally {
+      window.removeEventListener("keydown", record);
+    }
+    // The trigger's ArrowUp included: it sits in the sheet's scrollport too.
+    expect(unclaimed).toEqual([]);
   });
 });
