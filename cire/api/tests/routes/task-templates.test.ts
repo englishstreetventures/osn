@@ -8,6 +8,7 @@ import {
   weddingHosts,
   weddings,
 } from "@cire/db";
+import { createRateLimiter } from "@shared/rate-limit";
 import { eq, sql } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
@@ -103,7 +104,13 @@ function buildDb(tier: "ivory" | "gold" = "gold"): TestDb {
 
 function build(tier: "ivory" | "gold" = "gold") {
   const db = buildDb(tier);
-  return { db, app: createApp(db, { osnTestKey: auth.key }) };
+  return {
+    db,
+    app: createApp(db, {
+      osnTestKey: auth.key,
+      taskWriteLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+    }),
+  };
 }
 type App = ReturnType<typeof build>["app"];
 

@@ -2,7 +2,16 @@ import Card, { CardCtaButton, CardEyebrow, cardClass } from "@cire/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Meter } from "@shared/ui/ui/meter";
 import { Stat } from "@shared/ui/ui/stat";
-import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  on,
+  onCleanup,
+  Show,
+} from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import {
@@ -19,10 +28,12 @@ import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { formatMinor } from "../lib/money";
 import { buildAgenda, type AgendaItem } from "../lib/overview-agenda";
 import { createRsvpChangesResource } from "../lib/rsvp-changes";
+import { useTasksChanged } from "../lib/tasks-changed";
 import {
   ensureTasksLoaded,
   peekCachedTasks,
   readTaskList,
+  rereadTasks,
   type TaskList,
   taskCounts,
 } from "../lib/tasks-store";
@@ -174,6 +185,33 @@ export default function Overview(props: {
     () => props.weddingId,
   );
 
+  const loadTasks = async () => {
+    const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/tasks")));
+    if (res.status === 401) {
+      redirectToLogin();
+      return [];
+    }
+    if (!res.ok) throw new Error(`tasks ${res.status}`);
+    return readTaskList(props.weddingId, (await res.json()) as TaskList);
+  };
+
+  // The open wedding's socket says the tasks changed: the checklist card reads
+  // them again, one read for however many signals land while a read is out
+  // (`rereadTasks`). Never while the module is locked, where the read would be
+  // refused and nothing shows it.
+  createEffect(
+    on(
+      useTasksChanged(),
+      () => {
+        if (checklistLocked()) return;
+        rereadTasks(props.weddingId, loadTasks).catch((err: unknown) => {
+          if (isAuthExpired(err)) redirectToLogin();
+        });
+      },
+      { defer: true },
+    ),
+  );
+
   const [data] = createResource<OverviewData>(async () => {
     try {
       // Events + guests ride the shared caches (deduped with the other modules).
@@ -203,17 +241,7 @@ export default function Overview(props: {
         // the API refuses both reads below Gold, and nothing on this page that
         // reads them is shown. A refused tasks read would otherwise reject
         // this whole batch and blank the guest and event counts with it.
-        checklistLocked()
-          ? Promise.resolve()
-          : ensureTasksLoaded(props.weddingId, async () => {
-              const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/tasks")));
-              if (res.status === 401) {
-                redirectToLogin();
-                return [];
-              }
-              if (!res.ok) throw new Error(`tasks ${res.status}`);
-              return readTaskList(props.weddingId, (await res.json()) as TaskList);
-            }),
+        checklistLocked() ? Promise.resolve() : ensureTasksLoaded(props.weddingId, loadTasks),
         budgetLocked()
           ? Promise.resolve()
           : ensureBudgetLoaded(props.weddingId, async () => {

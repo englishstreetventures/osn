@@ -11,7 +11,7 @@ packages:
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 
 # Browser Tests
@@ -220,18 +220,52 @@ And one that is not about the viewport at all but bites the same tests: **await
 faces are self-hosted, and a line count taken against the fallback metrics is a
 different number.
 
-**This Chromium never shows a classic scrollbar.** Playwright launches headless
+**This Chromium never shows a scrollbar.** Playwright launches headless
 Chromium with `--hide-scrollbars`, so `innerWidth` equals
 `document.documentElement.clientWidth` at every width, even on a page that
 overflows or carries `overflow-y: scroll`. A test that compares widths with and
-without a scrollbar passes whatever the code does. `scrollbar-gutter: stable`
-still reserves its 15px, so the gutter itself is measurable. A test of code that
+without a scrollbar passes whatever the code does. A test of code that
 branches on a visible scrollbar stubs the one reading the code makes
 (`vi.stubGlobal("innerWidth", clientWidth + 15)`) and measures everything else in
 the engine, as `AnimatedModal.browser.test.tsx` does. A sideways shift on a
 desktop with classic scrollbars stays a manual check.
 
 *Measured 2026-10-21 — `AnimatedModal.browser.test.tsx` probes at 414×896 and 1280×800, Chromium 1194: `innerWidth` = `clientWidth` with a 4000px page; a `scrollbar-gutter: stable` root narrows a full-width block 1024 → 1009px*
+
+**A gutter's width depends on the machine's scrollbars.** Hidden is not
+overlay: `scrollbar-gutter: stable` reserves a classic scrollbar's width,
+hidden or not, and nothing for an overlay scrollbar. Chromium on Linux, CI
+included, uses classic scrollbars, and the root's gutter takes 15px there: the
+1024 → 1009px above, measured with Chromium 1194, the Linux build cloud
+sessions provide ([[#Running it locally]]). On macOS with "Show scroll bars"
+left at "Automatically based on mouse or trackpad" and no mouse connected,
+Chromium uses overlay scrollbars and the root's gutter takes 0px. In this tier a page rule does not change that: a
+`::-webkit-scrollbar` width gives a `<div>`'s gutter 15px and leaves the root's
+at 0. So a test never assumes a gutter narrows the page. It measures the root's
+gutter in the engine first (set the same properties, read the width, put them
+back), asserts against that, and also asserts the computed `scrollbar-gutter`,
+the only evidence left where the gutter takes no width. `rootGutter` in
+`AnimatedModal.browser.test.tsx` is the worked example.
+
+*Verified 2026-10-21 — CI run 39613801944 on `main` at `da153aff3` (ubuntu, `chromium_headless_shell-1234`): its Browser tests step passed while `AnimatedModal.browser.test.tsx` asserted that the open page was narrower than before*
+
+*Measured 2026-10-22 — a throwaway test in `cire/invites`, `bunx --bun vitest run --project browser`, at 414×896, macOS 27.0.1 on Apple silicon with `AppleShowScrollBars` unset (the default), `chromium_headless_shell-1234` (HeadlessChrome 151.0.7922.34): the root given `overflow: hidden; scrollbar-gutter: stable` left `<body>` at 414px with no scrollbar rule and with each of `::-webkit-scrollbar`, `html::-webkit-scrollbar`, `body::-webkit-scrollbar` and `:root::-webkit-scrollbar` set to `{ width: 15px }`; a `<div>` 200px wide with the same two properties had a `clientWidth` of 200 with no rule and 185 under `::-webkit-scrollbar { width: 15px }`. Through the wrapper below, with no rule, `<body>` went to 399px and the `<div>` to 185*
+
+**Classic scrollbars on a Mac.** To run the tier with the scrollbars CI has,
+point `VITEST_BROWSER_EXECUTABLE_PATH` at an executable wrapper that hands
+Chromium `-AppleShowScrollBars Always`. Playwright refuses that pair in
+`launchOptions`, because it reads an argument without a leading dash as a page
+to open. This works in fish and bash; the build number moves with Playwright
+(`ls ~/Library/Caches/ms-playwright`), and an Intel Mac's folder is
+`chrome-headless-shell-mac-x64`:
+
+```sh
+printf '%s\n' '#!/bin/sh' \
+  'exec ~/Library/Caches/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-mac-arm64/chrome-headless-shell "$@" -AppleShowScrollBars Always' \
+  > /tmp/chromium-classic.sh
+chmod +x /tmp/chromium-classic.sh
+VITEST_BROWSER_EXECUTABLE_PATH=/tmp/chromium-classic.sh bun run --cwd cire/invites test:browser
+```
 
 ### Chrome's accessibility tree
 
@@ -262,6 +296,8 @@ included, so an element Chrome leaves out of the tree cannot hide one.
 
 Nothing extra on a normal machine — `playwright` is a devDependency of
 `@cire/invites` and `bunx playwright install chromium` fetches the browser once.
+On a Mac, the same variable as below runs the tier with classic scrollbars
+([[#Width]]).
 
 Dev containers and this repo's cloud sessions ship a **prebuilt Chromium** whose
 build number won't match the pinned Playwright, which otherwise makes the tier
@@ -321,7 +357,7 @@ nothing.
 | `@shared/ui`     | `tests/modal.browser.test.tsx`                          | Among the platform behaviours `<dialog>` is chosen for: that a `frame` panel computes `clip` on **both** axes and so is not a scroll container — a `scrollIntoView` on a descendant outside it leaves `dialog.scrollLeft` at 0, which `overflow: hidden` does not; and that a close finishes while an endless animation, such as a loading spinner, is still running inside the dialog                                                                                                                                                                                                                                                                                                                                    |
 | `@cire/invites`  | `tests/components/RsvpPanel.browser.test.tsx`           | The RSVP form's sticky action bar, in its sheet, sits on the scrollport's bottom edge, stays put while content scrolls under it, runs full-bleed to the panel's content box, and both buttons are the topmost element at their own centre                                                                                                                                                                                                                                                                                                                                                                                       |
 | `@cire/invites`  | `tests/components/EventSheet.browser.test.tsx`          | The event sheet's two panels ([[cire-invite-designs#The event sheet]]): from the details to the form and back inside one `:modal` dialog, the hidden panel `display: none`, focus on each new heading, an answer and typed text still there on return; Escape from either panel hands focus back to the card button that opened it; the scroll goes back to the top of the new panel. The form slides in from the end and the details from the start, paused at t=0 to read the offset; mid-slide the arriving panel takes no pointer input and the scrollport has nothing to scroll sideways, and both limits lift once it settles; the panel the sheet opens on does not slide; the sheet keeps one height, read on every frame of a journey by the switch and by swipe opened on either panel, for a sparse event and a full one at 390×844, 1280×800 and 1280×720, within 1px of its height, with the details laid out as before and a screenshot of each panel under `__screenshots__/`; a full event's details and form scroll to their ends with the details' bottom padding under their last line and the last guest above the form's bar; the form's action bar sits on the scrollport's edge after a switch, and mid-drag, with the arriving panel ending on that edge and adding no scroll height, when a swipe draws the form in beside a short details panel or a scrolled long one; under emulated reduced motion the switch is instant; a spinner still turning inside the arriving panel does not hold its input off; a switch back mid-slide keeps the new slide's limits; a double tap on Respond leaves the sheet on the form for a party and for a household of one, the second tap landing on the same segment through the overlay; both segments and Add to Calendar are 44px targets at phone width, the switch centred level with the close button, a pill filled like it, and its row clear of the heading at 320px. The switch's pill: under Details at rest, under Respond after a press and with no slide when the sheet opens on the form; mid-drag at the finger's share of the width (±5%) with `data-dragging` set and no transition on the pill or the overlay, back to 0 when the drag is cancelled, under Respond after a swipe and back after the swipe home; the overlay's computed clip on the pill's box mid-drag; and screenshots of the switch on the details, mid-swipe and on the form at 390px. Focus after a switch: the arriving heading marked `data-quiet-focus` after a swipe and after a click, not after Enter on a segment, which matches `:focus-visible` and paints the ring, while the same heading with the mark computes `outline-style: none`; the mark goes on blur; a drag clears a text selection and the panels are `user-select: none` until it settles |
-| `@cire/invites`  | `tests/components/AnimatedModal.browser.test.tsx`       | The guest sheet in an engine: opened with `showModal()` (`:modal`, the top layer); first focus on the scrollport, not the close button; Escape closes it and says so; focus goes back to whatever opened it; the panel capped at 480 real pixels on both sides of the root font-size step. The page lock on the root element: wheels over the close button and over the dialog leave `scrollY` at 0, closing restores the root's inline `overflow` and the page scrolls again, and a page scrolled to 300px is still at 300px after the sheet closes. The scrollbar gutter: a page that shows no scrollbar (this engine never shows a classic one) keeps its width and `scrollbar-gutter: auto` while the sheet is open; with `innerWidth` stubbed 15px wider than the root, as a classic scrollbar reports, the gutter narrows the page while open and closing gives back its full width and `auto` |
+| `@cire/invites`  | `tests/components/AnimatedModal.browser.test.tsx`       | The guest sheet in an engine: opened with `showModal()` (`:modal`, the top layer); first focus on the scrollport, not the close button; Escape closes it and says so; focus goes back to whatever opened it; the panel capped at 480 real pixels on both sides of the root font-size step. The page lock on the root element: wheels over the close button and over the dialog leave `scrollY` at 0, closing restores the root's inline `overflow` and the page scrolls again, and a page scrolled to 300px is still at 300px after the sheet closes. The scrollbar gutter: a page that shows no scrollbar (this engine shows none on the root) keeps its width and `scrollbar-gutter: auto` while the sheet is open; with `innerWidth` stubbed 15px wider than the root, as a classic scrollbar reports, the root computes `scrollbar-gutter: stable` while open and narrows by the gutter the engine measures for it (a classic scrollbar's width on Linux, none where scrollbars overlay the page), and closing gives back its full width and `auto` |
 | `@cire/invites`  | `tests/styles/reduced-motion.browser.test.tsx`          | The clamp applies to transitions _and_ animations, `animate-spin` keeps its documented exemption, and a clamped transition still lands on its end state and fires `transitionend`                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `@cire/invites`  | `tests/components/EventCard.browser.test.tsx`           | The RSVP confirmation fill **travels** (mid-sweep scale strictly between 0 and 1, so the transition is wired to the property Tailwind actually writes), lands on the `bloom` token, and is still painted seconds past `TOTAL_DURATION_MS`; a reply already on file paints filled on the first frame; the two `scale-x-*` utilities never coexist                                                                                                                                                                                                                                                     |
 | `@cire/invites`  | `tests/components/rsvp-confirmation.browser.test.tsx`   | The same fill, driven through the real `RsvpPanel` → `EventCard` seam on real timers: nothing shows while the sheet still covers the button, a partial save leaves it plain, and a completing save's fill survives 5s+                                                                                                                                                                                                                                                                                                                                                                               |

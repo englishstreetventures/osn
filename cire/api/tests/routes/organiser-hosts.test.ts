@@ -3,6 +3,7 @@ import { describe, it, expect, beforeAll } from "bun:test";
 import { hostRsvpNotices, weddingHosts } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
+import type { CloseTargets, HubNamespace } from "@shared/realtime/server";
 import { eq } from "drizzle-orm";
 import { Elysia } from "elysia";
 
@@ -1911,5 +1912,213 @@ describe("owner change notices", () => {
     expect((await req(app, "DELETE", `${hostsPath}/${THIRD}`, OWNER)).status).toBe(200);
     expect(mail.recorded().map((m) => m.to)).toHaveLength(4);
     expect(mail.recorded().at(-1)?.to).toBe("third@example.test");
+  });
+});
+
+describe("seat writes publish members-changed", () => {
+  function recordingHub(rejects = false) {
+    const publishes: { name: string; targets: CloseTargets }[] = [];
+    const hub: HubNamespace = {
+      getByName: (name) => ({
+        publish: async (_signal, targets) => {
+          publishes.push({ name, targets });
+          if (rejects) throw new Error("hub down");
+          return 1;
+        },
+        fetch: async () => new Response(null, { status: 426 }),
+      }),
+    };
+    return { hub, publishes };
+  }
+
+  /** Make every delete from `wedding_hosts` throw, as a failed D1 statement does. */
+  function failHostDeletes(db: ReturnType<typeof createDb>) {
+    const client = db.$client;
+    const prepare = client.prepare.bind(client);
+    // Drizzle's bun:sqlite session gets every statement through `client.query`.
+    Object.defineProperty(client, "query", {
+      configurable: true,
+      value: (sql: string) => {
+        const statement = prepare(sql);
+        if (!sql.startsWith('delete from "wedding_hosts"')) return statement;
+        const fail = () => {
+          throw new Error("D1_ERROR: delete failed");
+        };
+        return new Proxy(statement, {
+          get: (target, key) =>
+            key === "all" || key === "values" || key === "get" || key === "run"
+              ? fail
+              : Reflect.get(target, key),
+        });
+      },
+    });
+  }
+
+  const topic = `cire:wedding:${WEDDING_ID}`;
+  const nobody = { name: topic, targets: { evict: [], revoke: [] } };
+  const revoking = (subject: string) => ({
+    name: topic,
+    targets: { evict: [], revoke: [subject] },
+  });
+
+  it("after an add, closing nobody", async () => {
+    const { hub, publishes } = recordingHub();
+    const { app } = buildApp({ realtimeHub: hub });
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
+    expect(res.status).toBe(201);
+    expect(publishes).toStrictEqual([nobody]);
+  });
+
+  // Every role reads the run sheet, so every role may keep listening: a move to
+  // helper loses the dashboard, which the signal's re-read drops, but not the
+  // socket. A revoke would leave their tab deaf while a reload listens again.
+  it.each([
+    ["editor", "helper"],
+    ["viewer", "helper"],
+    ["owner", "helper"],
+    ["editor", "viewer"],
+    ["viewer", "editor"],
+    ["helper", "editor"],
+    ["helper", "viewer"],
+    ["owner", "editor"],
+  ] as const)(
+    "after a change from %s to %s, closing nobody, since the new seat still listens",
+    async (from, to) => {
+      const { hub, publishes } = recordingHub();
+      const { db, app } = buildApp({ realtimeHub: hub });
+      seedHostSeat(db, COHOST, from);
+      const res = await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: to });
+      expect(res.status).toBe(200);
+      expect(publishes).toStrictEqual([nobody]);
+    },
+  );
+
+  it("not for a role change to the role the seat already holds", async () => {
+    const { hub, publishes } = recordingHub();
+    const { db, app } = buildApp({ realtimeHub: hub });
+    seedHostSeat(db, COHOST, "viewer");
+    const res = await req(app, "PUT", `${hostsPath}/${COHOST}/role`, OWNER, { role: "viewer" });
+    expect(res.status).toBe(200);
+    expect(publishes).toStrictEqual([]);
+  });
+
+  // The scope is a column of the seat, so a scope write is a seat change. It
+  // closes nobody: narrowed or widened, the helper still reads the run sheet,
+  // and their tab's re-read is what the scope filters.
+  it.each([
+    ["own", "full"],
+    ["full", "own"],
+  ] as const)("after a helper's scope moves from %s to %s, closing nobody", async (from, to) => {
+    const { hub, publishes } = recordingHub();
+    const { db, app } = buildApp({ realtimeHub: hub });
+    seedHostSeat(db, COHOST, "helper");
+    db.update(weddingHosts)
+      .set({ runSheetScope: from })
+      .where(eq(weddingHosts.osnProfileId, COHOST))
+      .run();
+    const res = await req(app, "PUT", `${hostsPath}/${COHOST}/run-sheet-scope`, OWNER, {
+      scope: to,
+    });
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({
+      host: { osnProfileId: COHOST, role: "helper", runSheetScope: to },
+    });
+    expect(publishes).toStrictEqual([nobody]);
+  });
+
+  it("not for a scope write that leaves the scope where it was", async () => {
+    const { hub, publishes } = recordingHub();
+    const { db, app } = buildApp({ realtimeHub: hub });
+    seedHostSeat(db, COHOST, "helper");
+    const res = await req(app, "PUT", `${hostsPath}/${COHOST}/run-sheet-scope`, OWNER, {
+      scope: "own",
+    });
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({
+      host: { osnProfileId: COHOST, role: "helper", runSheetScope: "own" },
+    });
+    expect(publishes).toStrictEqual([]);
+  });
+
+  it("not for a refused scope write", async () => {
+    const { hub, publishes } = recordingHub();
+    const { db, app } = buildApp({ realtimeHub: hub });
+    seedHostSeat(db, COHOST, "editor");
+    const scope = (who: string, profile: string, body: unknown) =>
+      req(app, "PUT", `${hostsPath}/${profile}/run-sheet-scope`, who, body);
+    expect((await scope(OWNER, COHOST, { scope: "full" })).status).toBe(409);
+    expect((await scope(OWNER, "usr_ghost", { scope: "full" })).status).toBe(404);
+    expect((await scope(OWNER, COHOST, { scope: "everything" })).status).toBe(400);
+    expect((await scope(COHOST, COHOST, { scope: "full" })).status).toBe(403);
+    expect(publishes).toStrictEqual([]);
+  });
+
+  // Whatever the role: every role may listen, so a removal of any seat must
+  // close its sockets. An owner's seat goes only while another owner stays.
+  it.each(["owner", "editor", "viewer", "helper"] as const)(
+    "after a removal of a %s, revoking the removed member",
+    async (role) => {
+      const { hub, publishes } = recordingHub();
+      const { db, app } = buildApp({ realtimeHub: hub });
+      seedHostSeat(db, COHOST, role);
+      const res = await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER);
+      expect(res.status).toBe(200);
+      expect(publishes).toStrictEqual([revoking(COHOST)]);
+    },
+  );
+
+  it("after a leave, revoking the member who left", async () => {
+    const { hub, publishes } = recordingHub();
+    const { db, app } = buildApp({ realtimeHub: hub });
+    seedHostSeat(db, COHOST, "helper");
+    const res = await req(app, "DELETE", `${hostsPath}/me`, COHOST);
+    expect(res.status).toBe(200);
+    expect(publishes).toStrictEqual([revoking(COHOST)]);
+  });
+
+  it("never for a refused write", async () => {
+    const { hub, publishes } = recordingHub();
+    const { db, app } = buildApp({ realtimeHub: hub });
+    seedHostSeat(db, COHOST, "editor");
+    expect((await req(app, "POST", hostsPath, OWNER, { handle: "bob" })).status).toBe(409);
+    expect((await req(app, "POST", hostsPath, OWNER, { handle: "nobody" })).status).toBe(404);
+    expect(
+      (await req(app, "PUT", `${hostsPath}/usr_ghost/role`, OWNER, { role: "viewer" })).status,
+    ).toBe(404);
+    expect((await req(app, "DELETE", `${hostsPath}/${COHOST}`, STRANGER)).status).toBe(403);
+    expect((await req(app, "DELETE", `${hostsPath}/${COHOST}`, COHOST)).status).toBe(403);
+    // The wedding's only owner can neither be removed nor leave.
+    expect((await req(app, "DELETE", `${hostsPath}/${OWNER}`, OWNER)).status).toBe(409);
+    expect((await req(app, "DELETE", `${hostsPath}/me`, OWNER)).status).toBe(409);
+    expect(publishes).toStrictEqual([]);
+  });
+
+  it("not for removing a profile that holds no seat", async () => {
+    const { hub, publishes } = recordingHub();
+    const { app } = buildApp({ realtimeHub: hub });
+    const res = await req(app, "DELETE", `${hostsPath}/${STRANGER}`, OWNER);
+    expect(res.status).toBe(200);
+    expect(publishes).toStrictEqual([]);
+  });
+
+  it("not for a removal the database fails, which answers 500", async () => {
+    const { hub, publishes } = recordingHub();
+    const { db, app } = buildApp({ realtimeHub: hub });
+    seedHostSeat(db, COHOST, "editor");
+    failHostDeletes(db);
+    const res = await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER);
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Could not remove host" });
+    expect(publishes).toStrictEqual([]);
+    expect(db.select().from(weddingHosts).all()).toHaveLength(2);
+  });
+
+  it("does not fail the write when the hub rejects", async () => {
+    const { hub } = recordingHub(true);
+    const { db, app } = buildApp({ realtimeHub: hub });
+    seedHostSeat(db, COHOST, "editor");
+    const res = await req(app, "DELETE", `${hostsPath}/${COHOST}`, OWNER);
+    expect(res.status).toBe(200);
+    expect(db.select().from(weddingHosts).all()).toHaveLength(1);
   });
 });

@@ -1413,6 +1413,26 @@ export const ownerNoticeBudget = sqliteTable(
   (t) => [primaryKey({ columns: [t.key, t.day] })],
 );
 
+/**
+ * The realtime subscribe budget: how many WebSocket subscribes one organiser
+ * was admitted past the daily ceiling on one UTC day. Every admitted subscribe
+ * is a Durable Object request from an allowance the whole Cloudflare account
+ * shares, and an in-memory counter counts per isolate, so the ceiling lives
+ * here where every isolate reads the same count. Rows older than the current
+ * day are deleted by the next subscribe and by the daily cron. `day` leads the
+ * primary key, so that delete reads only the rows it removes.
+ */
+export const realtimeSubscribeBudget = sqliteTable(
+  "realtime_subscribe_budget",
+  {
+    osnProfileId: text("osn_profile_id").notNull(),
+    // `YYYY-MM-DD`, UTC.
+    day: text("day").notNull(),
+    subscribes: integer("subscribes").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.osnProfileId] })],
+);
+
 export const sessions = sqliteTable(
   "sessions",
   {

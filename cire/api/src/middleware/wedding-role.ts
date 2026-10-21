@@ -13,6 +13,19 @@ export type { WeddingRole };
  */
 export type WeddingCapability = "member" | "editor" | "runSheet" | "manage";
 
+/**
+ * The capability that lets a seat hold a socket on its wedding's realtime
+ * topic (`GET /realtime/:topic`): the one that reads the run sheet. Every role
+ * that reaches any of the wedding's rows carries it, a `helper` included,
+ * whatever their run-sheet scope — the scope narrows what a re-read returns,
+ * not whether the tab may hear that something changed. A signal carries no
+ * data, so listening grants nothing the seat's own reads do not.
+ *
+ * The subscribe route admits on it, and a seat change revokes a member's
+ * sockets only when their new role lacks it, so the two cannot disagree.
+ */
+export const LISTEN_CAPABILITY = "runSheet" satisfies WeddingCapability;
+
 type RolePolicy = {
   capabilities: readonly WeddingCapability[];
   /**
