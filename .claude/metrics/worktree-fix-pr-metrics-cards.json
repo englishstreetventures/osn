@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1676,
+    "branch": "worktree-fix+pr-metrics-cards",
+    "base_sha": "19627c8451db6738a3c7d99be6e26720f72d7d8c",
+    "head_sha": "32bdbf593ceb82f84bd6e9371ff6bbf6c0ecd611",
+    "generated_at": "2026-10-21T15:36:34.486Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1570,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:2",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-21T15:25:03.958Z",
+    "last_ts": "2026-10-21T15:36:31.598Z",
+    "span_seconds": 688,
+    "active_seconds": 688,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 0.2806832650000001,
+    "tokens": {
+      "input": 224,
+      "output": 72581,
+      "thinking": 30041,
+      "cache_write_5m": 247395,
+      "cache_write_1h": 176578,
+      "cache_read": 17813039
+    },
+    "by_model": {
+      "claude-haiku-5-5": {
+        "tokens": {
+          "input": 224,
+          "output": 72581,
+          "thinking": 30041,
+          "cache_write_5m": 247395,
+          "cache_write_1h": 176578,
+          "cache_read": 17813039
+        },
+        "usd_equivalent": 0.2806832650000001,
+        "messages": 112
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 166,
+          "output": 72407,
+          "thinking": 30041,
+          "cache_write_5m": 0,
+          "cache_write_1h": 176578,
+          "cache_read": 16162624
+        },
+        "usd_equivalent": 0.23316193999999996,
+        "messages": 83
+      },
+      "subagent": {
+        "tokens": {
+          "input": 58,
+          "output": 174,
+          "thinking": 0,
+          "cache_write_5m": 247395,
+          "cache_write_1h": 0,
+          "cache_read": 1650415
+        },
+        "usd_equivalent": 0.047521324999999996,
+        "messages": 29
+      }
+    },
+    "effort": {
+      "medium": 112
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 4,
+      "docs": 0,
+      "config": 0,
+      "source": 2
+    },
+    "loc": {
+      "generated": {
+        "added": 14,
+        "deleted": 0
+      },
+      "test": {
+        "added": 256,
+        "deleted": 5
+      },
+      "docs": {
+        "added": 0,
+        "deleted": 0
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 218,
+        "deleted": 45
+      }
+    },
+    "packages": [
+      "tools/pr-metrics"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": 995080,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 96,
+      "Edit": 34,
+      "Agent": 6,
+      "Write": 3,
+      "Skill": 3,
+      "SubagentHandback": 3,
+      "Read": 2,
+      "EnterWorktree": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 3,
+      "max_edits_one_file": 22
+    },
+    "skills": {
+      "prep-pr": 1,
+      "write-pr": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "reviewer": 3,
+      "general-purpose": 3
+    }
+  }
+}

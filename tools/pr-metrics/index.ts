@@ -43,7 +43,7 @@
  * Readers key off this.
  */
 
-import { closeSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
 
 import { compactTokens, humanDuration } from "./format.ts";
 
@@ -409,7 +409,27 @@ function humanText(raw: string | undefined): string | null {
   const trimmed = raw?.trim();
   if (!trimmed) return null;
 
-  return trimmed.startsWith("<") ? null : trimmed;
+  if (trimmed.startsWith("<")) return null;
+
+  // A subagent hand-back or task notification can also arrive as a plain
+  // `user` record that opens with prose before its block. Only the block's
+  // position decides it, so a person who quotes the tag mid-sentence still
+  // counts.
+  if (MACHINE_PREFIX.test(trimmed)) return null;
+
+  return trimmed;
+}
+
+const MACHINE_PREFIX =
+  /^(?:Another Claude session sent a message:\s*)?<(?:agent-message|task-notification)\b/;
+
+/**
+ * A bare "continue" or "go on" — a nudge to keep an agent running, not a
+ * correction. It is still a human turn, so it counts in `user_turns`, but it
+ * says nothing about the brief and so is not `corrective_turns`.
+ */
+export function isBareContinuation(text: string): boolean {
+  return /^(?:continue|go on|keep going|carry on|proceed)[.!]*$/i.test(text.trim());
 }
 
 /**
@@ -733,7 +753,7 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
       userTurns += 1;
       // Work had already started in this session, so this turn is steering an
       // agent mid-flight rather than opening the task.
-      if (sessionsWithWork.has(session)) correctiveTurns += 1;
+      if (sessionsWithWork.has(session) && !isBareContinuation(turnText)) correctiveTurns += 1;
       continue;
     }
 
@@ -811,7 +831,21 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
   };
 }
 
-const WORKSPACE_ROOTS = ["osn", "pulse", "zap", "cire", "shared", "tools"];
+const WORKSPACE_ROOTS = ["osn", "pulse", "zap", "cire", "shared", "tools", "musubi"];
+
+/**
+ * The path a `--numstat` line names after its change. A rename arrives as
+ * `dir/{old => new}/file` or, at the top level, `old => new`; the new side is
+ * the one that exists once the change lands.
+ */
+export function renamedTo(path: string): string {
+  const braced = path.replace(/\{[^{}]*? => ([^{}]*?)\}/g, "$1");
+  if (braced !== path) return braced.replace(/\/{2,}/g, "/");
+
+  const arrow = path.indexOf(" => ");
+
+  return arrow === -1 ? path : path.slice(arrow + 4);
+}
 
 export type PathBucket = "generated" | "test" | "docs" | "config" | "source";
 
@@ -892,9 +926,10 @@ export function parseNumstat(numstat: string, commits: number): DiffSummary {
     if (!trimmed) continue;
 
     const [addedRaw, deletedRaw, ...rest] = trimmed.split("\t");
-    const path = rest.join("\t");
-    if (!path) continue;
+    const rawPath = rest.join("\t");
+    if (!rawPath) continue;
 
+    const path = renamedTo(rawPath);
     const bucket = classifyPath(path);
     files[bucket] += 1;
     loc[bucket].added += addedRaw === "-" ? 0 : num(Number.parseInt(addedRaw, 10));
@@ -902,12 +937,14 @@ export function parseNumstat(numstat: string, commits: number): DiffSummary {
 
     if (path.includes("/drizzle/") || path.includes("/migrations/")) touchesMigration = true;
 
-    // The workspace globs are `<dir>/*` for the five product directories and
-    // for `tools`, so the first two segments name the package. `tools/oxlint`
-    // is the one place that resolves to a parent of the real workspace
-    // (`tools/oxlint/house`) — still the right grouping for a card.
+    // The workspace globs are `<dir>/*` for the product directories, `tools`
+    // and `musubi`, so the first two segments name the package. A file
+    // directly inside one of those directories (`zap/README.md`) is not in a
+    // package, so it needs a third segment before it counts.
+    // `tools/oxlint` is the one place that resolves to a parent of the real
+    // workspace (`tools/oxlint/house`) — still the right grouping for a card.
     const parts = path.split("/");
-    if (parts.length >= 2 && WORKSPACE_ROOTS.includes(parts[0])) {
+    if (parts.length >= 3 && WORKSPACE_ROOTS.includes(parts[0])) {
       packages.add(`${parts[0]}/${parts[1]}`);
     }
   }
@@ -1705,25 +1742,64 @@ export interface ReadOptions {
   repoPaths?: string[];
 }
 
-/** Every transcript file under a `~/.claude/projects`-shaped directory. */
+/** One or more `~/.claude/projects`-shaped directories. */
+export type SessionsRoots = string | string[];
+
+/**
+ * Where Claude Code keeps transcripts. It writes them under
+ * `$CLAUDE_CONFIG_DIR/projects` when that variable is set, so a session started
+ * with a second config directory lands there and not in `~/.claude/projects`.
+ * Both are read when both exist: the older one holds the earlier sessions, and
+ * the branch filter decides which records belong to the card.
+ */
+export function defaultSessionsRoots(
+  env: Record<string, string | undefined> = process.env,
+): string[] {
+  const roots: string[] = [];
+  const configured = env.CLAUDE_CONFIG_DIR?.replace(/\/+$/, "");
+  if (configured) roots.push(`${configured}/projects`);
+
+  // With no HOME there is no home directory to read. Without this guard the
+  // root would be the literal string "undefined/.claude/projects".
+  if (env.HOME) {
+    const home = `${env.HOME}/.claude/projects`;
+    if (!roots.includes(home)) roots.push(home);
+  }
+
+  return roots;
+}
+
+/** Every transcript file under one or more `~/.claude/projects`-shaped directories. */
 function transcriptFiles(
-  sessionsDir: string,
+  sessionsDir: SessionsRoots,
   repoPaths?: string[],
 ): { file: string; isSubagent: boolean; ownedByRepo: boolean }[] {
-  const roots: [string, boolean][] = [
-    [`${sessionsDir}/*/*.jsonl`, false],
-    [`${sessionsDir}/*/*/subagents/*.jsonl`, true],
-  ];
-  const files: { file: string; isSubagent: boolean; ownedByRepo: boolean }[] = [];
   const prefixes = repoPaths?.map(encodeProjectDir);
+  const files: { file: string; isSubagent: boolean; ownedByRepo: boolean }[] = [];
 
-  for (const [pattern, isSubagent] of roots) {
-    const found = Bun.spawnSync(["sh", "-c", `ls -1 ${pattern} 2>/dev/null || true`], {
-      stdout: "pipe",
-    });
+  for (const root of [sessionsDir].flat()) {
+    // A root that does not exist holds no transcripts. Scanning it would throw.
+    if (!existsSync(root)) continue;
 
-    for (const file of found.stdout.toString().split("\n").filter(Boolean)) {
-      files.push({ file, isSubagent, ownedByRepo: ownedByRepo(sessionsDir, file, prefixes) });
+    const patterns: [string, boolean][] = [
+      ["*/*.jsonl", false],
+      ["*/*/subagents/*.jsonl", true],
+      // Agents a Workflow run starts write one level deeper, under
+      // `subagents/workflows/<run-id>/`. They are subagent spend all the same.
+      ["*/*/subagents/workflows/*/*.jsonl", true],
+    ];
+
+    // Globbed in-process rather than through `sh -c`: the root comes from an
+    // environment variable, and a path with a space or a metacharacter in it
+    // would otherwise split the pattern and drop transcripts without a word.
+    for (const [pattern, isSubagent] of patterns) {
+      const matches = [
+        ...new Bun.Glob(pattern).scanSync({ cwd: root, absolute: true, followSymlinks: true }),
+      ].toSorted();
+
+      for (const file of matches) {
+        files.push({ file, isSubagent, ownedByRepo: ownedByRepo(root, file, prefixes) });
+      }
     }
   }
 
@@ -1751,10 +1827,10 @@ function firstLine(file: string): string | null {
 
 /** Whether a transcript's project directory belongs to this repository. With
  * no prefixes given, nothing is scoped and every file counts as owned. */
-function ownedByRepo(sessionsDir: string, file: string, prefixes: string[] | undefined): boolean {
+function ownedByRepo(root: string, file: string, prefixes: string[] | undefined): boolean {
   if (!prefixes || prefixes.length === 0) return true;
 
-  const project = file.slice(sessionsDir.length + 1).split("/")[0] ?? "";
+  const project = file.slice(root.length + 1).split("/")[0] ?? "";
 
   return prefixes.some((prefix) => project === prefix || project.startsWith(`${prefix}-`));
 }
@@ -1806,7 +1882,10 @@ function isAmbiguousBranch(branch: string | undefined): boolean {
  * write. This is what makes a forgotten one visible on the next card instead
  * of silently reproducing the under-reporting the marker exists to fix.
  */
-export function unattributedSubagentFiles(sessionsDir: string, options: ReadOptions = {}): number {
+export function unattributedSubagentFiles(
+  sessionsDir: SessionsRoots,
+  options: ReadOptions = {},
+): number {
   let count = 0;
 
   for (const { file, isSubagent, ownedByRepo } of transcriptFiles(sessionsDir, options.repoPaths)) {
@@ -1839,7 +1918,7 @@ export function unattributedSubagentFiles(sessionsDir: string, options: ReadOpti
  * and a live card that disagreed about the same branch.
  */
 export function recordsByBranch(
-  sessionsDir: string,
+  sessionsDir: SessionsRoots,
   options: ReadOptions = {},
 ): Map<string, SessionRecord[]> {
   const byBranch = new Map<string, SessionRecord[]>();
@@ -1903,7 +1982,7 @@ export function recordsByBranch(
  * one conversation into two files, and both copies are real.
  */
 export function readRecordsForBranch(
-  sessionsDir: string,
+  sessionsDir: SessionsRoots,
   branch: string,
   options: ReadOptions = {},
 ): SessionRecord[] {
@@ -2073,11 +2152,11 @@ function resolveIdentity(branch: string): ResolvedIdentity {
     "--limit",
     "1",
     "--json",
-    "number,closingIssuesReferences",
+    "number,body,closingIssuesReferences",
   ]);
   if (listed === null) return miss;
 
-  let pulls: { number: number; closingIssuesReferences: IssueReference[] }[];
+  let pulls: { number: number; body: string | null; closingIssuesReferences: IssueReference[] }[];
   try {
     pulls = JSON.parse(listed) as typeof pulls;
   } catch {
@@ -2087,17 +2166,38 @@ function resolveIdentity(branch: string): ResolvedIdentity {
   const pull = pulls[0];
   if (pull === undefined) return miss;
 
-  const ref = pull.closingIssuesReferences[0];
-  if (ref === undefined) return { ...miss, prNumber: pull.number };
+  // Only this repository's issues are candidates. A private tracker issue
+  // never reaches a public card, so it is not even a candidate.
+  const sameRepoClosing = pull.closingIssuesReferences
+    .filter(
+      (ref) => repo !== null && `${ref.repository.owner.login}/${ref.repository.name}` === repo,
+    )
+    .map((ref) => ref.number);
+  const links = bodyIssueLinks(pull.body ?? "");
 
-  const identity = { ...miss, prNumber: pull.number, issueNumber: ref.number };
-  const sameRepo = repo !== null && `${ref.repository.owner.login}/${ref.repository.name}` === repo;
-  if (!sameRepo) return { ...identity, method: "not-fetched" };
+  // A closing link decides the rating. `Part of` is consulted only when the
+  // pull request closes nothing, so a child issue that closes one issue and
+  // advances its epic still rates the one it closes.
+  const closing = chooseLinkedIssue([...sameRepoClosing, ...links.closes]);
+  const { issue, candidates } =
+    closing.candidates.length > 0 ? closing : chooseLinkedIssue(links.partOf);
+
+  if (candidates.length === 0) return { ...miss, prNumber: pull.number };
+  if (issue === null) {
+    process.stderr.write(
+      `⚠️  pr-metrics: pull request #${pull.number} links ${candidates.map((n) => `#${n}`).join(", ")}. The card cannot tell which one the branch was cut for, so it records no rating. Pass --issue to choose.\n`,
+    );
+
+    return { ...miss, prNumber: pull.number, method: "lookup-failed" };
+  }
+
+  const identity = { ...miss, prNumber: pull.number, issueNumber: issue };
+  if (repo === null) return { ...identity, method: "not-fetched" };
 
   const raw = gh([
     "issue",
     "view",
-    String(ref.number),
+    String(issue),
     "--repo",
     repo,
     "--json",
@@ -2114,6 +2214,72 @@ function resolveIdentity(branch: string): ResolvedIdentity {
   const rating = declaredFromLabels(labels);
 
   return { ...identity, labels, method: rating.method, declared: rating.declared };
+}
+
+/**
+ * The branch a stacked branch was cut from, as `wiki/conventions/stacked-prs.md`
+ * tells a worktree to record it (`git config branch.<name>.gh-merge-base`), or
+ * `null` for an unstacked branch. The parent is read from `origin` when the
+ * remote has it, so the diff runs against what the pull request will merge into.
+ */
+export function parentBranch(branch: string): string | null {
+  const parent = git(["config", "--get", `branch.${branch}.gh-merge-base`]);
+  // A branch name cannot start with `-`. Passed to `git diff`, such a value
+  // would be read as an option, so it is refused rather than used.
+  if (!parent || parent.startsWith("-")) return null;
+
+  return git(["rev-parse", "--verify", "--quiet", `origin/${parent}`])
+    ? `origin/${parent}`
+    : parent;
+}
+
+/**
+ * Issue numbers a pull-request body links with a closing or `Part of` keyword,
+ * in body order. Only the same-repository form (`#N`) matches: a reference such
+ * as one that names another repository's owner and name belongs to that
+ * repository.
+ */
+export interface BodyIssueLinks {
+  /** Issues the pull request closes on merge. */
+  closes: number[];
+  /** Issues it only advances: a `Part of` line, for partial work. */
+  partOf: number[];
+}
+
+export function bodyIssueLinks(body: string): BodyIssueLinks {
+  // The alternatives have no overlapping quantifiers, so a long run of spaces
+  // after a keyword cannot backtrack quadratically on a crafted pull-request body.
+  const matches = body.matchAll(
+    /\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?|part\s+of)(?::\s*|\s+)#(\d+)\b/gi,
+  );
+  const closes = new Set<number>();
+  const partOf = new Set<number>();
+
+  for (const [, keyword = "", digits = ""] of matches) {
+    const number = Number(digits);
+    if (/^part/i.test(keyword)) partOf.add(number);
+    else closes.add(number);
+  }
+
+  return { closes: [...closes], partOf: [...partOf] };
+}
+
+/**
+ * The one issue a card rates, from the same-repository issues its pull request
+ * links. One link is the answer. Several are not: GitHub lists them by number,
+ * not by what the branch was cut for, so taking one would divide the spend by a
+ * rating the branch never earned. The caller gets the candidates to name.
+ */
+export interface LinkedIssueChoice {
+  issue: number | null;
+  candidates: number[];
+}
+
+export function chooseLinkedIssue(candidates: number[]): LinkedIssueChoice {
+  const unique = [...new Set(candidates)];
+  const only = unique.length === 1 ? (unique[0] ?? null) : null;
+
+  return { issue: only, candidates: unique };
 }
 
 function flag(name: string): string | null {
@@ -2296,8 +2462,8 @@ if (import.meta.main) {
     process.exit(1);
   }
 
-  const sessionsDir = flag("sessions-dir") ?? `${process.env.HOME}/.claude/projects`;
-  const base = flag("base") ?? "origin/main";
+  const sessionsDir: SessionsRoots = flag("sessions-dir") ?? defaultSessionsRoots();
+  const base = flag("base") ?? parentBranch(branch) ?? "origin/main";
   const records = recordsInWindow(
     readRecordsForBranch(sessionsDir, branch, { repoPaths: repoProjectPaths() }),
     window,
@@ -2345,7 +2511,7 @@ if (import.meta.main) {
 
   if (records.length === 0) {
     console.warn(
-      `⚠️  pr-metrics: no session records matched branch \`${branch}\` under ${sessionsDir}.`,
+      `⚠️  pr-metrics: no session records matched branch \`${branch}\` under ${[sessionsDir].flat().join(" or ")}.`,
     );
     console.warn("   The card still carries the diff; spend and interaction are zero.");
   }
