@@ -146,7 +146,9 @@ export const giftExportService = {
       const cashGifts = db
         .select({
           kind: sql<GiftKind>`'Cash gift'`.as("kind"),
-          itemTitle: registryItems.title,
+          // The fund's name as the guest saw it, kept on the gift: the same
+          // column the portal's log reads.
+          itemTitle: registryContributions.itemTitle,
           familyName: families.familyName,
           displayName: registryContributions.displayName,
           quantity: sql<number | null>`NULL`.as("quantity"),
@@ -164,9 +166,6 @@ export const giftExportService = {
             .as("created_at"),
         })
         .from(registryContributions)
-        // LEFT: a general cash gift has no item, and an item deleted after
-        // the fact sets `item_id` NULL rather than erasing the gift.
-        .leftJoin(registryItems, eq(registryContributions.itemId, registryItems.id))
         .innerJoin(families, eq(registryContributions.familyId, families.id))
         .where(
           and(

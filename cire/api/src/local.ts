@@ -2,7 +2,16 @@ import { makeResendEmailLive } from "@shared/email";
 import { Effect } from "effect";
 
 import { createApp } from "./app";
-import { applyE2eRsvpDeadline, createDb, repointDevOwnerSeat, seedDb } from "./db/setup";
+import {
+  applyE2eGiftList,
+  applyE2eOrganiser,
+  applyE2eRsvpDeadline,
+  createDb,
+  repointDevOwnerSeat,
+  seedDb,
+} from "./db/setup";
+import { localClientAddress } from "./lib/local-client-address";
+import { oidcConfigFromEnv } from "./lib/oidc";
 import { localResendConfig } from "./lib/resend-email";
 import { siteOriginOptions } from "./lib/web-origin";
 import { runCireSync } from "./observability";
@@ -20,9 +29,16 @@ const db = createDb(process.env.CIRE_LOCAL_DB_PATH || ":memory:");
 // far in the future) so a flow can move the browser's clock past it while this
 // server, on the suite clock, still takes replies. A malformed value throws
 // here rather than booting a server with no deadline.
+//
+// The seed has no gift list. `CIRE_E2E_REGISTRY=1` (the E2E suite) adds a
+// second wedding on Gold with a published one, for the gift-list flows, and
+// `CIRE_E2E_ORGANISER=1` three Gold weddings the dev profile owns, for the
+// organiser portal's flows.
 db.$client.transaction(() => {
   seedDb(db);
   applyE2eRsvpDeadline(db, process.env);
+  applyE2eGiftList(db, process.env);
+  applyE2eOrganiser(db, process.env);
 })();
 
 // Dev convenience: the in-memory seed gives the sample wedding's owner seat to
@@ -74,6 +90,13 @@ const assets = createAssetsStub();
 // one.
 const stripe = createStripeClientFromEnv({ STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY });
 
+// Organiser sign-in's JWKS URL. The Worker's boot requires `OSN_JWKS_URL`;
+// here an unset one is the issuer's own JWKS path, so the four values that
+// name the client are enough to sign an organiser in.
+const issuerBase = process.env.OSN_ISSUER_URL?.replace(/\/+$/, "");
+const oidcJwksUrl =
+  process.env.OSN_JWKS_URL ?? (issuerBase ? `${issuerBase}/.well-known/jwks.json` : undefined);
+
 // The guest, organiser and vendor origins come from WEB_ORIGIN's three
 // entries, read as the Worker reads them. Without the organiser and vendor
 // entries `createApp` falls back to its PRODUCTION defaults, so every Stripe
@@ -87,6 +110,21 @@ const appOptions: Parameters<typeof createApp>[1] = {
   osnJwksUrl: process.env.OSN_JWKS_URL,
   osnIssuerUrl: process.env.OSN_ISSUER_URL,
   osnAudience: process.env.OSN_AUDIENCE,
+  // Organiser sign-in, built by the Worker's own function: all five values
+  // (the JWKS URL defaulted above) or none, and none is the usual local state.
+  // The E2E stack sets them, against its own osn-api. Named one by one: Bun
+  // types `process.env` with no property in common with the env interface,
+  // which TypeScript refuses as a weak type.
+  oidc: oidcConfigFromEnv(
+    {
+      OSN_ISSUER_URL: process.env.OSN_ISSUER_URL,
+      OSN_JWKS_URL: oidcJwksUrl,
+      CIRE_API_ORIGIN: process.env.CIRE_API_ORIGIN,
+      CIRE_OIDC_CLIENT_ID: process.env.CIRE_OIDC_CLIENT_ID,
+      CIRE_OIDC_CLIENT_SECRET: process.env.CIRE_OIDC_CLIENT_SECRET,
+    },
+    origins,
+  ),
   stripe,
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? null,
   stripePlatformWebhookSecret: process.env.STRIPE_PLATFORM_WEBHOOK_SECRET ?? null,
@@ -107,19 +145,21 @@ if (localResend) appOptions.emailLayer = makeResendEmailLive(localResend);
 
 const app = createApp(db, appOptions);
 
+// Only the E2E stack sets this: it keeps the client address a request sends,
+// so an organiser's claim can come from the organiser's own address.
+const keepSentClientAddress = process.env.CIRE_E2E_CLIENT_ADDRESS === "1";
+
 const server = Bun.serve({
   port,
   // Both parameters are contextually typed by `Bun.serve`; naming `Bun.Server`
   // here would need its WebSocket type argument, which this server has not got.
   fetch(request, srv) {
-    // Local dev has no Cloudflare edge, so `cf-connecting-ip` is absent and the
-    // fail-closed rate limiter (W5) 429s every gated route (claim, preview-code,
-    // account-link, invite writes). Inject the socket peer as the trusted client
-    // IP so per-IP limiting works locally. Prod (index.ts) is unaffected —
-    // Cloudflare sets the real header at the edge.
+    // Local dev has no Cloudflare edge, so the socket peer stands in for
+    // `cf-connecting-ip`, which the fail-closed rate limiter needs on every
+    // gated route. Prod (index.ts) is unaffected: Cloudflare sets the real
+    // header at the edge. When a sent address is kept: `localClientAddress`.
     const ip = srv.requestIP(request)?.address ?? "127.0.0.1";
-    const headers = new Headers(request.headers);
-    if (!headers.has("cf-connecting-ip")) headers.set("cf-connecting-ip", ip);
+    const headers = localClientAddress(request.headers, ip, keepSentClientAddress);
     return app.fetch(new Request(request, { headers }));
   },
 });

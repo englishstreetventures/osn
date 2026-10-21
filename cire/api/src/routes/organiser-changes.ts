@@ -626,6 +626,9 @@ export const createOrganiserChangeRoutes = (
                     // From the column, as the preview's was from the body:
                     // an editor save's new rows are `'manual'`.
                     createSource: createSourceFor(row.kind),
+                    // The organiser saw the warnings on the preview; the apply
+                    // reads nothing only they need.
+                    warnings: false,
                   },
                 );
 

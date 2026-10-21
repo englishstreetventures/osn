@@ -22,6 +22,7 @@ import {
   rejectAllConsent,
   saveConsent,
   setReloadPageForTest,
+  withdrawCategory,
 } from "../../../src/lib/consent/store";
 import { resetConsentForTest, seedConsentForTest } from "../../test-support/consent";
 import { onSecureOriginWithJar } from "../../test-support/secure-origin";
@@ -248,6 +249,44 @@ describe("saveConsent — reload on granted → revoked", () => {
     saveConsent(allGrants());
 
     expect(reload).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The in-place way back out of a grant made in place: one press takes back what
+ * one press gave, and only that.
+ */
+describe("withdrawCategory", () => {
+  const reload = vi.fn();
+
+  beforeEach(() => {
+    resetConsentForTest();
+    reload.mockClear();
+  });
+
+  afterEach(resetConsentForTest);
+
+  it("switches off the one category, leaves the others as they were, and records it (F20)", () => {
+    seedConsentForTest({ pinterest: true, maps: true });
+    hydrateConsent();
+
+    withdrawCategory("pinterest");
+
+    expect(isCategoryGranted("pinterest")).toBe(false);
+    expect(isCategoryGranted("maps")).toBe(true);
+    expect(consentRecord()?.grants).toMatchObject({ pinterest: false, maps: true });
+    expect(needsConsentDecision()).toBe(false);
+  });
+
+  it("reloads, as any withdrawal does, once the board's script has run (F22)", () => {
+    seedConsentForTest({ pinterest: true });
+    hydrateConsent();
+    noteGatedContentLoaded("pinterest", "pinterest");
+    setReloadPageForTest(reload);
+
+    withdrawCategory("pinterest");
+
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 });
 

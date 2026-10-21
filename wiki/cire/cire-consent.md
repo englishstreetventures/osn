@@ -5,13 +5,17 @@ related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-invite-designs]]"
-last-reviewed: 2026-10-19
+  - "[[cire-landing]]"
+last-reviewed: 2026-10-21
 ---
 # Cire site-wide consent framework
 
 Where the guest site's cookie/third-party consent lives, what it governs, and
 the rules for adding a vendor to it. Code: `cire/invites/src/lib/consent/` (logic)
-and `cire/invites/src/components/consent/` (UI).
+and `cire/invites/src/components/consent/` (UI); the categories and the vendor
+registry are in `@cire/ui` (`cire/ui/src/consent-categories.ts`,
+`cire/ui/src/consent-vendors.ts`), because the guest privacy notice built from
+them is published on cireweddings.com too ([[cire-landing#Privacy pages]]).
 
 ## Why it exists
 
@@ -50,8 +54,13 @@ other.
 
 Vendors declare which category they belong to; the preferences sheet shows one
 switch per optional category, naming its company and linking its privacy
-policy. Granting from a blocked embed's in-place button ("Allow Pinterest
-moodboards") grants that switch and nothing else. There is deliberately **no
+policy. Granting from a blocked embed's in-place button — the moodboard's
+"Show it here", or "Allow …" on the framework's default placeholder — grants
+that switch and nothing else, and the moodboard's says so before it is
+pressed ("switches on Pinterest moodboards in this browser"). Once the
+moodboard is on, "Stop showing moodboards" under it (`withdrawCategory`)
+switches the same switch off from the same place — one press to give, one to
+take back. There is deliberately **no
 `marketing`, `advertising`, `analytics` or preferences category**: the site
 does none of those, and an unused switch is a claim we would have to keep true.
 
@@ -67,9 +76,13 @@ Both switches are off until the guest allows them — prior consent, the
 ePrivacy posture for EU and UK visitors, applied to every guest. The prompt
 holds the invite's pages until it is answered, so in practice the guest
 decides on the first visit. Before then, and after a refusal, the map's place
-is taken by the CSS map card (venue named, maps link out) and the moodboard's
-by the standard placeholder and the outbound "View moodboard on Pinterest"
-link.
+is taken by a compact card drawn in the invite's own colours, with the
+address above it and "Open in maps" below — links out to the guest's own
+map app, which the guest follows —
+and the moodboard's by one block that says the board is on Pinterest, links
+out with "Open on Pinterest", and, for a board that can be shown in the page,
+offers "Show it here". Nothing from either company loads until the guest
+allows it.
 
 ### Three grant maps, and why they can't be collapsed
 
@@ -92,12 +105,14 @@ Two traps this separation exists to avoid:
 
 ## Files
 
-Paths are under `cire/invites/src/`.
+Paths are under `cire/invites/src/`, except the first two, which are in
+`cire/ui/src/` and imported as `@cire/ui/consent-categories` and
+`@cire/ui/consent-vendors`.
 
 | File | Responsibility |
 |---|---|
-| `lib/consent/categories.ts` | The categories — `necessary` and the two switches, `pinterest` and `maps` — with their display metadata. |
-| `lib/consent/vendors.ts` | **The vendor registry** — one source of truth (see below). |
+| `consent-categories.ts` (`@cire/ui`) | The categories — `necessary` and the two switches, `pinterest` and `maps` — with their display metadata. |
+| `consent-vendors.ts` (`@cire/ui`) | **The vendor registry** — one source of truth (see below). |
 | `lib/consent/record.ts` | The persisted record: versions, grant normalisation, encode/decode. |
 | `lib/consent/cookie.ts` | Cookie transport (`__Host-cire_consent` / `cire_consent`). |
 | `lib/consent/store.ts` | Module-level Solid signals shared by every island. |
@@ -111,13 +126,18 @@ Tests put the consent cookie and store into a known state with
 
 ## The vendor registry is the source of truth
 
-`vendors.ts` drives the preferences dialog, the `/privacy` page's third-party
-list, and (by test assertion) the CSP origin allowlist in
-`lib/security-headers.ts`. The same facts used to be maintained in four places
-that drifted independently — the consent copy inside the component, the privacy
-prose, the CSP, and `wiki/compliance/subprocessors.md`. Adding a vendor meant
-four edits, and forgetting one produced either a CSP block (loud) or an
-undeclared transfer (silent, and the one that matters).
+`consent-vendors.ts` drives the preferences dialog, the guest privacy notice's
+third-party list (`cire/ui/src/guest-privacy-notice.astro`, published on the
+guest site's `/privacy` and at cireweddings.com/privacy/guests), and
+(by test assertion) the CSP origin allowlist in `lib/security-headers.ts`.
+Without it the same facts live in four places that drift independently — the
+consent copy inside the component, the privacy prose, the CSP, and
+`wiki/compliance/subprocessors.md` — and forgetting one produces either a CSP
+block (loud) or an undeclared transfer (silent, and the one that matters).
+
+The registry's own shape is tested in `cire/ui/tests/consent-vendors.test.ts`;
+its join with this site's CSP and `<ConsentGate>` ids in
+`cire/invites/tests/lib/consent/vendors.test.ts`.
 
 **To add a third party:**
 
@@ -125,7 +145,7 @@ undeclared transfer (silent, and the one that matters).
    also declare `runsInPage` (see below); the type check fails until it does.
 2. Add its origins to `CSP_DIRECTIVES` in `lib/security-headers.ts` —
    `vendors.test.ts` fails until you do.
-3. Give it its own switch: a category in `categories.ts`, off by default, with
+3. Give it its own switch: a category in `consent-categories.ts`, off by default, with
    a title the placeholder's "Allow" button and the preferences sheet use.
    Wrap the component in `<ConsentGate category="…" vendor="…">`, and check the
    prompt's copy still names it.
@@ -327,6 +347,14 @@ mounted first.
   switch to see what it covers and then closes the dialog has granted nothing.
 - **Withdrawal is permanent and findable** — `ConsentPreferencesLink` in
   `SiteFooter.astro` on every page, plus a copy on `/privacy`.
+- **What is switched on in place is switched off in place.** The moodboard is
+  the one embed a guest can switch on from inside the details sheet, where the
+  footer is out of reach behind the modal, so while it is on the sheet carries
+  "Stop showing moodboards" under it. Its note says the page reloads, which
+  is the teardown for Pinterest's in-page script (§Withdrawal stops code that
+  already ran). It ignores a press for the half second after "Show it here",
+  so the second tap of a double tap cannot undo the first. The map has no
+  in-place grant, so it needs no in-place withdrawal.
 - **The consent dialogs reach above the details sheet.** The sheet is a
   `showModal()` dialog, so it renders in the **top layer**, which no `z-index`
   reaches — see [[component-library]] §What has to sit above a
@@ -335,9 +363,13 @@ mounted first.
   dialog are `showModal()` dialogs too, and carry no `z-index` because they
   have nothing to rank against. An undecided guest cannot open a sheet: the
   prompt holds the page until it is answered, and if it arrives while a sheet
-  is already open it opens above it. Opening the preferences dialog from a
-  blocked embed inside the sheet makes it the blocking dialog and the sheet
-  goes inert beneath it. The banner carries `Z_LAYER.CONSENT` (200) and
+  is already open it opens above it. The embeds in the sheet offer no way
+  into the preferences — the footer's "Privacy choices" is the route from
+  the invite's pages, and the moodboard's own switch-off is the route for the
+  one thing the sheet can switch on — but a gate left on the default
+  placeholder would: its
+  "Privacy choices" opens the dialog as the blocking one, and the sheet goes
+  inert beneath it. The banner carries `Z_LAYER.CONSENT` (200) and
   appears only on the legal pages, which have no sheets.
 
 Only one mounted component renders the dialog at a time

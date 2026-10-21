@@ -237,11 +237,14 @@ export default function EventTable(props: EventTableProps) {
                 </header>
 
                 <dl class="font-body text-ui-base grid grid-cols-1 gap-x-6 gap-y-2 @md/card:grid-cols-2">
+                  <Show when={event.venueName}>
+                    {(venue) => <Detail label="Venue" value={venue()} />}
+                  </Show>
                   <Show when={event.address}>
                     <Detail label="Address" value={event.address!} />
                   </Show>
                   <Show when={event.description}>
-                    <Detail label="Notes" value={event.description} span />
+                    <Detail label="Description" value={event.description} span multiline />
                   </Show>
                   <Show when={event.dressCodeDescription}>
                     <Detail label="Dress code" value={event.dressCodeDescription!} span />
@@ -405,13 +408,17 @@ function EventImageField(props: {
   );
 }
 
-function Detail(props: { label: string; value: string; span?: boolean }) {
+/** One labelled detail. `multiline` keeps the organiser's own line breaks, as
+ *  the invite's About does. */
+function Detail(props: { label: string; value: string; span?: boolean; multiline?: boolean }) {
   return (
     <div class={props.span ? "@md/card:col-span-2" : ""}>
       <dt class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase">
         {props.label}
       </dt>
-      <dd class="text-text">{props.value}</dd>
+      <dd class="text-text" classList={{ "whitespace-pre-line": props.multiline }}>
+        {props.value}
+      </dd>
     </div>
   );
 }

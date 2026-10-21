@@ -20,7 +20,7 @@ import { playwright } from "@vitest/browser-playwright";
 import solid from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
 
-import { emulateMedia } from "./tests/test-support/browser-commands.ts";
+import { emulateMedia, servePhotos } from "./tests/test-support/browser-commands.ts";
 
 /** Shared by both projects — same compiler, and the Tailwind build the app ships
  *  (the browser tier needs it: `global.css` is `@import "tailwindcss"`, and a
@@ -75,8 +75,9 @@ export default defineConfig({
             headless: true,
             instances: [{ browser: "chromium" }],
             // Lets a test flip `prefers-color-scheme` / `prefers-reduced-motion`
-            // for itself instead of running the whole suite once per preference.
-            commands: { emulateMedia },
+            // for itself instead of running the whole suite once per preference,
+            // and answer an https photo URL with a picture made in the runner.
+            commands: { emulateMedia, servePhotos },
             // No `TZ` counterpart here: the test body runs inside Chromium, so
             // its `Intl` resolves the BROWSER's zone and a runner env var can't
             // reach it. Nothing in the browser tier asserts a zone today; a test

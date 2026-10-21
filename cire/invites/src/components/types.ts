@@ -26,6 +26,11 @@ export interface EventSummary {
   startAt: string;
   endAt: string;
   timezone: string;
+  /**
+   * The venue's name, shown above the address. Optional: the guest site can
+   * deploy before an API that sends it, and absent reads as no name.
+   */
+  venueName?: string | null;
   address: string | null;
   dressCodeDescription: string | null;
   dressCodePalette: DressSwatch[] | null;
@@ -247,8 +252,9 @@ export interface ClaimResult {
   householdReplied?: unknown;
   /**
    * Which household member this session says it is, exactly as it arrived.
-   * Present only while the member step is on for the household; `null` until
-   * chosen. Unproven, like `accountLink`: read it only through `readMember`,
+   * Present for every guest household; absent on a host preview, and for a
+   * household of an excluded wedding while account linking is off for it
+   * (cire-api's `memberStepOn`). `null` until chosen. Unproven, like `accountLink`: read it only through `readMember`,
    * which answers "no member step" for anything absent or malformed.
    */
   member?: unknown;

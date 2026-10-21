@@ -1,5 +1,5 @@
-import { budgetItems, tasks, weddings } from "@cire/db";
-import { asc, eq } from "drizzle-orm";
+import { budgetItems, events, seatingAssignments, tasks, weddings } from "@cire/db";
+import { asc, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
@@ -219,15 +219,20 @@ export const planningExportService = {
   },
 
   /**
-   * How many rows `budget.csv`, `tasks.csv` and `gifts.csv` would carry, in one
-   * statement. The portal asks before it offers a download from a locked
-   * Budget, Checklist or Registry card, so it offers one only when there is
-   * something in it. Budget payments are not counted: every payment belongs to
-   * a line.
+   * How many rows `budget.csv`, `tasks.csv`, `gifts.csv` and `seating.csv`
+   * would carry, in one statement. The portal asks before it offers a download
+   * from a locked Budget, Checklist, Registry or Seating card, so it offers one
+   * only when there is something in it. Budget payments are not counted: every
+   * payment belongs to a line. Seats are counted through the wedding's events,
+   * whose ids lead the seats' unique index.
    */
   moduleRows(
     weddingId: string,
-  ): Effect.Effect<{ budgetLines: number; tasks: number; gifts: number }, never, DbService> {
+  ): Effect.Effect<
+    { budgetLines: number; tasks: number; gifts: number; seats: number },
+    never,
+    DbService
+  > {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const [counts] = yield* dbQuery(() =>
@@ -236,6 +241,13 @@ export const planningExportService = {
             budgetLines: db.$count(budgetItems, eq(budgetItems.weddingId, weddingId)),
             tasks: db.$count(tasks, eq(tasks.weddingId, weddingId)),
             gifts: giftCountSql(db, weddingId),
+            seats: db.$count(
+              seatingAssignments,
+              inArray(
+                seatingAssignments.eventId,
+                db.select({ id: events.id }).from(events).where(eq(events.weddingId, weddingId)),
+              ),
+            ),
           })
           .from(weddings)
           .where(eq(weddings.id, weddingId))
@@ -245,6 +257,7 @@ export const planningExportService = {
         budgetLines: Number(counts?.budgetLines ?? 0),
         tasks: Number(counts?.tasks ?? 0),
         gifts: Number(counts?.gifts ?? 0),
+        seats: Number(counts?.seats ?? 0),
       };
     }).pipe(Effect.withSpan("cire.planning-export.moduleRows"));
   },

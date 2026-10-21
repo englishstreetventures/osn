@@ -39,6 +39,7 @@ function renderCard(
     item?: Partial<GiftRegistryItem>;
     claim?: GiftRegistryHouseholdClaim;
     canClaim?: boolean;
+    preview?: boolean;
     busy?: boolean;
     imageBase?: string | null;
     onClaim?: (body: unknown) => Promise<boolean>;
@@ -54,6 +55,7 @@ function renderCard(
       imageBase={overrides.imageBase ?? null}
       claim={overrides.claim}
       canClaim={overrides.canClaim ?? true}
+      preview={overrides.preview}
       busy={overrides.busy ?? false}
       onClaim={onClaim}
       onRelease={onRelease}
@@ -404,6 +406,29 @@ describe("release", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Release" }));
     expect(onRelease).toHaveBeenCalledOnce();
+  });
+});
+
+describe("in the organiser's preview", () => {
+  it("shows Reserve as a guest would see it, and offers nothing that writes", () => {
+    const { onClaim, onRelease } = renderCard({
+      canClaim: false,
+      preview: true,
+      claim: { itemId: "gi-1", quantity: 1, status: "reserved", note: null, displayName: null },
+      item: { quantityWanted: 2, quantityClaimed: 1 },
+    });
+    const reserve = screen.getByRole("button", { name: "Reserve" }) as HTMLButtonElement;
+    expect(reserve.disabled).toBe(true);
+    fireEvent.click(reserve);
+    expect(screen.queryByRole("button", { name: "Change" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Release" })).toBeNull();
+    expect(onClaim).not.toHaveBeenCalled();
+    expect(onRelease).not.toHaveBeenCalled();
+  });
+
+  it("still says Reserved, and only that, for a gift nobody can take", () => {
+    renderCard({ canClaim: false, preview: true, item: { quantityWanted: 1, quantityClaimed: 1 } });
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Reserved"]);
   });
 });
 

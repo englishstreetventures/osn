@@ -1,5 +1,32 @@
 # @tools/metrics
 
+## 0.2.28
+
+### Patch Changes
+
+- 5ab88f0: Build with vite 8.3.3 (range `^8.3.3`), which clears the advisory on vite 8.2.0
+  through 8.2.3.
+- Updated dependencies [5ab88f0]
+  - @shared/ui@0.5.1
+
+## 0.2.27
+
+### Patch Changes
+
+- Updated dependencies [745c4ea]
+  - @shared/ui@0.5.0
+
+## 0.2.26
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
+- Updated dependencies [fa0f54a]
+  - @shared/ui@0.4.4
+
 ## 0.2.25
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 import { hostRsvpNotices, weddingHosts, weddingInviteCustomisations, weddings } from "@cire/db";
-import { and, asc, eq, getTableColumns, ne, notExists, or, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  getTableColumns,
+  ne,
+  notExists,
+  notInArray,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { commitBatchResults, DbService, dbQuery, driverErrorText } from "../db";
@@ -164,6 +175,24 @@ export function normaliseHostRole(role: string): WeddingRole {
   return mapStoredRole(role);
 }
 
+/**
+ * The stored roles that read as something other than `helper`, derived from
+ * {@link mapStoredRole} rather than listed. A seat holds a helper's run-sheet
+ * scope when its role is NOT one of these — `helper` itself, or a value outside
+ * the column's enum, which {@link normaliseHostRole} degrades to
+ * {@link LEAST_PRIVILEGE_ROLE}, `helper` today. Testing for the literal
+ * `'helper'` instead would miss that second kind: its holder reaches the run
+ * sheet as a helper, and its scope could never be set.
+ */
+const NON_HELPER_STORED_ROLES = (Object.keys(STORED_HOST_ROLES) as StoredHostRole[]).filter(
+  (role) => mapStoredRole(role) !== "helper",
+);
+
+/** "This seat's role reads as `helper`", over the `wedding_hosts` row of the
+ *  statement that embeds it. */
+// oxlint-disable-next-line house/no-unbounded-in-array -- at most the column's declared values, five in STORED_HOST_ROLES
+const seatIsHelper = notInArray(weddingHosts.role, NON_HELPER_STORED_ROLES);
+
 /** A seat surfaced to the management panel — owners and co-hosts alike. Never
  *  echoes the account id — only the profile id (which the organiser typed a
  *  handle for) + when it was added. */
@@ -181,6 +210,12 @@ export interface WeddingHostRow {
    * added themselves, and they have nothing to react to.
    */
   addedByOsnProfileId: string;
+  /**
+   * The seat's stored run-sheet scope. It is a helper's setting and no other
+   * role's — `runSheetScopeFor()` answers `full` for an owner, editor or viewer
+   * whatever this says — so a caller shows it on a helper's seat only.
+   */
+  runSheetScope: RunSheetScope;
 }
 
 /** A seat {@link hostsService.remove} deleted, as it stood. */
@@ -252,6 +287,12 @@ export class HostWriteError extends Data.TaggedError("HostWriteError")<{
 
 /** A role change targeted a profile that holds no seat on the wedding. */
 export class HostNotFound extends Data.TaggedError("HostNotFound")<{
+  weddingId: string;
+}> {}
+
+/** A run-sheet scope was set on a seat that is not a helper's. The scope is a
+ *  helper's setting alone; the refused write changed nothing. */
+export class NotAHelper extends Data.TaggedError("NotAHelper")<{
   weddingId: string;
 }> {}
 
@@ -584,6 +625,7 @@ export const hostsService = {
         role: input.role,
         createdAt: now,
         addedByOsnProfileId: input.addedByOsnProfileId,
+        runSheetScope: LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
         peopleLimit: usage.peopleLimit,
       };
     }).pipe(Effect.withSpan("cire.host.add"));
@@ -622,6 +664,7 @@ export const hostsService = {
             role: weddingHosts.role,
             createdAt: weddingHosts.createdAt,
             addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
+            runSheetScope: weddingHosts.runSheetScope,
             // The windows run before LIMIT, so every row carries the wedding's
             // true seat and people counts, not the number returned, from the
             // rows this read already holds.
@@ -645,6 +688,7 @@ export const hostsService = {
           role: normaliseHostRole(row.role),
           createdAt: row.createdAt,
           addedByOsnProfileId: row.addedByOsnProfileId,
+          runSheetScope: normaliseRunSheetScope(row.runSheetScope),
         })),
         // No row means no seat, so the count is 0. Every live wedding holds an
         // owner seat, so the Ivory fallback is never what a gated caller sees.
@@ -670,6 +714,12 @@ export const hostsService = {
    * moves one person out of the co-hosts and, past the first two owners, one
    * into the owners beyond them. A role change adds no seat, so the seat cap
    * does not apply. A refused change writes nothing.
+   *
+   * The same UPDATE resets the seat's run-sheet scope to `own` unless a helper
+   * is set to helper again. Any move away from helper — and any move onto it
+   * from another role — starts the scope narrow, so a helper opened to the
+   * whole run sheet, made an editor and later moved back down, does not come
+   * back seeing everything.
    *
    * One batch: a read of the seat as it stood, the UPDATE, and a read of the
    * wedding's counts after it. The first gives `previousRole` — what tells a
@@ -721,12 +771,21 @@ export const hostsService = {
               .where(seatOf(input.weddingId, input.osnProfileId)),
             db
               .update(weddingHosts)
-              .set({ role: input.role })
+              .set({
+                role: input.role,
+                // A SET expression reads the row as it stood, so `role` here
+                // is the role before this UPDATE.
+                runSheetScope:
+                  input.role === "helper"
+                    ? sql`CASE WHEN ${seatIsHelper} THEN ${weddingHosts.runSheetScope} ELSE ${LEAST_PRIVILEGE_RUN_SHEET_SCOPE} END`
+                    : LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
+              })
               .where(and(seatOf(input.weddingId, input.osnProfileId), allowed))
               .returning({
                 id: weddingHosts.id,
                 createdAt: weddingHosts.createdAt,
                 addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
+                runSheetScope: weddingHosts.runSheetScope,
               }),
             seatUsage(db, input.weddingId),
           ]),
@@ -741,6 +800,7 @@ export const hostsService = {
         id: string;
         createdAt: Date;
         addedByOsnProfileId: string;
+        runSheetScope: string;
       }[];
       const usage = readSeatUsage(results[2]);
 
@@ -776,10 +836,74 @@ export const hostsService = {
         role: input.role,
         createdAt: updated.createdAt,
         addedByOsnProfileId: updated.addedByOsnProfileId,
+        runSheetScope: normaliseRunSheetScope(updated.runSheetScope),
         previousRole: normaliseHostRole(seat.role),
         peopleLimit: usage.peopleLimit,
       };
     }).pipe(Effect.withSpan("cire.host.setRole"));
+  },
+
+  /**
+   * Set how far into the run sheet a helper's seat may see: `own` — the tasks
+   * assigned to them — or `full`, every task and who holds it. Scoped to
+   * `(weddingId, osnProfileId)`; the route's `weddingOwner()` proved the caller
+   * owns this wedding. Setting the scope a seat already has succeeds.
+   *
+   * The helper test rides in the UPDATE's own WHERE, so a role change racing
+   * this write cannot leave a seat that is no helper's stored `full`: whichever
+   * lands second sees the other's result. The UPDATE goes alone, and its
+   * RETURNING is the answer. Only when it matched nothing does a read of the
+   * seat follow, to name why — no seat is {@link HostNotFound}, a seat that is
+   * not a helper's is {@link NotAHelper}. A seat removed or re-roled between
+   * the two changes which refusal is named, never what is written. A refused
+   * write writes nothing.
+   */
+  setRunSheetScope(input: {
+    weddingId: string;
+    osnProfileId: string;
+    scope: RunSheetScope;
+  }): Effect.Effect<
+    { osnProfileId: string; role: WeddingRole; runSheetScope: RunSheetScope },
+    HostNotFound | NotAHelper | HostWriteError,
+    DbService
+  > {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      // Both statements are this one update's: either failing fails it.
+      const step = <A>(run: () => PromiseLike<A>) =>
+        Effect.tryPromise({
+          try: run,
+          catch: (e) => new HostWriteError({ op: "update", reason: String(e) }),
+        }).pipe(
+          Effect.tapError((err) =>
+            Effect.logError("host run-sheet scope update failed", { reason: err.reason }),
+          ),
+        );
+      const [updated] = yield* step(() =>
+        db
+          .update(weddingHosts)
+          .set({ runSheetScope: input.scope })
+          .where(and(seatOf(input.weddingId, input.osnProfileId), seatIsHelper))
+          .returning({ role: weddingHosts.role, runSheetScope: weddingHosts.runSheetScope }),
+      );
+
+      if (!updated) {
+        const [seat] = yield* step(() =>
+          db
+            .select({ id: weddingHosts.id })
+            .from(weddingHosts)
+            .where(seatOf(input.weddingId, input.osnProfileId)),
+        );
+        if (!seat) return yield* Effect.fail(new HostNotFound({ weddingId: input.weddingId }));
+        yield* logRefusal("host run-sheet scope refused", input.weddingId, "not_a_helper");
+        return yield* Effect.fail(new NotAHelper({ weddingId: input.weddingId }));
+      }
+      return {
+        osnProfileId: input.osnProfileId,
+        role: normaliseHostRole(updated.role),
+        runSheetScope: normaliseRunSheetScope(updated.runSheetScope),
+      };
+    }).pipe(Effect.withSpan("cire.host.setRunSheetScope"));
   },
 
   /**

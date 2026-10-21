@@ -362,15 +362,16 @@ jobs:
           PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
           PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
 
-      # Tracker #287: this Worker's SSR bundle reached 470 KB gzip unnoticed,
-      # from two separate mistakes — the whole `motion` library in the SSR
-      # module graph with nothing there calling it, and three drift-guard tests
-      # routed as pages, dragging 119 KB gzip of vitest with them. The guard
-      # script holds the threshold and the full reasoning (tracker #619
-      # generalised it to scripts/guard-bundle-size.sh); it runs here and on
-      # every PR (`ci.yml`), so a regression is caught on the merge gate rather
-      # than after it lands on main.
-      - name: Guard cire/invites SSR bundle size
+      # Two outcomes, and only one stops the deploy. An SSR bundle over its
+      # budget in scripts/bundle-size-budgets.txt prints a ::warning:: on this
+      # run and the step stays green; `ci.yml` annotates the same on the pull
+      # request before it merges. A source map under `dist/client`, which is
+      # served publicly as Static Assets, fails the step and stops the deploy,
+      # as does a missing or empty `dist`. scripts/guard-bundle-size.sh holds
+      # the threshold and the reasoning. Chained onto the `build` script too,
+      # but this step is what still checks the artifact when Turborepo
+      # replays a cached `build` and the chained invocation never runs.
+      - name: Check cire/invites SSR bundle size and refuse public source maps
         run: ./scripts/guard-bundle-size.sh cire/invites
 
       # Three edits to the adapter's generated config, in one pass:
@@ -490,13 +491,17 @@ jobs:
           # this must never deep-link to the production account surface.
           PUBLIC_OSN_ACCOUNT_URL: https://dev.musubi.social
           PUBLIC_CIRE_WEB_URL: https://invite.dev.cireweddings.com
+          # The RSVP editor's privacy link: the dev marketing site's /privacy.
+          PUBLIC_MARKETING_URL: https://dev.cireweddings.com
 
-      # Tracker #619 (see scripts/guard-bundle-size.sh's own comment and
-      # wiki/conventions/bundle-size-guards.md). Chained onto the `build`
+      # Warns (the step stays green) when the bundle is over its budget, and
+      # fails, stopping the deploy, on a source map anywhere in `dist`, which
+      # Pages serves whole. See scripts/guard-bundle-size.sh's own comment and
+      # wiki/conventions/bundle-size-guards.md. Chained onto the `build`
       # script too, but this step is what still checks the artifact when
       # Turborepo replays a cached `build` and the chained invocation never
       # runs.
-      - name: Guard cire/host bundle size
+      - name: Check cire/host bundle size and refuse public source maps
         run: ./scripts/guard-bundle-size.sh cire/host
 
       # Idempotent: creates the project on first run, no-ops after. The custom
@@ -570,12 +575,14 @@ jobs:
           PUBLIC_CIRE_API_URL: https://api.dev.cireweddings.com
           PUBLIC_OSN_ACCOUNT_URL: https://dev.musubi.social
 
-      # Tracker #619 (see scripts/guard-bundle-size.sh's own comment and
-      # wiki/conventions/bundle-size-guards.md). Chained onto the `build`
+      # Warns (the step stays green) when the bundle is over its budget, and
+      # fails, stopping the deploy, on a source map anywhere in `dist`, which
+      # Pages serves whole. See scripts/guard-bundle-size.sh's own comment and
+      # wiki/conventions/bundle-size-guards.md. Chained onto the `build`
       # script too, but this step is what still checks the artifact when
       # Turborepo replays a cached `build` and the chained invocation never
       # runs.
-      - name: Guard cire/vendor bundle size
+      - name: Check cire/vendor bundle size and refuse public source maps
         run: ./scripts/guard-bundle-size.sh cire/vendor
 
       - name: Ensure the cire-vendor-dev Pages project exists
@@ -648,12 +655,14 @@ jobs:
           PUBLIC_ORGANISER_URL: https://host.dev.cireweddings.com
           SITE: https://dev.cireweddings.com
 
-      # Tracker #619 (see scripts/guard-bundle-size.sh's own comment and
-      # wiki/conventions/bundle-size-guards.md). Chained onto the `build`
+      # Warns (the step stays green) when the bundle is over its budget, and
+      # fails, stopping the deploy, on a source map anywhere in `dist`, which
+      # Pages serves whole. See scripts/guard-bundle-size.sh's own comment and
+      # wiki/conventions/bundle-size-guards.md. Chained onto the `build`
       # script too, but this step is what still checks the artifact when
       # Turborepo replays a cached `build` and the chained invocation never
       # runs.
-      - name: Guard cire/landing bundle size
+      - name: Check cire/landing bundle size and refuse public source maps
         run: ./scripts/guard-bundle-size.sh cire/landing
 
       - name: Ensure the cire-landing-dev Pages project exists

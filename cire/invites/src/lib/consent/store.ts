@@ -1,6 +1,7 @@
+import { CONSENT_CATEGORIES, type ConsentCategory } from "@cire/ui/consent-categories";
+import { vendorById } from "@cire/ui/consent-vendors";
 import { createSignal } from "solid-js";
 
-import { CONSENT_CATEGORIES, type ConsentCategory } from "./categories";
 import { readConsentFromDocument, writeConsentToDocumentAndVerify } from "./cookie";
 import {
   allGrants,
@@ -12,7 +13,6 @@ import {
   normaliseGrants,
   preDecisionGrants,
 } from "./record";
-import { vendorById } from "./vendors";
 
 /**
  * The shared, page-wide consent state.
@@ -304,6 +304,16 @@ export function currentGrants(): ConsentGrants {
  */
 export function grantCategory(category: ConsentCategory): void {
   saveConsent({ ...currentGrants(), [category]: true });
+}
+
+/**
+ * Switch a single category off, leaving the others as they are: the way back
+ * out of {@link grantCategory} from the same place, so content allowed in one
+ * press is withdrawn in one press too. It is an ordinary save, so a withdrawal
+ * after in-page vendor code ran reloads the page (see {@link saveConsent}).
+ */
+export function withdrawCategory(category: ConsentCategory): void {
+  saveConsent({ ...currentGrants(), [category]: false });
 }
 
 /**

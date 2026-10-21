@@ -1,5 +1,23 @@
 # @shared/realtime
 
+## 0.1.2
+
+### Patch Changes
+
+- 5ab88f0: Build with vite 8.3.3 (range `^8.3.3`), which clears the advisory on vite 8.2.0
+  through 8.2.3.
+
+## 0.1.1
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
+- Updated dependencies [fa0f54a]
+  - @shared/observability@0.18.9
+
 ## 0.1.0
 
 ### Minor Changes

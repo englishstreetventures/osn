@@ -139,9 +139,8 @@ const chunkRows = <T>(rows: readonly T[], size: number): T[][] => {
  * (`drizzle-orm/d1/session.js`): the top-level `.message` is `"Failed
  * query: …"` and the driver error carrying `UNIQUE constraint failed:
  * chat_members.chat_id, chat_members.profile_id` sits one level down in
- * `.cause`. bun:sqlite's session does not wrap (no `queryWithCache` call in
- * `drizzle-orm/bun-sqlite/session.js`), so locally the substring is already
- * at the top level — walking still finds it there on the first iteration.
+ * `.cause`. bun:sqlite's session wraps the same way, so the walk is needed on
+ * both drivers.
  * Matches on the message substring only, never on the constraint name
  * (`chat_members_pair_idx`), which never appears in the error text.
  */

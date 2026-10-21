@@ -11,12 +11,14 @@ related:
   - "[[monorepo-structure]]"
   - "[[toast]]"
   - "[[component-lab]]"
-last-reviewed: 2026-10-01
+  - "[[cire-seating]]"
+last-reviewed: 2026-10-20
 ---
 
 # Drag and drop — `@shared/sortable`, and the keyboard path it owns
 
-Drag-to-reorder uses **`@shared/sortable`**, an internal package. It replaced
+Drag-to-reorder, and dragging an item into one of several containers, use
+**`@shared/sortable`**, an internal package. It replaced
 [solid-dnd](https://github.com/thisbeyond/solid-dnd) (`@thisbeyond/solid-dnd`)
 on 2026-08-21.
 
@@ -130,11 +132,53 @@ Every item registers with the `SortableProvider` it sits under, identified by a
 item's group, so N lists on a page are N independent sortables and one
 `DragDropProvider` can wrap them all.
 
-Deliberately **not** cross-container: `ChecklistView` and `BudgetView` reorder
-_within_ a bucket or category and POST `{timeframeBucket, orderedIds}` /
+A **list** is deliberately not cross-container: `ChecklistView` and `BudgetView`
+reorder _within_ a bucket or category and POST `{timeframeBucket, orderedIds}` /
 `{category, orderedIds}`. Dragging a task from "3 months out" to "1 month out"
 would be a re-bucketing — a semantic change — not a re-order. A package test
-pins that an item can never land in a sibling list.
+pins that an item can never land in a sibling list. Moving an item between
+containers on purpose is the other primitive, below.
+
+## Drop zones
+
+Dropping an item **into** one of several containers — a guest onto a table —
+is a different gesture from re-ordering, and has its own two primitives:
+
+```tsx
+const zone = createDroppable(table.id); // on the container
+<section ref={zone.ref} data-over={zone.isOver()}>…</section>;
+
+const item = createDraggable(guest.id); // on the thing dragged
+<li ref={item.ref} style={maybeTransformStyle(item.transform())}>
+  <button {...item.dragActivators}>⠿</button>
+</li>;
+```
+
+A free item (`createDraggable`) needs no `SortableProvider`. When one is picked
+up, the provider measures the **zones** instead of a list and reports the zone
+whose rectangle holds the pointer (`pointerWithin`), or `null` between zones,
+so a release over a gap drops nowhere. Nothing is pushed aside. A zone's
+`isOver()` is true only for the zone under the pointer while a free item is
+dragged, and false again on drop or cancel.
+
+- **Lists and zones ignore each other.** A sortable row's drag never reports a
+  zone, a free item's never reports a row, and zones live in a map of their own,
+  so a zone may share its id with a row.
+- **A window scroll mid-drag is followed.** Zones are spread over a page, so
+  reaching one can take a wheel scroll: the pointer is carried back into the
+  start-of-drag geometry and the item's offset carries the scroll, so it stays
+  under the pointer. A scroller other than the window is not followed — keep
+  zones and the items dragged into them out of their own scroll containers.
+- **The item paints above what it crosses** only if the consumer lifts it while
+  dragged (`relative z-30` on `isActiveDraggable()`) and no ancestor clips its
+  overflow.
+- **The keyboard path is the consumer's.** Choosing a container is a choice
+  from a list, which a menu or a native `<select>` already does completely; the
+  seating chart uses a Kobalte menu per guest. A touch drag cannot scroll the
+  page mid-gesture either, so that menu is also the phone path.
+
+`shared/sortable/tests/droppable.test.tsx` holds one test per way the zone path
+can fail; the lab's **DropZones** story is where the feel is checked.
 
 ## Accessibility — this is the part to not break
 
@@ -280,6 +324,9 @@ size), and three tests pin it. A bench would have caught it in a second.
 
 Current adopters, all in `@cire/host`:
 
+- **Seating** (`SeatingView`) — guests dragged onto tables (drop zones), and the
+  event's tables re-ordered in a uniform "Arrange tables" list, via
+  `seating/events/:eventId/tables/reorder`. See [[cire-seating]].
 - **Schedule → Edit** (`EventsEditor`) — see `[[cire-guest-event-editor]]` E7.
 - **Gift list** (`RegistryView`) — one flat list of up to 500 rows, via `registry/items/reorder`.
 - **Checklist** (`ChecklistView`) — one list per lead-time bucket, via `tasks/reorder`.
@@ -290,7 +337,7 @@ Current adopters, all in `@cire/host`:
   a keyboard walk would otherwise send one write per key press into the invite
   builder's per-IP rate limit. See [[cire-invite-builder]].
 
-The last four draw their grip and screen-reader move buttons through
+Seating's "Arrange tables" and the last four draw their grip and screen-reader move buttons through
 `cire/host/src/components/ReorderControls.tsx`; `ReorderControls.browser.test.tsx`
 mounts it in a narrow flex row beside a greedy sibling and measures the 24 px
 floor.
@@ -308,8 +355,8 @@ Two rules every consumer follows, both found converting those three:
   nothing renumbers the rest) that is every row past the gap, until the reorder
   stores a dense order again. `<For>` keys by object identity, so iterating the
   row objects would rebuild all of them and lose whatever is open in them — an
-  inline editor's caret, a half-typed payment. The gift list, checklist and
-  budget therefore iterate ids and look each row up through a memo whose
+  inline editor's caret, a half-typed payment. The gift list, checklist, budget
+  and the seating chart's tables therefore iterate ids and look each row up through a memo whose
   `equals` is `sameButOrder` (`cire/host/src/lib/sortable-rows.ts`), inside a
   `<Show keyed>`: an order-only change keeps the old object and `<For>` moves the
   node; any other change is a new object and rebuilds the row, as an edit always

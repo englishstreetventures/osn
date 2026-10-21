@@ -12,7 +12,8 @@ import { type Db, DbService, dbQuery } from "../db";
  * ranked by where it is written.
  *
  * - `ivory` — free: the invite, the guest list, RSVPs and import.
- * - `gold` — adds budget, the checklist and the gift registry.
+ * - `gold` — adds budget, the checklist, the gift registry and the seating
+ *   chart.
  * - `crimson` — adds vendors (the CRM, the directory and enquiries) and every
  *   premium invite template.
  */

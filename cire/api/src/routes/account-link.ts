@@ -5,7 +5,11 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
-import { ACCOUNT_LINKING_FLAG } from "../lib/account-linking";
+import {
+  ACCOUNT_LINKING_FLAG,
+  type AccountLinking,
+  isAccountLinkingOn,
+} from "../lib/account-linking";
 import { buildSessionCookie, parseOrganiserSessionToken, parseSessionToken } from "../lib/cookie";
 import {
   measureAccountLinkResolve,
@@ -47,7 +51,7 @@ class OsnAccountLookupError extends Data.TaggedError("OsnAccountLookupError")<{
 export const createAccountLinkRoutes = (
   db: Db,
   limiter: RateLimiterBackend,
-  resolveOsnAccountId?: OsnAccountResolver,
+  linking: AccountLinking,
 ) =>
   new Elysia({ prefix: PREFIX })
     .use(rateLimitMiddleware(limiter))
@@ -59,7 +63,13 @@ export const createAccountLinkRoutes = (
     // member and relink the seat to their own account, which would make
     // `rsvps.submitted_via_link` claim "signed in as" for the wrong person.
     // Idempotent: a seat with no link answers 200.
-    .delete("/:guestId", ({ familyId, memberGuestId, params, request, set }) => {
+    //
+    // While linking is off for the household (the enforcing read, as the link
+    // POST makes), the household can neither see nor manage its links: every
+    // answer but the linked account's own is the one `not_your_seat`, whether
+    // the seat is linked or not, and osn-api is never asked. The account
+    // itself, signed in with the profile it linked, can still withdraw.
+    .delete("/:guestId", async ({ familyId, memberGuestId, params, request, set }) => {
       if (!familyId) {
         set.status = 401;
         return { error: "Unauthorized" };
@@ -70,13 +80,19 @@ export const createAccountLinkRoutes = (
         set.status = 403;
         return { error: "not_your_seat" };
       }
+      const linkingOn = await isAccountLinkingOn(linking, familyId);
       return runCire(
         Effect.gen(function* () {
           const { result } = yield* accountLinkService.memberMatch(
             guestId,
             parseOrganiserSessionToken(request.headers.get("cookie")),
-            resolveOsnAccountId,
+            linkingOn ? linking.resolveAccountIdFresh : undefined,
           );
+          if (!linkingOn && result !== "match") {
+            yield* Effect.sync(() => metricAccountLinkUnlink("error"));
+            set.status = 403;
+            return { error: "not_your_seat" };
+          }
           if (result !== "match" && result !== "unlinked") {
             yield* Effect.sync(() => metricAccountLinkUnlink("error"));
             set.status = 403;

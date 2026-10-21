@@ -17,7 +17,7 @@ import { createSessionRestore } from "../../components/claim-session";
 import { createRsvpDeadlineState } from "../../components/createRsvpDeadlineState";
 import type { EventPanel } from "../../components/EventSheet";
 import { faqEntries } from "../../components/faq-entries";
-import { memberRequired } from "../../components/household-member";
+import { chosenMember, memberRequired } from "../../components/household-member";
 import { faqState } from "../../components/invite-emptiness";
 import {
   createInviteRetry,
@@ -516,7 +516,7 @@ export default function InvitePage(props: InvitePageProps) {
               preview={claimResult()!.preview}
               // Past the deadline the RSVP panel is a read-only view of the reply
               // already on file. A household with a reply reaches it from the
-              // card's "RSVP given" or the details' "View your RSVP"; one with
+              // card's "RSVP given" or the sheet's "Your RSVP" segment; one with
               // none has no way in, unless the deadline passes with the sheet
               // already open.
               closed={rsvpClosed()}
@@ -537,6 +537,8 @@ export default function InvitePage(props: InvitePageProps) {
               onConfirmed={() => setJustRespondedEventId(open.event.id)}
               // Save waits until the household says who is answering.
               memberRequired={memberRequired(claimResult())}
+              // The member the page shows, so the save is recorded under them.
+              answeringAs={chosenMember(claimResult())?.guestId ?? null}
               // The write asked for a member the payload did not: show the
               // step ("Who are you?") from the members already on the page.
               onMemberRequired={() => {

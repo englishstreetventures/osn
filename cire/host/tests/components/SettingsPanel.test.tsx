@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * OSN auth + api helpers + toasts are stubbed; this asserts the load/seed, the
  * PUT body (incl. cents conversion and the slug never being sent — read-only),
  * and the co-host read-only gate. Location is deliberately NOT here —
- * an event's place is its free-text `address` (the sole location source).
+ * an event's place is its venue name and free-text `address`.
  */
 
 vi.mock("@shared/rp-auth/solid", async () => {
@@ -33,6 +33,7 @@ vi.mock("../../src/lib/download", () => ({
 
 import SettingsPanel from "../../src/components/SettingsPanel";
 import { __resetModuleRowsStore } from "../../src/lib/module-rows-store";
+import { __resetTasksCache, hasCachedTasks, setCachedTasks } from "../../src/lib/tasks-store";
 import {
   authFetchMock,
   resetOrganiserMocks,
@@ -531,6 +532,32 @@ describe("SettingsPanel", () => {
       await screen.findByDisplayValue("Aisha & Ben");
       expect(probes()).toHaveLength(0);
       expect(screen.queryByText("Download what you entered")).toBeNull();
+    });
+  });
+
+  // Checklist tasks seeded from the starter take their due dates from the
+  // wedding date, so a save that moves the date has re-dated them on the server.
+  describe("the checklist's due dates", () => {
+    afterEach(() => __resetTasksCache());
+
+    async function saveAnswering(saved: typeof PROFILE) {
+      setCachedTasks("wed_1", []);
+      authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
+      render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+      await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
+      authFetchMock.mockResolvedValueOnce(json({ wedding: saved }));
+      fireEvent.click(screen.getByText("Save settings"));
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Settings saved"));
+    }
+
+    it("are read again after a save that moves the wedding date", async () => {
+      await saveAnswering({ ...PROFILE, weddingDate: "2027-03-28" });
+      expect(hasCachedTasks("wed_1")).toBe(false);
+    });
+
+    it("are kept after a save that leaves the date where it was", async () => {
+      await saveAnswering({ ...PROFILE, displayName: "Aisha & Benjamin" });
+      expect(hasCachedTasks("wed_1")).toBe(true);
     });
   });
 });

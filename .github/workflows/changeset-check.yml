@@ -7,25 +7,41 @@ on:
   # on a status that could never report. Same reasoning, and the same fix, as
   # `ci-swift.yml`.
   pull_request:
+  # The merge queue requires every required check to report on its group
+  # commit too. A changeset belongs to a pull request, and each one in the
+  # group passed this check on its own, so on a group the job reports a pass
+  # without re-deciding it.
+  merge_group:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# It checks out the code and diffs it; nothing here writes to the repository.
+permissions:
+  contents: read
 
 jobs:
   check:
     name: Require changeset
     runs-on: ubuntu-latest
     steps:
+      - name: A merge-queue group was decided pull request by pull request
+        if: github.event_name == 'merge_group'
+        run: echo "✅ Every pull request in this group passed this check on its own."
+
       - uses: actions/checkout@v4
+        if: github.event_name != 'merge_group'
         with:
           fetch-depth: 0
 
       # Self-test the allowlist before trusting it, so a parser regression fails
       # here rather than silently waving PRs through with no changelog.
       - name: Test changeset-required allowlist
+        if: github.event_name != 'merge_group'
         run: bash scripts/tests/changeset-required.test.sh
 
       - name: Check for changeset
+        if: github.event_name != 'merge_group'
         env:
           # The PR's own base, not `main` — on a stacked PR those differ, and
           # diffing against `main` would attribute every commit from the branches
@@ -62,7 +78,9 @@ jobs:
       # it on the real tree, so a regression in the parser fails loudly here
       # rather than silently letting a bad package name through.
       - name: Test changeset validator
+        if: github.event_name != 'merge_group'
         run: bash scripts/tests/validate-changesets.test.sh
 
       - name: Validate changeset package names
+        if: github.event_name != 'merge_group'
         run: bash scripts/validate-changesets.sh

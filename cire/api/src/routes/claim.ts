@@ -20,7 +20,7 @@ import { sessionAuth } from "../middleware/auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
-import { ChooseMemberBody, ClaimBody } from "../schemas/claim";
+import { type AccountLinkState, ChooseMemberBody, ClaimBody } from "../schemas/claim";
 import { accountLinkService } from "../services/account-link";
 import { type AccountLinkGate, claimService } from "../services/claim";
 import { inviteService } from "../services/invite";
@@ -61,6 +61,7 @@ function accountLinkGate(
     memberGuestId,
     resolveAccountId: linking.resolveAccountId,
     avatarOrigins: linking.avatarOrigins,
+    memberStepExcludedWeddings: linking.memberStepExcludedWeddings,
   };
 }
 
@@ -310,14 +311,18 @@ export const createClaimSessionRoutes = (
           );
           // The session had no member and the payload names one: the server
           // chose for a one-member household, so the session keeps it. Best
-          // effort — the next restore chooses again if this write fails.
+          // effort — the next restore chooses again if this write fails — so
+          // in a Worker it runs after the response, held by `waitUntil`.
           const chosen = result.member?.guestId ?? null;
           const token = parseSessionToken(request.headers.get("cookie"));
           if (memberGuestId === null && chosen !== null && token) {
-            yield* sessionService.setMember(token, familyId, chosen).pipe(
+            const write = sessionService.setMember(token, familyId, chosen).pipe(
               Effect.tap(() => Effect.sync(() => metricHouseholdMemberChosen("auto_single"))),
               Effect.catchTag("SessionWriteError", () => Effect.void),
             );
+            const waitUntil = getWaitUntil(request);
+            if (waitUntil) waitUntil(runCire(write.pipe(Effect.provideService(DbService, db))));
+            else yield* write;
           }
           return result;
         }).pipe(
@@ -350,14 +355,20 @@ export const createClaimSessionRoutes = (
 export interface ClaimMemberRouteOptions {
   /** Per-IP limiter. Shares the restore route's page-load-sized budget. */
   limiter: RateLimiterBackend;
-  /** Decides whether the member step is on for the household. */
+  /** Decides whether the answer carries the household's account-link state. */
   accountLinking: AccountLinking;
 }
+
+const LINKING_OFF: AccountLinkState = { enabled: false };
 
 /** The guest named is not a member of the session's household. */
 class NotHouseholdMember extends Data.TaggedError("NotHouseholdMember") {}
 /** The guest named is a plus-one, whose row another guest typed in. */
 class PlusOneSeat extends Data.TaggedError("PlusOneSeat") {}
+/** The household's wedding is excluded from the member step and linking is off. */
+class MemberStepOff extends Data.TaggedError("MemberStepOff") {}
+/** The session ended between its check and the write. */
+class SessionGone extends Data.TaggedError("SessionGone") {}
 
 /**
  * `POST` / `DELETE /api/claim/member` — "Who are you?".
@@ -371,12 +382,18 @@ class PlusOneSeat extends Data.TaggedError("PlusOneSeat") {}
  * household trust model the claim has always had. Only a member of the
  * session's own household may be named, and never a plus-one.
  *
- * `POST` checks the flag with the enforcing (uncached) read, as the link POST
- * does: a household the step is off for gets 404. It answers 200 with the
+ * The step is on for every guest household but those of a wedding listed in
+ * `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS`, where it is on only while
+ * `cire.account-linking` is: off, `POST` answers 404 and records nothing.
+ * Otherwise `POST` answers 200 with the
  * member and the household's account-link state for that member, since only
  * the server can tell whether this browser's sign-in is the account the member
- * is linked to. `DELETE` is idempotent and always 204. Both are behind
- * `originGuard` (mounted after it in `app.ts`).
+ * is linked to. While `cire.account-linking` is off for the household that
+ * state is `{ enabled: false }`, naming no musubi account. The flag read is
+ * the stale-ok one the claim payload makes: it only shapes the answer, and the
+ * link POST enforces the flag itself. `DELETE` is idempotent: 204, or 500
+ * when the write fails.
+ * Both are behind `originGuard` (mounted after it in `app.ts`).
  */
 export const createClaimMemberRoutes = (
   db: Db,
@@ -400,45 +417,72 @@ export const createClaimMemberRoutes = (
           set.status = 401;
           return { error: "Unauthorized" };
         }
-        const on = await isAccountLinkingOn(accountLinking, familyId);
-        if (!on) {
-          set.status = 404;
-          return { error: "Not found" };
-        }
+        // Started here so it overlaps the body read and the write. A refusal
+        // can answer before it settles, so `waitUntil` holds it: a flag
+        // refresh it started is shared with the isolate's later requests. It
+        // never rejects.
+        const waitUntil = getWaitUntil(request);
+        const linkingRead = isAccountLinkingOn(accountLinking, familyId, waitUntil);
+        waitUntil?.(linkingRead);
         const raw: unknown = await request.json().catch(() => null);
         return runCire(
           Effect.gen(function* () {
             const { guestId } = yield* Schema.decodeUnknownEffect(ChooseMemberBody)(raw);
-            const database = yield* DbService;
-            const [row] = yield* dbQuery(() =>
-              database
-                .select({ plusOneOf: guests.plusOneOfGuestId, kind: families.kind })
-                .from(guests)
-                .innerJoin(families, eq(families.id, guests.familyId))
-                .where(and(eq(guests.id, guestId), eq(guests.familyId, familyId)))
-                .all(),
+            const excluded = accountLinking.memberStepExcludedWeddings ?? new Set<string>();
+            // Excluded weddings are refused inside the write while linking is
+            // off, so then the flag is needed first; otherwise its read
+            // overlaps the write.
+            const keptOut =
+              excluded.size > 0 && !(yield* Effect.promise(() => linkingRead)) ? [...excluded] : [];
+            const linkState: Effect.Effect<AccountLinkState, never, DbService> = Effect.promise(
+              () => linkingRead,
+            ).pipe(
+              Effect.flatMap((on): Effect.Effect<AccountLinkState, never, DbService> =>
+                on
+                  ? accountLinkService
+                      .householdState(
+                        familyId,
+                        parseOrganiserSessionToken(request.headers.get("cookie")),
+                        {
+                          guestId,
+                          resolveAccountId: accountLinking.resolveAccountId,
+                          avatarOrigins: accountLinking.avatarOrigins,
+                        },
+                      )
+                      .pipe(Effect.map(({ match: _match, ...state }) => state))
+                  : Effect.succeed(LINKING_OFF),
+              ),
             );
-            if (!row || row.kind !== "guest") return yield* Effect.fail(new NotHouseholdMember());
-            if (row.plusOneOf !== null) return yield* Effect.fail(new PlusOneSeat());
-            // The write and the link state for the new member need nothing
-            // from each other, so they run together.
-            const [, state] = yield* Effect.all(
-              [
-                sessionService.setMember(token, familyId, guestId),
-                accountLinkService.householdState(
-                  familyId,
-                  parseOrganiserSessionToken(request.headers.get("cookie")),
-                  {
-                    guestId,
-                    resolveAccountId: accountLinking.resolveAccountId,
-                    avatarOrigins: accountLinking.avatarOrigins,
-                  },
-                ),
-              ],
+            // The checked write and the link state for the new member need
+            // nothing from each other, so they run together.
+            const [written, accountLink] = yield* Effect.all(
+              [sessionService.chooseMember(token, familyId, guestId, keptOut), linkState],
               { concurrency: "unbounded" },
             );
+            if (!written) {
+              // Refused: one read says which check it was. The member step
+              // can only be off here for an excluded wedding with linking off.
+              const database = yield* DbService;
+              const [row] = yield* dbQuery(() =>
+                database
+                  .select({
+                    plusOneOf: guests.plusOneOfGuestId,
+                    kind: families.kind,
+                    weddingId: families.weddingId,
+                  })
+                  .from(guests)
+                  .innerJoin(families, eq(families.id, guests.familyId))
+                  .where(and(eq(guests.id, guestId), eq(guests.familyId, familyId)))
+                  .all(),
+              );
+              if (!row || row.kind !== "guest") return yield* Effect.fail(new NotHouseholdMember());
+              if (row.plusOneOf !== null) return yield* Effect.fail(new PlusOneSeat());
+              if (keptOut.includes(row.weddingId)) return yield* Effect.fail(new MemberStepOff());
+              // The guest passes every check, so the session itself went
+              // between `sessionAuth` and the write.
+              return yield* Effect.fail(new SessionGone());
+            }
             yield* Effect.sync(() => metricHouseholdMemberChosen("picked"));
-            const { match: _match, ...accountLink } = state;
             return { member: { guestId }, accountLink };
           }).pipe(
             Effect.provideService(DbService, db),
@@ -458,6 +502,16 @@ export const createClaimMemberRoutes = (
                 Effect.sync(() => {
                   set.status = 403;
                   return { error: "plus_one_seat" };
+                }),
+              MemberStepOff: () =>
+                Effect.sync(() => {
+                  set.status = 404;
+                  return { error: "Not found" };
+                }),
+              SessionGone: () =>
+                Effect.sync(() => {
+                  set.status = 401;
+                  return { error: "Unauthorized" };
                 }),
               SessionWriteError: () =>
                 Effect.sync(() => {

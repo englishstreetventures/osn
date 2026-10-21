@@ -23,6 +23,7 @@ import { Label } from "@shared/ui/ui/label";
 import { Modal } from "@shared/ui/ui/modal";
 import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@shared/ui/ui/tabs";
+import { Tooltip } from "@shared/ui/ui/tooltip";
 import { createSignal } from "solid-js";
 
 import type { Story, StoryArgs } from "../../lab/types.ts";
@@ -122,6 +123,29 @@ export const InfoPopoverStory = () => (
         />
       </div>
     </div>
+  </div>
+);
+
+/**
+ * A short label that explains itself on hover. The panel is for the eye only:
+ * a screen reader gets the same words once, as hidden text inside the trigger,
+ * and the panel is `aria-hidden`. Hover only — the badge adds no tab stop, so
+ * keyboard and touch users see the label alone. The second badge wraps, which
+ * is why the trigger is `inline-block`: the panel sits above both lines.
+ */
+export const TooltipStory = () => (
+  <div class="text-body flex max-w-xs flex-wrap items-center gap-3">
+    Ada Lovelace
+    <Tooltip text="Recorded by a host (phone/paper RSVP)">
+      <span class="border-border text-meta rounded border px-1.5 py-0.5 uppercase">
+        Host-entered
+      </span>
+    </Tooltip>
+    <Tooltip text="Given by the household that brought them, not by the plus-one. A host may have changed the status since; the dietary requirements are the household's.">
+      <span class="border-border text-meta inline-block w-24 rounded border px-1.5 py-0.5 uppercase">
+        Household-entered
+      </span>
+    </Tooltip>
   </div>
 );
 

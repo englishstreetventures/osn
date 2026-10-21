@@ -9,7 +9,8 @@
  * `tests/lib/tiers.contract.test.ts` reads both and fails when they differ.
  *
  * - `ivory` — free: the invite, the guest list, RSVPs and import.
- * - `gold` — adds the budget, the checklist and the gift registry.
+ * - `gold` — adds the budget, the checklist, the gift registry and the seating
+ *   chart.
  * - `crimson` — adds vendors (the CRM, the directory and enquiries) and every
  *   premium invite design.
  */

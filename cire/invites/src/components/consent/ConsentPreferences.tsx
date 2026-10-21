@@ -1,10 +1,10 @@
+import { CATEGORY_LIST, type ConsentCategory } from "@cire/ui/consent-categories";
+import { gatedVendorsInCategory } from "@cire/ui/consent-vendors";
 import { Modal } from "@shared/ui/ui/modal";
 import { createSignal, createUniqueId, For, type JSX, Show } from "solid-js";
 
-import { CATEGORY_LIST, type ConsentCategory } from "../../lib/consent/categories";
 import type { ConsentGrants } from "../../lib/consent/record";
 import { closeConsentPreferences, currentGrants, saveConsent } from "../../lib/consent/store";
-import { gatedVendorsInCategory } from "../../lib/consent/vendors";
 
 /** The switches the sheet offers: every category but the required one. */
 const SWITCHES = CATEGORY_LIST.filter((category) => !category.required);

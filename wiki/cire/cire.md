@@ -23,7 +23,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-20
 ---
 
 # Cire
@@ -164,7 +164,7 @@ one on 2026-08-21, so every cire page is now a wikilink away instead of a backti
 path that resolves nowhere:
 
 - Architecture — [[cire-platform-plan]], [[cire-invite-builder]], [[cire-guest-event-editor]], [[cire-consent]], [[cire-host-portal-layout]], [[drag-and-drop]]
-- Systems — [[cire-organiser]], [[cire-budget]], [[cire-checklist-tasks]], [[cire-entitlements]] (the Ivory, Gold and Crimson plan tiers), [[cire-upgrades]], [[cire-invite-designs]], [[cire-registry]], [[cire-rsvp-deadline]], [[cire-rsvp-changes]], [[cire-vendors]], [[feature-flags]]
+- Systems — [[cire-organiser]], [[cire-budget]], [[cire-checklist-tasks]], [[cire-entitlements]] (the Ivory, Gold and Crimson plan tiers), [[cire-upgrades]], [[cire-invite-designs]], [[cire-registry]], [[cire-seating]], [[cire-rsvp-deadline]], [[cire-rsvp-changes]], [[cire-vendors]], [[feature-flags]]
 - Observability — [[cire-workerd]] · Conventions — [[browser-tests]]
 
 Cire's build conventions — the backend patterns, the two test tiers, and the
@@ -200,9 +200,9 @@ exists**: architecture + schema sketches in
 
 Cire acts as **BFF / orchestrator** for the couple ↔ vendor enquiry flow. The backend work (PR B of the three-part Vendors S4 series) wires together:
 
-- **`vendor_enquiries` table** (migration `0042`) — links a wedding to a directory listing with a state machine (`open` / `replied` / `quoted` / `closed`), a `quoted_minor` column mirrored to the couple's CRM on quote, a transient `pending_body` for the first message buffered before the vendor claims, and a `lead_forward_email` for forwarding the lead to the vendor's inbox.
+- **`vendor_enquiries` table** (migration `0042`) — links a wedding to a directory listing with a state machine (`open` / `quoted` / `closed`), a `quoted_minor` column mirrored to the couple's CRM on quote, and a transient `pending_body` for the first message buffered before the vendor claims.
 - **c2b thread in Zap** — once the vendor's listing is claimed (or immediately if already claimed), cire-api provisions a Zap c2b (`class: 'c2b'`) chat thread via an outbound ARC call using scope `chat:c2b` / audience `zap-api`. All subsequent messages (couple reply, vendor reply, vendor quote) are posted to this thread via `@zap/api`'s internal routes and read back by cire-api for the frontend.
-- **Claimed / unclaimed buffer → hand-off after confirm** — if the listing has no confirmed vendor when a couple opens an enquiry, the first-message text is held in `pending_body` and a lead-forward email is sent to `lead_forward_email`. A vendor's claim waits for an operator ([[cire-vendors#Operator review of claims]]); once one confirms it, the daily cron hands buffered enquiries over (`flushBufferedEnquiry`): the Zap c2b thread is created, `pending_body` is forwarded as the first message, and the field is cleared.
+- **Claimed / unclaimed buffer → hand-off after confirm** — if the listing has no confirmed vendor when a couple opens an enquiry, the first-message text is held in `pending_body`, the enquiry email goes to the listing's address, and a copy goes to the listing's `lead_forward_email` when one is set (nothing writes it — englishstreetventures/osn#1622). A vendor's claim waits for an operator ([[cire-vendors#Operator review of claims]]); once one confirms it, the daily cron hands buffered enquiries over (`flushBufferedEnquiry`): the Zap c2b thread is created, `pending_body` is forwarded as the first message, and the field is cleared.
 - **Quote → Budget** — when a vendor replies with a structured quote (`POST /api/vendor/enquiries/:id/messages` with a `quote` body), cire-api writes `vendor_enquiries.quoted_minor` and also copies the amount to `vendors.quoted_minor` in the couple's per-wedding CRM, which makes it available to the Budget module (planned PR C+).
 - **Per-user spam limiter** — the couple-side `POST /enquiries` and vendor-side `POST /enquiries/:id/messages` (reply / quote) run through a per-user rate limiter to prevent spam across enquiries.
 - **Both inboxes are paged** — `GET /api/organiser/weddings/:weddingId/enquiries` and `GET /api/vendor/enquiries` answer `{ enquiries, nextCursor }`: at most 50 a page (`?limit=` asks for fewer), newest message first with the enquiry id breaking a tie within one second, and `?cursor=<nextCursor>` for the next page. A cursor the API did not write gets 400 `invalid_cursor`. Every page is read in index order and stops at its size: the couple's through `vendor_enquiries_wedding_last_msg_idx` (`wedding_id, last_message_at, id`), the vendor's one listing at a time through `vendor_enquiries_directory_last_msg_idx` (`directory_vendor_id, last_message_at, id`), each listing an arm of a `UNION ALL` with five arms to a statement, D1's compound-select ceiling ([[d1-limits]]). A vendor in up to five organisations is one statement, each arm finding its organisation's listing; above five, a lookup comes first and reads at most 100 listings. Both portals offer "Load more enquiries", and a failed next page clears the inbox in both. The vendor portal reads its loaded pages again on every return to the inbox, so it keeps the vendor's place and drops what the API no longer returns. The sort key moves with every message, so an enquiry on a page not yet loaded that gains a message moves above the cursor: the vendor portal shows it on its next return to the inbox, and the organiser portal once the dashboard mounts again.

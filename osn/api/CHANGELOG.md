@@ -1,5 +1,62 @@
 # @osn/osn
 
+## 3.29.8
+
+### Patch Changes
+
+- 130d873: Move to drizzle-orm and drizzle-kit 1.0.0-rc.4, and make a database migration
+  one flat timestamped file.
+
+  `@shared/db-utils`: `Db` is `SQLiteAsyncDatabase<"sync" | "async", unknown>` and
+  takes no schema type; `createDrizzleClient`, `createD1Db`, `makeDbLive` and
+  `makeD1DbLive` no longer take a schema. `driverErrorText` reads a failed
+  query's reason through its whole `cause` chain, since drizzle 1.0 wraps a
+  failed statement in `DrizzleQueryError` on bun:sqlite as on D1.
+
+  `@osn/api`: the handle and email races read the database's reason through
+  `driverErrorText`, so a handle taken in a race answers "Handle already taken"
+  on D1 instead of a database error.
+
+  `@osn/db`, `@pulse/db`, `@zap/db`: `db:generate --name <snake_case>` writes the
+  next migration as `drizzle/<YYYYMMDDHHMMSS>_<name>.sql`; `db:migrate` runs it
+  too. `drizzle/meta/` is gone. `@osn/db` declares `users.handle` unique through
+  the `users_handle_unique` index the database already holds.
+
+- Updated dependencies [130d873]
+  - @shared/db-utils@0.8.0
+  - @shared/crypto@0.14.6
+  - @osn/db@0.24.9
+
+## 3.29.7
+
+### Patch Changes
+
+- 11d24cb: The D1 integration file no longer times out on a busy machine. Its bulk
+  fixtures (the co-member fan-out's 1,522 rows, the friend-of-friend test's 191
+  and the profile-list tests' 150 and 62) are written inside workerd as one D1
+  batch per test, instead of a proxied `prepare` and `bind` per statement, and
+  every test and hook in the file runs on a 30-second budget. Test-only: nothing
+  that ships changes.
+
+## 3.29.6
+
+### Patch Changes
+
+- fa0f54a: Name the GitHub organisation `englishstreetventures` in the `repository` URL and in the comments and tests that cite a repository or issue.
+
+  Comments and tests that pointed at an issue in the private tracker now state the constraint without the reference.
+
+- Updated dependencies [fa0f54a]
+  - @osn/db@0.24.8
+  - @shared/crypto@0.14.5
+  - @shared/db-utils@0.7.6
+  - @shared/email@0.16.3
+  - @shared/observability@0.18.9
+  - @shared/openapi-tools@0.1.6
+  - @shared/rate-limit@0.3.7
+  - @shared/redis@0.8.5
+  - @shared/turnstile@0.2.32
+
 ## 3.29.5
 
 ### Patch Changes

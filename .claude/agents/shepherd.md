@@ -22,8 +22,12 @@ failing test or the error — not the whole log.
 gives none. It stops on the terminal states — merged, closed, conflicting with
 its base, any failed check, or every check finished, cancelled ones included —
 and at the deadline prints the last state it saw. Report that line, and read
-the failing job as above when it says a check failed. You never start a second
-wait to keep watching.
+the failing job as above when it says a check failed. When the brief says the
+pull request is already in the merge queue, run
+`bash scripts/wait-pr.sh --until-merged <n> <minutes>` instead: green checks
+mean nothing there, and it ends only at merged, a conflict, or the queue
+ejecting the pull request, whose failing group check you then read as above.
+You never start a second wait to keep watching.
 
 **You do not change anything, anywhere.** Not the branch, not the pull request,
 not the worktree. Specifically and without exception: no `gh pr merge`, no

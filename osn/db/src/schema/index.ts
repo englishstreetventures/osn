@@ -74,7 +74,11 @@ export const users = sqliteTable(
     accountId: text("account_id")
       .notNull()
       .references(() => accounts.id),
-    handle: text("handle").notNull().unique(), // @handle — immutable social identity
+    // @handle — immutable social identity. Unique through the named index
+    // below, not `.unique()`: drizzle-kit 1.0 drops a column's `.unique()`
+    // from what it generates whenever the column has any single-column index
+    // as well, so the plain lookup index beside it would erase the constraint.
+    handle: text("handle").notNull(),
     displayName: text("display_name"),
     avatarUrl: text("avatar_url"),
     isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
@@ -90,6 +94,7 @@ export const users = sqliteTable(
     // the internal `/graph/internal/profile-search` endpoint depends on and
     // keeps it stable if the unique constraint ever changes shape.
     index("users_handle_idx").on(t.handle),
+    uniqueIndex("users_handle_unique").on(t.handle),
   ],
 );
 
