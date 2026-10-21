@@ -192,6 +192,8 @@ below has to cite:
 | `window.compactions` and `window.sessions` | Whether the context ran out, and how many restarts |
 | `diff.files` split by bucket | Where the change actually landed |
 | `spend.by_actor` | Whether delegation paid |
+| `interaction.requests` | Model calls, how many ran one tool, and the context each carried. Cost is calls times context |
+| `review` | Whether tests and docs findings led to a change, against a control. **`null` means no report was read**; the first run that reads the reports is the record |
 
 `references/card-signals.md` maps each of those to the question it answers and
 the artefact a finding about it belongs in. Read it before Step 3.

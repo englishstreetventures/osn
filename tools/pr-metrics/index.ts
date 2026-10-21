@@ -684,6 +684,89 @@ export interface InteractionSummary {
   edit_churn: { files_edited_3plus: number; max_edits_one_file: number };
   skills: Record<string, number>;
   subagents: Record<string, number>;
+  /** Absent on cards written before the field existed. */
+  requests?: RequestSummary;
+}
+
+/**
+ * Model calls, and the context each one carried.
+ *
+ * Cache reads are most of what a session costs, and each call re-reads the
+ * whole context, so cost grows with calls times context. `with_one_tool`
+ * against `with_tools` says how often a call did one thing when it could have
+ * done several in parallel — the cheapest lever on the call count.
+ */
+export interface RequestSummary {
+  main: number;
+  subagent: number;
+  with_tools: number;
+  with_one_tool: number;
+  /** Input plus cache read plus cache write, per call. Nearest-rank. */
+  context_median: number;
+  context_p90: number;
+}
+
+/** Nearest-rank percentile of an ascending list; 0 for an empty one. */
+function nearestRank(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+
+  return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)];
+}
+
+/**
+ * One entry per model response. A response is split over several records that
+ * share a `requestId`, each carrying the same usage and some of the tool
+ * calls, so records are grouped before anything is counted. `<synthetic>`
+ * records are the harness's own, not a call, and would pull the median context
+ * toward zero.
+ */
+export function aggregateRequests(records: SessionRecord[]): RequestSummary {
+  const calls = new Map<string, { sidechain: boolean; tools: number; context: number }>();
+  let unkeyed = 0;
+
+  for (const record of records) {
+    if (record.type !== "assistant" || record.message?.model === "<synthetic>") continue;
+
+    const key = typeof record.requestId === "string" ? record.requestId : `\u0000${unkeyed++}`;
+    const tools = toolUses(record).length;
+    const call = calls.get(key);
+
+    if (call) {
+      call.tools += tools;
+      continue;
+    }
+
+    const usage = readUsage(record.message?.usage);
+    calls.set(key, {
+      sidechain: record.isSidechain === true,
+      tools,
+      context: usage.input + usage.cache_read + usage.cache_write_5m + usage.cache_write_1h,
+    });
+  }
+
+  const summary: RequestSummary = {
+    main: 0,
+    subagent: 0,
+    with_tools: 0,
+    with_one_tool: 0,
+    context_median: 0,
+    context_p90: 0,
+  };
+  const contexts: number[] = [];
+
+  for (const call of calls.values()) {
+    if (call.sidechain) summary.subagent += 1;
+    else summary.main += 1;
+    if (call.tools > 0) summary.with_tools += 1;
+    if (call.tools === 1) summary.with_one_tool += 1;
+    contexts.push(call.context);
+  }
+
+  const sorted = contexts.toSorted((a, b) => a - b);
+  summary.context_median = nearestRank(sorted, 0.5);
+  summary.context_p90 = nearestRank(sorted, 0.9);
+
+  return summary;
 }
 
 /**
@@ -828,6 +911,7 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
     },
     skills,
     subagents,
+    requests: aggregateRequests(records),
   };
 }
 
@@ -1003,6 +1087,120 @@ interface IssueReference {
   repository: { name: string; owner: { login: string } };
 }
 
+/**
+ * Whether the review findings on a branch led to a change, counted the way an
+ * author's next push is read: did the flagged line change after the review?
+ *
+ * Counts only, and only for `T-` and `D-` findings. The card is committed to a
+ * public repository, and `S-`, `P-` and `C-` findings live in the private
+ * tracker — a count of those left unchanged would describe an unpatched defect
+ * in public. No ID, lens, severity or path is recorded for any finding.
+ *
+ * The control is a line 30 to 40 lines away in the same file, tested the same
+ * way: the rate at which lines change anyway. `acted_on_paired` against
+ * `control_changed` compares the same findings; `acted_on` includes findings
+ * with no room for a control.
+ */
+export interface ReviewSummary {
+  reports: number;
+  findings: number;
+  located: number;
+  acted_on: number;
+  paired: number;
+  acted_on_paired: number;
+  control_changed: number;
+}
+
+/** The review reports whose findings a public card may count. The security
+ * and performance reports hold only tracker kinds, so they are never opened. */
+export const DEFAULT_REVIEW_REPORTS = ["TEST-REVIEW.md", "DOCS-REVIEW.md"];
+
+/** Finding kinds that may be counted on a public card. */
+const PUBLIC_FINDING_KINDS = new Set(["T", "D"]);
+
+const FINDING_LABEL = /^\*\*([A-Z])-[A-Z]\d+\*\*/;
+const LOCATION = /([A-Za-z0-9_@./-]+\.[A-Za-z0-9]+):(\d+)/g;
+
+/** A fix often edits a neighbouring line rather than the one cited; the
+ * control uses the same window, so the choice cancels out of the comparison. */
+export const FINDING_WINDOW = 3;
+const CONTROL_OFFSET = 35;
+
+/**
+ * Each counted finding's `**Issue:**` line, or `null` where it has none.
+ *
+ * A finding runs from its bold label to the next label or the next `## `
+ * heading. The sections after the findings (`## Coverage`, `## Files audited`)
+ * cite `path:line` freely and are no finding's location.
+ */
+export function parseFindings(text: string): (string | null)[] {
+  const issues: (string | null)[] = [];
+  let open = false;
+
+  for (const line of text.split("\n")) {
+    const label = FINDING_LABEL.exec(line);
+    if (label) {
+      open = PUBLIC_FINDING_KINDS.has(label[1]);
+      if (open) issues.push(null);
+      continue;
+    }
+
+    if (line.startsWith("## ")) {
+      open = false;
+      continue;
+    }
+
+    if (open && issues[issues.length - 1] === null && line.startsWith("**Issue:**")) {
+      issues[issues.length - 1] = line;
+    }
+  }
+
+  return issues;
+}
+
+/** Every `path:line` an Issue line names, in order, with a leading repository
+ * root stripped so an absolute path matches the tree. */
+export function locationsIn(issue: string, root: string): { path: string; line: number }[] {
+  const prefix = `${root.replace(/\/+$/, "")}/`;
+
+  return [...issue.matchAll(LOCATION)].map((match) => {
+    let path = match[1];
+    if (path.startsWith(prefix)) path = path.slice(prefix.length);
+    else if (path.startsWith("./")) path = path.slice(2);
+
+    return { path, line: Number.parseInt(match[2], 10) };
+  });
+}
+
+/** Old-side line ranges from `git diff -U0`. A count git omits is 1; a count
+ * of 0 is an insertion after line `a`, which touches `a`. */
+export function changedRanges(diff: string): [number, number][] {
+  const ranges: [number, number][] = [];
+
+  for (const match of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? /gm)) {
+    const start = Number.parseInt(match[1], 10);
+    const count = match[2] === undefined ? 1 : Number.parseInt(match[2], 10);
+    ranges.push(count === 0 ? [start, start] : [start, start + count - 1]);
+  }
+
+  return ranges;
+}
+
+export function windowTouched(ranges: [number, number][], line: number): boolean {
+  const low = line - FINDING_WINDOW;
+  const high = line + FINDING_WINDOW;
+
+  return ranges.some(([start, end]) => start <= high && end >= low);
+}
+
+/** The control line for a finding, or `null` where the file has no room. */
+export function controlLine(line: number, length: number): number | null {
+  if (line + CONTROL_OFFSET + FINDING_WINDOW <= length) return line + CONTROL_OFFSET;
+  if (line - CONTROL_OFFSET - FINDING_WINDOW >= 1) return line - CONTROL_OFFSET;
+
+  return null;
+}
+
 export interface Card {
   schema_version: number;
   pr: {
@@ -1020,6 +1218,8 @@ export interface Card {
   spend: SpendSummary;
   diff: DiffSummary;
   interaction: InteractionSummary;
+  /** `null` when no review report was read; absent on older cards. */
+  review?: ReviewSummary | null;
 }
 
 export interface CardContext {
@@ -1035,6 +1235,7 @@ export interface CardContext {
   mergedAt: string | null;
   phase: "at-open" | "at-merge";
   generatedAt: string;
+  review?: ReviewSummary | null;
 }
 
 export function buildCard(records: SessionRecord[], diff: DiffSummary, context: CardContext): Card {
@@ -1062,6 +1263,7 @@ export function buildCard(records: SessionRecord[], diff: DiffSummary, context: 
     spend: aggregateSpend(records),
     diff,
     interaction: aggregateInteraction(records),
+    review: context.review ?? null,
   };
 }
 
@@ -1165,6 +1367,22 @@ export function renderDetails(card: Card, file = `${branchSlug(card.pr.branch)}.
             )} (${share(spend.by_actor.subagent.usd_equivalent, spend.usd_equivalent)} of spend)`,
     ],
   ];
+
+  if (interaction.requests !== undefined) {
+    const calls = interaction.requests;
+    rows.push([
+      "Model calls",
+      `${calls.main + calls.subagent} · ${calls.with_tools > 0 ? share(calls.with_one_tool, calls.with_tools) : "—"} of those using tools used one · median context ${compactTokens(calls.context_median)}`,
+    ]);
+  }
+
+  if (card.review) {
+    const { paired, acted_on_paired, control_changed } = card.review;
+    rows.push([
+      "Review (tests and docs lenses)",
+      `${acted_on_paired} of ${paired} paired findings changed · control ${control_changed} of ${paired}`,
+    ]);
+  }
 
   const summary =
     `Session metrics — $${spend.usd_equivalent.toFixed(2)} · ${compactTokens(total)} tok · ` +
@@ -2068,6 +2286,196 @@ function git(args: string[]): string {
   return out;
 }
 
+/**
+ * A git call's exit code and stdout, run at the repository root.
+ *
+ * Separate from `git()` because the questions here are answered by the exit
+ * code — `cat-file -e` prints nothing either way — and `git()` maps every
+ * failure to "" and memoises it. `-C <root>` because `retro` runs this script
+ * from `tools/pr-metrics`, where a pathspec would resolve inside the package.
+ */
+interface GitAnswer {
+  ok: boolean;
+  out: string;
+}
+
+function gitStatus(root: string, args: string[]): GitAnswer {
+  const result = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+
+  return { ok: result.success, out: result.success ? result.stdout.toString() : "" };
+}
+
+/**
+ * Read the review reports and count, for each counted finding, whether its line
+ * changed after the review ran. `null` when no report could be placed.
+ *
+ * The baseline — the commit the review read — is the newest commit on this
+ * branch whose **author** time is no later than the report's mtime. Author
+ * time, because a rebase between the review and this run resets every
+ * committer time. On this branch only (first parent, after the merge base),
+ * because a report left by another branch, or older than this branch's first
+ * commit, describes code this branch never had; such a report is not read.
+ */
+export function summariseReviews(
+  root: string,
+  base: string,
+  files: string[],
+): ReviewSummary | null {
+  const fs = require("node:fs") as typeof import("node:fs");
+
+  const reports: { text: string; written: number }[] = [];
+  for (const file of files) {
+    try {
+      const text = fs.readFileSync(file, "utf8");
+      reports.push({ text, written: Math.floor(fs.statSync(file).mtimeMs / 1000) });
+    } catch {
+      // Absent: that review did not run, or its worktree has gone.
+    }
+  }
+  // No report, no git: the common case on a branch nobody has reviewed yet.
+  if (reports.length === 0) return null;
+
+  const commits = gitStatus(root, ["log", "--first-parent", "--format=%H %at %ct", `${base}..HEAD`])
+    .out.split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [sha, at, ct] = line.split(" ");
+
+      return { sha, at: Number.parseInt(at, 10), ct: Number.parseInt(ct, 10) };
+    });
+
+  const summary: ReviewSummary = {
+    reports: 0,
+    findings: 0,
+    located: 0,
+    acted_on: 0,
+    paired: 0,
+    acted_on_paired: 0,
+    control_changed: 0,
+  };
+
+  for (const { text, written } of reports) {
+    const baseline = commits.find((commit) => commit.at <= written);
+    if (baseline === undefined) continue;
+    // The newest commit, written before the review but committed after it:
+    // the reviewed commit was amended or squashed, and any fix went into it.
+    // Nothing after it is left to diff, so the report cannot be read — a zero
+    // here would claim the fixes did not happen.
+    if (baseline === commits[0] && baseline.ct > written) continue;
+
+    summary.reports += 1;
+
+    const issues = parseFindings(text);
+    const candidates = issues.map((issue) => (issue === null ? [] : locationsIn(issue, root)));
+    const lengths = lineCounts(
+      root,
+      baseline.sha,
+      candidates.flat().map(({ path }) => path),
+    );
+
+    const located = candidates.map((options) =>
+      options.find(({ path, line }) => {
+        const length = lengths.get(path);
+
+        return length !== undefined && line >= 1 && line <= length;
+      }),
+    );
+    const ranges = changedRangesByPath(
+      root,
+      baseline.sha,
+      located.flatMap((location) => (location ? [location.path] : [])),
+    );
+
+    summary.findings += issues.length;
+
+    for (const location of located) {
+      if (location === undefined) continue;
+
+      summary.located += 1;
+      const changed = ranges.get(location.path) ?? [];
+      const acted = windowTouched(changed, location.line);
+      if (acted) summary.acted_on += 1;
+
+      const control = controlLine(location.line, lengths.get(location.path) ?? 0);
+      if (control === null) continue;
+
+      summary.paired += 1;
+      if (acted) summary.acted_on_paired += 1;
+      if (windowTouched(changed, control)) summary.control_changed += 1;
+    }
+  }
+
+  return summary.reports > 0 ? summary : null;
+}
+
+/** Each path's line count at `sha`, from one `cat-file --batch`; a path absent
+ * there has no entry. */
+function lineCounts(root: string, sha: string, paths: string[]): Map<string, number> {
+  const unique = [...new Set(paths)];
+  const counts = new Map<string, number>();
+  if (unique.length === 0) return counts;
+
+  const result = Bun.spawnSync(["git", "-C", root, "cat-file", "--batch"], {
+    stdin: Buffer.from(unique.map((path) => `${sha}:${path}\n`).join("")),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (!result.success) return counts;
+
+  // Each answer is `<oid> <type> <size>\n<size bytes>\n`, or `<input> missing\n`.
+  const out = result.stdout;
+  let at = 0;
+  for (const path of unique) {
+    const end = out.indexOf(10, at);
+    if (end < 0) break;
+
+    const header = out.subarray(at, end).toString().split(" ");
+    at = end + 1;
+    if (header.length !== 3 || header[1] !== "blob") continue;
+
+    const size = Number.parseInt(header[2], 10);
+    const body = out.subarray(at, at + size);
+    at += size + 1;
+
+    let lines = 0;
+    for (const byte of body) if (byte === 10) lines += 1;
+    if (size > 0 && body[size - 1] !== 10) lines += 1;
+    counts.set(path, lines);
+  }
+
+  return counts;
+}
+
+/** Old-side changed ranges per path between `sha` and HEAD, from one diff. */
+function changedRangesByPath(
+  root: string,
+  sha: string,
+  paths: string[],
+): Map<string, [number, number][]> {
+  const unique = [...new Set(paths)];
+  const ranges = new Map<string, [number, number][]>();
+  if (unique.length === 0) return ranges;
+
+  const diff = gitStatus(root, [
+    "diff",
+    "-U0",
+    "--no-renames",
+    sha,
+    "HEAD",
+    "--",
+    ...unique.map((path) => `:(top)${path}`),
+  ]);
+
+  // Every path here existed at `sha`, so each file's section names it on its
+  // `--- a/` line, deleted files included.
+  for (const section of diff.out.split(/^diff --git /m)) {
+    const old = /^--- a\/(.+)$/m.exec(section);
+    if (old) ranges.set(old[1], changedRanges(section));
+  }
+
+  return ranges;
+}
+
 /** One `gh` invocation's stdout, or `null` where `gh` is missing, unauthenticated
  * or simply had nothing to say. Never throws: every caller here is a best-effort
  * lookup on a path that must still produce a card without it. */
@@ -2473,6 +2881,27 @@ if (import.meta.main) {
   const commits = git(["rev-list", "--count", `${base}..HEAD`]);
   const diff = parseNumstat(numstat, Number.parseInt(commits, 10) || 0);
 
+  // The reports are gitignored scratch, gone once the worktree is, so the
+  // first run that reads them is the record: a later refresh finds none, or a
+  // report rewritten since, and must not replace that record. Only a run that
+  // names its reports explicitly does.
+  //
+  // The `--if-absent` fallback never reads them. It fires when a session ends,
+  // which can fall between the reviews and the commits that fix what they
+  // found; counted then, every finding reads as not acted on, and the rule
+  // above would keep that figure. `retro` runs after the fixes.
+  const namedReports = flag("review-reports");
+  const root = repoRoot();
+  const reportFiles = (namedReports?.split(",").filter(Boolean) ?? DEFAULT_REVIEW_REPORTS).map(
+    (file) => (file.startsWith("/") ? file : `${root}/${file}`),
+  );
+  const review =
+    namedReports === null && existing?.review != null
+      ? existing.review
+      : Bun.argv.includes("--if-absent")
+        ? null
+        : summariseReviews(root, base, reportFiles);
+
   const card = buildCard(records, diff, {
     branch,
     prNumber,
@@ -2491,6 +2920,7 @@ if (import.meta.main) {
     mergedAt: selfMergedAt,
     phase: flag("phase") === "at-merge" ? "at-merge" : "at-open",
     generatedAt: new Date().toISOString(),
+    review,
   });
 
   // `--format markdown` prints the `<details>` block on stdout and writes
