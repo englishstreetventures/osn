@@ -13,11 +13,12 @@ import { runCire } from "../observability";
 import type { OsnProfileDisplayResolver } from "../services/osn-bridge";
 import { runSheetService } from "../services/run-sheet";
 
-/** A person on the run sheet: their seat and profile, and their name when OSN
- *  resolved it. No role: a helper is not told who on the wedding is what. */
+/** A person on the run sheet: their seat, and their name and photo when OSN
+ *  resolved them. No role: a helper is not told who on the wedding is what.
+ *  No OSN profile id either: the seat id is what a task's holders name, and a
+ *  profile id is the same in every OSN app, so a reader has no use for it. */
 interface RunSheetPersonDto {
   hostId: string;
-  osnProfileId: string;
   handle?: string;
   displayName?: string;
   avatarUrl?: string;
@@ -37,7 +38,10 @@ interface RunSheetPersonDto {
  * Answers `{ scope, viewerHostId, items, people }`, narrowed by
  * `runSheetService.read` to what `scope` entitles the reader to. Names are
  * looked up only for the people in the answer, and never fail the read: an
- * unreachable lookup leaves the profile ids. Never cached.
+ * unreachable lookup leaves each person their seat id alone. Pass a cached
+ * resolver (`cacheProfileDisplayResolver`): every open run sheet reads again
+ * on each publish, and a task change changes no name. The answer itself is
+ * never cached.
  */
 export const createRunSheetRoutes = (
   db: Db,
@@ -77,10 +81,7 @@ export const createRunSheetRoutes = (
                           )
                         : null;
                     const people = sheet.people.map((seat) => {
-                      const person: RunSheetPersonDto = {
-                        hostId: seat.hostId,
-                        osnProfileId: seat.osnProfileId,
-                      };
+                      const person: RunSheetPersonDto = { hostId: seat.hostId };
                       const display = displays?.get(seat.osnProfileId);
                       if (display) person.handle = display.handle;
                       if (display?.displayName) person.displayName = display.displayName;

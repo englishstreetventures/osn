@@ -4,6 +4,7 @@ import { generateArcKeyPair, exportKeyToJwk, importKeyFromJwk } from "@shared/cr
 
 import {
   cacheAccountResolver,
+  cacheProfileDisplayResolver,
   createAccountResolverFromEnv,
   createArcAccountResolver,
   createArcHandleResolver,
@@ -15,7 +16,12 @@ import {
   createHandleResolverFromEnv,
   createHandleSearchResolverFromEnv,
 } from "../../src/services/osn-bridge";
-import type { OsnAccountResolution, OsnAccountResolver } from "../../src/services/osn-bridge";
+import type {
+  OsnAccountResolution,
+  OsnAccountResolver,
+  OsnProfileDisplay,
+  OsnProfileDisplayResolver,
+} from "../../src/services/osn-bridge";
 import { mockFetch } from "../test-helpers";
 
 const realFetch = globalThis.fetch;
@@ -179,6 +185,90 @@ describe("cacheAccountResolver", () => {
     const controller = new AbortController();
     await resolve("usr_a", { signal: controller.signal });
     expect(seen).toBe(controller.signal);
+  });
+});
+
+describe("cacheProfileDisplayResolver", () => {
+  const face = (id: string): OsnProfileDisplay => ({
+    handle: id.replace("usr_", ""),
+    displayName: `${id} name`,
+    avatarUrl: null,
+  });
+  /** A resolver that knows every id but `unknown`, and records each batch. */
+  function counting(answer?: (ids: readonly string[]) => Promise<Map<string, OsnProfileDisplay>>) {
+    const calls: string[][] = [];
+    const resolve: OsnProfileDisplayResolver = (ids) => {
+      calls.push([...ids]);
+      return answer
+        ? answer(ids)
+        : Promise.resolve(
+            new Map(ids.filter((id) => id !== "unknown").map((id) => [id, face(id)])),
+          );
+    };
+    return { calls, resolve };
+  }
+
+  it("answers a repeat lookup from the cache until it expires", async () => {
+    let clock = 0;
+    const inner = counting();
+    const resolve = cacheProfileDisplayResolver(inner.resolve, { ttlMs: 1000, now: () => clock });
+    expect(await resolve(["usr_a"])).toEqual(new Map([["usr_a", face("usr_a")]]));
+    clock = 999;
+    expect(await resolve(["usr_a"])).toEqual(new Map([["usr_a", face("usr_a")]]));
+    expect(inner.calls).toEqual([["usr_a"]]);
+    clock = 1000;
+    await resolve(["usr_a"]);
+    expect(inner.calls).toEqual([["usr_a"], ["usr_a"]]);
+  });
+
+  it("asks osn-api only for the profiles it does not hold, and answers all of them", async () => {
+    const inner = counting();
+    const resolve = cacheProfileDisplayResolver(inner.resolve);
+    await resolve(["usr_a", "usr_b"]);
+    const both = await resolve(["usr_b", "usr_c", "usr_a"]);
+    expect(inner.calls).toEqual([["usr_a", "usr_b"], ["usr_c"]]);
+    expect(both).toEqual(
+      new Map([
+        ["usr_b", face("usr_b")],
+        ["usr_a", face("usr_a")],
+        ["usr_c", face("usr_c")],
+      ]),
+    );
+  });
+
+  it("does not call osn-api when it holds every profile asked for", async () => {
+    const inner = counting();
+    const resolve = cacheProfileDisplayResolver(inner.resolve);
+    await resolve(["usr_a"]);
+    await resolve(["usr_a"]);
+    await resolve([]);
+    expect(inner.calls).toEqual([["usr_a"]]);
+  });
+
+  it("keeps no profile osn-api did not name, and no failure", async () => {
+    const inner = counting();
+    const resolve = cacheProfileDisplayResolver(inner.resolve);
+    expect(await resolve(["unknown"])).toEqual(new Map());
+    await resolve(["unknown"]);
+    expect(inner.calls).toEqual([["unknown"], ["unknown"]]);
+
+    const down = counting(() => Promise.reject(new Error("ECONNREFUSED")));
+    const cachedDown = cacheProfileDisplayResolver(down.resolve);
+    await expect(cachedDown(["usr_a"])).rejects.toThrow("ECONNREFUSED");
+    await expect(cachedDown(["usr_a"])).rejects.toThrow("ECONNREFUSED");
+    expect(down.calls).toEqual([["usr_a"], ["usr_a"]]);
+  });
+
+  it("drops the oldest profile when full", async () => {
+    const inner = counting();
+    const resolve = cacheProfileDisplayResolver(inner.resolve, { maxEntries: 2 });
+    await resolve(["usr_a"]);
+    await resolve(["usr_b"]);
+    await resolve(["usr_c"]);
+    await resolve(["usr_b", "usr_c"]);
+    expect(inner.calls).toEqual([["usr_a"], ["usr_b"], ["usr_c"]]);
+    await resolve(["usr_a"]);
+    expect(inner.calls).toEqual([["usr_a"], ["usr_b"], ["usr_c"], ["usr_a"]]);
   });
 });
 

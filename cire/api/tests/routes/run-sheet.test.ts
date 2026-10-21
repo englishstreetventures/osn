@@ -214,7 +214,7 @@ type Sheet = {
   scope: "own" | "full";
   viewerHostId: string;
   items: Array<{ kind: "event" | "task"; id: string } & Record<string, unknown>>;
-  people: Array<{ hostId: string; osnProfileId: string } & Record<string, unknown>>;
+  people: Array<{ hostId: string } & Record<string, unknown>>;
 };
 
 async function sheetFor(who: string, db = build(), resolver?: Resolver): Promise<Sheet> {
@@ -291,6 +291,10 @@ describe("GET /run-sheet: what each reader is given", () => {
       "Their secret",
       SEAT.editor,
       EDITOR,
+      // No one's OSN profile id, theirs and their co-holder's included: a seat
+      // is named by its seat id and the names OSN gives.
+      HELPER,
+      GUS,
       SEAT.viewer,
       SEAT.full,
       SEAT.idle,
@@ -433,7 +437,6 @@ describe("GET /run-sheet: names", () => {
     expect(asked.map((ids) => ids.toSorted())).toEqual([[GUS, HELPER].toSorted()]);
     expect(sheet.people.find((p) => p.hostId === SEAT.gus)).toEqual({
       hostId: SEAT.gus,
-      osnProfileId: GUS,
       handle: "rs_gus",
       displayName: "rs_gus name",
       avatarUrl: "https://photos.example/gus.png",
@@ -441,13 +444,12 @@ describe("GET /run-sheet: names", () => {
     // No photo, no key.
     expect(sheet.people.find((p) => p.hostId === SEAT.helper)).toEqual({
       hostId: SEAT.helper,
-      osnProfileId: HELPER,
       handle: "rs_helper",
       displayName: "rs_helper name",
     });
   });
 
-  it("answers with profile ids when the name lookup throws, and says so in the log", async () => {
+  it("answers seat ids alone when the name lookup throws, and says so in the log", async () => {
     const resolver: Resolver = () => Promise.reject(new Error("arc down"));
     let res: Response | undefined;
     const logs = await captureLogs(async () => {
@@ -455,12 +457,26 @@ describe("GET /run-sheet: names", () => {
     });
     expect(res?.status).toBe(200);
     const sheet = (await res!.json()) as Sheet;
-    expect(sheet.people.map((p) => Object.keys(p).toSorted())).toEqual([
-      ["hostId", "osnProfileId"],
-      ["hostId", "osnProfileId"],
-    ]);
+    expect(sheet.people.map((p) => Object.keys(p))).toEqual([["hostId"], ["hostId"]]);
     expect(logs).toContain("run sheet names unresolved");
     expect(logs).not.toContain(GUS);
+  });
+
+  it("asks for each name once in five minutes, however often the run sheet is read", async () => {
+    const asked: string[][] = [];
+    const resolver: Resolver = async (ids) => {
+      asked.push([...ids]);
+      return new Map(ids.map((id) => [id, display(id.replace("usr_", ""))]));
+    };
+    const app = buildApp(build(), { resolver });
+    const first = (await (await get(app, HELPER)).json()) as Sheet;
+    const second = (await (await get(app, HELPER)).json()) as Sheet;
+    expect(asked).toHaveLength(1);
+    expect(second.people).toEqual(first.people);
+    // A reader who holds a task with someone not yet looked up asks for them
+    // alone.
+    await get(app, GUS);
+    expect(asked.slice(1)).toEqual([[EDITOR]]);
   });
 });
 

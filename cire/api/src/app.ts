@@ -113,7 +113,7 @@ import type {
   OsnProfileDisplayResolver,
   OsnProfileOrgsResolver,
 } from "./services/osn-bridge";
-import { cacheAccountResolver } from "./services/osn-bridge";
+import { cacheAccountResolver, cacheProfileDisplayResolver } from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
 import { createWeddingSignals } from "./services/realtime";
 import type { StripeClient } from "./services/stripe";
@@ -883,6 +883,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
 
   // What decides whether a household is offered account linking. The claim and
   // restore responses report it, and a link can only complete with a resolver.
+  // The run sheet's name lookup, cached for this app's life — one Worker
+  // isolate. Every open run sheet reads again on each publish, and most
+  // publishes are task writes, which change no name. The host list keeps the
+  // uncached resolver: it is read once a panel, not once a publish.
+  const runSheetDisplays =
+    resolveOsnProfileDisplays && cacheProfileDisplayResolver(resolveOsnProfileDisplays);
+
   const accountLinking: AccountLinking = {
     flags,
     canLink: resolveOsnAccountId !== undefined,
@@ -1152,7 +1159,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // The day-of run sheet: read-only, for every role, a helper's included —
       // so behind `weddingRunSheet()`, never `weddingMember()` — then Gold, then
       // a per-user limiter. Narrowed on the server to the reader's scope.
-      .use(createRunSheetRoutes(db, osnAuthOptions, runSheetReadLimiter, resolveOsnProfileDisplays))
+      .use(createRunSheetRoutes(db, osnAuthOptions, runSheetReadLimiter, runSheetDisplays))
       .use(createBudgetReadRoutes(db, osnAuthOptions))
       .use(createBudgetWriteRoutes(db, osnAuthOptions))
       // Gift registry. Same read/write gate split as the modules above, and the

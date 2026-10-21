@@ -397,6 +397,65 @@ export function createArcProfileDisplayResolver(
   };
 }
 
+export interface ProfileDisplayCacheOptions {
+  /** How long a resolved name and photo are reused. Default five minutes. */
+  ttlMs?: number;
+  /** Most profiles held at once; the oldest entry goes first. Default 500. */
+  maxEntries?: number;
+  /** Clock, for tests. */
+  now?: () => number;
+}
+
+/**
+ * Fronts `resolve` with a cache of resolved names and photos, keyed by profile
+ * id: only the ids it does not hold, or holds past `ttlMs`, are sent to
+ * osn-api, and the answer merges both. A name rarely changes, and a rename
+ * publishes nothing, so no open view refreshes one at once anyway; a cached
+ * one is at most `ttlMs` old.
+ *
+ * It holds what osn-api says a profile looks like and nothing else — no seat,
+ * role, scope or wedding — and a caller asks it only for the people it has
+ * already decided to show, so nothing it holds decides who sees what. Only a
+ * profile osn-api named is kept: an unknown one, or a failed call, is asked
+ * again next time, and a failure still reaches the caller. The cache lives as
+ * long as the returned function — one Worker isolate when built with the app.
+ */
+export function cacheProfileDisplayResolver(
+  resolve: OsnProfileDisplayResolver,
+  options: ProfileDisplayCacheOptions = {},
+): OsnProfileDisplayResolver {
+  const ttlMs = options.ttlMs ?? 5 * 60_000;
+  const maxEntries = options.maxEntries ?? 500;
+  const now = options.now ?? Date.now;
+  const entries = new Map<string, { display: OsnProfileDisplay; expiresAt: number }>();
+
+  return async (profileIds) => {
+    const answer = new Map<string, OsnProfileDisplay>();
+    const missing: string[] = [];
+    for (const id of profileIds) {
+      const hit = entries.get(id);
+      if (hit && hit.expiresAt > now()) {
+        answer.set(id, hit.display);
+        continue;
+      }
+      if (hit) entries.delete(id);
+      missing.push(id);
+    }
+    if (missing.length === 0) return answer;
+    const resolved = await resolve(missing);
+    for (const [id, display] of resolved) {
+      entries.delete(id);
+      if (entries.size >= maxEntries) {
+        const oldest = entries.keys().next();
+        if (!oldest.done) entries.delete(oldest.value);
+      }
+      entries.set(id, { display, expiresAt: now() + ttlMs });
+      answer.set(id, display);
+    }
+    return answer;
+  };
+}
+
 /**
  * Builds the profile-display resolver from raw env material — the sibling of
  * {@link createHandleResolverFromEnv}. Returns `null` when any piece is absent
