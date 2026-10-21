@@ -14,11 +14,18 @@ import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
-import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
 import { haptic } from "../lib/haptics";
+import {
+  ensureHostsLoaded,
+  type HostSeat,
+  hostsAccessor,
+  invalidateHosts,
+  seatName,
+} from "../lib/hosts-store";
 import { sameButOrder } from "../lib/sortable-rows";
 import {
   ensureTasksLoaded,
@@ -28,7 +35,10 @@ import {
   type TaskRow,
   tasksAccessor,
 } from "../lib/tasks-store";
+import { normaliseWeddingRole } from "../lib/wedding-roles";
+import ChecklistStarter from "./ChecklistStarter";
 import ReorderControls from "./ReorderControls";
+import TaskEditDrawer from "./TaskEditDrawer";
 /** A bucket with nothing in it. One shared array, so `sameRows` sees an empty
  *  bucket as unchanged from one write to the next. */
 const NO_TASKS: TaskRow[] = [];
@@ -42,6 +52,8 @@ interface ChecklistViewProps {
   weddingId: string;
   /** Owner/editor may add, edit, complete, reorder; a viewer sees a read-only list. */
   canEdit?: boolean;
+  /** Owner? Decides how the starter checklist asks for a missing wedding date. */
+  canManage?: boolean;
 }
 
 export default function ChecklistView(props: ChecklistViewProps) {
@@ -70,6 +82,58 @@ export default function ChecklistView(props: ChecklistViewProps) {
       setError("Couldn't load your checklist. Refresh to try again.");
     });
   });
+
+  // ── Who holds each task ────────────────────────────────────────────────
+  // The seats are read only once some task is assigned: a checklist nobody is
+  // on needs no names, and "Needs an owner" needs none either.
+  const seats = hostsAccessor(props.weddingId);
+  const seatById = createMemo(() => new Map(seats()?.map((s) => [s.hostId, s])));
+  const [seatsFailed, setSeatsFailed] = createSignal(false);
+  /** Has this visit asked the server for the seats? Until it has, the first
+   *  drawer opened asks: seats cached before the visit may miss someone seated
+   *  or re-roled in another session since. */
+  let seatsReadThisVisit = false;
+
+  const loadSeats = async (): Promise<HostSeat[]> => {
+    seatsReadThisVisit = true;
+    const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/hosts")));
+    if (res.status === 401) {
+      redirectToLogin();
+      return [];
+    }
+    if (!res.ok) throw new Error(`Failed to load the wedding's people (${res.status})`);
+    const { hosts } = (await res.json()) as { hosts: HostSeat[] };
+    // A role the portal does not know reads as the narrowest one.
+    for (const seat of hosts) seat.role = normaliseWeddingRole(seat.role);
+    return hosts;
+  };
+
+  const ensureSeats = () =>
+    ensureHostsLoaded(props.weddingId, loadSeats).then(
+      () => setSeatsFailed(false),
+      (err: unknown) => {
+        if (isAuthExpired(err)) return redirectToLogin();
+        setSeatsFailed(true);
+      },
+    );
+
+  const anyAssigned = createMemo(() => (tasks() ?? []).some((t) => t.assignedHostId != null));
+  createEffect(() => {
+    if (anyAssigned()) void untrack(ensureSeats);
+  });
+
+  /**
+   * The name of whoever holds a task: `null` for nobody, `undefined` while the
+   * seats have not loaded and there is no name to give yet. A seat the loaded
+   * list no longer has has been removed, and the server has already cleared
+   * its tasks: shown as nobody until the tasks are read again.
+   */
+  const holderName = (task: TaskRow): string | null | undefined => {
+    if (task.assignedHostId == null) return null;
+    if (seats() === null) return undefined;
+    const seat = seatById().get(task.assignedHostId);
+    return seat ? seatName(seat) : null;
+  };
 
   // Refetch from the server and repopulate the cache (used after a write fails).
   const reload = async () => {
@@ -183,6 +247,119 @@ export default function ChecklistView(props: ChecklistViewProps) {
     }
   };
 
+  // ── The task drawer ────────────────────────────────────────────────────
+  const [editingId, setEditingId] = createSignal<string | null>(null);
+  const editing = createMemo(() => (tasks() ?? []).find((t) => t.id === editingId()) ?? null);
+  const [assigning, setAssigning] = createSignal(false);
+  const [assignError, setAssignError] = createSignal<string | null>(null);
+
+  /** Open a task's drawer with the seats it offers. The first opening of a
+   *  visit reads them from the server unless the visit already has; later
+   *  ones use that read. */
+  const openDrawer = (task: TaskRow) => {
+    setAssignError(null);
+    setEditingId(task.id);
+    if (!seatsReadThisVisit) invalidateHosts(props.weddingId);
+    void ensureSeats();
+  };
+
+  /** The latest pick for each task still to be written. A pick made while a
+   *  write is out waits here, replacing any earlier one for the same task. */
+  const picks = new Map<string, string | null>();
+  /** Who the server last said holds each task with picks under way: where a
+   *  refused write puts the row back. */
+  const heldBy = new Map<string, string | null>();
+
+  const showHolder = (taskId: string, value: string | null) =>
+    patchTasks((rows) => rows.map((t) => (t.id === taskId ? { ...t, assignedHostId: value } : t)));
+
+  /**
+   * Hand a task to a seat, or to nobody. The row and the select change at
+   * once. The select stays usable while a write is out — a keyboard user
+   * arrowing through it picks once per key — so the writes go one at a time,
+   * and of the picks made during a write only the latest is written after it.
+   */
+  const assign = (task: TaskRow, assignedHostId: string | null) => {
+    if (!heldBy.has(task.id)) heldBy.set(task.id, task.assignedHostId);
+    picks.set(task.id, assignedHostId);
+    setAssignError(null);
+    showHolder(task.id, assignedHostId);
+    haptic("commit");
+    if (!assigning()) void writePicks();
+  };
+
+  const writePicks = async () => {
+    setAssigning(true);
+    try {
+      while (picks.size > 0) {
+        const [taskId, hostId] = picks.entries().next().value!;
+        picks.delete(taskId);
+        // Sequential by design: a pick waiting here is written only once the
+        // write before it is back, so the later one is what the server keeps.
+        // Signed out, the page is leaving, and nothing waiting is sent.
+        // eslint-disable-next-line no-await-in-loop
+        if (!(await writePick(taskId, hostId))) return;
+      }
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  /**
+   * Write one pick; `false` once the session has gone. A later pick for the
+   * same task replaces this one's outcome on screen, so only the last write
+   * of a run shows its answer or its refusal. A refusal puts the row back to
+   * whoever the server last said holds it. A 422 means the seat is not the
+   * wedding's any more — removed since the drawer read the seats — so the
+   * seats are read again, and the tasks too when the row is put back.
+   */
+  const writePick = async (taskId: string, hostId: string | null): Promise<boolean> => {
+    const replaced = () => picks.has(taskId);
+    const refuse = (message: string) => {
+      if (replaced()) return;
+      showHolder(taskId, heldBy.get(taskId) ?? null);
+      heldBy.delete(taskId);
+      haptic("reject");
+      setAssignError(message);
+      void reload();
+    };
+    try {
+      const res = await authFetch(
+        apiUrl(weddingPath(props.weddingId, `/tasks/${encodeURIComponent(taskId)}/assignee`)),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assignedHostId: hostId }),
+        },
+      );
+      if (res.status === 401) {
+        redirectToLogin();
+        return false;
+      }
+      if (res.status === 422) {
+        invalidateHosts(props.weddingId);
+        void ensureSeats();
+        refuse("That person is no longer on this wedding. Pick someone else.");
+        return true;
+      }
+      if (!res.ok) throw new Error(`assign ${res.status}`);
+      const { task: updated } = (await res.json()) as { task: TaskRow };
+      if (replaced()) {
+        heldBy.set(taskId, updated.assignedHostId);
+      } else {
+        heldBy.delete(taskId);
+        patchTasks((rows) => rows.map((t) => (t.id === updated.id ? updated : t)));
+      }
+    } catch (err) {
+      if (isAuthExpired(err)) {
+        redirectToLogin();
+        return false;
+      }
+      refuse("Couldn't change who holds that task.");
+    }
+    return true;
+  };
+
   /**
    * Move a task within its bucket, then save the bucket's new order. A drag can
    * move it several places at once. Only tasks whose stored `sortOrder` changes
@@ -227,6 +404,14 @@ export default function ChecklistView(props: ChecklistViewProps) {
         <Notice tone="danger" alert>
           {error()}
         </Notice>
+      </Show>
+
+      <Show when={props.canEdit}>
+        <ChecklistStarter
+          weddingId={props.weddingId}
+          canManage={props.canManage}
+          taskCount={tasks()?.length ?? null}
+        />
       </Show>
 
       <Show when={props.canEdit}>
@@ -368,8 +553,43 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                             · due {task.dueAt}
                                           </span>
                                         </Show>
+                                        {(() => {
+                                          const name = holderName(task);
+                                          if (name === undefined) {
+                                            return (
+                                              <span class="text-text-muted text-ui-xs block">
+                                                Assigned
+                                              </span>
+                                            );
+                                          }
+                                          if (name !== null) {
+                                            return (
+                                              <span class="text-text-muted text-ui-xs block">
+                                                <span class="sr-only">Assigned to </span>
+                                                {name}
+                                              </span>
+                                            );
+                                          }
+                                          // Every open task nobody holds says so;
+                                          // only assigning someone clears it.
+                                          return task.status === "open" ? (
+                                            <span class="mt-1 block">
+                                              <span class="font-body text-gold-ink border-gold/45 text-ui-xs tracking-ui-wide inline-block rounded-sm border px-1.5 py-0.5 whitespace-nowrap">
+                                                Needs an owner
+                                              </span>
+                                            </span>
+                                          ) : null;
+                                        })()}
                                       </span>
                                       <Show when={props.canEdit}>
+                                        <Button
+                                          variant="bare"
+                                          type="button"
+                                          aria-label={`Edit ${task.title}`}
+                                          onClick={() => openDrawer(task)}
+                                        >
+                                          Edit
+                                        </Button>
                                         <Button
                                           variant="bareDanger"
                                           type="button"
@@ -399,6 +619,18 @@ export default function ChecklistView(props: ChecklistViewProps) {
           }}
         </For>
       </div>
+
+      <Show when={props.canEdit}>
+        <TaskEditDrawer
+          task={editing()}
+          seats={seats()}
+          seatsFailed={seatsFailed()}
+          busy={assigning()}
+          error={assignError()}
+          onAssign={assign}
+          onClose={() => setEditingId(null)}
+        />
+      </Show>
     </div>
   );
 }

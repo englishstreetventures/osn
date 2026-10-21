@@ -497,6 +497,27 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     expect(body).not.toHaveProperty("owner");
   });
 
+  it("names each seat by its seat id, the one a checklist task is assigned to", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db);
+    const seats = db
+      .select({ hostId: weddingHosts.id, osnProfileId: weddingHosts.osnProfileId })
+      .from(weddingHosts)
+      .where(eq(weddingHosts.weddingId, WEDDING_ID))
+      .all();
+    // A viewer reads the checklist too, so it must be able to name an assignee.
+    const viewer = "usr_viewer_names";
+    seedHostSeat(db, viewer, "viewer");
+    const res = await req(app, "GET", hostsPath, viewer);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hosts: { hostId: string; osnProfileId: string }[] };
+    expect(body.hosts.map((h) => ({ hostId: h.hostId, osnProfileId: h.osnProfileId }))).toEqual([
+      ...seats,
+      { hostId: `whost_${viewer}`, osnProfileId: viewer },
+    ]);
+    expect(seats.find((s) => s.osnProfileId === COHOST)?.hostId).toBe("whost_bob");
+  });
+
   it("carries the wedding's people count and limit, for any member", async () => {
     const { db, app } = buildApp();
     setTier(db, WEDDING_ID, "gold");

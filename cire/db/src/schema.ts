@@ -436,8 +436,60 @@ export const tasks = sqliteTable(
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     completedAt: integer("completed_at", { mode: "timestamp" }),
+    // ── Template provenance (migration 0086) ────────────────────────────────
+    // A task seeded from a checklist template names the template and the
+    // item's stable key inside it; a task the couple typed has both NULL.
+    templateId: text("template_id"),
+    templateItem: text("template_item"),
+    // Days from the wedding date the item was seeded with (negative = before
+    // the day). NULL on a task the couple typed.
+    dueOffsetDays: integer("due_offset_days"),
+    // Where `due_at` comes from. `template`: it is `wedding_date` moved by
+    // `due_offset_days`, so it follows the wedding date while the task is open.
+    // `manual`: the couple set it, or it was never derived, and nothing moves it.
+    dueSource: text("due_source", { enum: ["manual", "template"] })
+      .notNull()
+      .default("manual"),
+    // ── Assignee (migration 0086) ───────────────────────────────────────────
+    // The seat (`wedding_hosts.id`) this task is assigned to, or NULL for a
+    // task nobody holds. A seat, not a profile: `runSheetVisibleTo` filters a
+    // helper's run sheet on it. The service only ever writes a seat of the
+    // task's own wedding. SET NULL, so a seat that is removed or leaves takes
+    // its assignments with it and the task survives, unassigned.
+    assignedHostId: text("assigned_host_id").references(() => weddingHosts.id, {
+      onDelete: "set null",
+    }),
   },
-  (t) => [index("tasks_wedding_bucket_sort_idx").on(t.weddingId, t.timeframeBucket, t.sortOrder)],
+  (t) => [
+    index("tasks_wedding_bucket_sort_idx").on(t.weddingId, t.timeframeBucket, t.sortOrder),
+    // The probe the SET NULL runs on every seat delete. Partial: most tasks
+    // are unassigned and need no entry.
+    index("tasks_assigned_host_idx")
+      .on(t.assignedHostId)
+      .where(sql`assigned_host_id IS NOT NULL`),
+    // One task per template item per wedding, so applying a template twice —
+    // or two applies racing — adds nothing the second time. Partial: a task
+    // the couple typed has no template and needs no entry.
+    uniqueIndex("tasks_wedding_template_item_unique")
+      .on(t.weddingId, t.templateId, t.templateItem)
+      .where(sql`template_id IS NOT NULL`),
+  ],
+);
+
+// A template task the couple deleted. Applying the template again leaves the
+// item out unless the couple picks it again, so a deleted task does not come
+// back on its own. Gone with the wedding.
+export const taskTemplateDismissals = sqliteTable(
+  "task_template_dismissals",
+  {
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    templateId: text("template_id").notNull(),
+    templateItem: text("template_item").notNull(),
+    dismissedAt: integer("dismissed_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.weddingId, t.templateId, t.templateItem] })],
 );
 
 export const budgetItems = sqliteTable(

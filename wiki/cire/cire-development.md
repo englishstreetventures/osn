@@ -354,6 +354,11 @@ against. Miss it and `bun test cire/api/tests/` fails in the lockstep test with
 the column's own name, after every other gate has passed. Full contract for the
 mirror is in [[cire-platform-plan]] §Code map.
 
+**A new table also needs `bun run --cwd cire/db seed:generate`.** It rewrites
+`cire/db/seed/dev-reset.sql`, which drops every schema table before the dev
+tier is reseeded, and `cire/db/tests/seed/seed.test.ts` fails on a table the
+file does not drop.
+
 **Dropping a column is `ALTER TABLE … DROP COLUMN`, never a copy-and-swap.**
 Check what `db:generate` wrote before keeping it: a `__new_<table>` rebuild drops
 the table, and D1 enforces foreign keys, so the drop cascades into every child

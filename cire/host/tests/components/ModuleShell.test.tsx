@@ -183,7 +183,13 @@ vi.mock("../../src/components/DirectoryBrowseView", () => ({
   default: (p: { weddingId: string }) => <div data-testid="directory-browse">{p.weddingId}</div>,
 }));
 vi.mock("../../src/components/ChecklistView", () => ({
-  default: (p: { weddingId: string }) => <div data-testid="checklist">{p.weddingId}</div>,
+  // The owner flag decides how the starter checklist asks for a missing
+  // wedding date, and a dropped prop is otherwise silent.
+  default: (p: { weddingId: string; canManage: boolean }) => (
+    <div data-testid="checklist" data-can-manage={String(p.canManage)}>
+      {p.weddingId}
+    </div>
+  ),
 }));
 vi.mock("../../src/components/BudgetView", () => ({
   default: (p: { weddingId: string }) => <div data-testid="budget">{p.weddingId}</div>,
@@ -677,6 +683,13 @@ describe("ModuleShell", () => {
       renderShell({ module: id, tier: "gold" });
       expect(screen.getByTestId(id)).toBeTruthy();
       expect(screen.queryByTestId("overview")).toBeNull();
+    });
+
+    it.each([true, false])("hands the checklist the caller's owner flag (%s)", (canManage) => {
+      renderShell({ module: "checklist", tier: "gold", canManage, canEdit: true });
+      expect(screen.getByTestId("checklist").getAttribute("data-can-manage")).toBe(
+        String(canManage),
+      );
     });
 
     it("opens the module once the tier rises, without a remount", () => {

@@ -4,6 +4,7 @@ import * as budget from "../../src/lib/budget-store";
 import * as enquiries from "../../src/lib/enquiries-store";
 import * as events from "../../src/lib/events-store";
 import * as guests from "../../src/lib/guests-store";
+import * as hosts from "../../src/lib/hosts-store";
 import * as households from "../../src/lib/households-store";
 import * as moduleRows from "../../src/lib/module-rows-store";
 import * as registry from "../../src/lib/registry-store";
@@ -64,6 +65,12 @@ const stores: StoreSpec[] = [
     set: (id) => guests.setCachedGuests(id, ROW),
     ensure: guests.ensureGuestsLoaded,
     reset: guests.__resetGuestsCache,
+  },
+  {
+    name: "hosts",
+    accessor: hosts.hostsAccessor,
+    ensure: hosts.ensureHostsLoaded,
+    reset: hosts.__resetHostsCache,
   },
   {
     name: "households",
