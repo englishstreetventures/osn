@@ -280,7 +280,7 @@
     },
     "musubi/social": {
       "name": "@musubi/social",
-      "version": "0.18.9",
+      "version": "0.18.10",
       "dependencies": {
         "@osn/auth-ui": "workspace:*",
         "@osn/client": "workspace:*",
@@ -343,7 +343,7 @@
     },
     "osn/auth-ui": {
       "name": "@osn/auth-ui",
-      "version": "3.0.14",
+      "version": "3.0.15",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@shared/toast": "workspace:*",
@@ -475,7 +475,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.24.22",
+      "version": "0.24.23",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -735,7 +735,7 @@
     },
     "shared/toast": {
       "name": "@shared/toast",
-      "version": "0.3.6",
+      "version": "0.3.7",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
