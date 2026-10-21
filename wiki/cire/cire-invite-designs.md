@@ -351,9 +351,9 @@ event and the panel to open on.
   itself on a saved reply. A tap on it while a slide or swipe is still running
   is ignored: the badge sits in the same corner on both panels, so the second
   tap of a double tap would otherwise go straight back.
-- **One height.** The sheet keeps one height whichever panel shows: 85% of
-  the viewport (`85dvh` on a phone, `85vh` from `md`), and from `md` no taller
-  than 760px (`AnimatedModal`). Its edge does not move on a badge press or a
+- **One height.** The sheet keeps one height whichever panel shows: 70% of a
+  phone's screen (`70dvh`), and from `md` 85% of the window (`85vh`, the
+  presentation's own cap) up to 640px (`AnimatedModal`). Its edge does not move on a badge press or a
   swipe, in either direction, nor when the form grows as the guest answers: a
   panel taller than the sheet scrolls inside it. Nothing is measured, so
   neither panel loads anything for the other's sake. A sparse event leaves
@@ -362,12 +362,19 @@ event and the panel to open on.
   at the sheet's full height, so its bar does not drop when it lands. The
   scrollport has no bottom padding for either panel (the bar is `sticky`, and
   a sticky box keeps inside its scrollport's padding); the details carry that
-  padding on their own wrapper. The 760px is what a household of one needs to
-  answer "Attending" at 1280px wide without scrolling (722px), with room to
-  spare; above it a sparse event would sit in an ever taller empty box on a
-  large screen.
+  padding on their own wrapper. The values are the owner's request for less
+  empty sheet under a sparse event, settled by rendering. At 390×844 the
+  sheet is 591px, and a sparse event's details leave 323px of it empty
+  (about 450px at 85%); a household of one answering "Attending" needs 410px, so its
+  whole reply shows, as it still does at 375×667. At 1280×800 the sheet is
+  640px, and the same reply shows every diet and allergy choice above its
+  bar, with only "Other" below (722px needed); 600px would put an allergy row
+  under the bar. The chrome is clear of every safe area: on a phone the
+  sheet's top is at 30% of the screen (× at 262px on 390×844, 179px on
+  320×568), and in landscape, which takes the `md` rule, it sits 182px in from
+  each side.
 
-  *Measured 2026-10-20 — the "one height" journey in `EventSheet.browser.test.tsx`, run at 1280×2400 against the content-sized sheet on main (364cabde), Chromium 1194*
+  *Measured 2026-10-21 — a temporary probe test forcing candidate heights on `EventSheet` (65, 70, 75dvh; 600, 640, 680px) at 390×844, 375×667, 320×568, 844×390 and 1280×800, Chromium 1194; the 722px and 410px are the content-sized sheet on main (364cabde)*
 - **A swipe does the same.** On a touch screen the panel on screen follows a
   sideways drag toward the other panel — the details sit on the start side,
   the form on the end side — with the other panel drawn beside it, `inert`
@@ -425,8 +432,8 @@ takes focus; the badge; the deadline), `sheet-swipe.test.ts` (the swipe's
 thresholds), `EventSheet.browser.test.tsx` (in Chromium, see
 [[browser-tests]]; the swipes are real touches sent through `cdp()`; the
 sheet's height read on every frame of a journey by badge and by swipe, for a
-sparse event and a full one, with screenshots of each panel under
-`__screenshots__/`), the
+sparse event and a full one; a full event's panels scrolled to their ends;
+with screenshots of each panel under `__screenshots__/`), the
 `cire-rsvp` end-to-end flow (a phone-sized round trip by swipe and badge,
 with screenshots of both panels), both packs' `InvitePage.test.tsx` (which panel each button
 opens, on every open) and `InvitePage.browser.test.tsx` (the round trip in each

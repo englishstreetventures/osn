@@ -207,20 +207,6 @@ describe("EventSheet", () => {
     expect(panelOf("details")!.className).toContain("animate-panel-from-start");
   });
 
-  it("keeps the scrollport's bottom padding off for both panels, the details carrying their own", () => {
-    // The form's sticky bar keeps inside its scrollport's padding, and a swipe
-    // draws the form in beside the details, so the scrollport has none for
-    // either panel. Where the bar sits is the browser tier's to measure.
-    const { getByRole } = open("details");
-    expect(scroller().className).toContain("pb-0");
-    expect(scroller().className).not.toContain("pb-[max(2.5rem");
-    expect(panelOf("details")!.className).toContain("pb-[max(2.5rem,env(safe-area-inset-bottom))]");
-
-    fireEvent.click(getByRole("button", { name: "Give RSVP" }));
-    expect(scroller().className).toContain("pb-0");
-    expect(scroller().className).not.toContain("pb-[max(2.5rem");
-  });
-
   it("closes the whole sheet from either panel", async () => {
     const onClose = vi.fn();
     const { getByRole } = open("details", { onClose });

@@ -122,8 +122,8 @@ interface Touch {
  * ## One height
  *
  * The sheet keeps one height whichever panel shows and whatever it holds:
- * {@link AnimatedModal} makes it as tall as the viewport lets it be, and a
- * panel taller than that scrolls inside it. So a switch never moves the
+ * {@link AnimatedModal} sets it from the viewport alone, and a panel taller
+ * than that scrolls inside it. So a switch never moves the
  * sheet's edge, in either direction, and nor does a form that grows as the
  * guest answers. Nothing is measured, which matters here: the details' height
  * cannot be known without mounting them, and mounting them would load the

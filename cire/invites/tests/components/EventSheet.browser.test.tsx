@@ -293,8 +293,8 @@ describe("EventSheet — the motion", () => {
   });
 
   it("seats the form's action bar on the scrollport's edge after arriving from the details", async () => {
-    // The sheet drops its bottom padding for the form and keeps it for the
-    // details. Measured once the slide is over, because
+    // The scrollport has no bottom padding for either panel, so the bar sits
+    // on its edge. Measured once the slide is over, because
     // `getBoundingClientRect` reports the box after its transform.
     await page.viewport(...PHONE);
     render(() => <Harness members={party} />);
@@ -434,11 +434,17 @@ describe("EventSheet — the badge", () => {
     expect(heading.top).toBeGreaterThanOrEqual(row.bottom);
   });
 
-  it("does not take the second tap of a double tap straight back", async () => {
+  it.each([
+    ["a party taller than the sheet", party],
+    // The shortest form there is: the first to move the sheet's edge if its
+    // height ever followed its content again, when the second tap would meet
+    // the backdrop and close the sheet.
+    ["a household of one", [priya]],
+  ])("does not take the second tap of a double tap straight back, for %s", async (_, members) => {
     // The badge sits in the same corner on both panels, and the sheet keeps
     // one height, so the second tap of a double tap lands on its twin.
     await page.viewport(...PHONE);
-    render(() => <Harness members={party} />);
+    render(() => <Harness members={members} />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
     const at = centre(button("Give RSVP"));
@@ -449,6 +455,8 @@ describe("EventSheet — the badge", () => {
       "See details",
     );
     await mouseClick(at);
+    await new Promise(requestAnimationFrame);
+    expect(document.querySelector("dialog")?.open).toBe(true);
     await settle();
     expect(wrapperOf("rsvp").hidden).toBe(false);
     expect(wrapperOf("details").hidden).toBe(true);
@@ -998,14 +1006,14 @@ const fixtures = [
 ];
 
 /**
- * The sheet's one height at each size: 85% of the viewport, and from `md` no
- * more than 760px. The tall desktop is there for the ceiling; at 1280×800 the
- * viewport term is the smaller.
+ * The sheet's one height at each size: 70% of a phone's screen, and from `md`
+ * 85% of the window up to 640px. At 1280×800 the 640px ceiling is the smaller
+ * term, and at 1280×720 the window's 85% is.
  */
 const viewports = [
-  { name: "phone", size: [390, 844] as const, height: 0.85 * 844 },
-  { name: "desktop", size: [1280, 800] as const, height: 0.85 * 800 },
-  { name: "tall-desktop", size: [1280, 1000] as const, height: 760 },
+  { name: "phone", size: [390, 844] as const, height: 0.7 * 844 },
+  { name: "desktop", size: [1280, 800] as const, height: 640 },
+  { name: "short-desktop", size: [1280, 720] as const, height: 0.85 * 720 },
 ];
 
 /**
@@ -1106,6 +1114,45 @@ describe("EventSheet — one height for both panels", () => {
   }
 });
 
+describe("EventSheet — a full event inside the sheet", () => {
+  for (const vp of viewports) {
+    it(`scrolls both panels to their ends cleanly at ${vp.size.join("×")}`, async () => {
+      await page.viewport(vp.size[0], vp.size[1]);
+      render(() => <Harness event={full} members={fullParty} />);
+      await userEvent.click(cardButton("Event Details"));
+      await settle();
+      const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+
+      // The details scroll, and at their foot the sheet's bottom padding is
+      // still under the last line: the details carry it themselves, since the
+      // scrollport gives its own up for the form's bar.
+      expect(scroller().scrollHeight).toBeGreaterThan(scroller().clientHeight);
+      scroller().scrollTop = scroller().scrollHeight;
+      await new Promise(requestAnimationFrame);
+      // Within a pixel: the sheet's height is fractional (70% of 844px), and
+      // the scroll offset snaps.
+      const last = wrapperOf("details").lastElementChild!.getBoundingClientRect();
+      const foot = scroller().getBoundingClientRect().bottom - last.bottom;
+      expect(Math.abs(foot - 2.5 * rem)).toBeLessThan(1);
+      await shot(`${vp.name}-full-details-end`);
+
+      // The form scrolls under its bar, and its last guest ends above it.
+      await userEvent.click(button("Give RSVP"));
+      await settle();
+      expect(scroller().scrollHeight).toBeGreaterThan(scroller().clientHeight);
+      scroller().scrollTop = scroller().scrollHeight;
+      await new Promise(requestAnimationFrame);
+      const guests = wrapperOf("rsvp").querySelectorAll("form > fieldset");
+      const bar = button("Save").parentElement!.getBoundingClientRect();
+      expect(guests[guests.length - 1]!.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+        bar.top,
+      );
+      expect(Math.abs(scroller().getBoundingClientRect().bottom - bar.bottom)).toBeLessThan(1);
+      await shot(`${vp.name}-full-rsvp-end`);
+    });
+  }
+});
+
 /** The form's action bar, found without the accessibility tree: mid-swipe the form is `inert`. */
 function barOf(panel: HTMLElement): HTMLElement {
   const save = [...panel.querySelectorAll("button")].find((b) => b.textContent === "Save");
@@ -1140,7 +1187,9 @@ describe("EventSheet — the form a swipe draws in", () => {
         expect(barOf(form).getBoundingClientRect().bottom).toBeCloseTo(port.bottom, 0);
         // And no further: the form ends on the edge rather than past it, where
         // the sticky bar would hide the overshoot but the sheet would gain
-        // scroll room under the finger.
+        // scroll room under the finger. The wrapper is not sticky, so its own
+        // edge shows an overshoot the bar hides.
+        expect(form.getBoundingClientRect().bottom).toBeCloseTo(port.bottom, 0);
         expect(scroller().scrollHeight).toBe(range);
       } finally {
         // Sprung back. Lifted even when an assertion above fails, or the next

@@ -69,12 +69,13 @@ interface AnimatedModalProps {
  *
  * Five things the platform does not do, each the reason a line below exists.
  *
- * The **one height**. The sheet is as tall as the viewport lets it be — 85% of
- * it, and from `md` no more than 760px — whatever it holds, and its content
- * scrolls inside. EventSheet swaps two panels of different heights in it, and
- * a form that grows as the guest answers; a sheet sized to its content would
- * move its edge on every switch and every answer. The scrollport fills the
- * sheet, so a child can end on the sheet's bottom edge however short it is.
+ * The **one height**. The sheet's height is set by the viewport alone — 70% of
+ * a phone's, and from `md` 85% of the window up to 640px — whatever it holds,
+ * and its content scrolls inside. EventSheet swaps two panels of different
+ * heights in it, and a form that grows as the guest answers; a sheet sized to
+ * its content would move its edge on every switch and every answer. The
+ * scrollport fills the sheet, so a child can end on the sheet's bottom edge
+ * however short it is.
  *
  * The **theme variables**, which have to be re-declared on the panel because it
  * paints outside the themed section wrapper it belongs to, and are filtered
@@ -155,13 +156,16 @@ export function AnimatedModal(props: AnimatedModalProps) {
       // phone. The family is named in `no-restyle`'s allow lists because the
       // rule's grammar cannot classify a `max-w-*` built from a custom
       // `--container-*` entry; see wiki/shared/design-tokens.md.
-      // The height is the presentation's own `max-h` cap made exact — `85dvh`
-      // on a phone, `85vh` from `md` — so the sheet keeps one height (see the
-      // component doc). From `md` it stops at 760px, in pixels for the same
-      // reason as the width: a household of one answering "Attending" needs
-      // 722px at 1280px wide, and above that a sparse event would sit in an
-      // ever taller empty box on a large screen.
-      class="max-w-column-md h-[85dvh] md:mb-8 md:h-[min(85vh,760px)]"
+      // One height, whatever the sheet holds (see the component doc), and
+      // below the presentation's own `max-h` cap. On a phone it is 70% of the
+      // screen: low enough that a sparse event's details do not sit over a
+      // tall empty sheet, tall enough for a household of one to answer
+      // "Attending" without scrolling (410px of a 591px sheet on a 390×844
+      // phone, and still whole at 375×667). From `md` it is
+      // the cap, `85vh`, up to 640px, in pixels for the same reason as the
+      // width; at 1280px wide the form for one guest answering "Attending"
+      // then shows every diet and allergy choice above its bar.
+      class="max-w-column-md h-[70dvh] md:mb-8 md:h-[min(85vh,640px)]"
     >
       {/* `z-10` because tree order alone is not enough. This row is an
           earlier-in-tree positioned sibling of the scroller, so it outranks the
