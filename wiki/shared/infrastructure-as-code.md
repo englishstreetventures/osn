@@ -16,7 +16,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[database-environments]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-21
 ---
 
 # Infrastructure as code (Alchemy)
@@ -211,7 +211,7 @@ Rehearse it on the dev account before production's store holds secrets (englishs
 
 `alchemy` stays on an exact pin, and `shared/infra/tests/package.test.ts` fails on any other version. Repeat this review on every bump.
 
-The CI lint, OpenAPI-freshness and E2E jobs and every product deploy job in `deploy.yml` and `production-release.yml` never load `@shared/infra`, so they install with `--filter '!@shared/infra'`: the full tree minus about 100 Alchemy-only packages. The jobs that build, test or type-check it keep the full install, and `alchemy-state.yml` installs `--filter @shared/infra` alone. `scripts/tests/deploy-workflows.test.ts` accepts either install form in the two deploy workflows.
+The CI lint, OpenAPI-freshness, E2E and migration-workflow jobs and every product deploy job in `deploy.yml` and `production-release.yml` never load `@shared/infra`, so they install with `--filter '!@shared/infra'`: the full tree minus about 100 Alchemy-only packages. The jobs that build, test or type-check it keep the full install, and `alchemy-state.yml` installs `--filter @shared/infra` alone. `scripts/tests/deploy-workflows.test.ts` accepts either install form in the two deploy workflows.
 
 *Measured 2026-10-19 on Bun 1.4.2, darwin-arm64, in a scratch copy of the tree — the filtered install equals the full one minus 102 packages, leaves `bun.lock` unchanged, and `bun run lint` reports the same 878 warnings*
 
