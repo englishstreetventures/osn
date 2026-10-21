@@ -31,6 +31,8 @@ Those three `##` headings are the whole permitted set, in that order. Replace a 
 
 **From here on the file is only ever edited, never rewritten.** Do not compose the report in your head and write it out whole at the end — a single write discards the shape this step established. If you find yourself about to write the whole file, read it back and edit what is there.
 
+**Record each finding the moment you have it.** Write it under `## Findings` in the four-field block before you check the next page or claim, and fill `## Scope` and `## Suggested next sweeps` as you go, not in one pass at the end. A run that a usage limit or an error stops keeps what the file already holds, and a reviewer resumed later starts from that file, not from memory.
+
 ## When a step cannot run
 
 **No step is a stop.** The Obsidian MCP (`mcp__obsidian-wiki__*`) and the `obsidian` CLI exist only on the maintainer's Mac with Obsidian open; in a remote, CI or sandboxed session they are absent. That is expected, not a fault — do not retry, and do not ask for Obsidian to be opened. Every check below has a shell form; use it.
@@ -144,6 +146,8 @@ IDs: `D-C1`, `D-C2`, … Critical; `D-H1`, … High; `D-M1`, … Medium; `D-L1`,
 `## Suggested next sweeps` — at most three, each a path and a sentence: the pages outside the diff that Step 2 found still carrying an old value, and anything a finding above unblocks. `None` if there is nothing.
 
 ### Check the file before you finish
+
+Once every page is covered, end the file with one line that is not a heading: `**Review complete.** <n> findings: <tally by tier>.` Neither count below depends on that line, so the counts pass on a partial file too. A file without the line is a partial review, and a resumed run finishes it.
 
 ```bash
 grep -c '^## \(Scope\|Findings\|Suggested next sweeps\)$' DOCS-REVIEW.md
