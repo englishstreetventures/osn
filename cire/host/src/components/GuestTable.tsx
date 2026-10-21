@@ -132,7 +132,7 @@ function GuestEmailLine(props: { member: FamilyMember }) {
           {email()}
           <span class="whitespace-nowrap">
             {" · "}
-            {props.member.emailSource === "guest" ? "added by the guest" : "added by you"}
+            {props.member.emailSource === "guest" ? "added by the guest" : "added by a host"}
           </span>
           <Show when={props.member.emailOptedOut}>
             <span class="text-warn whitespace-nowrap">

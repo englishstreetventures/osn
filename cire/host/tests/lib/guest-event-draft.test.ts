@@ -1210,6 +1210,33 @@ describe("replayDraft — keeping unsaved edits across a reload", () => {
     };
   }
 
+  // The organiser's address edit was made against the address they saw. If a
+  // guest saved their own since, the replayed edit must still name what the
+  // organiser saw, so the server finds it stale and skips it rather than
+  // clearing the guest's new address.
+  it("replays an address edit against the address the organiser saw", () => {
+    const base = baseline();
+    Object.assign(base.families[0]!.guests[0]!, {
+      email: "a@example.test",
+      emailLoaded: "a@example.test",
+      emailSource: "organiser_attested",
+    });
+    const current = structuredClone(base);
+    current.families[0]!.guests[0]!.email = "";
+    const fresh = freshOf(base);
+    Object.assign(fresh.families[0]!.guests[0]!, {
+      email: "c@example.test",
+      emailLoaded: "c@example.test",
+      emailSource: "guest",
+    });
+
+    const { draft } = replayDraft(base, current, fresh);
+    expect(toDesiredState(draft).families[0]!.guests[0]).toMatchObject({
+      email: null,
+      emailExpected: "a@example.test",
+    });
+  });
+
   it("keeps the organiser's field edits and the other change's edits to other fields", () => {
     const base = baseline();
     const current = structuredClone(base);
@@ -1552,6 +1579,19 @@ describe("guest addresses in the draft", () => {
       const store = loaded();
       store.updateGuest(guestKey(store, "Ada"), { nickname: "A" });
       expect(wireGuest(store, "Ada")).not.toHaveProperty("email");
+      dispose();
+    });
+  });
+
+  // Every guest without an address carries `email: ""`: flagging a blank
+  // would block every save in a wedding with one such guest.
+  it("lets a blank or a valid address save", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load(EVENTS, WITH_EMAILS, [], REVISION);
+      store.updateGuest(guestKey(store, "Ben"), { email: "" });
+      store.updateGuest(guestKey(store, "Ada"), { email: "Ada@Example.test " });
+      expect(validateDraft(store.draft)).toEqual([]);
       dispose();
     });
   });

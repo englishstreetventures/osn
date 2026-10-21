@@ -8,7 +8,7 @@ import {
   events as eventsData,
   guests as guestsData,
 } from "@cire/db/seed";
-import { GUEST_EMAIL_CONSENT } from "@cire/guest-email";
+import { GUEST_EMAIL_CONSENT, ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
 import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -1145,6 +1145,10 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   said yes — and an after party, inviting Ada, with no plan yet; for setting
  *   out and seating an event's chart.
  *
+ * It also gives Bo, of the sample wedding's Sampleton household, an address
+ * his hosts added, so the member-step flow can check the invitation shows it
+ * to him as theirs.
+ *
  * The co-hosts are bare profile ids with no OSN account behind them; the local
  * server resolves no names, so the portal shows the ids. Every id and value a
  * flow checks is written out again as `CIRE_ORGANISER` in
@@ -1498,6 +1502,27 @@ export function seedE2eOrganiser(db: TestDb): void {
       },
     ])
     .run();
+
+  const sampleton = db
+    .select({ id: schema.families.id })
+    .from(schema.families)
+    .where(eq(schema.families.publicId, "TESTTWO-OAK-BB22"))
+    .get();
+  if (sampleton) {
+    db.update(schema.guests)
+      .set({
+        email: "bo.sampleton@e2e.test",
+        emailHash: createHash("sha256")
+          .update(`${schema.BOOTSTRAP_WEDDING_ID}:bo.sampleton@e2e.test`)
+          .digest("hex"),
+        emailSource: "organiser_attested",
+        emailConsentAt: now,
+        emailConsentVersion: ORGANISER_EMAIL_ATTESTATION.version,
+        emailAttestedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+      })
+      .where(and(eq(schema.guests.familyId, sampleton.id), eq(schema.guests.firstName, "Bo")))
+      .run();
+  }
 
   seedE2eSeating(db, now);
 }

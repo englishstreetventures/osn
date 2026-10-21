@@ -5,6 +5,11 @@
  * attestation. A second guest's address, which she gave herself on the
  * invite, shows as hers — text, not a field — and the save leaves it as it is.
  *
+ * Then the guest list says who added each address; a spreadsheet's address
+ * waits for the same attestation, which a new preview resets; a sheet with a
+ * cell that is not an address is refused; and the owner removes Hana's own
+ * address in the editor, which asks for no attestation.
+ *
  * The wedding (`CIRE_ORGANISER.emails`) holds one household, Tanaka: Gus with
  * no address, and Hana with her own.
  */
@@ -12,7 +17,7 @@
 import { CIRE_ORGANISER, DB_FILES, ORIGINS } from "../../src/config";
 import { expect, onSuiteClock, queryOne, signInToCireHost, test } from "../support/fixtures";
 
-const { weddingId, household, noAddress, guestsOwn, added } = CIRE_ORGANISER.emails;
+const { weddingId, household, noAddress, guestsOwn, added, sheetAddresses } = CIRE_ORGANISER.emails;
 const CHANGES_API = `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}/changes`;
 
 /** A guest's address and its consent record, by first name. */
@@ -101,5 +106,122 @@ test("cire-guest-emails", async ({ page, flow }) => {
     `${guestsOwn.firstName}'s own address left as it was`,
     `${guestsOwn.address} guest`,
     `${hana?.email ?? "none"} ${hana?.source ?? "none"}`,
+  );
+
+  await flow.step("the guest list says who added each address", async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/guests`);
+    const gusLine = page.getByText(added).locator("xpath=..");
+    const hanaLine = page.getByText(guestsOwn.address).locator("xpath=..");
+    await expect(gusLine).toContainText("added by a host");
+    await expect(hanaLine).toContainText("added by the guest");
+    await expect(page.getByText("opted out", { exact: false })).toHaveCount(0);
+  });
+
+  // The spreadsheet door holds Apply until the organiser ticks the
+  // attestation, and a new preview starts unticked.
+  const sheet = (gus: string) =>
+    Buffer.from(
+      [
+        "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Email",
+        `1,${household},${noAddress},${household},${gus}`,
+        `1,${household},${guestsOwn.firstName},${household},`,
+      ].join("\n"),
+    );
+  const upload = async (gus: string) => {
+    await page.getByLabel("guests.csv").setInputFiles({
+      name: "guests.csv",
+      mimeType: "text/csv",
+      buffer: sheet(gus),
+    });
+    const response = page.waitForResponse(
+      (r) => r.url() === `${CHANGES_API}/preview` && r.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    return response;
+  };
+  const attestation = page.getByRole("checkbox", { name: /agreed to get emails/ });
+  const applyImport = page.getByRole("button", { name: "Apply import" });
+
+  await flow.step("a spreadsheet's address waits for the attestation", async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/guests/edit`);
+    await page.getByRole("radio", { name: /Spreadsheet import/ }).click();
+    await upload(sheetAddresses.first);
+    await expect(attestation).toBeVisible();
+    await expect(applyImport).toBeDisabled();
+    await attestation.check();
+    await expect(applyImport).toBeEnabled();
+  });
+
+  await flow.step("a new preview starts unticked", async () => {
+    await upload(sheetAddresses.second);
+    await expect(attestation).not.toBeChecked();
+    await expect(applyImport).toBeDisabled();
+  });
+
+  const imported = await flow.step("confirm and apply the sheet", async () => {
+    await attestation.check();
+    const response = page.waitForResponse(
+      (r) => r.url() === `${CHANGES_API}/apply` && r.request().method() === "POST",
+    );
+    // The panel reloads the page once the apply lands.
+    const reloaded = page.waitForEvent("load");
+    await applyImport.click();
+    const status = (await response).status();
+    await reloaded;
+    return status;
+  });
+  flow.check("the sheet applies", 200, imported);
+  const fromSheet = addressOf(noAddress);
+  flow.check(
+    `${noAddress}'s address from the sheet, on the owner's attestation`,
+    `${sheetAddresses.second} organiser_attested ${CIRE_ORGANISER.profileId}`,
+    `${fromSheet?.email ?? "none"} ${fromSheet?.source ?? "none"} ${fromSheet?.attestedBy ?? "none"}`,
+  );
+
+  await flow.step("a sheet whose address cell is not one address is refused", async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/guests/edit`);
+    await page.getByRole("radio", { name: /Spreadsheet import/ }).click();
+    const response = await upload("not an address");
+    expect(response.status()).toBe(422);
+    await expect(
+      page.getByText("Guest Email must be one email address", { exact: false }),
+    ).toBeVisible();
+  });
+
+  // The organiser may remove an address a guest gave themselves, and undo
+  // that until the save; removing needs no attestation.
+  const removed = await flow.step(
+    `remove ${guestsOwn.firstName}'s own address in the editor`,
+    async () => {
+      await page.getByRole("radio", { name: /Web editor/ }).click();
+      const removeEmail = page.getByRole("button", {
+        name: `Remove ${guestsOwn.firstName}’s email address`,
+      });
+      await removeEmail.click();
+      await expect(page.getByText("Removed on save")).toBeVisible();
+      await page
+        .getByRole("button", { name: `Keep ${guestsOwn.firstName}’s email address` })
+        .click();
+      await expect(page.getByText(guestsOwn.address)).toBeVisible();
+      await removeEmail.click();
+      const preview = page.waitForResponse(
+        (r) => r.url() === `${CHANGES_API}/preview` && r.request().method() === "POST",
+      );
+      await page.getByRole("button", { name: "Save changes" }).click();
+      const body = (await (await preview).json()) as { emailAttestations?: unknown };
+      await expect(confirm).toBeEnabled();
+      const response = page.waitForResponse(
+        (r) => r.url() === `${CHANGES_API}/apply` && r.request().method() === "POST",
+      );
+      await confirm.click();
+      return `${String(body.emailAttestations)} ${(await response).status()}`;
+    },
+  );
+  flow.check("the removal asks for no attestation, and applies", "0 200", removed);
+  const hanaAfter = addressOf(guestsOwn.firstName);
+  flow.check(
+    `${guestsOwn.firstName}'s address and its record are gone`,
+    "none none none",
+    `${hanaAfter?.email ?? "none"} ${hanaAfter?.source ?? "none"} ${hanaAfter?.version ?? "none"}`,
   );
 });
