@@ -78,6 +78,27 @@ test("cire-rsvp", async ({ page, context, flow }) => {
     await expect(prompt).toBeHidden();
   });
 
+  // The footer prints the commit the guest site was built from, so a report
+  // from a phone says which build it was. A local dev server has none.
+  const version = await flow.step("read the build's version in the footer", async () => {
+    const footer = page.getByRole("contentinfo");
+    const line = footer.getByText(/^Version /);
+    await expect(line).toBeVisible();
+    const before = page.viewportSize();
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await footer.scrollIntoViewIfNeeded();
+      await footer.screenshot({
+        path: resolve(SCREENSHOT_DIR, `cire-rsvp--footer-${width}.png`),
+        animations: "disabled",
+      });
+    }
+    if (before) await page.setViewportSize(before);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    return (await line.textContent())?.trim() ?? "none";
+  });
+  flow.check("the footer prints the build's version", "Version local", version);
+
   await flow.step("enter the family code", async () => {
     await page.getByLabel("Invitation code").fill(CIRE_GUEST.code);
     await expect(page.getByRole("button", { name: "Open Invitation" })).toBeEnabled();
@@ -103,15 +124,37 @@ test("cire-rsvp", async ({ page, context, flow }) => {
   const details = sheet.locator('[data-panel="details"]');
   const form = sheet.locator('[data-panel="rsvp"]');
   const attending = sheet.getByRole("button", { name: "Attending", exact: true }).first();
-  // The sheet's switch: exact names, since "Details" and "Respond" are also
-  // inside its headings' and the card's words.
-  const detailsSegment = sheet.getByRole("button", { name: "Details", exact: true });
-  const respondSegment = sheet.getByRole("button", { name: "Respond", exact: true });
-  const panelSwitch = sheet.getByRole("group", { name: "Event sheet" });
-  /** A point on a panel's heading, clear of every control. */
-  const onHeading = async (panel: "details" | "rsvp"): Promise<Point> => {
-    const box = (await sheet.locator(`[data-panel="${panel}"] h3`).boundingBox())!;
-    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  // The sheet's badge, by the name it has on each panel: one button whose
+  // words for the panel on screen alone give it its name.
+  const giveRsvp = sheet.getByRole("button", { name: "Give RSVP", exact: true });
+  const seeDetails = sheet.getByRole("button", { name: "See details", exact: true });
+  /** Which panels are on screen, by name. */
+  const onScreen = () =>
+    sheet.evaluate((d) =>
+      [...d.querySelectorAll<HTMLElement>("[data-panel]")]
+        .filter((panel) => !panel.hidden)
+        .map((panel) => panel.dataset.panel)
+        .join(","),
+    );
+  /** Where the sheet's bar is: its title, the badge and the close button, first in the scrollport. */
+  const barBox = () =>
+    sheet.evaluate((d) => {
+      const box = (d.lastElementChild!.firstElementChild as HTMLElement).getBoundingClientRect();
+      return { y: box.y, height: box.height };
+    });
+  /**
+   * A point on the first line of a panel's content, across the panel's middle
+   * and clear of every control: the event's day on the details, the guest's
+   * name on the form. A swipe starts on a panel, never on the bar.
+   */
+  const onContent = async (panel: "details" | "rsvp"): Promise<Point> => {
+    const wrapper = sheet.locator(`[data-panel="${panel}"]`);
+    const line = (await wrapper
+      .locator(panel === "details" ? "dl p" : "legend")
+      .first()
+      .boundingBox())!;
+    const across = (await wrapper.boundingBox())!;
+    return { x: across.x + across.width / 2, y: line.y + line.height / 2 };
   };
 
   await flow.step("open the ceremony's details on a phone", async () => {
@@ -122,17 +165,16 @@ test("cire-rsvp", async ({ page, context, flow }) => {
       .getByRole("button", { name: "Event Details" })
       .click();
     await expect(sheet.getByRole("heading", { name: /^Details.*Catholic Ceremony/ })).toBeVisible();
-    await expect(respondSegment).toBeVisible();
-    await expect(detailsSegment).toHaveAttribute("aria-pressed", "true");
+    await expect(giveRsvp).toBeVisible();
   });
 
   // The page behind the sheet is locked at the root: a drag that starts on
-  // the sheet's chrome (outside its scrollport) or on the backdrop has
-  // nothing to scroll, and must not reach the invite underneath. A still page
-  // proves that only when the page had somewhere to go: an upward drag
-  // scrolls it down, so it needs room below it, and is moved up first when
-  // the sheet opened too near its foot.
-  const locked = await flow.step("drag on the sheet's chrome and on the backdrop", async () => {
+  // the sheet's bar or on the backdrop must not reach the invite underneath.
+  // The bar is sticky inside the sheet's scrollport, so a drag on it may
+  // scroll the sheet — never the page. A still page proves that only when the
+  // page had somewhere to go: an upward drag scrolls it down, so it needs room
+  // below it, and is moved up first when the sheet opened too near its foot.
+  const locked = await flow.step("drag on the sheet's bar and on the backdrop", async () => {
     const room = () =>
       page.evaluate(
         () => document.documentElement.scrollHeight - window.innerHeight - window.scrollY,
@@ -147,37 +189,45 @@ test("cire-rsvp", async ({ page, context, flow }) => {
     }
     const hadRoom = (await room()) >= 200;
     const before = await page.evaluate(() => window.scrollY);
-    const chrome = (await panelSwitch.boundingBox())!;
-    const onChrome = { x: chrome.x + chrome.width / 2, y: chrome.y + chrome.height / 2 };
-    await swipe(page, onChrome, { x: onChrome.x, y: onChrome.y - 200 }, 400);
+    const heading = (await sheet
+      .getByRole("heading", { name: /Catholic Ceremony/ })
+      .boundingBox())!;
+    const onBar = { x: heading.x + heading.width / 2, y: heading.y + heading.height / 2 };
+    await swipe(page, onBar, { x: onBar.x, y: onBar.y - 200 }, 400);
     await swipe(page, { x: PHONE.width / 2, y: 160 }, { x: PHONE.width / 2, y: 20 }, 400);
     await expect(sheet).toBeVisible();
     return { hadRoom, still: before === (await page.evaluate(() => window.scrollY)) };
   });
   flow.check("the page behind the sheet had room to scroll", true, locked.hadRoom);
   flow.check(
-    "a drag on the sheet's chrome or backdrop leaves the page where it was",
+    "a drag on the sheet's bar or backdrop leaves the page where it was",
     true,
     locked.still,
   );
 
-  await flow.step("scroll the details with a vertical drag", async () => {
-    const at = await onHeading("details");
-    // Slow enough to leave no fling behind: the next step needs the scroll still.
-    await swipe(page, { x: at.x, y: at.y + 300 }, { x: at.x - 15, y: at.y }, 1000);
-    await expect
-      .poll(() => sheet.evaluate((d) => (d.lastElementChild as HTMLElement).scrollTop))
-      .toBeGreaterThan(0);
+  // The bar is no part of either panel, so a sideways swipe on its title is no
+  // swipe between them: 200px in 150ms, a flick that would carry on anywhere
+  // on a panel. A drag that began would have mounted the form beside the
+  // details at once, and nothing in this flow has mounted it yet, so a form
+  // still absent says no drag began, with no settle to wait out.
+  const afterBarSwipe = await flow.step("swipe left on the sheet's bar", async () => {
+    const heading = (await sheet
+      .getByRole("heading", { name: /Catholic Ceremony/ })
+      .boundingBox())!;
+    const onTitle = { x: heading.x + heading.width / 2, y: heading.y + heading.height / 2 };
+    await swipe(page, onTitle, { x: onTitle.x - 200, y: onTitle.y }, 150);
+    return { onScreen: await onScreen(), formMounted: await form.count() };
   });
-  flow.check("a vertical drag leaves the details on screen", true, await details.isVisible());
+  flow.check(
+    "a sideways swipe on the bar leaves the details on screen",
+    "details",
+    afterBarSwipe.onScreen,
+  );
+  flow.check("a sideways swipe on the bar draws no form in", 0, afterBarSwipe.formMounted);
 
-  // 20px: past the slop, so the drag begins and the form is drawn in, but
-  // under the shortest flick, so the release springs back however fast the
-  // browser reads the finger's moves (it may not honour their timestamps).
-  await flow.step("drag the details a little and let go", async () => {
-    // Back to the top, until it stays there: a fling left by the drag above
-    // may still be scrolling.
-    await expect
+  /** Put the sheet back at its top, until it stays there: a fling a drag left may still be moving it. */
+  const toTop = () =>
+    expect
       .poll(() =>
         sheet.evaluate(async (d) => {
           const port = d.lastElementChild as HTMLElement;
@@ -187,7 +237,48 @@ test("cire-rsvp", async ({ page, context, flow }) => {
         }),
       )
       .toBe(0);
-    const at = await onHeading("details");
+
+  await flow.step("scroll the details with a vertical drag", async () => {
+    // The drag on the bar may have scrolled the sheet; this one must start from the top.
+    await toTop();
+    const at = await onContent("details");
+    // Slow enough to leave no fling behind: the next step needs the scroll still.
+    await swipe(page, { x: at.x, y: at.y + 300 }, { x: at.x - 15, y: at.y }, 1000);
+    await expect
+      .poll(() => sheet.evaluate((d) => (d.lastElementChild as HTMLElement).scrollTop))
+      .toBeGreaterThan(0);
+  });
+  flow.check("a vertical drag leaves the details on screen", true, await details.isVisible());
+
+  // The bar stays at the top of the sheet, frosted, with the details passing
+  // under it.
+  const underBar = await flow.step("scroll the details 200px under the bar", async () => {
+    await toTop();
+    const atRest = await barBox();
+    await sheet.evaluate(async (d) => {
+      (d.lastElementChild as HTMLElement).scrollTop = 200;
+      await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    });
+    await page.screenshot({
+      path: resolve(SCREENSHOT_DIR, "cire-rsvp--sheet-details-under-bar.png"),
+      animations: "disabled",
+    });
+    const scrolled = await barBox();
+    const facts = (await details.locator("dl").boundingBox())!;
+    return {
+      still: scrolled.y === atRest.y && scrolled.height === atRest.height,
+      under: facts.y < atRest.y + atRest.height,
+    };
+  });
+  flow.check("the bar stays put while the details scroll", true, underBar.still);
+  flow.check("the details pass under the bar", true, underBar.under);
+
+  // 20px: past the slop, so the drag begins and the form is drawn in, but
+  // under the shortest flick, so the release springs back however fast the
+  // browser reads the finger's moves (it may not honour their timestamps).
+  await flow.step("drag the details a little and let go", async () => {
+    await toTop();
+    const at = await onContent("details");
     const finger = await swipe(page, at, { x: at.x - 20, y: at.y }, 1000, false);
     await expect(details).toHaveAttribute("style", /translateX\(-20px\)/);
     await expect(form).toBeVisible();
@@ -196,30 +287,41 @@ test("cire-rsvp", async ({ page, context, flow }) => {
   });
   flow.check("a short drag springs back to the details", true, await details.isVisible());
 
-  // The switch's pill follows the finger rather than jumping once the panels
-  // land: held part-way, it stands between its two segments.
+  // The badge's words follow the finger rather than changing once the panels
+  // land: held part-way, "Give RSVP" is leaving the badge by the start as "See
+  // details" comes in from the end, each partly shown and side by side.
   const midSwipe = await flow.step(
-    "hold a swipe part-way, and see the switch follow it",
+    "hold a swipe part-way, and see the badge follow it",
     async () => {
-      const at = await onHeading("details");
+      const at = await onContent("details");
       const finger = await swipe(page, at, { x: at.x - 120, y: at.y }, 1000, false);
       await expect(form).toBeVisible();
-      const progress = await panelSwitch.evaluate((group) =>
-        Number.parseFloat((group as HTMLElement).style.getPropertyValue("--seg-progress")),
-      );
+      const shown = await giveRsvp.evaluate((chip) => {
+        const frame = chip.firstElementChild!.getBoundingClientRect();
+        const [leaving, coming] = [...chip.firstElementChild!.children].map((label) => {
+          const box = label.getBoundingClientRect();
+          const left = Math.max(box.left, frame.left);
+          return { left, width: Math.max(0, Math.min(box.right, frame.right) - left) };
+        });
+        return {
+          both: leaving!.width > 0 && coming!.width > 0,
+          apart:
+            leaving!.left < coming!.left && leaving!.left + leaving!.width <= coming!.left + 0.5,
+        };
+      });
       await page.screenshot({
         path: resolve(SCREENSHOT_DIR, "cire-rsvp--sheet-mid-swipe.png"),
         animations: "disabled",
       });
       await finger.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
       await expect(form).toBeHidden();
-      return progress;
+      return shown;
     },
   );
   flow.check(
-    "mid-swipe the switch stands between its segments",
+    "mid-swipe the badge shows part of each of its words, side by side",
     true,
-    midSwipe > 0 && midSwipe < 1,
+    midSwipe.both && midSwipe.apart,
   );
 
   await flow.step("swipe left to the RSVP form", async () => {
@@ -227,11 +329,11 @@ test("cire-rsvp", async ({ page, context, flow }) => {
       path: resolve(SCREENSHOT_DIR, "cire-rsvp--sheet-details.png"),
       animations: "disabled",
     });
-    const at = await onHeading("details");
+    const at = await onContent("details");
     await swipe(page, at, { x: at.x - 200, y: at.y }, 150);
     await expect(sheet.getByRole("heading", { name: /^Respond.*Catholic Ceremony/ })).toBeFocused();
     await expect(details).toBeHidden();
-    await expect(detailsSegment).toHaveAttribute("aria-pressed", "false");
+    await expect(seeDetails).toBeVisible();
   });
   flow.check(
     "nothing chosen before the swipe round trip",
@@ -249,14 +351,14 @@ test("cire-rsvp", async ({ page, context, flow }) => {
   });
 
   await flow.step("swipe right back to the details", async () => {
-    const at = await onHeading("rsvp");
+    const at = await onContent("rsvp");
     await swipe(page, at, { x: at.x + 200, y: at.y }, 150);
     await expect(sheet.getByRole("heading", { name: /^Details.*Catholic Ceremony/ })).toBeFocused();
-    await expect(detailsSegment).toHaveAttribute("aria-pressed", "true");
+    await expect(seeDetails).toBeHidden();
   });
 
-  await flow.step("return with the switch", async () => {
-    await respondSegment.click();
+  await flow.step("return with the badge", async () => {
+    await giveRsvp.click();
     await expect(sheet.getByRole("heading", { name: /^Respond.*Catholic Ceremony/ })).toBeFocused();
   });
   flow.check(

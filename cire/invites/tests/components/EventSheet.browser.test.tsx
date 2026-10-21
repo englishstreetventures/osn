@@ -2,14 +2,17 @@
  * The event sheet's switch between its two panels, in a real engine.
  *
  * `EventSheet.test.tsx` holds the state: what mounts, what is hidden, which
- * heading is handed focus. None of what is below exists in jsdom — no
+ * title is handed focus. None of what is below exists in jsdom — no
  * `<dialog>` modality, no layout to hide a panel from, no animation to slide
- * one in, no focus restore when the dialog closes, no reduced-motion clamp —
- * and each is part of what the issue asked for: the guest moves between the
- * panels without the dialog closing, focus lands on the new heading and goes
- * back to the opener on close, nothing typed is lost, the move is animated,
- * under reduced motion it is instant, and the sheet keeps one height.
+ * one in, no focus restore when the dialog closes, no reduced-motion clamp, no
+ * sticky bar for the content to scroll under — and each is part of what the
+ * issues asked for: the guest moves between the panels without the dialog
+ * closing, focus lands on the new title and goes back to the opener on close,
+ * nothing typed is lost, the move is animated, under reduced motion it is
+ * instant, the sheet keeps one height, and its bar stays put, frosted, while
+ * the panel scrolls under it.
  */
+import { contrastRatio, PALETTE_PRESET_KEYS, WCAG_TEXT_MIN, WCAG_UI_MIN } from "@cire/theme";
 import { cleanup, render, within } from "@solidjs/testing-library";
 import { createSignal, Show } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
@@ -18,6 +21,7 @@ import { cdp, commands, page, userEvent } from "vitest/browser";
 import "../../src/styles/global.css";
 import { EventCard } from "../../src/components/EventCard";
 import { EventSheet, type EventPanel } from "../../src/components/EventSheet";
+import { applyPaletteToRoot } from "../../src/components/invite-theme";
 import type { EventSummary, FamilyMember } from "../../src/components/types";
 
 /** Typed accessor for the command registered in `vitest.config.ts`. */
@@ -100,8 +104,23 @@ function scroller(): HTMLElement {
   return dialog().lastElementChild as HTMLElement;
 }
 
+/** The sheet's bar: its title, the badge and the close button, first in the scrollport. */
+function bar(): HTMLElement {
+  return scroller().firstElementChild as HTMLElement;
+}
+
+/** The title on screen: the bar's heading for the panel shown, which names the dialog. */
+function title(): HTMLElement {
+  return document.getElementById(dialog().getAttribute("aria-labelledby")!)!;
+}
+
 function wrapperOf(panel: EventPanel): HTMLElement {
   return dialog().querySelector<HTMLElement>(`[data-panel="${panel}"]`)!;
+}
+
+/** The box both panels are laid out in, and the swipe moves them inside. */
+function rail(): HTMLElement {
+  return dialog().querySelector<HTMLElement>("[data-panel]")!.parentElement!;
 }
 
 function button(name: string | RegExp): HTMLButtonElement {
@@ -109,44 +128,112 @@ function button(name: string | RegExp): HTMLButtonElement {
 }
 
 /**
- * A segment of the sheet's switch, by its words. Scoped to the dialog: the
- * harness's event card has a "Respond" of its own.
+ * The badge in the sheet's bar, by the name it has on the panel on screen.
+ * Scoped to the dialog: the harness's event card has buttons of its own.
  */
-function segment(name: "Details" | "Respond" | "Your RSVP"): HTMLButtonElement {
+function badge(name: "Give RSVP" | "See details" | "View your RSVP"): HTMLButtonElement {
   return within(dialog()).getByRole("button", { name }) as HTMLButtonElement;
 }
 
-/** The switch, and its two decorations: the gold pill and the on-gold overlay. */
-function panelSwitch() {
-  const group = within(dialog()).getByRole("group", { name: "Event sheet" });
-  return {
-    group,
-    pill: group.firstElementChild as HTMLElement,
-    overlay: group.lastElementChild as HTMLElement,
-  };
+/**
+ * The badge and its two labels, the details' and the form's, found without the
+ * accessibility tree: one of the two is always `aria-hidden`.
+ */
+function badgeParts() {
+  const chip = [...bar().querySelectorAll("button")].find(
+    (b) => b.getAttribute("aria-label") !== "Close",
+  )!;
+  const [details, rsvp] = [...chip.firstElementChild!.children] as HTMLElement[];
+  return { chip, details: details!, rsvp: rsvp! };
+}
+
+/** An element's computed opacity, as a number. */
+function opacityOf(el: Element): number {
+  return Number(getComputedStyle(el).opacity);
+}
+
+/** A computed `transform`'s sideways offset, in px. */
+function shiftOf(el: Element): number {
+  return new DOMMatrix(getComputedStyle(el).transform).m41;
+}
+
+/** The part of `box` inside `frame`, left to right, as on screen through a clip. */
+function shownIn(box: DOMRect, frame: DOMRect) {
+  const left = Math.max(box.left, frame.left);
+  return { left, width: Math.max(0, Math.min(box.right, frame.right) - left) };
 }
 
 /**
- * A computed `inset()`'s four edges in px, for a box `width` wide. Chromium
- * keeps a percentage, or a `calc()` of one and a length, as written.
+ * The punctuation in `el`'s words that starts a line instead of ending the
+ * line of the character before it — a comma left alone on a line of its own,
+ * say. Read off each character's own box. The `sr-only` words are left out:
+ * they are clipped to nothing on screen.
  */
-function insetOf(clip: string, width: number): number[] {
-  const body = /^inset\((.*?)(?: round .*)?\)$/.exec(clip)?.[1] ?? "";
-  const edges = body.match(/calc\([^)]*\)|-?[\d.]+(?:px|%)|0/g) ?? [];
-  const px = (edge: string) => {
-    const length = /(-?[\d.]+)px/.exec(edge);
-    const share = /(-?[\d.]+)%/.exec(edge);
-    return (length ? Number(length[1]) : 0) + (share ? (Number(share[1]) / 100) * width : 0);
-  };
-  const [top = "0", right = top, bottom = top, left = right] = edges;
-  return [px(top), px(right), px(bottom), px(left)];
+function strandedPunctuation(el: Element): string[] {
+  const stranded: string[] = [];
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.parentElement?.closest(".sr-only")) continue;
+    const text = node.textContent ?? "";
+    const boxOf = (at: number) => {
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + 1);
+      return range.getClientRects()[0];
+    };
+    for (let i = 1; i < text.length; i++) {
+      if (!/[\p{Pd}\p{Pe}\p{Pf}\p{Po}]/u.test(text[i]!)) continue;
+      const before = boxOf(i - 1);
+      const mark = boxOf(i);
+      if (!before || !mark || Math.abs(mark.top - before.top) > mark.height / 2) {
+        stranded.push(`${text.slice(Math.max(0, i - 8), i)}|${text[i]}`);
+      }
+    }
+  }
+  return stranded;
 }
 
-/** Where the pill stands, as a share of one segment's width: 0 under Details. */
-function pillProgress(): number {
-  const { pill } = panelSwitch();
-  // The layout width, not the painted one: the sheet's own entry scales it.
-  return new DOMMatrix(getComputedStyle(pill).transform).m41 / pill.offsetWidth;
+/**
+ * Colours painted one over another, as the 8-bit sRGB pixel the screen shows.
+ * A canvas does the compositing, so a translucent layer is blended with what
+ * is under it rather than measured as if it were opaque.
+ */
+function painted(...layers: string[]): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  for (const layer of layers) {
+    ctx.fillStyle = layer;
+    ctx.fillRect(0, 0, 1, 1);
+  }
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/** How opaque a CSS colour is, 0–255, read off the pixel it paints. */
+function alphaOf(colour: string): number {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = colour;
+  ctx.fillRect(0, 0, 1, 1);
+  return ctx.getImageData(0, 0, 1, 1).data[3] ?? 0;
+}
+
+/**
+ * The pixel behind `el`'s words when the bar is over `content`: every fill
+ * from the bar down to `el`'s own, over that content. Blurring a field of one
+ * colour leaves it that colour, so the backdrop filter changes nothing here.
+ */
+function groundUnder(el: Element, content: string): string {
+  const fills: string[] = [];
+  for (let node: Element | null = el; node; node = node.parentElement) {
+    fills.unshift(getComputedStyle(node).backgroundColor);
+    if (node === bar()) break;
+  }
+  return painted(content, ...fills);
 }
 
 function cardButton(label: string): HTMLButtonElement {
@@ -169,8 +256,8 @@ async function settle() {
   await new Promise(requestAnimationFrame);
 }
 
-/** Wait for the switch's pill, whose easing is a transition rather than an animation. */
-async function settleSwitch() {
+/** Wait for the badge's words, whose easing is a transition rather than an animation. */
+async function settleBadge() {
   await settle();
   await new Promise((resolve) => setTimeout(resolve, 320));
 }
@@ -195,9 +282,10 @@ describe("EventSheet — moving between the panels", () => {
     const sheet = dialog();
     expect(sheet.matches(":modal")).toBe(true);
 
-    await userEvent.click(segment("Respond"));
+    await userEvent.click(badge("Give RSVP"));
     expect(document.activeElement?.textContent).toMatch(/Respond.*Mehndi/);
-    expect(document.activeElement?.tagName).toBe("H3");
+    expect(document.activeElement?.tagName).toBe("H2");
+    expect(bar().contains(document.activeElement)).toBe(true);
     await settle();
     expect(dialog()).toBe(sheet);
     expect(sheet.matches(":modal")).toBe(true);
@@ -210,13 +298,13 @@ describe("EventSheet — moving between the panels", () => {
     const other = await within(fieldset).findByPlaceholderText(/no onion/i);
     await userEvent.type(other, "no curry leaves");
 
-    await userEvent.click(segment("Details"));
+    await userEvent.click(badge("See details"));
     expect(document.activeElement?.textContent).toMatch(/Details.*Mehndi/);
     await settle();
     expect(getComputedStyle(wrapperOf("rsvp")).display).toBe("none");
     expect(getComputedStyle(wrapperOf("details")).display).not.toBe("none");
 
-    await userEvent.click(segment("Respond"));
+    await userEvent.click(badge("Give RSVP"));
     await settle();
     const back = within(sheet).getByRole("group", { name: /priya sharma/i });
     expect(within(back).getByText("Attending").getAttribute("aria-pressed")).toBe("true");
@@ -232,7 +320,7 @@ describe("EventSheet — moving between the panels", () => {
 
     await userEvent.click(opener);
     await settle();
-    await userEvent.click(segment("Respond"));
+    await userEvent.click(badge("Give RSVP"));
     await settle();
 
     await userEvent.keyboard("{Escape}");
@@ -249,7 +337,7 @@ describe("EventSheet — moving between the panels", () => {
 
     await userEvent.click(opener);
     await settle();
-    await userEvent.click(segment("Details"));
+    await userEvent.click(badge("See details"));
     await settle();
 
     await userEvent.keyboard("{Escape}");
@@ -267,7 +355,7 @@ describe("EventSheet — moving between the panels", () => {
     scroller().scrollTop = scroller().scrollHeight;
     expect(scroller().scrollTop).toBeGreaterThan(0);
 
-    await userEvent.click(segment("Details"));
+    await userEvent.click(badge("See details"));
     await settle();
 
     expect(scroller().scrollTop).toBe(0);
@@ -289,7 +377,7 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(cardButton("Event Details"));
     await settle();
 
-    segment("Respond").click();
+    badge("Give RSVP").click();
     const form = wrapperOf("rsvp");
     const [slide] = form.getAnimations();
     expect((slide as CSSAnimation).animationName).toBe("panel-from-end");
@@ -304,7 +392,7 @@ describe("EventSheet — the motion", () => {
     // Nothing to scroll sideways — and the clip that makes it so. Measured
     // first, so a missing clip fails here, on the symptom a guest would see.
     expect(scroller().scrollWidth).toBeLessThanOrEqual(scroller().clientWidth);
-    const panels = scroller().firstElementChild as HTMLElement;
+    const panels = rail();
     expect(getComputedStyle(panels).overflowX).toBe("clip");
 
     slide!.finish();
@@ -320,7 +408,7 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(cardButton("Respond"));
     await settle();
 
-    segment("Details").click();
+    badge("See details").click();
     const [slide] = wrapperOf("details").getAnimations();
     expect((slide as CSSAnimation).animationName).toBe("panel-from-start");
     slide!.pause();
@@ -349,11 +437,12 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(cardButton("Event Details"));
     await settle();
 
-    await userEvent.click(segment("Respond"));
+    await userEvent.click(badge("Give RSVP"));
     await settle();
 
-    const bar = button("Save").parentElement as HTMLElement;
-    const gap = scroller().getBoundingClientRect().bottom - bar.getBoundingClientRect().bottom;
+    const actionBar = button("Save").parentElement as HTMLElement;
+    const gap =
+      scroller().getBoundingClientRect().bottom - actionBar.getBoundingClientRect().bottom;
     expect(Math.abs(gap)).toBeLessThan(1);
   });
 
@@ -364,7 +453,7 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(cardButton("Respond"));
     await settle();
 
-    segment("Details").click();
+    badge("See details").click();
     const details = wrapperOf("details");
     expect(Number.parseFloat(getComputedStyle(details).animationDuration)).toBeLessThan(0.001);
     await new Promise(requestAnimationFrame);
@@ -387,7 +476,7 @@ describe("EventSheet — the motion", () => {
     render(() => <Harness />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
-    await userEvent.click(segment("Respond"));
+    await userEvent.click(badge("Give RSVP"));
     await settle();
     const spinner = document.createElement("span");
     wrapperOf("details").append(spinner);
@@ -396,13 +485,13 @@ describe("EventSheet — the motion", () => {
       iterations: Infinity,
     });
 
-    segment("Details").click();
+    badge("See details").click();
     const [slide] = wrapperOf("details").getAnimations();
     slide!.finish();
     await settle();
 
     expect(getComputedStyle(wrapperOf("details")).pointerEvents).toBe("auto");
-    const panels = scroller().firstElementChild as HTMLElement;
+    const panels = rail();
     expect(getComputedStyle(panels).overflowX).toBe("visible");
   });
 
@@ -415,19 +504,19 @@ describe("EventSheet — the motion", () => {
     await userEvent.click(cardButton("Event Details"));
     await settle();
 
-    segment("Respond").click();
+    badge("Give RSVP").click();
     // Hold the first slide halfway, so the switch back lands mid-slide.
     const [first] = wrapperOf("rsvp").getAnimations();
     first!.pause();
     first!.currentTime = 140;
-    segment("Details").click();
+    badge("See details").click();
     const [slide] = wrapperOf("details").getAnimations();
     slide!.pause();
     slide!.currentTime = 0;
     await new Promise(requestAnimationFrame);
 
     expect(getComputedStyle(wrapperOf("details")).pointerEvents).toBe("none");
-    const panels = scroller().firstElementChild as HTMLElement;
+    const panels = rail();
     expect(getComputedStyle(panels).overflowX).toBe("clip");
 
     slide!.finish();
@@ -435,45 +524,25 @@ describe("EventSheet — the motion", () => {
   });
 });
 
-describe("EventSheet — the switch", () => {
-  it("gives each segment a 44px target on both panels, level with the close button", async () => {
-    // A thumb has to hit either segment; drawn as a small pill, they would
-    // otherwise be only as tall as their line of text.
+describe("EventSheet — the badge", () => {
+  it("gives it a 44px target on both panels, level with the close button", async () => {
+    // A thumb has to hit it; drawn as a small pill, it would otherwise be only
+    // as tall as its line of text.
     await page.viewport(...PHONE);
     render(() => <Harness />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
 
     const close = button("Close").getBoundingClientRect();
-    const group = panelSwitch().group.getBoundingClientRect();
-    expect(group.top + group.height / 2).toBeCloseTo(close.top + close.height / 2, 0);
-    expect(group.right).toBeLessThanOrEqual(close.left);
-    for (const name of ["Details", "Respond"] as const) {
-      expect(segment(name).getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
-    }
+    const give = badge("Give RSVP").getBoundingClientRect();
+    expect(give.height).toBeGreaterThanOrEqual(44);
+    expect(give.top + give.height / 2).toBeCloseTo(close.top + close.height / 2, 0);
+    expect(give.right).toBeLessThanOrEqual(close.left);
     expect(button(/add to calendar/i).getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
 
-    await userEvent.click(segment("Respond"));
+    await userEvent.click(badge("Give RSVP"));
     await settle();
-    for (const name of ["Details", "Respond"] as const) {
-      expect(segment(name).getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
-    }
-  });
-
-  it("shows both segments on both panels, and moves the choice between them", async () => {
-    await page.viewport(...PHONE);
-    render(() => <Harness />);
-    await userEvent.click(cardButton("Event Details"));
-    await settle();
-    expect(segment("Details").getAttribute("aria-pressed")).toBe("true");
-    expect(segment("Respond").getAttribute("aria-pressed")).toBe("false");
-    expect(pillProgress()).toBeCloseTo(0, 2);
-
-    await userEvent.click(segment("Respond"));
-    await settleSwitch();
-    expect(segment("Details").getAttribute("aria-pressed")).toBe("false");
-    expect(segment("Respond").getAttribute("aria-pressed")).toBe("true");
-    expect(pillProgress()).toBeCloseTo(1, 2);
+    expect(badge("See details").getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
   });
 
   it("is a pill, filled like the close button beside it", async () => {
@@ -481,39 +550,45 @@ describe("EventSheet — the switch", () => {
     render(() => <Harness />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
-    const { group } = panelSwitch();
-    const radius = Number.parseFloat(getComputedStyle(group).borderTopLeftRadius);
-    expect(radius).toBeGreaterThanOrEqual(group.getBoundingClientRect().height / 2);
-    // Opaque, because the sheet's content scrolls underneath it — and filled
-    // like the close button beside it.
-    expect(getComputedStyle(group).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
-    expect(getComputedStyle(group).backgroundColor).toBe(
+    const give = badge("Give RSVP");
+    const radius = Number.parseFloat(getComputedStyle(give).borderTopLeftRadius);
+    expect(radius).toBeGreaterThanOrEqual(give.getBoundingClientRect().height / 2);
+    // Opaque, on a bar the content scrolls under: the bar is frosted, and the
+    // badge's words need a surface of their own to hold 4.5:1 over whatever
+    // passes beneath ("frosts the bar" below) — filled like the close button.
+    expect(alphaOf(getComputedStyle(give).backgroundColor)).toBe(255);
+    expect(getComputedStyle(give).backgroundColor).toBe(
       getComputedStyle(button("Close")).backgroundColor,
     );
   });
 
-  it("opens on the form with the pill already under it, not sliding there", async () => {
-    // The pill's place is written before the first paint, so a sheet opened
-    // on the form shows no pill crossing over as it opens.
-    await page.viewport(...PHONE);
-    render(() => <Harness />);
-    await userEvent.click(cardButton("Respond"));
-    const { pill } = panelSwitch();
-    expect(pill.getAnimations()).toHaveLength(0);
-    expect(pillProgress()).toBeCloseTo(1, 2);
-    await settle();
+  it("brightens its hairline under a hovering pointer", async () => {
+    // On a desktop the badge answers a pointer over it, as every bordered
+    // control here does: its accent hairline goes from 40% to full strength.
+    await openOn("details");
+    const give = badge("Give RSVP");
+    const atRest = getComputedStyle(give).borderTopColor;
+    expect(alphaOf(atRest)).toBeLessThan(255);
+    await userEvent.hover(give);
+    // Past the base's 100ms colour transition.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const hovered = getComputedStyle(give).borderTopColor;
+    expect(hovered).not.toBe(atRest);
+    expect(alphaOf(hovered)).toBe(255);
   });
 
-  it("keeps the heading clear of the switch's row on a 320px phone", async () => {
+  it("starts the content below the bar on a 320px phone", async () => {
     await page.viewport(320, 640);
     render(() => <Harness />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
-    const row = button("Close").parentElement!.getBoundingClientRect();
-    const heading = dialog().querySelector("h3")!.getBoundingClientRect();
-    expect(heading.top).toBeGreaterThanOrEqual(row.bottom);
-    // Nor does the row run off the sheet's start edge.
-    expect(row.left).toBeGreaterThanOrEqual(dialog().getBoundingClientRect().left);
+    const row = bar().getBoundingClientRect();
+    const first = wrapperOf("details").querySelector("dl")!.getBoundingClientRect();
+    expect(first.top).toBeGreaterThanOrEqual(row.bottom);
+    // Nor does the bar run off either of the sheet's edges.
+    const sheet = dialog().getBoundingClientRect();
+    expect(row.left).toBeGreaterThanOrEqual(sheet.left);
+    expect(row.right).toBeLessThanOrEqual(sheet.right);
   });
 
   it.each([
@@ -522,20 +597,19 @@ describe("EventSheet — the switch", () => {
     // height ever followed its content again, when the second tap would meet
     // the backdrop and close the sheet.
     ["a household of one", [priya]],
-  ])("leaves the sheet on the form after a double tap on Respond, for %s", async (_, members) => {
-    // The second tap of a double tap lands where the first did: on the
-    // segment just chosen, which does nothing. The overlay drawn over it
-    // takes no pointer input, so the tap reaches the button.
+  ])("does not take the second tap of a double tap straight back, for %s", async (_, members) => {
+    // The badge sits in the same place on both panels, and the sheet keeps
+    // one height, so the second tap of a double tap lands on it again, now
+    // leading back to the details.
     await page.viewport(...PHONE);
     render(() => <Harness members={members} />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
-    const respond = segment("Respond");
-    const at = centre(respond);
+    const at = centre(badge("Give RSVP"));
     await mouseClick(at);
     // A thumb's double tap: the second lands some 60ms after the first.
     await new Promise((resolve) => setTimeout(resolve, 60));
-    expect(document.elementFromPoint(at.x, at.y)?.closest("button")).toBe(respond);
+    expect(document.elementFromPoint(at.x, at.y)?.closest("button")).toBe(badge("See details"));
     await mouseClick(at);
     await new Promise(requestAnimationFrame);
     expect(document.querySelector("dialog")?.open).toBe(true);
@@ -549,7 +623,7 @@ describe("EventSheet — the switch", () => {
     render(() => <Harness />);
     await userEvent.click(cardButton("Event Details"));
     await settle();
-    await userEvent.click(segment("Respond"));
+    await userEvent.click(badge("Give RSVP"));
     await settle();
     await mouseClick({ x: 10, y: 10 });
     await afterTheCloseEvent();
@@ -557,12 +631,328 @@ describe("EventSheet — the switch", () => {
   });
 });
 
-describe("EventSheet — the switch follows a swipe", () => {
+/**
+ * A name too long for one line of the bar on any phone, with a word longer
+ * than the title's whole line beside the badge at 320px, which has to break
+ * inside itself to show.
+ */
+const longName: EventSummary = {
+  ...event,
+  name: "Sangeet and Reception, Thiruvananthapuram",
+};
+
+describe("EventSheet — the bar", () => {
+  afterEach(() => {
+    applyPaletteToRoot(null);
+    const root = document.documentElement;
+    for (const name of Array.from(root.style)) {
+      if (name.startsWith("--")) root.style.removeProperty(name);
+    }
+  });
+
+  for (const [w, h] of [
+    [390, 844],
+    [320, 568],
+  ] as const) {
+    it(`stays put while the details scroll under it, at ${w}×${h}`, async () => {
+      const shotOf = (name: string) =>
+        page.screenshot({
+          path: `__screenshots__/EventSheet.browser.test.tsx/bar-${w}x${h}-${name}.png`,
+        });
+      await page.viewport(w, h);
+      render(() => <Harness event={full} members={fullParty} />);
+      await userEvent.click(cardButton("Event Details"));
+      await settle();
+      const atRest = bar().getBoundingClientRect();
+      const facts = wrapperOf("details").querySelector("dl")!;
+      // At rest the content starts under the bar, not beneath it.
+      expect(facts.getBoundingClientRect().top).toBeGreaterThanOrEqual(atRest.bottom);
+      await shotOf("details");
+
+      scroller().scrollTop = 200;
+      await new Promise(requestAnimationFrame);
+      expect(scroller().scrollTop).toBe(200);
+      // The bar has not moved, and the facts have gone up under it.
+      expect(bar().getBoundingClientRect().toJSON()).toEqual(atRest.toJSON());
+      const under = facts.getBoundingClientRect();
+      expect(under.top).toBeLessThan(atRest.top);
+      expect(under.bottom).toBeGreaterThan(atRest.bottom);
+      // Painted over them: the bar answers a hit test where the two meet, and
+      // the facts are still there beneath it.
+      const at = { x: atRest.left + atRest.width / 2, y: atRest.top + atRest.height / 2 };
+      const stack = document.elementsFromPoint(at.x, at.y);
+      expect(bar().contains(stack[0]!)).toBe(true);
+      expect(stack).toContain(facts);
+      await shotOf("details-scrolled");
+
+      await userEvent.click(badge("Give RSVP"));
+      await settle();
+      expect(bar().getBoundingClientRect().toJSON()).toEqual(atRest.toJSON());
+      await shotOf("rsvp");
+    });
+  }
+
+  describe.each(PALETTE_PRESET_KEYS)("on the %s scheme", (palettePreset) => {
+    it("frosts the bar, and holds its words over the darkest and lightest content", async () => {
+      applyPaletteToRoot({ palettePreset, headingFont: null, bodyFont: null });
+      await page.viewport(390, 844);
+      render(() => <Harness event={full} members={fullParty} />);
+      await userEvent.click(cardButton("Event Details"));
+      await settle();
+      const style = getComputedStyle(bar());
+      // Frosted: what passes under it is blurred, and shows through a fill
+      // that is neither clear nor opaque.
+      expect(style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter")).toContain(
+        "blur(",
+      );
+      const alpha = alphaOf(style.backgroundColor);
+      expect(alpha).toBeGreaterThan(0);
+      expect(alpha).toBeLessThan(255);
+
+      // Whatever the guest scrolls under it — a black swatch, a white
+      // photograph — the bar's words stay readable: the title on the frost,
+      // the badge's words and the cross on fills of their own.
+      const words = [
+        { name: "title", el: title(), min: WCAG_TEXT_MIN },
+        { name: "Give RSVP", el: badge("Give RSVP"), min: WCAG_TEXT_MIN },
+        { name: "Close", el: button("Close"), min: WCAG_UI_MIN },
+      ];
+      for (const content of ["#000", "#fff"]) {
+        for (const word of words) {
+          const ground = groundUnder(word.el, content);
+          const measured =
+            contrastRatio(painted(ground, getComputedStyle(word.el).color), ground) ?? 0;
+          expect({ word: word.name, content, ok: measured >= word.min, measured }).toMatchObject({
+            word: word.name,
+            content,
+            ok: true,
+          });
+        }
+      }
+
+      // For review: the details passing under the frost on this scheme.
+      scroller().scrollTop = 200;
+      await new Promise(requestAnimationFrame);
+      await page.screenshot({
+        path: `__screenshots__/EventSheet.browser.test.tsx/bar-390x844-${palettePreset}-scrolled.png`,
+      });
+    });
+  });
+
+  /** The badge beside the title on each panel it reads differently on. */
+  const variants = [
+    { label: "Give RSVP", panel: "details", closed: false, shot: "details" },
+    { label: "See details", panel: "rsvp", closed: false, shot: "rsvp" },
+    { label: "View your RSVP", panel: "details", closed: true, shot: "closed" },
+  ] as const;
+  for (const [w, h] of [
+    [390, 844],
+    [320, 568],
+  ] as const) {
+    for (const named of [event, longName]) {
+      for (const variant of variants) {
+        it(`shows the whole of "${named.name}" beside ${variant.label} at ${w}×${h}, the badge and the cross inside the bar`, async () => {
+          await page.viewport(w, h);
+          render(() => (
+            <EventSheet
+              event={named}
+              panel={variant.panel}
+              siteUrl="https://invite.test/w"
+              members={[priya]}
+              apiUrl="https://api.test"
+              closed={variant.closed}
+              replied
+              onClose={() => {}}
+            />
+          ));
+          await settle();
+          const row = bar().getBoundingClientRect();
+          const heading = title().getBoundingClientRect();
+          const chip = badge(variant.label);
+          const pill = chip.getBoundingClientRect();
+          const close = button("Close").getBoundingClientRect();
+
+          // In a row, inside the bar, none over another.
+          expect(heading.left).toBeGreaterThanOrEqual(row.left);
+          expect(heading.right).toBeLessThanOrEqual(pill.left + 0.5);
+          expect(pill.right).toBeLessThanOrEqual(close.left + 0.5);
+          expect(close.right).toBeLessThanOrEqual(row.right + 0.5);
+          for (const box of [heading, pill, close]) {
+            expect(box.top).toBeGreaterThanOrEqual(row.top);
+            expect(box.bottom).toBeLessThanOrEqual(row.bottom);
+          }
+          // The badge and the cross never give way: the badge shows its whole
+          // words at its full 44px, and the cross keeps its 44px target.
+          expect(chip.scrollWidth).toBeLessThanOrEqual(chip.clientWidth);
+          expect(pill.height).toBeGreaterThanOrEqual(44);
+          expect(close.width).toBeGreaterThanOrEqual(44);
+          expect(close.height).toBeGreaterThanOrEqual(44);
+          // Nor does the title: the whole name, unclipped and with no
+          // ellipsis, on as many lines as it takes, the bar growing with it.
+          expect(title().scrollWidth).toBeLessThanOrEqual(title().clientWidth);
+          expect(title().scrollHeight).toBeLessThanOrEqual(title().clientHeight);
+          expect(getComputedStyle(title()).textOverflow).not.toBe("ellipsis");
+          expect(getComputedStyle(title()).overflow).toBe("visible");
+          // Broken where a reader expects: no comma or other closing mark
+          // pushed onto a line of its own, away from the word it ends.
+          expect(strandedPunctuation(title())).toEqual([]);
+          // And whatever height that takes, focus scrolling keeps clear of it.
+          expect(Number.parseFloat(getComputedStyle(scroller()).scrollPaddingTop)).toBeCloseTo(
+            row.height,
+            1,
+          );
+          const slug = named === longName ? "long" : "short";
+          await page.screenshot({
+            path: `__screenshots__/EventSheet.browser.test.tsx/bar-${w}x${h}-${slug}-${variant.shot}.png`,
+          });
+        });
+      }
+    }
+  }
+
+  it("wraps a long name onto more lines at 320px, and the bar grows to hold them", async () => {
+    // The long name cannot fit one line beside the badge on a small phone, so
+    // this is where the bar's 3.75rem floor gives way to the title's lines.
+    await page.viewport(320, 568);
+    render(() => (
+      <EventSheet
+        event={longName}
+        panel="details"
+        siteUrl="https://invite.test/w"
+        members={[priya]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+    await settle();
+    const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+    const line = Number.parseFloat(getComputedStyle(title()).lineHeight);
+    expect(title().getBoundingClientRect().height).toBeGreaterThan(1.5 * line);
+    expect(bar().getBoundingClientRect().height).toBeGreaterThan(3.75 * rem + 1);
+    // The details still start one gap under it, wherever its foot now is.
+    const facts = wrapperOf("details").querySelector("dl")!.getBoundingClientRect();
+    expect(facts.top - bar().getBoundingClientRect().bottom).toBeCloseTo(1.25 * rem, 1);
+  });
+
+  it("steps the title down a type size on a phone narrower than 380px", async () => {
+    // Where the badge leaves the title least room, a smaller face keeps most
+    // names' words whole.
+    await page.viewport(390, 844);
+    render(() => (
+      <EventSheet
+        event={longName}
+        panel="details"
+        siteUrl="https://invite.test/w"
+        members={[priya]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+    await settle();
+    const wide = Number.parseFloat(getComputedStyle(title()).fontSize);
+    await page.viewport(379, 844);
+    await new Promise(requestAnimationFrame);
+    const narrow = Number.parseFloat(getComputedStyle(title()).fontSize);
+    expect(narrow).toBeLessThan(wide);
+    // One step, not a different face: the same family and weight.
+    expect(narrow / wide).toBeGreaterThan(0.75);
+  });
+
+  it("keeps a control reached by Shift+Tab clear of the bar, however tall a long name makes it", async () => {
+    // Tabbing backwards up the form scrolls each control above the view to the
+    // top of the scrollport. The scroll padding is what holds it below the
+    // bar, and it follows the bar's height: here more than its 3.75rem floor.
+    await page.viewport(320, 568);
+    render(() => (
+      <EventSheet
+        event={longName}
+        panel="rsvp"
+        siteUrl="https://invite.test/w"
+        members={party}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+    await settle();
+    const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+    expect(bar().getBoundingClientRect().height).toBeGreaterThan(3.75 * rem + 1);
+    const port = scroller();
+    port.scrollTop = port.scrollHeight;
+    await new Promise(requestAnimationFrame);
+    const save = button("Save");
+    const actionBar = save.parentElement!;
+    save.focus();
+
+    // Every control on the way up, not only the last. One fully above the
+    // view is scrolled to the middle whatever the padding; one partly under
+    // the bar is still inside the scrollport, and only the scroll padding
+    // moves it out from under the bar.
+    const under: string[] = [];
+    let above = false;
+    for (let i = 0; i < 80 && !above; i++) {
+      const before = port.scrollTop;
+      await userEvent.tab({ shift: true });
+      // A control above the view: reaching it scrolled the form back up.
+      above = port.scrollTop < before;
+      const focused = document.activeElement as HTMLElement;
+      if (!focused.closest("[data-panel]") || actionBar.contains(focused)) continue;
+      const gap = focused.getBoundingClientRect().top - bar().getBoundingClientRect().bottom;
+      if (gap < -0.5) under.push(`${i}: ${focused.textContent} ${gap.toFixed(1)}px`);
+    }
+    expect(above, "Shift+Tab reached a control above the view").toBe(true);
+    expect(under).toEqual([]);
+    await page.screenshot({
+      path: "__screenshots__/EventSheet.browser.test.tsx/bar-320x568-long-shift-tab.png",
+    });
+  });
+
+  it("starts the details' facts 1.5rem under the closed notice past the deadline", async () => {
+    // While RSVPs are open the notice's live region is empty and takes no
+    // room ("keeps one height" measures the facts one gap under the bar).
+    await page.viewport(...PHONE);
+    render(() => (
+      <EventSheet
+        event={event}
+        panel="details"
+        siteUrl="https://invite.test/w"
+        members={[priya]}
+        apiUrl="https://api.test"
+        closed
+        replied
+        onClose={() => {}}
+      />
+    ));
+    await settle();
+    const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+    const notice = within(dialog()).getByRole("status").getBoundingClientRect();
+    const facts = wrapperOf("details").querySelector("dl")!.getBoundingClientRect();
+    expect(notice.top).toBeGreaterThanOrEqual(bar().getBoundingClientRect().bottom);
+    expect(facts.top - notice.bottom).toBeCloseTo(1.5 * rem, 1);
+  });
+
+  it("names neither panel inside it: the badge and the bar's title say which is on screen", async () => {
+    await openOn("details");
+    await userEvent.click(badge("Give RSVP"));
+    await settle();
+    for (const panel of ["details", "rsvp"] as const) {
+      expect(wrapperOf(panel).textContent).not.toMatch(/\b(Details|Respond|Your RSVP)\b/);
+    }
+    // The bar's title shows the event's name alone; the panel's name is for
+    // the ear, clipped to nothing on screen.
+    const spoken = title().querySelector(".sr-only")!;
+    expect(spoken.textContent).toBe("Respond,");
+    expect(spoken.getBoundingClientRect().width).toBeLessThanOrEqual(1);
+    expect(title().textContent).toBe("Respond, Mehndi");
+  });
+});
+
+describe("EventSheet — the badge follows a swipe", () => {
   it("is drawn at 390px on the details, mid-swipe and on the form", async () => {
-    // Screenshots for review: the pill under Details, crossing over under the
-    // finger with the words changing ink at its edge, and under Respond.
+    // Screenshots for review: "Give RSVP →" at rest, its words moving out by
+    // the start as "← See details" comes in from the end under the finger,
+    // and "← See details" once the form has landed.
     const shotOf = (name: string) =>
-      page.screenshot({ path: `__screenshots__/EventSheet.browser.test.tsx/switch-${name}.png` });
+      page.screenshot({ path: `__screenshots__/EventSheet.browser.test.tsx/badge-${name}.png` });
     await page.viewport(390, 844);
     render(() => <Harness />);
     await userEvent.click(cardButton("Event Details"));
@@ -570,12 +960,15 @@ describe("EventSheet — the switch follows a swipe", () => {
     await shotOf("details");
 
     const start = bodyOf("details");
-    const width = wrapperOf("details").parentElement!.clientWidth;
+    const width = rail().clientWidth;
     await touchDrag(start, { x: start.x - width * 0.45, y: start.y }, { end: "hold" });
     await new Promise(requestAnimationFrame);
+    const { details, rsvp } = badgeParts();
     try {
-      expect(pillProgress()).toBeGreaterThan(0.3);
-      expect(pillProgress()).toBeLessThan(0.6);
+      expect(opacityOf(details)).toBeGreaterThan(0.3);
+      expect(opacityOf(details)).toBeLessThan(0.7);
+      expect(opacityOf(rsvp)).toBeGreaterThan(0.3);
+      expect(opacityOf(rsvp)).toBeLessThan(0.7);
       await shotOf("mid-drag");
     } finally {
       await cdp().send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
@@ -583,127 +976,209 @@ describe("EventSheet — the switch follows a swipe", () => {
     }
 
     expect(wrapperOf("rsvp").hidden).toBe(false);
-    expect(pillProgress()).toBeCloseTo(1, 2);
+    expect(opacityOf(details)).toBe(0);
+    expect(opacityOf(rsvp)).toBe(1);
     await shotOf("rsvp");
   });
 
-  it("moves the pill with the finger, with no easing, and back when the drag is cancelled", async () => {
+  it.each([20, 60])(
+    "moves its words through the badge with a finger held %ipx in, side by side, with no easing, and back on a cancel",
+    async (dx) => {
+      await openOn("details");
+      const width = rail().clientWidth;
+      const start = bodyOf("details");
+      await touchDrag(start, { x: start.x - dx, y: start.y }, { end: "hold" });
+      await new Promise(requestAnimationFrame);
+      const { chip, details, rsvp } = badgeParts();
+      // The share of the panels' width the finger has covered.
+      const share = dx / width;
+      // Each label is the window's full width, so it moves by its share of it.
+      // Its box, which its own sideways move does not resize, unrounded.
+      const span = details.getBoundingClientRect().width;
+      try {
+        // A ticker the way the panels go: the details' words out by the start,
+        // the form's in from the end, each by the finger's share.
+        expect(Math.abs(-shiftOf(details) / span - share)).toBeLessThan(0.05);
+        expect(Math.abs(shiftOf(rsvp) / span - (1 - share))).toBeLessThan(0.05);
+        // Through the badge's window: some of each shows, side by side, and
+        // what shows of one never lies over what shows of the other.
+        const frame = chip.firstElementChild!.getBoundingClientRect();
+        const out = shownIn(details.getBoundingClientRect(), frame);
+        const into = shownIn(rsvp.getBoundingClientRect(), frame);
+        expect(out.width).toBeGreaterThan(0);
+        expect(into.width).toBeGreaterThan(0);
+        const overlap = Math.min(out.left + out.width, into.left + into.width) - into.left;
+        expect(out.left).toBeLessThan(into.left);
+        expect(overlap).toBeLessThanOrEqual(0.5);
+        // And the window really clips: just outside it, where each label's box
+        // runs on, neither label is there to be painted or hit (a clip cuts
+        // both), so neither spills over the badge's padding, the title or ×.
+        const mid = frame.top + frame.height / 2;
+        expect(document.elementsFromPoint(frame.left - 1, mid)).not.toContain(details);
+        expect(document.elementsFromPoint(frame.right + 1, mid)).not.toContain(rsvp);
+        // Fading as they go, at the same share.
+        expect(Math.abs(opacityOf(details) - (1 - share))).toBeLessThan(0.05);
+        expect(Math.abs(opacityOf(rsvp) - share)).toBeLessThan(0.05);
+        expect(chip.hasAttribute("data-dragging")).toBe(true);
+        // Under the finger nothing eases, or the words would trail it.
+        expect(getComputedStyle(details).transitionProperty).toBe("none");
+        expect(getComputedStyle(rsvp).transitionProperty).toBe("none");
+        // Its name is the details' until the form lands.
+        expect(badge("Give RSVP")).toBe(chip);
+      } finally {
+        await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+        await settleSwipe();
+      }
+
+      expect(shiftOf(details)).toBeCloseTo(0, 1);
+      expect(shiftOf(rsvp)).toBeCloseTo(span, 1);
+      expect(opacityOf(details)).toBe(1);
+      expect(opacityOf(rsvp)).toBe(0);
+      expect(chip.hasAttribute("data-dragging")).toBe(false);
+      expect(getComputedStyle(details).transitionProperty).toBe("opacity, transform");
+    },
+  );
+
+  it("keeps one width on both panels, at rest and mid-drag", async () => {
+    // Both words share one grid cell, so the badge is as wide as the wider of
+    // them whichever shows, and nothing beside it moves as they cross over.
     await openOn("details");
-    const width = wrapperOf("details").parentElement!.clientWidth;
+    const { chip, details, rsvp } = badgeParts();
+    const atRest = chip.offsetWidth;
+    expect(chip.clientWidth).toBeGreaterThanOrEqual(
+      Math.max(details.offsetWidth, rsvp.offsetWidth),
+    );
+
     const start = bodyOf("details");
     await touchDrag(start, { x: start.x - 120, y: start.y }, { end: "hold" });
     await new Promise(requestAnimationFrame);
-    const { group, pill, overlay } = panelSwitch();
     try {
-      // The share of the panels' width the finger has covered.
-      expect(Math.abs(pillProgress() - 120 / width)).toBeLessThan(0.05);
-      expect(group.hasAttribute("data-dragging")).toBe(true);
-      // Under the finger nothing eases, or the pill would trail it.
-      expect(getComputedStyle(pill).transitionProperty).toBe("none");
-      expect(getComputedStyle(overlay).transitionProperty).toBe("none");
+      expect(chip.offsetWidth).toBe(atRest);
     } finally {
       await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
       await settleSwipe();
     }
 
-    expect(pillProgress()).toBeCloseTo(0, 2);
-    expect(group.hasAttribute("data-dragging")).toBe(false);
-    expect(getComputedStyle(pill).transitionProperty).toBe("transform, clip-path");
+    await userEvent.click(badge("Give RSVP"));
+    await settleBadge();
+    expect(badge("See details")).toBe(chip);
+    expect(chip.offsetWidth).toBe(atRest);
   });
 
-  it("lands the pill under the form when a swipe carries on, and back with the swipe home", async () => {
+  it("lands the form's words when a swipe carries on, and the details' with the swipe home", async () => {
     await openOn("details");
     let start = bodyOf("details");
     await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
     await settleSwipe();
-    expect(pillProgress()).toBeCloseTo(1, 2);
-    expect(segment("Respond").getAttribute("aria-pressed")).toBe("true");
+    const { details, rsvp } = badgeParts();
+    expect(opacityOf(details)).toBe(0);
+    expect(opacityOf(rsvp)).toBe(1);
+    expect(badge("See details")).toBeTruthy();
 
     start = bodyOf("rsvp");
     await touchDrag(start, { x: start.x + 250, y: start.y }, { ms: 600 });
     await settleSwipe();
-    expect(pillProgress()).toBeCloseTo(0, 2);
-    expect(segment("Details").getAttribute("aria-pressed")).toBe("true");
+    expect(opacityOf(details)).toBe(1);
+    expect(opacityOf(rsvp)).toBe(0);
+    expect(badge("Give RSVP")).toBeTruthy();
   });
 
-  it("clips the on-gold words to the pill, wherever the finger has it", async () => {
-    // The overlay's clip and the pill's box are one shape: the words on gold
-    // are on-gold, and every word off it is gold.
+  it("eases its words over on a press, as the panels slide", async () => {
     await openOn("details");
-    const start = bodyOf("details");
-    await touchDrag(start, { x: start.x - 150, y: start.y }, { end: "hold" });
+    const { details, rsvp } = badgeParts();
+    await userEvent.click(badge("Give RSVP"));
     await new Promise(requestAnimationFrame);
-    try {
-      const { group, pill, overlay } = panelSwitch();
-      const box = pill.getBoundingClientRect();
-      const frame = overlay.getBoundingClientRect();
-      // `inset(top right bottom left)`: the clipped box is the pill's.
-      const clip = getComputedStyle(overlay).clipPath;
-      const [, right, , left] = insetOf(clip, frame.width);
-      expect(frame.left + left).toBeCloseTo(box.left, 0);
-      expect(frame.right - right).toBeCloseTo(box.right, 0);
-      expect(group.hasAttribute("data-dragging")).toBe(true);
-    } finally {
-      await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
-      await settleSwipe();
-    }
+    // Mid-way, not swapped: both words are crossing over on the panels' 280ms.
+    const easing = [details, rsvp].flatMap((label) =>
+      label.getAnimations().map((a) => (a as CSSTransition).transitionProperty),
+    );
+    expect(easing).toEqual(expect.arrayContaining(["opacity", "transform"]));
+    await settleBadge();
+    expect(opacityOf(details)).toBe(0);
+    expect(opacityOf(rsvp)).toBe(1);
+  });
+
+  it("opens on the form with the form's words already shown, not fading in", async () => {
+    // Their place is written before the first paint, so a sheet opened on the
+    // form shows no words moving as it opens.
+    await page.viewport(...PHONE);
+    render(() => <Harness />);
+    await userEvent.click(cardButton("Respond"));
+    const { details, rsvp } = badgeParts();
+    expect(details.getAnimations()).toHaveLength(0);
+    expect(rsvp.getAnimations()).toHaveLength(0);
+    expect(opacityOf(details)).toBe(0);
+    expect(opacityOf(rsvp)).toBe(1);
+    expect(badge("See details")).toBeTruthy();
+    await settle();
   });
 });
 
 /**
- * What the arriving heading shows after a switch. A heading is never reached by
- * keyboard, so after a touch or a click the ring would read as the heading
- * being selected. Chromium draws none either way; the engines that do (iOS
- * Safari) are out of reach here, so these pin the mechanism: the mark on a
- * pointer's or a swipe's move, none on a key's, and the rule that drops the
+ * What the arriving title shows after a switch. The bar's title is never
+ * reached by keyboard, so after a touch or a click the ring would read as the
+ * title being selected. Chromium draws none either way; the engines that do
+ * (iOS Safari) are out of reach here, so these pin the mechanism: the mark on
+ * a pointer's or a swipe's move, none on a key's, and the rule that drops the
  * ring where the mark is.
  */
 describe("EventSheet — focus after a switch", () => {
-  it("hands the heading focus quietly after a swipe", async () => {
+  it("hands the bar's title focus quietly after a swipe", async () => {
     await openOn("details");
     const start = bodyOf("details");
     await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
     await settleSwipe();
 
-    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    const heading = title();
+    expect(heading.textContent).toMatch(/^Respond, /);
+    expect(bar().contains(heading)).toBe(true);
     expect(document.activeElement).toBe(heading);
     expect(heading.hasAttribute("data-quiet-focus")).toBe(true);
+    expect(getComputedStyle(heading).outlineStyle).toBe("none");
   });
 
-  it("hands the heading focus quietly after a click on the switch", async () => {
+  it("hands the bar's title focus quietly after a click on the badge", async () => {
     await openOn("details");
-    await userEvent.click(segment("Respond"));
+    await userEvent.click(badge("Give RSVP"));
     await settle();
 
-    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    const heading = title();
+    expect(heading.textContent).toMatch(/^Respond, /);
     expect(document.activeElement).toBe(heading);
     expect(heading.hasAttribute("data-quiet-focus")).toBe(true);
+    expect(getComputedStyle(heading).outlineStyle).toBe("none");
   });
 
-  it("keeps the ring for a key press on the switch, and drops it only where the mark is", async () => {
+  it("keeps the ring for a key press on the badge, and drops it only where the mark is", async () => {
     await openOn("details");
-    segment("Respond").focus();
+    badge("Give RSVP").focus();
     await userEvent.keyboard("{Enter}");
     await settle();
 
-    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    const heading = title();
+    expect(heading.textContent).toMatch(/^Respond, /);
     expect(document.activeElement).toBe(heading);
     expect(heading.hasAttribute("data-quiet-focus")).toBe(false);
     // Reached by keyboard, so the engine draws the ring, and the page's rule
-    // paints it.
+    // paints it — on a title that is on screen, in the bar.
     expect(heading.matches(":focus-visible")).toBe(true);
     expect(getComputedStyle(heading).outlineStyle).toBe("solid");
+    expect(heading.checkVisibility()).toBe(true);
+    const box = heading.getBoundingClientRect();
+    const row = bar().getBoundingClientRect();
+    expect(box.top).toBeGreaterThanOrEqual(row.top);
+    expect(box.bottom).toBeLessThanOrEqual(row.bottom);
 
     // The same focus, marked: the rule in `global.css` takes the ring away.
     heading.setAttribute("data-quiet-focus", "");
     expect(getComputedStyle(heading).outlineStyle).toBe("none");
   });
 
-  it("clears the mark once the heading loses focus", async () => {
+  it("clears the mark once the title loses focus", async () => {
     await openOn("details");
-    await userEvent.click(segment("Respond"));
+    await userEvent.click(badge("Give RSVP"));
     await settle();
-    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    const heading = title();
     expect(heading.hasAttribute("data-quiet-focus")).toBe(true);
 
     button("Close").focus();
@@ -714,8 +1189,8 @@ describe("EventSheet — focus after a switch", () => {
     // A long press can start a native selection on the panel's text; the drag
     // that follows must not carry it along, highlighted, under the finger.
     await openOn("details");
-    const heading = wrapperOf("details").querySelector("h3")!;
-    getSelection()!.selectAllChildren(heading);
+    const day = wrapperOf("details").querySelector("dl p")!;
+    getSelection()!.selectAllChildren(day);
     expect(getSelection()!.isCollapsed).toBe(false);
 
     const start = bodyOf("details");
@@ -723,14 +1198,20 @@ describe("EventSheet — focus after a switch", () => {
     await new Promise(requestAnimationFrame);
     try {
       expect(getSelection()!.isCollapsed).toBe(true);
-      const rail = wrapperOf("details").parentElement!;
-      expect(getComputedStyle(rail).userSelect).toBe("none");
+      expect(getComputedStyle(rail()).userSelect).toBe("none");
+      // No grey flash under the finger on iOS: the rail takes the pointer and
+      // the title takes focus, and both are transparent to a tap.
+      for (const el of [rail(), title()]) {
+        expect(getComputedStyle(el).getPropertyValue("-webkit-tap-highlight-color")).toBe(
+          "rgba(0, 0, 0, 0)",
+        );
+      }
     } finally {
       await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
       await settleSwipe();
     }
     // Once still, the text can be selected again (a long press to copy the address).
-    expect(getComputedStyle(wrapperOf("details").parentElement!).userSelect).not.toBe("none");
+    expect(getComputedStyle(rail()).userSelect).not.toBe("none");
   });
 });
 
@@ -844,10 +1325,17 @@ async function mouseDrag(from: Point, to: Point) {
   });
 }
 
-/** A point in the middle of a panel's body, clear of every control. */
+/**
+ * A point on the first line of a panel's content, across the middle of the
+ * panel and clear of every control: the event's day on the details, the first
+ * guest's name on the form. Never on the bar, which is no part of a panel and
+ * starts no swipe.
+ */
 function bodyOf(panel: EventPanel): Point {
-  const heading = wrapperOf(panel).querySelector("h3")!.getBoundingClientRect();
-  return { x: heading.left + heading.width / 2, y: heading.top + heading.height / 2 };
+  const first = wrapperOf(panel).querySelector(panel === "details" ? "dl p" : "legend")!;
+  const line = first.getBoundingClientRect();
+  const across = wrapperOf(panel).getBoundingClientRect();
+  return { x: across.left + across.width / 2, y: line.top + line.height / 2 };
 }
 
 /** Wait for the swipe's settle, which is a transition rather than an animation. */
@@ -898,6 +1386,7 @@ describe("EventSheet — swiping between the panels", () => {
 
   it("draws the details level with the top of a scrolled form, clipped at its sides", async () => {
     await openOn("rsvp", party);
+    const restTop = wrapperOf("rsvp").getBoundingClientRect().top;
     scroller().scrollTop = 200;
     const start = bodyOf("rsvp");
     // The heading is scrolled away: start in the visible part of the form.
@@ -906,19 +1395,22 @@ describe("EventSheet — swiping between the panels", () => {
     await new Promise(requestAnimationFrame);
 
     const details = wrapperOf("details");
-    const port = scroller().getBoundingClientRect();
-    const padTop = Number.parseFloat(getComputedStyle(scroller()).paddingTop);
     expect(details.hidden).toBe(false);
     expect(details.inert).toBe(true);
-    expect(details.getBoundingClientRect().top).toBeCloseTo(port.top + padTop, 0);
+    // Where the form starts at rest, under the bar, wherever the form is
+    // scrolled: the place the details will be once they land.
+    expect(details.getBoundingClientRect().top).toBeCloseTo(restTop, 0);
     // A panel's width to the left of the form, moved with the finger.
-    const rail = details.parentElement!;
-    expect(details.style.transform).toBe(`translateX(${100 - rail.clientWidth}px)`);
-    expect(getComputedStyle(rail).overflowX).toBe("clip");
+    expect(details.style.transform).toBe(`translateX(${100 - rail().clientWidth}px)`);
+    expect(getComputedStyle(rail()).overflowX).toBe("clip");
+    // Under the bar, which a swipe never moves.
+    expect(details.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      bar().getBoundingClientRect().bottom,
+    );
 
     await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
     await settleSwipe();
-    expect(getComputedStyle(rail).overflowX).not.toBe("clip");
+    expect(getComputedStyle(rail()).overflowX).not.toBe("clip");
   });
 
   it("eases a released panel to rest rather than snapping it", async () => {
@@ -988,16 +1480,15 @@ describe("EventSheet — swiping between the panels", () => {
     try {
       viewport.dispatchEvent(new Event("resize"));
       await new Promise(requestAnimationFrame);
-      const rail = wrapperOf("details").parentElement!;
       // `touch-action: auto`, so the browser pans the zoomed view sideways.
-      expect(getComputedStyle(rail).touchAction).toBe("auto");
+      expect(getComputedStyle(rail()).touchAction).toBe("auto");
 
       const start = bodyOf("details");
       await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
       await settleSwipe();
       expect(dialog().querySelector('[data-panel="rsvp"]')).toBeNull();
-      // The switch still moves between the panels.
-      await userEvent.click(segment("Respond"));
+      // The badge still moves between the panels.
+      await userEvent.click(badge("Give RSVP"));
       expect(wrapperOf("rsvp").hidden).toBe(false);
     } finally {
       delete (viewport as unknown as { scale?: number }).scale;
@@ -1025,10 +1516,12 @@ describe("EventSheet — swiping between the panels", () => {
     await settleSwipe();
   });
 
-  it("carries on to the form past a third of the way, with focus on its heading at the top", async () => {
+  it("carries on to the form past a third of the way, with focus on its title at the top", async () => {
     await openOn("details");
-    scroller().scrollTop = 40;
+    // Taken before the scroll, which carries the day up under the bar: a
+    // touch there would be on the bar, which starts no swipe.
     const start = bodyOf("details");
+    scroller().scrollTop = 40;
     await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
     await settleSwipe();
 
@@ -1073,7 +1566,7 @@ describe("EventSheet — swiping between the panels", () => {
     expect(wrapperOf("details").style.transform).toBe("");
     expect(wrapperOf("rsvp").hidden).toBe(true);
     // A button switch afterwards still slides the form in.
-    await userEvent.click(segment("Respond"));
+    await userEvent.click(badge("Give RSVP"));
     expect(wrapperOf("rsvp").className).toContain("animate-panel-from-end");
     await settle();
   });
@@ -1158,7 +1651,7 @@ describe("EventSheet — swiping between the panels", () => {
       await openOn("rsvp");
       await userEvent.click(within(dialog()).getByText("Attending"));
       await userEvent.click(button("Save"));
-      expect(segment("Details").disabled).toBe(true);
+      expect(badge("See details").disabled).toBe(true);
 
       const start = bodyOf("rsvp");
       await touchDrag(start, { x: start.x + 250, y: start.y }, { ms: 600 });
@@ -1314,24 +1807,23 @@ async function swipeFrom(panel: EventPanel) {
 describe("EventSheet — one height for both panels", () => {
   for (const vp of viewports) {
     for (const fx of fixtures) {
-      it(`keeps one height on a ${fx.name} event at ${vp.size.join("×")}, by the switch and by swipe`, async () => {
+      it(`keeps one height on a ${fx.name} event at ${vp.size.join("×")}, by badge and by swipe`, async () => {
         await page.viewport(vp.size[0], vp.size[1]);
         const heights: Record<string, number[]> = {};
 
-        // Opened on the details: the switch there and back, then a swipe there
-        // and back. The first switch is a press of the switch.
+        // Opened on the details: the badge there and back, then a swipe there
+        // and back. The first switch is a press of the badge.
         const first = render(() => <Harness event={fx.event} members={fx.members} />);
         await userEvent.click(cardButton("Event Details"));
         await settle();
         let stop = watchHeight();
-        const h3 = wrapperOf("details").querySelector("h3")!.getBoundingClientRect();
         const dl = wrapperOf("details").querySelector("dl")!.getBoundingClientRect();
-        const headingGap = dl.top - h3.bottom;
+        const underBar = dl.top - bar().getBoundingClientRect().bottom;
         await shot(`${vp.name}-${fx.name}-details`);
-        await userEvent.click(segment("Respond"));
+        await userEvent.click(badge("Give RSVP"));
         await settle();
         await shot(`${vp.name}-${fx.name}-rsvp`);
-        await userEvent.click(segment("Details"));
+        await userEvent.click(badge("See details"));
         await settle();
         await swipeFrom("details");
         await swipeFrom("rsvp");
@@ -1341,7 +1833,7 @@ describe("EventSheet — one height for both panels", () => {
         document.documentElement.style.scrollbarGutter = "";
 
         // Opened on the form: answer, which grows the form, then a swipe to
-        // the details as the first switch, and the switch back.
+        // the details as the first switch, and the badge back.
         render(() => <Harness event={fx.event} members={fx.members} />);
         await userEvent.click(cardButton("Respond"));
         await settle();
@@ -1350,11 +1842,12 @@ describe("EventSheet — one height for both panels", () => {
         await settle();
         // Nothing of the details has loaded for the form's sake.
         expect(dialog().querySelector('[data-panel="details"]')).toBeNull();
-        const bar = button("Save").parentElement as HTMLElement;
-        const gap = scroller().getBoundingClientRect().bottom - bar.getBoundingClientRect().bottom;
+        const actionBar = button("Save").parentElement as HTMLElement;
+        const gap =
+          scroller().getBoundingClientRect().bottom - actionBar.getBoundingClientRect().bottom;
         await shot(`${vp.name}-${fx.name}-rsvp-attending`);
         await swipeFrom("rsvp");
-        await userEvent.click(segment("Respond"));
+        await userEvent.click(badge("Give RSVP"));
         await settle();
         heights.fromForm = stop();
 
@@ -1364,11 +1857,11 @@ describe("EventSheet — one height for both panels", () => {
         expect(Math.abs(heights.fromDetails[0]! - vp.height)).toBeLessThan(1);
         // The form's action bar sits on the sheet's bottom edge.
         expect(Math.abs(gap)).toBeLessThan(1);
-        // The details are laid out as before: their header's 1.5rem under the
-        // heading, with the heading's own margin collapsed into it. A details
-        // wrapper made a flex column would add the two.
+        // The details start one 1.25rem gap under the bar, with nothing of
+        // their empty header between: its live region is there from the
+        // start, and takes no room while it says nothing.
         const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
-        expect(headingGap).toBeCloseTo(1.5 * rem, 1);
+        expect(underBar).toBeCloseTo(1.25 * rem, 1);
       });
     }
   }
@@ -1397,17 +1890,19 @@ describe("EventSheet — a full event inside the sheet", () => {
       await shot(`${vp.name}-full-details-end`);
 
       // The form scrolls under its bar, and its last guest ends above it.
-      await userEvent.click(segment("Respond"));
+      await userEvent.click(badge("Give RSVP"));
       await settle();
       expect(scroller().scrollHeight).toBeGreaterThan(scroller().clientHeight);
       scroller().scrollTop = scroller().scrollHeight;
       await new Promise(requestAnimationFrame);
       const guests = wrapperOf("rsvp").querySelectorAll("form > fieldset");
-      const bar = button("Save").parentElement!.getBoundingClientRect();
+      const actionBar = button("Save").parentElement!.getBoundingClientRect();
       expect(guests[guests.length - 1]!.getBoundingClientRect().bottom).toBeLessThanOrEqual(
-        bar.top,
+        actionBar.top,
       );
-      expect(Math.abs(scroller().getBoundingClientRect().bottom - bar.bottom)).toBeLessThan(1);
+      expect(Math.abs(scroller().getBoundingClientRect().bottom - actionBar.bottom)).toBeLessThan(
+        1,
+      );
       await shot(`${vp.name}-full-rsvp-end`);
     });
   }

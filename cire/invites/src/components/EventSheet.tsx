@@ -1,8 +1,10 @@
+import Button from "@cire/ui/button";
 import {
   batch,
   createEffect,
   createSignal,
   createUniqueId,
+  on,
   onCleanup,
   Show,
   splitProps,
@@ -10,7 +12,6 @@ import {
 
 import { AnimatedModal } from "./AnimatedModal";
 import { DetailsPanel } from "./DetailsPanel";
-import { PanelSwitch, type PanelSwitchControl } from "./PanelSwitch";
 import { moveFocus, pressedByPointer } from "./quiet-focus";
 import { RsvpPanel, type RsvpPanelProps } from "./RsvpPanel";
 import {
@@ -28,10 +29,7 @@ import type { EventSummary } from "./types";
 export type EventPanel = "details" | "rsvp";
 
 /** What the RSVP panel needs from the page, passed through unchanged. */
-type RsvpData = Omit<
-  RsvpPanelProps,
-  "event" | "onClose" | "active" | "titleId" | "headingRef" | "onBusyChange"
->;
+type RsvpData = Omit<RsvpPanelProps, "event" | "onClose" | "active" | "onBusyChange">;
 
 export interface EventSheetProps extends RsvpData {
   event: EventSummary;
@@ -51,7 +49,7 @@ export interface EventSheetProps extends RsvpData {
   /**
    * Any invited member of the household has a reply on file for this event.
    * Past the deadline it keeps the details' way into the read-only form, the
-   * switch's segment relabelled "Your RSVP"; with none, the form is out of reach.
+   * badge relabelled "View your RSVP"; with none, the form is out of reach.
    */
   replied?: boolean;
   onClose: () => void;
@@ -81,6 +79,31 @@ function without(panels: ReadonlySet<EventPanel>, panel: EventPanel): ReadonlySe
   return next;
 }
 
+/**
+ * The sheet's title in its bar: the event's name in the display face, whole.
+ * It wraps onto as many lines as it needs rather than being cut short, and the
+ * bar grows with it. It breaks between words, and inside a word only when the
+ * word is longer than a whole line (`break-word`), hyphenated there where the
+ * engine has the page's language (`hyphens-auto`, the invite's `lang="en"`).
+ * A phone narrower than 380px takes it a type step down, where the badge
+ * leaves the title least room: that is what keeps most names' words, and the
+ * comma after one, on a line together. A word longer than a whole line still
+ * breaks where the line ends, and with no hyphenation dictionary to hand
+ * (Chromium on Linux has none) that can be just before its comma.
+ */
+const TITLE =
+  "font-display text-text text-ui-md min-[380px]:text-ui-lg wrap-break-word hyphens-auto leading-tight font-light italic";
+
+/**
+ * One of the badge's two labels. Both sit in the same grid cell, so the badge
+ * is as wide as the wider of them whichever shows, and a swipe that moves them
+ * through it never changes its width. Each is the cell's full width, so the
+ * two stay exactly one width apart wherever the swipe has them, and never
+ * overlap.
+ */
+const BADGE_LABEL =
+  "transition-badge-settle col-start-1 row-start-1 flex items-center justify-center gap-2";
+
 /** A touch on the panels, from the moment it goes down. */
 interface Touch {
   id: number;
@@ -97,11 +120,23 @@ interface Touch {
 /**
  * One dialog per event holding two panels side by side in the guest's mind:
  * the event's details on the start side, its RSVP form on the end side, in the
- * order of the event card's buttons. A switch in the sheet's chrome, beside the
- * close button, moves between them without closing anything: two segments,
- * Details and Respond ("Your RSVP" past the deadline), in the order the guest
- * can also swipe, the one on screen filled gold ({@link PanelSwitch}). Its pill
- * follows a swipe's finger rather than jumping when the panels land.
+ * order of the event card's buttons. The sheet's bar, which stays put while the
+ * panel scrolls under it ({@link AnimatedModal}'s `toolbar`), holds the event's
+ * name as the title, then a badge that moves to the other panel without
+ * closing anything — "Give RSVP →" on the details, "← See details" on the
+ * form, each arrow pointing the way the guest can also swipe — then the close
+ * button. The badge's words follow a swipe's finger rather than changing when
+ * the panels land. The panels carry no title of their own.
+ *
+ * ## One title per panel
+ *
+ * The bar holds two titles, the details' and the form's, and shows the one for
+ * the panel on screen. Each reads as the event's name and says its panel's name
+ * to assistive technology only — "Details, Mehndi", "Respond, Mehndi" ("Your
+ * RSVP, Mehndi" past the deadline) — and the dialog takes its name from the one
+ * shown. Two elements rather than one relabelled, because a switch moves focus
+ * to the arriving panel's title: focus sent to the element already holding it
+ * is no move, and nothing would be announced.
  *
  * ## A panel mounts the first time it is asked for and stays mounted
  *
@@ -114,12 +149,12 @@ interface Touch {
  * ## When the guest may move
  *
  * From the details whenever RSVPs are open, and past the deadline only for a
- * household with a reply on file (the form's segment reads "Your RSVP"); with
- * none there is no switch and no swipe, and if focus was on the switch as it
- * went it moves to the details heading. From the form whenever it is not busy:
+ * household with a reply on file (the badge reads "View your RSVP"); with
+ * none there is no badge and no swipe, and if focus was on the badge as it
+ * went it moves to the details' title. From the form whenever it is not busy:
  * not while a save is in flight, nor while the sheet closes itself on a saved
- * reply, when the Details segment is disabled. One rule, {@link EventSheet}'s
- * `leavable`, gates the switch and the swipe alike.
+ * reply, when the badge is disabled. One rule, {@link EventSheet}'s
+ * `leavable`, gates the badge and the swipe alike.
  *
  * ## One height
  *
@@ -134,20 +169,40 @@ interface Touch {
  * The RSVP panel's wrapper, and the panels' own wrapper around it, grow to
  * fill the scrollport, and the form's action bar sits at the foot of its
  * column, so the bar is on the sheet's bottom edge however short the form is.
- * The details wrapper does not: as a flex column it would stop its heading's
- * margin collapsing into its header's, and open a gap under the heading. It
- * carries the sheet's bottom padding itself, so the scrollport has none for
- * either panel, and the bar — a sticky box, which keeps inside its
+ * The details wrapper does not grow: nothing in it sits at a foot. It carries
+ * the sheet's bottom padding itself, so the scrollport has none for either
+ * panel, and the action bar — a sticky box, which keeps inside its
  * scrollport's padding — reaches the edge even while a swipe draws the form
  * in beside the details.
+ *
+ * ## The badge
+ *
+ * One button, whose two labels — the details' and the form's — share one grid
+ * cell, so it is always as wide as the wider. The one for the panel on screen
+ * shows; the other waits outside the window the cell clips to, transparent
+ * and `aria-hidden`, so the button's name is "Give RSVP", "See details" or
+ * "View your RSVP" and never both. A press goes to the other panel. A custom
+ * property on the button, `--badge-progress`, is 0 on the details and 1 on
+ * the form, and the labels move on it like a ticker, the way the panels go:
+ * toward the form the details' words leave by the start as the form's come in
+ * from the end, a whole label's width apart, fading as they go. It has one
+ * writer,
+ * `setBadgeProgress`: as the badge is built, from the panel on screen, so a
+ * sheet opened on the form does not fade its words in; on every switch, when
+ * the words ease on the panels' 280ms (`transition-badge-settle`); and during a
+ * swipe, which writes the finger's share of the panels' width with the easing
+ * off (`data-dragging`), and at its settle the value at rest, whether the
+ * panels carry on or spring back. Inline `transform`s rather than Tailwind's
+ * `translate-x-*`, which writes the separate `translate` property: one
+ * transition list then covers the opacity and the slide.
  *
  * ## The switch
  *
  * Everything that matters happens at once, on the press: the panel swaps, the
- * scroll goes back to the top, and focus moves to the new panel's heading,
- * whose words say which panel it is. After a tap, a click or a swipe that move
- * is quiet (`quiet-focus.ts`): nobody reached the heading by keyboard, and a
- * ring on it would read as the heading being selected. A key press keeps the
+ * scroll goes back to the top, and focus moves to the new panel's title in the
+ * bar, whose words say which panel it is. After a tap, a click or a swipe that
+ * move is quiet (`quiet-focus.ts`): nobody reached the title by keyboard, and a
+ * ring on it would read as the title being selected. A key press keeps the
  * ring, so a keyboard user sees where focus went. The motion runs after and
  * changes nothing a guest can act on:
  *
@@ -158,10 +213,9 @@ interface Touch {
  *   it would play on top of the sheet's own entry.
  * - Until the slide settles the new panel takes no pointer input: it is still
  *   transparent, and a second tap of a double tap would otherwise land on
- *   whatever control sits under the segment just pressed. The switch ignores
- *   a tap on its other segment too (`pressSegment`), so a tap that lands on
- *   it as the panels move cannot send the guest straight back; a tap on the
- *   segment already chosen does nothing. And the panels' wrapper clips
+ *   whatever control sits under the badge just pressed. The badge ignores
+ *   such a tap too (`pressBadge`), since it sits in the same place on both
+ *   panels and would go straight back. And the panels' wrapper clips
  *   sideways overflow,
  *   because the sliding RSVP panel carries its full-bleed action bar past the
  *   scrollport's edge and would flash a horizontal scrollbar. Only then:
@@ -175,9 +229,11 @@ interface Touch {
  *
  * A touch that moves sideways toward the other panel drags both: the one on
  * screen follows the finger, and the other is drawn beside it, a panel's width
- * away, level with the top of the scrollport. The decisions — when a touch is
- * a swipe, how far it may go, whether a release carries on or springs back —
- * are `sheet-swipe.ts`'s; this component only moves the boxes.
+ * away, where it will rest under the bar. The decisions — when a touch is a
+ * swipe, how far it may go, whether a release carries on or springs back — are
+ * `sheet-swipe.ts`'s; this component only moves the boxes. The bar is no part
+ * of either panel, so it never moves with them and a touch on it starts no
+ * swipe.
  *
  * - Touch only. A mouse drag on a desktop is text selection.
  * - The wrapper is `touch-action: pan-y pinch-zoom`, so the browser keeps the
@@ -185,14 +241,14 @@ interface Touch {
  *   it takes for a scroll arrives here as `pointercancel` and springs back.
  * - Not while the guest has pinch-zoomed in. A sideways drag then pans the
  *   zoomed view, which a guest who zoomed to read needs, so the wrapper goes
- *   back to `touch-action: auto` and the swipe stands down; the switch still
+ *   back to `touch-action: auto` and the swipe stands down; the badge still
  *   moves between the panels.
  * - A touch in a text field, or in a box that scrolls sideways of its own
  *   (the dietary chips, the moodboard), belongs to that, not to the sheet.
- * - The arriving panel is held to the scrollport's height, from the top of
- *   what is on screen to the sheet's bottom edge, so the form's action bar is
- *   drawn where it will rest rather than under a short form, which would drop
- *   to the edge as the form landed.
+ * - The arriving panel is held to the height it will have at rest, from where
+ *   the panels start under the bar to the sheet's bottom edge, so the form's
+ *   action bar is drawn where it will rest rather than under a short form,
+ *   which would drop to the edge as the form landed.
  * - The arriving panel is `inert` until it has arrived, and its entry slide
  *   is suppressed (`quiet`) for as long as it is on screen: it is already in
  *   place, and adding the animation class to a shown element would play it.
@@ -200,13 +256,12 @@ interface Touch {
  *   earlier swipe and the guest is now swiping it away.
  * - Both panels are `will-change: transform` while they move, so the drag
  *   moves two composited layers rather than repainting the sheet each frame.
- * - The switch's pill moves with the finger, by the share of the panels' width
- *   it has covered ({@link PanelSwitchControl}), and eases to rest with them.
+ * - The badge's words move with the finger, by the share of the panels' width
+ *   it has covered (see "The badge"), and ease to rest with them.
  * - Released, both panels ease to their resting places on
  *   `transition-panel-settle`, the slide's own duration and curve, read back
  *   from the computed style so the reduced-motion clamp reaches it. A
- *   committed swipe then switches exactly as a press of the switch does, less
- *   the slide.
+ *   committed swipe then switches exactly as the badge does, less the slide.
  */
 export function EventSheet(props: EventSheetProps) {
   const [own, rsvp] = splitProps(props, [
@@ -239,11 +294,13 @@ export function EventSheet(props: EventSheetProps) {
     details: createUniqueId(),
     rsvp: createUniqueId(),
   } satisfies Record<EventPanel, string>;
-  const headings: Partial<Record<EventPanel, HTMLHeadingElement>> = {};
+  // Filled by the titles' refs as the sheet renders. Both titles are always
+  // mounted, whichever panels are, so both are set before anything reads them.
+  const titles = {} as Record<EventPanel, HTMLHeadingElement>;
   const wrappers: Partial<Record<EventPanel, HTMLDivElement>> = {};
   let scroller: HTMLDivElement | undefined;
   let rail: HTMLDivElement | undefined;
-  let panelSwitch: PanelSwitchControl | undefined;
+  let badgeEl: HTMLButtonElement | undefined;
   // Which switch is current, so a slide that settles after a later switch
   // cannot clear that later one's state.
   let switchToken = 0;
@@ -254,11 +311,10 @@ export function EventSheet(props: EventSheetProps) {
   const leavable = () => (active() === "details" ? rsvpReachable() : !busy());
 
   // The deadline can pass while the details are open, and for a household with
-  // no reply the switch goes with it. (One with a reply keeps it, the form's
-  // segment under a new label, so its focus never moves.) If focus was ON the
-  // switch, the browser
+  // no reply the badge goes with it. (One with a reply keeps it under a new
+  // label, so its focus never moves.) If focus was ON the badge, the browser
   // drops it to `<body>` — outside a modal dialog, with no keyboard way back in
-  // — so focus goes to the details heading instead. It acts only on that loss:
+  // — so focus goes to the details' title instead. It acts only on that loss:
   // focus resting on any real element is left where the guest put it.
   let wasReachable = rsvpReachable();
   createEffect(() => {
@@ -267,7 +323,7 @@ export function EventSheet(props: EventSheetProps) {
     wasReachable = reachable;
     if (!withdrawn || active() !== "details") return;
     const focused = document.activeElement;
-    if (!focused || focused === document.body) headings.details?.focus();
+    if (!focused || focused === document.body) titles.details.focus();
   });
 
   /** Lift the arriving panel's switch-time limits once its slide has ended. */
@@ -279,8 +335,8 @@ export function EventSheet(props: EventSheetProps) {
   /**
    * Switch to `next`. `arrived` is a swipe's: the panel is already in place,
    * so it gets no slide of its own. `quietly` is a touch's or a click's: the
-   * heading takes focus without the keyboard's ring (`quiet-focus.ts`). A
-   * swipe is always a touch.
+   * title takes focus without the keyboard's ring (`quiet-focus.ts`). A swipe
+   * is always a touch.
    */
   function show(next: EventPanel, arrived = false, quietly = arrived) {
     if (next === active() || (!arrived && gesture())) return;
@@ -297,7 +353,7 @@ export function EventSheet(props: EventSheetProps) {
     });
 
     if (scroller) scroller.scrollTop = 0;
-    moveFocus(headings[next], quietly, { preventScroll: true });
+    moveFocus(titles[next], quietly, { preventScroll: true });
 
     if (!arrived) {
       // The panel's own slide only — not its subtree, where a loading spinner
@@ -332,10 +388,29 @@ export function EventSheet(props: EventSheetProps) {
   /** Where the panel coming in sits, relative to the one on screen. */
   const incomingSide = (target: EventPanel) => (target === "rsvp" ? 1 : -1);
 
-  /** The switch's pill at rest under `panel`: 0 under Details, 1 under the form's segment. */
+  /** The badge's `--badge-progress` at rest on `panel`: 0 on the details, 1 on the form. */
   const restOf = (panel: EventPanel) => (panel === "details" ? 0 : 1);
 
-  /** Draw both panels, and the switch's pill, for a finger at `dx`. */
+  /**
+   * The one writer of the badge's `--badge-progress` (see "The badge").
+   * `dragging` holds its words to the finger with no easing; otherwise they
+   * ease there on the panels' settle timing.
+   */
+  function setBadgeProgress(progress: number, dragging: boolean) {
+    if (!badgeEl) return;
+    badgeEl.toggleAttribute("data-dragging", dragging);
+    badgeEl.style.setProperty("--badge-progress", String(progress));
+  }
+
+  // On every switch, by the badge or by a swipe. A committed swipe's settle has
+  // already written the same value, so its words do not move twice.
+  createEffect(
+    on(active, (panel) => setBadgeProgress(restOf(panel), false), {
+      defer: true,
+    }),
+  );
+
+  /** Draw both panels, and the badge's words, for a finger at `dx`. */
   function paint(dx: number, width: number) {
     const target = gesture()?.target;
     const current = wrappers[active()];
@@ -343,17 +418,18 @@ export function EventSheet(props: EventSheetProps) {
     if (!target || !current || !incoming) return;
     current.style.transform = `translateX(${dx}px)`;
     incoming.style.transform = `translateX(${dx + incomingSide(target) * width}px)`;
-    // Toward the form is toward the start (`dx < 0`), and the pill's 1.
-    panelSwitch?.setProgress(restOf(active()) - dx / width, true);
+    // Toward the form is toward the start (`dx < 0`), and the badge's 1.
+    setBadgeProgress(restOf(active()) - dx / width, true);
   }
 
   function beginDrag(state: Touch) {
     const target = otherPanel(active());
     // Read before the batch shows the incoming panel, so they force no layout.
+    // The rail starts under the bar, its own height and gap above it in the
+    // scroll content, so the panel at rest runs from there to the sheet's
+    // bottom edge. `offsetTop` is layout, unmoved by the scroll.
     const top = scroller?.scrollTop ?? 0;
-    const tall = scroller
-      ? scroller.clientHeight - Number.parseFloat(getComputedStyle(scroller).paddingTop)
-      : 0;
+    const tall = scroller && rail ? scroller.clientHeight - rail.offsetTop : 0;
     batch(() => {
       setShown((panels) => new Set(panels).add(target));
       setQuiet((panels) => new Set(panels).add(target));
@@ -367,10 +443,10 @@ export function EventSheet(props: EventSheetProps) {
     state.state = "dragging";
     const incoming = wrappers[target];
     if (!incoming) return;
-    // Level with the scrollport's top, wherever the panel on screen is
-    // scrolled to: the wrapper's own top is the scroll content's. And down to
-    // the scrollport's bottom edge, so the form's action bar is drawn where it
-    // will rest (see "The swipe").
+    // Where it will rest, under the bar, wherever the panel on screen is
+    // scrolled to: the wrapper's own top is the rail's, in the scroll content.
+    // And down to the scrollport's bottom edge, so the form's action bar is
+    // drawn where it will rest (see "The swipe").
     incoming.style.top = `${top}px`;
     incoming.style.minHeight = `${tall}px`;
   }
@@ -444,7 +520,7 @@ export function EventSheet(props: EventSheetProps) {
     const side = incomingSide(target);
     current.style.transform = `translateX(${commit ? -side * width : 0}px)`;
     incoming.style.transform = `translateX(${commit ? 0 : side * width}px)`;
-    panelSwitch?.setProgress(restOf(commit ? target : active()), false);
+    setBadgeProgress(restOf(commit ? target : active()), false);
 
     const onEnd = (e: TransitionEvent) => {
       if (e.target === incoming && e.propertyName === "transform") finish();
@@ -475,42 +551,105 @@ export function EventSheet(props: EventSheetProps) {
   }
 
   /**
-   * A press of a segment. A tap or click is ignored while a slide or a swipe
-   * is still running, so a second tap of a double tap, or a tap as the panels
-   * move, cannot send the guest straight back; the segment already chosen does
-   * nothing at all (`show`). A key press is deliberate and goes through, and
-   * leaves the heading's ring on.
+   * A press of the badge, which goes to the other panel. A tap or click is
+   * ignored while a slide or a swipe is still running: the badge sits in the
+   * same place on both panels, so the second tap of a double tap lands on it
+   * again and would go straight back. A key press is deliberate and goes
+   * through, and leaves the title's ring on.
    */
-  function pressSegment(next: EventPanel, e: MouseEvent) {
+  function pressBadge(e: MouseEvent) {
     const byPointer = pressedByPointer(e);
     if (byPointer && (entering() !== null || gesture() !== null)) return;
-    show(next, false, byPointer);
+    show(otherPanel(active()), false, byPointer);
   }
 
   /**
-   * Keeps the control a swipe drives the switch's pill with. A named function
-   * rather than an arrow in the JSX: Solid drops a component's `ref` that is
-   * any other kind of expression, and the mutation run's instrumenter wraps
-   * every arrow in one.
+   * Keeps the badge, and writes its words' place before the first paint. A
+   * named function rather than an arrow in the JSX: Solid drops a component's
+   * `ref` that is any other kind of expression, and the mutation run's
+   * instrumenter wraps every arrow in one.
    */
-  function holdSwitch(control: PanelSwitchControl) {
-    panelSwitch = control;
+  function holdBadge(el: HTMLButtonElement) {
+    badgeEl = el;
+    setBadgeProgress(restOf(active()), false);
   }
 
   /**
-   * The switch, in the sheet's chrome. On the details only while the form can
-   * be reached; on the form always, its Details segment disabled while busy.
+   * The badge, in the sheet's bar: on the details only while the form can be
+   * reached, on the form always. Disabled while the form is busy, which it can
+   * only be while it is the panel on screen: the form cannot be left then.
    */
-  const panelSwitchRow = (
+  const badge = (
     <Show when={active() === "rsvp" || rsvpReachable()}>
-      <PanelSwitch
-        ref={holdSwitch}
-        selected={active()}
-        rsvpLabel={rsvp.closed ? "Your RSVP" : "Respond"}
-        detailsDisabled={busy()}
-        onPress={pressSegment}
-      />
+      <Button
+        ref={holdBadge}
+        variant="chip"
+        size="sm"
+        class="min-h-11"
+        disabled={busy()}
+        onClick={pressBadge}
+      >
+        {/* The window the labels move through: clipped, so a label on its way
+            in or out shows only the part inside the badge's padding, which
+            the button keeps around it with its pill and hairline. */}
+        <span class="grid overflow-clip">
+          <span
+            class={BADGE_LABEL}
+            aria-hidden={active() !== "details" || undefined}
+            style={{
+              opacity: "calc(1 - var(--badge-progress))",
+              transform: "translateX(calc(var(--badge-progress) * -100%))",
+            }}
+          >
+            {rsvp.closed ? "View your RSVP" : "Give RSVP"}
+            <span aria-hidden="true">→</span>
+          </span>
+          <span
+            class={BADGE_LABEL}
+            aria-hidden={active() !== "rsvp" || undefined}
+            style={{
+              opacity: "var(--badge-progress)",
+              transform: "translateX(calc((1 - var(--badge-progress)) * 100%))",
+            }}
+          >
+            <span aria-hidden="true">←</span>
+            See details
+          </span>
+        </span>
+      </Button>
     </Show>
+  );
+
+  /**
+   * The bar's two titles, one per panel, the inactive one hidden. Each is
+   * focusable by script only (`tabindex="-1"`), the place a switch sends
+   * focus, and names the dialog while its panel shows. The panel's name is
+   * for the ear; the eye has the badge. The comma is inside the hidden words,
+   * so no engine reads a space before it; the space after it is a text node
+   * of its own, because a name is built from each element's trimmed text, and
+   * on screen it is collapsed away at the start of the line.
+   */
+  const sheetTitles = (
+    <>
+      <h2
+        id={titleIds.details}
+        ref={(el) => (titles.details = el)}
+        tabindex="-1"
+        hidden={active() !== "details"}
+        class={TITLE}
+      >
+        <span class="sr-only">Details,</span> {own.event.name}
+      </h2>
+      <h2
+        id={titleIds.rsvp}
+        ref={(el) => (titles.rsvp = el)}
+        tabindex="-1"
+        hidden={active() !== "rsvp"}
+        class={TITLE}
+      >
+        <span class="sr-only">{rsvp.closed ? "Your RSVP," : "Respond,"}</span> {own.event.name}
+      </h2>
+    </>
   );
 
   return (
@@ -527,7 +666,8 @@ export function EventSheet(props: EventSheetProps) {
       flushBottom
       scrollRef={(el) => (scroller = el)}
       toolbar
-      action={panelSwitchRow}
+      title={sheetTitles}
+      action={badge}
     >
       {/* `-mx-6 px-6` puts this box's edge on the scrollport's own padding
           edge, so the clip lands exactly where the full-bleed bar ends — and
@@ -577,8 +717,6 @@ export function EventSheet(props: EventSheetProps) {
               replied={own.replied}
               rsvpClosed={rsvp.closed}
               rsvpClosedOn={rsvp.closedOn}
-              titleId={titleIds.details}
-              headingRef={(el) => (headings.details = el)}
             />
           </div>
         </Show>
@@ -602,8 +740,6 @@ export function EventSheet(props: EventSheetProps) {
               event={own.event}
               onClose={own.onClose}
               active={active() === "rsvp"}
-              titleId={titleIds.rsvp}
-              headingRef={(el) => (headings.rsvp = el)}
               onBusyChange={setBusy}
             />
           </div>

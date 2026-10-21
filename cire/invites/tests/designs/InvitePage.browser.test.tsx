@@ -380,15 +380,16 @@ describe.each([
     await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy(), SHEET_OPENS);
     const sheet = document.querySelector("dialog") as HTMLDialogElement;
 
-    // The sheet's switch, by role and name inside the dialog: the card behind
-    // it has a "Respond" of its own.
-    const segment = (name: string) => within(sheet).getByRole("button", { name });
-    await userEvent.click(segment("Respond"));
+    // The sheet's badge, by the name it has on the panel on screen: one
+    // button whose words change with the panel.
+    const badge = (name: "Give RSVP" | "See details") =>
+      within(sheet).getByRole("button", { name });
+    await userEvent.click(badge("Give RSVP"));
     expect(document.activeElement?.textContent).toMatch(/Respond.*Mehndi/);
     answer("Priya");
     await panelSettled(sheet);
 
-    await userEvent.click(segment("Details"));
+    await userEvent.click(badge("See details"));
     expect(document.activeElement?.textContent).toMatch(/Details.*Mehndi/);
     expect(document.querySelector("dialog")).toBe(sheet);
     expect(sheet.matches(":modal")).toBe(true);

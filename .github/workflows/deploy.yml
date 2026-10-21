@@ -363,6 +363,11 @@ jobs:
           # verifies if TURNSTILE_SECRET_KEY is set on that Worker (key-optional).
           PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
           PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
+          # The commit this build is made from. The footer prints its first
+          # seven characters as the version, so a report from a phone says
+          # which build it was. A `PUBLIC_*` var is in turbo's build hash, so
+          # a new commit never replays an older `dist/`.
+          PUBLIC_BUILD_SHA: ${{ github.sha }}
 
       # Two outcomes, and only one stops the deploy. An SSR bundle over its
       # budget in scripts/bundle-size-budgets.txt prints a ::warning:: on this

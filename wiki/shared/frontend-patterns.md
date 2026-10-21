@@ -246,6 +246,23 @@ For that to work the panel around the scrollport must not itself scroll, which i
 also covers the `<dialog>` user-agent padding that put this exact bar 16px above
 the edge it seats on.
 
+A bar that stays at the **top** while the content scrolls under it is the same
+box from the other end: the scrollport's first child, `sticky top-0`, with no
+top padding on the scrollport to hold it off the edge. Three things go with it.
+`scroll-padding-top` equal to its height, so focus scrolling never parks a
+control under it — and when its height can change (a title that wraps), read
+from the bar itself, a `ResizeObserver` writing it to a custom property the
+padding uses, since a fixed length only matches one line. Chromium centres a
+control that is wholly out of view whatever the padding; the one the padding
+saves is partly under the bar, still inside the scrollport, which nothing
+else scrolls. `shrink-0` when the scrollport is a flex column, which
+otherwise shrinks it to its content once the rest overflows. And anything that
+lays a box out "level with the top of the content" — a swipe drawing a panel in
+beside the one on screen — measures where the content starts (`offsetTop`,
+which the scroll does not move), not the scrollport's padding. Cire's
+`AnimatedModal` draws its `toolbar` bar this way, and `EventSheet` draws its
+swiped-in panel from it ([[cire-invite-designs#The event sheet]]).
+
 **The scrollport is the nearest box that scrolls on either axis.** A box with
 `overflow-x: auto` computes its `overflow-y` to `auto` as well (CSS Overflow 3
 §3.1), so it scrolls both ways, and a sticky cell inside it sticks to that box —

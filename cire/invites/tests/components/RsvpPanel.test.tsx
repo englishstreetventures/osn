@@ -400,9 +400,9 @@ describe("RsvpPanel", () => {
     vi.stubGlobal("fetch", fetchSpy);
     const onSubmitted = vi.fn();
     const onClose = vi.fn();
-    // Fake clock from the outset (P-I2): the dwell is a real `setTimeout`, so it
-    // has to be mocked BEFORE the submit registers it. Waiting it out for real
-    // cost a real dwell of pure sleep in every suite run.
+    // Fake clock from the outset: the dwell is a real `setTimeout`, so it has
+    // to be mocked BEFORE the submit registers it. Waited out for real, it
+    // would add a dwell of pure sleep to every suite run.
     vi.useFakeTimers();
 
     const { getByText } = render(() => (
@@ -1734,20 +1734,6 @@ describe("RsvpPanel", () => {
     expect(within(rajSet).getByText("No reply")).toBeTruthy();
   });
 
-  it("titles the closed sheet as the household's RSVP rather than asking for one", () => {
-    const { getByRole, queryByRole } = render(() => (
-      <RsvpPanel
-        event={event}
-        members={[priya]}
-        apiUrl="https://api.test"
-        closed
-        onClose={() => {}}
-      />
-    ));
-    expect(getByRole("heading", { name: "Your RSVP, Mehndi" })).toBeTruthy();
-    expect(queryByRole("heading", { name: "Respond, Mehndi" })).toBeNull();
-  });
-
   it("never POSTs from a closed sheet, even on a form-level submit", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
@@ -1903,9 +1889,9 @@ describe("RsvpPanel", () => {
   });
 
   /**
-   * A successful RSVP used to be indistinguishable from a mis-tap: the sheet
-   * simply vanished. These pin the confirmation that replaced that — the gold
-   * sweep, the tick, and the held beat before the sheet closes itself.
+   * A successful RSVP must not read as a mis-tap, with the sheet simply gone.
+   * These pin the confirmation that says it was recorded — the gold sweep,
+   * the tick, and the held beat before the sheet closes itself.
    *
    * happy-dom and jsdom compute no CSS, so none of this can assert what the
    * guest actually SEES. What is checkable is the contract the visuals hang
@@ -2006,7 +1992,7 @@ describe("RsvpPanel", () => {
           }),
         ),
       );
-      // Fake clock before the submit registers the dwell (P-I2, as above).
+      // Fake clock before the submit registers the dwell, as above.
       vi.useFakeTimers();
       render(() => (
         <RsvpPanel
@@ -2219,7 +2205,7 @@ describe("RsvpPanel", () => {
       fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
       fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
 
-      // Preview spends the WHOLE budget, two-sided (T-M1). Preview exists so a
+      // Preview spends the WHOLE budget, two-sided. Preview exists so a
       // host feels exactly what a guest feels, and it is the one call site the
       // two controllable-reply tests above cannot reach — it passes a literal
       // `requestMs` of 0 because it never leaves the browser. Only the lower
@@ -2414,8 +2400,8 @@ describe("RsvpPanel", () => {
 
     it("keeps focus on the Save button through the confirmation", async () => {
       // Disabling the focused control would drop focus to <body> — outside the
-      // aria-modal dialog, with no keyboard route back in. That is the C-L2
-      // failure, and it must not be reintroduced by the success path.
+      // aria-modal dialog, with no keyboard route back in — and the success
+      // path must not do that.
       const { getByRole } = await confirmOnce();
       const save = getByRole("button", { name: "Saved" });
       expect(document.activeElement).toBe(save);
@@ -2462,11 +2448,11 @@ describe("RsvpPanel", () => {
       expect(submit.className).not.toContain("opacity-40");
     });
 
-    it("still rescues focus if the deadline passes DURING the confirmation (C-L2)", async () => {
+    it("still rescues focus if the deadline passes DURING the confirmation", async () => {
       // The confirmed state deliberately keeps focus on the submit button. If
       // the deadline flips inside the dwell, `<Show when={!props.closed}>`
-      // unmounts that focused button and focus reverts to <body>, so the C-L2
-      // rescue has to fire. It can only do that if the dismiss button is still
+      // unmounts that focused button and focus reverts to <body>, so the
+      // deadline focus rescue has to fire. It can only do that if the dismiss button is still
       // focusable — `.focus()` is a no-op on a disabled one, and the dwell
       // would otherwise have disabled it.
       const [closed, setClosed] = createSignal(false);
@@ -2690,7 +2676,8 @@ describe("RsvpPanel", () => {
     expect(scroller.className).toContain("pb-0");
     // Between the two sits the sheet's panels wrapper, which steps out over
     // the scroller's padding and back in by the same amount.
-    const wrapper = scroller.firstElementChild as HTMLElement;
+    const wrapper = document.querySelector('[data-panel="rsvp"]')!.parentElement as HTMLElement;
+    expect(wrapper.parentElement).toBe(scroller);
     expect(wrapper.className).toContain("-mx-6");
     expect(wrapper.className).toContain("px-6");
 
@@ -3025,31 +3012,10 @@ describe("RsvpPanel", () => {
   });
 });
 
-describe("RsvpPanel — the heading and the way to the details", () => {
+describe("RsvpPanel — the way to the details", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
-  });
-
-  it("names its heading after the panel as well as the event", () => {
-    // Both of the sheet's panels are titled with the event's name. "Respond"
-    // inside the heading is what tells a guest who lands on it which one this is.
-    let received: HTMLHeadingElement | undefined;
-    const { getByRole } = render(() => (
-      <RsvpPanel
-        event={event}
-        members={[priya]}
-        apiUrl="https://api.test"
-        onClose={() => {}}
-        titleId="rsvp-title"
-        headingRef={(el) => (received = el)}
-      />
-    ));
-
-    const heading = getByRole("heading", { name: "Respond, Mehndi" });
-    expect(heading.id).toBe("rsvp-title");
-    expect(heading.getAttribute("tabindex")).toBe("-1");
-    expect(received).toBe(heading);
   });
 
   it("tells the sheet it is busy while a save is in flight and once the reply has saved", async () => {

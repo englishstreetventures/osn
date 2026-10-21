@@ -178,15 +178,15 @@ plays.
 (`sectionVars(theme, "welcome")`, passed in as `themeVars`). The welcome
 greeting and the closing note are the couple's two direct addresses to their
 guests, so they read as a matched pair — and the builder gains no extra knob for
-a section whose whole job is a sentence and an image. `THEME_SECTIONS` stays the
-four lanes it has always had.
+a section whose whole job is a sentence and an image. `THEME_SECTIONS` holds four
+lanes, none of them the closing section's.
 
 **It is NOT part of `SiteFooter`.** Two different things live at the bottom of
 an invite and the distinction is load-bearing:
 
 | | `InviteClosing.astro` | `SiteFooter.astro` |
 |---|---|---|
-| What | Invite content — the couple's closing image + note | Site chrome — couple's title + Privacy/Terms/Privacy-choices |
+| What | Invite content — the couple's closing image + note | Site chrome — couple's title + Privacy/Terms/Privacy-choices + the build's version ([[#The footer's version]]) |
 | Where | Only the invite, immediately above the footer | Every document (invite, `/privacy`, `/terms`, 404) |
 | When | Conditional — nothing set ⇒ **renders nothing at all** | Always (compliance blocker C-H4) |
 | Themed | Yes — reuses the **welcome** tone, no setting of its own | No — inherits the root palette |
@@ -1163,6 +1163,31 @@ Net effect: **invite customisation (hero image + theme) is read per request — 
 site rebuild needed, no baked-in wedding slug, and one invite request per
 render.** The `/api/claim` event/guest flow (`InvitePage`'s claim/RSVP logic) and
 its animations are untouched.
+
+### The footer's version
+
+The footer ([`SiteFooter.astro`](../../cire/invites/src/components/SiteFooter.astro))
+prints the build's version on its own line under the legal row — "Version"
+and the first seven characters of the commit the guest site was built from —
+so a report from a guest's phone, or the owner's, names the build it came
+from. Everything merged at or before that commit is in it. Its own line, not a
+fourth item in the row, because the three legal links already fill a 320px
+phone.
+
+- **Where it comes from.** `PUBLIC_BUILD_SHA`, set to `github.sha` on the
+  build step of `deploy-cire-invites-dev` (`deploy.yml`) and
+  `deploy-cire-invites` (`production-release.yml`), and typed in
+  `cire/invites/env.d.ts`. Astro inlines it like `PUBLIC_API_URL`, into the
+  SSR Worker and the prerendered legal pages alike.
+- **No stale build.** A `PUBLIC_*` variable is in turbo's `build.env` hash
+  (`turbo.json`), so a new commit never replays an older `dist/` from the
+  cache.
+- **What it means per tier.** Dev builds on each push to `main` that touches
+  the guest site; production builds `main` at release time, and only for a
+  release that ships the guest site. So production's version is the commit of
+  the release that last deployed it, not `main`'s head.
+- **Without it** — a local build, the end-to-end suite's `astro dev` — the
+  line reads "Version local", which the `cire-rsvp` flow checks.
 
 ### Organiser links
 

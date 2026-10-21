@@ -20,6 +20,7 @@ describe("the guest sheet, in a real engine", () => {
     cleanup();
     document.documentElement.style.overflow = "";
     document.documentElement.style.scrollbarGutter = "";
+    document.documentElement.style.overscrollBehavior = "";
   });
 
   /**
@@ -44,21 +45,41 @@ describe("the guest sheet, in a real engine", () => {
     expect(getByRole("dialog").matches(":modal")).toBe(true);
   });
 
-  it("lands focus on the scroll container, so the keyboard can scroll the sheet", () => {
-    const { getByRole } = render(() => (
-      <AnimatedModal onClose={() => {}} label="Event details">
-        <p>body</p>
-      </AnimatedModal>
-    ));
+  it.each([false, true])(
+    "lands focus on the scroll container, so the keyboard can scroll the sheet (toolbar: %s)",
+    (toolbar) => {
+      const { getByRole } = render(() =>
+        toolbar ? (
+          <AnimatedModal
+            onClose={() => {}}
+            labelledBy="sheet-title"
+            toolbar
+            title={
+              <h2 id="sheet-title" tabindex="-1">
+                Mehndi
+              </h2>
+            }
+            action={<button type="button">Give RSVP</button>}
+          >
+            <p>body</p>
+          </AnimatedModal>
+        ) : (
+          <AnimatedModal onClose={() => {}} label="Event details">
+            <p>body</p>
+          </AnimatedModal>
+        ),
+      );
 
-    // The dialog's focusing steps prefer the autofocus delegate over the first
-    // tabbable descendant, which is the close button — a sibling of the
-    // scrollport, so landing there leaves Arrow and PageDown with nothing to
-    // move. This is the assertion the unit tier can only approximate by
-    // checking that the attribute is present.
-    const scroller = getByRole("dialog").lastElementChild;
-    expect(document.activeElement).toBe(scroller);
-  });
+      // The dialog's focusing steps prefer the autofocus delegate over the
+      // first tabbable descendant: the close button without a toolbar (a
+      // sibling of the scrollport, so landing there leaves Arrow and PageDown
+      // with nothing to move), and the bar's action with one. This is the
+      // assertion the unit tier can only approximate by checking that the
+      // attribute is present.
+      const scroller = getByRole("dialog").lastElementChild;
+      expect(document.activeElement).toBe(scroller);
+    },
+  );
 
   it("closes on Escape and says so, without the caller wiring a key handler", async () => {
     const onClose = vi.fn();
@@ -142,9 +163,13 @@ describe("the guest sheet, in a real engine", () => {
       await userEvent.wheel(getByRole("dialog"), { delta: { y: 600 } });
       await new Promise((resolve) => requestAnimationFrame(resolve));
       expect(window.scrollY).toBe(0);
+      // Nor does a drag that reaches the end of the sheet's own scroll chain
+      // into the page, or rubber-band it, where an engine does either.
+      expect(getComputedStyle(document.documentElement).overscrollBehaviorY).toBe("none");
 
       unmount();
       expect(document.documentElement.style.overflow).toBe("");
+      expect(getComputedStyle(document.documentElement).overscrollBehaviorY).toBe("auto");
       await userEvent.wheel(tall, { delta: { y: 600 } });
       await new Promise((resolve) => setTimeout(resolve, 100));
       expect(window.scrollY).toBeGreaterThan(0);

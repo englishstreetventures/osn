@@ -16,6 +16,13 @@ interface ImportMetaEnv {
    * widget, no gate (key-optional). Baked in at build time by Vite.
    */
   readonly PUBLIC_TURNSTILE_SITEKEY?: string;
+  /**
+   * The commit this build was made from (`github.sha`), set by the deploy
+   * workflows. The footer prints its first seven characters as the build's
+   * version; unset ⇒ "local". Baked in at build time, and in turbo's
+   * `PUBLIC_*` env hash, so a new commit never replays an older build.
+   */
+  readonly PUBLIC_BUILD_SHA?: string;
 }
 
 interface ImportMeta {
