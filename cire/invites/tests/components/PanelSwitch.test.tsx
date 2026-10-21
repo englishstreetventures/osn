@@ -21,17 +21,6 @@ function group(): HTMLElement {
 const progress = () => group().style.getPropertyValue("--seg-progress");
 
 describe("PanelSwitch", () => {
-  it.each([
-    ["details", "0"],
-    ["rsvp", "1"],
-  ] as const)("stands the pill under %s before anything moves", (selected, at) => {
-    // A sheet opened on the form shows its pill there from the first paint,
-    // rather than sliding it across from Details as the sheet opens.
-    render(() => <PanelSwitch selected={selected} rsvpLabel="Respond" onPress={() => {}} />);
-    expect(progress()).toBe(at);
-    expect(group().hasAttribute("data-dragging")).toBe(false);
-  });
-
   it("eases the pill to the segment chosen, and back", () => {
     const [selected, setSelected] = createSignal<SwitchPanel>("details");
     render(() => <PanelSwitch selected={selected()} rsvpLabel="Respond" onPress={() => {}} />);

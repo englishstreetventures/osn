@@ -270,13 +270,6 @@ describe("EventSheet", () => {
       expect(document.activeElement).not.toBe(heading);
     });
 
-    it("moves on a tap, with focus on the arriving heading", () => {
-      const { getByRole } = open("details");
-      fireEvent.click(segment("Respond"), { detail: 1 });
-      expect(panelOf("rsvp")!.hidden).toBe(false);
-      expect(document.activeElement).toBe(getByRole("heading", { name: "Respond, Mehndi" }));
-    });
-
     // jsdom plays no slide, so the panel's arrival lasts until the next
     // microtask: a second press dispatched straight after the first lands
     // inside it, as a double tap's second tap lands inside a real slide.

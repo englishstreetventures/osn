@@ -6,7 +6,9 @@
  * opens, from its estimated size since it has not yet been measured, and placed
  * again on a scroll or a resize: the placement the "is placed" cases read.
  * Where Chromium puts it, in the top layer and measured, is
- * `DetailsPanel.browser.test.tsx`'s ("the calendar menu").
+ * `DetailsPanel.browser.test.tsx`'s ("the calendar menu"), and so are the keys
+ * a guest presses there: opening on the arrows, moving between the items, and
+ * closing on Escape and Tab. This tier keeps what only it reaches.
  */
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -52,46 +54,7 @@ async function openByKey() {
   await Promise.resolve();
 }
 
-describe("LinkMenu, opened from its trigger", () => {
-  it("opens on its last item for ArrowUp and its first for ArrowDown, and leaves other keys alone", async () => {
-    renderMenu();
-    expect(fireEvent.keyDown(trigger(), { key: "a" })).toBe(true);
-    expect(menu()).toBeNull();
-
-    expect(fireEvent.keyDown(trigger(), { key: "ArrowUp" })).toBe(false);
-    await Promise.resolve();
-    expect(focusedItem()).toBe(2);
-
-    press("Escape");
-    expect(fireEvent.keyDown(trigger(), { key: "ArrowDown" })).toBe(false);
-    await Promise.resolve();
-    expect(focusedItem()).toBe(0);
-  });
-});
-
 describe("LinkMenu, keys in the menu", () => {
-  it("moves with the arrows, wrapping round, and to either end with Home and End, claiming each key", async () => {
-    // Claimed, because the menu's DOM sits inside the sheet's scrollport,
-    // which an unclaimed arrow, Home or End would scroll.
-    renderMenu();
-    await openByKey();
-    const moves = ["ArrowDown", "ArrowDown", "ArrowDown", "ArrowUp", "ArrowUp", "Home", "End"].map(
-      (key) => {
-        const free = press(key);
-        return { key, to: focusedItem(), free };
-      },
-    );
-    expect(moves).toEqual([
-      { key: "ArrowDown", to: 1, free: false },
-      { key: "ArrowDown", to: 2, free: false },
-      { key: "ArrowDown", to: 0, free: false },
-      { key: "ArrowUp", to: 2, free: false },
-      { key: "ArrowUp", to: 1, free: false },
-      { key: "Home", to: 0, free: false },
-      { key: "End", to: 2, free: false },
-    ]);
-  });
-
   it("reaches the last item with ArrowUp from the menu itself, where a pointer leaves focus", async () => {
     renderMenu();
     fireEvent.click(trigger(), { detail: 1 });
@@ -107,22 +70,6 @@ describe("LinkMenu, keys in the menu", () => {
     await openByKey();
     expect(press("Enter")).toBe(true);
     expect(focusedItem()).toBe(0);
-  });
-
-  it("closes on Escape onto its trigger, keeping the key from the sheet, which would close too", async () => {
-    renderMenu();
-    await openByKey();
-    expect(press("Escape")).toBe(false);
-    expect(menu()).toBeNull();
-    expect(document.activeElement).toBe(trigger());
-  });
-
-  it("closes on Tab onto its trigger, leaving the Tab for the browser to carry on from there", async () => {
-    renderMenu();
-    await openByKey();
-    expect(press("Tab")).toBe(true);
-    expect(menu()).toBeNull();
-    expect(document.activeElement).toBe(trigger());
   });
 });
 

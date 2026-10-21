@@ -190,7 +190,7 @@ describe("AddToCalendar", () => {
 
   it("draws a text action, never a filled or outlined button, at a 44px target", () => {
     // It sits on the date row of the details, where a box would compete with
-    // the sheet's badge to the RSVP form.
+    // the sheet's switch, the one control there drawn as one.
     // The 44px, and the underline a phone needs at rest, are measured in
     // `DetailsPanel.browser.test.tsx`.
     const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);

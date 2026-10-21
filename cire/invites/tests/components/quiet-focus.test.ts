@@ -9,18 +9,16 @@ import { describe, expect, it } from "vitest";
 import { pressedByPointer } from "../../src/components/quiet-focus";
 
 describe("pressedByPointer", () => {
-  it.each([
-    // Chromium names the pointer, and that settles it, whatever the count says.
-    ["a click Chromium names a touch's", new PointerEvent("click", { pointerType: "touch" }), true],
-    [
-      "a click Chromium names no pointer for",
-      new PointerEvent("click", { pointerType: "" }),
-      false,
-    ],
-    // Firefox and Safari send a MouseEvent, which counts a pointer's presses.
-    ["a click Firefox or Safari counts", new MouseEvent("click", { detail: 1 }), true],
-    ["a click Firefox or Safari does not count", new MouseEvent("click", { detail: 0 }), false],
-  ])("reads %s: a pointer's, %s", (_, event, byPointer) => {
-    expect(pressedByPointer(event)).toBe(byPointer);
+  // Chromium names the pointer, and that settles it, whatever the count says:
+  // a tap's click can count no presses. The other readings — a click Chromium
+  // names no pointer for, and the counted `MouseEvent` Firefox and Safari send
+  // — are pressed for real in `EventSheet.browser.test.tsx` ("keeps the ring
+  // for a key press on the switch…") and `AddToCalendar.test.tsx` ("opens on
+  // its first item when a key opens it", "opens on the menu itself, quietly,
+  // when a pointer opens it").
+  it("reads a click Chromium names a touch's as a pointer's, though it counts no presses", () => {
+    expect(pressedByPointer(new PointerEvent("click", { pointerType: "touch", detail: 0 }))).toBe(
+      true,
+    );
   });
 });
