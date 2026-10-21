@@ -7,7 +7,8 @@
  * getting-there note and a guest policy. The rows land in the database; a
  * reload reads all of it back; a second save changes some of it and a revert
  * of that save puts it back; and a download of the events sheet re-uploaded
- * through the spreadsheet door changes nothing and warns of nothing.
+ * through the spreadsheet door changes nothing and warns of nothing. The
+ * Events list then shows the run of show, the policy and the notes.
  *
  * The guest side: the claim response carries all of it, and the public invite
  * read none of it. The event's details show the facts with the guest policy
@@ -166,22 +167,31 @@ test("cire-event-details", async ({ page, context, flow }) => {
     "give it a run of show, moving one item up with the keyboard",
     async () => {
       const add = drawer.getByRole("button", { name: "Add item" });
+      // The time each new item opens with, before the flow types its own.
+      const seeded: string[] = [];
       for (const [i, item] of CIRE_EVENT_EDIT.runOfShow.entries()) {
         await add.click();
-        await drawer.getByLabel(`Time of item ${i + 1}`, { exact: true }).fill(item.time);
+        const time = drawer.getByLabel(`Time of item ${i + 1}`, { exact: true });
+        seeded.push(await time.inputValue());
+        await time.fill(item.time);
         await drawer.getByLabel(`Item ${i + 1}`, { exact: true }).fill(item.label);
       }
       // The keyboard path: focus the item's grip and press Arrow Up.
       await drawer.getByRole("button", { name: new RegExp(`^Reorder ${TEA.label},`) }).focus();
       await page.keyboard.press("ArrowUp");
       await expect(drawer.getByLabel("Item 1", { exact: true })).toHaveValue(TEA.label);
-      return drawerRunOfShow();
+      return { order: await drawerRunOfShow(), seeded: seeded.join(" | ") };
     },
+  );
+  flow.check(
+    "a new item opens at the time of the item before it, the first empty",
+    ` | ${SPEECHES.time} | ${TEA.time}`,
+    drawerOrder.seeded,
   );
   flow.check(
     "the drawer holds the run of show in the organiser's order",
     ORGANISER_ORDER,
-    drawerOrder,
+    drawerOrder.order,
   );
 
   await flow.step("give it getting-there notes and a guest policy", async () => {
@@ -309,10 +319,13 @@ test("cire-event-details", async ({ page, context, flow }) => {
         .getByLabel("Note", { exact: true })
         .inputValue()}`,
     };
-    // The second save: the dress code, one item fewer, and other notes.
+    // The second save: the dress code, one item fewer, other notes, and the
+    // children preset and the policy note cleared.
     await drawer.getByLabel("Dress code description").fill(CIRE_EVENT_EDIT.dressCode);
     await drawer.getByRole("button", { name: `Remove ${GAMES.label}` }).click();
     await drawer.getByLabel("Getting there (optional)").fill(CIRE_EVENT_EDIT.gettingThereChanged);
+    await drawer.getByLabel("Children", { exact: true }).selectOption({ label: "Not stated" });
+    await drawer.getByLabel("Note", { exact: true }).fill("");
     await drawer.getByRole("button", { name: "Done" }).click();
     await expect(drawer).toBeHidden();
     return values;
@@ -337,7 +350,11 @@ test("cire-event-details", async ({ page, context, flow }) => {
 
   const resaved = await flow.step("save a change to another field", saveSchedule);
   flow.check("second change applied", 200, resaved.status);
-  flow.check("the second preview warned of nothing", 0, resaved.warnings.length);
+  flow.check(
+    "the second preview names what the save clears",
+    `Event "${CIRE_EVENT_EDIT.event}" would lose its children policy and guest policy note.`,
+    resaved.warnings.join(" | "),
+  );
 
   const kept = kitchenTeaRow();
   flow.check(
@@ -365,6 +382,11 @@ test("cire-event-details", async ({ page, context, flow }) => {
     joined([TEA, SPEECHES]),
     storedRunOfShow(),
   );
+  flow.check(
+    "the second save clears the children preset and the note",
+    "null / welcome / null",
+    policyOf(kept),
+  );
 
   const reverted = await flow.step("revert the second change", () =>
     page.evaluate(
@@ -388,7 +410,7 @@ test("cire-event-details", async ({ page, context, flow }) => {
     CIRE_EVENT_EDIT.gettingThere,
     restored?.getting_there ?? "missing",
   );
-  flow.check("the revert keeps the guest policy", STORED_POLICY, policyOf(restored));
+  flow.check("the revert restores the guest policy", STORED_POLICY, policyOf(restored));
   flow.check(
     "the revert restores the dress code",
     seededDressCode,
@@ -444,6 +466,43 @@ test("cire-event-details", async ({ page, context, flow }) => {
     afterRoundTrip?.getting_there ?? "missing",
   );
   flow.check("the round trip keeps the guest policy", STORED_POLICY, policyOf(afterRoundTrip));
+
+  const listed = await flow.step("read the Kitchen Tea in the events list", async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${CIRE_EVENT_EDIT.weddingId}/events/list`);
+    // A fresh page, so the list shows what `GET …/events` sends after the
+    // round trip, not rows the editor held.
+    const rows = responseTo(page, "GET", `${WEDDING_API}/events`);
+    await page.reload();
+    expect((await rows).status(), "events read").toBe(200);
+    const card = page
+      .getByRole("listitem")
+      .filter({ has: page.getByText(CIRE_EVENT_EDIT.event, { exact: true }) });
+    const detail = (term: string) =>
+      card.locator("dt").filter({ hasText: term }).locator("xpath=following-sibling::dd[1]");
+    await expect(detail("Run of show")).toBeVisible();
+    await detail("Run of show").scrollIntoViewIfNeeded();
+    await shot(page, "events-list-1280");
+    return {
+      runOfShow: (await detail("Run of show").textContent()) ?? "",
+      policy: (await detail("Guest policy").textContent()) ?? "",
+      gettingThere: (await detail("Getting there").textContent()) ?? "",
+    };
+  });
+  flow.check(
+    "the events list shows the run of show in the organiser's order",
+    "4:00 pm  Tea is poured\n5:15 pm  Speeches\n4:45 pm  Garden games",
+    listed.runOfShow,
+  );
+  flow.check(
+    "the events list shows the guest policy, presets then the note",
+    `Adults only\nPlus-ones welcome\n${CIRE_EVENT_EDIT.policyNote}`,
+    listed.policy,
+  );
+  flow.check(
+    "the events list shows the getting-there notes",
+    CIRE_EVENT_EDIT.gettingThere,
+    listed.gettingThere,
+  );
 
   // Eli is allowed a plus-one now, from the portal's own origin, so that
   // Eli's household is one that may hear plus-ones are welcome. The id is the

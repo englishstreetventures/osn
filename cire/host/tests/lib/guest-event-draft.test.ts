@@ -648,6 +648,13 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
         plusOnePolicy: "by_invitation",
         guestPolicyNote: null,
       });
+      expect(store.toWire("events").events[1]).toMatchObject({
+        runOfShow: [],
+        gettingThere: null,
+        childrenPolicy: null,
+        plusOnePolicy: null,
+        guestPolicyNote: null,
+      });
       for (const event of store.toWire("guests").events) {
         for (const field of [
           "runOfShow",
@@ -676,6 +683,8 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
       expect(messagesFor({ runOfShow: [runOfShowItem("", "Tea")] })).toContain(
         "Each run-of-show item needs a time.",
       );
+      // "Add item" opens an empty row.
+      expect(runOfShowItem()).toMatchObject({ time: "", label: "" });
       expect(messagesFor({ runOfShow: [runOfShowItem("16:00", "  ")] })).toContain(
         "Each run-of-show item needs a name.",
       );
@@ -691,10 +700,11 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
       expect(messagesFor({ gettingThere: null, guestPolicyNote: "x".repeat(10_001) })).toContain(
         "The guest policy note is too long.",
       );
+      // At the cap, measured after the trim the save applies.
       store.updateEvent(key, {
-        runOfShow: Array.from({ length: 40 }, () => runOfShowItem("23:59", "x".repeat(200))),
-        gettingThere: "x".repeat(10_000),
-        guestPolicyNote: "x".repeat(10_000),
+        runOfShow: Array.from({ length: 40 }, () => runOfShowItem("23:59", ` ${"x".repeat(200)} `)),
+        gettingThere: `${"x".repeat(10_000)}\n`,
+        guestPolicyNote: ` ${"x".repeat(10_000)}`,
       });
       expect(validateDraft(store.draft)).toEqual([]);
       dispose();
@@ -729,6 +739,46 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
         plusOnePolicy: null,
       });
       expect(store.dirty()).toBe(true);
+      dispose();
+    });
+  });
+
+  // Removing an item and adding it back as it was ends where it started, so
+  // it is no edit, and someone else's change to the list stands.
+  it("takes the fresh run of show over one the organiser put back as it was", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load([FULL, EVENTS[1]!], GUESTS, [], REVISION);
+      const key = store.draft.events[0]!.key;
+      store.updateEvent(key, {
+        runOfShow: [runOfShowItem("17:15", "Speeches"), runOfShowItem("15:00", "Vows")],
+      });
+      store.rebase(
+        [{ ...FULL, runOfShow: [{ time: "16:00", label: "Tea" }] }, EVENTS[1]!],
+        GUESTS,
+        [],
+        "rev-2",
+      );
+      expect(items(store.draft.events[0]!)).toEqual([{ time: "16:00", label: "Tea" }]);
+      dispose();
+    });
+  });
+
+  // The drawer's rows follow their items: an item moved or edited is the same
+  // item in the store, so its row and the input being typed in stay.
+  it("keeps each item's identity when the list is reordered or edited", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load([FULL, EVENTS[1]!], GUESTS, [], REVISION);
+      const key = store.draft.events[0]!.key;
+      const [speeches, vows] = store.draft.events[0]!.runOfShow;
+      store.updateEvent(key, {
+        runOfShow: [{ ...vows! }, { ...speeches!, label: "Speeches and toasts" }],
+      });
+      const [first, second] = store.draft.events[0]!.runOfShow;
+      expect(first).toBe(vows);
+      expect(second).toBe(speeches);
+      expect(second!.label).toBe("Speeches and toasts");
       dispose();
     });
   });

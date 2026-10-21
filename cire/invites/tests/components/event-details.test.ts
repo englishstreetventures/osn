@@ -435,13 +435,36 @@ describe("runOfShowLines", () => {
     expect(
       lines([
         null,
+        "18:00 Doors",
+        42,
         { time: "18:00" },
         { time: "6pm", label: "Doors" },
+        { time: "x18:00", label: "Doors" },
+        { time: "18:000", label: "Doors" },
+        { time: ["18:00"], label: "Doors" },
         { time: "18:00", label: "   " },
+        { time: "18:00", label: 42 },
         { time: 1800, label: "Doors" },
-        { time: "18:30", label: "Dinner" },
+        { time: "18:30", label: "  Dinner " },
       ]),
     ).toEqual(["6:30 pm Dinner"]);
+  });
+
+  // A start at half past: the minutes count as well as the hours, on the
+  // zone's clock and on the stored one.
+  it("orders by the minute from a start at half past", () => {
+    const items = [
+      { time: "19:10", label: "Toast" },
+      { time: "18:15", label: "Carriages" },
+      { time: "18:45", label: "Doors" },
+    ];
+    const expected = ["6:45 pm Doors", "7:10 pm Toast", "6:15 pm Carriages"];
+    expect(
+      lines(items, { startAt: "2026-11-14T18:30:00+11:00", timezone: "Australia/Sydney" }),
+    ).toEqual(expected);
+    expect(lines(items, { startAt: "2026-11-14T18:30:00+11:00", timezone: "Not/AZone" })).toEqual(
+      expected,
+    );
   });
 });
 
@@ -493,6 +516,12 @@ describe("guestPolicyLines", () => {
       guestPolicyLines(welcome, [member({ plusOneAllowed: true, eventIds: ["other"] })]),
     ).toBeNull();
     expect(guestPolicyLines(welcome, undefined)).toBeNull();
+    // "By invitation" stays just that for a household that may bring one.
+    expect(
+      guestPolicyLines(event({ plusOnePolicy: "by_invitation" }), [
+        member({ plusOneAllowed: true }),
+      ])?.presets,
+    ).toEqual(["Plus-ones by invitation"]);
     // The note still shows when the preset does not.
     expect(guestPolicyLines({ ...welcome, guestPolicyNote: "Hats." }, [member()])).toEqual({
       presets: [],

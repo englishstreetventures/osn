@@ -213,7 +213,10 @@ describe("hasRunOfShow", () => {
       expect(hasRunOfShow([{ time: "16:00", label: value as string }])).toBe(false);
       expect(hasRunOfShow([{ time: value as string, label: "Tea" }])).toBe(false);
     }
-    expect(hasRunOfShow([{ time: "4pm", label: "Tea" }])).toBe(false);
+    // Exactly `HH:MM` on a 24-hour clock, as the guest site reads it.
+    for (const time of ["4pm", "24:00", "16:60", "x16:00", "16:000", "6:00"]) {
+      expect(hasRunOfShow([{ time, label: "Tea" }])).toBe(false);
+    }
   });
 
   it("has content once any one item has both", () => {
@@ -236,7 +239,9 @@ describe("hasGuestPolicy", () => {
 
   it("has content with either preset or a note", () => {
     expect(hasGuestPolicy("adults_only", null, null)).toBe(true);
+    expect(hasGuestPolicy("children_welcome", null, null)).toBe(true);
     expect(hasGuestPolicy(null, "by_invitation", null)).toBe(true);
+    expect(hasGuestPolicy(null, "welcome", null)).toBe(true);
     expect(hasGuestPolicy(null, null, "Hats encouraged.")).toBe(true);
   });
 });

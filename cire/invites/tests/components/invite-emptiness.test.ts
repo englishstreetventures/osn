@@ -277,7 +277,9 @@ describe("hasGuestPolicy", () => {
 
   it("has content with either preset or a note", () => {
     expect(hasGuestPolicy("adults_only", null, null)).toBe(true);
+    expect(hasGuestPolicy("children_welcome", null, null)).toBe(true);
     expect(hasGuestPolicy(null, "by_invitation", null)).toBe(true);
+    expect(hasGuestPolicy(null, "welcome", null)).toBe(true);
     expect(hasGuestPolicy(null, null, "Hats encouraged.")).toBe(true);
   });
 });

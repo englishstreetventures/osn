@@ -118,6 +118,8 @@ describe("isValidClaimResponse", () => {
     expect(withDetails({ gettingThere: 42 })).toBe(false);
     expect(withDetails({ guestPolicyNote: ["Hats."] })).toBe(false);
     expect(withDetails({ runOfShow: "16:00 Tea", childrenPolicy: "kids_ok" })).toBe(true);
+    expect(withDetails({ childrenPolicy: null, plusOnePolicy: null })).toBe(true);
+    expect(withDetails({ childrenPolicy: "adults_only", plusOnePolicy: "welcome" })).toBe(true);
     expect(withDetails({ childrenPolicy: 3 })).toBe(false);
     expect(withDetails({ plusOnePolicy: {} })).toBe(false);
     expect(
