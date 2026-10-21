@@ -1,6 +1,5 @@
 import { weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
-import { DrizzleQueryError } from "drizzle-orm/errors";
 import { Effect, Layer } from "effect";
 
 import type { Db } from "../src/db";
@@ -226,16 +225,18 @@ export function failStatements(
 }
 
 /**
- * Makes `db` fail a statement, from here on, the way a single statement fails
- * on D1. Drizzle's D1 session wraps every failed query in `DrizzleQueryError`,
- * whose message names only the statement and whose `cause` is the database's
- * error; its bun:sqlite session throws the driver's error bare. Code that reads
- * the database's reason from `String(error)` therefore passes on bun:sqlite and
- * misses on D1 — and, under this, misses here too.
+ * From here on, a statement `db` runs that fails, fails the way a single
+ * statement fails on D1, as drizzle's `DrizzleQueryError`, whose message
+ * names only the statement, around a `D1_ERROR: <reason>` error, around the
+ * database's own error. Drizzle's bun:sqlite session already wraps a failed
+ * statement in `DrizzleQueryError`, with the database's error straight on its
+ * `cause`; this adds the layer D1's driver puts between them. Code that reads
+ * the reason from `String(error)` misses it either way; `driverErrorText`
+ * reads it from both.
  *
- * Every statement is wrapped, those the bun:sqlite fallback of `commitBatch`
+ * Every statement is reshaped, those the bun:sqlite fallback of `commitBatch`
  * runs one at a time included, whereas a failed D1 `batch()` throws the
- * database's error bare. `driverErrorText` reads both shapes.
+ * `D1_ERROR` error bare, with no `DrizzleQueryError` around it.
  */
 export function failLikeD1(db: TestDb): void {
   const client = db.$client;
@@ -252,7 +253,8 @@ export function failLikeD1(db: TestDb): void {
             try {
               return original(...params);
             } catch (error) {
-              throw new DrizzleQueryError(sql, params, error as Error);
+              const reason = error instanceof Error ? error.message : String(error);
+              throw new Error(`D1_ERROR: ${reason}`, { cause: error });
             }
           },
         });
@@ -269,11 +271,13 @@ export function failLikeD1(db: TestDb): void {
  * statement before the matching one has run by then.
  *
  * `write` may go through `db`, even with a statement `pattern` matches: the
- * hook is spent before `write` runs.
+ * hook is spent before `write` runs. Statements go on to whatever `query` the
+ * client had when this was installed, so a hook installed before it, such as
+ * `failLikeD1`, still applies.
  */
 export function beforeStatement(db: TestDb, pattern: RegExp, write: () => void): void {
   const client = db.$client;
-  const prepare = client.prepare.bind(client);
+  const query = client.query.bind(client);
   let spent = false;
   Object.defineProperty(client, "query", {
     configurable: true,
@@ -282,7 +286,7 @@ export function beforeStatement(db: TestDb, pattern: RegExp, write: () => void):
         spent = true;
         write();
       }
-      return prepare(sql);
+      return query(sql);
     },
   });
 }

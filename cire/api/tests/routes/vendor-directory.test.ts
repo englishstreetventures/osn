@@ -467,8 +467,9 @@ describe("vendor directory write routes (add-from-directory)", () => {
   });
 
   // A second add can land between this add's listing read and its insert; the
-  // unique index then refuses the insert. bun:sqlite throws the database's
-  // error bare, D1 wraps it with the reason on the cause: both answer 409.
+  // unique index then refuses the insert. Drizzle wraps the refusal on both
+  // drivers, and D1's driver adds a `D1_ERROR` error between the wrapper and
+  // the database's: both answer 409.
   for (const shape of ["bun:sqlite", "D1"] as const) {
     it(`409 already_in_wedding when a concurrent add wins the insert (${shape})`, async () => {
       const { app, db } = buildWriteFixture();
