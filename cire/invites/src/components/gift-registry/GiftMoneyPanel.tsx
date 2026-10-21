@@ -109,10 +109,10 @@ function ChoiceMark(props: { chosen: boolean }) {
     <span
       aria-hidden="true"
       class="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border"
-      classList={{ "border-gold": props.chosen, "border-text/55": !props.chosen }}
+      classList={{ "border-gold-ink": props.chosen, "border-text/55": !props.chosen }}
     >
       <Show when={props.chosen}>
-        <span data-gift-choice-mark class="bg-gold block h-2 w-2 rounded-full" />
+        <span data-gift-choice-mark class="bg-gold-ink block h-2 w-2 rounded-full" />
       </Show>
     </span>
   );
