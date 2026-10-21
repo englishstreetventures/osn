@@ -2154,13 +2154,16 @@ describe("HostsPanel — the open wedding's members-changed signal", () => {
       expect(scopeSelect().value).toBe("own");
     });
 
-    it("keeps the owner's focus on a row a re-read did not change", async () => {
+    it.each([
+      ["a helper's scope select", () => scopeSelect()],
+      ["a co-host's role select", () => roleSelect("@bob")],
+    ])("keeps the owner's focus on %s when a re-read did not change the row", async (_l, find) => {
       authFetchMock
         .mockResolvedValueOnce(json({ hosts: [bob, helper] }))
-        .mockResolvedValueOnce(json({ hosts: [bob, { ...helper }] }));
+        .mockResolvedValueOnce(json({ hosts: [{ ...bob }, { ...helper }] }));
       const signal = renderAsOwner();
       await waitFor(() => expect(scopeSelect().value).toBe("own"));
-      const select = scopeSelect();
+      const select = find();
       select.focus();
       expect(document.activeElement).toBe(select);
 
@@ -2169,10 +2172,139 @@ describe("HostsPanel — the open wedding's members-changed signal", () => {
       await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
       await new Promise((resolve) => setTimeout(resolve, 10));
 
-      expect(scopeSelect()).toBe(select);
+      expect(find()).toBe(select);
       expect(select.isConnected).toBe(true);
       expect(document.activeElement).toBe(select);
     });
+
+    it("keeps the focus on a scope select its own write moved, when the write's signal reads it back", async () => {
+      const full = { ...helper, runSheetScope: "full" };
+      authFetchMock
+        .mockResolvedValueOnce(json({ hosts: [bob, full] }))
+        .mockResolvedValueOnce(
+          json({ host: { osnProfileId: "usr_dee", role: "helper", runSheetScope: "own" } }),
+        )
+        .mockResolvedValueOnce(json({ hosts: [bob, { ...helper }] }));
+      const signal = renderAsOwner();
+      await waitFor(() => expect(scopeSelect().value).toBe("full"));
+      const select = scopeSelect();
+      select.focus();
+
+      fireEvent.change(select, { target: { value: "own" } });
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(select.getAttribute("aria-busy")).not.toBe("true"));
+      // The write's own signal reads the list back with the scope it set.
+      signal();
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(scopeSelect()).toBe(select);
+      expect(select.value).toBe("own");
+      expect(document.activeElement).toBe(select);
+    });
+
+    it("drops a read sent before its own scope write even when a newer read is out", async () => {
+      let releaseStale: (res: Response) => void = () => {};
+      let releaseNewer: (res: Response) => void = () => {};
+      const full = { ...helper, runSheetScope: "full" };
+      authFetchMock
+        .mockResolvedValueOnce(json({ hosts: [bob, full] }))
+        .mockReturnValueOnce(new Promise<Response>((resolve) => (releaseStale = resolve)))
+        .mockResolvedValueOnce(
+          json({ host: { osnProfileId: "usr_dee", role: "helper", runSheetScope: "own" } }),
+        )
+        .mockReturnValueOnce(new Promise<Response>((resolve) => (releaseNewer = resolve)));
+      const signal = renderAsOwner();
+      await waitFor(() => expect(scopeSelect().value).toBe("full"));
+
+      signal();
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+      fireEvent.change(scopeSelect(), { target: { value: "own" } });
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+      await waitFor(() => expect(scopeSelect().getAttribute("aria-busy")).not.toBe("true"));
+      signal();
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(4));
+
+      releaseStale(json({ hosts: [bob, full] }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(scopeSelect().value).toBe("own");
+
+      releaseNewer(json({ hosts: [bob, { ...helper }] }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(scopeSelect().value).toBe("own");
+    });
+
+    it("rebuilds a row a re-read changed, and shows what changed", async () => {
+      authFetchMock.mockResolvedValueOnce(json({ hosts: [bob, helper] })).mockResolvedValueOnce(
+        json({
+          hosts: [
+            { ...bob, role: "viewer" },
+            { ...helper, runSheetScope: "full" },
+          ],
+        }),
+      );
+      const signal = renderAsOwner();
+      await waitFor(() => expect(scopeSelect().value).toBe("own"));
+      expect((roleSelect("@bob") as HTMLSelectElement).value).toBe("editor");
+
+      // Another owner made Bob a viewer and opened Dee's run sheet.
+      signal();
+
+      await waitFor(() => expect((roleSelect("@bob") as HTMLSelectElement).value).toBe("viewer"));
+      expect(scopeSelect().value).toBe("full");
+    });
+  });
+
+  it("drops a read sent before its own removal even when a newer read is out", async () => {
+    let releaseStale: (res: Response) => void = () => {};
+    let releaseNewer: (res: Response) => void = () => {};
+    authFetchMock
+      .mockResolvedValueOnce(json({ hosts: [bob, carol] }))
+      .mockReturnValueOnce(new Promise<Response>((resolve) => (releaseStale = resolve)))
+      .mockResolvedValueOnce(json({ removed: true }))
+      .mockReturnValueOnce(new Promise<Response>((resolve) => (releaseNewer = resolve)));
+    const [changed, setChanged] = createSignal(0);
+    render(() => (
+      <MembersChangedContext.Provider value={changed}>
+        <HostsPanel weddingId="wed_a" callerRole="owner" />
+      </MembersChangedContext.Provider>
+    ));
+    await waitFor(() => expect(screen.getByText("@carol")).toBeTruthy());
+
+    setChanged(1);
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("button", { name: "Remove @bob" }));
+    await waitFor(() => expect(screen.queryByText("@bob")).toBeNull());
+    // The removal's own signal sends a newer read, still out.
+    setChanged(2);
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(4));
+
+    // The read sent before the removal answers first, with the old list.
+    releaseStale(json({ hosts: [bob, carol] }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(screen.queryByText("@bob")).toBeNull();
+
+    releaseNewer(json({ hosts: [carol] }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(screen.queryByText("@bob")).toBeNull();
+    expect(screen.getByText("@carol")).toBeTruthy();
+  });
+
+  it("shows no load error when the first read fails after a newer read has answered", async () => {
+    let failFirst: (err: Error) => void = () => {};
+    authFetchMock
+      .mockReturnValueOnce(new Promise<Response>((_resolve, reject) => (failFirst = reject)))
+      .mockResolvedValueOnce(json({ hosts: [bob] }));
+    const signal = renderWithSignal();
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+
+    signal();
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    failFirst(new Error("network"));
+
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+    expect(screen.queryByText(/Could not load hosts/)).toBeNull();
   });
 
   it("reads once with no socket above it", async () => {

@@ -210,6 +210,7 @@ vi.mock("@shared/realtime/solid", () => ({
 }));
 
 import OrganiserApp from "../../src/components/OrganiserApp";
+import { __resetHostsCache, hasCachedHosts, setFreshHosts } from "../../src/lib/hosts-store";
 import { __resetTasksCache, hasCachedTasks, setCachedTasks } from "../../src/lib/tasks-store";
 // The unsaved-changes guard is real (unmocked) — the veto tests below register
 // a guard directly, standing in for any mounted dirty form (the invite builder).
@@ -280,6 +281,7 @@ describe("OrganiserApp Dashboard", () => {
     __resetWeddingScope();
     __resetVendorsCache();
     __resetTasksCache();
+    __resetHostsCache();
   });
 
   afterEach(async () => {
@@ -832,6 +834,21 @@ describe("OrganiserApp Dashboard", () => {
 
     await waitFor(() => expect(shell().textContent).toContain("wed_a"));
     expect(listCalls()).toBe(2);
+  });
+
+  it("marks the open wedding's seats stale on members-changed, for the next view that shows them", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    setFreshHosts("wed_a", []);
+    expect(hasCachedHosts("wed_a")).toBe(true);
+
+    topic.onSignal?.(message("members-changed"));
+
+    await waitFor(() => expect(hasCachedHosts("wed_a")).toBe(false));
   });
 
   it("tells the open wedding's task views on tasks-changed, without reading the list", async () => {

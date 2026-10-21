@@ -679,20 +679,17 @@ export default function HostsPanel(props: HostsPanelProps) {
   const scopeOf = (host: HostRow): RunSheetScope =>
     scopesSet().get(host) ?? readRunSheetScope(host.runSheetScope, "own");
 
-  /** Does a freshly read seat show exactly as `shown` does now? Its scope is
-   *  compared with what the row shows — a write of this visit's in flight or
-   *  accepted included — not with what the API last sent for it. */
-  const showsAs = (shown: HostRow, read: HostRow): boolean =>
-    shown.hostId === read.hostId &&
-    shown.handle === read.handle &&
-    shown.displayName === read.displayName &&
-    shown.avatarUrl === read.avatarUrl &&
-    shown.role === read.role &&
-    shown.createdAt === read.createdAt &&
-    shown.addedByOsnProfileId === read.addedByOsnProfileId &&
-    shown.addedByHandle === read.addedByHandle &&
-    (untrack(scopeWrites).get(shown) ?? untrack(() => scopeOf(shown))) ===
-      readRunSheetScope(read.runSheetScope, "own");
+  /** Does a freshly read seat show exactly as `shown` does now? Every field
+   *  must match but the scope, which is compared with what the row shows — a
+   *  write of this visit's in flight or accepted included — not with what the
+   *  API last sent for it. */
+  const showsAs = (shown: HostRow, read: HostRow): boolean => {
+    const fields = new Set([...Object.keys(shown), ...Object.keys(read)]) as Set<keyof HostRow>;
+    fields.delete("runSheetScope");
+    for (const field of fields) if (shown[field] !== read[field]) return false;
+    const showing = untrack(scopeWrites).get(shown) ?? untrack(() => scopeOf(shown));
+    return showing === readRunSheetScope(read.runSheetScope, "own");
+  };
 
   /** What an owner's scope select shows: the pick while the widening is being
    *  asked about, the scope a write in flight is setting, and the seat's own

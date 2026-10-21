@@ -36,13 +36,15 @@ const authFetch = vi.fn(async (url: string) => {
 });
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 
+// An expired session is this one error; signing in again is this spy.
+const auth = vi.hoisted(() => ({ expired: new Error("session expired"), redirect: vi.fn() }));
 vi.mock("../../src/lib/api", async () => {
   const actual = await vi.importActual<typeof import("../../src/lib/api")>("../../src/lib/api");
   return {
     ...actual,
     apiUrl: (path: string) => `https://api.test${path}`,
-    isAuthExpired: () => false,
-    redirectToLogin: () => {},
+    isAuthExpired: (err: unknown) => err === auth.expired,
+    redirectToLogin: auth.redirect,
   };
 });
 
@@ -187,6 +189,59 @@ describe("Overview checklist widget — the open wedding's signals", () => {
       authFetch.mockImplementation(answer);
     }
   });
+
+  it("sends an expired session to sign in when the re-read finds it", async () => {
+    const answer = authFetch.getMockImplementation()!;
+    let reads = 0;
+    authFetch.mockImplementation(async (url: string) => {
+      if (!url.endsWith("/tasks")) return answer(url);
+      reads += 1;
+      if (reads > 1) throw auth.expired;
+      return json({ tasks: [row({ id: "a" })] });
+    });
+    auth.redirect.mockClear();
+    try {
+      const tasksChanged = renderWithSignal("crimson");
+      await waitFor(() => expect(tasksCalls()).toHaveLength(1));
+      expect(auth.redirect).not.toHaveBeenCalled();
+
+      tasksChanged();
+
+      await waitFor(() => expect(auth.redirect).toHaveBeenCalledTimes(1));
+    } finally {
+      authFetch.mockImplementation(answer);
+    }
+  });
+
+  it.each([
+    ["a 401", 401, 1],
+    ["a refusal", 403, 0],
+    ["a server error", 500, 0],
+  ])(
+    "answers %s on the re-read by signing in again only for a 401",
+    async (_l, status, redirects) => {
+      const answer = authFetch.getMockImplementation()!;
+      let reads = 0;
+      authFetch.mockImplementation(async (url: string) => {
+        if (!url.endsWith("/tasks")) return answer(url);
+        reads += 1;
+        return reads > 1 ? json({ error: "no" }, status) : json({ tasks: [row({ id: "a" })] });
+      });
+      auth.redirect.mockClear();
+      try {
+        const tasksChanged = renderWithSignal("crimson");
+        await waitFor(() => expect(tasksCalls()).toHaveLength(1));
+
+        tasksChanged();
+        await waitFor(() => expect(tasksCalls()).toHaveLength(2));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        expect(auth.redirect).toHaveBeenCalledTimes(redirects);
+      } finally {
+        authFetch.mockImplementation(answer);
+      }
+    },
+  );
 
   it("reads no tasks on a signal while the checklist is locked below Gold", async () => {
     const tasksChanged = renderWithSignal("ivory");

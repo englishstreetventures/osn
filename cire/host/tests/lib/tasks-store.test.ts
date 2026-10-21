@@ -376,6 +376,16 @@ describe("tasks-store", () => {
       expect(peekCachedTasks("wed_1")?.[0]?.status).toBe("done");
     });
 
+    it("loads a wedding dropped while a write was out as soon as it is opened again", async () => {
+      const end = beginTaskWrite("wed_1");
+      dropTasks("wed_1");
+      await expect(ensureTasksLoaded("wed_1", async () => [row({ id: "b" })])).resolves.toBe(true);
+      expect(peekCachedTasks("wed_1")?.map((t) => t.id)).toEqual(["b"]);
+      // The write that was out ending later changes nothing.
+      end();
+      expect(hasCachedTasks("wed_1")).toBe(true);
+    });
+
     it("takes a read sent after every write has ended", async () => {
       setCachedTasks("wed_1", [row({ id: "a", status: "done" })]);
       const first = beginTaskWrite("wed_1");
