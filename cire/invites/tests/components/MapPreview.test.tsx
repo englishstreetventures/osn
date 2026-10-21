@@ -1,4 +1,4 @@
-import { render, cleanup } from "@solidjs/testing-library";
+import { render, cleanup, fireEvent, within } from "@solidjs/testing-library";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 
 import { MapPreview } from "../../src/components/MapPreview";
@@ -23,6 +23,21 @@ const baseEvent: EventSummary = {
   imageUrl: null,
 };
 
+/**
+ * Open the row's "Open in maps" menu and hand back its items by their words.
+ * jsdom has no Popover API, so the menu renders in place, in `container`.
+ */
+function openMaps(container: HTMLElement): Record<string, HTMLAnchorElement> {
+  fireEvent.click(within(container).getByRole("button", { name: "Open in maps" }));
+  return Object.fromEntries(
+    within(container)
+      .getAllByRole("menuitem")
+      .map((item) => [item.textContent ?? "", item as HTMLAnchorElement]),
+  );
+}
+
+const GOOGLE_SEARCH = "https://www.google.com/maps/search/?api=1&query=";
+
 describe("MapPreview", () => {
   beforeEach(resetConsentForTest);
 
@@ -32,13 +47,18 @@ describe("MapPreview", () => {
     resetConsentForTest();
   });
 
-  it("links to a derived Google Maps search when only an address is present", () => {
-    const { getByRole } = render(() => <MapPreview event={baseEvent} />);
-    const link = getByRole("link") as HTMLAnchorElement;
-    expect(link.href).toContain("https://www.google.com/maps/search/?api=1&query=");
-    expect(link.href).toContain(encodeURIComponent("12 Banksia Lane, Strathfield"));
-    expect(link.target).toBe("_blank");
-    expect(link.rel).toBe("noopener noreferrer");
+  it("offers Google Maps, Apple Maps and Waze for the address, each in a new tab", () => {
+    const { container } = render(() => <MapPreview event={baseEvent} />);
+    const items = openMaps(container);
+    expect(Object.keys(items)).toEqual(["Google Maps", "Apple Maps", "Waze"]);
+    const query = encodeURIComponent("12 Banksia Lane, Strathfield");
+    expect(items["Google Maps"]!.href).toBe(`${GOOGLE_SEARCH}${query}`);
+    expect(items["Apple Maps"]!.href).toBe(`https://maps.apple.com/?q=${query}`);
+    expect(items["Waze"]!.href).toBe(`https://waze.com/ul?q=${query}&navigate=yes`);
+    for (const item of Object.values(items)) {
+      expect(item.target).toBe("_blank");
+      expect(item.rel).toBe("noopener noreferrer");
+    }
   });
 
   // An address typed before the venue name existed often starts with the
@@ -62,43 +82,49 @@ describe("MapPreview", () => {
     ]);
   });
 
-  it("prefers an organiser-supplied mapsUrl", () => {
+  it("puts an organiser-supplied mapsUrl in place of the provider it belongs to", () => {
     const url = "https://maps.apple.com/?address=12+Banksia+Lane";
-    const { getByRole } = render(() => <MapPreview event={{ ...baseEvent, mapsUrl: url }} />);
-    expect((getByRole("link") as HTMLAnchorElement).href).toBe(url);
+    const { container } = render(() => <MapPreview event={{ ...baseEvent, mapsUrl: url }} />);
+    const items = openMaps(container);
+    expect(Object.keys(items)).toEqual(["Google Maps", "Apple Maps", "Waze"]);
+    expect(items["Apple Maps"]!.href).toBe(url);
   });
 
-  it("has one link to the venue in both branches, and the drawn card is not one", () => {
+  it("has one control for the venue in both branches, and the drawn card is not one", () => {
     // The card is decoration — hidden from assistive technology and not a
-    // link — so "Open in maps" is the row's one tab stop and one announcement
-    // for its destination, with or without the live map above it.
+    // link — so "Open in maps" is the row's one tab stop, with or without the
+    // live map above it; its menu's items are reached by the arrows.
     const card = render(() => <MapPreview event={baseEvent} />);
-    expect(card.container.querySelectorAll("a")).toHaveLength(1);
+    expect(card.container.querySelectorAll("a, button")).toHaveLength(1);
     const drawn = card.container.querySelector('[aria-hidden="true"].h-24');
     expect(drawn, "the drawn card").not.toBeNull();
-    expect(drawn!.closest("a")).toBeNull();
+    expect(drawn!.closest("a, button")).toBeNull();
     cleanup();
 
     vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", "test-embed-key");
     seedConsentForTest({ maps: true });
     const embed = render(() => <MapPreview event={baseEvent} />);
     expect(embed.container.querySelector("iframe")).not.toBeNull();
-    expect(embed.container.querySelectorAll("a")).toHaveLength(1);
+    expect(embed.container.querySelectorAll("a, button")).toHaveLength(1);
   });
 
-  it("names the link by its visible words, in both branches", () => {
+  it("names the trigger by its visible words, in both branches, with no arrow", () => {
     // Nothing overrides the words the guest sees, so a voice-control user can
-    // say them (WCAG 2.5.3); the arrow beside them is decoration.
+    // say them (WCAG 2.5.3). The trigger opens a menu here, not another site,
+    // so it carries no out-of-site arrow; the menu says where each item goes.
     const card = render(() => <MapPreview event={baseEvent} />);
-    const link = card.getByRole("link", { name: "Open in maps" });
-    expect(link.getAttribute("aria-label")).toBeNull();
-    expect(link.querySelector('[aria-hidden="true"]')?.textContent).toBe("↗");
+    const trigger = card.getByRole("button", { name: "Open in maps" });
+    expect(trigger.getAttribute("aria-label")).toBeNull();
+    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+    expect(trigger.textContent).toBe("Open in maps");
     cleanup();
 
     vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", "test-embed-key");
     seedConsentForTest({ maps: true });
     const embed = render(() => <MapPreview event={baseEvent} />);
-    expect(embed.getByRole("link", { name: "Open in maps" }).getAttribute("aria-label")).toBeNull();
+    expect(
+      embed.getByRole("button", { name: "Open in maps" }).getAttribute("aria-label"),
+    ).toBeNull();
   });
 
   it("renders nothing when there is no address or mapsUrl", () => {
@@ -110,39 +136,51 @@ describe("MapPreview", () => {
 
   it("still renders when the address is absent but a mapsUrl is supplied", () => {
     // No address to name: the row is the map and the link alone, with no
-    // placeholder words standing in for a venue.
+    // placeholder words standing in for a venue. With one place to go there
+    // is no menu: a plain link, named by its words, its arrow decoration.
     const url = "https://maps.google.com/?q=somewhere";
     const { getByRole, container } = render(() => (
       <MapPreview event={{ ...baseEvent, address: null, mapsUrl: url }} />
     ));
-    expect((getByRole("link") as HTMLAnchorElement).href).toBe(url);
+    const link = getByRole("link", { name: "Open in maps" }) as HTMLAnchorElement;
+    expect(link.href).toBe(url);
+    expect(link.target).toBe("_blank");
+    expect(link.rel).toBe("noopener noreferrer");
+    expect(link.querySelector('[aria-hidden="true"]')?.textContent).toBe("↗");
+    expect(container.querySelector("button")).toBeNull();
     expect(container.querySelector("p")).toBeNull();
   });
 
   it("names the venue when it has a name and no address, and searches for the name", () => {
-    const { getByRole, container } = render(() => (
+    const { container } = render(() => (
       <MapPreview event={{ ...baseEvent, venueName: "The Glasshouse", address: null }} />
     ));
     expect([...container.querySelectorAll("p")].map((p) => p.textContent)).toEqual([
       "The Glasshouse",
     ]);
-    expect((getByRole("link") as HTMLAnchorElement).href).toContain(
-      `query=${encodeURIComponent("The Glasshouse")}`,
+    expect(openMaps(container)["Google Maps"]!.href).toBe(
+      `${GOOGLE_SEARCH}${encodeURIComponent("The Glasshouse")}`,
     );
   });
 
   // A dangerous organiser-supplied mapsUrl (e.g. javascript:) must never
-  // reach the anchor href — the component routes through resolveMapsUrl, which
-  // rejects non-http(s) schemes and falls back to the safe Google Maps search
-  // URL derived from the address.
-  it("never renders a javascript: mapsUrl, falling back to the safe maps search", () => {
-    const { getByRole } = render(() => (
+  // reach an href — the component routes through mapsDestinations, which
+  // rejects non-http(s) schemes and offers the safe searches derived from the
+  // address instead.
+  it("never renders a javascript: mapsUrl, falling back to the safe maps searches", () => {
+    const { container } = render(() => (
       <MapPreview event={{ ...baseEvent, mapsUrl: "javascript:alert(1)" }} />
     ));
-    const link = getByRole("link") as HTMLAnchorElement;
-    expect(link.href.startsWith("https://www.google.com/maps/search/")).toBe(true);
-    expect(link.href).not.toContain("javascript:");
-    expect(link.href).toContain(encodeURIComponent("12 Banksia Lane, Strathfield"));
+    const items = openMaps(container);
+    expect(Object.keys(items)).toEqual(["Google Maps", "Apple Maps", "Waze"]);
+    for (const item of Object.values(items)) {
+      expect(item.href.startsWith("https://")).toBe(true);
+      expect(item.href).not.toContain("javascript:");
+    }
+    expect(items["Google Maps"]!.href).toBe(
+      `${GOOGLE_SEARCH}${encodeURIComponent("12 Banksia Lane, Strathfield")}`,
+    );
+    expect(container.querySelector('[href^="javascript:"]')).toBeNull();
   });
 
   describe("with PUBLIC_GOOGLE_MAPS_EMBED_KEY configured, third-party content ALLOWED", () => {
@@ -192,33 +230,33 @@ describe("MapPreview", () => {
       );
     });
 
-    it("keeps a real maps link beside the iframe, on the organiser's own destination", () => {
+    it("keeps the maps menu beside the iframe, with every map app", () => {
       // Not a duplicate of Google's in-frame "View larger map": that opens a
-      // place query for the address, while this follows `resolveMapsUrl`, which
-      // prefers whatever the organiser pinned.
+      // place query in Google alone, while this offers the guest's own map app
+      // and whatever the organiser pinned.
       vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
-      const { container, getByRole, getByText } = render(() => <MapPreview event={baseEvent} />);
+      const { container, getByText } = render(() => <MapPreview event={baseEvent} />);
 
       expect(container.querySelector("iframe")).not.toBeNull();
-      const link = getByRole("link") as HTMLAnchorElement;
-      expect(link.href).toContain("https://www.google.com/maps/search/?api=1&query=");
-      expect(link.href).toContain(encodeURIComponent("12 Banksia Lane, Strathfield"));
-      expect(link.target).toBe("_blank");
-      expect(link.rel).toBe("noopener noreferrer");
+      const items = openMaps(container);
+      expect(Object.keys(items)).toEqual(["Google Maps", "Apple Maps", "Waze"]);
+      expect(items["Google Maps"]!.href).toBe(
+        `${GOOGLE_SEARCH}${encodeURIComponent("12 Banksia Lane, Strathfield")}`,
+      );
+      expect(items["Google Maps"]!.target).toBe("_blank");
+      expect(items["Google Maps"]!.rel).toBe("noopener noreferrer");
       expect(getByText("12 Banksia Lane, Strathfield")).toBeTruthy();
     });
 
-    it("prefers the organiser's mapsUrl for the footer link beside the iframe", () => {
-      // The reason the link survives at all: the two destinations differ here,
-      // and this is the only one that reaches the organiser's own pin.
+    it("offers the organiser's mapsUrl beside the iframe", () => {
+      // The reason the menu survives beside the embed at all: the embed is a
+      // search, and only this reaches the organiser's own pin.
       const url = "https://maps.apple.com/?address=12+Banksia+Lane";
       vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
-      const { container, getByRole } = render(() => (
-        <MapPreview event={{ ...baseEvent, mapsUrl: url }} />
-      ));
+      const { container } = render(() => <MapPreview event={{ ...baseEvent, mapsUrl: url }} />);
 
       expect(container.querySelector("iframe")).not.toBeNull();
-      expect((getByRole("link") as HTMLAnchorElement).href).toBe(url);
+      expect(openMaps(container)["Apple Maps"]!.href).toBe(url);
     });
 
     it("falls back to the CSS card (no iframe) when there is no address to query", () => {
@@ -251,13 +289,12 @@ describe("MapPreview", () => {
       expect(container.querySelector("iframe")).toBeNull();
     });
 
-    it("shows the CSS map card meanwhile, with the venue and its maps link", () => {
+    it("shows the CSS map card meanwhile, with the venue and its maps menu", () => {
       vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
-      const { getByRole, getByText } = render(() => <MapPreview event={baseEvent} />);
+      const { container, getByText } = render(() => <MapPreview event={baseEvent} />);
 
       expect(getByText("12 Banksia Lane, Strathfield")).toBeTruthy();
-      const link = getByRole("link") as HTMLAnchorElement;
-      expect(link.href).toContain("https://www.google.com/maps/search/?api=1&query=");
+      expect(openMaps(container)["Google Maps"]!.href.startsWith(GOOGLE_SEARCH)).toBe(true);
     });
 
     it("renders the embed once the guest has allowed it", () => {
@@ -295,11 +332,10 @@ describe("MapPreview", () => {
       // the venue is still named and the outbound maps link still works, since
       // a link the guest chooses to follow is their navigation, not our transfer.
       vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
-      const { getByRole, getByText } = render(() => <MapPreview event={baseEvent} />);
+      const { container, getByText } = render(() => <MapPreview event={baseEvent} />);
 
       expect(getByText("12 Banksia Lane, Strathfield")).toBeTruthy();
-      const link = getByRole("link") as HTMLAnchorElement;
-      expect(link.href).toContain("https://www.google.com/maps/search/?api=1&query=");
+      expect(openMaps(container)["Google Maps"]!.href.startsWith(GOOGLE_SEARCH)).toBe(true);
     });
 
     it("swaps the CSS card for the live embed on the ALREADY-MOUNTED component", () => {

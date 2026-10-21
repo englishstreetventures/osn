@@ -1,14 +1,16 @@
 import { buttonClass } from "@cire/ui/button";
-import { Show } from "solid-js";
+import { createMemo, Show } from "solid-js";
 
 import { ConsentGate } from "./consent/ConsentGate";
 import {
   addressRepeatsName,
+  mapsDestinations,
   resolveMapsEmbedUrl,
   resolveMapsUrl,
   venueLine,
   venueName,
 } from "./event-details";
+import { LinkMenu } from "./LinkMenu";
 import type { EventSummary } from "./types";
 
 interface MapPreviewProps {
@@ -47,16 +49,22 @@ interface MapPreviewProps {
  * the standing "Privacy choices" control at the foot of the invite, not a
  * permission prompt sitting in the layout of every venue on it.
  *
- * "Open in maps" is a link in both cases, and the row's only one. It follows
- * `resolveMapsUrl`, which prefers the organiser's own `mapsUrl` — a pinned
- * entrance or car park — where Google's in-frame control opens a place query
- * for the address. Its words are its name; nothing overrides them, so a guest
- * using voice control can say what they see.
+ * "Open in maps" is the row's one control in both cases, and it offers the
+ * guest's own map app rather than Google's alone ({@link mapsDestinations}):
+ * Google Maps, Apple Maps and Waze, each searching for the address, with the
+ * organiser's own `mapsUrl` — a pinned entrance or car park — in place of the
+ * app it belongs to, or first as "Venue map" when it is another site's. With
+ * more than one, it is a {@link LinkMenu}; with one (an organiser's link and
+ * nothing to search for) it is a plain link out, marked ↗. Google's in-frame
+ * control opens a place query for the address, which is why the row keeps its
+ * own beside the embed. Its words are its name; nothing overrides them, so a
+ * guest using voice control can say what they see.
  *
  * The whole component renders nothing when there is no usable maps target at
  * all (no http(s) `mapsUrl`, no address and no venue name) — `hasVenue` makes
- * the same test, so the details panel leaves the row out rather than show an
- * empty one.
+ * the same test through `resolveMapsUrl`, which has somewhere to go exactly
+ * when `mapsDestinations` does, so the details panel leaves the row out rather
+ * than show an empty one.
  *
  * Security: the map query (address, else name) is the only interpolated value
  * and is always `encodeURIComponent`-escaped (in `resolveMapsEmbedUrl`);
@@ -69,6 +77,7 @@ export function MapPreview(props: MapPreviewProps) {
   const name = () => (addressRepeatsName(props.event) ? null : venueName(props.event));
   const venue = () => venueLine(props.event);
   const mapsHref = () => resolveMapsUrl(props.event);
+  const destinations = createMemo(() => mapsDestinations(props.event));
   // Vite statically replaces `import.meta.env.PUBLIC_*` at build time for the
   // island bundle, so the key bakes in (or is absent) just like the API URL.
   const embedSrc = () =>
@@ -118,15 +127,27 @@ export function MapPreview(props: MapPreviewProps) {
               </ConsentGate>
             )}
           </Show>
-          <a
-            href={href()}
-            target="_blank"
-            rel="noopener noreferrer"
-            class={`${buttonClass({ variant: "touchLink", size: "md" })} mt-1 min-h-11`}
+          <Show
+            when={destinations().length > 1}
+            fallback={
+              <a
+                href={href()}
+                target="_blank"
+                rel="noopener noreferrer"
+                class={`${buttonClass({ variant: "touchLink", size: "md" })} mt-1 min-h-11`}
+              >
+                Open in maps
+                <span aria-hidden="true">↗</span>
+              </a>
+            }
           >
-            Open in maps
-            <span aria-hidden="true">↗</span>
-          </a>
+            <LinkMenu
+              label="Open in maps"
+              menuLabel="Open in maps options"
+              items={destinations()}
+              class="mt-1"
+            />
+          </Show>
         </>
       )}
     </Show>

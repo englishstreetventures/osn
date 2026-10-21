@@ -213,7 +213,7 @@ describe.each(PALETTE_PRESET_KEYS)("on the %s scheme", (palettePreset) => {
       within(dialog()).getByRole("button", { name: "Add to calendar" }),
       line(/The Grounds of Alexandria/),
       line(/7a\/2 Huntley Street/),
-      within(dialog()).getByRole("link", { name: "Open in maps" }),
+      within(dialog()).getByRole("button", { name: "Open in maps" }),
     ];
     for (const el of facts) {
       const measured = ratio(getComputedStyle(el).color, backdropOf(el));
@@ -298,9 +298,9 @@ describe("on a phone", () => {
     const controls = [
       ...dialog().querySelectorAll<HTMLElement>("a[href], button, [role='menuitem']"),
     ].filter((el) => el.getClientRects().length > 0);
-    // The close button, the badge to the RSVP form, Add to calendar, its two
+    // The close button, the switch's two segments, Add to calendar, its two
     // items, Open in maps, Open on Pinterest and Show it here.
-    expect(controls.length).toBeGreaterThanOrEqual(8);
+    expect(controls.length).toBeGreaterThanOrEqual(9);
     const short = controls
       .map((el) => ({ name: el.textContent?.trim(), height: el.getBoundingClientRect().height }))
       .filter((c) => c.height < 44);
@@ -344,7 +344,7 @@ describe("the text actions", () => {
 
     const actions = [
       within(dialog()).getByRole("button", { name: "Add to calendar" }),
-      within(dialog()).getByRole("link", { name: "Open in maps" }),
+      within(dialog()).getByRole("button", { name: "Open in maps" }),
       within(dialog()).getByRole("link", { name: "Open on Pinterest" }),
     ];
     for (const el of actions) {
@@ -564,7 +564,7 @@ describe("the calendar menu", () => {
 
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(
-      within(dialog()).getByRole("link", { name: "Open in maps" }),
+      within(dialog()).getByRole("button", { name: "Open in maps" }),
     );
   });
 
@@ -619,5 +619,35 @@ describe("the calendar menu", () => {
     expect(menuBox.left).toBeLessThan(button.getBoundingClientRect().left);
     expect(menuBox.right).toBeLessThanOrEqual(window.innerWidth - 8 + 0.5);
     expect(menuBox.left).toBeGreaterThanOrEqual(8 - 0.5);
+  });
+});
+
+describe("the maps menu", () => {
+  const trigger = () => within(dialog()).getByRole("button", { name: "Open in maps" });
+
+  it("offers the organiser's pin and the other map apps, over the sheet, at 390px", async () => {
+    // The fixture's link is a Google share link, so it stands in for Google
+    // Maps; Apple Maps and Waze search for the address.
+    await page.viewport(...PHONE);
+    await openSheet();
+    trigger().scrollIntoView({ block: "center" });
+    await userEvent.click(trigger());
+    const menu = await calendarMenu();
+    const items = within(menu).getAllByRole("menuitem") as HTMLAnchorElement[];
+    expect(items.map((item) => item.textContent)).toEqual(["Google Maps", "Apple Maps", "Waze"]);
+    expect(items[0]!.href).toBe(event.mapsUrl);
+
+    // In the top layer: the item, not the sheet under it, answers a hit test.
+    const waze = items[2]!;
+    const box = waze.getBoundingClientRect();
+    expect(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)).toBe(
+      waze,
+    );
+    expect(menu.matches(":popover-open")).toBe(true);
+    for (const item of items)
+      expect(item.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({
+      path: "__screenshots__/DetailsPanel.browser.test.tsx/maps-menu-open.png",
+    });
   });
 });

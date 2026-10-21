@@ -31,7 +31,7 @@ import type { EventSummary } from "../../src/components/types";
  *
  * ## Why only the drawn-card branch
  *
- * Both branches render the same address element and the same link; the fast
+ * Both branches render the same address element and the same trigger; the fast
  * tier pins that. Forcing the iframe branch here would make a real Chromium
  * fetch `www.google.com/maps/embed` on every run of this tier, and a test that
  * needs the network to be up is a test that goes red when it is not.
@@ -111,9 +111,9 @@ async function open(width: number, address: string = ORDINARY) {
   expect(document.querySelector("iframe"), "expected the drawn-card branch").toBeNull();
 
   const addressEl = view.getByText(address);
-  const link = view.getByRole("link", { name: "Open in maps" });
+  const trigger = view.getByRole("button", { name: "Open in maps" });
   const row = addressEl.closest("dd") as HTMLElement;
-  return { address: addressEl, link, row };
+  return { address: addressEl, trigger, row };
 }
 
 /** Lines of text actually painted, from the element's own metrics. */
@@ -157,13 +157,13 @@ describe.each([320, 768, 1440])("the venue address at %ipx", (width) => {
   });
 
   it("puts Open in maps under the address, inside the row, at a 44px target", async () => {
-    // The link is the row's one action, so it has to be findable under what it
-    // opens and big enough for a thumb, and the row must hide nothing sideways.
-    const { address, link, row } = await open(width, FULL);
+    // The trigger is the row's one action, so it has to be findable under what
+    // it opens and big enough for a thumb, and the row must hide nothing sideways.
+    const { address, trigger, row } = await open(width, FULL);
 
     expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth + 1);
     const rowBox = row.getBoundingClientRect();
-    const linkBox = link.getBoundingClientRect();
+    const linkBox = trigger.getBoundingClientRect();
     expect(linkBox.top).toBeGreaterThanOrEqual(address.getBoundingClientRect().bottom);
     expect(linkBox.left).toBeGreaterThanOrEqual(rowBox.left - 1);
     expect(linkBox.right).toBeLessThanOrEqual(rowBox.right + 1);

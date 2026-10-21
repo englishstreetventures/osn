@@ -490,7 +490,7 @@ for after.
 |---|---|---|
 | Header | The "Details, {event}" heading and the closed notice (the closed treatment of `RsvpDeadlineNotice`: a hairline box, muted ink) inside an always-mounted `role="status"` region. The way to the form is the sheet's switch, not the panel's | Always; the notice once RSVPs close |
 | When | The day; the time range, naming both days when the event ends on a later day in its own zone ("Fri 6:00 pm – Sun 11:00 am"); the zone spelt out ("AEDT (Sydney time)"); "Your time: …" when the guest's own clock reads differently; Add to calendar | The start parses |
-| Where | The venue's name over its address (with no name, the address alone); a compact map — the consented Google embed, or a card drawn from the palette tokens; "Open in maps" | Something can open a map (`hasVenue`: an address, a venue name or a maps link) |
+| Where | The venue's name over its address (with no name, the address alone); a compact map — the consented Google embed, or a card drawn from the palette tokens; "Open in maps", a menu of Google Maps, Apple Maps and Waze, or a plain link when the organiser's own is the only place to go | Something can open a map (`hasVenue`: an address, a venue name or a maps link) |
 | Who's invited | "Invited: Alex and Sam" | Some member the couple invited is not invited to this event (`invitedNames`; plus-ones are named, never decide it) |
 | Occasion | About, Dress Code, Inspiration, under one hairline, with no hairline between them | Any of the three has content |
 
@@ -510,6 +510,19 @@ render wherever the server ran.
   name, else its address. Calendar entries put the name before the address
   ("The Glasshouse, 124 Sample Avenue"), leaving it off by the same rule
   (`venueLocation`).
+- **Open in maps offers the guest's own map app**
+  (`mapsDestinations` in `event-details.ts`): Google Maps, Apple Maps and
+  Waze, in that order, each searching for the address (else the name),
+  escaped. The organiser's own http(s) link takes the place of the app whose
+  link it is, read from its host — Google's `google.<tld>` hosts under
+  `/maps` or on `maps.`, `maps.app.goo.gl`, `goo.gl/maps/…` and `g.page`;
+  `maps.apple.com` and `maps.apple`; `waze.com` — and a link to any other
+  site leads the list as "Venue map". A host it does not recognise costs the
+  link its label, not its place. With more than one destination it is a link
+  menu (see the link menus below); with one — the
+  organiser's link and nothing to search for — a plain link marked ↗. The row
+  shows exactly when `resolveMapsUrl` has somewhere to go, which is exactly
+  when this list is not empty.
 - **About is the organiser's description**, line breaks kept. The event card
   shows its first three lines and, on its venue line, the venue's name when
   there is one (the address otherwise); the whole of both is in the sheet.
@@ -561,14 +574,18 @@ render wherever the server ran.
 Tests: `tests/components/DetailsPanel.test.tsx` (which rows and sections
 render, the words, the notice), `event-details.test.ts` and
 `invite-emptiness.test.ts` (the helpers, one case per failure mode),
-`calendar.test.ts` (the venue in the Google link), and
+`calendar.test.ts` (the venue in the Google link), `MapPreview.test.tsx` (the
+maps menu's items, the organiser's link in its app's place, the plain link
+when it is alone, the refused `javascript:` link), `AddToCalendar.test.tsx`
+(the menu opened by a key on its first item, by a pointer on the menu), and
 `DetailsPanel.browser.test.tsx` (on every preset: each key fact at 4.5:1, the
 venue's name and its muted address included, and each swatch ring at 3:1 on the
 sheet; at 390px the date, the venue's name and its address on the first
 screen, every control 44px tall, every text action underlined at rest and a
 link in the description kept inside the sheet; the address under a name at
-the time line's weight and colour; the menu's keys, its focus return and its
-placement; focus after "Show it here" and the switch-off's double-tap guard),
+the time line's weight and colour; the calendar menu's keys, its focus return
+and its placement, opened by a click on the menu with no item filled; the maps
+menu over the sheet, its item answering a hit test, with a screenshot at 390px; focus after "Show it here" and the switch-off's double-tap guard),
 and `EventCard.actions.browser.test.tsx` (the answer button inside the card
 beside a link in the description and a one-word venue name). The
 `cire-event-details` end-to-end flow sets a venue name and a description in
