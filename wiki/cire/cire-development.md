@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Cire development guide
@@ -378,6 +378,22 @@ and each statement needs its own `--> statement-breakpoint`, because
 step that has to run before the drop goes at the top of the same file.
 `0076_wedding_owners.sql` is the example, and `migration-0076.test.ts` is the
 shape of its test: seed rows before the migration, then prove nothing cascaded.
+
+**A column the serving Worker uses is dropped a release later.** Every deploy
+migrates before the new Worker serves, and a rollback leaves the migration in
+place ([[production-deploy#4. Database migrations]]). So the release that stops
+using a column keeps it in the database, and a later one drops it. Stopping
+means taking it out of `cire/db/src/schema.ts`, not only out of the reads:
+Drizzle names every declared column in each insert, select and `returning`, so
+a declared column is still in the Worker's statements. In that first release,
+`db:generate` writes a drop or a `__new_<table>` rebuild for the column. Delete
+it from the migration by hand, and leave the snapshot as drizzle-kit wrote it.
+Keep the column in `setup.ts`, and list it in `UNDECLARED_COLUMNS` in
+`ddl-lockstep.test.ts`, which excuses it from the Drizzle comparison only while
+the chain still has it. The drop comes once the first release is in production:
+`db:generate --custom`, then `DROP INDEX` and `DROP COLUMN` as above.
+`tasks.assigned_host_id` is the example: `0088_task_assignees.sql` keeps it, and
+englishstreetventures/osn#1636 drops it.
 
 **A field the guest site reads is optional there.** `deploy-cire-invites` has no
 `needs:` edge on `deploy-cire-api` in `production-release.yml`, and a release can
