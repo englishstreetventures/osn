@@ -1433,10 +1433,12 @@ describe("realtime subscribe at the Worker entry", () => {
         env,
         recordingCtx,
       );
-      // Well under the publish timeout (2 s), which an inline publish would
-      // hold the response for.
+      // Under the publish timeout (2 s), which an inline publish would hold the
+      // response for. The limit is 1.8 s, not tighter: this handler took 1,073 ms
+      // on a loaded CI runner, and a publish held inline never returns at all, so
+      // a generous limit still catches the regression.
       const timedOut = new Promise<"timed out">((resolve) =>
-        setTimeout(() => resolve("timed out"), 500),
+        setTimeout(() => resolve("timed out"), 1800),
       );
       const first = await Promise.race([response, timedOut]);
 

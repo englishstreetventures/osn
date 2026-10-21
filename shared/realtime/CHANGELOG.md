@@ -1,5 +1,41 @@
 # @shared/realtime
 
+## 0.2.1
+
+### Patch Changes
+
+- 569c73b: Dependency maintenance. The `effect` family moves from 4.0.3 to 4.0.5, a
+  patch release. Audit fixes take `fast-uri` to 3.1.8, `http-cache-semantics` to
+  4.3.0 and `smol-toml` to 1.9.0, and `valibot` is overridden to ^1.4.2 so the
+  `@prisma/dev` tree stops pinning 1.2.0. No runtime API changes are expected
+  from these bumps; the repo's typecheck and test suites pass, apart from three
+  `cire/host` component tests that also fail on the base branch.
+- Updated dependencies [569c73b]
+  - @shared/observability@0.18.10
+
+## 0.2.0
+
+### Minor Changes
+
+- 40fd895: `onFallback` now receives why the subscription gave up: `refused` (the hub closed
+  the socket with 1008, which includes a revoked member) or `exhausted` (every
+  attempt failed); `FALLBACK_OUTCOMES` and `isFallbackOutcome` name them.
+  `sendFallbackBeacon` (`@shared/realtime/client`) posts that outcome to a
+  product's API. On the server, `readFallbackOutcome` reads a beacon body of at
+  most `MAX_FALLBACK_BEACON_BYTES`, and `recordClientFallback` counts the outcome
+  as `realtime.client.fallbacks` by product and outcome and logs a warning.
+  `subscribe()`'s doc now says the route must sit behind the product's per-IP
+  limit.
+- 40fd895: `publish()` tries the hub again when a call that revokes members fails: after
+  each pause in the new `REVOKE_RETRY_DELAYS_MS` (250 ms, then 750 ms), inside the
+  same effect, so inside the caller's `waitUntil`. When every try fails it logs
+  `realtime revoke failed` instead of `realtime publish failed`. A publish that
+  revokes nobody still tries once. `PublishOptions.revokeRetryDelaysMs` overrides
+  the pauses.
+- 40fd895: A second signal kind, `tasks-changed`, beside `members-changed`: an entity's
+  tasks, or who holds them, changed. A client built before it drops a frame
+  carrying it, as it drops any kind it does not know.
+
 ## 0.1.2
 
 ### Patch Changes

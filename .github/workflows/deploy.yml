@@ -241,6 +241,7 @@ jobs:
     needs: [build, changes]
     if: needs.changes.outputs.cire_api == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 4
     environment: dev
     concurrency:
       group: deploy-dev-cire-api
@@ -315,6 +316,7 @@ jobs:
     needs: [build, changes]
     if: needs.changes.outputs.cire_invites == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 4
     environment: dev
     concurrency:
       group: deploy-dev-cire-invites
@@ -438,6 +440,7 @@ jobs:
     needs: [build, changes]
     if: needs.changes.outputs.cire_host == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     environment: dev
     concurrency:
       group: deploy-dev-cire-host
@@ -529,6 +532,7 @@ jobs:
     needs: [build, changes]
     if: needs.changes.outputs.cire_vendor == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     environment: dev
     concurrency:
       group: deploy-dev-cire-vendor
@@ -609,6 +613,7 @@ jobs:
     needs: [build, changes]
     if: needs.changes.outputs.cire_landing == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     environment: dev
     concurrency:
       group: deploy-dev-cire-landing
@@ -697,6 +702,7 @@ jobs:
     needs: [build, changes]
     if: needs.changes.outputs.osn_api == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 4
     environment: dev
     concurrency:
       group: deploy-dev-osn-api
@@ -789,6 +795,7 @@ jobs:
     needs: [build, changes]
     if: needs.changes.outputs.osn_social == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 4
     environment: dev
     concurrency:
       group: deploy-dev-osn-social

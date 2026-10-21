@@ -107,6 +107,18 @@ else
   fail=$((fail + 1))
 fi
 
+# An agent's shell hands the script /dev/null, which is not a terminal, so the
+# `-t 0` test misses it. The `-c /dev/stdin` test must refuse it, not print skip.
+name="refuses when stdin is /dev/null"
+got=$(bash "$script" </dev/null 2>/dev/null; echo "exit:$?")
+if [ "$got" = "exit:1" ]; then
+  echo "ok   - $name"
+  pass=$((pass + 1))
+else
+  echo "FAIL - $name (got '$got', want 'exit:1')"
+  fail=$((fail + 1))
+fi
+
 # Every case above runs the script on a pipe, so none of them can reach the
 # `[ -t 0 ]` branch — a harness's own stdin is never a terminal. Attach the
 # script's stdin to a real pseudo-terminal instead, via Python's stdlib `pty`

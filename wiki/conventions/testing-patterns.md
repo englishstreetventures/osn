@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 
 # Testing Patterns
@@ -20,7 +20,7 @@ last-reviewed: 2026-10-21
 
 Three rules decide what kind of test a change gets. They come before every pattern on this page.
 
-1. **End-to-end tests first, and ideally only.** A complex feature is proved by an E2E test that drives the real stack the way a user or caller does: browser, API, database. Reach for nothing else unless the E2E test cannot reach the behaviour.
+1. **End-to-end tests first, and ideally only.** A complex feature is proved by an E2E test that drives the real stack the way a user or caller does: browser, API, database. Reach for nothing else unless the E2E test cannot reach the behaviour. Code only an E2E flow covers gets its branch list in `NEW-FEAT.md` too: each branch the code takes and the flow step that reaches it, before the code exists.
 2. **Every E2E test ends by producing an artifact.** It writes something a reviewer can check without rerunning the suite, and that comes out the same on every run: a Playwright trace, screenshots of the final state, or a JSON record of the requests and results. It runs against seeded data and a fixed clock, so a second run gives the same artifact. Name where the artifact lands in the PR test plan. The suite that does this, and how to add a flow to it, is [[#The end-to-end suite]].
 3. **Isolated tests are written failure-modes first.** When a system must be tested on its own (a parser, a crypto routine, a rate-limit window, a state machine an E2E test cannot steer into every state), first write down every way it can fail. Put that list in `NEW-FEAT.md`, before any code exists. Write one test per entry, then the code that makes them pass. A test that maps to no listed failure does not get written. The list includes code the change does not touch but now reaches: when a client starts sending a field, or a write starts filling a column, every existing branch on that value was dead before and is live now, and mutation testing on the changed lines never mutates it. A gift-list change that sent `itemId` for the first time made the payment-page reuse lookup's `item_id` match decide where money went, and only a test review found it untested.
 
@@ -277,7 +277,7 @@ describe("events routes", () => {
 
 - **Never hand-write a DDL mirror.** Test databases are built from the live Drizzle schema via `applySchema()` (`@osn/db/testing`, `@pulse/db/testing`, `@zap/db/testing`) — never a `CREATE TABLE` string in a helper or a test file. A hand-written mirror makes constraint tests tautological: they assert the `UNIQUE` the author typed a few lines above, not the one the schema declares, so dropping `.unique()` from `src/schema` leaves them green. See [[#Schema-derived test databases]].
 
-- **A test must fail for the reason it is named.** Before landing a test that asserts a side effect (a row written, a notice sent), break the code path and confirm the test goes red. `expect(true).toBe(true)` after an action asserts nothing. Three ways that check is passed by a test which still cannot fail — a timestamp tie, a `waitFor`ed absence, and a red-proof that ate its own fix — are in [[#Assertions that cannot fail]].
+- **A test must fail for the reason it is named.** Before landing a test that asserts a side effect (a row written, a notice sent), break the code path and confirm the test goes red. `expect(true).toBe(true)` after an action asserts nothing. Ways that check is passed by a test which still cannot fail — a timestamp tie, a `waitFor`ed absence, a red-proof that ate its own fix, a route the app never mounted, a hand-written input where the driver's output belongs, and a helper that supplies the thing under test — are in [[#Assertions that cannot fail]].
 
 - **Wait on the event, never on a fixed sleep.** A test that sleeps 10 ms for a forked fiber fails whenever a loaded CI runner takes longer. Have the forked effect resolve a `Promise.withResolvers()` promise and await that; if the work never runs, the test fails on Vitest's timeout ("is a no-op reference outside a request" in `osn/api/tests/lib/background.test.ts`).
 
@@ -450,6 +450,23 @@ element itself — `expect(document.activeElement).toBe(target)` — or at least
 that it is not `document.body` before any `contains` check.
 `cire/host/tests/components/HostsPanel.test.tsx` ("moves focus to the offer…")
 shows the form.
+
+### A route the app never mounted
+
+A test POSTed to `/api/stripe/platform-webhook` on an app that did not mount it, and asserted the response was not 403. An Elysia `onBeforeHandle` hook never runs for a path the router does not match, so an unmatched POST returns 404 with or without the exemption under test. The assertion passed on the 404.
+*Instead:* mount a stub route at the real path on a bare origin guard, as `cire/api/tests/lib/origin-guard.test.ts` does, so the hook is reached.
+
+### Hand-written input where the driver's output should be
+
+A test passed a literal error string containing an index name to the classifier that reads it. SQLite names the columns in a unique-violation message, never the index, so the production path could never reach the matching branch, and the test was green either way.
+*Instead:* drive a real insert against the real index, and assert the message does **not** contain the index name, so the classifier cannot match on it.
+
+### A test helper that supplies the thing under test
+
+`appRequest` in `cire/api/tests/test-helpers.ts` adds an `Origin` header to every request. Any origin-guard test written through it passes whether or not the guard works.
+*Instead:* build the request by hand for any test of a header the helper injects.
+
+Each of these was caught the same way: revert the fix and watch the test go red. Two cautions. A revert made by text substitution must be confirmed applied before the result is trusted: `oxfmt` reflows code, so a multi-line pattern captured before formatting can fail to match, and the "mutation" never happens while the test stays green. And restore the fix before committing.
 
 ## Mutation testing
 
@@ -819,14 +836,24 @@ One request writing 7,000 R2 objects (13–18 s) broke the request after it 4 ti
 
 ### D1's error shape in a bun test
 
-A failed single statement looks different on the two drivers. On D1, drizzle wraps it in `DrizzleQueryError`: the message is `Failed query: <statement>` and the database's reason is on its `cause`. bun:sqlite throws the database's error bare. Code that reads the reason from `String(e)` passes every bun:sqlite test and fails on D1, which is why cire reads it through `driverErrorText` ([[cire-development]]).
+On both drivers drizzle wraps a failed single statement in `DrizzleQueryError`, whose message is `Failed query: <statement>`. What sits on its `cause` differs:
+
+| Driver | Error chain, outermost first |
+|---|---|
+| bun:sqlite | `DrizzleQueryError` → the database's error |
+| D1, one statement | `DrizzleQueryError` → `D1_ERROR: <reason>` → the database's error |
+| D1, `batch()` | `D1_ERROR: <reason>` → the database's error (no `DrizzleQueryError`) |
+
+*Measured 2026-10-21 — scratch probe in `cire/api/tests`: one unique conflict on Miniflare D1 and on bun:sqlite, each error's `cause` chain printed*
+
+Code that reads the reason from `String(e)` misses it on every driver, and code that reads a fixed depth of `cause` can pass on bun:sqlite and miss on D1. That is why cire reads it through `driverErrorText`, which walks the whole chain ([[cire-development]]).
 
 Two helpers in [cire/api/tests/test-helpers.ts](../../cire/api/tests/test-helpers.ts) let a bun:sqlite test reach those paths without Miniflare:
 
-- `failLikeD1(db)` makes every statement `db` runs from then on fail as a D1 statement does, wrapped, with the reason on `cause`. It wraps statements that the bun:sqlite fallback of `commitBatch` runs one at a time too, though a real D1 `batch()` failure is not wrapped.
-- `beforeStatement(db, pattern, write)` runs `write` once, just before `db` prepares the first statement matching `pattern`. That stands in for another request's write landing between this request's read and its own write: the race a unique index exists to settle. The hook is spent before `write` runs, so `write` may insert into the same table.
+- `failLikeD1(db)` gives every statement `db` runs from then on D1's one-statement chain when it fails: it puts the database's error inside a `D1_ERROR: <reason>` error, which drizzle then wraps. That covers the statements the bun:sqlite fallback of `commitBatch` runs one at a time too, though a real D1 `batch()` failure is not wrapped.
+- `beforeStatement(db, pattern, write)` runs `write` once, just before `db` prepares the first statement matching `pattern`. That stands in for another request's write landing between this request's read and its own write: the race a unique index exists to settle. The hook is spent before `write` runs, so `write` may insert into the same table. It hands each statement on to the `query` the client had when it went in, so after `failLikeD1` both apply.
 
-The route tests for the account link, the upgrade checkout and the vendor directory's add use both. The D1 lane still proves the real wording: `tests/db/d1-integration.test.ts` "unique conflicts over D1" drives each conflict on Miniflare.
+The route tests for the upgrade checkout and the vendor directory's add use both; the account link's uses `failLikeD1`. The D1 lane still proves the real wording: `tests/db/d1-integration.test.ts` "unique conflicts over D1" drives each conflict on Miniflare.
 
 ## Testing an oxlint rule
 

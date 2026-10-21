@@ -26,13 +26,14 @@
 
 import { existsSync, readFileSync } from "node:fs";
 
-import type { BranchPull, Card } from "./index.ts";
+import type { BranchPull, Card, SessionsRoots } from "./index.ts";
 import {
   branchCards,
   buildCard,
   cardFileName,
   declaredFromLabels,
   defaultMetricsDir,
+  defaultSessionsRoots,
   otherPullRequest,
   parseNumstat,
   recordsByBranch,
@@ -307,7 +308,7 @@ if (import.meta.main) {
   const repo = flag("repo") ?? "englishstreetventures/osn";
   const limit = flag("limit") ?? "100";
   const outDir = flag("out-dir") ?? defaultMetricsDir();
-  const sessionsDir = flag("sessions-dir") ?? `${process.env.HOME}/.claude/projects`;
+  const sessionsDir: SessionsRoots = flag("sessions-dir") ?? defaultSessionsRoots();
   const dryRun = Bun.argv.includes("--dry-run");
 
   const listed = sh([
@@ -370,7 +371,11 @@ if (import.meta.main) {
   const localIssueRefs = new Map<number, IssueRef>();
   for (const pull of carded) {
     const ref = pull.closingIssuesReferences[0];
-    if (ref && ref.repository.owner.login === repoOwner && ref.repository.name === repoName) {
+    if (
+      ref &&
+      ref.repository.owner.login.toLowerCase() === repoOwner?.toLowerCase() &&
+      ref.repository.name.toLowerCase() === repoName?.toLowerCase()
+    ) {
       localIssueRefs.set(pull.number, ref);
     }
   }
@@ -449,8 +454,10 @@ if (import.meta.main) {
     const changed = files.get(pull.number) ?? [];
 
     const linkedRef = pull.closingIssuesReferences[0] ?? null;
-    const issueNumber = linkedRef?.number ?? null;
     const localRef = localIssueRefs.get(pull.number) ?? null;
+    // Only this repository's issue is recorded. A private tracker number on a
+    // public card would reveal that the finding exists.
+    const issueNumber = localRef?.number ?? null;
 
     let labels: string[] = [];
     let complexity: RatingOutcome;
@@ -478,10 +485,21 @@ if (import.meta.main) {
       complexity = declaredFromLabels(labels);
     }
 
+    // `cardFileName` goes through `branchSlug`, never a copy of its first step:
+    // the inline version omitted the trailing `^-+|-+$` strip, so a branch name
+    // ending in a character outside the class made `backfill` and `card` write
+    // two different files for the same branch.
+    const file = cardFileName(branch, pull.number, first);
+    const path = `${outDir}/${file}`;
+    const onDisk = existsSync(path) ? readCardFile(path) : null;
+
+    // The review counts come from report files that are gone by merge time, so
+    // the only source a backfill has is the card `retro` already wrote.
     const card = buildCard(
       records,
       parseNumstat(numstatFromApi(changed), counts.get(pull.number) ?? 0),
       {
+        review: onDisk?.pr?.number === pull.number ? (onDisk.review ?? null) : null,
         branch: pull.headRefName,
         prNumber: pull.number,
         issueNumber,
@@ -497,13 +515,6 @@ if (import.meta.main) {
       },
     );
 
-    // `cardFileName` goes through `branchSlug`, never a copy of its first step:
-    // the inline version omitted the trailing `^-+|-+$` strip, so a branch name
-    // ending in a character outside the class made `backfill` and `card` write
-    // two different files for the same branch.
-    const file = cardFileName(branch, pull.number, first);
-    const path = `${outDir}/${file}`;
-
     // `branchSlug` is not injective — `feat/x-`, `feat-x` and `feat/x` all slug
     // to `feat-x` — and this loop writes many cards in one pass. `card` writes
     // one per run and cannot see a clash; here it is visible, and a silently
@@ -511,7 +522,6 @@ if (import.meta.main) {
     // backfilled at all. The guard keys on the files this run has claimed, so a
     // card left untouched still holds its filename against a second branch, and
     // a card left by an earlier run is not mistaken for a clash.
-    const onDisk = existsSync(path) ? readCardFile(path) : null;
     const existing = claimed.has(file) ? (onDisk?.pr?.branch ?? null) : null;
     if (existing !== null && existing !== pull.headRefName) {
       console.warn(

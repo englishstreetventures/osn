@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1674,
+    "branch": "worktree-chore+deps-audit-fix-2026-10-22",
+    "base_sha": "19627c8451db6738a3c7d99be6e26720f72d7d8c",
+    "head_sha": "824c3f8490a1eb5fcee8e5470db83a65795722bc",
+    "generated_at": "2026-10-21T15:23:02.534Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1673,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops"
+    ]
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-21T15:03:05.546Z",
+    "last_ts": "2026-10-21T15:23:00.765Z",
+    "span_seconds": 1195,
+    "active_seconds": 1195,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 0.22271962500000003,
+    "tokens": {
+      "input": 266,
+      "output": 58002,
+      "thinking": 23859,
+      "cache_write_5m": 260421,
+      "cache_write_1h": 125599,
+      "cache_read": 13601960
+    },
+    "by_model": {
+      "claude-haiku-5-5": {
+        "tokens": {
+          "input": 266,
+          "output": 58002,
+          "thinking": 23859,
+          "cache_write_5m": 260421,
+          "cache_write_1h": 125599,
+          "cache_read": 13601960
+        },
+        "usd_equivalent": 0.22271962500000003,
+        "messages": 133
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 154,
+          "output": 54394,
+          "thinking": 23859,
+          "cache_write_5m": 0,
+          "cache_write_1h": 125599,
+          "cache_read": 10219795
+        },
+        "usd_equivalent": 0.15453015,
+        "messages": 77
+      },
+      "subagent": {
+        "tokens": {
+          "input": 112,
+          "output": 3608,
+          "thinking": 0,
+          "cache_write_5m": 260421,
+          "cache_write_1h": 0,
+          "cache_read": 3382165
+        },
+        "usd_equivalent": 0.06818947500000001,
+        "messages": 56
+      }
+    },
+    "effort": {
+      "medium": 133
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 0,
+      "docs": 0,
+      "config": 17,
+      "source": 0
+    },
+    "loc": {
+      "generated": {
+        "added": 83,
+        "deleted": 52
+      },
+      "test": {
+        "added": 0,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 0,
+        "deleted": 0
+      },
+      "config": {
+        "added": 36,
+        "deleted": 34
+      },
+      "source": {
+        "added": 0,
+        "deleted": 0
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "osn/api",
+      "osn/client",
+      "osn/db",
+      "pulse/api",
+      "pulse/db",
+      "shared/crypto",
+      "shared/db-utils",
+      "shared/email",
+      "shared/infra",
+      "shared/observability",
+      "shared/realtime",
+      "shared/redis",
+      "zap/api",
+      "zap/db"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 1,
+    "corrective_turns": 1,
+    "tokens_before_first_edit": 152996,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 110,
+      "Edit": 16,
+      "Monitor": 12,
+      "Write": 7,
+      "Agent": 6,
+      "Skill": 5,
+      "Read": 5,
+      "SubagentHandback": 3,
+      "EnterWorktree": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 3,
+      "max_edits_one_file": 8
+    },
+    "skills": {
+      "prep-pr": 1,
+      "review-performance": 1,
+      "write-issue": 1,
+      "write-pr": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "reviewer": 3,
+      "general-purpose": 3
+    }
+  }
+}

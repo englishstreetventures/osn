@@ -13,8 +13,13 @@
 --
 -- Full schema and the reasoning behind it: wiki/conventions/session-metrics.md
 
+-- `map_inference_threshold` reads an object with more than 20 distinct keys
+-- across the cards as a MAP rather than a STRUCT. `tool_calls` is one: a card
+-- can name both `Bash` and `bash`, and struct fields are case-insensitive, so
+-- inferring a struct fails on a duplicate name.
 CREATE OR REPLACE VIEW cards AS
-  SELECT * FROM read_json_auto('.claude/metrics/*.json', union_by_name := true);
+  SELECT * FROM read_json_auto('.claude/metrics/*.json', union_by_name := true,
+                               map_inference_threshold := 20);
 
 -- Merged pull requests. Filtered on merge status, deliberately NOT on
 -- `phase = 'at-merge'`: a remote session's container is destroyed when it ends,
@@ -33,7 +38,7 @@ CREATE OR REPLACE VIEW metrics AS
   SELECT
     pr.number                                       AS pr,
     pr.branch                                       AS branch,
-    pr.generated_at::TIMESTAMP                      AS at,
+    pr.generated_at::TIMESTAMP                      AS at_ts,
     complexity.declared                             AS declared,
     complexity.method                               AS rating_method,
     pr.phase                                        AS phase,
@@ -42,7 +47,7 @@ CREATE OR REPLACE VIEW metrics AS
     diff.files.source                               AS source_files,
     interaction.user_turns                          AS turns,
     interaction.corrective_turns                    AS corrections,
-    window.active_seconds                           AS active_s,
+    "window".active_seconds                           AS active_s,
     spend.tokens.output
       + spend.tokens.cache_read
       + spend.tokens.cache_write_5m
@@ -85,7 +90,7 @@ LIMIT 20;
 -- cheaper model.
 
 SELECT package, count(*) AS prs, round(median(explore_share) * 100, 1) AS explore_pct
-FROM merged, unnest(diff.packages) AS t(package)
+FROM (SELECT pr.number AS pr, unnest(diff.packages) AS package FROM merged) AS touched
 JOIN metrics USING (pr)
 WHERE explore_share IS NOT NULL
 GROUP BY package
@@ -100,7 +105,7 @@ ORDER BY explore_pct DESC;
 -- model: one turn and a large spend is a clear brief; nine turns is a brief
 -- that needed nine patches.
 
-SELECT date_trunc('month', at) AS month,
+SELECT date_trunc('month', at_ts) AS month,
        count(*)                AS prs,
        round(median(turns), 1)    AS median_turns,
        round(median(corrections), 1) AS median_corrections
@@ -115,7 +120,7 @@ ORDER BY month;
 -- month over month means CLAUDE.md, the skills and the wiki pages an agent
 -- opens are growing faster than the work is.
 
-SELECT date_trunc('month', at) AS month,
+SELECT date_trunc('month', at_ts) AS month,
        round(median(cache_read_share) * 100, 1) AS cache_read_pct,
        round(median(total_tokens) / 1e6, 1)     AS median_mtok
 FROM metrics
@@ -168,3 +173,44 @@ SELECT rating_method, phase, count(*) AS prs, round(sum(usd), 2) AS total_usd
 FROM metrics
 GROUP BY rating_method, phase
 ORDER BY prs DESC;
+
+--------------------------------------------------------------------------------
+-- 8. Model calls and the context each carried
+--------------------------------------------------------------------------------
+-- Cost is calls times context, since each call re-reads the context. Every
+-- card, merged or not: most cards with the field are still at-open. These two
+-- queries read the raw JSON, because cards written before the fields existed
+-- give `read_json_auto` nothing to infer a struct from. `--split-at` has no SQL
+-- form: it asks git when a commit landed (`report.ts`).
+
+CREATE OR REPLACE VIEW raw AS
+  SELECT json FROM read_json_objects('.claude/metrics/*.json');
+
+SELECT substr(coalesce(json_extract_string(json, '$.pr.merged_at'), json_extract_string(json, '$.pr.generated_at')), 1, 7) AS month,
+       count(*) AS prs,
+       median((json_extract_string(json, '$.interaction.requests.main'))::INT
+              + (json_extract_string(json, '$.interaction.requests.subagent'))::INT) AS median_calls,
+       round(median((json_extract_string(json, '$.interaction.requests.with_one_tool'))::DOUBLE
+              / nullif((json_extract_string(json, '$.interaction.requests.with_tools'))::DOUBLE, 0)) * 100) AS single_tool_pct,
+       median((json_extract_string(json, '$.interaction.requests.context_median'))::BIGINT) AS median_context
+FROM raw
+WHERE json_extract_string(json, '$.interaction.requests') IS NOT NULL
+GROUP BY month
+ORDER BY month;
+
+--------------------------------------------------------------------------------
+-- 9. Review findings that led to a change
+--------------------------------------------------------------------------------
+-- Tests and docs findings only. Paired findings whose line changed after the
+-- review, against control lines 35 away. prep-pr fixes every in-scope finding,
+-- so this measures what got changed, not how good the findings were.
+
+SELECT count(*) AS prs,
+       sum((json_extract_string(json, '$.review.located'))::INT) AS located,
+       sum((json_extract_string(json, '$.review.paired'))::INT) AS paired,
+       round(sum((json_extract_string(json, '$.review.acted_on_paired'))::INT) * 100.0
+             / nullif(sum((json_extract_string(json, '$.review.paired'))::INT), 0)) AS acted_on_pct,
+       round(sum((json_extract_string(json, '$.review.control_changed'))::INT) * 100.0
+             / nullif(sum((json_extract_string(json, '$.review.paired'))::INT), 0)) AS control_pct
+FROM raw
+WHERE json_extract_string(json, '$.review') IS NOT NULL AND json_extract_string(json, '$.review') <> 'null';

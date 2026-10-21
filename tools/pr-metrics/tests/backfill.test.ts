@@ -669,7 +669,8 @@ esac
       issue: { number: number | null; labels: string[] };
       complexity: { declared: number | null; method: string };
     };
-    expect(card.issue.number).toBe(619);
+    // The tracker issue's number is private, so it is not recorded at all.
+    expect(card.issue.number).toBeNull();
     expect(card.issue.labels).toEqual([]);
     expect(card.complexity.declared).toBeNull();
     expect(card.complexity.method).toBe("not-fetched");
@@ -760,6 +761,34 @@ test("a second backfill over unchanged inputs rewrites nothing", async () => {
     expect(second.stdout).toContain("left 1 card(s) untouched");
     expect(await readFile(cardPath, "utf8")).toBe(before.text);
     expect((await stat(cardPath)).mtimeMs).toBe(before.mtimeMs);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+// The review counts come from report files that are gone by merge time, so a
+// backfill that rebuilt the card without them would erase the only record.
+test("a backfill keeps the review counts the card on disk already holds", async () => {
+  const f = await fixture({ withTranscript: true });
+  try {
+    expect((await runBackfill(f)).exitCode).toBe(0);
+
+    const cardPath = join(f.dir, "cards", `${SLUG}.json`);
+    const review = {
+      reports: 1,
+      findings: 3,
+      located: 2,
+      acted_on: 2,
+      paired: 1,
+      acted_on_paired: 1,
+      control_changed: 0,
+    };
+    const card = JSON.parse(await readFile(cardPath, "utf8"));
+    await writeFile(cardPath, JSON.stringify({ ...card, review }));
+
+    expect((await runBackfill(f)).exitCode).toBe(0);
+
+    expect(JSON.parse(await readFile(cardPath, "utf8")).review).toEqual(review);
   } finally {
     await rm(f.dir, { recursive: true, force: true });
   }
