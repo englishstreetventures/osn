@@ -434,16 +434,14 @@ export function cacheProfileDisplayResolver(
     const missing: string[] = [];
     for (const id of profileIds) {
       const hit = entries.get(id);
-      if (hit && hit.expiresAt > now()) {
-        answer.set(id, hit.display);
-        continue;
-      }
-      if (hit) entries.delete(id);
-      missing.push(id);
+      if (hit && hit.expiresAt > now()) answer.set(id, hit.display);
+      else missing.push(id);
     }
     if (missing.length === 0) return answer;
     const resolved = await resolve(missing);
     for (const [id, display] of resolved) {
+      // Out and in again, so a refreshed profile is the newest. An expired one
+      // osn-api no longer names stays until it is the oldest, never served.
       entries.delete(id);
       if (entries.size >= maxEntries) {
         const oldest = entries.keys().next();

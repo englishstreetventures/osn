@@ -259,6 +259,28 @@ describe("cacheProfileDisplayResolver", () => {
     expect(down.calls).toEqual([["usr_a"], ["usr_a"]]);
   });
 
+  it("counts a profile looked up again after it expired as the newest", async () => {
+    let clock = 0;
+    const inner = counting();
+    const resolve = cacheProfileDisplayResolver(inner.resolve, {
+      ttlMs: 1000,
+      maxEntries: 3,
+      now: () => clock,
+    });
+    for (const id of ["usr_x", "usr_a", "usr_b"]) {
+      await resolve([id]);
+      clock += 1;
+    }
+    // X and A have expired, B has not. A, asked again, becomes the newest, so
+    // the two profiles after it push out X and then B, never A.
+    clock = 1001;
+    await resolve(["usr_a"]);
+    await resolve(["usr_c"]);
+    await resolve(["usr_d"]);
+    await resolve(["usr_a", "usr_c", "usr_d"]);
+    expect(inner.calls).toEqual([["usr_x"], ["usr_a"], ["usr_b"], ["usr_a"], ["usr_c"], ["usr_d"]]);
+  });
+
   it("drops the oldest profile when full", async () => {
     const inner = counting();
     const resolve = cacheProfileDisplayResolver(inner.resolve, { maxEntries: 2 });

@@ -527,6 +527,19 @@ describe("applying it", () => {
     }
   });
 
+  it("writes no task statement and no event delete for a change that removes no event", async () => {
+    const db = build();
+    const plan = await planKeeping(db, [GAP_MORNING, RECEPTION, BRUNCH]);
+    const recorded = recordStatements(db);
+    await apply(db, plan);
+    const writes = recorded.map((r) => r.sql.toLowerCase());
+    expect(
+      writes.filter((q) =>
+        /^(update "tasks"|delete from "(tasks|events|rsvps|guest_events)")/.test(q),
+      ),
+    ).toEqual([]);
+  });
+
   it("keeps every linked task when an older apply with no removal list removes their events", async () => {
     const db = build();
     await apply(db, await planKeeping(db, []));
