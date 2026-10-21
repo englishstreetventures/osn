@@ -197,3 +197,33 @@ describe("the venue address in the narrowest column", () => {
     expect(address.scrollHeight).toBeGreaterThan(address.clientHeight + 1);
   });
 });
+
+describe("Open in maps with one place to go", () => {
+  afterEach(cleanup);
+
+  it("is a link out at a 44px target, underlined at rest", async () => {
+    // The organiser's own pin and nothing to search for: a menu would hold one
+    // item, so the row offers the link itself, drawn as the menu's trigger is.
+    await page.viewport(320, 900);
+    const view = render(() => (
+      <EventSheet
+        event={{ ...event, address: null, mapsUrl: "https://maps.app.goo.gl/q4Zt9XaBcDeF" }}
+        panel="details"
+        siteUrl="https://invite.test/abc-123"
+        members={[]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+    const panel = document.querySelector("dialog") as HTMLElement;
+    await new Promise(requestAnimationFrame);
+    await Promise.allSettled(panel.getAnimations({ subtree: true }).map((a) => a.finished));
+    await document.fonts.ready;
+
+    const link = view.getByRole("link", { name: "Open in maps" });
+    expect({
+      height: link.getBoundingClientRect().height >= 44,
+      line: getComputedStyle(link).textDecorationLine,
+    }).toEqual({ height: true, line: "underline" });
+  });
+});

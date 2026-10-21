@@ -488,13 +488,23 @@ export function EventSheet(props: EventSheetProps) {
   }
 
   /**
+   * Keeps the control a swipe drives the switch's pill with. A named function
+   * rather than an arrow in the JSX: Solid drops a component's `ref` that is
+   * any other kind of expression, and the mutation run's instrumenter wraps
+   * every arrow in one.
+   */
+  function holdSwitch(control: PanelSwitchControl) {
+    panelSwitch = control;
+  }
+
+  /**
    * The switch, in the sheet's chrome. On the details only while the form can
    * be reached; on the form always, its Details segment disabled while busy.
    */
   const panelSwitchRow = (
     <Show when={active() === "rsvp" || rsvpReachable()}>
       <PanelSwitch
-        ref={(control) => (panelSwitch = control)}
+        ref={holdSwitch}
         selected={active()}
         rsvpLabel={rsvp.closed ? "Your RSVP" : "Respond"}
         detailsDisabled={busy()}

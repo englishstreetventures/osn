@@ -401,6 +401,14 @@ describe("mapsDestinations", () => {
     ]);
   });
 
+  it("keeps an organiser's plain http link", () => {
+    const mapsUrl = "http://www.thegrounds.com.au/getting-here";
+    expect(mapsDestinations({ ...base, mapsUrl })[0]).toEqual({
+      label: "Venue map",
+      href: mapsUrl,
+    });
+  });
+
   it("ignores an organiser link that is not http(s)", () => {
     for (const mapsUrl of ["javascript:alert(1)", "ftp://maps.google.com/x", "not a url"]) {
       const out = mapsDestinations({ ...base, mapsUrl });
