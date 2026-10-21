@@ -476,25 +476,36 @@ contexts:
 | `tasks-changed` | the tasks (`tasks-store`) | `TasksChangedContext` ([tasks-changed.ts](../../cire/host/src/lib/tasks-changed.ts)) | the checklist; Overview's checklist card |
 | a reconnect | both | both | all of the above |
 
-Marking a cache stale sends nothing: a view that is not on screen reads again
-when it next mounts. A view that is on screen reads again at once.
+Marking a cache stale sends nothing and leaves a read in flight alone: a view
+that is not on screen reads again when it next mounts. A view that is on
+screen reads again at once, or as soon as its read in flight and its own
+writes are over.
 
 - **The co-host panel** (`HostsPanel`) reads `GET /hosts` again, so it shows an
   added, re-roled or removed member, and a helper's new scope, within seconds.
   A failed re-read keeps the list on screen, and only the newest read's answer
-  is applied. The panel's own add, removal, role change and accepted scope
-  change each drop a read already in flight, which may predate the write. A
-  seat the re-read shows as the panel already does keeps its row object, so
-  `<For>` keeps the row and the focus of an owner on its role or scope select.
+  is applied. While one of the panel's own writes is out (an add, a removal, a
+  role change or a scope change), a signal's re-read waits, and a read that
+  lands, or was sent before a write ended, is dropped, since it may predate the
+  write; once the last write ends, one read goes. A seat the re-read shows as
+  the panel already does keeps its row object, so `<For>` keeps the row and the
+  focus of an owner on its role or scope select. A scope write in flight is
+  kept by the seat's profile id, so its select shows the scope being set and
+  stays `aria-busy` until the write ends.
 - **The checklist** (`ChecklistView`) reads `GET /tasks` again on
   `tasks-changed`, and `GET /hosts` on `members-changed` once it has needed the
   seats. Its own create, tick, delete, move and holder writes are marked out
-  in `tasks-store` (`beginTaskWrite`): a read that lands while one is out, or
-  was sent before one ended, is dropped, and the write's own signal asks
-  again. So a re-read never undoes what the organiser just did on screen.
+  in `tasks-store` (`beginTaskWrite`): a signal's re-read waits while one is
+  out, a read that lands while one is out, or was sent before one ended, is
+  dropped, and one read goes once the last write ends. So a re-read never
+  undoes what the organiser just did on screen, and the read after the write
+  goes whichever reaches the tab first, the write's answer or its signal.
   See [[cire-checklist-tasks#Live refresh]].
 - **Overview** reads the tasks again on `tasks-changed`, unless the checklist
   is locked below Gold.
+- Both task views re-read through `rereadTasks`: signals that land while a
+  read is out cost one more read between them, so a burst of writes costs a
+  tab at most two reads.
 
 ## Testing
 
