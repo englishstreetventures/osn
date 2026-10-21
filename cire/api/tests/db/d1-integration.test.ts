@@ -3689,13 +3689,11 @@ describe("cire/api over real D1 (Miniflare)", () => {
       });
       try {
         const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
-        const files = readdirSync(MIGRATIONS_DIR)
-          .filter((f) => f.endsWith(".sql"))
-          .toSorted();
+        const files = listMigrations(MIGRATIONS_DIR);
         const cut = files.indexOf(MIGRATION_0091);
         expect(cut).toBeGreaterThan(0);
         for (const file of files.slice(0, cut)) {
-          for (const stmt of migrationStatements(file, MIGRATIONS_DIR)) {
+          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
             await chainD1.prepare(stmt).run();
           }
         }
@@ -3710,7 +3708,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         const tasksBefore = await chainD1.prepare("SELECT * FROM tasks ORDER BY id").all();
 
         const before = Math.floor(Date.now() / 1000);
-        const statements = migrationStatements(MIGRATION_0091, MIGRATIONS_DIR);
+        const statements = fileStatements(MIGRATION_0091, MIGRATIONS_DIR);
         expect(statements).toHaveLength(6);
         for (const stmt of statements) await chainD1.prepare(stmt).run();
 
