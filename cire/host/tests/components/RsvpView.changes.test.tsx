@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor, within } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -81,8 +81,13 @@ function routeFetch(changes: unknown) {
   });
 }
 
-const section = (name: string) =>
-  screen.getByRole("heading", { name }).closest("section") as HTMLElement;
+/** An event's tab; its name starts with the event's. */
+const tab = (name: string) => screen.getByRole("tab", { name: new RegExp(`^${name}`) });
+/** Show an event, and hand back its panel. One event is shown at a time. */
+const section = (name: string) => {
+  fireEvent.click(tab(name));
+  return screen.getByRole("tabpanel");
+};
 const rowOf = (sectionName: string, firstName: string) =>
   within(section(sectionName))
     .getByText(new RegExp(`^${firstName} Test`))
@@ -99,16 +104,36 @@ describe("RsvpView — New badges", () => {
   it("badges exactly the rows the guest changed", async () => {
     routeFetch(feed([{ guestId: "g1", eventId: "evt_2" }], 5));
     render(() => <RsvpView weddingId="wed_a" />);
-    await screen.findByRole("heading", { name: "Reception" });
+    await screen.findByRole("tab", { name: /^Reception/ });
     await waitFor(() => expect(within(rowOf("Reception", "Ada")).getByText("New")).toBeVisible());
     expect(within(rowOf("Ceremony", "Ada")).queryByText("New")).toBeNull();
     expect(within(rowOf("Reception", "Bo")).queryByText("New")).toBeNull();
   });
 
+  it("says which events hold a change, on their tabs", async () => {
+    // Opening the table marks every event's changes seen, so an event not on
+    // screen has to say it holds one, or the host never sees it.
+    routeFetch(feed([{ guestId: "g1", eventId: "evt_2" }], 5));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(within(tab("Reception")).getByText("New")).toBeVisible());
+    expect(tab("Reception").getAttribute("aria-label")).toBe(
+      "Reception, 3 guests, changed since you last looked",
+    );
+    expect(within(tab("Ceremony")).queryByText("New")).toBeNull();
+
+    // A search that hides the changed row does not hide that the event holds
+    // one: the change is already marked seen.
+    fireEvent.input(screen.getByLabelText(/^Search .+ guests$/), { target: { value: "zzz" } });
+    expect(tab("Reception").getAttribute("aria-label")).toBe(
+      "Reception, 0 matching, changed since you last looked",
+    );
+    expect(within(tab("Reception")).getByText("New")).toBeVisible();
+  });
+
   it("reads what New means to a screen reader, not from a hover title", async () => {
     routeFetch(feed([{ guestId: "g1", eventId: "evt_2" }], 5));
     render(() => <RsvpView weddingId="wed_a" />);
-    await screen.findByRole("heading", { name: "Reception" });
+    await screen.findByRole("tab", { name: /^Reception/ });
     await waitFor(() => expect(within(rowOf("Reception", "Ada")).getByText("New")).toBeVisible());
     const row = rowOf("Reception", "Ada");
     expect(
@@ -122,9 +147,11 @@ describe("RsvpView — New badges", () => {
   it("badges every row of a guest whose change had no event", async () => {
     routeFetch(feed([{ guestId: "g2", eventId: null }], 5));
     render(() => <RsvpView weddingId="wed_a" />);
-    await screen.findByRole("heading", { name: "Reception" });
+    await screen.findByRole("tab", { name: /^Reception/ });
     await waitFor(() => expect(within(rowOf("Ceremony", "Bo")).getByText("New")).toBeVisible());
     expect(within(rowOf("Reception", "Bo")).getByText("New")).toBeVisible();
+    expect(within(tab("Ceremony")).getByText("New")).toBeVisible();
+    expect(within(tab("Reception")).getByText("New")).toBeVisible();
   });
 
   it("marks the changes seen once the table has loaded", async () => {
@@ -137,7 +164,7 @@ describe("RsvpView — New badges", () => {
   it("marks nothing when nothing is new", async () => {
     routeFetch(feed([], 0));
     render(() => <RsvpView weddingId="wed_a" />);
-    await screen.findByRole("heading", { name: "Reception" });
+    await screen.findByRole("tab", { name: /^Reception/ });
     await waitFor(() =>
       expect(
         authFetchMock.mock.calls.some(([url]) => String(url).endsWith("/rsvp-changes/rows")),
@@ -152,7 +179,7 @@ describe("RsvpView — New badges", () => {
       Promise.resolve(url.endsWith("/rsvps") ? json(VIEW) : json({ error: "boom" }, 500)),
     );
     render(() => <RsvpView weddingId="wed_a" />);
-    await screen.findByRole("heading", { name: "Reception" });
+    await screen.findByRole("tab", { name: /^Reception/ });
     expect(screen.queryByText("New")).toBeNull();
     expect(seenCalls()).toEqual([]);
   });

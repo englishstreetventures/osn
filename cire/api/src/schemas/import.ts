@@ -369,11 +369,13 @@ export const ImportPlan = Schema.Struct({
   warnings: Schema.Array(Schema.String),
   /**
    * The wedding's guest-capacity ceiling, when `diffAgainstDb`'s preview
-   * warning already read it from the wedding's tier — lets `applyImport`
-   * enforce the cap without reading the same row again in the SAME request. Absent whenever the preview never needed the real cap
-   * (the base-cap pre-check proved the import couldn't breach it, or `guestCreates`
+   * warning already read it from the wedding's tier — lets `applyImport`'s
+   * check before the write skip reading the same row again in the SAME
+   * request. Absent whenever the preview never needed the real cap (the
+   * base-cap pre-check proved the import couldn't breach it, or `guestCreates`
    * was empty); `applyImport` MUST keep enforcing the cap itself in that case,
-   * never treat absence as "no cap".
+   * never treat absence as "no cap". The guest inserts check the cap the tier
+   * gives as they write, whatever this says.
    */
   derivedCap: Schema.optional(Schema.Number),
 });

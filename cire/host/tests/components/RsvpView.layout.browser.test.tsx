@@ -1,4 +1,3 @@
-import type { DietaryPreset } from "@cire/dietary";
 import { cleanup, render } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
@@ -22,8 +21,9 @@ import "../../src/styles/global.css";
  *
  * The measurement that justified the change is at the bottom, opt-in.
  *
- * The factories below are written literally: the shared-factory idiom in
- * `test-support/mocks.ts` does not resolve in the browser project.
+ * One event is drawn at a time, so these measure the event on screen: the
+ * first, a 900-row list. The sticky head and Guest column are measured in
+ * `RsvpView.events.browser.test.tsx`.
  */
 
 const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
@@ -43,183 +43,25 @@ vi.mock("../../src/lib/rsvp-changes", async (importOriginal) => ({
 }));
 
 import RsvpView from "../../src/components/RsvpView";
-import type { RsvpFilterGuest, RsvpFilterInvitedGuest } from "../../src/lib/rsvp-filter";
+import { eventPayload, guestList } from "../test-support/rsvp-guests";
 
-// ── A wedding-sized guest list ───────────────────────────────────────────────
-// Three events, the same 300 guests invited to each: 900 rows. Deterministic,
-// so a run can be repeated. The mix is what a real list carries: short and long
-// names, a name with no break in it, households of one to four, free-text
-// dietary notes up to a sentence, preset-only replies, host-entered replies,
-// plus-ones marked with their inviter's full name (the longest names included)
-// and badged Household-entered, and a third of the list still to answer.
-
-const FIRST = [
-  "Ada",
-  "Aiko",
-  "Amara",
-  "Arjun",
-  "Beatrix",
-  "Bo",
-  "Chiamaka",
-  "Cleo",
-  "Dev",
-  "Dmitri",
-  "Elif",
-  "Emeka",
-  "Farah",
-  "Finn",
-  "Grace",
-  "Hamish",
-  "Ines",
-  "Isla",
-  "Jomo",
-  "Kai",
-  "Leila",
-  "Luca",
-  "Mei",
-  "Mateo",
-  "Nadia",
-  "Niamh",
-  "Oscar",
-  "Priya",
-  "Quentin",
-  "Rosa",
-  "Saoirse",
-  "Tariq",
-  "Uma",
-  "Viktor",
-  "Wen",
-  "Xavier",
-  "Yusuf",
-  "Zara",
-  "Maximilian-Alexander",
-  "Anastasia",
-];
-const LAST = [
-  "Sharma",
-  "Jones",
-  "Rao",
-  "Okonkwo",
-  "Nguyen",
-  "Fitzgerald-Montgomery",
-  "Shapiro",
-  "Shaw",
-  "Sheridan",
-  "Schultz",
-  "Smith",
-  "Ó Súilleabháin",
-  "Papadopoulos",
-  "Kowalczyk",
-  "Van der Berg",
-  "Takahashi",
-  "Mbeki",
-  "Hernández",
-  "Lindqvist",
-  "Abernathy",
-  "Chen",
-  "Rossi",
-  "Dubois",
-  "Haddad",
-  "Ivanova",
-  "MacLeod",
-  "Oyelaran",
-  "Park",
-  "Silva",
-  "Wojciechowski",
-  "Wolfeschlegelsteinhausenbergerdorff",
-];
-const NOTES = [
-  "",
-  "",
-  "",
-  "Coeliac — no cross-contamination please",
-  "Severe tree nut allergy, carries an EpiPen. Please flag to the caterer before the day.",
-  "Low FODMAP",
-  "Can eat fish but not shellfish; no raw egg in desserts either",
-  "Toddler — high chair and plain pasta",
-];
-const PRESET_SETS: DietaryPreset[][] = [
-  [],
-  [],
-  ["vegetarian"],
-  ["vegan", "gluten"],
-  ["halal", "no_alcohol"],
-  ["nuts", "sesame", "other"],
-  ["pescatarian", "dairy"],
-];
-const STATUSES = ["attending", "attending", "declined", "maybe"] as const;
-
-function guestList(count: number): RsvpFilterInvitedGuest[] {
-  const guests: RsvpFilterInvitedGuest[] = [];
-  let household = 0;
-  while (guests.length < count) {
-    const size = (household % 4) + 1;
-    const last = LAST[household % LAST.length]!;
-    const familyName =
-      household % 9 === 0 ? `${last} & ${LAST[(household + 7) % LAST.length]}` : last;
-    for (let i = 0; i < size && guests.length < count; i += 1) {
-      const n = guests.length;
-      // Every other household of two or more brings a plus-one, who is the
-      // household's last member and names the one before them as inviter.
-      const inviter = i === size - 1 && size > 1 && household % 2 === 0 ? guests[n - 1] : undefined;
-      guests.push({
-        guestId: `g${n}`,
-        firstName: FIRST[(n * 7) % FIRST.length]!,
-        lastName: last,
-        familyName,
-        familyCode: `${last.slice(0, 4).toUpperCase()}-${String(household).padStart(3, "0")}`,
-        plusOneOf: inviter?.guestId ?? null,
-        plusOneOfName: inviter ? `${inviter.firstName} ${inviter.lastName}` : null,
-      });
-    }
-    household += 1;
-  }
-  return guests;
-}
-
-function eventPayload(id: string, name: string, guests: RsvpFilterInvitedGuest[], seed: number) {
-  const replied: RsvpFilterGuest[] = [];
-  const silent: RsvpFilterInvitedGuest[] = [];
-  for (const [i, guest] of guests.entries()) {
-    const k = i + seed;
-    if (k % 3 === 0) {
-      silent.push(guest);
-      continue;
-    }
-    const presets = PRESET_SETS[k % PRESET_SETS.length]!;
-    replied.push({
-      ...guest,
-      status: STATUSES[k % STATUSES.length]!,
-      dietary: presets.includes("other") || k % 5 === 0 ? NOTES[k % NOTES.length]! : "",
-      dietaryPresets: presets,
-      consentSource:
-        k % 10 === 0 ? "organiser_attested" : guest.plusOneOf ? "inviter_attested" : "guest",
-    });
-  }
-  const count = (s: string) => replied.filter((g) => g.status === s).length;
-  return {
-    id,
-    name,
-    invited: guests.length,
-    attending: count("attending"),
-    declined: count("declined"),
-    maybe: count("maybe"),
-    responded: replied.length,
-    noResponse: silent.length,
-    guests: replied,
-    unresponded: silent,
-  };
-}
-
-const GUESTS = guestList(300);
+// Three events. The first, the one on screen, is a 900-guest list; the other
+// two, 300 guests each, sit behind their tabs and are never drawn here. The
+// generator (`test-support/rsvp-guests.ts`) gives the mix a real list carries:
+// short and long names, a name with no break in it, households of one to
+// four, free-text dietary notes up to a sentence, preset-only replies,
+// host-entered replies, plus-ones marked with their inviter's full name (the
+// longest names included) and badged Household-entered, and a third of the
+// list still to answer.
 const PAYLOAD = {
   events: [
-    eventPayload("evt_ceremony", "Ceremony", GUESTS, 0),
-    eventPayload("evt_reception", "Reception", GUESTS, 1),
-    eventPayload("evt_brunch", "Farewell brunch", GUESTS, 2),
+    eventPayload("evt_ceremony", "Ceremony", guestList(900), 0),
+    eventPayload("evt_reception", "Reception", guestList(300), 1),
+    eventPayload("evt_brunch", "Farewell brunch", guestList(300), 2),
   ],
 };
-const ROWS = PAYLOAD.events.reduce((n, e) => n + e.guests.length + e.unresponded.length, 0);
+const FIRST_EVENT = PAYLOAD.events[0]!;
+const ROWS = FIRST_EVENT.guests.length + FIRST_EVENT.unresponded.length;
 
 async function renderList(canEdit = true) {
   authFetch.mockResolvedValue(
@@ -274,6 +116,10 @@ function spills(table: HTMLTableElement): string[] {
   const out: string[] = [];
   for (const th of table.querySelectorAll("thead th")) {
     if (th.scrollWidth > th.clientWidth) out.push(`head "${th.textContent?.trim()}"`);
+    // A sort head's button, label and arrow, inside its column.
+    for (const button of th.querySelectorAll("button")) {
+      if (!inside(button, th)) out.push(`"${button.textContent?.trim()}" in its head`);
+    }
   }
   for (const td of table.querySelectorAll<HTMLTableCellElement>("tbody td")) {
     if (td.scrollWidth > td.clientWidth) out.push(`cell "${td.textContent?.trim()}"`);
@@ -304,7 +150,8 @@ describe("the replies table's layout", () => {
   it("is laid out fixed, from its own column widths rather than its rows", async () => {
     await page.viewport(1280, 900);
     await renderList();
-    expect(tables()).toHaveLength(3);
+    // One event is drawn at a time.
+    expect(tables()).toHaveLength(1);
     for (const table of tables()) expect(getComputedStyle(table).tableLayout).toBe("fixed");
   });
 
@@ -313,8 +160,8 @@ describe("the replies table's layout", () => {
     await renderList();
     const ceremony = tables()[0]!;
     const before = columnShares(ceremony);
-    // Leaves only short names and no dietary notes in this event — under auto
-    // layout the Dietary column gives its width back and every column moves.
+    // Leaves 34 of the 900 rows — under auto layout the columns would be
+    // sized again from what is left, and every one of them would move.
     search("rao");
     expect(ceremony.isConnected).toBe(true);
     expect(ceremony.querySelectorAll("tbody > tr").length).toBeLessThan(40);
@@ -358,9 +205,11 @@ describe("the replies table's layout", () => {
 // numbers and stays out of CI; what CI keeps is the deterministic half above.
 // Each arm is a stylesheet rule rather than an inline style, because a search
 // that empties an event unmounts its table and the next one mounts a fresh
-// element an inline style never reached. The figures are for this component
-// alone, on Solid's development build — a ratio between the arms, not what a
-// keystroke costs in the portal.
+// element an inline style never reached. Three arms: auto layout, fixed layout
+// as shipped, and fixed layout with the sticky head and Guest column turned
+// off — the last pair is what the sticky cells cost. The figures are for this
+// component alone, on Solid's development build — a ratio between the arms,
+// not what a keystroke costs in the portal.
 
 const NARROWING = [
   ["s", "sh", "sha", "shar"],
@@ -376,7 +225,8 @@ function median(xs: number[]): number {
   return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
 }
 
-type Arm = "auto" | "fixed";
+type Arm = "auto" | "fixed" | "unstuck";
+const ARMS: readonly Arm[] = ["auto", "fixed", "unstuck"];
 
 function useArm(arm: Arm) {
   let style = document.querySelector<HTMLStyleElement>("style[data-layout-arm]");
@@ -385,7 +235,10 @@ function useArm(arm: Arm) {
     style.dataset.layoutArm = "";
     document.head.append(style);
   }
-  style.textContent = `table { table-layout: ${arm} !important; }`;
+  style.textContent =
+    arm === "unstuck"
+      ? "table { table-layout: fixed !important; } th, td { position: static !important; }"
+      : `table { table-layout: ${arm} !important; }`;
   void document.documentElement.offsetHeight;
 }
 
@@ -425,7 +278,7 @@ function pass(into: Samples) {
 }
 
 describe.runIf(import.meta.env.VITE_RSVP_LAYOUT_BENCH === "1")("RSVP table layout cost", () => {
-  it("times the forced layout after each search step, fixed against auto", async ({ annotate }) => {
+  it("times the forced layout after each search step, by arm", async ({ annotate }) => {
     await page.viewport(1280, 900);
     await renderList();
     const empty = (): Samples => ({
@@ -434,12 +287,12 @@ describe.runIf(import.meta.env.VITE_RSVP_LAYOUT_BENCH === "1")("RSVP table layou
       narrowingStep: [],
       rowsLeft: [],
     });
-    const samples: Record<Arm, Samples> = { auto: empty(), fixed: empty() };
-    // Warm-up, then alternate which arm goes first so neither always runs cold.
+    const samples: Record<Arm, Samples> = { auto: empty(), fixed: empty(), unstuck: empty() };
+    // Warm-up, then rotate which arm goes first so none always runs cold.
     useArm("auto");
     pass(empty());
-    for (let round = 0; round < 8; round += 1) {
-      const order: Arm[] = round % 2 ? ["fixed", "auto"] : ["auto", "fixed"];
+    for (let round = 0; round < 9; round += 1) {
+      const order = ARMS.map((_, i) => ARMS[(i + round) % ARMS.length]!);
       for (const arm of order) {
         useArm(arm);
         pass(samples[arm]);
@@ -450,12 +303,12 @@ describe.runIf(import.meta.env.VITE_RSVP_LAYOUT_BENCH === "1")("RSVP table layou
       `${arm}: narrowing layout ${ms(samples[arm].narrowing)} of a ` +
       `${ms(samples[arm].narrowingStep)} step (n=${samples[arm].narrowing.length}), ` +
       `widening layout ${ms(samples[arm].widening)} (n=${samples[arm].widening.length})`;
-    await annotate(`${ROWS} rows, medians. ${summary("auto")}; ${summary("fixed")}`);
+    await annotate(`${ROWS} rows, medians. ${ARMS.map(summary).join("; ")}`);
     // The numbers mean something only if every timed step really removed rows,
-    // and the two arms walked the same list.
-    for (const arm of ["auto", "fixed"] as const) {
+    // and every arm walked the same list.
+    for (const arm of ARMS) {
       expect(samples[arm].rowsLeft.every((left) => left < ROWS)).toBe(true);
+      expect(samples[arm].rowsLeft).toEqual(samples.auto.rowsLeft);
     }
-    expect(samples.fixed.rowsLeft).toEqual(samples.auto.rowsLeft);
   });
 });

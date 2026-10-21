@@ -31,7 +31,7 @@ function capture(db: TestDb): Captured[] {
   const client = db.$client;
   const prepare = client.prepare.bind(client);
   const seen: Captured[] = [];
-  Object.defineProperty(client, "prepare", {
+  Object.defineProperty(client, "query", {
     configurable: true,
     value: (sql: string) => {
       const statement = prepare(sql);
@@ -56,8 +56,10 @@ function seatingScans(db: TestDb, statements: readonly Captured[]): string[] {
   const scans: string[] = [];
   for (const { sql, params } of statements) {
     if (!/seating_/.test(sql)) continue;
+    // `prepare`, not `query`: `capture` shadows `query`, and a plan read
+    // through it would be captured into the list this loop is reading.
     const plan = db.$client
-      .query(`EXPLAIN QUERY PLAN ${sql}`)
+      .prepare(`EXPLAIN QUERY PLAN ${sql}`)
       .all(...(params as never[])) as Array<{ detail: string }>;
     for (const { detail } of plan) {
       if (/^SCAN (seating_|seat_)/.test(detail)) scans.push(`${detail}  ←  ${sql.slice(0, 80)}`);

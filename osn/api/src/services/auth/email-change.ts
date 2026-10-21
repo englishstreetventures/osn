@@ -6,7 +6,7 @@
 import { accounts, emailChanges, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
-import { commitBatch } from "@shared/db-utils";
+import { commitBatch, driverErrorText } from "@shared/db-utils";
 import { type EmailError, EmailService } from "@shared/email";
 import { and, count as countFn, eq, gte, ne } from "drizzle-orm";
 import { Effect, Schema } from "effect";
@@ -24,7 +24,7 @@ import { EmailSchema, genId, genOtpCode, hashSessionToken, logDevOtp } from "./h
 import type { StepUpModule } from "./step-up";
 
 export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) {
-  const { stores, otpTtl, emailChangeBeginCap } = ctx;
+  const { config, stores, otpTtl, emailChangeBeginCap } = ctx;
   const { verifyStepUpForEmailChange } = stepUp;
 
   const EMAIL_CHANGE_LIMIT = 2;
@@ -153,7 +153,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         .send({
           template: "otp-email-change",
           to: normalised,
-          data: { code, ttlMinutes: otpTtl / 60 },
+          data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
         })
         .pipe(
           Effect.mapError(
@@ -289,7 +289,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
 
             return { ok: true as const, email: pending.newEmail };
           } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
+            const msg = driverErrorText(e);
             // Only a uniqueness violation is a genuine caller-facing conflict
             // (another account already claimed the address); see
             // `UNIQUE_CONSTRAINT_ERROR` for the full justification, shared

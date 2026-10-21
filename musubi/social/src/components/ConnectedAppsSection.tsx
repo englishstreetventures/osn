@@ -1,6 +1,7 @@
 import { Button } from "@shared/ui/ui/button";
 import { createResource, createSignal, For, Show } from "solid-js";
 
+import { PRODUCT_NAME } from "../lib/auth";
 import { connectionsClient } from "../lib/authClients";
 import { safeAvatarUrl } from "../lib/utils";
 
@@ -37,8 +38,8 @@ export function ConnectedAppsSection(props: { accessToken: string }) {
   return (
     <div class="flex flex-col gap-4">
       <p class="text-muted-foreground text-body">
-        Apps you have signed in to with your OSN account. Revoking removes an app's access; it will
-        ask for your consent again the next time you sign in there.
+        Apps you have signed in to with your {PRODUCT_NAME} account. Revoking removes an app's
+        access; it will ask for your consent again the next time you sign in there.
       </p>
 
       <Show when={error()}>
@@ -58,7 +59,7 @@ export function ConnectedAppsSection(props: { accessToken: string }) {
           when={(connections() ?? []).length > 0}
           fallback={
             <p class="text-subtle text-meta">
-              You haven't connected any apps to your OSN account yet.
+              You haven't connected any apps to your {PRODUCT_NAME} account yet.
             </p>
           }
         >

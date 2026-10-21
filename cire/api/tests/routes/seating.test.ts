@@ -17,7 +17,7 @@ import { createApp } from "../../src/app";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
-import { appRequest, jsonBody, setTier } from "../test-helpers";
+import { refusal, appRequest, jsonBody, setTier } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
@@ -721,29 +721,35 @@ describe("seating — seats", () => {
     const one = await createTable(app, REC, "Table 1");
     const two = await createTable(app, REC, "Table 2");
     await req(app, "PUT", seatPath(REC, "g_ada"), EDITOR, { tableId: one.id });
-    expect(() =>
-      db
-        .insert(seatingAssignments)
-        .values({ tableId: two.id, eventId: REC, guestId: "g_ada", createdAt: new Date() })
-        .run(),
-    ).toThrow(
+    expect(
+      refusal(() =>
+        db
+          .insert(seatingAssignments)
+          .values({ tableId: two.id, eventId: REC, guestId: "g_ada", createdAt: new Date() })
+          .run(),
+      ),
+    ).toMatch(
       /UNIQUE constraint failed: seating_assignments\.event_id, seating_assignments\.guest_id/,
     );
     // A seat claiming one event while its table sits at another is refused too.
     const cer = await createTable(app, CER, "Ceremony row");
-    expect(() =>
-      db
-        .insert(seatingAssignments)
-        .values({ tableId: cer.id, eventId: REC, guestId: "g_bo", createdAt: new Date() })
-        .run(),
-    ).toThrow(/FOREIGN KEY constraint failed/);
+    expect(
+      refusal(() =>
+        db
+          .insert(seatingAssignments)
+          .values({ tableId: cer.id, eventId: REC, guestId: "g_bo", createdAt: new Date() })
+          .run(),
+      ),
+    ).toMatch(/FOREIGN KEY constraint failed/);
     // So is a guest the event does not invite.
-    expect(() =>
-      db
-        .insert(seatingAssignments)
-        .values({ tableId: one.id, eventId: REC, guestId: "g_cy", createdAt: new Date() })
-        .run(),
-    ).toThrow(/FOREIGN KEY constraint failed/);
+    expect(
+      refusal(() =>
+        db
+          .insert(seatingAssignments)
+          .values({ tableId: one.id, eventId: REC, guestId: "g_cy", createdAt: new Date() })
+          .run(),
+      ),
+    ).toMatch(/FOREIGN KEY constraint failed/);
   });
 
   it("refuses a full table and keeps the moving guest's old seat", async () => {

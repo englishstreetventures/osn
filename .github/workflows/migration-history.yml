@@ -1,0 +1,59 @@
+name: Migration history
+
+# A deployed D1 database records each migration it applied by file name and
+# never reads that file again, so a merged migration is history: editing,
+# deleting or renaming it reaches no database, and a rename applies it twice.
+# scripts/guard-migration-history.ts refuses that, and any new file under a
+# migrations directory that is not a flat <YYYYMMDDHHMMSS>_<name>.sql holding a
+# statement. The `migrations:rewrite` label lifts the history rules for a
+# squash (cire/db/README.md); this workflow runs on label changes so adding
+# the label re-decides the check without a new push.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  # Each pull request in a merge-queue group passed this on its own, and
+  # combining them cannot rewrite a merged file; the job reports a pass there
+  # so the queue is not left waiting on it.
+  merge_group:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Migration history
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: A merge-queue group was decided pull request by pull request
+        if: github.event_name == 'merge_group'
+        run: echo "Every pull request in this group passed the migration history guard on its own."
+
+      # Two commits deep: on the pull request's merge commit, `HEAD^1` is the
+      # base it merges into, so `git diff HEAD^1 HEAD` is exactly its change.
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        if: github.event_name == 'pull_request'
+        with:
+          bun-version-file: .bun-version
+
+      # No install: the guard imports Node built-ins and sibling scripts only.
+      - name: Refuse rewritten migration history
+        if: github.event_name == 'pull_request'
+        env:
+          ALLOW_REWRITE: ${{ contains(github.event.pull_request.labels.*.name, 'migrations:rewrite') }}
+        run: |
+          if [ "$ALLOW_REWRITE" = "true" ]; then
+            bun run scripts/guard-migration-history.ts --allow-rewrite
+          else
+            bun run scripts/guard-migration-history.ts
+          fi

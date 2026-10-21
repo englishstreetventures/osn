@@ -15,7 +15,7 @@ import { applySchema } from "../src/testing";
 function createTestDb() {
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
-  return drizzle(sqlite, { schema });
+  return drizzle({ client: sqlite });
 }
 
 describe("buildSeedEvents", () => {

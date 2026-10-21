@@ -10,7 +10,8 @@ related:
   - "[[retention]]"
   - "[[free-tier-limits]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-20
+  - "[[cire-rsvp-table]]"
+last-reviewed: 2026-10-21
 ---
 # RSVP changes
 
@@ -19,7 +20,7 @@ Organisers hear when guests change their RSVPs in three ways, all fed by one tab
 | Surface | Who sees it | What it shows |
 |---|---|---|
 | **Overview card** "RSVP changes since your last visit" | Every role that reads RSVPs: owner, editor, viewer (not helper) | How many households changed a reply since this organiser last opened the RSVP table, the latest five by name, a link to the table |
-| **"New" badge** in the RSVP table | Same | The rows the guest changed since this organiser last opened the table |
+| **"New" badge** in the RSVP table, and **New** on each event's tab | Same | The rows the guest changed since this organiser last opened the table; on a tab, that its event holds one |
 | **Daily digest email** | Every owner and every editor co-host (a hired planner included), unless they turned it off for that wedding | Counts per kind of change since their last digest, and a link to the RSVP page. No names |
 
 Read state and the email switch are **per organiser, per wedding**: one co-host opening the table never clears another's badges.
@@ -101,7 +102,9 @@ An organiser's **status-only save** — `PUT …/guests/:guestId/rsvps/:eventId`
 
 The Overview card (`cire/host/src/components/RsvpChangesCard.tsx`) fetches the summary on its own and renders nothing when it cannot, so a failed read never holds up the Overview. Reading the card does not mark anything seen; **opening the RSVP table does**. `RsvpView` reads `…/rsvp-changes/rows` beside `/rsvps`, badges the rows, and once both have loaded posts `seen` with the `markSeq` that read returned. The badges stay for that visit. A change with no event (the plus-one kinds) badges every row of that guest.
 
-**Seen means shown.** Every unseen change at or below `markSeq` belongs to a pair the table badged. With more than 500 pairs unseen, the marker stops just below the first pair left out, and the next visit badges the rest, oldest first. Each read costs at most 5,001 rows however long the unseen range is and however many organiser status saves sit in it, since the household index holds none of them, so one household submitting the same replies over and over cannot push another household's change off the table or have it marked seen unshown. Past 500 pairs the card and the table can disagree for a visit or two: the card names the households with the newest changes, while the table badges the oldest first, and the card goes on counting what is still unshown.
+The table shows one event at a time ([[cire-rsvp-table]]), but the `seen` post covers every event. So each event's tab says **New** while it holds a badged row, whatever the search, and its accessible name adds "changed since you last looked". That is how a change on an event not on screen still gets shown before it counts as seen.
+
+**Seen means shown.** Every unseen change at or below `markSeq` belongs to a pair the page marked: its row, on the event on screen, or its event's tab otherwise. With more than 500 pairs unseen, the marker stops just below the first pair left out, and the next visit badges the rest, oldest first. Each read costs at most 5,001 rows however long the unseen range is and however many organiser status saves sit in it, since the household index holds none of them, so one household submitting the same replies over and over cannot push another household's change off the table or have it marked seen unshown. Past 500 pairs the card and the table can disagree for a visit or two: the card names the households with the newest changes, while the table badges the oldest first, and the card goes on counting what is still unshown.
 
 ## The daily digest
 
@@ -128,7 +131,7 @@ A run ends with one `rsvp digest run complete` log line carrying the counts — 
 
 *Unverified — the digest's CPU time on workerd, stop-link signing included, has not been measured; no deployed run exists yet.*
 
-The portal link is the tier's organiser origin (`organiserOriginFrom` in `cire/api/src/lib/organiser-origin.ts`: the second entry of `WEB_ORIGIN`) plus `#/w/<weddingId>/guests/rsvps`. The top-level local config lists one origin, so a local cron run would link to production; it never mails locally, because local dev has no Resend key.
+The portal link is the tier's organiser origin (`organiserOriginFrom` in `cire/api/src/lib/organiser-origin.ts`: the second entry of `WEB_ORIGIN`) plus `#/w/<weddingId>/guests/rsvps`, which opens the wedding's first event; the tabs' New marks lead to the rest. The top-level local config lists one origin, so a local cron run would link to production; it never mails locally, because local dev has no Resend key.
 
 **What the email says.** Counts only — "4 households changed their RSVPs for Ama & Jonah since our last email", then "3 households replied", "1 household changed their reply" — the link, and how to turn it off. One household can make more than one kind of change, so the lead count is not the sum of the lines. No household or guest name, no attendance, no dietary data: those stay in the portal, on Cloudflare. Naming households is an open decision (englishstreetventures/osn#1259) that first needs the guest privacy notice, the guest-data DPIA and the Resend DPA to cover it.
 
