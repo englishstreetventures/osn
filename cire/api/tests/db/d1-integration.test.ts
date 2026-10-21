@@ -153,8 +153,9 @@ const MIGRATION_0063 = "0063_invite_section_visibility.sql";
 const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
 const MIGRATION_0073 = "0073_wedding_tiers.sql";
 const MIGRATION_0076 = "0076_wedding_owners.sql";
-// A live migration, read from MIGRATIONS_DIR.
+// Live migrations, read from MIGRATIONS_DIR.
 const MIGRATION_0091 = "0091_task_assignees.sql";
+const MIGRATION_TASK_RUN_TIME = "20261021153838_task_run_time.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -4040,6 +4041,86 @@ describe("cire/api over real D1 (Miniflare)", () => {
             .prepare("SELECT id, assigned_host_id FROM tasks WHERE id = 'tsk_ed'")
             .first<{ id: string; assigned_host_id: string | null }>(),
         ).toEqual({ id: "tsk_ed", assigned_host_id: null });
+      } finally {
+        await chainMf.dispose();
+      }
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "runs migration 20261021153838_task_run_time on D1's own SQLite: tasks keep their rows and holders, and an event delete unlinks",
+    async () => {
+      // Its own instance, holding the live chain up to the migration before it
+      // with a task, its holder and an event, so the five ADDs run over rows
+      // that exist. D1 enforces foreign keys, which is where a table rebuild
+      // would cascade.
+      const chainMf = new Miniflare({
+        modules: true,
+        script: "export default { fetch() { return new Response('ok'); } };",
+        d1Databases: { DB: ":memory:" },
+      });
+      try {
+        const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
+        const files = listMigrations(MIGRATIONS_DIR);
+        const cut = files.indexOf(MIGRATION_TASK_RUN_TIME);
+        expect(cut).toBeGreaterThan(0);
+        for (const file of files.slice(0, cut)) {
+          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
+            await chainD1.prepare(stmt).run();
+          }
+        }
+        for (const stmt of [
+          "INSERT INTO weddings (id, slug, display_name, created_at, updated_at) VALUES ('wed_r1', 'r1', 'R1', 1, 1)",
+          "INSERT INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, created_at) VALUES ('whost_r1', 'wed_r1', 'usr_r1', 'usr_r1', 'owner', 1)",
+          "INSERT INTO events (id, wedding_id, slug, name, start_at, end_at, timezone) VALUES ('evt_r1', 'wed_r1', 'ceremony', 'Ceremony', '2099-06-20T15:00:00+10:00', '', 'Australia/Sydney')",
+          "INSERT INTO tasks (id, wedding_id, title, timeframe_bucket, created_at) VALUES ('tsk_r1', 'wed_r1', 'Bring the rings', 'day_of', 1)",
+          "INSERT INTO task_assignees (task_id, host_id, wedding_id, assigned_at) VALUES ('tsk_r1', 'whost_r1', 'wed_r1', 1)",
+        ]) {
+          await chainD1.prepare(stmt).run();
+        }
+
+        const statements = fileStatements(MIGRATION_TASK_RUN_TIME, MIGRATIONS_DIR);
+        expect(statements).toHaveLength(6);
+        for (const stmt of statements) await chainD1.prepare(stmt).run();
+
+        expect(
+          await chainD1
+            .prepare(
+              "SELECT id, run_at, run_timezone, event_id, run_offset_minutes, event_removed_at FROM tasks",
+            )
+            .all(),
+        ).toMatchObject({
+          results: [
+            {
+              id: "tsk_r1",
+              run_at: null,
+              run_timezone: null,
+              event_id: null,
+              run_offset_minutes: null,
+              event_removed_at: null,
+            },
+          ],
+        });
+        expect((await chainD1.prepare("SELECT task_id FROM task_assignees").all()).results).toEqual(
+          [{ task_id: "tsk_r1" }],
+        );
+
+        // Linked, then the event goes: the task and its holder stay, unlinked.
+        await chainD1
+          .prepare(
+            "UPDATE tasks SET event_id = 'evt_r1', run_offset_minutes = -30 WHERE id = 'tsk_r1'",
+          )
+          .run();
+        await chainD1.prepare("DELETE FROM events WHERE id = 'evt_r1'").run();
+        expect(
+          await chainD1
+            .prepare("SELECT id, event_id FROM tasks")
+            .first<{ id: string; event_id: string | null }>(),
+        ).toEqual({ id: "tsk_r1", event_id: null });
+        expect((await chainD1.prepare("SELECT task_id FROM task_assignees").all()).results).toEqual(
+          [{ task_id: "tsk_r1" }],
+        );
       } finally {
         await chainMf.dispose();
       }
