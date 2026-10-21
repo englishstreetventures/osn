@@ -671,8 +671,8 @@ whole mechanism, and it is enough for paint.
 > of anything, so a toast raised over a modal is seen and nothing more, and has
 > to be a confirmation the dialog itself also states.
 
-Both of these are live in `cire/invites`: `AddToCalendar` renders in place as a
-popover, and `@shared/toast`'s `Toaster` takes a `topLayer` flag that shows the
+Both of these are live in `cire/invites`: `LinkMenu` (Add to calendar, Open in
+maps) renders in place as a popover, and `@shared/toast`'s `Toaster` takes a `topLayer` flag that shows the
 container as a popover while it has something to show ([[toast]] §`topLayer`).
 `cire/invites/src/lib/z-index.ts` documents what is left for numbers to decide,
 which is everything that is not a dialog.

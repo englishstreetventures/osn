@@ -11,7 +11,7 @@ related:
   - "[[native-dialog-over-kobalte]]"
   - "[[component-library]]"
   - "[[decisions/README]]"
-last-reviewed: 2026-10-07
+last-reviewed: 2026-10-21
 ---
 
 # Nothing ranks against a sheet: the top layer, not a bigger number
@@ -29,7 +29,7 @@ is entry order.
 
 | Element | How it clears a sheet | What its `z-index` still does |
 |---|---|---|
-| Add-to-Calendar menu | `popover` + `showPopover()`, shown after the sheet opened | `MODAL_POPOVER` (110) — the same menu opened from an event card, where it competes with the page |
+| A link menu (`LinkMenu`: Add to calendar, Open in maps) | `popover` + `showPopover()`, shown after the sheet opened | `MODAL_POPOVER` (110) — a menu painted outside the top layer, where it competes with the page |
 | Toast container | `@shared/toast`'s `topLayer`, which shows the container as a popover as the first toast arrives | `TOAST` (150) — everything not in the top layer, the consent banner above it included |
 | Consent preferences dialog | It is an `@shared/ui` `Modal` too, so opening it from inside a sheet makes it the blocking dialog | Nothing. It has no layer in the scale because it has nothing left to rank against |
 
@@ -107,8 +107,8 @@ at all.
 ## What would make this worth revisiting
 
 - A browser this site supports ships without the Popover API. The
-  Add-to-Calendar menu feature-detects `showPopover` and falls back to the
-  `z-index`, which loses the sheet case rather than the card case.
+  link menu feature-detects `showPopover` and falls back to the `z-index`,
+  which loses the sheet case rather than the card case.
 - Something has to appear over a sheet **and** be interactive. The top layer
   buys paint, not reach — that needs to be a descendant of the dialog, not a
   higher layer here.

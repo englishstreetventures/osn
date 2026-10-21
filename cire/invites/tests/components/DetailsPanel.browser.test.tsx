@@ -441,10 +441,13 @@ describe("the calendar menu", () => {
   it("moves focus with the arrows, wrapping, and with Home and End, and keeps each key to itself", async () => {
     await page.viewport(...PHONE);
     await openSheet();
-    await userEvent.click(trigger());
+    trigger().focus();
+    await userEvent.keyboard("{Enter}");
     await calendarMenu();
     const [google, ics] = items();
     expect(document.activeElement).toBe(google);
+    // Reached by keyboard, so the item shows it: filled gold.
+    expect(alphaOf(getComputedStyle(google!).backgroundColor)).toBe(255);
 
     // Each key's default is cancelled: the menu sits inside the sheet's
     // focusable scrollport, where an unclaimed arrow, Home or End scrolls the
@@ -470,6 +473,31 @@ describe("the calendar menu", () => {
       window.removeEventListener("keydown", record);
     }
     expect(unclaimed).toEqual([]);
+  });
+
+  it("opens on the menu itself after a tap or click, with no item filled and no ring", async () => {
+    // A guest who taps "Add to calendar" has chosen nothing yet; an item
+    // filled gold the moment the menu opens reads as already chosen.
+    await page.viewport(...PHONE);
+    await openSheet();
+    await userEvent.click(trigger());
+    const menu = await calendarMenu();
+
+    expect(document.activeElement).toBe(menu);
+    expect(menu.hasAttribute("data-quiet-focus")).toBe(true);
+    expect(getComputedStyle(menu).outlineStyle).toBe("none");
+    for (const item of items()) {
+      expect({
+        item: item.textContent,
+        alpha: alphaOf(getComputedStyle(item).backgroundColor),
+      }).toEqual({
+        item: item.textContent,
+        alpha: 0,
+      });
+    }
+    // The arrows still reach the items from there.
+    await userEvent.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(items()[0]);
   });
 
   it("opens from the trigger on the arrows, on the first item or the last", async () => {

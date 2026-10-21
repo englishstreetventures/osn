@@ -105,10 +105,13 @@ describe("labels on a gold fill", () => {
     // Vacuity guard: a changed file layout or class spelling that matched
     // nothing would let both tests above pass while checking nothing. The
     // fills today: the consent "Save choices" button, the answer button, the
-    // hover and focus states of the Add to Calendar items (one class list for
-    // both), the RSVP sheet's submit and both gift-registry links.
+    // sheet switch's pill, the hover, keyboard-focus and pressed states of a
+    // link menu's items (one class list for all three), the RSVP sheet's
+    // submit and both gift-registry links.
     const fills = goldFills();
-    expect(fills.length).toBeGreaterThanOrEqual(7);
-    expect(new Set(fills.map((f) => f.variant))).toEqual(new Set(["", "hover:", "focus:"]));
+    expect(fills.length).toBeGreaterThanOrEqual(9);
+    expect(new Set(fills.map((f) => f.variant))).toEqual(
+      new Set(["", "hover:", "focus-visible:", "active:"]),
+    );
   });
 });

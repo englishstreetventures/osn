@@ -524,15 +524,23 @@ render wherever the server ran.
   underline that waits for hover never shows, and colour alone does not mark
   words as something to press (WCAG 1.4.1). Open in maps is named by its own words, with no
   `aria-label` over them.
-- **The calendar menu** keeps `role="menu"` and the menu-button keys: Enter,
-  Space or ArrowDown on the trigger open it on the first item, ArrowUp on the
-  last; the arrows wrap, Home and End jump, Escape closes it onto the trigger,
-  and Tab closes it and moves on. Choosing a calendar closes it onto the
-  trigger too, as the item goes with the menu and focus left on it would fall
-  outside the sheet. Every key it takes cancels its default, so nothing
-  scrolls the sheet under it. It opens under its trigger's left edge, upward
-  only when there is no room below, and never past the viewport's 8px gutter.
-  Its items are 44px rows.
+- **The link menus** — Add to calendar's, and Open in maps' when there is more
+  than one map to offer — are one component,
+  [`LinkMenu`](../../cire/invites/src/components/LinkMenu.tsx). Each keeps
+  `role="menu"` and the menu-button keys: Enter, Space or ArrowDown on the
+  trigger open it on the first item, ArrowUp on the last; the arrows wrap,
+  Home and End jump, Escape closes it onto the trigger, and Tab closes it and
+  moves on. A tap or click opens it on the menu itself, quietly (no ring), not
+  on an item: an item filled gold the moment the menu opens reads as already
+  chosen. The arrows reach the items from there. Choosing an item closes it
+  onto the trigger too, as the item goes with the menu and focus left on it
+  would fall outside the sheet. Every key it takes cancels its default, so
+  nothing scrolls the sheet under it. It opens under its trigger's left edge,
+  upward only when there is no room below, and never past the viewport's 8px
+  gutter, in the top layer over the sheet. Its items are 44px rows in the
+  muted ink, filled gold with the on-gold label under the pointer, under
+  keyboard focus (`focus-visible`) and while a finger presses one (`active`)
+  — never for a pointer's focus alone.
 - **Swatches** are a list in a grid of 3.75rem columns (five across at
   390px), each name as the organiser wrote it, under a circle hidden from
   assistive technology. The circle's ring is `--color-border-strong`, held to
