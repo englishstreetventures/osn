@@ -119,19 +119,19 @@ test("cire-guest-emails", async ({ page, flow }) => {
 
   // The spreadsheet door holds Apply until the organiser ticks the
   // attestation, and a new preview starts unticked.
-  const sheet = (gus: string) =>
+  const sheet = (gusAddress: string) =>
     Buffer.from(
       [
         "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Email",
-        `1,${household},${noAddress},${household},${gus}`,
+        `1,${household},${noAddress},${household},${gusAddress}`,
         `1,${household},${guestsOwn.firstName},${household},`,
       ].join("\n"),
     );
-  const upload = async (gus: string) => {
+  const upload = async (gusAddress: string) => {
     await page.getByLabel("guests.csv").setInputFiles({
       name: "guests.csv",
       mimeType: "text/csv",
-      buffer: sheet(gus),
+      buffer: sheet(gusAddress),
     });
     const response = page.waitForResponse(
       (r) => r.url() === `${CHANGES_API}/preview` && r.request().method() === "POST",
@@ -204,11 +204,11 @@ test("cire-guest-emails", async ({ page, flow }) => {
         .click();
       await expect(page.getByText(guestsOwn.address)).toBeVisible();
       await removeEmail.click();
-      const preview = page.waitForResponse(
+      const removalPreview = page.waitForResponse(
         (r) => r.url() === `${CHANGES_API}/preview` && r.request().method() === "POST",
       );
       await page.getByRole("button", { name: "Save changes" }).click();
-      const body = (await (await preview).json()) as { emailAttestations?: unknown };
+      const body = (await (await removalPreview).json()) as { emailAttestations?: unknown };
       await expect(confirm).toBeEnabled();
       const response = page.waitForResponse(
         (r) => r.url() === `${CHANGES_API}/apply` && r.request().method() === "POST",
