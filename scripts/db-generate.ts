@@ -158,9 +158,21 @@ function generate(drizzleKit: string, cwd: string, args: readonly string[]): num
   return result.status ?? 1;
 }
 
+/**
+ * A refusal or failure, with the exit code the CLI ends on. Thrown rather than
+ * exiting on the spot, so the temporary directory is removed on every path.
+ */
+export class GenerateError extends Error {
+  constructor(
+    message: string,
+    readonly exitCode = 1,
+  ) {
+    super(message);
+  }
+}
+
 function fail(message: string, code = 1): never {
-  process.stderr.write(`db-generate: ${message}\n`);
-  process.exit(code);
+  throw new GenerateError(message, code);
 }
 
 async function main(args: Args): Promise<void> {
@@ -240,7 +252,13 @@ async function main(args: Args): Promise<void> {
 }
 
 if (import.meta.main) {
-  const args = parseArgs(Bun.argv.slice(2));
-  if ("error" in args) fail(args.error);
-  await main(args);
+  try {
+    const args = parseArgs(Bun.argv.slice(2));
+    if ("error" in args) fail(args.error);
+    await main(args);
+  } catch (error) {
+    if (!(error instanceof GenerateError)) throw error;
+    process.stderr.write(`db-generate: ${error.message}\n`);
+    process.exit(error.exitCode);
+  }
 }

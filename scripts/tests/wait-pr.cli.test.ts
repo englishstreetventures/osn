@@ -245,3 +245,11 @@ test("--until-merged asks GitHub about the queue; the default wait does not", as
   await run(["12", "1"]);
   expect(await readFile(join(dir, "api.args"), "utf8")).not.toContain("isInMergeQueue");
 });
+
+test("--until-merged ends at the deadline while the pull request waits in the queue, exit 2", async () => {
+  await writeFile(join(dir, "api.default"), "OPEN BLOCKED SUCCESS true true\n");
+  const r = await run(["--until-merged", "12", "0"]);
+  expect(r.exitCode).toBe(2);
+  expect(r.stdout).toContain("timeout after 0 min");
+  expect(r.stdout).toContain("true true");
+});

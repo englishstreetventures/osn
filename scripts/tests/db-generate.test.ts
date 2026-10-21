@@ -1,6 +1,12 @@
 import { expect, test } from "bun:test";
 
-import { applyFixups, migrationFileName, rebuildReason, refuseName } from "../db-generate";
+import {
+  applyFixups,
+  migrationFileName,
+  parseArgs,
+  rebuildReason,
+  refuseName,
+} from "../db-generate";
 
 // ── the migration's name ─────────────────────────────────────────────────────
 
@@ -72,4 +78,27 @@ test("applyFixups writes a boolean default as 1 or 0, not as a word", () => {
 test("applyFixups leaves a string default that merely contains the word alone", () => {
   const sql = "ALTER TABLE `t` ADD `a` text DEFAULT 'true';";
   expect(applyFixups(sql)).toBe(sql);
+});
+
+// ── arguments ────────────────────────────────────────────────────────────────
+
+test("parseArgs reads --name, --from, --hints and --custom, and defaults --from to HEAD", () => {
+  expect(parseArgs(["cire/db", "--name", "add_bio"])).toMatchObject({
+    name: "add_bio",
+    from: "HEAD",
+    custom: false,
+    hints: undefined,
+  });
+  expect(
+    parseArgs(["cire/db", "--custom", "--name", "backfill", "--from", "HEAD~2", "--hints", "[]"]),
+  ).toMatchObject({ name: "backfill", from: "HEAD~2", custom: true, hints: "[]" });
+});
+
+test("parseArgs refuses a missing package, a missing or bad name, and an unknown flag", () => {
+  expect(parseArgs([])).toHaveProperty("error");
+  expect(parseArgs(["--name", "x"])).toHaveProperty("error");
+  expect(parseArgs(["cire/db"])).toHaveProperty("error");
+  expect(parseArgs(["cire/db", "--name", "Add-Bio"])).toHaveProperty("error");
+  expect(parseArgs(["cire/db", "--name", "x", "--force"])).toHaveProperty("error");
+  expect(parseArgs(["cire/db", "--name"])).toHaveProperty("error");
 });
