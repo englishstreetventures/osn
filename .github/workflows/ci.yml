@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The merge queue tests each group of pull requests on the commit it would
+  # land as. Migrations from two pull requests meet for the first time there,
+  # so the migration order check below has to run on it.
+  merge_group:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -92,9 +96,14 @@ jobs:
       # rather than in the script-tests job, which does no `bun install` on
       # purpose. Those installs can reach the registry, so on a pull request
       # it runs only when something it exercises changed; it runs on every
-      # push to main.
+      # push to main. A merge-queue group skips it: each pull request in the
+      # group already ran it when it touched what the test exercises.
       - name: Test the lint-warning ceiling guard
         run: |
+          if [ "$GITHUB_EVENT_NAME" = "merge_group" ]; then
+            echo "Merge-queue group: each pull request ran this when it needed to; skipped."
+            exit 0
+          fi
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && git diff --quiet HEAD^1 HEAD -- \
             scripts/guard-lint-warnings.sh scripts/lint-warning-count.ts \
             scripts/tests/guard-lint-warnings.test.sh package.json bun.lock .bun-version; then
@@ -290,6 +299,17 @@ jobs:
       - name: D1 integration tests
         run: bun run test:d1
 
+      # migrate-wrapper (this tier) and cire/db's migration-flow write the
+      # ledgers, schemas and verdicts they end with here, so a reviewer can see
+      # what a migration did on a real local D1 without rerunning it.
+      - name: Upload migration artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-artifacts
+          path: e2e-artifacts/migrations/
+          if-no-files-found: ignore
+
       # The browser tier (`*.browser.test.tsx`) runs in a real Chromium, because
       # jsdom computes no CSS and no layout — so stacking order, sticky
       # positioning, Tailwind's compiled output and the reduced-motion clamp are
@@ -367,7 +387,11 @@ jobs:
     # a shasum, and `bun test ./scripts/` with no install.
     timeout-minutes: 5
     steps:
+      # Two commits deep so a pull request's merge commit has its base,
+      # `HEAD^1`, for the migration order check below.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       # No bun needed, so it runs right after checkout. The `lint` job runs
       # this same script too, and that copy is the one that matters for
@@ -417,6 +441,27 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
+
+      # A migration is named by when it was generated, so one generated before
+      # another can merge after it: the dev tier then applies it after main's
+      # files, while a database built from zero, or a daily release catching
+      # up, applies everything in name order. Both orders must apply and leave
+      # one schema. On a pull request the files it adds are those on its merge
+      # commit's second side (`HEAD^1` is the base it merges into); in the merge
+      # queue they are everything since the queue's base. No install: the
+      # script imports bun:sqlite and sibling scripts only.
+      - name: Check new migrations apply in either order
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        env:
+          QUEUE_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          if [ -n "$QUEUE_BASE" ]; then
+            git fetch --no-tags --depth=1 origin "$QUEUE_BASE"
+            base="$QUEUE_BASE"
+          else
+            base="$(git rev-parse HEAD^1)"
+          fi
+          bun run scripts/check-migration-orders.ts --base "$base"
 
       # `scripts/` is not a workspace, so `turbo test` never reaches it and the
       # tests under it ran nowhere: `test:migration` was declared in the root

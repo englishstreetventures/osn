@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[testing-patterns]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-21
 ---
 
 # CLI Commands Reference
@@ -68,13 +68,36 @@ Pre-commit hooks (via lefthook) automatically run oxlint + oxfmt on staged files
 Run these from the relevant package directory:
 
 ```bash
-bun run db:migrate       # Generate Drizzle migrations
-bun run db:push          # Push schema changes to the database
+bun run db:generate --name <snake_case>  # Write the next migration (osn, pulse, zap, cire)
+bun run db:migrate --name <snake_case>   # The same, in osn, pulse and zap
+bun run db:push          # Push schema changes to the local database
 bun run db:studio        # Open Drizzle Studio (visual DB browser)
 
 # Example: open Drizzle Studio for Pulse DB
 bun run --cwd pulse/db db:studio
 ```
+
+### Migrations
+
+A migration is one file, `<migrations dir>/<YYYYMMDDHHMMSS>_<name>.sql`,
+stamped in UTC, with no journal or snapshot beside it, so two pull requests that
+each add one never conflict. `db:generate` (`scripts/db-generate.ts`) writes it:
+it diffs the working tree's schema against `HEAD`'s, so commit one migration
+before generating the next. It never guesses a rename (exit 2, then pass
+`--hints`), refuses a copy-and-swap table rebuild, and takes `--custom` for a
+hand-written one. Never run `drizzle-kit generate` or `drizzle-kit up` in a db
+package: the first writes files wrangler never applies, the second renames
+migrations every deployed database has already run.
+
+CI proves the result. The lockstep tests replay each chain against its schema;
+`scripts/check-migration-orders.ts` replays a pull request's new files in the
+two orders a database can meet them; `scripts/guard-migration-history.ts`
+(the `Migration history` check) refuses an edited, renamed, deleted or empty
+migration. The merge queue runs the first two on every group, so two
+migrations that each pass alone but clash together never both land. A pull
+request ejected from the queue for a clash regenerates its migration on top of
+the new `main`. The details, written for cire but true of every database:
+[[cire-development#Adding a column]] and `cire/db/README.md`.
 
 ## Versioning
 

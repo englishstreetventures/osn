@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[review-findings]]"
   - "[[commands]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Stacked PRs
@@ -122,7 +122,7 @@ GitHub reads closing keywords only on a pull request whose base is the default b
 
 ## Merge order
 
-Bottom up, one at a time. When PR 1 merges, GitHub automatically retargets PR 2 to `main` and drops PR 1's commits from its diff — no rebase, no force-push, provided PR 1 was merged rather than closed.
+`main` takes pull requests through the merge queue (`gh pr merge <n> --squash --auto`), which tests each one on top of those ahead of it before it lands; [[commands#Migrations]] says why. A stack still merges bottom up, one at a time. When PR 1 merges, GitHub automatically retargets PR 2 to `main` and drops PR 1's commits from its diff — no rebase, no force-push, provided PR 1 was merged rather than closed.
 
 `gh stack merge <pr-number>` merges every PR up to that one as a single all-or-nothing operation. Convenient, and exactly what we do not want by default: each PR here is approved on its own. Use it only when the whole stack is already approved.
 

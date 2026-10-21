@@ -196,3 +196,52 @@ test("WAIT_PR_REPO names the repository both calls ask about", async () => {
   expect(await readFile(join(dir, "api.args"), "utf8")).toContain("name=elsewhere");
   expect(await readFile(join(dir, "checks.args"), "utf8")).toContain("--repo someone/elsewhere");
 });
+
+// ── --until-merged: for a pull request handed to the merge queue ─────────────
+// Each answer adds whether it sits in the queue and whether auto-merge is on.
+
+test("--until-merged waits past green checks while queued, and ends at MERGED, exit 0", async () => {
+  await answers(
+    "api",
+    "OPEN BLOCKED SUCCESS false true",
+    "OPEN BLOCKED SUCCESS true true",
+    "MERGED UNKNOWN SUCCESS false false",
+  );
+  const r = await run(["--until-merged", "12", "1"]);
+  expect(r.exitCode).toBe(0);
+  expect(r.stdout).toContain("MERGED");
+  expect(await calls("api")).toBe(3);
+  expect(await calls("checks")).toBe(0);
+});
+
+test("--until-merged reports a pull request the queue ejected, exit 1", async () => {
+  await answers("api", "OPEN BLOCKED SUCCESS true true", "OPEN BLOCKED FAILURE false false");
+  const r = await run(["--until-merged", "12", "1"]);
+  expect(r.exitCode).toBe(1);
+  expect(r.stdout).toContain("left the merge queue without merging");
+});
+
+test("--until-merged reports a closed pull request as not merged, exit 1", async () => {
+  await answers("api", "CLOSED UNKNOWN NONE false false");
+  const r = await run(["--until-merged", "12", "1"]);
+  expect(r.exitCode).toBe(1);
+  expect(r.stdout).toContain("CLOSED");
+});
+
+test("--until-merged still stops at once on a conflict, exit 1", async () => {
+  await answers("api", "OPEN DIRTY NONE false true");
+  const r = await run(["--until-merged", "12", "1"]);
+  expect(r.exitCode).toBe(1);
+  expect(r.stdout).toContain("conflicts with its base");
+});
+
+test("--until-merged asks GitHub about the queue; the default wait does not", async () => {
+  await answers("api", "MERGED UNKNOWN SUCCESS false false");
+  await run(["--until-merged", "12", "1"]);
+  expect(await readFile(join(dir, "api.args"), "utf8")).toContain("isInMergeQueue");
+  await rm(join(dir, "api.args"));
+  // The stub's answers are numbered across runs; this is the second call.
+  await writeFile(join(dir, "api.2"), "MERGED UNKNOWN SUCCESS\n");
+  await run(["12", "1"]);
+  expect(await readFile(join(dir, "api.args"), "utf8")).not.toContain("isInMergeQueue");
+});
