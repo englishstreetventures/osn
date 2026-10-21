@@ -475,6 +475,90 @@ describe("EventSheet — the badge", () => {
   });
 });
 
+/**
+ * What the arriving heading shows after a switch. A heading is never reached by
+ * keyboard, so after a touch or a click the ring would read as the heading
+ * being selected. Chromium draws none either way; the engines that do (iOS
+ * Safari) are out of reach here, so these pin the mechanism: the mark on a
+ * pointer's or a swipe's move, none on a key's, and the rule that drops the
+ * ring where the mark is.
+ */
+describe("EventSheet — focus after a switch", () => {
+  it("hands the heading focus quietly after a swipe", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
+    await settleSwipe();
+
+    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    expect(document.activeElement).toBe(heading);
+    expect(heading.hasAttribute("data-quiet-focus")).toBe(true);
+  });
+
+  it("hands the heading focus quietly after a click on the switch", async () => {
+    await openOn("details");
+    await userEvent.click(button("Give RSVP"));
+    await settle();
+
+    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    expect(document.activeElement).toBe(heading);
+    expect(heading.hasAttribute("data-quiet-focus")).toBe(true);
+  });
+
+  it("keeps the ring for a key press on the switch, and drops it only where the mark is", async () => {
+    await openOn("details");
+    button("Give RSVP").focus();
+    await userEvent.keyboard("{Enter}");
+    await settle();
+
+    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    expect(document.activeElement).toBe(heading);
+    expect(heading.hasAttribute("data-quiet-focus")).toBe(false);
+    // Reached by keyboard, so the engine draws the ring, and the page's rule
+    // paints it.
+    expect(heading.matches(":focus-visible")).toBe(true);
+    expect(getComputedStyle(heading).outlineStyle).toBe("solid");
+
+    // The same focus, marked: the rule in `global.css` takes the ring away.
+    heading.setAttribute("data-quiet-focus", "");
+    expect(getComputedStyle(heading).outlineStyle).toBe("none");
+  });
+
+  it("clears the mark once the heading loses focus", async () => {
+    await openOn("details");
+    await userEvent.click(button("Give RSVP"));
+    await settle();
+    const heading = wrapperOf("rsvp").querySelector("h3")!;
+    expect(heading.hasAttribute("data-quiet-focus")).toBe(true);
+
+    button("Close").focus();
+    expect(heading.hasAttribute("data-quiet-focus")).toBe(false);
+  });
+
+  it("drops a text selection as a drag begins, and selects nothing while it runs", async () => {
+    // A long press can start a native selection on the panel's text; the drag
+    // that follows must not carry it along, highlighted, under the finger.
+    await openOn("details");
+    const heading = wrapperOf("details").querySelector("h3")!;
+    getSelection()!.selectAllChildren(heading);
+    expect(getSelection()!.isCollapsed).toBe(false);
+
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - 120, y: start.y }, { end: "hold" });
+    await new Promise(requestAnimationFrame);
+    try {
+      expect(getSelection()!.isCollapsed).toBe(true);
+      const rail = wrapperOf("details").parentElement!;
+      expect(getComputedStyle(rail).userSelect).toBe("none");
+    } finally {
+      await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+      await settleSwipe();
+    }
+    // Once still, the text can be selected again (a long press to copy the address).
+    expect(getComputedStyle(wrapperOf("details").parentElement!).userSelect).not.toBe("none");
+  });
+});
+
 // ── Swiping ─────────────────────────────────────────────────────────────
 
 interface Point {

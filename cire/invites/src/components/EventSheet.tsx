@@ -11,6 +11,7 @@ import {
 
 import { AnimatedModal } from "./AnimatedModal";
 import { DetailsPanel } from "./DetailsPanel";
+import { moveFocus, pressedByPointer } from "./quiet-focus";
 import { RsvpPanel, type RsvpPanelProps } from "./RsvpPanel";
 import {
   beginsDrag,
@@ -143,8 +144,11 @@ interface Touch {
  *
  * Everything that matters happens at once, on the press: the panel swaps, the
  * scroll goes back to the top, and focus moves to the new panel's heading,
- * whose words say which panel it is. The motion runs after and changes
- * nothing a guest can act on:
+ * whose words say which panel it is. After a tap, a click or a swipe that move
+ * is quiet (`quiet-focus.ts`): nobody reached the heading by keyboard, and a
+ * ring on it would read as the heading being selected. A key press keeps the
+ * ring, so a keyboard user sees where focus went. The motion runs after and
+ * changes nothing a guest can act on:
  *
  * - The new panel slides the last 1.5rem in from its own side as it fades in
  *   (`animate-panel-from-*` in `global.css`). A CSS animation restarts each
@@ -266,9 +270,11 @@ export function EventSheet(props: EventSheetProps) {
 
   /**
    * Switch to `next`. `arrived` is a swipe's: the panel is already in place,
-   * so it gets no slide of its own.
+   * so it gets no slide of its own. `quietly` is a touch's or a click's: the
+   * heading takes focus without the keyboard's ring (`quiet-focus.ts`). A
+   * swipe is always a touch.
    */
-  function show(next: EventPanel, arrived = false) {
+  function show(next: EventPanel, arrived = false, quietly = arrived) {
     if (next === active() || (!arrived && gesture())) return;
     const token = ++switchToken;
     const leaving = active();
@@ -283,7 +289,7 @@ export function EventSheet(props: EventSheetProps) {
     });
 
     if (scroller) scroller.scrollTop = 0;
-    headings[next]?.focus({ preventScroll: true });
+    moveFocus(headings[next], quietly, { preventScroll: true });
 
     if (!arrived) {
       // The panel's own slide only — not its subtree, where a loading spinner
@@ -340,6 +346,11 @@ export function EventSheet(props: EventSheetProps) {
       setQuiet((panels) => new Set(panels).add(target));
       setGesture({ target });
     });
+    // A long press before the drag may have begun a selection; dragged along,
+    // it would sweep highlighted text across the sheet. The rail is
+    // `select-none` from here to the settle, and not before the slop, so a
+    // still long press can still select the address to copy it.
+    window.getSelection()?.removeAllRanges();
     state.state = "dragging";
     const incoming = wrappers[target];
     if (!incoming) return;
@@ -450,14 +461,15 @@ export function EventSheet(props: EventSheetProps) {
   }
 
   /**
-   * A press of the badge. A tap or click (`detail > 0`) is ignored while a
-   * slide or a swipe is still running: the badge sits in the same corner on
-   * both panels, so the second tap of a double tap lands on its twin and
-   * would go straight back. A key press is deliberate and goes through.
+   * A press of the badge. A tap or click is ignored while a slide or a swipe
+   * is still running: the badge sits in the same corner on both panels, so the
+   * second tap of a double tap lands on its twin and would go straight back. A
+   * key press is deliberate and goes through, and leaves the heading's ring on.
    */
   function pressBadge(e: MouseEvent, next: EventPanel) {
-    if (e.detail > 0 && (entering() !== null || gesture() !== null)) return;
-    show(next);
+    const byPointer = pressedByPointer(e);
+    if (byPointer && (entering() !== null || gesture() !== null)) return;
+    show(next, false, byPointer);
   }
 
   /** The badge: the way to the other panel, drawn in the sheet's chrome. */
@@ -516,6 +528,7 @@ export function EventSheet(props: EventSheetProps) {
           "touch-pinch-zoom": !zoomed(),
           "overflow-x-clip": entering() !== null || gesture() !== null,
           relative: gesture() !== null,
+          "select-none": gesture() !== null,
         }}
         // Bound on the element rather than delegated: Solid delegates pointer
         // events to `document`, where every pointer move on the page would

@@ -750,10 +750,22 @@
   }
 
   /* Keyboard focus is always visible, on every control, without each component
-     having to remember. Components may restyle it, but none may remove it. */
+     having to remember. Components may restyle it, but none may remove it.
+
+     One exception, and it is not a control's: focus a script moved in answer
+     to a touch or a click, onto something the guest did not reach by keyboard
+     — the event sheet's arriving heading after a swipe or a tapped switch, a
+     link menu opened by a tap. `components/quiet-focus.ts` marks such a move
+     `data-quiet-focus` and never marks a keyboard's. Some engines (iOS Safari)
+     match `:focus-visible` on that move, and the ring would read as the heading
+     or menu being selected under the guest's finger. */
   :focus-visible {
     outline: 2px solid var(--invite-focus);
     outline-offset: 2px;
+  }
+
+  [data-quiet-focus]:focus-visible {
+    outline: none;
   }
 }
 
