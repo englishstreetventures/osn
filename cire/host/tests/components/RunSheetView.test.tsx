@@ -163,7 +163,7 @@ afterEach(() => {
 
 /** `true` once the designed view replaces the placeholder: then every case
  *  below runs, and must pass. */
-const DESIGNED = false;
+const DESIGNED = true;
 
 describe.skipIf(!DESIGNED)("RunSheetView", () => {
   it("says the run sheet is not available below Gold, offers nothing to buy, and asks for nothing", () => {

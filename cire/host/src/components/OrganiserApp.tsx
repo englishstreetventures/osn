@@ -36,6 +36,7 @@ import {
 import { watchForbidden } from "../lib/forbidden-watch";
 import { invalidateHosts } from "../lib/hosts-store";
 import { MembersChangedContext } from "../lib/members-changed";
+import { moduleDef } from "../lib/module-nav";
 import { CIRE_API_URL } from "../lib/osn";
 import { reportRealtimeFallback, weddingTopicUrl } from "../lib/realtime";
 import { markRunSheetStale } from "../lib/run-sheet-store";
@@ -259,6 +260,17 @@ function RunSheetSeat(props: { weddingId: string; wedding: WeddingSummary; onLef
   return (
     <WeddingCacheScope weddingId={props.weddingId}>
       <div class="flex flex-col gap-6" data-testid="run-sheet-seat">
+        {/* The panel header the module shell gives every module, so the seat
+            reads as the same page an owner opens. */}
+        <header class="flex flex-col gap-4">
+          <div class="flex min-w-0 flex-col gap-1">
+            <h2 class="font-display text-text text-ui-lg leading-none font-light">
+              {moduleDef("run-sheet").label}
+            </h2>
+            <p class="font-body text-text-muted text-ui-sm">{moduleDef("run-sheet").hint}</p>
+          </div>
+          <hr class="gilt-rule opacity-60" />
+        </header>
         <RunSheetView
           weddingId={props.weddingId}
           tier={tierOf(props.wedding)}
