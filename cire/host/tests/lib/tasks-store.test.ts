@@ -525,6 +525,51 @@ describe("tasks-store", () => {
       expect(peekCachedTasks("wed_1")?.[0]?.status).toBe("done");
     });
 
+    it("drops a read sent before a write that answers after it ended, and reads again", async () => {
+      setCachedTasks("wed_1", [row({ id: "a", status: "open" })]);
+      const api = server([row({ id: "a", status: "open" })]);
+      api.hold();
+      const pending = rereadTasks("wed_1", api.fetcher);
+      await settle();
+      // The whole write starts and ends while that read is out.
+      const end = beginTaskWrite("wed_1");
+      setCachedTasks("wed_1", [row({ id: "a", status: "done" })]);
+      end();
+      api.set([row({ id: "a", status: "done" })]);
+      api.release();
+      await pending;
+      await settle();
+      expect(api.reads()).toBe(2);
+      expect(peekCachedTasks("wed_1")?.[0]?.status).toBe("done");
+      expect(hasCachedTasks("wed_1")).toBe(true);
+    });
+
+    it("blanks the rows when a read sent again after a write fails, and leaves nothing unhandled", async () => {
+      setCachedTasks("wed_1", [row({ id: "a" })]);
+      invalidateTasks("wed_1");
+      let reads = 0;
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const pending = ensureTasksLoaded("wed_1", async () => {
+        reads += 1;
+        if (reads === 1) {
+          await gate;
+          return [row({ id: "a" })];
+        }
+        throw new Error("refused");
+      });
+      const end = beginTaskWrite("wed_1");
+      release();
+      await expect(pending).resolves.toBe(false);
+      end();
+      await settle();
+      await settle();
+      expect(reads).toBe(2);
+      expect(peekCachedTasks("wed_1")).toBeNull();
+    });
+
     it("waits for every write that is out, and then reads once", async () => {
       setCachedTasks("wed_1", [row({ id: "a" })]);
       const first = beginTaskWrite("wed_1");

@@ -478,8 +478,9 @@ export default function HostsPanel(props: HostsPanelProps) {
     }
   }
 
-  // Moved by every read as it is sent, and by every start and end of one of
-  // this panel's own writes: a read answers only if nothing moved it.
+  // Moved by every read as it is sent, and by the start of each of this
+  // panel's own writes: a read answers only if nothing moved it. No read is
+  // sent while a write is out but the first, so the end of one need not move it.
   let loadSeq = 0;
   // The number of the newest read sent.
   let newestRead = 0;
@@ -491,11 +492,11 @@ export default function HostsPanel(props: HostsPanelProps) {
   /**
    * Mark one of this panel's own writes as out, and get back the function that
    * marks it done (calling it again does nothing). While a write is out, a
-   * signal's re-read waits; a read that lands, or was sent before a write
-   * ended, is dropped, since the server may have answered it from before the
-   * write committed. Once the last write ends, one read goes for all of them,
-   * so the read that sees the write always goes, whichever reached the tab
-   * first, the write's answer or its signal.
+   * signal's re-read waits, and a read sent before the write started is
+   * dropped when it lands, since the server may have answered it from before
+   * the write committed. Once the last write ends, one read goes for all of
+   * them, so the read that sees the write always goes, whichever reached the
+   * tab first, the write's answer or its signal.
    */
   function beginWrite(): () => void {
     writesOut += 1;
@@ -505,7 +506,6 @@ export default function HostsPanel(props: HostsPanelProps) {
       if (ended) return;
       ended = true;
       writesOut -= 1;
-      loadSeq += 1;
       if (writesOut === 0 && readOwed) {
         readOwed = false;
         void loadHosts(false);
@@ -548,7 +548,7 @@ export default function HostsPanel(props: HostsPanelProps) {
       };
       if (seq !== loadSeq) {
         // A newer read answers for itself. Otherwise one of this panel's own
-        // writes started or ended while this was out: read again after it.
+        // writes started while this was out: read again once it is over.
         if (seq === newestRead) owe();
         return;
       }
@@ -799,10 +799,9 @@ export default function HostsPanel(props: HostsPanelProps) {
         return;
       }
       haptic("commit");
-      // Recorded against the row on screen now, which is the one the select
-      // belongs to.
-      const shown = untrack(hosts).find((h) => h.osnProfileId === host.osnProfileId) ?? host;
-      setScopesSet((set) => new Map(set).set(shown, next));
+      // No read lands while the write is out, so `host` is still the row on
+      // screen.
+      setScopesSet((set) => new Map(set).set(host, next));
       toast.success(`${nameOf(host)} now sees ${RUN_SHEET_SCOPE_COPY[next].phrase}.`);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();

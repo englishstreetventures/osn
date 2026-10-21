@@ -2063,6 +2063,9 @@ describe("HostsPanel — the open wedding's members-changed signal", () => {
     releaseFirst(json({ hosts: [] }));
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(screen.getByText("@carol")).toBeTruthy();
+    // The older read was overtaken by a newer one, not by a write: nothing is
+    // read again for it.
+    expect(authFetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("shows a failed first read, and clears it when a signalled read succeeds", async () => {

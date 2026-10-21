@@ -189,7 +189,8 @@ function sendReread(weddingId: string): void {
   const queued = rereads.get(weddingId);
   if (!queued || writing.has(weddingId) || inflight.has(weddingId)) return;
   rereads.delete(weddingId);
-  stale.add(weddingId);
+  // The wedding is still stale unless a read that started after the signal,
+  // and after the tab's writes, has landed: then this answers from the cache.
   queued.start(ensureTasksLoaded(weddingId, queued.fetcher));
 }
 
@@ -325,7 +326,6 @@ export function ensureTasksLoaded(
           // flight, or one is out now: the rows may predate it. Drop them and
           // read again once the last write has ended.
           if (writeEpochOf(weddingId) !== startedEpoch || writing.has(weddingId)) {
-            stale.add(weddingId);
             void queueReread(weddingId, fetcher);
             return false;
           }
