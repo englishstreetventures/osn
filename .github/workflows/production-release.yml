@@ -224,6 +224,7 @@ jobs:
     needs: [plan, build]
     if: needs.plan.outputs.cire_api == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment: production
     concurrency:
       group: deploy-production-cire-api
@@ -318,6 +319,7 @@ jobs:
     needs: [plan, build]
     if: needs.plan.outputs.cire_invites == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment: production
     concurrency:
       group: deploy-production-cire-invites
@@ -432,6 +434,7 @@ jobs:
     needs: [plan, build]
     if: needs.plan.outputs.cire_host == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment: production
     concurrency:
       group: deploy-production-cire-host
@@ -514,6 +517,7 @@ jobs:
     needs: [plan, build]
     if: needs.plan.outputs.cire_vendor == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment: production
     concurrency:
       group: deploy-production-cire-vendor
@@ -584,6 +588,7 @@ jobs:
     needs: [plan, build]
     if: needs.plan.outputs.cire_landing == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment: production
     concurrency:
       group: deploy-production-cire-landing
@@ -658,6 +663,7 @@ jobs:
     needs: [plan, build]
     if: needs.plan.outputs.osn_api == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment: production
     concurrency:
       group: deploy-production-osn-api
@@ -762,6 +768,7 @@ jobs:
     needs: [plan, build]
     if: needs.plan.outputs.osn_social == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment: production
     concurrency:
       group: deploy-production-osn-social
@@ -850,6 +857,7 @@ jobs:
     needs: [plan, build]
     if: needs.plan.outputs.zap_api == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment: production
     concurrency:
       group: deploy-production-zap-api
