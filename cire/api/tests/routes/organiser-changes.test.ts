@@ -8,6 +8,9 @@ import {
   guestEvents,
   imports,
   organiserSessions,
+  rsvps,
+  seatingAssignments,
+  seatingTables,
   weddingHosts,
   weddings,
 } from "@cire/db";
@@ -22,7 +25,7 @@ import { MAX_EVENTS, MAX_ROWS } from "../../src/schemas/import";
 import { ChangeConflict } from "../../src/services/changes";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { createR2Stub } from "../../src/services/r2-imports";
-import { appRequest, jsonBody, setTier } from "../test-helpers";
+import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -1275,6 +1278,126 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
 });
 
 // ── One change writes a wedding at a time ─────────────────────────────────
+
+describe("a change's warnings are read for its preview only", () => {
+  // The RSVP warning's read and the seat count are the only statements that
+  // match these; applyImport deletes RSVPs and seats but never selects them.
+  const isWarningRead = (sql: string) =>
+    sql.includes("char(31)") || /^select .* from "rsvps" where "rsvps"\."guest_id" in/.test(sql);
+
+  it("warns of the RSVP and the seat a removal loses, and reads neither to apply or revert it", async () => {
+    const { app, db } = buildApp();
+    const seed = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const seedId = ((await seed.json()) as { changeId: string }).changeId;
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: seedId })).status).toBe(200);
+
+    // Bo has replied to the Reception and sits at its one table.
+    const bo = db.select().from(guests).where(eq(guests.firstName, "Bo")).get()!;
+    const reception = db.select().from(events).where(eq(events.name, "Reception")).get()!;
+    const now = new Date();
+    db.insert(rsvps)
+      .values({
+        id: "rsvp_bo",
+        guestId: bo.id,
+        eventId: reception.id,
+        status: "attending",
+        createdAt: now,
+      })
+      .run();
+    db.insert(seatingTables)
+      .values({
+        id: "stb_rec",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        eventId: reception.id,
+        name: "Table 1",
+        capacity: 8,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(seatingAssignments)
+      .values({ tableId: "stb_rec", eventId: reception.id, guestId: bo.id, createdAt: now })
+      .run();
+
+    const recorded = recordStatements(db);
+    const warningReads = () => recorded.map((r) => r.sql).filter(isWarningRead).length;
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV.split("\n").slice(0, 2).join("\n"),
+    });
+    expect(preview.status).toBe(200);
+    const body = (await preview.json()) as { changeId: string; warnings: string[] };
+    expect(body.warnings.filter((w) => /RSVP|seating chart/.test(w))).toEqual([
+      expect.stringMatching(/^Removing guest Bo would lose their RSVP: status=attending/),
+      "This change clears 1 seat from the seating chart. Reverting it does not bring them back.",
+    ]);
+    expect(warningReads()).toBe(2);
+
+    const applied = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: body.changeId });
+    expect(applied.status).toBe(200);
+    expect(db.select().from(guests).where(eq(guests.firstName, "Bo")).get()).toBeUndefined();
+    expect(warningReads()).toBe(2);
+    const reverted = await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId: body.changeId });
+    expect(reverted.status).toBe(200);
+    expect(db.select().from(guests).where(eq(guests.firstName, "Bo")).get()).toBeTruthy();
+    expect(warningReads()).toBe(2);
+    // Warnings belong to the preview: neither summary carries a list that
+    // would read as complete without them.
+    for (const res of [applied, reverted]) {
+      const { summary } = (await res.json()) as { summary: Record<string, unknown> };
+      expect(summary.guestsRemoved).toBeTypeOf("number");
+      expect(summary).not.toHaveProperty("warnings");
+    }
+
+    // A change that removes nothing reads neither, and warns of neither.
+    const unchanged = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const quiet = (await unchanged.json()) as { warnings: string[] };
+    expect(quiet.warnings.filter((w) => /RSVP|seating chart/.test(w))).toEqual([]);
+    expect(warningReads()).toBe(2);
+  });
+
+  it("reads no warning to revert a change, by any of the revert's paths", async () => {
+    const { app, db } = buildApp();
+    const change = async (body: object) => {
+      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, body);
+      expect(preview.status).toBe(200);
+      const { changeId } = (await preview.json()) as { changeId: string };
+      expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
+      return changeId;
+    };
+    const revert = async (changeId: string) =>
+      expect((await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId })).status).toBe(200);
+    await change({ eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
+
+    const recorded = recordStatements(db);
+    const warningReads = () => recorded.map((r) => r.sql).filter(isWarningRead).length;
+    // Each change adds what its revert then removes: a guest, or an event.
+    const withCy = `${GUESTS_CSV}\n3,Charlie,Cy,Charlie,yes,yes`;
+    const withSangeet = `${EVENTS_CSV}\nSangeet,2026-09-19T18:00:00+10:00,2026-09-19T23:00:00+10:00,Australia/Sydney,Hall,,Festive,,,`;
+
+    await revert(await change({ eventsCsv: EVENTS_CSV, guestsCsv: withCy }));
+    await revert(await change({ guestsCsv: withCy }));
+    await revert(await change({ eventsCsv: withSangeet }));
+    // A change whose before-image has been pruned reverts by replaying the
+    // change before it.
+    const pruned = await change({ eventsCsv: EVENTS_CSV, guestsCsv: withCy });
+    db.update(imports)
+      .set({ beforeEventsR2Key: null, beforeGuestsR2Key: null })
+      .where(eq(imports.id, pruned))
+      .run();
+    await revert(pruned);
+
+    expect(db.select().from(guests).where(eq(guests.firstName, "Cy")).get()).toBeUndefined();
+    expect(db.select().from(events).where(eq(events.name, "Sangeet")).get()).toBeUndefined();
+    expect(warningReads()).toBe(0);
+  });
+});
 
 describe("POST /changes/apply + /revert — one change writes a wedding at a time", () => {
   /** Hold the wedding the way an apply still writing does. */

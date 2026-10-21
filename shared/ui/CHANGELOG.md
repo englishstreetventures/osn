@@ -1,5 +1,12 @@
 # @shared/ui
 
+## 0.5.1
+
+### Patch Changes
+
+- 5ab88f0: Build with vite 8.3.3 (range `^8.3.3`), which clears the advisory on vite 8.2.0
+  through 8.2.3.
+
 ## 0.5.0
 
 ### Minor Changes

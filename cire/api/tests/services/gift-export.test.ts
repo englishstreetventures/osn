@@ -219,12 +219,18 @@ function seedParity(db: Db) {
         noteHiddenAt: at(21),
         noteHiddenByOsnProfileId: "usr_editor",
       }),
-      cash("rcon_pending", 5, { status: "pending", itemId: "ritem_vase" }),
+      // A gift to a fund carries the fund's name as it was given, as the
+      // contribute route writes it.
+      cash("rcon_pending", 5, { status: "pending", itemId: "ritem_vase", itemTitle: "The vase" }),
       cash("rcon_disputed", 6, { status: "disputed", message: "Held by the bank" }),
       cash("rcon_refunded", 7, { status: "refunded", message: "Sent back later" }),
       cash("rcon_failed", 8, { status: "failed", message: "Card declined here" }),
       cash("rcon_host", 9, { familyId: "fam_host", message: "From us two" }),
-      cash("rcon_gone", 10, { itemId: "ritem_gone", message: "Towards the lamp" }),
+      cash("rcon_gone", 10, {
+        itemId: "ritem_gone",
+        itemTitle: "Deleted Lamp",
+        message: "Towards the lamp",
+      }),
       cash("rcon_yen", 11, {
         amountMinor: 20_000,
         currency: "JPY",
@@ -422,6 +428,7 @@ describe("giftExportService.giftsCsv", () => {
             id: "rcon_yen",
             weddingId: BOOTSTRAP_WEDDING_ID,
             itemId: "ritem_pan",
+            itemTitle: "Copper Pan",
             familyId: "fam_gifts",
             status: "succeeded",
             // JPY has no minor unit: 20000 minor units is ¥20,000, not ¥200.
@@ -802,6 +809,9 @@ describe("giftExportService.giftsCsv", () => {
     expect(exported.filter((line) => line.includes(",Note hidden,"))).toHaveLength(2);
     expect(exported.join("\n")).not.toContain("For the honeymoon");
     expect(exported.join("\n")).not.toContain("Changed my mind");
+    // The fund was deleted after the gift; both sides still name it.
+    expect(portal.find((e) => e.id === "rcon_gone")?.itemTitle).toBe("Deleted Lamp");
+    expect(exported.filter((line) => line.startsWith("Cash gift,Deleted Lamp,"))).toHaveLength(1);
   }, 30_000);
 });
 

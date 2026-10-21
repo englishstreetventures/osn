@@ -158,9 +158,9 @@ component was previously reading a container it did not live in.
   would clip it, so `LockedRow` puts it back in the tab order by hand: Tab on
   the open row enters the card, Shift+Tab from its first button returns to the
   row, and Tab from its last button moves on to the next row. That last step
-  needs a locked row never to be the nav's last, which holds while Guests,
-  Invite and Settings end `MODULE_NAV`. For an owner, the Budget, Checklist and
-  Registry cards add a **Download as CSV** button under the upgrade
+  needs a locked row never to be the nav's last, which holds while Invite and
+  Settings end `MODULE_NAV`. For an owner, the Budget, Checklist, Registry and
+  Seating cards add a **Download as CSV** button under the upgrade
   (`LockedExport.tsx`) when the wedding holds rows there, saying how many ("Your
   12 budget lines are still here."). The card's content mounts only while it is
   open, so the row count is asked for on the first open and kept per wedding

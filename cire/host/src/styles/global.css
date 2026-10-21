@@ -842,3 +842,70 @@
     var(--bg);
   color: var(--bg);
 }
+
+/* ── Print sheet ────────────────────────────────────────────────────────────
+ * A view that has a paper form renders it into a `[data-print-sheet]` child of
+ * <body> (a portal) and marks <html> with the same attribute, both from
+ * `beforeprint` to `afterprint`. Printing the page then prints the sheet alone:
+ * every other child of <body> — the shell, the rail, the module chrome — is
+ * hidden. The sheet stays hidden on screen for the moment it exists there.
+ * Keyed on <html> rather than `body:has(...)`, which the Firefox floor in
+ * `.browserslistrc` does not support. The seating chart is the one user.
+ *
+ * Paper is light whatever the screen theme is: black ink on white, in the
+ * portal's working face, with each table kept whole on a page where it fits.
+ */
+/* The sheet, never <html>, which carries the same attribute as its switch. */
+body > [data-print-sheet] {
+  display: none;
+}
+
+@media print {
+  :root[data-print-sheet] body > :not([data-print-sheet]) {
+    display: none !important;
+  }
+
+  :root[data-print-sheet] body {
+    background: #fff;
+  }
+
+  body > [data-print-sheet] {
+    display: block;
+    color: #000;
+    font-family: var(--font-ui), sans-serif;
+  }
+
+  .seating-print-sheet h1 {
+    margin: 0;
+    font-size: 18pt;
+    font-weight: 600;
+  }
+
+  .seating-print-sheet h1 + p {
+    margin: 0 0 1rem;
+    font-size: 10pt;
+  }
+
+  .seating-print-sheet section {
+    break-inside: avoid;
+    margin: 0 0 0.9rem;
+  }
+
+  .seating-print-sheet h2 {
+    margin: 0 0 0.25rem;
+    font-size: 12pt;
+    font-weight: 600;
+  }
+
+  .seating-print-sheet h2 span {
+    font-weight: 400;
+  }
+
+  .seating-print-sheet ol {
+    margin: 0;
+    padding-left: 1.4rem;
+    list-style: decimal;
+    font-size: 11pt;
+    line-height: 1.4;
+  }
+}

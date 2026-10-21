@@ -91,6 +91,14 @@ describe("legal pages", () => {
     expect(hosts).toMatch(/which checklist tasks each of you holds/);
   });
 
+  /** Seating charts are wedding content the couple create, and a table
+   *  assignment is guest information they record; the couples' notice says
+   *  both. */
+  it("the hosts' notice names seating charts and table assignments", () => {
+    expect(hosts).toMatch(/checklists,\s+budgets and seating charts you create/);
+    expect(hosts).toMatch(/which table each guest sits at/);
+  });
+
   it("footer links every legal page", () => {
     for (const name of footerPages) {
       expect(footer).toContain(`href="/${name}"`);

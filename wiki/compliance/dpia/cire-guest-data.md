@@ -11,7 +11,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # DPIA — Cire guest data (special-category dietary)
@@ -66,6 +66,16 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   `rsvps.status`. The choice is the guest's word, backed by the household
   code: the household trust model the claim has always had. The guest privacy
   notice lists which member sent each reply.
+- **Seat assignments (migration 0089, a Gold module).** An organiser may set
+  out tables for an event and seat invited guests at them
+  (`seating_assignments`). A seat says who sits beside whom, so it can imply a
+  relationship; it holds ids only and no answer, is read by the wedding's
+  owners and co-hosts, and is never shown to other guests. An owner may
+  download it (`seating.csv`: names, household, table, reply, no dietary data)
+  and anyone who reads the chart may print it, for the venue. Basis
+  Art. 6(1)(f), wedding administration, as the guest list it is drawn from.
+  Seats go with the guest's invitation and with the 1-year guest-data sweep
+  ([[retention]]); the guest privacy notice lists them.
 - **Relayed dietary consent.** A household member often answers for others,
   and the sheet asks for consent once per submission. The record now shows
   which member ticked the box for whom, which makes visible a gap that already

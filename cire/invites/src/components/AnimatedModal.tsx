@@ -51,13 +51,6 @@ interface AnimatedModalProps {
    * mid-visit (EventSheet's past a deadline) must not pull the content up.
    */
   toolbar?: boolean;
-  /**
-   * Ignore a tap on the backdrop for now. EventSheet sets it while its panels
-   * are moving: the sheet changes height under the finger, so the second tap
-   * of a double tap on its badge can land outside it, and that is not a
-   * request to close. Escape and the close button still close.
-   */
-  holdOpen?: boolean;
   children: JSX.Element;
 }
 
@@ -74,7 +67,15 @@ interface AnimatedModalProps {
  *
  * ## What is this component's
  *
- * Four things the platform does not do, each the reason a line below exists.
+ * Five things the platform does not do, each the reason a line below exists.
+ *
+ * The **one height**. The sheet's height is set by the viewport alone — 70% of
+ * a phone's, and from `md` 85% of the window up to 640px — whatever it holds,
+ * and its content scrolls inside. EventSheet swaps two panels of different
+ * heights in it, and a form that grows as the guest answers; a sheet sized to
+ * its content would move its edge on every switch and every answer. The
+ * scrollport fills the sheet, so a child can end on the sheet's bottom edge
+ * however short it is.
  *
  * The **theme variables**, which have to be re-declared on the panel because it
  * paints outside the themed section wrapper it belongs to, and are filtered
@@ -133,7 +134,6 @@ export function AnimatedModal(props: AnimatedModalProps) {
       }}
       label={props.label}
       labelledBy={props.labelledBy}
-      dismissable={!props.holdOpen}
       frame
       // Bottom-anchored on a phone, centred above `md`, with the grip radius
       // the invite's own `--ui-radius-sheet` sets. One choice rather than eight
@@ -156,7 +156,16 @@ export function AnimatedModal(props: AnimatedModalProps) {
       // phone. The family is named in `no-restyle`'s allow lists because the
       // rule's grammar cannot classify a `max-w-*` built from a custom
       // `--container-*` entry; see wiki/shared/design-tokens.md.
-      class="max-w-column-md md:mb-8"
+      // One height, whatever the sheet holds (see the component doc), and
+      // below the presentation's own `max-h` cap. On a phone it is 70% of the
+      // screen: low enough that a sparse event's details do not sit over a
+      // tall empty sheet, tall enough for a household of one to answer
+      // "Attending" without scrolling (410px of a 591px sheet on a 390×844
+      // phone, and still whole at 375×667). From `md` it is
+      // the cap, `85vh`, up to 640px, in pixels for the same reason as the
+      // width; at 1280px wide the form for one guest answering "Attending"
+      // then shows every diet and allergy choice above its bar.
+      class="max-w-column-md h-[70dvh] md:mb-8 md:h-[min(85vh,640px)]"
     >
       {/* `z-10` because tree order alone is not enough. This row is an
           earlier-in-tree positioned sibling of the scroller, so it outranks the
@@ -183,9 +192,12 @@ export function AnimatedModal(props: AnimatedModalProps) {
           &times;
         </button>
       </div>
-      {/* `min-h-0` so this flex item may shrink below its content height —
-          without it the panel's `max-h` cannot take effect and nothing
-          scrolls.
+      {/* `flex-1 min-h-0` makes this flex item exactly the sheet's height:
+          `flex-1` grows it to fill a sheet taller than its content, and
+          `min-h-0` lets it shrink below content taller than the sheet —
+          without that, nothing scrolls and the content overflows the sheet.
+          It is a column itself so its child can grow to fill it in turn,
+          which is how a short RSVP form still ends on the sheet's bottom edge.
 
           `tabindex="0"` makes the scrollport itself focusable, which is what
           gives it a keyboard; `autofocus` is what makes `showModal()` land
@@ -204,7 +216,7 @@ export function AnimatedModal(props: AnimatedModalProps) {
         autofocus
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region MUST be focusable or it has no keyboard (WCAG 2.1.1; axe `scrollable-region-focusable`). This rule and that one disagree by construction on scrollports, and keyboard operability wins: measured, focus elsewhere left Arrow/PageDown moving this sheet 0px.
         tabindex="0"
-        class={`min-h-0 scroll-pt-14 overflow-y-auto overscroll-contain px-6 ${
+        class={`flex min-h-0 flex-1 scroll-pt-14 flex-col overflow-y-auto overscroll-contain px-6 ${
           props.toolbar ? "pt-16" : "pt-8"
         } ${props.flushBottom ? "pb-0" : "pb-[max(2.5rem,env(safe-area-inset-bottom))] md:pb-10"}`}
       >

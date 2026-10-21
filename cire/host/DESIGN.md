@@ -280,6 +280,19 @@ column with the suite green.
 brightest in the middle where the eye lands. The only place gold touches a
 full-width element.
 
+**Print sheet.** A view with a paper form — the seating chart, for the venue —
+renders it into a `[data-print-sheet]` child of `<body>` through a portal, and
+marks `<html>` with the same attribute, both from `beforeprint` to `afterprint`
+only; the sheet is hidden on screen for the moment it exists there.
+Printing then prints the sheet alone: the stylesheet hides every other child of
+`<body>`. The switch is on `<html>`, not `body:has(…)`, which the Firefox floor
+does not support, and the screen rule names `body > [data-print-sheet]`, never
+the bare attribute, which `<html>` also carries. Paper is black ink on white in
+the working face whatever the screen theme is — the one place the portal writes
+literal colours rather than tokens, since a ramp means nothing on paper. Each
+table is kept whole on a page where it fits. `SeatingView.browser.test.tsx`
+checks it under print media.
+
 ---
 
 ## 6. Theme preference

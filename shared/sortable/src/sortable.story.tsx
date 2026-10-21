@@ -2,6 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 
 import { closestCenter } from "./collision";
 import { DragDropProvider, DragDropSensors, useDragDropContext } from "./context";
+import { createDraggable, createDroppable } from "./droppable";
 import { createSortableList } from "./list";
 import { createSortable, maybeTransformStyle, SortableProvider } from "./sortable";
 
@@ -197,3 +198,81 @@ export const MultipleLists = () => (
 export const LongList = () => (
   <List label="Twenty rows" initial={Array.from({ length: 20 }, (_, i) => `Item ${i + 1}`)} />
 );
+
+function Chip(props: { id: string }) {
+  const item = createDraggable(props.id);
+  return (
+    <li
+      ref={item.ref}
+      style={maybeTransformStyle(item.transform())}
+      classList={{ "relative z-30 shadow-lg": item.isActiveDraggable() }}
+      class="border-border bg-card flex items-center gap-2 rounded-md border px-2 py-1 text-sm"
+    >
+      <button
+        type="button"
+        {...item.dragActivators}
+        class="cursor-grab touch-none active:cursor-grabbing"
+        aria-label={`Drag ${props.id}`}
+      >
+        ⠿
+      </button>
+      {props.id}
+    </li>
+  );
+}
+
+function Place(props: { id: string; guests: string[] }) {
+  const zone = createDroppable(props.id);
+  return (
+    <section
+      ref={zone.ref}
+      class="border-border min-h-24 w-56 rounded-lg border p-3"
+      classList={{ "border-primary ring-primary/40 ring-2": zone.isOver() }}
+    >
+      <h3 class="mb-2 text-sm font-semibold">{props.id}</h3>
+      <ul class="flex flex-wrap gap-2">
+        <For each={props.guests}>{(guest) => <Chip id={guest} />}</For>
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * Drop zones: names dragged between containers rather than re-ordered within
+ * one. What to look at: the chip tracks the pointer and paints above the
+ * containers it crosses; only the container under the pointer lights; a release
+ * between containers puts the chip back where it was. Scroll the page with the
+ * wheel mid-drag to check the far container is still found.
+ */
+export const DropZones = () => {
+  const [places, setPlaces] = createSignal<Record<string, string[]>>({
+    "Not seated": ["Ada", "Bo", "Cleo", "Dot"],
+    "Table 1": [],
+    "Table 2": [],
+  });
+  return (
+    <DragDropProvider
+      onDragEnd={({ draggable, droppable }) => {
+        if (!droppable) return;
+        setPlaces((now) => {
+          const next: Record<string, string[]> = {};
+          for (const [place, guests] of Object.entries(now)) {
+            next[place] = guests.filter((g) => g !== draggable.id);
+          }
+          next[String(droppable.id)] = [
+            ...(next[String(droppable.id)] ?? []),
+            String(draggable.id),
+          ];
+          return next;
+        });
+      }}
+    >
+      <DragDropSensors />
+      <div class="flex flex-wrap gap-6">
+        <For each={Object.keys(places())}>
+          {(place) => <Place id={place} guests={places()[place] ?? []} />}
+        </For>
+      </div>
+    </DragDropProvider>
+  );
+};

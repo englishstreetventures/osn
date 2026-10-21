@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-solid";
+import Armchair from "lucide-solid/icons/armchair";
 import CalendarDays from "lucide-solid/icons/calendar-days";
 import Gift from "lucide-solid/icons/gift";
 import ListChecks from "lucide-solid/icons/list-checks";
@@ -43,8 +44,8 @@ export interface ModuleDef {
 }
 
 /** The module nav, in workflow order: land on Overview, then build the day
- *  (Events) → invite the people (Guests) → dress it up (Invite) → housekeeping
- *  (Settings). Every row is visible to every organiser: a module the wedding's
+ *  (Events) → invite the people (Guests) and seat them (Seating) → dress it up
+ *  (Invite) → housekeeping (Settings). Every row is visible to every organiser: a module the wedding's
  *  tier does not include stays in the nav, faded and inert, rather than
  *  disappearing.
  *  Read-only gating works the same way — write surfaces are gated inside each
@@ -107,13 +108,25 @@ export const MODULE_NAV: ModuleDef[] = [
     },
   },
   { id: "guests", label: "Guests", icon: Users, hint: "Households, invites, and RSVPs" },
+  {
+    id: "seating",
+    label: "Seating",
+    icon: Armchair,
+    hint: "Tables and who sits where",
+    lock: {
+      tier: "gold",
+      title: "Seating chart",
+      blurb:
+        "Set out the tables for each event, seat your guests, and print the chart for the venue.",
+    },
+  },
   { id: "invite", label: "Invite", icon: MailOpen, hint: "Photos, story, colours, and codes" },
   { id: "settings", label: "Settings", icon: Settings, hint: "Profile, budget, and co-hosts" },
 ];
 
 /** Built once. `moduleDef` is called from the shell's header, its panel keys,
  *  the rail, the sheet and the command palette — a linear scan per call turns
- *  one navigation into dozens of nine-element searches for an answer that never
+ *  one navigation into dozens of ten-element searches for an answer that never
  *  changes. */
 const BY_ID = new Map(MODULE_NAV.map((mod) => [mod.id, mod]));
 

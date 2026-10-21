@@ -81,6 +81,7 @@ import {
 import { createRegistryStripeRoutes } from "./routes/registry-stripe";
 import { createRsvpRoutes } from "./routes/rsvp";
 import { createRsvpDigestStopRoutes } from "./routes/rsvp-digest-stop";
+import { createSeatingRoutes } from "./routes/seating";
 import { createStripePlatformWebhookRoutes } from "./routes/stripe-platform-webhook";
 import { createStripeWebhookRoutes } from "./routes/stripe-webhook";
 import { createTaskReadRoutes, createTaskWriteRoutes } from "./routes/tasks";
@@ -990,13 +991,17 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // 404 `registry_not_found`, not 402, because no caller — anonymous, or
       // holding a cookie for some other wedding — may learn which weddings
       // have bought which tier.
-      .use(createRegistryGuestImageRoutes(db, { assets, images }))
-      .use(createRegistryGuestListRoutes(db))
+      //
+      // `takesPayments` is the contribute route's own mount condition below:
+      // the list offers money and cash funds, and a fund's picture serves,
+      // only where a guest's press can reach a payment page.
+      .use(createRegistryGuestImageRoutes(db, { assets, images, takesPayments: stripe !== null }))
+      .use(createRegistryGuestListRoutes(db, { takesPayments: stripe !== null }))
       .use(createRegistryGuestMineRoutes(db))
       .use(createRegistryGuestClaimRoutes(db, { limiter: registryGuestLimiter }))
       // Giving money. Mounted only with Stripe configured — a guest must never
-      // be offered a button that cannot lead anywhere. Its own limiter, tighter
-      // than the claim one: every call is an outbound Stripe request.
+      // be offered a button that cannot lead anywhere. Its own limiter, apart
+      // from the claim one: every call is an outbound Stripe request.
       .use(
         stripe
           ? createRegistryContributeRoutes(db, {
@@ -1219,6 +1224,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // accumulated route-type surface here caps the depth; it's runtime-inert
   // (`.use()` only needs an Elysia instance) and scoped to this final mount.
   const rootApp: AnyElysia = app;
+  // The seating chart. `.use()` registers on the instance itself, so this mounts it.
+  rootApp.use(createSeatingRoutes(db, osnAuthOptions));
   // The portal's read of the invite images. The organiser-facing customisation
   // links the closing image here, because the public route keeps it for claimed
   // households. A sibling of the invite builder's writes, with no limiter — see

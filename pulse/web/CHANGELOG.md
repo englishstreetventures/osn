@@ -1,5 +1,16 @@
 # @osn/pulse
 
+## 0.24.22
+
+### Patch Changes
+
+- 5ab88f0: Build with vite 8.3.3 (range `^8.3.3`), which clears the advisory on vite 8.2.0
+  through 8.2.3.
+- Updated dependencies [5ab88f0]
+  - @shared/ui@0.5.1
+  - @shared/rp-auth@0.2.11
+  - @shared/toast@0.3.6
+
 ## 0.24.21
 
 ### Patch Changes

@@ -1,5 +1,21 @@
 # @shared/sortable
 
+## 0.3.0
+
+### Minor Changes
+
+- ebc9274: Drop zones: `createDraggable` and `createDroppable` let an item be dragged into
+  one of several containers, beside the existing re-order lists, with
+  `pointerWithin` to find the zone under the pointer and `isOver` to light it.
+  A window scroll mid-drag is followed.
+
+## 0.2.4
+
+### Patch Changes
+
+- 5ab88f0: Build with vite 8.3.3 (range `^8.3.3`), which clears the advisory on vite 8.2.0
+  through 8.2.3.
+
 ## 0.2.3
 
 ### Patch Changes

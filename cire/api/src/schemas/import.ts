@@ -291,7 +291,6 @@ export const ImportSummary = Schema.Struct({
   guestsCreated: Schema.Number,
   guestsUpdated: Schema.Number,
   guestsRemoved: Schema.Number,
-  warnings: Schema.Array(Schema.String),
 });
 export type ImportSummary = Schema.Schema.Type<typeof ImportSummary>;
 

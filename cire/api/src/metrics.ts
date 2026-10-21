@@ -176,6 +176,11 @@ export const CIRE_METRICS = {
   // a metric attribute (those belong in spans + logs).
   registryItemWrite: "cire.registry.item.write",
   registryGift: "cire.registry.gift",
+  // Seating chart writes, by action, and the writes the chart refused, by
+  // reason. Never a wedding, event, table or guest id.
+  seatingTableWrite: "cire.seating.table.write",
+  seatingSeatWrite: "cire.seating.seat.write",
+  seatingWriteRefused: "cire.seating.write.refused",
   // Self-serve upgrades. `tier` and `from_tier` are closed sets of plan tiers
   // and never a wedding, purchase or profile id — the whole point of the two
   // counters is that a spike is visible without anything per-tenant reaching
@@ -536,7 +541,23 @@ type PlusOnePermissionSetAttrs = { scope: PlusOnePermissionScope; allowed: "on" 
 type DietaryPresetAttrs = { preset: DietaryPreset };
 /** Which organiser write touched a registry item. Bounded, one per route. */
 export type RegistryItemAction = "create" | "update" | "remove";
-type RegistryItemWriteAttrs = { action: RegistryItemAction };
+/** Which kind of item it was: a gift to reserve, or a cash fund. Two values. */
+export type RegistryItemKindAttr = "product" | "cash_fund";
+type RegistryItemWriteAttrs = { action: RegistryItemAction; kind: RegistryItemKindAttr };
+/** Which seating-table write ran. One per route. */
+export type SeatingTableAction = "create" | "update" | "remove" | "reorder";
+type SeatingTableWriteAttrs = { action: SeatingTableAction };
+/** What a seat write did: a new seat, a move to another table, or a seat
+ *  given up. A write that changed nothing counts nowhere. */
+export type SeatingSeatAction = "seat" | "move" | "unseat";
+type SeatingSeatWriteAttrs = { action: SeatingSeatAction };
+/** Why the chart refused a write that was otherwise allowed. */
+export type SeatingRefusedReason =
+  | "table_full"
+  | "table_limit"
+  | "capacity_below_seated"
+  | "household_withdrawn";
+type SeatingWriteRefusedAttrs = { reason: SeatingRefusedReason };
 /** What happened to a gift-log row. `thanked`/`unthanked` are the toggle's two
  *  directions — worth separating, since a couple un-thanking in bulk is a
  *  different (and more suspicious) signal than thanking. `note_hidden` /
@@ -849,7 +870,7 @@ const rsvpUpserted = createCounter<RsvpUpsertedAttrs>({
 
 const registryItemWrite = createCounter<RegistryItemWriteAttrs>({
   name: CIRE_METRICS.registryItemWrite,
-  description: "Organiser registry item writes, by action",
+  description: "Organiser registry item writes, by action and item kind",
   unit: "{write}",
 });
 
@@ -857,6 +878,24 @@ const registryGift = createCounter<RegistryGiftAttrs>({
   name: CIRE_METRICS.registryGift,
   description: "Registry gift-log thank-you toggles and note hides, by action",
   unit: "{gift}",
+});
+
+const seatingTableWrite = createCounter<SeatingTableWriteAttrs>({
+  name: CIRE_METRICS.seatingTableWrite,
+  description: "Seating-table writes, by action",
+  unit: "{write}",
+});
+
+const seatingSeatWrite = createCounter<SeatingSeatWriteAttrs>({
+  name: CIRE_METRICS.seatingSeatWrite,
+  description: "Seat writes that changed where a guest sits, by action",
+  unit: "{write}",
+});
+
+const seatingWriteRefused = createCounter<SeatingWriteRefusedAttrs>({
+  name: CIRE_METRICS.seatingWriteRefused,
+  description: "Seating writes the chart refused, by reason",
+  unit: "{write}",
 });
 
 const upgradeCheckoutStarted = createCounter<UpgradeCheckoutStartedAttrs>({
@@ -1330,11 +1369,22 @@ export const metricPlusOneBlocked = (reason: PlusOneBlockedReason): void =>
 export const metricPlusOnePermissionSet = (scope: PlusOnePermissionScope, allowed: boolean): void =>
   plusOnePermissionSet.inc({ scope, allowed: allowed ? "on" : "off" });
 
-export const metricRegistryItemWrite = (action: RegistryItemAction): void =>
-  registryItemWrite.inc({ action });
+export const metricRegistryItemWrite = (
+  action: RegistryItemAction,
+  kind: RegistryItemKindAttr,
+): void => registryItemWrite.inc({ action, kind });
 
 export const metricRegistryGift = (action: RegistryGiftAction): void =>
   registryGift.inc({ action });
+
+export const metricSeatingTableWrite = (action: SeatingTableAction): void =>
+  seatingTableWrite.inc({ action });
+
+export const metricSeatingSeatWrite = (action: SeatingSeatAction): void =>
+  seatingSeatWrite.inc({ action });
+
+export const metricSeatingWriteRefused = (reason: SeatingRefusedReason): void =>
+  seatingWriteRefused.inc({ reason });
 
 export const metricUpgradeCheckoutStarted = (
   tier: PaidTier,

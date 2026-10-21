@@ -57,27 +57,12 @@ export interface EventSheetProps extends RsvpData {
 }
 
 /**
- * The first item of a computed comma-separated list, such as
- * `animation-timing-function`. Split at top level only: a `cubic-bezier(…)`
- * carries commas of its own.
- */
-export function firstOfCssList(value: string): string {
-  let depth = 0;
-  for (let i = 0; i < value.length; i++) {
-    const ch = value[i];
-    if (ch === "(") depth++;
-    else if (ch === ")") depth--;
-    else if (ch === "," && depth === 0) return value.slice(0, i).trim();
-  }
-  return value.trim();
-}
-
-/**
- * Seconds or milliseconds, as `getComputedStyle` writes an animation's
- * duration, in milliseconds. The first of a list; 0 for anything else.
+ * Seconds or milliseconds, as `getComputedStyle` writes a transition's
+ * duration, in milliseconds. The first of a list; 0 for anything else. A
+ * duration list holds no parentheses, so a plain split finds its first entry.
  */
 export function cssTimeMs(value: string): number {
-  const first = firstOfCssList(value);
+  const first = (value.split(",")[0] ?? "").trim();
   const amount = Number.parseFloat(first);
   if (!Number.isFinite(amount)) return 0;
   return first.endsWith("ms") ? amount : amount * 1000;
@@ -134,6 +119,26 @@ interface Touch {
  * reply. One rule, {@link EventSheet}'s `leavable`, gates the badge and the
  * swipe alike.
  *
+ * ## One height
+ *
+ * The sheet keeps one height whichever panel shows and whatever it holds:
+ * {@link AnimatedModal} sets it from the viewport alone, and a panel taller
+ * than that scrolls inside it. So a switch never moves the
+ * sheet's edge, in either direction, and nor does a form that grows as the
+ * guest answers. Nothing is measured, which matters here: the details' height
+ * cannot be known without mounting them, and mounting them would load the
+ * consent-gated embeds for a guest who never asked.
+ *
+ * The RSVP panel's wrapper, and the panels' own wrapper around it, grow to
+ * fill the scrollport, and the form's action bar sits at the foot of its
+ * column, so the bar is on the sheet's bottom edge however short the form is.
+ * The details wrapper does not: as a flex column it would stop its heading's
+ * margin collapsing into its header's, and open a gap under the heading. It
+ * carries the sheet's bottom padding itself, so the scrollport has none for
+ * either panel, and the bar — a sticky box, which keeps inside its
+ * scrollport's padding — reaches the edge even while a swipe draws the form
+ * in beside the details.
+ *
  * ## The switch
  *
  * Everything that matters happens at once, on the press: the panel swaps, the
@@ -146,10 +151,6 @@ interface Touch {
  *   time its element goes from `display: none` to shown, so no script times
  *   it. The panel the sheet opens on gets no class until the first switch, or
  *   it would play on top of the sheet's own entry.
- * - The sheet's height eases from the old panel's to the new one's, in step,
- *   instead of jumping. That is the Web Animations API on the `<dialog>`, timed
- *   by reading the panel's computed animation back, so `global.css` is the one
- *   place the timing is written and the reduced-motion clamp reaches both.
  * - Until the slide settles the new panel takes no pointer input: it is still
  *   transparent, and a second tap of a double tap would otherwise land on
  *   whatever control sits under the button just pressed. The badge ignores
@@ -161,7 +162,7 @@ interface Touch {
  *   panel.
  *
  * Under `prefers-reduced-motion` the global clamp cuts the slide to 0.01ms,
- * and the resize reads that same duration, so the switch is instant.
+ * so the switch is instant.
  *
  * ## The swipe
  *
@@ -181,6 +182,10 @@ interface Touch {
  *   moves between the panels.
  * - A touch in a text field, or in a box that scrolls sideways of its own
  *   (the dietary chips, the moodboard), belongs to that, not to the sheet.
+ * - The arriving panel is held to the scrollport's height, from the top of
+ *   what is on screen to the sheet's bottom edge, so the form's action bar is
+ *   drawn where it will rest rather than under a short form, which would drop
+ *   to the edge as the form landed.
  * - The arriving panel is `inert` until it has arrived, and its entry slide
  *   is suppressed (`quiet`) for as long as it is on screen: it is already in
  *   place, and adding the animation class to a shown element would play it.
@@ -191,8 +196,7 @@ interface Touch {
  * - Released, both panels ease to their resting places on
  *   `transition-panel-settle`, the slide's own duration and curve, read back
  *   from the computed style so the reduced-motion clamp reaches it. A
- *   committed swipe then switches exactly as the badge does, with the height
- *   easing after the panels land.
+ *   committed swipe then switches exactly as the badge does, less the slide.
  */
 export function EventSheet(props: EventSheetProps) {
   const [own, rsvp] = splitProps(props, [
@@ -229,7 +233,6 @@ export function EventSheet(props: EventSheetProps) {
   const wrappers: Partial<Record<EventPanel, HTMLDivElement>> = {};
   let scroller: HTMLDivElement | undefined;
   let rail: HTMLDivElement | undefined;
-  let resize: Animation | undefined;
   // Which switch is current, so a slide that settles after a later switch
   // cannot clear that later one's state.
   let switchToken = 0;
@@ -263,17 +266,10 @@ export function EventSheet(props: EventSheetProps) {
 
   /**
    * Switch to `next`. `arrived` is a swipe's: the panel is already in place,
-   * so it gets no slide of its own, and the resize takes the swipe's timing.
+   * so it gets no slide of its own.
    */
-  function show(next: EventPanel, arrived?: { duration: number; easing: string; from: number }) {
+  function show(next: EventPanel, arrived = false) {
     if (next === active() || (!arrived && gesture())) return;
-    const dialog = scroller?.parentElement ?? null;
-    // Measured before anything moves, and before a resize still running from
-    // a quick earlier switch is cancelled: this is the height on screen now.
-    // A swipe measured it before its own style writes, so nothing forces a
-    // layout to read it here.
-    const from = arrived?.from ?? dialog?.offsetHeight ?? 0;
-    resize?.cancel();
     const token = ++switchToken;
     const leaving = active();
 
@@ -289,25 +285,13 @@ export function EventSheet(props: EventSheetProps) {
     if (scroller) scroller.scrollTop = 0;
     headings[next]?.focus({ preventScroll: true });
 
-    const panel = wrappers[next];
     if (!arrived) {
       // The panel's own slide only — not its subtree, where a loading spinner
-      // can run for as long as an embed takes. Waited on before anything else
-      // here can go wrong, so nothing can leave the panel unclickable.
+      // can run for as long as an embed takes, so a slow embed cannot leave
+      // the panel unclickable.
+      const panel = wrappers[next];
       const slide = panel && typeof panel.getAnimations === "function" ? panel.getAnimations() : [];
       void settleEntry(token, slide);
-    }
-
-    if (!panel || !dialog || typeof dialog.animate !== "function") return;
-    const style = getComputedStyle(panel);
-    const duration = arrived?.duration ?? cssTimeMs(style.animationDuration);
-    const easing = arrived?.easing ?? firstOfCssList(style.animationTimingFunction);
-    const to = dialog.offsetHeight;
-    if (duration > 0 && Math.abs(to - from) >= 1) {
-      resize = dialog.animate([{ height: `${from}px` }, { height: `${to}px` }], {
-        duration,
-        easing: easing || "ease",
-      });
     }
   }
 
@@ -346,8 +330,11 @@ export function EventSheet(props: EventSheetProps) {
 
   function beginDrag(state: Touch) {
     const target = otherPanel(active());
-    // Read before the batch shows the incoming panel, so it forces no layout.
+    // Read before the batch shows the incoming panel, so they force no layout.
     const top = scroller?.scrollTop ?? 0;
+    const tall = scroller
+      ? scroller.clientHeight - Number.parseFloat(getComputedStyle(scroller).paddingTop)
+      : 0;
     batch(() => {
       setShown((panels) => new Set(panels).add(target));
       setQuiet((panels) => new Set(panels).add(target));
@@ -355,9 +342,13 @@ export function EventSheet(props: EventSheetProps) {
     });
     state.state = "dragging";
     const incoming = wrappers[target];
+    if (!incoming) return;
     // Level with the scrollport's top, wherever the panel on screen is
-    // scrolled to: the wrapper's own top is the scroll content's.
-    if (incoming) incoming.style.top = `${top}px`;
+    // scrolled to: the wrapper's own top is the scroll content's. And down to
+    // the scrollport's bottom edge, so the form's action bar is drawn where it
+    // will rest (see "The swipe").
+    incoming.style.top = `${top}px`;
+    incoming.style.minHeight = `${tall}px`;
   }
 
   function onPointerDown(e: PointerEvent) {
@@ -425,9 +416,7 @@ export function EventSheet(props: EventSheetProps) {
 
     const moving = [current, incoming];
     for (const el of moving) el.classList.add("transition-panel-settle");
-    const style = getComputedStyle(incoming);
-    const duration = cssTimeMs(style.transitionDuration);
-    const easing = firstOfCssList(style.transitionTimingFunction);
+    const duration = cssTimeMs(getComputedStyle(incoming).transitionDuration);
     const side = incomingSide(target);
     current.style.transform = `translateX(${commit ? -side * width : 0}px)`;
     incoming.style.transform = `translateX(${commit ? 0 : side * width}px)`;
@@ -440,15 +429,14 @@ export function EventSheet(props: EventSheetProps) {
       incoming?.removeEventListener("transitionend", onEnd);
       if (disposed || !settling) return;
       settling = false;
-      // Before the writes below, which would force a layout to read it after.
-      const from = scroller?.parentElement?.offsetHeight ?? 0;
       for (const el of moving) {
         el.classList.remove("transition-panel-settle");
         el.style.transform = "";
         el.style.top = "";
+        el.style.minHeight = "";
       }
       if (commit) {
-        show(target as EventPanel, { duration, easing, from });
+        show(target as EventPanel, true);
       } else {
         batch(() => {
           setGesture(null);
@@ -465,9 +453,7 @@ export function EventSheet(props: EventSheetProps) {
    * A press of the badge. A tap or click (`detail > 0`) is ignored while a
    * slide or a swipe is still running: the badge sits in the same corner on
    * both panels, so the second tap of a double tap lands on its twin and
-   * would go straight back. Not by taking its pointer input away — the tap
-   * would fall through to the dialog's own box and close the sheet. A key
-   * press is deliberate and goes through.
+   * would go straight back. A key press is deliberate and goes through.
    */
   function pressBadge(e: MouseEvent, next: EventPanel) {
     if (e.detail > 0 && (entering() !== null || gesture() !== null)) return;
@@ -506,22 +492,25 @@ export function EventSheet(props: EventSheetProps) {
       labelledBy={titleIds[active()]}
       themeVars={own.themeVars}
       // The RSVP form ends in a full-bleed sticky bar that owns the sheet's
-      // bottom edge; the details end in ordinary content that needs the
-      // sheet's own bottom padding.
-      flushBottom={active() === "rsvp"}
+      // bottom edge. A sticky box keeps inside its scrollport's padding, so
+      // the scrollport has none at the bottom, whichever panel shows: were it
+      // the details', the form a swipe draws in beside them would hold its bar
+      // above the edge and drop it there on landing. The details carry the
+      // same padding on their own wrapper instead.
+      flushBottom
       scrollRef={(el) => (scroller = el)}
       toolbar
       action={badge}
-      holdOpen={entering() !== null || gesture() !== null}
     >
       {/* `-mx-6 px-6` puts this box's edge on the scrollport's own padding
           edge, so the clip lands exactly where the full-bleed bar ends — and
           the bar's `-mx-6` cancels this `px-6` as it did the scrollport's.
           The arriving panel of a swipe is laid against the same edge with
-          `inset-x-6`. */}
+          `inset-x-6`. A column that grows to fill the scrollport, so the RSVP
+          panel can too; see "One height". */}
       <div
         ref={(el) => (rail = el)}
-        class="-mx-6 px-6"
+        class="-mx-6 flex grow flex-col px-6"
         classList={{
           "touch-pan-y": !zoomed(),
           "touch-pinch-zoom": !zoomed(),
@@ -540,6 +529,9 @@ export function EventSheet(props: EventSheetProps) {
           <div
             ref={(el) => (wrappers.details = el)}
             data-panel="details"
+            // The sheet's own bottom padding, which the scrollport gives up
+            // for the form's bar (`flushBottom` above).
+            class="pb-[max(2.5rem,env(safe-area-inset-bottom))] md:pb-10"
             hidden={active() !== "details" && gesture()?.target !== "details"}
             inert={gesture()?.target === "details"}
             classList={{
@@ -566,6 +558,7 @@ export function EventSheet(props: EventSheetProps) {
           <div
             ref={(el) => (wrappers.rsvp = el)}
             data-panel="rsvp"
+            class="flex grow flex-col"
             hidden={active() !== "rsvp" && gesture()?.target !== "rsvp"}
             inert={gesture()?.target === "rsvp"}
             classList={{

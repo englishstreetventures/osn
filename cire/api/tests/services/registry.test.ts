@@ -944,6 +944,123 @@ describe("gift log", () => {
     expect(gifts[0]!.amountMinor).toBe(4_000);
   });
 
+  it("still counts a gift's claims after an edit; only a fund skips the count", async () => {
+    const db = db0();
+    const [famA] = twoFamilies(db);
+    const pan = await ok(db, registryService.createItem(newItem({ quantityWanted: 2 })));
+    await ok(
+      db,
+      registryService.claim({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: pan.id,
+        familyId: famA,
+        quantity: 1,
+        status: "reserved",
+        note: null,
+        displayName: null,
+      }),
+    );
+    const edited = await ok(
+      db,
+      registryService.updateItem({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: pan.id,
+        patch: { title: "Copper saucepan" },
+      }),
+    );
+    expect(edited.quantityClaimed).toBe(1);
+  });
+
+  it("edits a cash fund in one statement: a fund has no claims to count", async () => {
+    const db = db0();
+    const fund = await ok(
+      db,
+      registryService.createItem({
+        ...newItem({ title: "Honeymoon" }),
+        kind: "cash_fund",
+        priceMinor: null,
+      }),
+    );
+    const statements = recordStatements(db);
+    const edited = await ok(
+      db,
+      registryService.updateItem({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: fund.id,
+        patch: { targetMinor: 300_000 },
+      }),
+    );
+    expect(edited.targetMinor).toBe(300_000);
+    expect(edited.quantityClaimed).toBe(0);
+    expect(statements).toHaveLength(1);
+    expect(statements[0]!.sql).not.toContain("registry_claims");
+  });
+
+  it("names the fund a gift was given to, as given, after a rename and after a delete", async () => {
+    const db = db0();
+    const [famA] = twoFamilies(db);
+    const fund = await ok(
+      db,
+      registryService.createItem({
+        ...newItem({ title: "Honeymoon in Kyoto" }),
+        kind: "cash_fund",
+        priceMinor: null,
+        targetMinor: 500_000,
+      }),
+    );
+    // One gift that arrived, and one that went back: the couple keep both in
+    // their log, and both still say where the guest meant the money to go.
+    const now = Date.now();
+    for (const [status, at] of [
+      ["succeeded", now - 2_000],
+      ["refunded", now - 1_000],
+    ] as const) {
+      await ok(
+        db,
+        registryService.createPendingContribution({
+          id: `rct_${status}`,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          familyId: famA,
+          itemId: fund.id,
+          itemTitle: fund.title,
+          amountMinor: 5_000,
+          currency: "AUD",
+          message: null,
+          displayName: null,
+        }),
+      );
+      db.update(registryContributions)
+        .set({ status, createdAt: new Date(at) })
+        .where(eq(registryContributions.id, `rct_${status}`))
+        .run();
+    }
+
+    const named = async () =>
+      (await ok(db, registryService.giftLog(BOOTSTRAP_WEDDING_ID))).entries.map((g) => [
+        g.status,
+        g.itemTitle,
+      ]);
+
+    await ok(
+      db,
+      registryService.updateItem({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: fund.id,
+        patch: { title: "Somewhere warm" },
+      }),
+    );
+    expect(await named()).toEqual([
+      ["refunded", "Honeymoon in Kyoto"],
+      ["succeeded", "Honeymoon in Kyoto"],
+    ]);
+
+    await ok(db, registryService.removeItem(BOOTSTRAP_WEDDING_ID, fund.id));
+    expect(await named()).toEqual([
+      ["refunded", "Honeymoon in Kyoto"],
+      ["succeeded", "Honeymoon in Kyoto"],
+    ]);
+  });
+
   it("toggles thank-you status on both gift kinds and rejects a foreign wedding", async () => {
     const db = db0();
     const [famA] = twoFamilies(db);
@@ -1442,10 +1559,10 @@ describe("registry ownership + range guards", () => {
     const second = await ok(db, registryService.createItem({ ...newItem(), imageKey: ownKey }));
 
     const shared = await ok(db, registryService.removeItem(BOOTSTRAP_WEDDING_ID, first.id));
-    expect(shared).toEqual({ imageKey: ownKey, imageKeyOrphaned: false });
+    expect(shared).toEqual({ kind: "product", imageKey: ownKey, imageKeyOrphaned: false });
 
     const last = await ok(db, registryService.removeItem(BOOTSTRAP_WEDDING_ID, second.id));
-    expect(last).toEqual({ imageKey: ownKey, imageKeyOrphaned: true });
+    expect(last).toEqual({ kind: "product", imageKey: ownKey, imageKeyOrphaned: true });
   });
 
   it("refuses an out-of-range quantity on create, update and claim", async () => {
@@ -2264,6 +2381,7 @@ describe("createPendingContribution", () => {
     weddingId: BOOTSTRAP_WEDDING_ID,
     familyId: twoFamilies(db)[0],
     itemId: null,
+    itemTitle: null,
     amountMinor: 5000,
     currency: "AUD",
     message: null,

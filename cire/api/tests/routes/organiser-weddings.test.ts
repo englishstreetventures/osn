@@ -1939,7 +1939,7 @@ describe("the budget and checklist exports for a wedding below Gold", () => {
     const res = await get(app, `${base}/module-rows`, BOOTSTRAP_OWNER);
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toContain("no-store");
-    expect(await jsonBody(res)).toEqual({ budgetLines: 2, tasks: 2, gifts: 0 });
+    expect(await jsonBody(res)).toEqual({ budgetLines: 2, tasks: 2, gifts: 0, seats: 0 });
   });
 
   // A wedding an operator moved back below Gold keeps its gift log, and its
@@ -1997,7 +1997,7 @@ describe("the budget and checklist exports for a wedding below Gold", () => {
     }
 
     const res = await get(app, `${base}/module-rows`, BOOTSTRAP_OWNER);
-    expect(await jsonBody(res)).toEqual({ budgetLines: 0, tasks: 0, gifts: 2 });
+    expect(await jsonBody(res)).toEqual({ budgetLines: 0, tasks: 0, gifts: 2, seats: 0 });
     const file = await get(app, `${base}/gifts.csv`, BOOTSTRAP_OWNER);
     expect((await file.text()).split("\r\n").slice(1)).toHaveLength(2);
   });
@@ -2020,7 +2020,7 @@ describe("the budget and checklist exports for a wedding below Gold", () => {
     const checklist = await get(app, `${base}/tasks.csv`, BOOTSTRAP_OWNER);
     expect(await checklist.text()).toBe("Timeframe,Task,Status,Due,Completed At,Notes");
     const counts = await get(app, `${base}/module-rows`, BOOTSTRAP_OWNER);
-    expect(await jsonBody(counts)).toEqual({ budgetLines: 0, tasks: 0, gifts: 0 });
+    expect(await jsonBody(counts)).toEqual({ budgetLines: 0, tasks: 0, gifts: 0, seats: 0 });
   });
 
   for (const route of ["/budget.csv", "/tasks.csv", "/module-rows"] as const) {

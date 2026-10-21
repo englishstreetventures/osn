@@ -22,6 +22,7 @@ import { planningExportService } from "../services/planning-export";
 import { regenerateCodeService } from "../services/regenerate-code";
 import { remintCodesService } from "../services/remint-codes";
 import { rsvpExportService, toCsv } from "../services/rsvp-export";
+import { seatingExportService } from "../services/seating-export";
 import { downloadFidelity, stateExportService } from "../services/state-export";
 import { tableExportService } from "../services/table-export";
 import { legacyEntitlementKeys, tierService } from "../services/tiers";
@@ -322,8 +323,8 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
  * Two gates. Every CSV download is `weddingOwner()`: a file leaves the portal
  * and goes wherever its holder sends it, so taking the wedding's data away is
  * an owner's call, and editors and viewers read it on screen instead. The row
- * counts behind the budget, checklist and gift downloads (`/module-rows`) sit
- * with them. The dashboard's RSVP view (`/rsvps`) is a screen read, so it stays
+ * counts behind the budget, checklist, gift and seating downloads
+ * (`/module-rows`) sit with them. The dashboard's RSVP view (`/rsvps`) is a screen read, so it stays
  * `weddingMember()`.
  *
  * The per-user limiter keys on `osnProfileId` (not the client IP): the caller
@@ -470,11 +471,31 @@ export const createOrganiserExportRoutes = (
             ),
           );
         })
-        // How many rows `budget.csv`, `tasks.csv` and `gifts.csv` would carry.
-        // The portal asks when an owner opens a locked Budget, Checklist or
-        // Registry card, and offers that module's file only when there is
-        // something in it. Owner only, like the files it describes, and
-        // ungated for the same reason.
+        // The seating chart for the venue — every seated guest at every
+        // event, by event and table order. Ungated for the reason the budget
+        // and checklist files are: a wedding below the seating module's tier
+        // keeps its chart and takes it back from the locked card. Capped
+        // (`MAX_SEATING_EXPORT_ROWS`) and rate-limited with the group.
+        .get("/seating.csv", ({ weddingId, weddingSlug, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            Effect.gen(function* () {
+              const csv = yield* seatingExportService.seatingCsv(weddingId);
+              return csvAttachment(csv, `cire-seating-${weddingSlug ?? weddingId}.csv`);
+            }).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchDefect(() => exportDefect(set, "seating.csv", weddingId)),
+            ),
+          );
+        })
+        // How many rows `budget.csv`, `tasks.csv`, `gifts.csv` and
+        // `seating.csv` would carry. The portal asks when an owner opens a
+        // locked Budget, Checklist, Registry or Seating card, and offers that
+        // module's file only when there is something in it. Owner only, like
+        // the files it describes, and ungated for the same reason.
         .get("/module-rows", ({ weddingId, set }) => {
           if (!weddingId) {
             set.status = 500;

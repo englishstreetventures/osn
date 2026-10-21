@@ -20,7 +20,7 @@ const MAX_MINOR = 9_000_000_000_000;
 /**
  * Parse an absolute `https:` URL, or `null` if the string is not one.
  *
- * Embedded credentials are rejected outright (S-M5). `https://host.example@evil.example/`
+ * Embedded credentials are rejected outright. `https://host.example@evil.example/`
  * is a valid URL whose authority is `evil.example`, and every UI that shows an
  * item's link shows a truncated form of it — so the one part a guest reads is
  * exactly the part the syntax lets an attacker choose. Nothing legitimate puts a
@@ -43,12 +43,11 @@ function parseHttpsUrl(value: string): URL | null {
  *
  * Scheme-checked, not merely shape-checked. `external_url` is rendered into an
  * `<a href>` on the guest site, and an unvalidated URL there is a same-origin
- * script sink — precedent CON-S-L2, where `vendor.privacyUrl` reached an `href`
- * with no scheme check and a `javascript:` value added later would have executed.
+ * script sink: a `javascript:` value there runs when a guest clicks it.
  * The guest renderer re-checks rather than trusting this, because a row can also
  * arrive from a migration or a fixture.
  *
- * The transform stores `URL.href` rather than the raw input (S-M5), so what the
+ * The transform stores `URL.href` rather than the raw input, so what the
  * column holds is what the parser saw — one normal form per link, and no gap
  * between the string that passed validation and the string that gets rendered.
  */
@@ -82,7 +81,7 @@ const ShippingAddress = Schema.String.check(Schema.isMaxLength(MAX_ADDRESS_CHARS
 /**
  * A calendar date (`YYYY-MM-DD` from a date input), stored as text.
  *
- * Checked as a real date, not merely a bounded string (S-M2). This column gates
+ * Checked as a real date, not merely a bounded string. This column gates
  * when the couple's HOME ADDRESS becomes visible to guests, and the comparison
  * that reads it treats an unparseable value as "no embargo" — so a garbage date
  * publishes the address immediately. Mirrors `CalendarDate` in `schemas/settings.ts`:
@@ -102,7 +101,7 @@ const IsoDate = Schema.String.check(
 /**
  * R2 object key for an image already uploaded through the assets pipeline.
  *
- * Shape-checked here and OWNERSHIP-checked in the service (S-H1). Every other
+ * Shape-checked here and OWNERSHIP-checked in the service. Every other
  * cire image key is minted server-side — `services/invite-assets.ts` builds
  * `assets/<weddingId>/<slot>-<uuid>` and the client never names one — so this is
  * the first key a client gets to choose. A free-form string would let an editor
@@ -111,7 +110,7 @@ const IsoDate = Schema.String.check(
  * `..`, no slashes past the two segments); `registryService` additionally
  * requires the middle segment to be the caller's own `weddingId`.
  *
- * The slot half matters as much as the wedding half (S-M1). Without it, an
+ * The slot half matters as much as the wedding half. Without it, an
  * editor could name their own wedding's invite hero here and have deleting the
  * item reap the hero's object — same wedding, so the ownership check passes.
  * {@link REGISTRY_IMAGE_KEY} is the one definition of that shape, exported from
@@ -129,6 +128,16 @@ const Quantity = Schema.Number.check(
   Schema.isInt(),
   Schema.isBetween({ minimum: 1, maximum: MAX_QUANTITY }),
 );
+/**
+ * A cash fund's goal, in the wedding's minor units. At least one unit: a goal
+ * of nothing is no goal, and the couple say that by leaving it empty (null).
+ */
+const TargetMinor = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isGreaterThanOrEqualTo(1),
+  Schema.isLessThanOrEqualTo(MAX_MINOR),
+);
+const ItemKind = Schema.Literals(["product", "cash_fund"]);
 
 const SettingsFields = {
   published: Schema.optional(Schema.Boolean),
@@ -162,9 +171,15 @@ export type UpdateRegistrySettingsBody = Schema.Schema.Type<typeof UpdateRegistr
  *
  * `priceMinor` has NO currency field: it is denominated in the wedding's primary
  * currency (`weddings.currency`) by definition. Accepting a per-item currency
- * here is exactly the mistake that makes a gift list unreadable.
+ * here is exactly the mistake that makes a gift list unreadable. The same holds
+ * for a cash fund's `targetMinor`.
+ *
+ * `kind` picks a gift to reserve (`product`, the default) or a cash fund. Which
+ * fields each kind may carry is the service's check, not this schema's: the
+ * defaults below cannot tell "left out" from "sent as the default".
  */
 export const CreateRegistryItemBody = Schema.Struct({
+  kind: ItemKind.pipe(Schema.withDecodingDefaultType(Effect.succeed("product" as const))),
   title: Title,
   description: Schema.NullOr(Description).pipe(
     Schema.withDecodingDefaultType(Effect.succeed(null)),
@@ -174,11 +189,18 @@ export const CreateRegistryItemBody = Schema.Struct({
   priceMinor: Schema.NullOr(Minor).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
   quantityWanted: Quantity.pipe(Schema.withDecodingDefaultType(Effect.succeed(1))),
   category: Schema.NullOr(Category).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
+  targetMinor: Schema.NullOr(TargetMinor).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed(null)),
+  ),
 });
 export type CreateRegistryItemBody = Schema.Schema.Type<typeof CreateRegistryItemBody>;
 
-/** Update item: partial patch. Absent ⇒ unchanged; explicit null clears. */
+/**
+ * Update item: partial patch. Absent ⇒ unchanged; explicit null clears. An
+ * item's `kind` is set when it is created and never patched.
+ */
 export const UpdateRegistryItemBody = Schema.Struct({
+  targetMinor: Schema.optional(Schema.NullOr(TargetMinor)),
   title: Schema.optional(Title),
   description: Schema.optional(Schema.NullOr(Description)),
   imageKey: Schema.optional(Schema.NullOr(ImageKey)),
@@ -278,7 +300,7 @@ export const ContributionAmount = Schema.Number.check(
  */
 export const ContributeBody = Schema.Struct({
   amountMinor: ContributionAmount,
-  /** Contributing TOWARDS a listed gift, rather than in general. */
+  /** Giving to one of the couple's cash funds, rather than in general. */
   itemId: Schema.NullOr(Schema.String.check(Schema.isMaxLength(64))).pipe(
     Schema.withDecodingDefaultType(Effect.succeed(null)),
   ),

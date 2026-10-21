@@ -128,7 +128,8 @@ owners, each with an `owner` seat. Two consequences:
 - **DSAR reachability (Art. 15 / 17 / 20).** A DSAR from the *organiser*
   reaches their cire data via their `wedding_hosts` seats: export/erasure can
   query cire's D1 for the weddings they own, the `families` / `guests` /
-  `rsvps` / `imports` rows under them, and the R2 `cire-sheets` CSVs. On a
+  `rsvps` / `seating_assignments` / `imports` rows under them, and the R2
+  `cire-sheets` CSVs. On a
   wedding with another owner, erasing one owner removes their seat and leaves
   the wedding to the others; the last owner's seat cannot be removed through
   the API, so erasing a sole owner means erasing the wedding. An owner can now
@@ -167,10 +168,10 @@ owners, each with an `owner` seat. Two consequences:
   replies and the link to the guest who brought them
   (`plus_one_of_guest_id`) — holds data another guest supplied, and the
   plus-one never holds the household's code. Their requests go to the
-  organiser like any guest's. Access: the row, its `rsvps` and its
-  `guest_events`, found by `plus_one_of_guest_id` or by name within the
-  household. Erasure has three ready paths, each deleting the row with its
-  replies and invitations by cascade: the household removes them on the invite
+  organiser like any guest's. Access: the row, its `rsvps`, its
+  `guest_events` and its `seating_assignments`, found by `plus_one_of_guest_id`
+  or by name within the household. Erasure has three ready paths, each deleting
+  the row with its replies, invitations and seats by cascade: the household removes them on the invite
   (`DELETE /api/plus-one/:guestId`) until the RSVP deadline; an editor turns
   the inviting guest's permission off, confirming the plus-one by id and
   stored name (`PUT …/guests/:guestId/plus-one`,
