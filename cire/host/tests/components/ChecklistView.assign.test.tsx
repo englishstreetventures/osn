@@ -1493,9 +1493,16 @@ describe("people picked while a write is out", () => {
     );
   });
 
-  it("keeps a pick still out on screen when the tasks are read again", async () => {
+  it("keeps a pick still out on screen when the tasks are read again, and reads once it lands", async () => {
+    // The server holds Jo once Jo's write has been answered.
+    let joStored = false;
     const { listbox, writes } = await popoverWithHeldWrites({
-      tasks: () => json({ tasks: [row({ id: "a", title: "Book venue" })] }),
+      tasks: () =>
+        json({
+          tasks: [
+            row({ id: "a", title: "Book venue", assigneeHostIds: joStored ? ["whost_jo"] : [] }),
+          ],
+        }),
     });
 
     fireEvent.click(option(listbox, "@jo"));
@@ -1506,8 +1513,12 @@ describe("people picked while a write is out", () => {
     await waitFor(() => expect(toastError).toHaveBeenCalled());
     expect(ticked(listbox)).toEqual(["@jo"]);
     expect(faces("Book venue")).toEqual(["whost_jo"]);
+    joStored = true;
     writes.answer(0, stored(["whost_jo"]));
     await waitFor(() => expect(listbox).not.toHaveAttribute("aria-busy"));
+    // The read dropped while Jo's write was out goes again after it.
+    await waitFor(() => expect(calls("/tasks")).toHaveLength(2));
+    await new Promise((resolve) => setTimeout(resolve, 10));
     expect(faces("Book venue")).toEqual(["whost_jo"]);
   });
 });

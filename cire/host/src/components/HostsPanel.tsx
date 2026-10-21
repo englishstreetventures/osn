@@ -7,11 +7,12 @@ import { Field, Fieldset } from "@shared/ui/ui/field";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
 import { type HostSeat, invalidateHosts, setFreshHosts } from "../lib/hosts-store";
+import { useMembersChanged } from "../lib/members-changed";
 import {
   atPeopleLimit,
   peopleCountLabel,
@@ -236,18 +237,18 @@ export default function HostsPanel(props: HostsPanelProps) {
   // mid-fade. Built once, here: each call makes its own signal and effect.
   const shownPromotion = heldWhileClosing(pending);
   // A helper's run-sheet scope as this visit has changed it, held beside the
-  // rows and keyed by the row object, never written into the rows: `<For>`
-  // re-creates a row it is handed as a new object, and the select an owner is
-  // on would go with it, taking their focus. A row rebuilt for anything else —
-  // a role change, a reload — is a new key, so it reads its own
-  // `runSheetScope` again.
-  // The scope each helper's write in flight is setting. Their select shows it
-  // and is announced busy until the write ends; a failed write ends with its
-  // entry gone, which puts the select back.
-  const [scopeWrites, setScopeWrites] = createSignal<ReadonlyMap<HostRow, RunSheetScope>>(
-    new Map(),
-  );
-  // The scope each helper's last accepted write set.
+  // rows, never written into the rows: `<For>` re-creates a row it is handed
+  // as a new object, and the select an owner is on would go with it, taking
+  // their focus.
+  // The scope each helper's write in flight is setting, keyed by the seat's
+  // profile id, so it holds whatever row object shows the seat. Their select
+  // shows it and is announced busy until the write ends; a failed write ends
+  // with its entry gone, which puts the select back.
+  const [scopeWrites, setScopeWrites] = createSignal<ReadonlyMap<string, RunSheetScope>>(new Map());
+  // The scope each helper's last accepted write set, keyed by the row object
+  // on screen when it was accepted. A row rebuilt for anything else — a role
+  // change, a re-read that changed the seat — is a new key, so it reads its
+  // own `runSheetScope` again.
   const [scopesSet, setScopesSet] = createSignal<ReadonlyMap<HostRow, RunSheetScope>>(new Map());
   // The helper whose run sheet is waiting on a yes before it is opened to every
   // task. Held, not sent, like a promotion: see `selectScope`.
@@ -477,7 +478,57 @@ export default function HostsPanel(props: HostsPanelProps) {
     }
   }
 
-  onMount(async () => {
+  // Moved by every read as it is sent, and by the start of each of this
+  // panel's own writes: a read answers only if nothing moved it. No read is
+  // sent while a write is out but the first, so the end of one need not move it.
+  let loadSeq = 0;
+  // The number of the newest read sent.
+  let newestRead = 0;
+  // This panel's own writes in flight: an add, a removal, a role or a scope.
+  let writesOut = 0;
+  // A re-read was put off, or dropped, for one of those writes.
+  let readOwed = false;
+
+  /**
+   * Mark one of this panel's own writes as out, and get back the function that
+   * marks it done; each write calls it once, in its `finally`. While a write
+   * is out, a signal's re-read waits, and a read sent before the write started
+   * is dropped when it lands, since the server may have answered it from
+   * before the write committed. Once the last write ends, one read goes for
+   * all of them (`loadHosts` waits for the others), so the read that sees the
+   * write always goes, whichever reached the tab first, the write's answer or
+   * its signal.
+   */
+  function beginWrite(): () => void {
+    writesOut += 1;
+    loadSeq += 1;
+    return () => {
+      writesOut -= 1;
+      if (readOwed) {
+        readOwed = false;
+        void loadHosts(false);
+      }
+    };
+  }
+
+  /** Apply this panel's own write to the list. It runs inside the write
+   *  (`beginWrite`), so no read lands on top of it. */
+  function setLocalHosts(update: (prev: HostRow[]) => HostRow[]): void {
+    setHosts(update);
+  }
+
+  /**
+   * Read the seats. The first read fills the panel and shows its error; a
+   * later one, prompted by the open wedding's socket, replaces the list
+   * quietly and keeps what is on screen if it fails.
+   */
+  async function loadHosts(first: boolean) {
+    if (!first && writesOut > 0) {
+      readOwed = true;
+      return;
+    }
+    const seq = ++loadSeq;
+    newestRead = seq;
     try {
       const res = await authFetch(endpoint());
       if (res.status === 401) return redirectToLogin();
@@ -487,8 +538,25 @@ export default function HostsPanel(props: HostsPanelProps) {
         total?: number;
         peopleLimit?: unknown;
       };
+      if (seq !== loadSeq) {
+        // A newer read answers for itself. Otherwise one of this panel's own
+        // writes started while this was out: read again once it is over.
+        if (seq === newestRead) void loadHosts(false);
+        return;
+      }
       const rows = body.hosts.map(withKnownRole);
-      setHosts(ownersFirst(rows));
+      // A seat the read shows as this panel already does keeps its row object,
+      // so `<For>` keeps its row, its controls and the focus of an owner on
+      // one of them; only a changed seat is rebuilt.
+      const onScreen = new Map(untrack(hosts).map((h) => [h.osnProfileId, h]));
+      setHosts(
+        ownersFirst(
+          rows.map((row) => {
+            const shown = onScreen.get(row.osnProfileId);
+            return shown && showsAs(shown, row) ? shown : row;
+          }),
+        ),
+      );
       // The checklist names who holds each task from this same list, so it
       // takes this read rather than making its own.
       const seats = asSeats(rows);
@@ -498,13 +566,21 @@ export default function HostsPanel(props: HostsPanelProps) {
       // ignored: an owner shown a partial list has no way to know that someone
       // who can read their guests' data is missing from it.
       setTotal(body.total ?? body.hosts.length);
+      setError(null);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
-      setError("Could not load hosts. Is the API running?");
+      if (first && seq === loadSeq) setError("Could not load hosts. Is the API running?");
     } finally {
-      setLoading(false);
+      if (first) setLoading(false);
     }
-  });
+  }
+
+  onMount(() => void loadHosts(true));
+
+  // The open wedding's socket says its seats may have changed, from someone
+  // else's tab or this one's own write: read them again, once no write of this
+  // panel's is out (`beginWrite`).
+  createEffect(on(useMembersChanged(), () => void loadHosts(false), { defer: true }));
 
   function add(e: Event) {
     e.preventDefault();
@@ -528,6 +604,7 @@ export default function HostsPanel(props: HostsPanelProps) {
     setAddError(null);
     setAdding(true);
     const hadForm = showsAddForm();
+    const done = beginWrite();
     try {
       const res = await authFetch(endpoint(), {
         method: "POST",
@@ -569,7 +646,7 @@ export default function HostsPanel(props: HostsPanelProps) {
       }
       const body = (await res.json()) as { host: HostRow; peopleLimit?: unknown };
       const added = withKnownRole(body.host);
-      setHosts((prev) => ownersFirst([...prev, added]));
+      setLocalHosts((prev) => ownersFirst([...prev, added]));
       // The checklist offers everyone seated as a task's holder.
       invalidateHosts(props.weddingId);
       keepPeopleLimit(readPeopleLimit(body.peopleLimit));
@@ -593,11 +670,13 @@ export default function HostsPanel(props: HostsPanelProps) {
       setAddError("Could not add that host. Is the API running?");
     } finally {
       setAdding(false);
+      done();
     }
   }
 
   async function remove(host: HostRow) {
     const label = host.handle ? `@${host.handle}` : host.osnProfileId;
+    const done = beginWrite();
     try {
       const res = await authFetch(`${endpoint()}/${encodeURIComponent(host.osnProfileId)}`, {
         method: "DELETE",
@@ -611,7 +690,7 @@ export default function HostsPanel(props: HostsPanelProps) {
         return;
       }
       keepPeopleLimit(await peopleLimitIn(res));
-      setHosts((prev) => prev.filter((h) => h.osnProfileId !== host.osnProfileId));
+      setLocalHosts((prev) => prev.filter((h) => h.osnProfileId !== host.osnProfileId));
       // The server took this seat off its checklist tasks with it, so a cached
       // checklist that names the seat among a task's holders names someone who
       // holds nothing; one that does not name it is unchanged. A seat added on
@@ -630,6 +709,8 @@ export default function HostsPanel(props: HostsPanelProps) {
       if (isAuthExpired(err)) return redirectToLogin();
       haptic("reject");
       toast.error("Could not remove that host. Is the API running?");
+    } finally {
+      done();
     }
   }
 
@@ -642,6 +723,18 @@ export default function HostsPanel(props: HostsPanelProps) {
   const scopeOf = (host: HostRow): RunSheetScope =>
     scopesSet().get(host) ?? readRunSheetScope(host.runSheetScope, "own");
 
+  /** Does a freshly read seat show exactly as `shown` does now? Every field
+   *  must match but the scope, which is compared with what the row shows — a
+   *  write of this visit's in flight or accepted included — not with what the
+   *  API last sent for it. */
+  const showsAs = (shown: HostRow, read: HostRow): boolean => {
+    const fields = new Set([...Object.keys(shown), ...Object.keys(read)]) as Set<keyof HostRow>;
+    fields.delete("runSheetScope");
+    for (const field of fields) if (shown[field] !== read[field]) return false;
+    const showing = untrack(scopeWrites).get(shown.osnProfileId) ?? untrack(() => scopeOf(shown));
+    return showing === readRunSheetScope(read.runSheetScope, "own");
+  };
+
   /** What an owner's scope select shows: the pick while the widening is being
    *  asked about, the scope a write in flight is setting, and the seat's own
    *  otherwise. The option picked changed the DOM at once, so a change to this
@@ -649,7 +742,7 @@ export default function HostsPanel(props: HostsPanelProps) {
   const scopeShownFor = (host: HostRow): RunSheetScope =>
     pendingScope()?.osnProfileId === host.osnProfileId
       ? "full"
-      : (scopeWrites().get(host) ?? scopeOf(host));
+      : (scopeWrites().get(host.osnProfileId) ?? scopeOf(host));
 
   /**
    * The scope dropdown moved. Narrowing goes straight through: it takes away
@@ -662,7 +755,7 @@ export default function HostsPanel(props: HostsPanelProps) {
    * sends nothing and the select goes back to what is being written.
    */
   function selectScope(host: HostRow, select: HTMLSelectElement) {
-    if (scopeWrites().has(host)) {
+    if (scopeWrites().has(host.osnProfileId)) {
       select.value = scopeShownFor(host);
       return;
     }
@@ -675,9 +768,12 @@ export default function HostsPanel(props: HostsPanelProps) {
   }
 
   /** Set a helper's run-sheet scope (owner-only; the API re-checks). The
-   *  checklist reads no scope, so its seat cache stays as it is. */
+   *  checklist reads no scope, so its seat cache stays as it is. The API tells
+   *  the helper's open tab, and every co-host panel, through the wedding's
+   *  socket. */
   async function changeScope(host: HostRow, next: RunSheetScope) {
-    setScopeWrites((writes) => new Map(writes).set(host, next));
+    setScopeWrites((writes) => new Map(writes).set(host.osnProfileId, next));
+    const done = beginWrite();
     try {
       const res = await authFetch(
         `${endpoint()}/${encodeURIComponent(host.osnProfileId)}/run-sheet-scope`,
@@ -695,6 +791,8 @@ export default function HostsPanel(props: HostsPanelProps) {
         return;
       }
       haptic("commit");
+      // No read lands while the write is out, so `host` is still the row on
+      // screen.
       setScopesSet((set) => new Map(set).set(host, next));
       toast.success(`${nameOf(host)} now sees ${RUN_SHEET_SCOPE_COPY[next].phrase}.`);
     } catch (err) {
@@ -704,9 +802,10 @@ export default function HostsPanel(props: HostsPanelProps) {
     } finally {
       setScopeWrites((writes) => {
         const left = new Map(writes);
-        left.delete(host);
+        left.delete(host.osnProfileId);
         return left;
       });
+      done();
     }
   }
 
@@ -738,6 +837,7 @@ export default function HostsPanel(props: HostsPanelProps) {
   async function changeRole(host: HostRow, nextRole: AssignableRole) {
     const label = nameOf(host);
     setRoleBusyId(host.osnProfileId);
+    const done = beginWrite();
     try {
       const res = await authFetch(`${endpoint()}/${encodeURIComponent(host.osnProfileId)}/role`, {
         method: "PUT",
@@ -752,7 +852,9 @@ export default function HostsPanel(props: HostsPanelProps) {
         // The select already shows the refused role in the DOM, and its value
         // expression has not changed, so nothing would put it back. A fresh
         // copy of the seat re-renders the row from the role it still holds.
-        setHosts((prev) => prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h } : h)));
+        setLocalHosts((prev) =>
+          prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h } : h)),
+        );
         toast.error(refusal.message ?? "Could not change that host's role. Please try again.");
         return;
       }
@@ -766,7 +868,7 @@ export default function HostsPanel(props: HostsPanelProps) {
       } | null;
       keepPeopleLimit(readPeopleLimit(answer?.peopleLimit));
       haptic("commit");
-      setHosts((prev) =>
+      setLocalHosts((prev) =>
         ownersFirst(
           prev.map((h) =>
             h.osnProfileId === host.osnProfileId
@@ -800,6 +902,7 @@ export default function HostsPanel(props: HostsPanelProps) {
       toast.error("Could not change that host's role. Is the API running?");
     } finally {
       setRoleBusyId(null);
+      done();
     }
   }
 
@@ -1128,7 +1231,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                           size="sm"
                           class="w-auto"
                           value={scopeShownFor(host)}
-                          aria-busy={scopeWrites().has(host) ? "true" : undefined}
+                          aria-busy={scopeWrites().has(host.osnProfileId) ? "true" : undefined}
                           aria-label={`What ${nameOf(host)} sees on the run sheet`}
                           onChange={(e) => selectScope(host, e.currentTarget)}
                         >

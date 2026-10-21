@@ -210,6 +210,24 @@ export async function commitGroupedBatches(db: Db, groups: BatchItem<"sqlite">[]
 }
 
 /**
+ * Commit GROUPS exactly as {@link commitGroupedBatches} does, and return every
+ * statement's result in statement order across all the batches, as
+ * {@link commitBatchResults} returns one batch's: for a caller that needs to
+ * know what each write did (read a change count with `rowsChanged`). The same
+ * trade on atomicity applies.
+ */
+export async function commitGroupedBatchResults(
+  db: Db,
+  groups: BatchItem<"sqlite">[][],
+): Promise<unknown[]> {
+  // Chained, not gathered, for the same reason as commitGroupedBatches.
+  return chunkGroups(groups).reduce<Promise<unknown[]>>(
+    (chain, chunk) => chain.then(async (out) => [...out, ...(await commitBatchResults(db, chunk))]),
+    Promise.resolve<unknown[]>([]),
+  );
+}
+
+/**
  * The trailing read `commitGroupedBatchesReturning` appends to the write
  * batch. It must be batchable (rides inside `db.batch()`, same as any write
  * statement) AND directly awaitable (the bun:sqlite fallback just awaits it

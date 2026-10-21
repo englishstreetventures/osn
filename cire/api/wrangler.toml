@@ -1,5 +1,5 @@
 name = "cire-api"
-main = "src/index.ts"
+main = "src/entry.ts"
 compatibility_date = "2025-03-01"
 # `nodejs_compat_populate_process_env` is what makes `process.env` reflect this
 # file's [vars] + the Worker's secrets. It is only a DEFAULT for
@@ -271,6 +271,22 @@ type = "ratelimit"
 namespace_id = "1005"
 simple = { limit = 20, period = 60 }
 
+# Realtime push hub: `@shared/realtime`'s `TopicHub`, exported from
+# src/entry.ts, one Durable Object per wedding topic. Named environments do NOT
+# inherit this binding — it is redeclared under [env.dev] and [env.production].
+[[durable_objects.bindings]]
+name = "REALTIME_HUB"
+class_name = "TopicHub"
+
+# The hub class and its storage backend. SQLite is the only backend on the
+# Workers Free plan; the hub stores nothing, but a class must still declare
+# one. Named environments inherit top-level migrations, so this is declared
+# once, here. A deployed migration is never edited or removed — a change to
+# the class list is a new entry with a new tag.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TopicHub"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "cire-db"
@@ -444,6 +460,12 @@ type = "ratelimit"
 namespace_id = "1105"
 simple = { limit = 20, period = 60 }
 
+# The dev Worker's own hub namespace — a different Worker script from
+# production, so no socket or signal crosses tiers.
+[[env.dev.durable_objects.bindings]]
+name = "REALTIME_HUB"
+class_name = "TopicHub"
+
 # Created 2026-08-13 (`wrangler d1 create cire-db-dev`, primary location OC to
 # match prod). Each dev deploy applies new migrations to it, as production
 # does; .github/workflows/cire-dev-db-rebuild.yml resets it, replays the whole
@@ -598,6 +620,10 @@ name = "REGISTRY_GUEST_RATE_LIMITER"
 type = "ratelimit"
 namespace_id = "1005"
 simple = { limit = 20, period = 60 }
+
+[[env.production.durable_objects.bindings]]
+name = "REALTIME_HUB"
+class_name = "TopicHub"
 
 [[env.production.d1_databases]]
 binding = "DB"

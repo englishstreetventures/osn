@@ -9,6 +9,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[cire-auth]]"
   - "[[d1-limits]]"
+  - "[[realtime]]"
 last-reviewed: 2026-10-21
 ---
 # Checklist / Tasks
@@ -125,6 +126,14 @@ read/write split pattern used by the hosts routes in `app.ts`):
 The template preview is a read, but it sits behind the write gate: it shows
 what applying would add, which only someone who may apply has a use for.
 
+**Per organiser.** Behind both of its gates the write factory mounts
+`rateLimitMiddlewareByUser` with `taskWriteLimiter`: 120 requests a minute per
+organiser (`defaultTaskWriteLimiter` in `cire/api/src/app.ts`), the preview
+included; past it, 429 with `retry-after: 60`. Every accepted write has each
+open tab that shows the tasks read them again ([Live refresh](#live-refresh)),
+so one seat's write rate is multiplied by the tabs listening. Someone ticking,
+dragging and assigning by hand sends a few at a time, far below it.
+
 **Gold only, reads included.** Both factories mount `weddingTier(db, "gold")`
 directly behind their role gate, so a wedding below Gold gets
 `402 { "error": "payment_required", "tier": "gold" }` from every route above and
@@ -151,8 +160,9 @@ literal path wins over the param route — the ordering invariant Elysia
 requires.
 
 The `reorder` endpoint accepts `{ timeframeBucket, orderedIds: string[] }` and
-writes `sort_order = array-index` for each id in the supplied order. The
-service re-scopes every write by `wedding_id`, so a cross-tenant `taskId`
+writes `sort_order = array-index` for each id in the supplied order whose
+stored `sort_order` differs, and `tasksService.reorder` answers how many tasks
+moved. The service re-scopes every write by `wedding_id`, so a cross-tenant `taskId`
 produces a `TaskNotInWedding` tagged error → 404 `task_not_found` at the route
 layer.
 
@@ -497,6 +507,50 @@ starter on a Gold wedding dated 2099-06-20, in the portal against the real
 cire-api, and checks the `tasks` rows it wrote: one per ticked item, seeded from
 the template, the first due a year before the wedding date.
 
+## Live refresh
+
+Every write that changes the checklist tells the wedding's open tabs, through
+the realtime hub ([[realtime]]): `tasks-changed` on `cire:wedding:<id>`, after
+the write commits, in the request's `waitUntil`, never failing the write. The
+signal names the wedding and the kind and nothing else, so a helper scoped to
+their own tasks learns that some task changed, never which; the tab re-reads
+through the gated API, which filters as it always does.
+
+| Write | Publishes when |
+|---|---|
+| `POST /tasks` | the task is created |
+| `PATCH /tasks/:taskId` (edit, tick, untick) | the patch names a field and the task is the wedding's |
+| `DELETE /tasks/:taskId` | the task is deleted |
+| `PATCH /tasks/reorder` | at least one task moved: a task already at its place, another wedding's, or one named under a bucket it is not in moves none |
+| `POST /tasks/templates/:templateId` | the apply added at least one task (`added > 0`) |
+| `PUT` / `DELETE /tasks/:taskId/assignees/:hostId` | a seat was put on or taken off; one already so publishes nothing |
+| `PUT /settings` | the save re-dated at least one seeded task (`weddingSettingsService.save` answers `tasksRedated`, from the re-dating's `RETURNING`) |
+
+A refused write — 400, 402, 403, 404, 422, 500 — publishes nothing. A seat
+that goes takes its holds by cascade and publishes `members-changed`, not
+`tasks-changed`: the checklist re-reads the seats on that signal, and a gone
+seat leaves every holder stack ([In the portal](#in-the-portal)).
+
+In the portal, `Dashboard` marks the cached tasks stale on `tasks-changed` and
+on a reconnect (`markTasksStale`, which leaves a read in flight alone), and
+tells the mounted views through `TasksChangedContext`; `ChecklistView` and
+Overview's checklist card read `GET /tasks` again through `rereadTasks`. The
+re-read waits while a read is in flight or one of the portal's own writes is
+out, and one read goes for however many signals arrived meanwhile, once the
+read has landed and the last write has ended: a burst costs a tab at most two
+reads. Each of the checklist's own writes runs between `beginTaskWrite` and the
+function it returns, so a read that lands while one is out, or was sent before
+one ended, is dropped, and is sent again once the last write ends. The read
+that sees the write therefore always goes, whichever reaches the tab first,
+the write's answer or its signal, and no re-read undoes what the organiser did
+on screen. See [[cire-host-portal-layout]].
+
+The tests are `cire/api/tests/routes/tasks.test.ts` ("task writes publish
+tasks-changed"), `organiser-settings.test.ts` ("a date move tells open
+checklists"), `cire/host/tests/lib/tasks-store.test.ts` ("the portal's own
+writes", "a signal's re-read") and `cire/host/tests/components/ChecklistView.test.tsx`. No E2E flow
+reaches the hub ([[realtime#Tests]]).
+
 ## Tasks store (organiser client)
 
 `cire/host/src/lib/tasks-store.ts` is a `weddingId`-keyed SolidJS signal
@@ -514,8 +568,11 @@ Public API:
 | `setCachedTasks(weddingId, tasks)` | Populate/replace cache from a fetch. Does not clear the stale mark |
 | `setFreshTasks(weddingId, tasks)` | Replace the cache with the whole list a write answered with: bumps the generation (a load in flight discards what it fetches) and clears the stale mark, so no second read follows. Writes nothing for a closed wedding |
 | `peekCachedTasks(weddingId)` | Snapshot read; subscribes only once the entry exists — never track it, use `tasksAccessor` |
-| `invalidateTasks(weddingId)` | Mark stale after a write. The rows stay on screen and the signal is untouched — the next `ensureTasksLoaded` is what refetches |
-| `ensureTasksLoaded(weddingId, fetcher)` | Fetch if not fresh; dedupes concurrent callers. On success, writes the rows and clears the stale mark; on a refused/failed refetch, blanks the signal and rethrows |
+| `invalidateTasks(weddingId)` | Mark stale after a write, and discard a read in flight (it predates the write). The rows stay on screen and the signal is untouched — the next `ensureTasksLoaded` is what refetches |
+| `markTasksStale(weddingId)` | Mark stale because a signal said the tasks changed, leaving a read in flight to land; that read shows its rows but leaves the wedding stale |
+| `rereadTasks(weddingId, fetcher)` | A view's re-read on a signal. Waits while a read is in flight or one of the portal's own writes is out; one read follows for every signal meanwhile. Settles as `ensureTasksLoaded` does, or `false` for a wedding forgotten first. See [Live refresh](#live-refresh) |
+| `ensureTasksLoaded(weddingId, fetcher)` | Fetch if not fresh; dedupes concurrent callers. On success, writes the rows and clears the stale mark — unless a write of the portal's own is out or started or ended since the fetch started, when it drops them, leaves the wedding stale and reads again once the last write ends; on a refused/failed refetch, blanks the signal and rethrows |
+| `beginTaskWrite(weddingId)` | Mark one of the portal's own task writes as out; returns the function that marks it done (idempotent). See [Live refresh](#live-refresh) |
 | `openTaskCount(weddingId)` | `number \| null` — open-task count for the Overview widget |
 | `taskCounts(weddingId)` | `{ open, done, total } \| null` — reactive counts for the Overview completion bar |
 | `readTaskList(weddingId, list)` | Take a `GET /tasks` answer apart: keeps its `viewerHostId` for the wedding and returns the rows, each through `readTaskRow`, for the loader. Keeps nothing for a closed wedding |
@@ -546,7 +603,8 @@ additively:
 ## Hardening
 
 - **Tenancy (reorder)** — `tasksService.reorder` scopes every `UPDATE` by
-  `(wedding_id, bucket)`, so foreign or wrong-bucket ids are a no-op write. A
+  `(wedding_id, bucket)`, so foreign or wrong-bucket ids are a no-op write that
+  publishes nothing. A
   regression test (`tasks.test.ts` — "reorder is wedding-scoped") proves an
   owner of wedding B cannot shuffle wedding A's checklist. Complements the
   existing update/delete tenancy tests.

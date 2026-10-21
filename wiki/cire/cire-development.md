@@ -473,9 +473,12 @@ not read that file, so the devloop runs with no CSP at all.
 
 **The committed file is the production policy.** Its `connect-src`, `img-src`,
 `report-uri` and `Reporting-Endpoints` name `https://api.cireweddings.com` and
-nothing else. After `astro build`, an Astro integration rewrites the copy in
-`dist/`: every production cire-api origin becomes the origin of the
-`PUBLIC_CIRE_API_URL` the bundle was built with. So:
+nothing else, except that the organiser portal's `connect-src` also names
+`wss://api.cireweddings.com` for its realtime socket, since an `https:` source
+does not admit a `wss:` URL. After `astro build`, an Astro integration rewrites
+the copy in `dist/`: every production cire-api origin becomes the origin of the
+`PUBLIC_CIRE_API_URL` the bundle was built with, and the socket origin its
+`ws:`/`wss:` twin. So:
 
 | Build | The policy in `dist/_headers` names |
 |---|---|
@@ -514,7 +517,8 @@ loopback one; `tests/lib/headers.test.ts` in each portal fails on either.
 reports each block to cire-api's collector (`POST /api/csp-report`). Neither
 sends a `Content-Security-Policy-Report-Only` header: every directive is
 enforced and reports already, so one would file each violation twice. The two
-policies match except for `img-src`:
+policies match except for `img-src`, and the organiser portal's `wss:` source in
+`connect-src`:
 
 | Portal | Enforced `img-src` |
 |---|---|

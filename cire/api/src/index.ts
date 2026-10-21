@@ -3,6 +3,7 @@ import { createFeatureFlags } from "@shared/feature-flags";
 import { loadConfig, parseDeploymentEnvironment } from "@shared/observability/config";
 import { createWorkersRateLimiter } from "@shared/rate-limit";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
+import type { TopicHub } from "@shared/realtime/hub";
 import { createTurnstileVerifier } from "@shared/turnstile";
 import { Effect, Layer } from "effect";
 
@@ -20,6 +21,7 @@ import { registryOutboundLimiters } from "./lib/registry-limiters";
 import { resendEmailConfig } from "./lib/resend-email";
 import { siteOriginOptions, webOriginProblem } from "./lib/web-origin";
 import { flushCireTelemetry, runCire } from "./observability";
+import { createRealtimeRoute, type RealtimeRoute } from "./routes/realtime";
 import { assetReconcileService } from "./services/asset-reconcile";
 import { claimReviewService, type PendingClaimsSummary } from "./services/claim-review";
 import { maintenanceSweeps } from "./services/maintenance-sweeps";
@@ -35,6 +37,7 @@ import {
   createProfileOrgsResolverFromEnv,
 } from "./services/osn-bridge";
 import { reconcileDisabled } from "./services/r2-reconcile";
+import { sweepRealtimeSubscribeBudget } from "./services/realtime";
 import { retentionService, type GiftSummaryNotice } from "./services/retention";
 import { rsvpChangeService } from "./services/rsvp-changes";
 import { rsvpDigestService } from "./services/rsvp-digest";
@@ -141,6 +144,12 @@ export interface Env {
   // couple needs to edit it. Absent ⇒ the per-isolate in-memory default; the
   // route is session-authenticated, so an unbound limiter degrades a throttle.
   REGISTRY_GUEST_RATE_LIMITER?: WorkersRateLimitBinding;
+  // Realtime push hub (`@shared/realtime`): one Durable Object per wedding
+  // topic. Absent ⇒ `/realtime/*` answers 503 and host changes publish
+  // nothing; tabs keep their own refetch triggers. In a deployed tier its
+  // absence is logged once per isolate. Deleting this binding from a tier is
+  // the off switch — see `wiki/cire/cire.md`.
+  REALTIME_HUB?: DurableObjectNamespace<TopicHub>;
   // Turnstile bot-protection secret (KEY-OPTIONAL). When set, the guest claim +
   // RSVP endpoints require a valid Turnstile token (fail-closed); unset ⇒ those
   // gates are skipped. `wrangler secret put TURNSTILE_SECRET_KEY`.
@@ -219,7 +228,9 @@ export interface Env {
 // request. `env` bindings are stable within an isolate; the guard on the D1
 // binding identity rebuilds defensively if that ever changes. The ARC account
 // resolver (which imports the signing key) is built alongside it, once.
-let cached: { app: ReturnType<typeof createApp>; dbBinding: D1Database } | undefined;
+let cached:
+  | { app: ReturnType<typeof createApp>; realtime: RealtimeRoute; dbBinding: D1Database }
+  | undefined;
 
 const misconfigured = (detail: string) =>
   new Response(JSON.stringify({ error: `Worker misconfigured: ${detail}` }), {
@@ -553,9 +564,23 @@ const handler: ExportedHandler<Env> = {
       if (sessionEdgeLimiter) appOptions.claimSessionLimiter = sessionEdgeLimiter;
       Object.assign(appOptions, registryLimiters);
       if (registryGuestEdgeLimiter) appOptions.registryGuestLimiter = registryGuestEdgeLimiter;
+      // Realtime push rides the same options as the app, so its subscribe
+      // route authenticates exactly as the organiser routes do. No hub bound ⇒
+      // push is off: the route answers 503, host changes publish nothing, and
+      // tabs keep their own refetch triggers — loud in a deployed tier.
+      if (env.REALTIME_HUB) appOptions.realtimeHub = env.REALTIME_HUB;
+      if (!env.REALTIME_HUB && isDeployedTier(env)) {
+        await runCire(
+          Effect.logError("REALTIME_HUB binding missing in a deployed tier", {
+            detail:
+              "push is off: /realtime answers 503 and host changes reach open tabs on their next refetch",
+          }),
+        );
+      }
       cached = {
         dbBinding: env.DB,
         app: createApp(db, appOptions),
+        realtime: createRealtimeRoute(db, appOptions),
       };
     }
 
@@ -570,8 +595,11 @@ const handler: ExportedHandler<Env> = {
     // the session on the async context every handler inherits.
     // Bound out of the mutable module-level cache before the closure, so the
     // narrowing above survives into it.
-    const { app } = cached;
-    const response = await runInD1Session(env.DB, () => app.fetch(request));
+    const { app, realtime } = cached;
+    // `/realtime/*` is answered before Elysia and inside the same D1 session:
+    // the hub's 101 must reach the runtime as the very object the hub returned,
+    // and Elysia rebuilds any Response once a plugin has set a header.
+    const response = await runInD1Session(env.DB, () => realtime(request) ?? app.fetch(request));
 
     // Drain this request's spans to the OTLP collector. Awaited-then-scheduled,
     // in that order, for two reasons: every span the request opened has ended
@@ -589,8 +617,8 @@ const handler: ExportedHandler<Env> = {
   },
 
   // Cron-triggered daily maintenance and mail. Configured by the single
-  // `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Eleven
-  // independent jobs share the cron (ten when the digest has no transport):
+  // `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Twelve
+  // independent jobs share the cron (eleven when the digest has no transport):
   //
   //  1. Expired-session sweep — guest logins leave session rows that are never
   //     deleted on the read path, so the table grows unbounded without this. The
@@ -625,11 +653,13 @@ const handler: ExportedHandler<Env> = {
   //     `imports/`, against the four key columns of `imports`, listing at most
   //     1,000 objects a run and resuming where the last run stopped. See
   //     services/sheet-reconcile.ts.
+  // 12. Realtime subscribe budget rows of earlier UTC days —
+  //     services/realtime.ts.
   //
   // `CIRE_R2_RECONCILE_DISABLED` leaves out 4 and 11 and nothing else.
   //
   // Each is its own `waitUntil` + `catchAll`, so a failure in one never aborts
-  // the other and the isolate stays alive until each delete settles. All eleven
+  // the other and the isolate stays alive until each delete settles. All twelve
   // share this one invocation's Workers limits (CPU, subrequests, D1 queries).
   async scheduled(_event, env, ctx) {
     if (!env.DB) return;
@@ -825,6 +855,17 @@ const handler: ExportedHandler<Env> = {
           Effect.catch((err) =>
             Effect.logError("scheduled rsvp change sweep failed", { reason: err.reason }),
           ),
+          Effect.provide(dbLayer),
+        ),
+      ),
+    );
+    // Realtime subscribe budget rows of earlier days. A subscribe deletes them
+    // too, but nothing subscribes while push is off, and each row names an
+    // organiser.
+    runSweep(() =>
+      Effect.runPromise(
+        sweepRealtimeSubscribeBudget(new Date()).pipe(
+          Effect.catch(() => Effect.logError("scheduled realtime budget sweep failed")),
           Effect.provide(dbLayer),
         ),
       ),

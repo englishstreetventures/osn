@@ -20,12 +20,13 @@ export interface OsnAuthOptions extends SharedOsnAuthOptions {
 /**
  * The OSN profile behind a request, or undefined. The `cire_org_session`
  * cookie is tried first, then an `Authorization: Bearer` OSN access token —
- * see {@link osnAuth} for why each exists.
+ * see {@link osnAuth} for why each exists. `osnAuth()` resolves from this; the
+ * realtime subscribe route, which runs before the Elysia app, calls it
+ * directly.
  */
-async function osnProfileIdOf(
-  options: OsnAuthOptions,
+export async function resolveOsnProfileId(
   request: Request,
-  authorization: string | undefined,
+  options: OsnAuthOptions,
 ): Promise<string | undefined> {
   const { db } = options;
   if (db) {
@@ -41,6 +42,7 @@ async function osnProfileIdOf(
     }
   }
 
+  const authorization = request.headers.get("authorization") ?? undefined;
   const claims = await extractClaims(authorization, options.jwksUrl, {
     testKey: options._testKey,
     audience: options.audience,
@@ -93,8 +95,8 @@ export function osnAuth(options: OsnAuthOptions) {
       // Elysia 1.4 hooks default to "local" scope — without { as: "scoped" }
       // the resolve/onBeforeHandle never run in the parent app and every
       // request silently passes unauthenticated.
-      .resolve({ as: "scoped" }, async ({ headers, request }) => ({
-        osnProfileId: await osnProfileIdOf(options, request, headers.authorization),
+      .resolve({ as: "scoped" }, async ({ request }) => ({
+        osnProfileId: await resolveOsnProfileId(request, options),
       }))
       .onBeforeHandle({ as: "scoped" }, ({ osnProfileId, set }) => {
         if (!osnProfileId) {

@@ -101,7 +101,9 @@ export const weddingSettingsService = {
    * passed the schema boundary, so every value is shape-valid. The SLUG is
    * never written here — renaming would free the old slug for another
    * organiser to claim while printed invite links still point at it (S-M1);
-   * a rename feature needs slug tombstoning first.
+   * a rename feature needs slug tombstoning first. Answers the profile as
+   * saved; {@link weddingSettingsService.save} also says whether the save
+   * re-dated any checklist task.
    */
   update(
     weddingId: string,
@@ -111,6 +113,26 @@ export const weddingSettingsService = {
     updatedByOsnProfileId: string,
   ): Effect.Effect<
     WeddingProfile,
+    WeddingNotFound | SettingsWriteError | RsvpDeadlineInPast | CurrencyLockedByCashGifts,
+    DbService
+  > {
+    return weddingSettingsService
+      .save(weddingId, patch, updatedByOsnProfileId)
+      .pipe(Effect.map(({ wedding }) => wedding));
+  },
+
+  /**
+   * {@link weddingSettingsService.update}, answering also how many checklist
+   * tasks the save re-dated: a save that moves the wedding date re-dates every
+   * open task that follows it, in the same batch, and an open checklist shows
+   * those dates.
+   */
+  save(
+    weddingId: string,
+    patch: UpdateSettingsBody,
+    updatedByOsnProfileId: string,
+  ): Effect.Effect<
+    { wedding: WeddingProfile; tasksRedated: number },
     WeddingNotFound | SettingsWriteError | RsvpDeadlineInPast | CurrencyLockedByCashGifts,
     DbService
   > {
@@ -219,13 +241,15 @@ export const weddingSettingsService = {
       // once the UPDATE has run, so a refused save moves nothing, and a save
       // whose date matches the one read above still catches tasks up with a
       // date another tab stored meanwhile.
-      const written = yield* Effect.tryPromise({
-        try: async () =>
-          patch.weddingDate === undefined
-            ? await Promise.resolve(write.all())
-            : ((
-                await commitBatchResults(db, [write, reanchorTemplateDueDates(db, weddingId)])
-              )[0] as { id: string }[]),
+      const [written, redated] = yield* Effect.tryPromise({
+        try: async () => {
+          if (patch.weddingDate === undefined) return [await Promise.resolve(write.all()), []];
+          const results = await commitBatchResults(db, [
+            write,
+            reanchorTemplateDueDates(db, weddingId),
+          ]);
+          return [results[0] as { id: string }[], results[1] as { id: string }[]];
+        },
         catch: (cause) => new SettingsWriteError({ reason: "update", cause }),
       });
       if (written.length === 0) {
@@ -236,7 +260,7 @@ export const weddingSettingsService = {
           : new WeddingNotFound({ weddingId });
       }
 
-      return next;
+      return { wedding: next, tasksRedated: redated.length };
     }).pipe(
       Effect.tap(() => Effect.sync(() => metricWeddingSettingsSaved("ok"))),
       Effect.tapErrorTag("SettingsWriteError", () =>
