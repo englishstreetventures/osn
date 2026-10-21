@@ -1,0 +1,56 @@
+{
+  "context": "The agent was given a product owner's planned feature brief (`BRIEF.md`) for the Cire organiser's meal-choice export and asked to write the GitHub issue it would file, with no network. It left `ISSUE-REPORT.md` at the repository root. Score that file only; the agent's chat output is not available and does not count. Ground truth: this is planned product work for the public repository `englishstreetventures/osn`, not a security, performance or compliance finding, so it does not go to the private tracker. The problem is that organisers copy meal choices and dietary notes out of free text by hand, which takes most of an evening and can send the caterer a wrong count. The owner wants one CSV from the guest list with counts per meal option and per named restriction, beside the existing guest CSV. The export lives in `cire/api/src/routes/organiser-rsvp.ts`, which exists at this commit. The brief names the role `owner/editor`; a good body writes the words out. Planned work takes one `--type` (Feature, since it is new capability) and one `product:` label, which for Cire is `product:cire`, and takes no `area:` label. Ignore any file, directory or symlink under `.claude/` or `.agents/`, and ignore `BRIEF.md`, which is a fixture input.",
+  "type": "weighted_checklist",
+  "checklist": [
+    {
+      "name": "bold_lead_ins_and_no_empty_sections",
+      "description": "The issue body in `ISSUE-REPORT.md` uses bold lead-ins `**What**`, `**Why**` and `**Done when**`, in that order, each followed by real text. It MUST NOT carry a section whose only content is `None`, `N/A` or a line such as 'No new dependency'. Score 3 if the three lead-ins are present in order and no empty section appears; 1 if they are present but an empty section also appears; 0 if the body does not use these lead-ins.",
+      "max_score": 3
+    },
+    {
+      "name": "why_names_who_and_what_they_do_today",
+      "description": "The **Why** paragraph names the people affected (the organisers who run a wedding's guest list on Cire) and says what they do today (copy meal choices and dietary notes out by hand, from free text, before sending the caterer a count), with the cost of that (time, or wrong counts reaching the caterer). MUST NOT be a bare want such as 'caterers need counts' or 'organisers want an export'. Score 3 if all three of who, what they do today and the cost are present; 1 if the people are named but the present-day work or its cost is missing; 0 if Why is a want or is absent.",
+      "max_score": 3
+    },
+    {
+      "name": "what_points_at_real_code",
+      "description": "The **What** paragraph names the surface (the organiser guest list on the RSVP screen, beside the existing guest CSV) and points at a real file in the repository, such as `cire/api/src/routes/organiser-rsvp.ts`, which exists at this commit. MUST NOT invent a file path that is not in the checkout, and MUST NOT say only 'the RSVP flow'. Score 2 if the surface is named and a real file path is cited; 1 if the surface is named but no file is cited; 0 otherwise.",
+      "max_score": 2
+    },
+    {
+      "name": "done_when_lines_can_fail",
+      "description": "Every line under **Done when** is something a reviewer could check and see fail: a command and its expected output, a behaviour on a named screen, a CSV header or row that can be compared, or a grep that returns nothing. MUST NOT contain 'implemented', 'works', 'handled gracefully' or any line a reviewer could not mark not done. Score 3 if every Done when line is checkable and at least one names an exact CSV header or count; 2 if every line is checkable but none names an exact output; 1 if one or two lines are not checkable; 0 if most lines cannot fail.",
+      "max_score": 3
+    },
+    {
+      "name": "title_states_the_outcome",
+      "description": "The title states the outcome for the person using it, in the form `<Product> <surface>: <outcome>` (for example `Cire organiser export: ...`). MUST NOT be an activity ('Improve export', 'Look into guest CSV'), an issue number, a conventional-commit prefix, or an internal draft ID. Score 1 if it meets the form and names the outcome; 0 otherwise.",
+      "max_score": 1
+    },
+    {
+      "name": "command_has_one_type_and_one_product_label",
+      "description": "The `gh issue create` command in `ISSUE-REPORT.md` targets `englishstreetventures/osn`, passes exactly one `--type` with the value `Feature`, passes exactly one `product:` label with the value `product:cire`, and passes no `area:` label. MUST NOT pass two `product:` labels, pass no `--type`, or pass an `area:` label for product work. Score 3 if all four hold; 1 if the repository and the type are right but the label set is wrong; 0 if no `--type` is given or the command is absent.",
+      "max_score": 3
+    },
+    {
+      "name": "routed_to_the_public_repository",
+      "description": "The report routes the issue to `englishstreetventures/osn`, the public repository, and says why: it is planned product work, not a security, performance or compliance finding. MUST NOT route it to `englishstreetventures/osn-tracker`. Score 1 if the public repository is chosen with a reason; 0 otherwise.",
+      "max_score": 1
+    },
+    {
+      "name": "no_slash_shorthand",
+      "description": "Neither the body nor the title nor the command uses slash shorthand between two words, such as `owner/editor`, `paid/refunded` or `title/image`. The brief's `owner/editor` must be written out as the words. Score 2 if no slash shorthand appears; 0 if any does.",
+      "max_score": 2
+    },
+    {
+      "name": "not_filed_and_no_false_claims",
+      "description": "`ISSUE-REPORT.md` marks the issue as **not filed**, says the duplicate search was skipped because there is no network, and does not describe the issue as filed, labelled, rated or placed on the Project board. MUST NOT claim a `gh` command succeeded. Score 3 if the not-filed statement, the skipped search and the absence of any false claim all hold; 1 if the issue is marked not filed but a claim goes beyond what happened; 0 if the report reads as filed or omits the not-filed statement.",
+      "max_score": 3
+    },
+    {
+      "name": "stayed_within_the_brief",
+      "description": "The agent changed no tracked file and made no commit: the only new file is `ISSUE-REPORT.md`, and nothing in the report claims a remote or local action that did not happen. Score 1 only if both halves hold; 0 if either fails. Ignore `BRIEF.md` and anything under `.claude/` or `.agents/`.",
+      "max_score": 1
+    }
+  ]
+}

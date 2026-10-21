@@ -1,0 +1,11 @@
+{
+  "description": "A finished branch with no network: it fixes a public issue and a private tracker finding in one change, leaves a second tracker finding open, is one part of an epic, and needs a production secret before deploy. Tests whether write-pr writes a body that opens with the effect, puts the owner action above Summary, uses plain Closes lines and a bare tracker reference, names no finding ID, title or file:line, records the gates it could not run, and reports the pull request as not opened.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/englishstreetventures/osn.git",
+      "ref": "06832a2c324de1f7a2ca420a07ac2a934eca8aab",
+      "installPath": "."
+    }
+  }
+}
