@@ -158,8 +158,8 @@ describe("the guest sheet, in a real engine", () => {
    * How much a `scrollbar-gutter: stable` gutter on the root narrows the page
    * in this engine, set the way the sheet's lock sets it. A classic
    * scrollbar's width where scrollbars are classic (Chromium on Linux, as in
-   * CI); nothing where they overlay the page (macOS by default with a
-   * trackpad), because an overlay scrollbar has no gutter.
+   * CI); nothing where they overlay the page (macOS's default when no mouse
+   * is connected), because an overlay scrollbar has no gutter.
    */
   const rootGutter = () => {
     const root = document.documentElement;
@@ -182,10 +182,12 @@ describe("the guest sheet, in a real engine", () => {
    * `innerWidth` equal to the root's `clientWidth` whatever the page holds —
    * so the sheet would never reserve a gutter here. The stub is that one
    * reading, a window 15px wider than its root as a classic scrollbar makes
-   * it; the gutter is the engine's own. Where scrollbars are classic it
-   * narrows the page while the sheet is open. Where they overlay the page it
-   * takes no width, and the computed `scrollbar-gutter` alone shows the sheet
-   * set it and took it away.
+   * it. The computed `scrollbar-gutter` shows the sheet set the gutter on the
+   * root and took it away, on every platform. The width shows the page
+   * narrowed by exactly the gutter this engine reserves at the root and got
+   * all of it back: 15px where scrollbars are classic, nothing where they
+   * overlay the page. Whether the engine's gutter matches the scrollbar it
+   * replaces is the engine's to keep, and is not checked here.
    */
   it("gives the page its full width back when the sheet closes", () => {
     const root = document.documentElement;

@@ -65,7 +65,8 @@ function workspace(packageDir: string, copy: readonly string[], config: string) 
 
   /**
    * `db:generate` in this package, reached through `at` (the package's own
-   * path unless given); it must leave its TMPDIR empty.
+   * path unless given); it must leave none of its own working directories
+   * in its TMPDIR.
    */
   const generate = (name: string, extra: string[] = [], at = pkg) => {
     const result = Bun.spawnSync(
