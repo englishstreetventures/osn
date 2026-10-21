@@ -139,6 +139,22 @@ describe("the endpoint exists only when it can be verified", () => {
     const res = await deliver(app, accountUpdated());
     expect(res.status).toBe(404);
   });
+
+  it("is not mounted on a secret of nothing but whitespace, which anyone could sign with", async () => {
+    const blank = "   ";
+    const { app, db } = buildApp({ secret: blank });
+    const res = await deliver(app, accountUpdated(), { secret: blank });
+    expect(res.status).toBe(404);
+    expect((await settings(db))?.stripeChargesEnabled).toBe(false);
+  });
+
+  it("verifies with the secret as set, whitespace around it ignored", async () => {
+    // A value pasted with a trailing newline is still the endpoint's secret.
+    const { app, db } = buildApp({ secret: `  ${SECRET}\n` });
+    const res = await deliver(app, accountUpdated());
+    expect(res.status).toBe(200);
+    expect((await settings(db))?.stripeChargesEnabled).toBe(true);
+  });
 });
 
 describe("what it refuses", () => {

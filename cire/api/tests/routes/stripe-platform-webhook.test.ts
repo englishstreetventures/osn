@@ -325,6 +325,15 @@ describe("mounting", () => {
     expect(res.status).toBe(404);
   });
 
+  it("does not exist on a secret of nothing but whitespace, which anyone could sign with", async () => {
+    const blank = "   ";
+    const { app, db } = buildApp({ platformSecret: blank });
+    seedPurchase(db);
+    const res = await deliver(app, completed(), { secret: blank });
+    expect(res.status).toBe(404);
+    expect(tierOf(db)).toEqual(IVORY);
+  });
+
   it("leaves the Connect endpoint alone", async () => {
     // A platform-shaped session arriving at the Connect endpoint still falls
     // through as unknown — that route's behaviour is unchanged.

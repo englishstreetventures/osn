@@ -470,14 +470,17 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
             </Show>
 
             {/* The organiser's preview. Same opening words as the invite's own
-                preview note, so the two read as one mode. */}
+                preview note, so the two read as one mode. It names money only
+                when the list offers it: where the couple, Stripe or this site
+                cannot take a money gift, guests are offered none. */}
             <Show when={preview()}>
               <p
                 data-gift-preview
                 class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
               >
-                Preview mode. Guests reserve gifts and give money here; nothing can be reserved or
-                given from a preview.
+                {registry()?.cashGiftsEnabled
+                  ? "Preview mode. Guests reserve gifts and give money here; nothing can be reserved or given from a preview."
+                  : "Preview mode. Guests reserve gifts here; nothing can be reserved from a preview."}
               </p>
             </Show>
 
