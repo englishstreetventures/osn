@@ -43,7 +43,7 @@ export interface RsvpPanelProps {
    * a line saying dietary requirements on file are shared with the caterers.
    *
    * A household with a reply on file reaches it on purpose, from the event
-   * card's "RSVP given" or the sheet's "Your RSVP" segment. It is also
+   * card's "RSVP given" or the details' "View your RSVP" badge. It is also
    * what a sheet already open becomes when the deadline passes under it. The
    * server refuses a write past the deadline regardless (403 `rsvp_closed`).
    */

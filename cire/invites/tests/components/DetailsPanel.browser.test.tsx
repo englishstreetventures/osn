@@ -321,9 +321,9 @@ describe("on a phone", () => {
     const controls = [
       ...dialog().querySelectorAll<HTMLElement>("a[href], button, [role='menuitem']"),
     ].filter((el) => el.getClientRects().length > 0);
-    // The close button, the switch's two segments, Add to calendar, its two
+    // The close button, the badge to the RSVP form, Add to calendar, its two
     // items, Open in maps, Open on Pinterest and Show it here.
-    expect(controls.length).toBeGreaterThanOrEqual(9);
+    expect(controls.length).toBeGreaterThanOrEqual(8);
     const short = controls
       .map((el) => ({ name: el.textContent?.trim(), height: el.getBoundingClientRect().height }))
       .filter((c) => c.height < 44);

@@ -619,15 +619,15 @@
   transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* The event sheet's switch (`components/PanelSwitch`): its gold pill and the
-   on-gold labels clipped to it, easing to the segment chosen on the panels'
-   own duration and curve, so a press or a swipe's settle moves the pill and the
-   panels together. Under a finger (`data-dragging` on the switch) they follow
-   it with no easing. The reduced-motion clamp below reaches this too. */
-@utility transition-switch-settle {
+/* The event sheet's badge (`components/EventSheet`): its two labels crossfading
+   and sliding to the panel on screen on the panels' own duration and curve, so
+   a press or a swipe's settle moves the words and the panels together. Under a
+   finger (`data-dragging` on the badge) they follow it with no easing. The
+   reduced-motion clamp below reaches this too. */
+@utility transition-badge-settle {
   transition:
-    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    clip-path 280ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
 
   [data-dragging] & {
     transition: none;
