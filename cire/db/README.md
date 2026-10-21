@@ -209,6 +209,7 @@ Seeded shape:
   - `TESTTRE-DEW-CC33` — Nori (Exampleton)
   - `TESTFOR-JOY-DD44` — Eli (Placeholder)
 - **6 guests** + **15 invitation links** (per-event-per-guest)
+- **A seating chart** on the Reception: 2 tables, Ada, Bo and Eli seated, Cleo not
 
 Use `TESTFOR-JOY-DD44` as the dev claim code (Eli is invited to every event).
 

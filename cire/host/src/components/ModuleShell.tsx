@@ -78,6 +78,9 @@ const loadRegistrySettings = () => import("./RegistrySettingsView");
 const loadVendors = () => import("./VendorsView");
 const loadDirectoryBrowse = () => import("./DirectoryBrowseView");
 const loadEnquiries = () => import("./EnquiriesView");
+/** The seating chart, split out for the registry's reason: it is a Gold module,
+ *  so an organiser whose tier does not include it never pays for it. */
+const loadSeating = () => import("./SeatingView");
 
 const EventsEditor = lazy(loadEventsEditor);
 const GuestsEditor = lazy(loadGuestsEditor);
@@ -87,6 +90,7 @@ const RegistrySettingsView = lazy(loadRegistrySettings);
 const VendorsView = lazy(loadVendors);
 const DirectoryBrowseView = lazy(loadDirectoryBrowse);
 const EnquiriesView = lazy(loadEnquiries);
+const SeatingView = lazy(loadSeating);
 
 /**
  * What one of those chunks resolves to: a panel, default-exported.
@@ -664,6 +668,18 @@ export default function ModuleShell(props: ModuleShellProps) {
                 <Show when={active() === "rsvps"}>
                   <RsvpView weddingId={props.weddingId} canEdit={props.canEdit} />
                 </Show>
+              </Show>
+
+              {/* ── Seating: tables and who sits where, per event ────────────── */}
+              <Show when={module() === "seating"}>
+                <Suspense fallback={<PanelLoading />}>
+                  <SeatingView
+                    weddingId={props.weddingId}
+                    weddingSlug={props.weddingSlug}
+                    canEdit={props.canEdit}
+                    canManage={props.canManage}
+                  />
+                </Suspense>
               </Show>
 
               {/* ── Invite: Design + Codes ───────────────────────────────────── */}

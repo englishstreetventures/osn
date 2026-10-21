@@ -13,6 +13,8 @@ import {
   registryContributions,
   registrySettings,
   registryItems,
+  seatingAssignments,
+  seatingTables,
   weddingHosts,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
@@ -342,6 +344,67 @@ describe("RETENTION_AFTER_FINAL_EVENT_MS", () => {
 });
 
 describe("retentionService.sweepExpiredGuestData", () => {
+  // The sweep deletes guest data itself rather than leaning on the cascade, so
+  // a database with foreign keys off still loses every seat — a seat says who
+  // sat beside whom. The tables are the wedding's shell, like its events, and
+  // stay.
+  it("deletes the swept households' seats without the cascade, and keeps the tables", async () => {
+    const db = freshDb();
+    const { weddingId, guestId } = await runOn(
+      db,
+      makeWedding({ eventDates: ["2025-04-01", "2025-05-10"] }),
+    );
+    const now = new Date();
+    const eventId = `${weddingId}-ev-0`;
+    db.insert(seatingTables)
+      .values({
+        id: "stb_kept",
+        weddingId,
+        eventId,
+        name: "Table 1",
+        capacity: 8,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(seatingAssignments)
+      .values({ tableId: "stb_kept", eventId, guestId, createdAt: now })
+      .run();
+    // A wedding whose events are still ahead keeps its seats.
+    const live = await runOn(db, makeWedding({ eventDates: ["2027-01-10"] }));
+    const liveEvent = `${live.weddingId}-ev-0`;
+    db.insert(seatingTables)
+      .values({
+        id: "stb_live",
+        weddingId: live.weddingId,
+        eventId: liveEvent,
+        name: "Table 1",
+        capacity: 8,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(seatingAssignments)
+      .values({ tableId: "stb_live", eventId: liveEvent, guestId: live.guestId, createdAt: now })
+      .run();
+    db.$client.exec("PRAGMA foreign_keys = OFF;");
+
+    // Exactly one guest: the guests delete is still found among the batch's
+    // results with a seat delete ahead of it.
+    expect(await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT))).toBe(1);
+    expect(
+      db.select({ tableId: seatingAssignments.tableId }).from(seatingAssignments).all(),
+    ).toEqual([{ tableId: "stb_live" }]);
+    expect(
+      db
+        .select({ id: seatingTables.id })
+        .from(seatingTables)
+        .all()
+        .map((t) => t.id)
+        .toSorted(),
+    ).toEqual(["stb_kept", "stb_live"]);
+  });
+
   it(
     "deletes guests + rsvps for a wedding whose final event is >1 year before now",
     withDb(
@@ -1383,10 +1446,19 @@ describe("the parting gift summary", () => {
       }).pipe(Effect.provideService(DbService, db)),
     );
 
-    // Any statement naming the table counts, a join as much as a FROM. The
-    // sweep never writes to `events`, so every match is a read.
-    const eventReads = statements.filter((s) => s.sql.includes('"events"'));
+    // Any read naming the table counts, a join as much as a FROM. The seat
+    // delete names `events` too — it reaches the seats through their events —
+    // but as the scope of a write, so it is counted on its own.
+    const eventReads = statements.filter(
+      (s) => s.sql.startsWith("select") && s.sql.includes('"events"'),
+    );
     expect(eventReads).toHaveLength(1);
+    const writesNamingEvents = statements.filter(
+      (s) => !s.sql.startsWith("select") && s.sql.includes('"events"'),
+    );
+    expect(writesNamingEvents.map((s) => s.sql.slice(0, 40))).toEqual([
+      'delete from "seating_assignments" where ',
+    ]);
 
     const finalEventOn = new Map(seen.map((n) => [n.weddingId, n.finalEventOn]));
     expect(finalEventOn.get(closedId)).toBe("2025-05-10");

@@ -10,7 +10,7 @@ related:
   - "[[cire-host-portal-layout]]"
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-20
 ---
 # Budget
 
@@ -100,7 +100,7 @@ Budget card — see [[cire-entitlements]].
 - Columns: Kind, Category, Item, Estimate, Quoted, Actual, Price Per Guest, Guests, Payment, Amount, Due, Paid At, Currency, Notes. Category prints its label; money prints as a bare decimal in the wedding's currency (`minorToDecimal`); **Guests** is the headcount a per-head line priced.
 - Every cell goes through `serialiseCsv`, so a `=`, `+`, `-` or `@` (or a full-width form of one) that starts a cell, or starts any `;`, tab or line-break segment of it (a dash list in Notes, say), gets a `'` before it.
 - Capped at `MAX_PLANNING_EXPORT_ROWS` (1,000) rows, payments included; a longer budget is cut and logs a warning. The cut happens in D1, not the Worker: `exportSnapshot` orders lines by category position (`displayRank` in `cire/api/src/lib/display-rank.ts`) and reads at most one line and one payment past the ceiling, so the Worker never receives a row it will not print. The comment on the constant gives the CPU reasoning.
-- `GET …/module-rows` answers `{ budgetLines, tasks, gifts }`, counted in one statement, for the locked Budget, Checklist and Registry cards and the Settings list, which offer a download only when there is something in it.
+- `GET …/module-rows` answers `{ budgetLines, tasks, gifts, seats }`, counted in one statement, for the locked Budget, Checklist, Registry and Seating cards and the Settings list, which offer a download only when there is something in it.
 
 **Tenancy:** `BudgetItemNotInWedding` + `PaymentNotInItem` error tags prevent cross-wedding/cross-item access. `EventNotInWedding` refuses a per-head line naming another wedding's event (400 `unknown_event`).
 

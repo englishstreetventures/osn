@@ -1,4 +1,13 @@
-import { events, families, guests, guestEvents, rsvps, weddings } from "@cire/db";
+import {
+  events,
+  families,
+  guests,
+  guestEvents,
+  rsvps,
+  seatingAssignments,
+  seatingTables,
+  weddings,
+} from "@cire/db";
 import { formatDietaryCell, parsePresets } from "@cire/dietary";
 import { jsonEachIn } from "@shared/db-utils";
 import { and, eq, inArray, ne } from "drizzle-orm";
@@ -29,6 +38,7 @@ import type {
 import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
 import { resolvePinUrl } from "./pinterest-resolve";
+import { seatingLoss, seatingLossWarning } from "./seating";
 import { BASE_GUEST_CAP, CapacityExceeded, capForTier, normaliseTier, tierService } from "./tiers";
 
 // ── Tagged errors ─────────────────────────────────────────────────────────────
@@ -193,6 +203,14 @@ export interface DiffOptions {
    * a before-image carries one) and otherwise `'import'`.
    */
   readonly createSource?: Provenance;
+  /**
+   * Whether to read what only the preview shows: the RSVPs a removed guest
+   * would lose and the seats and tables the change clears. `true` (default)
+   * for the preview, which reads the two together. The apply and every revert
+   * pass `false`: they never read `plan.warnings`, so those reads would be
+   * thrown away.
+   */
+  readonly warnings?: boolean;
 }
 
 export function diffAgainstDb(
@@ -790,20 +808,34 @@ export function diffAgainstDb(
       }
     }
 
-    // ── Warnings: removed/renamed guests with non-pending RSVPs ─────────────
-    const guestsBeingLost = guestRemoves.map((g) => ({ id: g.id, firstName: g.firstName }));
-
-    if (guestsBeingLost.length > 0) {
-      const ids = guestsBeingLost.map((g) => g.id);
-      // The ids ride as ONE bound parameter (`json_each`): D1 allows 100 per
-      // statement, and a change that removes households with plus-ones lists
-      // two guests for each inviter.
-      const rsvpRows = yield* dbQuery(() =>
-        db
-          .select()
-          .from(rsvps)
-          .where(inArray(rsvps.guestId, jsonEachIn(ids)))
-          .all(),
+    // ── Warnings: RSVPs and seats this change loses ─────────────────────────
+    // A removed or renamed guest loses their RSVPs. A removed guest,
+    // invitation or event takes its seats with it (and an event its tables),
+    // and the before-image a revert restores holds no seating. Neither read
+    // depends on the other, so they run together; only the preview asks.
+    if (options.warnings ?? true) {
+      const guestsBeingLost = guestRemoves.map((g) => ({ id: g.id, firstName: g.firstName }));
+      const [rsvpRows, loss] = yield* Effect.all(
+        [
+          guestsBeingLost.length > 0
+            ? // The ids ride as ONE bound parameter (`json_each`): D1 allows
+              // 100 per statement, and a change that removes households with
+              // plus-ones lists two guests for each inviter.
+              dbQuery(() =>
+                db
+                  .select()
+                  .from(rsvps)
+                  .where(inArray(rsvps.guestId, jsonEachIn(guestsBeingLost.map((g) => g.id))))
+                  .all(),
+              )
+            : Effect.succeed([]),
+          seatingLoss(weddingId, {
+            guestIds: guestRemoves.map((g) => g.id),
+            eventIds: eventRemoves.map((e) => e.id),
+            links: eventLinkRemoves,
+          }),
+        ],
+        { concurrency: "unbounded" },
       );
       const lostFirst = new Map(guestsBeingLost.map((g) => [g.id, g.firstName]));
       // Every row here is an explicit response — `rsvps.status` is a required
@@ -816,6 +848,8 @@ export function diffAgainstDb(
           `Removing guest ${firstName} would lose their RSVP: status=${r.status}, dietary=${formatDietaryCell(parsePresets(r.dietaryPresets ?? ""), r.dietary ?? "")}`,
         );
       }
+      const seatingWarning = seatingLossWarning(loss);
+      if (seatingWarning) warnings.push(seatingWarning);
     }
 
     // ── Capacity preview warning (non-blocking) ──────────────────────────────
@@ -1003,7 +1037,30 @@ export function applyImport(
 
     // 1. event removes. The event_id FKs cascade since migration 0052, but the
     // child deletes stay explicit so this write set does not depend on cascade
-    // being enabled on every driver (same stance as the retention sweep).
+    // being enabled on every driver (same stance as the retention sweep). The
+    // removed events' seats, then their tables, go first, once for all of them.
+    if (plan.eventRemoves.length > 0) {
+      const removedEventIds = jsonEachIn(plan.eventRemoves.map((er) => er.id));
+      statements.push(
+        db.delete(seatingAssignments).where(
+          inArray(
+            seatingAssignments.eventId,
+            db
+              .select({ id: events.id })
+              .from(events)
+              .where(and(inArray(events.id, removedEventIds), eq(events.weddingId, weddingId))),
+          ),
+        ),
+        db
+          .delete(seatingTables)
+          .where(
+            and(
+              inArray(seatingTables.eventId, removedEventIds),
+              eq(seatingTables.weddingId, weddingId),
+            ),
+          ),
+      );
+    }
     for (const er of plan.eventRemoves) {
       statements.push(
         db.delete(rsvps).where(eq(rsvps.eventId, er.id)),

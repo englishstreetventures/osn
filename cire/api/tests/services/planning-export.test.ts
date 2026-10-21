@@ -681,6 +681,7 @@ describe("planningExportService.moduleRows", () => {
       budgetLines: 2,
       tasks: 1,
       gifts: 0,
+      seats: 0,
     });
   });
 
@@ -689,6 +690,7 @@ describe("planningExportService.moduleRows", () => {
       budgetLines: 0,
       tasks: 0,
       gifts: 0,
+      seats: 0,
     });
   });
 });

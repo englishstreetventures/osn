@@ -23,7 +23,14 @@ import { defineBrowserCommand } from "@vitest/browser-playwright";
  * assertion. Headless Chromium's own defaults are `light` and `no-preference`.
  */
 export const emulateMedia = defineBrowserCommand<
-  [{ reducedMotion?: "reduce" | "no-preference"; colorScheme?: "light" | "dark" | "no-preference" }]
+  [
+    {
+      reducedMotion?: "reduce" | "no-preference";
+      colorScheme?: "light" | "dark" | "no-preference";
+      /** `print` lays the page out as it prints; `null` puts the screen back. */
+      media?: "print" | "screen" | null;
+    },
+  ]
 >(async (ctx, options) => {
   await ctx.page.emulateMedia(options);
 });
@@ -42,6 +49,7 @@ declare module "vitest/browser" {
     emulateMedia: (options: {
       reducedMotion?: "reduce" | "no-preference";
       colorScheme?: "light" | "dark" | "no-preference";
+      media?: "print" | "screen" | null;
     }) => Promise<void>;
   }
 }

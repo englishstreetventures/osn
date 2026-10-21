@@ -29,6 +29,8 @@ import {
   registryItems,
   registrySettings,
   rsvps,
+  seatingTables,
+  seats,
   syntheticFamilies,
   syntheticRsvps,
   tasks,
@@ -315,6 +317,31 @@ function guestEventsBlock(): string {
     "Event invitations",
     `INSERT OR IGNORE INTO guest_events (guest_id, event_id) VALUES
 ${body};`,
+  );
+}
+
+function seatingBlock(): string {
+  const tableRows = seatingTables.map(
+    (t) => `  (
+    ${sql(t.id)}, ${sql(bootstrapWedding.id)}, ${sql(t.eventId)}, ${sql(t.name)},
+    ${t.capacity}, ${t.sortOrder}, unixepoch(), unixepoch()
+  )`,
+  );
+  const seatRows = seats.map(
+    (s) => `  (${sql(s.tableId)}, ${sql(s.eventId)}, ${sql(s.guestId)}, unixepoch())`,
+  );
+  return section(
+    `Seating chart (${tableRows.length} tables, ${seatRows.length} seated) — the Reception`,
+    `-- After the invitations: a seat's foreign key names its guest's invitation
+-- to the event, and its table's event.
+INSERT OR IGNORE INTO seating_tables (
+  id, wedding_id, event_id, name,
+  capacity, sort_order, created_at, updated_at
+) VALUES
+${tableRows.join(",\n")};
+
+INSERT OR IGNORE INTO seating_assignments (table_id, event_id, guest_id, created_at) VALUES
+${seatRows.join(",\n")};`,
   );
 }
 
@@ -612,6 +639,8 @@ export function generateSeedSql(): string {
     guestsBlock(),
     "",
     guestEventsBlock(),
+    "",
+    seatingBlock(),
     "",
     rsvpsBlock(),
     "",
