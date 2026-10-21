@@ -16,7 +16,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[database-environments]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 
 # Infrastructure as code (Alchemy)
@@ -116,7 +116,7 @@ Only the stage spelled exactly `production` is the production tier (`tierOf()`).
 |---|---|
 | `scriptName` | The deployed script name, or `null` where the tier has no Worker (zap-api has no dev Worker) |
 | `secrets` | Required names, sorted. Declared on every deploy; a missing value fails it |
-| `optional` | Names declared only while their GitHub secret holds a value. Today only osn-api's `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS`, set while a TOTP key rotation drains |
+| `optional` | Names declared only while their GitHub secret holds a value: osn-api's `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS`, set while a TOTP key rotation drains, and cire-api's `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS`, the weddings kept off the household member step |
 | `forbidden` | Names that must never be set on that Worker on that tier |
 
 Alchemy uploads a Worker with exactly the secrets its stack declares and drops the rest. A Worker therefore starts holding a new secret only through an inventory change in a reviewed pull request: setting a GitHub secret alone deploys nothing, and a live secret the inventory lacks is deleted by that Worker's first Alchemy deploy. `shared/infra/tests/secrets/inventory.test.ts` checks that each Worker's code reads every required and optional name declared for it. It also reads its expectations from the files that set them: osn-api requires every secret `osn/api/wrangler.toml` marks `REQUIRED non-local` and every name the production preflight requires, and production forbids every name a production preflight in `production-release.yml` refuses.
