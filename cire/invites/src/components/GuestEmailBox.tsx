@@ -59,12 +59,20 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
   const [removedNote, setRemovedNote] = createSignal(false);
 
   const valid = () => parseGuestEmail(draft()) !== null;
+  let heading: HTMLHeadingElement | undefined;
+  let input: HTMLInputElement | undefined;
+  // Each view replaces the button that was pressed, so focus moves on with
+  // the view rather than falling to the page: to the field when editing
+  // starts, to the heading once a save or a removal lands.
+  const focusAfterRender = (target: () => HTMLElement | undefined) =>
+    queueMicrotask(() => target()?.focus());
 
   function startEditing() {
     setDraft(props.email?.address ?? "");
     setConsent(false);
     setError(null);
     setEditing(true);
+    focusAfterRender(() => input);
   }
 
   async function save(e: SubmitEvent) {
@@ -104,6 +112,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
       props.onChange(saved);
       setRemovedNote(false);
       setEditing(false);
+      focusAfterRender(() => heading);
     } catch {
       setError("Couldn’t save your email. Please try again.");
     } finally {
@@ -135,6 +144,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
       setDraft("");
       setConsent(false);
       setEditing(true);
+      focusAfterRender(() => heading);
     } catch {
       setError("Couldn’t remove your email. Please try again.");
     } finally {
@@ -149,7 +159,9 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
     >
       <h3
         id={headingId}
-        class="font-display text-gold-ink text-ui-lg mb-1 leading-tight font-light italic"
+        ref={heading}
+        tabIndex={-1}
+        class="font-display text-gold-ink text-ui-lg mb-1 leading-tight font-light italic focus:outline-none"
       >
         Wedding emails
       </h3>
@@ -157,7 +169,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
         when={!editing() && props.email}
         fallback={
           <form class="flex flex-col gap-3" onSubmit={(e) => void save(e)}>
-            <p class="text-text-muted text-ui-sm leading-ui-normal font-light">
+            <p role="status" class="text-text-muted text-ui-sm leading-ui-normal font-light">
               <Show
                 when={removedNote()}
                 fallback={
@@ -177,6 +189,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
               </label>
               <input
                 id={inputId}
+                ref={input}
                 type="email"
                 class={INPUT}
                 value={draft()}
@@ -217,7 +230,10 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                   variant="subtle"
                   size="sm"
                   type="button"
-                  onClick={() => setEditing(false)}
+                  onClick={() => {
+                    setEditing(false);
+                    focusAfterRender(() => heading);
+                  }}
                   disabled={busy()}
                 >
                   Keep it as it is

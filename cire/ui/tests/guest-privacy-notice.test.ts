@@ -160,6 +160,30 @@ describe("guest privacy notice", () => {
   });
 
   /**
+   * Each sentence about the email address states something the code does:
+   * only the chosen member's own address reaches the invitation; a removal
+   * stops mail even if a host adds the address back; the removed address is
+   * kept only as a hash and goes with the year's sweep.
+   */
+  it("names the email address, its basis, who sees it, and how to withdraw it", () => {
+    expect(body).toMatch(phrase("Your email address, if you or your hosts add one"));
+    expect(body).toMatch(phrase("The basis is your consent"));
+    expect(body).toMatch(
+      phrase("never shows one member’s address to someone who says they are another"),
+    );
+    expect(body).toMatch(
+      phrase(
+        "we will not email it about this wedding, even if it is added again, unless you add it back yourself",
+      ),
+    );
+    expect(body).toMatch(
+      phrase("We keep a fingerprint of the removed address, not the address itself"),
+    );
+    expect(body).toMatch(phrase("names, RSVPs, dietary needs, email addresses — is deleted"));
+    expect(body).toMatch(phrase("or to your email address being used"));
+  });
+
+  /**
    * The notice is read on cireweddings.com as well as on the invitation, so
    * "the site" has to say which site it means before it is used.
    */

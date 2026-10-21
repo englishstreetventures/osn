@@ -6,15 +6,20 @@
  * refused rather than recorded under a member it never showed, and the page
  * asks "Who are you?" again before the save goes through.
  *
- * Then the member gives an address for wedding emails, ticking the consent
- * box, and removes it again: the row records the guest's own consent, and the
- * removal clears it and records the opt-out on the suppression list.
+ * Then the other member, in another tab, sees the address the hosts added for
+ * them; this tab's address save, still as the first member, is refused and the
+ * page asks "Who are you?" again. Answering again, the member gives an address
+ * for wedding emails, ticking the consent box, and removes it again: the row
+ * records the guest's own consent, and the removal clears it and records the
+ * opt-out, a hash of the wedding and the address, on the suppression list.
  *
  * The stack runs with `cire.account-linking` off (no GrowthBook key) and no
  * musubi bridge, so this is the guest experience with the flag off: the member
  * step and its attribution, and no musubi link box. That the flag, and not the
  * missing bridge, hides the box is pinned in cire-api's own tests.
  */
+
+import { createHash } from "node:crypto";
 
 import { CIRE_HOUSEHOLD, DB_FILES, ORIGINS } from "../../src/config";
 import { expect, onSuiteClock, queryOne, test } from "../support/fixtures";
@@ -211,6 +216,51 @@ test("cire-member-step", async ({ page, context, flow }) => {
         r.url() === `${ORIGINS.cireApi}/api/claim/member/email` && r.request().method() === method,
     );
 
+  await flow.step(
+    `another tab says it is ${CIRE_HOUSEHOLD.otherMember}, and sees the address the hosts added`,
+    async () => {
+      const other = await flow.newPage(context);
+      await other.goto(`${ORIGINS.cireInvites}/${CIRE_HOUSEHOLD.slug}`);
+      await expect(other.getByText(`Answering as ${CIRE_HOUSEHOLD.member}`)).toBeVisible({
+        timeout: 60_000,
+      });
+      await other.getByRole("button", { name: "Not you?" }).click();
+      const group = other.getByRole("group", { name: "Who are you?" });
+      await group.getByRole("button", { name: CIRE_HOUSEHOLD.otherMember, exact: true }).click();
+      await expect(other.getByText(`Answering as ${CIRE_HOUSEHOLD.otherMember}`)).toBeVisible();
+      const box = other.getByRole("region", { name: "Wedding emails" });
+      await expect(box.getByText(CIRE_HOUSEHOLD.otherMemberEmail)).toBeVisible();
+      await expect(box.getByText("Your hosts added this.", { exact: false })).toBeVisible();
+      await other.close();
+    },
+  );
+
+  const staleSave = await flow.step(
+    `this tab's address save, still as ${CIRE_HOUSEHOLD.member}, is refused`,
+    async () => {
+      await emailBox.getByLabel(`Your email, ${CIRE_HOUSEHOLD.member}`).fill(CIRE_HOUSEHOLD.email);
+      // Nothing is stored until the guest ticks the consent box.
+      await expect(emailBox.getByRole("button", { name: "Add email" })).toBeDisabled();
+      await emailBox.getByRole("checkbox", { name: /emails about this wedding/ }).check();
+      const response = emailCall("PUT");
+      await emailBox.getByRole("button", { name: "Add email" }).click();
+      const res = await response;
+      const body = (await res.json()) as { error?: unknown };
+      await expect(whoAreYou).toBeVisible();
+      return `${res.status()} ${String(body.error)}`;
+    },
+  );
+  flow.check(
+    "an address save under a member the session no longer holds",
+    "409 member_changed",
+    staleSave,
+  );
+
+  await flow.step(`answer as ${CIRE_HOUSEHOLD.member} once more`, async () => {
+    await whoAreYou.getByRole("button", { name: CIRE_HOUSEHOLD.member, exact: true }).click();
+    await expect(page.getByText(`Answering as ${CIRE_HOUSEHOLD.member}`)).toBeVisible();
+  });
+
   const saved = await flow.step(`${CIRE_HOUSEHOLD.member} adds an email address`, async () => {
     await emailBox.getByLabel(`Your email, ${CIRE_HOUSEHOLD.member}`).fill(CIRE_HOUSEHOLD.email);
     await emailBox.getByRole("checkbox", { name: /emails about this wedding/ }).check();
@@ -266,9 +316,15 @@ test("cire-member-step", async ({ page, context, flow }) => {
     "none none none",
     `${after?.email ?? "none"} ${after?.source ?? "none"} ${after?.version ?? "none"}`,
   );
-  const optOuts = queryOne<{ n: number; reason: string | null }>(
+  const optOuts = queryOne<{
+    n: number;
+    reason: string | null;
+    hash: string | null;
+    weddingId: string;
+  }>(
     DB_FILES.cire,
-    `SELECT COUNT(*) AS n, MIN(s.reason) AS reason
+    `SELECT COUNT(*) AS n, MIN(s.reason) AS reason, MIN(s.email_hash) AS hash,
+            MIN(f.wedding_id) AS weddingId
        FROM email_suppressions s
        JOIN guests g ON g.id = s.guest_id
        JOIN families f ON f.id = g.family_id
@@ -280,5 +336,14 @@ test("cire-member-step", async ({ page, context, flow }) => {
     "one opt-out recorded for the seat",
     "1 guest_removed",
     `${optOuts?.n ?? 0} ${optOuts?.reason ?? "none"}`,
+  );
+  // Stored opt-outs outlive deploys, so the stored hash is checked against an
+  // independent computation of SHA-256(wedding id ":" address).
+  flow.check(
+    "the opt-out holds the hash of the wedding and the address, not the address",
+    createHash("sha256")
+      .update(`${optOuts?.weddingId ?? ""}:${CIRE_HOUSEHOLD.email}`)
+      .digest("hex"),
+    optOuts?.hash ?? "none",
   );
 });

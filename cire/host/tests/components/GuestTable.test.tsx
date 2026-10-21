@@ -125,6 +125,40 @@ describe("GuestTable", () => {
     });
   }
 
+  // The opt-out marker is how organisers learn a guest withdrew an address;
+  // it must show for a suppressed address and only for that one.
+  it("says who added each address, and marks the one a guest opted out of", async () => {
+    authFetchMock
+      .mockResolvedValueOnce(
+        json([
+          { ...GUESTS[0], email: "ada@example.test", emailSource: "guest", emailOptedOut: false },
+          {
+            ...GUESTS[1],
+            email: "bo@example.test",
+            emailSource: "organiser_attested",
+            emailOptedOut: true,
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(json(EVENTS))
+      .mockResolvedValueOnce(json({ inviteMessage: null }));
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    await waitFor(() => expect(screen.getByText("ada@example.test")).toBeTruthy());
+    const ada = screen.getByText("ada@example.test").closest("span")!;
+    const bo = screen.getByText("bo@example.test").closest("span")!;
+    expect(ada.textContent).toContain("added by the guest");
+    expect(ada.textContent).not.toContain("opted out");
+    expect(bo.textContent).toContain("added by a host");
+    expect(bo.textContent).toContain("opted out");
+  });
+
   it("copies the invite message with the link + family code and marks shared", async () => {
     withClipboard();
     primeLoad();

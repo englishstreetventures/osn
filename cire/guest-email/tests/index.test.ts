@@ -18,8 +18,9 @@ describe("isValidGuestEmail refuses", () => {
     expect(isValidGuestEmail("ada.example.com")).toBe(false);
   });
 
+  // Each part would pass on its own, so only the one-@ rule can refuse it.
   it("an address with two @", () => {
-    expect(isValidGuestEmail("ada@home@example.com")).toBe(false);
+    expect(isValidGuestEmail("ada@home.example@example.com")).toBe(false);
   });
 
   it("an empty local part", () => {
@@ -39,11 +40,14 @@ describe("isValidGuestEmail refuses", () => {
     expect(isValidGuestEmail("ada@exam\tple.com")).toBe(false);
   });
 
-  it("an address longer than 254 characters", () => {
-    const domain = `${"a".repeat(63)}.${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(57)}.com`;
-    const address = `ada@${domain}`;
-    expect(address.length).toBeGreaterThan(MAX_GUEST_EMAIL_LENGTH);
-    expect(isValidGuestEmail(address)).toBe(false);
+  it("an address longer than 254 characters, and not one of exactly 254", () => {
+    const of = (length: number) => {
+      const domain = `${"d".repeat(length - "ada@".length - ".com".length)}.com`;
+      return `ada@${domain}`;
+    };
+    expect(of(MAX_GUEST_EMAIL_LENGTH).length).toBe(254);
+    expect(isValidGuestEmail(of(MAX_GUEST_EMAIL_LENGTH))).toBe(true);
+    expect(isValidGuestEmail(of(MAX_GUEST_EMAIL_LENGTH + 1))).toBe(false);
   });
 
   it("a local part longer than 64 characters", () => {

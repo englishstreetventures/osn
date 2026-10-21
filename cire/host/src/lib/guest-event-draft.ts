@@ -435,6 +435,9 @@ export function toDesiredState(
   return { events, families };
 }
 
+/** The error a guest row carries when its address is not one address. */
+export const EMAIL_ERROR = "Enter one email address, like name@example.com.";
+
 /** An address in the form the server stores, or null for none. */
 function storedEmail(value: string | undefined): string | null {
   const stored = normaliseGuestEmail(value ?? "");
@@ -672,6 +675,10 @@ export function replayDraft(
         for (const field of GUEST_FIELDS) {
           if (cg[field] !== bg[field]) Object.assign(g, { [field]: cg[field] });
         }
+        // An address edit stays an edit of the address the organiser saw, not
+        // the fresh one: if a guest saved their own since, the server then
+        // finds the edit stale and leaves the guest's address alone.
+        if (cg.email !== bg.email) g.emailLoaded = bg.emailLoaded;
         const baseKeys = new Set(bg.eventKeys);
         const curKeys = new Set(cg.eventKeys);
         const ticked = cg.eventKeys.filter((k) => !baseKeys.has(k));
@@ -885,7 +892,7 @@ export function validateDraft(draft: DraftState): FieldError[] {
         errors.push({ key: g.key, message: "Nickname is too long." });
       }
       if (g.email !== undefined && g.email.trim().length > 0 && parseGuestEmail(g.email) === null) {
-        errors.push({ key: g.key, message: "Enter one email address, like name@example.com." });
+        errors.push({ key: g.key, message: EMAIL_ERROR });
       }
     }
   }

@@ -231,6 +231,8 @@ export const CIRE_ORGANISER = {
     noAddress: "Gus",
     guestsOwn: { firstName: "Hana", address: "hana.own@e2e.test" },
     added: "gus.tanaka@e2e.test",
+    /** Gus's address in the two sheets the flow previews; the second applies. */
+    sheetAddresses: { first: "gus.first@e2e.test", second: "gus.second@e2e.test" },
   },
 } as const;
 
@@ -317,6 +319,8 @@ export const CIRE_HOUSEHOLD = {
   otherMember: "Bo",
   /** The address `member` gives on the invite, then removes. */
   email: "cleo.sampleton@e2e.test",
+  /** The address the hosts added for `otherMember` (`seedE2eOrganiser`). */
+  otherMemberEmail: "bo.sampleton@e2e.test",
 } as const;
 
 /** Identities the flows create. Fixed, so every run registers the same people. */

@@ -6,7 +6,16 @@ import { Input } from "@shared/ui/ui/input";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { Table, Td, Th } from "@shared/ui/ui/table";
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  createUniqueId,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { allAuthFirst, apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
@@ -22,7 +31,12 @@ import {
   eventsAccessor,
   invalidateEvents,
 } from "../lib/events-store";
-import { createGuestEventDraft, type DraftFamily, type DraftGuest } from "../lib/guest-event-draft";
+import {
+  createGuestEventDraft,
+  type DraftFamily,
+  type DraftGuest,
+  EMAIL_ERROR,
+} from "../lib/guest-event-draft";
 import {
   ensureGuestsLoaded,
   guestsAccessor,
@@ -657,6 +671,10 @@ function FamilyCard(props: {
 function GuestEmailCell(props: {
   guest: DraftGuest;
   store: ReturnType<typeof createGuestEventDraft>;
+  /** The row's address is not one address. */
+  invalid: boolean;
+  /** The id of the row's error list, when it has one. */
+  describedBy: string | undefined;
 }) {
   const guestsOwn = () => props.guest.emailSource === "guest" && Boolean(props.guest.emailLoaded);
   return (
@@ -670,6 +688,8 @@ function GuestEmailCell(props: {
             autocomplete="off"
             value={props.guest.email ?? ""}
             aria-label="Email"
+            aria-invalid={props.invalid}
+            aria-describedby={props.describedBy}
             placeholder="—"
             onInput={(e) =>
               props.store.updateGuest(props.guest.key, { email: e.currentTarget.value })
@@ -723,6 +743,7 @@ function GuestRow(props: {
   errors: string[];
   store: ReturnType<typeof createGuestEventDraft>;
 }) {
+  const errorsId = createUniqueId();
   return (
     <>
       <tr class="hover:[&>td]:bg-surface/50">
@@ -768,7 +789,12 @@ function GuestRow(props: {
           />
         </Td>
         <Td>
-          <GuestEmailCell guest={props.guest} store={props.store} />
+          <GuestEmailCell
+            guest={props.guest}
+            store={props.store}
+            invalid={props.errors.includes(EMAIL_ERROR)}
+            describedBy={props.errors.length > 0 ? errorsId : undefined}
+          />
         </Td>
         <For each={props.events}>
           {(evt) => (
@@ -797,7 +823,7 @@ function GuestRow(props: {
       </tr>
       <Show when={props.errors.length > 0}>
         <tr>
-          <td colspan={4 + props.events.length + 1} class="px-2 pb-2">
+          <td id={errorsId} colspan={4 + props.events.length + 1} class="px-2 pb-2">
             <For each={props.errors}>{(msg) => <p class="text-error text-ui-sm">{msg}</p>}</For>
           </td>
         </tr>
